@@ -179,7 +179,17 @@ public class SingleReelPlayerActivity extends AppCompatActivity {
         if (safePos > 0) {
             vpReels.setCurrentItem(safePos, false);
         }
-        controlPlayback(safePos);
+        // ROOT FIX: calling controlPlayback() synchronously right here was too
+        // early — adapter.setReels() only *schedules* fragment creation via
+        // notifyDataSetChanged(); the FragmentStateAdapter hasn't actually
+        // attached the ReelPlayerFragment to the FragmentManager yet, so
+        // findFragmentByTag() returned null and setUserVisibleHint(true) never
+        // ran, which meant ExoPlayer was prepared but player.play() never got
+        // called — the reel sat there paused. Posting defers this one frame,
+        // after layout/attach has happened, so the fragment actually exists.
+        vpReels.post(() -> {
+            if (!isFinishing() && !isDestroyed()) controlPlayback(safePos);
+        });
     }
 
     private void controlPlayback(int activePos) {

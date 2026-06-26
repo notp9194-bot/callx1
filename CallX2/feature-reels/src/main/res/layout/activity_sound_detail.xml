@@ -78,6 +78,7 @@
                     android:layout_width="80dp"
                     android:layout_height="80dp">
 
+                    <!-- Outer disc ring -->
                     <ImageView
                         android:id="@+id/iv_disc_ring"
                         android:layout_width="80dp"
@@ -87,6 +88,7 @@
                         android:tint="#2A2A2A"
                         android:scaleType="fitXY"/>
 
+                    <!-- Album art (circular, clips to circle in code) -->
                     <ImageView
                         android:id="@+id/iv_sound_cover"
                         android:layout_width="60dp"
@@ -95,6 +97,7 @@
                         android:scaleType="centerCrop"
                         android:src="@drawable/ic_music_note"/>
 
+                    <!-- Center hole -->
                     <View
                         android:layout_width="14dp"
                         android:layout_height="14dp"
@@ -128,6 +131,42 @@
                         android:textColor="#AAFFFFFF"
                         android:textSize="13sp"
                         android:layout_marginTop="3dp"/>
+
+                    <!-- Stats row: duration • reels • saves -->
+                    <LinearLayout
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginTop="6dp">
+
+                        <TextView
+                            android:id="@+id/tv_sound_duration"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="0:30"
+                            android:textColor="#77FFFFFF"
+                            android:textSize="12sp"/>
+
+                        <TextView
+                            android:id="@+id/tv_sound_reel_count"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="  •  0 Reels"
+                            android:textColor="@color/white"
+                            android:textSize="13sp"
+                            android:fontFamily="sans-serif-medium"/>
+
+                        <TextView
+                            android:id="@+id/tv_sound_saves_count"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="  •  0 Saves"
+                            android:textColor="@color/white"
+                            android:textSize="13sp"
+                            android:fontFamily="sans-serif-medium"
+                            android:visibility="gone"/>
+                    </LinearLayout>
 
                     <!-- BPM + Genre + badges -->
                     <LinearLayout
@@ -201,82 +240,12 @@
                     android:contentDescription="Play preview"/>
             </LinearLayout>
 
-            <!-- ── Colourful Stats row: Reels count | Saves ───────────────────── -->
-            <LinearLayout
-                android:id="@+id/layout_stats_row"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:layout_marginTop="16dp"
-                android:layout_marginBottom="4dp">
-
-                <!-- Reels count card -->
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:gravity="center"
-                    android:background="#1F00F260"
-                    android:padding="10dp"
-                    android:layout_marginEnd="6dp">
-
-                    <TextView
-                        android:id="@+id/tv_sound_reel_count"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="0"
-                        android:textColor="#00F260"
-                        android:textSize="20sp"
-                        android:fontFamily="sans-serif-bold"/>
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Reels"
-                        android:textColor="#8800F260"
-                        android:textSize="11sp"
-                        android:fontFamily="sans-serif-medium"
-                        android:layout_marginTop="2dp"/>
-                </LinearLayout>
-
-                <!-- Saves count card -->
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:gravity="center"
-                    android:background="#1F00C6FF"
-                    android:padding="10dp"
-                    android:layout_marginStart="6dp">
-
-                    <TextView
-                        android:id="@+id/tv_sound_saves_count"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="0"
-                        android:textColor="#00C6FF"
-                        android:textSize="20sp"
-                        android:fontFamily="sans-serif-bold"/>
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Saves"
-                        android:textColor="#8800C6FF"
-                        android:textSize="11sp"
-                        android:fontFamily="sans-serif-medium"
-                        android:layout_marginTop="2dp"/>
-                </LinearLayout>
-            </LinearLayout>
-
             <!-- Seekbar + time row -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:layout_marginTop="12dp">
+                android:layout_marginTop="16dp">
 
                 <SeekBar
                     android:id="@+id/seekbar_sound"
@@ -313,7 +282,7 @@
                 </LinearLayout>
             </LinearLayout>
 
-            <!-- Waveform -->
+            <!-- Waveform (visible while playing) -->
             <LinearLayout
                 android:id="@+id/layout_sound_waveform"
                 android:layout_width="match_parent"
@@ -323,14 +292,7 @@
                 android:layout_marginTop="12dp"
                 android:layout_marginBottom="4dp"/>
 
-            <!-- Duration (hidden, kept for compat) -->
-            <TextView
-                android:id="@+id/tv_sound_duration"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:visibility="gone"/>
-
-            <!-- ── Original Creator row ──────────────────────────────────────── -->
+            <!-- ── Original Creator row ─────────────────────────────────────── -->
             <LinearLayout
                 android:id="@+id/layout_sound_creator"
                 android:layout_width="match_parent"
@@ -347,7 +309,7 @@
                     android:layout_width="38dp"
                     android:layout_height="38dp"
                     android:scaleType="centerCrop"
-                    android:src="@drawable/ic_person"/>
+                    android:src="@drawable/ic_default_avatar"/>
 
                 <LinearLayout
                     android:layout_width="0dp"
@@ -388,6 +350,7 @@
                     android:scaleType="fitCenter"/>
             </LinearLayout>
 
+            <!-- thin divider after creator row -->
             <View
                 android:id="@+id/divider_creator"
                 android:layout_width="match_parent"
@@ -430,6 +393,7 @@
                     android:background="@drawable/bg_reel_follow_btn"/>
             </LinearLayout>
 
+            <!-- Trim start chip -->
             <TextView
                 android:id="@+id/btn_trim_start"
                 android:layout_width="wrap_content"
@@ -483,7 +447,6 @@
                 android:textSize="13sp"/>
         </LinearLayout>
 
-        <!-- Reel grid: 3 columns, each item is 9:16 vertical -->
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/rv_sound_reels"
             android:layout_width="match_parent"
@@ -536,6 +499,7 @@
                 android:clipToPadding="false"/>
         </LinearLayout>
 
+        <!-- Bottom padding for nav bar -->
         <View
             android:layout_width="match_parent"
             android:layout_height="80dp"/>

@@ -257,11 +257,7 @@ public class SoundDetailActivity extends AppCompatActivity
         ivCreatorAvatar= findViewById(R.id.iv_creator_avatar);
         tvCreatorName  = findViewById(R.id.tv_creator_name);
 
-        if (rvReels   != null) {
-            GridLayoutManager glm = new GridLayoutManager(this, 3);
-            rvReels.setLayoutManager(glm);
-            rvReels.setHasFixedSize(false);
-        }
+        if (rvReels   != null) rvReels.setLayoutManager(new GridLayoutManager(this, 3));
         if (rvRelated != null) rvRelated.setLayoutManager(
             new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
 
@@ -491,8 +487,11 @@ public class SoundDetailActivity extends AppCompatActivity
                     if (rank  == null) rank  = 0L;
                     if (saves == null) saves = 0L;
 
-                    if (tvReelCount  != null) tvReelCount.setText(formatCount(count));
-                    if (tvSavesCount != null) tvSavesCount.setText(formatCount(saves));
+                    if (tvReelCount  != null) tvReelCount.setText(formatCount(count) + " Reels");
+                    if (tvSavesCount != null) {
+                        tvSavesCount.setText(formatCount(saves) + " Saves");
+                        tvSavesCount.setVisibility(View.VISIBLE);
+                    }
 
                     if (tvTrendingRank != null) {
                         if (rank > 0 && rank <= 50) {
@@ -573,49 +572,36 @@ public class SoundDetailActivity extends AppCompatActivity
         if (soundId == null || soundId.isEmpty() || rvReels == null) return;
         reelThumbAdapter = new ReelThumbAdapter(reelItems, item -> {
             Intent i = new Intent(this, SingleReelPlayerActivity.class);
-            i.putExtra("reel_id", item.reelId);
-            i.putExtra("video_url", item.videoUrl);
+            // ⚠️ Bug fix: was putExtra("reel_id", ...) which never matched
+            // SingleReelPlayerActivity.EXTRA_REEL_ID ("reelId") nor EXTRA_REEL_IDS
+            // ("reel_ids") nor EXTRA_UID ("uid") — so the target activity fell
+            // through to "No reels to show" and finished immediately, which is
+            // why tapping a reel in this grid never actually played anything.
+            i.putExtra(SingleReelPlayerActivity.EXTRA_REEL_ID, item.reelId);
             startActivity(i);
         });
         rvReels.setAdapter(reelThumbAdapter);
 
         FirebaseUtils.db().getReference("sounds").child(soundId).child("reels")
-            .limitToFirst(24)
+            .limitToFirst(12)
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(@NonNull DataSnapshot snap) {
                     if (isFinishing() || isDestroyed()) return;
                     reelItems.clear();
-                    List<ReelThumbItem> creatorReels = new ArrayList<>();
-                    List<ReelThumbItem> otherReels   = new ArrayList<>();
-
                     for (DataSnapshot s : snap.getChildren()) {
                         String rid   = s.getKey();
                         String thumb = s.child("thumbnailUrl").getValue(String.class);
                         if (thumb == null) thumb = s.child("thumbnail").getValue(String.class);
                         String vid   = s.child("videoUrl").getValue(String.class);
-                        String uid   = s.child("uid").getValue(String.class);
-                        Long   views = s.child("views").getValue(Long.class);
-                        if (views == null) views = s.child("view_count").getValue(Long.class);
-                        if (views == null) views = 0L;
-                        if (rid == null) continue;
-
-                        boolean isOrig = creatorUid != null && creatorUid.equals(uid);
-                        ReelThumbItem item = new ReelThumbItem(rid,
-                            thumb != null ? thumb : "",
-                            vid   != null ? vid   : "",
-                            isOrig, views);
-
-                        if (isOrig) creatorReels.add(item);
-                        else        otherReels.add(item);
+                        String uid   = s.child("ownerUid").getValue(String.class);
+                        if (rid != null) {
+                            ReelThumbItem item = new ReelThumbItem(rid,
+                                thumb != null ? thumb : "", vid != null ? vid : "");
+                            item.uid = uid;
+                            reelItems.add(item);
+                        }
                     }
-
-                    // Sort others by view count desc
-                    otherReels.sort((a, b) -> Long.compare(b.viewCount, a.viewCount));
-
-                    reelItems.addAll(creatorReels);  // original creator first
-                    reelItems.addAll(otherReels);     // then most-viewed
-
-                    if (!reelItems.isEmpty()) reelThumbAdapter.notifyDataSetChanged();
+                    if (!reelItems.isEmpty()) fetchViewCountsAndSort();
                     else loadReelsFromReelsNode();
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) { loadReelsFromReelsNode(); }
@@ -626,44 +612,77 @@ public class SoundDetailActivity extends AppCompatActivity
         if (soundId == null || isFinishing() || isDestroyed()) return;
         FirebaseUtils.db().getReference("reels")
             .orderByChild("soundId").equalTo(soundId)
-            .limitToFirst(24)
+            .limitToFirst(12)
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(@NonNull DataSnapshot snap) {
                     if (isFinishing() || isDestroyed()) return;
-                    List<ReelThumbItem> creatorReels = new ArrayList<>();
-                    List<ReelThumbItem> otherReels   = new ArrayList<>();
-
                     for (DataSnapshot s : snap.getChildren()) {
                         String rid   = s.getKey();
                         String thumb = s.child("thumbnailUrl").getValue(String.class);
                         if (thumb == null) thumb = s.child("thumbnail").getValue(String.class);
                         String vid   = s.child("videoUrl").getValue(String.class);
                         String uid   = s.child("uid").getValue(String.class);
-                        Long   views = s.child("views").getValue(Long.class);
-                        if (views == null) views = s.child("view_count").getValue(Long.class);
-                        if (views == null) views = 0L;
-                        if (rid == null) continue;
-
-                        boolean isOrig = creatorUid != null && creatorUid.equals(uid);
-                        ReelThumbItem item = new ReelThumbItem(rid,
-                            thumb != null ? thumb : "",
-                            vid   != null ? vid   : "",
-                            isOrig, views);
-
-                        if (isOrig) creatorReels.add(item);
-                        else        otherReels.add(item);
+                        Long   views = s.child("viewsCount").getValue(Long.class);
+                        if (rid != null) {
+                            ReelThumbItem item = new ReelThumbItem(rid,
+                                thumb != null ? thumb : "", vid != null ? vid : "");
+                            item.uid        = uid;
+                            item.viewsCount = views != null ? views : 0L;
+                            reelItems.add(item);
+                        }
                     }
-
-                    otherReels.sort((a, b) -> Long.compare(b.viewCount, a.viewCount));
-                    reelItems.addAll(creatorReels);
-                    reelItems.addAll(otherReels);
-
-                    if (reelThumbAdapter != null) reelThumbAdapter.notifyDataSetChanged();
+                    sortAndApplyReelItems();
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) {}
             });
     }
 
+    /**
+     * The lightweight sounds/{soundId}/reels summary only stores
+     * thumbnailUrl/videoUrl/ownerUid — no view count — so to sort the grid
+     * by "most views" we fetch viewsCount per reel from the main reels node.
+     * Limited to ≤12 items (same cap as the grid itself), so this stays cheap.
+     */
+    private void fetchViewCountsAndSort() {
+        final int total = reelItems.size();
+        final int[] done = {0};
+        for (ReelThumbItem item : reelItems) {
+            FirebaseUtils.getReelsRef().child(item.reelId).child("viewsCount")
+                .addListenerForSingleValueEvent(new ValueEventListener() {
+                    @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                        Long v = snap.getValue(Long.class);
+                        item.viewsCount = v != null ? v : 0L;
+                        done[0]++;
+                        if (done[0] >= total) sortAndApplyReelItems();
+                    }
+                    @Override public void onCancelled(@NonNull DatabaseError e) {
+                        done[0]++;
+                        if (done[0] >= total) sortAndApplyReelItems();
+                    }
+                });
+        }
+    }
+
+    /**
+     * Grid order: the sound's original creator's reel(s) first, then the
+     * remaining reels sorted by view count (highest first) — matches the
+     * requested "original creator pehle, uske baad most-views vali" order.
+     * Safe to call again later if creatorUid resolves after the reels did.
+     */
+    private void sortAndApplyReelItems() {
+        if (isFinishing() || isDestroyed()) return;
+        for (ReelThumbItem item : reelItems) {
+            item.isOriginalCreator = creatorUid != null && !creatorUid.isEmpty()
+                && creatorUid.equals(item.uid);
+        }
+        reelItems.sort((a, b) -> {
+            if (a.isOriginalCreator != b.isOriginalCreator) {
+                return a.isOriginalCreator ? -1 : 1;
+            }
+            return Long.compare(b.viewsCount, a.viewsCount);
+        });
+        if (reelThumbAdapter != null) reelThumbAdapter.notifyDataSetChanged();
+    }
 
     // ───────────────────────────────────────────────────────────────────────────
     //  Creator profile
@@ -694,6 +713,7 @@ public class SoundDetailActivity extends AppCompatActivity
                     if (uid != null && !uid.isEmpty()) {
                         creatorUid = uid;
                         fetchCreatorUserData(uid);
+                        sortAndApplyReelItems();
                     } else {
                         FirebaseUtils.getMusicLibraryRef().child(soundId).child("creatorUid")
                             .addListenerForSingleValueEvent(new ValueEventListener() {
@@ -703,6 +723,7 @@ public class SoundDetailActivity extends AppCompatActivity
                                     if (uid2 != null && !uid2.isEmpty()) {
                                         creatorUid = uid2;
                                         fetchCreatorUserData(uid2);
+                                        sortAndApplyReelItems();
                                     }
                                 }
                                 @Override public void onCancelled(@NonNull DatabaseError e) {}
@@ -747,8 +768,8 @@ public class SoundDetailActivity extends AppCompatActivity
         if (photo != null && !photo.isEmpty() && ivCreatorAvatar != null) {
             Glide.with(SoundDetailActivity.this).load(photo)
                 .transform(new CircleCrop())
-                .placeholder(R.drawable.ic_person)
-                .error(R.drawable.ic_person)
+                .placeholder(R.drawable.ic_default_avatar)
+                .error(R.drawable.ic_default_avatar)
                 .into(ivCreatorAvatar);
         }
 
@@ -758,8 +779,8 @@ public class SoundDetailActivity extends AppCompatActivity
         layoutCreator.setOnClickListener(v -> {
             if (uid == null || uid.isEmpty()) return;
             try {
-                Class<?> cls = Class.forName("com.callx.app.activities.UserProfileActivity");
-                Intent i = new Intent(SoundDetailActivity.this, cls);
+                Intent i = new Intent(SoundDetailActivity.this,
+                    com.callx.app.activities.UserProfileActivity.class);
                 i.putExtra("uid",   uid);
                 i.putExtra("name",  name  != null ? name  : "");
                 i.putExtra("photo", photo != null ? photo : "");
@@ -1110,16 +1131,15 @@ public class SoundDetailActivity extends AppCompatActivity
     // ───────────────────────────────────────────────────────────────────────────
 
     static class ReelThumbItem {
-        String reelId, thumbnailUrl, videoUrl;
-        boolean isOriginalCreator = false;
-        long viewCount = 0;
+        String  reelId, thumbnailUrl, videoUrl;
+        String  uid;
+        long    viewsCount;
+        boolean isOriginalCreator;
         ReelThumbItem(String r, String t, String v) { reelId = r; thumbnailUrl = t; videoUrl = v; }
-        ReelThumbItem(String r, String t, String v, boolean orig, long views) {
-            reelId = r; thumbnailUrl = t; videoUrl = v; isOriginalCreator = orig; viewCount = views;
-        }
     }
 
     static class ReelThumbAdapter extends RecyclerView.Adapter<ReelThumbAdapter.VH> {
+        private static final int GRID_COLUMNS = 3;
         interface OnClick { void click(ReelThumbItem item); }
         private final List<ReelThumbItem> items;
         private final OnClick             onClick;
@@ -1129,55 +1149,30 @@ public class SoundDetailActivity extends AppCompatActivity
 
         @NonNull @Override
         public VH onCreateViewHolder(@NonNull android.view.ViewGroup parent, int vt) {
-            // Calculate 9:16 height from 1/3 of screen width
-            int screenW = parent.getResources().getDisplayMetrics().widthPixels;
-            int itemW   = screenW / 3;
-            int itemH   = (int)(itemW * 16f / 9f);
-
             View v = android.view.LayoutInflater.from(parent.getContext())
-                .inflate(com.callx.app.reels.R.layout.item_sound_reel_thumb, parent, false);
+                .inflate(R.layout.item_sound_reel_thumb, parent, false);
+            // 9:16 vertical tile — width comes from GridLayoutManager slicing
+            // the RecyclerView width by GRID_COLUMNS (3 across), height is
+            // derived from that same column width to keep the 9:16 ratio.
+            int screenWidth = parent.getResources().getDisplayMetrics().widthPixels;
+            int colWidth    = screenWidth / GRID_COLUMNS;
+            int height      = colWidth * 16 / 9;
             android.view.ViewGroup.LayoutParams lp = v.getLayoutParams();
-            lp.width  = itemW;
-            lp.height = itemH;
+            lp.height = height;
             v.setLayoutParams(lp);
             return new VH(v);
         }
 
         @Override public void onBindViewHolder(@NonNull VH h, int pos) {
             ReelThumbItem item = items.get(pos);
-
-            // Load thumbnail
             if (item.thumbnailUrl != null && !item.thumbnailUrl.isEmpty()) {
-                com.bumptech.glide.Glide.with(h.ivThumb)
-                    .load(item.thumbnailUrl)
-                    .placeholder(com.callx.app.reels.R.drawable.ic_play)
-                    .centerCrop()
-                    .into(h.ivThumb);
+                Glide.with(h.ivThumb).load(item.thumbnailUrl)
+                    .placeholder(R.drawable.ic_music_note)
+                    .centerCrop().into(h.ivThumb);
             } else {
-                h.ivThumb.setImageResource(com.callx.app.reels.R.drawable.ic_play);
+                h.ivThumb.setImageResource(R.drawable.ic_play);
             }
-
-            // ORIGINAL strip — show only for the original creator's reel
-            if (h.tvOriginalStrip != null) {
-                h.tvOriginalStrip.setVisibility(
-                    item.isOriginalCreator ? View.VISIBLE : View.GONE);
-            }
-
-            // Views count
-            if (h.tvViewCount != null) {
-                if (item.viewCount > 0) {
-                    String vc = item.viewCount >= 1_000_000
-                        ? String.format(java.util.Locale.US, "%.1fM", item.viewCount / 1_000_000.0)
-                        : item.viewCount >= 1_000
-                            ? String.format(java.util.Locale.US, "%.1fK", item.viewCount / 1_000.0)
-                            : String.valueOf(item.viewCount);
-                    h.tvViewCount.setText(vc);
-                } else {
-                    h.tvViewCount.setText("");
-                }
-            }
-
-            // Click → play this reel
+            h.tvOriginalStrip.setVisibility(item.isOriginalCreator ? View.VISIBLE : View.GONE);
             h.itemView.setOnClickListener(v -> onClick.click(item));
         }
 
@@ -1185,12 +1180,11 @@ public class SoundDetailActivity extends AppCompatActivity
 
         static class VH extends RecyclerView.ViewHolder {
             android.widget.ImageView ivThumb;
-            TextView tvOriginalStrip, tvViewCount;
+            TextView                 tvOriginalStrip;
             VH(View v) {
                 super(v);
-                ivThumb        = v.findViewById(com.callx.app.reels.R.id.iv_reel_thumb);
-                tvOriginalStrip= v.findViewById(com.callx.app.reels.R.id.tv_original_strip);
-                tvViewCount    = v.findViewById(com.callx.app.reels.R.id.tv_view_count);
+                ivThumb         = v.findViewById(R.id.iv_media_thumb);
+                tvOriginalStrip = v.findViewById(R.id.tv_original_strip);
             }
         }
     }
