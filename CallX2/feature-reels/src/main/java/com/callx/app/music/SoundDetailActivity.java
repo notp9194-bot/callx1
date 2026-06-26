@@ -86,6 +86,11 @@ public class SoundDetailActivity extends AppCompatActivity
      * Priority over EXTRA_SOUND_URL and reel_video_url.
      */
     public static final String EXTRA_ORIGINAL_AUDIO_URL = "original_audio_url";
+    /**
+     * Optionally pass the UID of the sound's original creator (e.g. when opening
+     * from a reel's "Original Audio" chip so we don't need an extra Firebase read).
+     */
+    public static final String EXTRA_CREATOR_UID        = "sound_creator_uid";
 
     // ─── Views ─────────────────────────────────────────────────────────────────
     private ImageButton  btnBack, btnPlayPause, btnShare;
@@ -102,6 +107,12 @@ public class SoundDetailActivity extends AppCompatActivity
     private SeekBar      seekBar;
     private TextView     tvCurrentTime, tvTotalTime;
 
+    // ─── Creator row ────────────────────────────────────────────────────────────
+    private LinearLayout layoutCreator;
+    private View         dividerCreator;
+    private ImageView    ivCreatorAvatar;
+    private TextView     tvCreatorName;
+
     // ─── State ─────────────────────────────────────────────────────────────────
     private String  soundId, soundTitle, soundUrl, artist, coverUrl, genre;
     private int     durationMs, bpm;
@@ -111,6 +122,9 @@ public class SoundDetailActivity extends AppCompatActivity
     private boolean userSeeking     = false;
     private boolean hasAudioFocus   = false;
     private boolean retried         = false;
+
+    // ─── Creator ───────────────────────────────────────────────────────────────
+    private String  creatorUid, creatorName, creatorPhoto;
 
     // ─── Playback ──────────────────────────────────────────────────────────────
     private MediaPlayer                mediaPlayer;
@@ -164,6 +178,7 @@ public class SoundDetailActivity extends AppCompatActivity
         coverUrl   = getIntent().getStringExtra(EXTRA_COVER_URL);
         bpm        = getIntent().getIntExtra(EXTRA_BPM, 0);
         genre      = getIntent().getStringExtra(EXTRA_GENRE);
+        creatorUid = getIntent().getStringExtra(EXTRA_CREATOR_UID);
 
         // Priority 1: originalAudioUrl — clean extracted audio
         String originalAudioUrl = getIntent().getStringExtra(EXTRA_ORIGINAL_AUDIO_URL);
@@ -180,6 +195,7 @@ public class SoundDetailActivity extends AppCompatActivity
         loadSoundData();
         loadReelsForSound();
         loadRelatedSounds();
+        loadCreatorProfile();
         setupClickListeners();
         checkIfSaved();
     }
@@ -234,6 +250,12 @@ public class SoundDetailActivity extends AppCompatActivity
         seekBar           = findViewById(R.id.seekbar_sound);
         tvCurrentTime     = findViewById(R.id.tv_sound_current_time);
         tvTotalTime       = findViewById(R.id.tv_sound_total_time);
+
+        // Creator row
+        layoutCreator  = findViewById(R.id.layout_sound_creator);
+        dividerCreator = findViewById(R.id.divider_creator);
+        ivCreatorAvatar= findViewById(R.id.iv_creator_avatar);
+        tvCreatorName  = findViewById(R.id.tv_creator_name);
 
         if (rvReels   != null) rvReels.setLayoutManager(new GridLayoutManager(this, 3));
         if (rvRelated != null) rvRelated.setLayoutManager(
@@ -598,6 +620,112 @@ public class SoundDetailActivity extends AppCompatActivity
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) {}
             });
+    }
+
+
+    // ───────────────────────────────────────────────────────────────────────────
+    //  Creator profile
+    // ───────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Loads the original creator of this sound.
+     * Priority:
+     *   1. creatorUid passed via EXTRA_CREATOR_UID intent extra
+     *   2. sounds/{soundId}/creatorUid  from Firebase
+     *   3. musicLibrary/{soundId}/creatorUid from Firebase
+     *
+     * Once we have the uid, we fetch the user's displayName/username + photoUrl
+     * and show the creator row. Tapping it opens UserProfileActivity.
+     */
+    private void loadCreatorProfile() {
+        if (creatorUid != null && !creatorUid.isEmpty()) {
+            fetchCreatorUserData(creatorUid);
+            return;
+        }
+        if (soundId == null || soundId.isEmpty()) return;
+
+        FirebaseUtils.db().getReference("sounds").child(soundId).child("creatorUid")
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    if (isFinishing() || isDestroyed()) return;
+                    String uid = snap.getValue(String.class);
+                    if (uid != null && !uid.isEmpty()) {
+                        creatorUid = uid;
+                        fetchCreatorUserData(uid);
+                    } else {
+                        FirebaseUtils.getMusicLibraryRef().child(soundId).child("creatorUid")
+                            .addListenerForSingleValueEvent(new ValueEventListener() {
+                                @Override public void onDataChange(@NonNull DataSnapshot s2) {
+                                    if (isFinishing() || isDestroyed()) return;
+                                    String uid2 = s2.getValue(String.class);
+                                    if (uid2 != null && !uid2.isEmpty()) {
+                                        creatorUid = uid2;
+                                        fetchCreatorUserData(uid2);
+                                    }
+                                }
+                                @Override public void onCancelled(@NonNull DatabaseError e) {}
+                            });
+                    }
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) {}
+            });
+    }
+
+    private void fetchCreatorUserData(String uid) {
+        FirebaseUtils.getUserRef(uid)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    if (isFinishing() || isDestroyed()) return;
+                    String name = snap.child("displayName").getValue(String.class);
+                    if (name == null || name.isEmpty())
+                        name = snap.child("username").getValue(String.class);
+                    if (name == null || name.isEmpty())
+                        name = snap.child("name").getValue(String.class);
+                    if (name == null || name.isEmpty()) name = "Unknown";
+
+                    String photo = snap.child("photoUrl").getValue(String.class);
+                    if (photo == null || photo.isEmpty())
+                        photo = snap.child("profilePic").getValue(String.class);
+                    if (photo == null || photo.isEmpty())
+                        photo = snap.child("avatar").getValue(String.class);
+
+                    creatorName  = name;
+                    creatorPhoto = photo;
+                    bindCreatorRow(uid, name, photo);
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) {}
+            });
+    }
+
+    private void bindCreatorRow(final String uid, final String name, final String photo) {
+        if (layoutCreator == null || tvCreatorName == null) return;
+
+        tvCreatorName.setText("@" + name);
+
+        if (photo != null && !photo.isEmpty() && ivCreatorAvatar != null) {
+            Glide.with(SoundDetailActivity.this).load(photo)
+                .transform(new CircleCrop())
+                .placeholder(R.drawable.ic_default_avatar)
+                .error(R.drawable.ic_default_avatar)
+                .into(ivCreatorAvatar);
+        }
+
+        layoutCreator.setVisibility(View.VISIBLE);
+        if (dividerCreator != null) dividerCreator.setVisibility(View.VISIBLE);
+
+        layoutCreator.setOnClickListener(v -> {
+            if (uid == null || uid.isEmpty()) return;
+            try {
+                Intent i = new Intent(SoundDetailActivity.this,
+                    com.callx.app.activities.UserProfileActivity.class);
+                i.putExtra("uid",   uid);
+                i.putExtra("name",  name  != null ? name  : "");
+                i.putExtra("photo", photo != null ? photo : "");
+                startActivity(i);
+            } catch (Exception ex) {
+                android.util.Log.w("SoundDetail", "UserProfileActivity not found", ex);
+            }
+        });
     }
 
     private void checkIfSaved() {

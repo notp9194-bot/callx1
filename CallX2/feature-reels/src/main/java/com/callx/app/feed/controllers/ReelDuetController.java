@@ -372,6 +372,11 @@ public class ReelDuetController {
             reel.musicArtist != null && !reel.musicArtist.isEmpty()
                 ? reel.musicArtist
                 : (reel.ownerName != null ? reel.ownerName : ""));
+        // Pass creator uid so SoundDetailActivity skips an extra Firebase read.
+        // For original audio, the reel poster (reel.uid) IS the creator.
+        if (reel.uid != null && !reel.uid.isEmpty()) {
+            i.putExtra(SoundDetailActivity.EXTRA_CREATOR_UID, reel.uid);
+        }
         if (reel.originalAudioUrl != null && !reel.originalAudioUrl.isEmpty()) {
             i.putExtra(SoundDetailActivity.EXTRA_ORIGINAL_AUDIO_URL, reel.originalAudioUrl);
         } else {

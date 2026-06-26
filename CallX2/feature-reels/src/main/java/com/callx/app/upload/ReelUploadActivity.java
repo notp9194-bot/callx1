@@ -1809,6 +1809,7 @@ public class ReelUploadActivity extends AppCompatActivity {
         soundData.put("total_saves",  0);
         soundData.put("trending_rank", 0);
         soundData.put("ownerUid",     ownerUid != null ? ownerUid : "");
+        soundData.put("creatorUid",   ownerUid != null ? ownerUid : ""); // for SoundDetailActivity creator link
         soundData.put("sourceReelId", reelId);
         soundData.put("created_at",   ServerValue.TIMESTAMP);
         soundRef.updateChildren(soundData);
