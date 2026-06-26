@@ -1,470 +1,534 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@+id/scroll_sound_detail"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#000000"
-    android:fillViewport="true">
+    android:background="#000000">
 
-    <LinearLayout
+    <!-- Main scroll content -->
+    <ScrollView
+        android:id="@+id/scroll_sound_detail"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical">
+        android:layout_height="match_parent"
+        android:fillViewport="true">
 
-        <!-- Top bar -->
         <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="56dp"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:paddingStart="4dp"
-            android:paddingEnd="8dp">
-
-            <ImageButton
-                android:id="@+id/btn_sound_back"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:src="@drawable/ic_arrow_back"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:tint="@color/white"
-                android:contentDescription="Back"/>
-
-            <TextView
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="Sound"
-                android:textColor="@color/white"
-                android:textSize="17sp"
-                android:fontFamily="sans-serif-medium"/>
-
-            <ImageButton
-                android:id="@+id/btn_sound_share"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:src="@drawable/ic_share_reel"
-                android:tint="#00F260"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="Share sound"/>
-
-            <ImageButton
-                android:id="@+id/btn_save_sound"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:src="@drawable/ic_bookmark"
-                android:tint="#00C6FF"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="Save sound"/>
-        </LinearLayout>
-
-        <!-- Sound info card -->
-        <LinearLayout
-            android:id="@+id/layout_sound_info"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:background="#111111"
-            android:padding="20dp"
-            android:visibility="visible">
+            android:orientation="vertical">
 
-            <!-- Cover + meta row -->
+            <!-- Top bar -->
             <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical">
-
-                <!-- Spinning disc cover -->
-                <FrameLayout
-                    android:layout_width="80dp"
-                    android:layout_height="80dp">
-
-                    <!-- Outer disc ring -->
-                    <ImageView
-                        android:id="@+id/iv_disc_ring"
-                        android:layout_width="80dp"
-                        android:layout_height="80dp"
-                        android:layout_gravity="center"
-                        android:src="@drawable/ic_music_disc"
-                        android:tint="#2A2A2A"
-                        android:scaleType="fitXY"/>
-
-                    <!-- Album art (circular, clips to circle in code) -->
-                    <ImageView
-                        android:id="@+id/iv_sound_cover"
-                        android:layout_width="60dp"
-                        android:layout_height="60dp"
-                        android:layout_gravity="center"
-                        android:scaleType="centerCrop"
-                        android:src="@drawable/ic_music_note"/>
-
-                    <!-- Center hole -->
-                    <View
-                        android:layout_width="14dp"
-                        android:layout_height="14dp"
-                        android:layout_gravity="center"
-                        android:background="@drawable/bg_circle_white"/>
-                </FrameLayout>
-
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:layout_marginStart="16dp">
-
-                    <TextView
-                        android:id="@+id/tv_sound_title"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Sound Title"
-                        android:textColor="@color/white"
-                        android:textSize="16sp"
-                        android:fontFamily="sans-serif-medium"
-                        android:maxLines="2"
-                        android:ellipsize="end"/>
-
-                    <TextView
-                        android:id="@+id/tv_sound_artist"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="• Original Audio"
-                        android:textColor="#AAFFFFFF"
-                        android:textSize="13sp"
-                        android:layout_marginTop="3dp"/>
-
-                    <!-- Stats row: reels • saves -->
-                    <LinearLayout
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:gravity="center_vertical"
-                        android:layout_marginTop="6dp">
-
-                        <TextView
-                            android:id="@+id/tv_sound_reel_count"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="0 Reels"
-                            android:textColor="@color/white"
-                            android:textSize="13sp"
-                            android:fontFamily="sans-serif-medium"/>
-
-                        <TextView
-                            android:id="@+id/tv_sound_saves_count"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="  •  0 Saves"
-                            android:textColor="@color/white"
-                            android:textSize="13sp"
-                            android:fontFamily="sans-serif-medium"
-                            android:visibility="gone"/>
-                    </LinearLayout>
-
-                    <!-- BPM + Genre + badges -->
-                    <LinearLayout
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:gravity="center_vertical"
-                        android:layout_marginTop="4dp">
-
-                        <TextView
-                            android:id="@+id/tv_sound_bpm"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:textColor="#77FFFFFF"
-                            android:textSize="11sp"
-                            android:visibility="gone"/>
-
-                        <TextView
-                            android:id="@+id/tv_sound_genre"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:textColor="#77FFFFFF"
-                            android:textSize="11sp"
-                            android:layout_marginStart="8dp"
-                            android:visibility="gone"/>
-
-                        <TextView
-                            android:id="@+id/tv_sound_original_badge"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="Original"
-                            android:textColor="#FF3B5C"
-                            android:textSize="10sp"
-                            android:fontFamily="sans-serif-medium"
-                            android:layout_marginStart="8dp"
-                            android:visibility="gone"/>
-
-                        <TextView
-                            android:id="@+id/tv_sound_verified_badge"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="✓ Verified"
-                            android:textColor="#4FC3F7"
-                            android:textSize="10sp"
-                            android:fontFamily="sans-serif-medium"
-                            android:layout_marginStart="8dp"
-                            android:visibility="gone"/>
-                    </LinearLayout>
-
-                    <TextView
-                        android:id="@+id/tv_sound_trending_rank"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="#1 Trending"
-                        android:textColor="@color/brand_accent"
-                        android:textSize="11sp"
-                        android:fontFamily="sans-serif-medium"
-                        android:layout_marginTop="4dp"
-                        android:visibility="gone"/>
-                </LinearLayout>
-
-                <!-- Play/Pause button -->
-                <ImageButton
-                    android:id="@+id/btn_sound_play_pause"
-                    android:layout_width="52dp"
-                    android:layout_height="52dp"
-                    android:src="@drawable/ic_play"
-                    android:tint="#A855F7"
-                    android:background="@drawable/bg_play_pause_btn"
-                    android:padding="14dp"
-                    android:contentDescription="Play preview"/>
-            </LinearLayout>
-
-            <!-- Seekbar + time row -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:layout_marginTop="16dp">
-
-                <SeekBar
-                    android:id="@+id/seekbar_sound"
-                    android:layout_width="match_parent"
-                    android:layout_height="28dp"
-                    android:progressTint="#A855F7"
-                    android:thumbTint="#A855F7"
-                    android:progressBackgroundTint="#33FFFFFF"
-                    android:max="100"/>
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:layout_marginTop="2dp">
-
-                    <TextView
-                        android:id="@+id/tv_sound_current_time"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="0:00"
-                        android:textColor="#77FFFFFF"
-                        android:textSize="11sp"/>
-
-                    <View android:layout_width="0dp" android:layout_height="1dp" android:layout_weight="1"/>
-
-                    <TextView
-                        android:id="@+id/tv_sound_total_time"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="0:00"
-                        android:textColor="#77FFFFFF"
-                        android:textSize="11sp"/>
-                </LinearLayout>
-            </LinearLayout>
-
-            <!-- Waveform (visible while playing) -->
-            <LinearLayout
-                android:id="@+id/layout_sound_waveform"
-                android:layout_width="match_parent"
-                android:layout_height="40dp"
-                android:orientation="horizontal"
-                android:gravity="bottom|center_horizontal"
-                android:layout_marginTop="12dp"
-                android:layout_marginBottom="4dp"/>
-
-            <!-- ── Original Creator row ─────────────────────────────────────── -->
-            <LinearLayout
-                android:id="@+id/layout_sound_creator"
                 android:layout_width="match_parent"
                 android:layout_height="56dp"
                 android:orientation="horizontal"
                 android:gravity="center_vertical"
-                android:background="?attr/selectableItemBackground"
-                android:layout_marginTop="12dp"
-                android:paddingHorizontal="2dp"
-                android:visibility="gone">
+                android:paddingStart="4dp"
+                android:paddingEnd="4dp">
 
-                <ImageView
-                    android:id="@+id/iv_creator_avatar"
-                    android:layout_width="38dp"
-                    android:layout_height="38dp"
-                    android:scaleType="centerCrop"
-                    android:src="@drawable/ic_person"/>
+                <ImageButton
+                    android:id="@+id/btn_sound_back"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:src="@drawable/ic_arrow_back"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:tint="@color/white"
+                    android:contentDescription="Back"/>
 
-                <LinearLayout
+                <TextView
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
+                    android:text="Sound"
+                    android:textColor="@color/white"
+                    android:textSize="17sp"
+                    android:fontFamily="sans-serif-medium"/>
+
+                <!-- CHANGE 8: share + bookmark + 3-dot -->
+                <ImageButton
+                    android:id="@+id/btn_sound_share"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:src="@drawable/ic_share_reel"
+                    android:tint="#00F260"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="Share sound"/>
+
+                <ImageButton
+                    android:id="@+id/btn_save_sound"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:src="@drawable/ic_bookmark"
+                    android:tint="#00C6FF"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="Save sound"/>
+
+                <ImageButton
+                    android:id="@+id/btn_sound_more"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:src="@drawable/ic_more_vertical"
+                    android:tint="#AAFFFFFF"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="More options"/>
+            </LinearLayout>
+
+            <!-- CHANGE 4: Shimmer skeleton placeholder -->
+            <com.facebook.shimmer.ShimmerFrameLayout
+                android:id="@+id/shimmer_sound"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:visibility="gone"
+                app:shimmer_duration="900">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:layout_marginStart="10dp">
+                    android:padding="20dp">
 
-                    <TextView
-                        android:id="@+id/tv_creator_label"
-                        android:layout_width="wrap_content"
+                    <!-- Cover + meta row skeleton -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="Original Creator"
-                        android:textColor="#77FFFFFF"
-                        android:textSize="10sp"
-                        android:fontFamily="sans-serif-medium"
-                        android:textAllCaps="true"
-                        android:letterSpacing="0.06"/>
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
 
-                    <TextView
-                        android:id="@+id/tv_creator_name"
-                        android:layout_width="wrap_content"
+                        <View
+                            android:layout_width="80dp"
+                            android:layout_height="80dp"
+                            android:background="@drawable/bg_circle_shimmer"/>
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical"
+                            android:layout_marginStart="16dp">
+
+                            <View
+                                android:layout_width="160dp"
+                                android:layout_height="16dp"
+                                android:background="@drawable/bg_shimmer_line"
+                                android:layout_marginBottom="8dp"/>
+
+                            <View
+                                android:layout_width="100dp"
+                                android:layout_height="12dp"
+                                android:background="@drawable/bg_shimmer_line"
+                                android:layout_marginBottom="8dp"/>
+
+                            <View
+                                android:layout_width="120dp"
+                                android:layout_height="12dp"
+                                android:background="@drawable/bg_shimmer_line"/>
+                        </LinearLayout>
+                    </LinearLayout>
+
+                    <!-- SeekBar skeleton -->
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="6dp"
+                        android:background="@drawable/bg_shimmer_line"
+                        android:layout_marginTop="20dp"/>
+
+                    <!-- Waveform skeleton -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="40dp"
+                        android:orientation="horizontal"
+                        android:gravity="bottom|center_horizontal"
+                        android:layout_marginTop="16dp">
+
+                        <View android:layout_width="4dp" android:layout_height="20dp" android:background="@drawable/bg_shimmer_line" android:layout_marginHorizontal="3dp"/>
+                        <View android:layout_width="4dp" android:layout_height="30dp" android:background="@drawable/bg_shimmer_line" android:layout_marginHorizontal="3dp"/>
+                        <View android:layout_width="4dp" android:layout_height="15dp" android:background="@drawable/bg_shimmer_line" android:layout_marginHorizontal="3dp"/>
+                        <View android:layout_width="4dp" android:layout_height="35dp" android:background="@drawable/bg_shimmer_line" android:layout_marginHorizontal="3dp"/>
+                        <View android:layout_width="4dp" android:layout_height="22dp" android:background="@drawable/bg_shimmer_line" android:layout_marginHorizontal="3dp"/>
+                        <View android:layout_width="4dp" android:layout_height="28dp" android:background="@drawable/bg_shimmer_line" android:layout_marginHorizontal="3dp"/>
+                        <View android:layout_width="4dp" android:layout_height="18dp" android:background="@drawable/bg_shimmer_line" android:layout_marginHorizontal="3dp"/>
+                        <View android:layout_width="4dp" android:layout_height="38dp" android:background="@drawable/bg_shimmer_line" android:layout_marginHorizontal="3dp"/>
+                    </LinearLayout>
+
+                    <!-- Buttons skeleton -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="@username"
-                        android:textColor="@color/white"
-                        android:textSize="14sp"
-                        android:fontFamily="sans-serif-medium"
-                        android:maxLines="1"
-                        android:ellipsize="end"
-                        android:layout_marginTop="1dp"/>
+                        android:orientation="horizontal"
+                        android:layout_marginTop="20dp">
+                        <View
+                            android:layout_width="0dp"
+                            android:layout_height="44dp"
+                            android:layout_weight="1"
+                            android:background="@drawable/bg_shimmer_btn"
+                            android:layout_marginEnd="8dp"/>
+                        <View
+                            android:layout_width="0dp"
+                            android:layout_height="44dp"
+                            android:layout_weight="1"
+                            android:background="@drawable/bg_shimmer_btn"/>
+                    </LinearLayout>
+
+                    <!-- Grid skeleton -->
+                    <GridLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:columnCount="3"
+                        android:layout_marginTop="24dp">
+
+                        <View android:layout_width="0dp" android:layout_height="150dp" android:layout_columnWeight="1" android:background="@drawable/bg_shimmer_line" android:layout_margin="1dp"/>
+                        <View android:layout_width="0dp" android:layout_height="150dp" android:layout_columnWeight="1" android:background="@drawable/bg_shimmer_line" android:layout_margin="1dp"/>
+                        <View android:layout_width="0dp" android:layout_height="150dp" android:layout_columnWeight="1" android:background="@drawable/bg_shimmer_line" android:layout_margin="1dp"/>
+                        <View android:layout_width="0dp" android:layout_height="150dp" android:layout_columnWeight="1" android:background="@drawable/bg_shimmer_line" android:layout_margin="1dp"/>
+                        <View android:layout_width="0dp" android:layout_height="150dp" android:layout_columnWeight="1" android:background="@drawable/bg_shimmer_line" android:layout_margin="1dp"/>
+                        <View android:layout_width="0dp" android:layout_height="150dp" android:layout_columnWeight="1" android:background="@drawable/bg_shimmer_line" android:layout_margin="1dp"/>
+                    </GridLayout>
+                </LinearLayout>
+            </com.facebook.shimmer.ShimmerFrameLayout>
+
+            <!-- Sound info card -->
+            <LinearLayout
+                android:id="@+id/layout_sound_info"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:background="#111111"
+                android:padding="20dp"
+                android:visibility="visible">
+
+                <!-- Cover + meta row -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
+
+                    <!-- Spinning disc cover -->
+                    <FrameLayout
+                        android:layout_width="80dp"
+                        android:layout_height="80dp">
+
+                        <ImageView
+                            android:id="@+id/iv_disc_ring"
+                            android:layout_width="80dp"
+                            android:layout_height="80dp"
+                            android:layout_gravity="center"
+                            android:src="@drawable/ic_music_disc"
+                            android:tint="#2A2A2A"
+                            android:scaleType="fitXY"/>
+
+                        <ImageView
+                            android:id="@+id/iv_sound_cover"
+                            android:layout_width="60dp"
+                            android:layout_height="60dp"
+                            android:layout_gravity="center"
+                            android:scaleType="centerCrop"
+                            android:src="@drawable/ic_music_note"/>
+
+                        <View
+                            android:layout_width="14dp"
+                            android:layout_height="14dp"
+                            android:layout_gravity="center"
+                            android:background="@drawable/bg_circle_white"/>
+                    </FrameLayout>
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:layout_marginStart="16dp">
+
+                        <TextView
+                            android:id="@+id/tv_sound_title"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Sound Title"
+                            android:textColor="@color/white"
+                            android:textSize="16sp"
+                            android:fontFamily="sans-serif-medium"
+                            android:maxLines="2"
+                            android:ellipsize="end"/>
+
+                        <TextView
+                            android:id="@+id/tv_sound_artist"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="• Original Audio"
+                            android:textColor="#AAFFFFFF"
+                            android:textSize="13sp"
+                            android:layout_marginTop="3dp"/>
+
+                        <!-- Stats row -->
+                        <LinearLayout
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal"
+                            android:gravity="center_vertical"
+                            android:layout_marginTop="6dp">
+
+                            <TextView
+                                android:id="@+id/tv_sound_reel_count"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="0 Reels"
+                                android:textColor="@color/white"
+                                android:textSize="13sp"
+                                android:fontFamily="sans-serif-medium"/>
+
+                            <TextView
+                                android:id="@+id/tv_sound_saves_count"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="  •  0 Saves"
+                                android:textColor="@color/white"
+                                android:textSize="13sp"
+                                android:fontFamily="sans-serif-medium"
+                                android:visibility="gone"/>
+                        </LinearLayout>
+
+                        <!-- BPM + Genre + badges -->
+                        <LinearLayout
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal"
+                            android:gravity="center_vertical"
+                            android:layout_marginTop="4dp">
+
+                            <TextView
+                                android:id="@+id/tv_sound_bpm"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:textColor="#77FFFFFF"
+                                android:textSize="11sp"
+                                android:visibility="gone"/>
+
+                            <TextView
+                                android:id="@+id/tv_sound_genre"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:textColor="#77FFFFFF"
+                                android:textSize="11sp"
+                                android:layout_marginStart="8dp"
+                                android:visibility="gone"/>
+
+                            <TextView
+                                android:id="@+id/tv_sound_original_badge"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="Original"
+                                android:textColor="#FF3B5C"
+                                android:textSize="10sp"
+                                android:fontFamily="sans-serif-medium"
+                                android:layout_marginStart="8dp"
+                                android:visibility="gone"/>
+
+                            <TextView
+                                android:id="@+id/tv_sound_verified_badge"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="✓ Verified"
+                                android:textColor="#4FC3F7"
+                                android:textSize="10sp"
+                                android:fontFamily="sans-serif-medium"
+                                android:layout_marginStart="8dp"
+                                android:visibility="gone"/>
+                        </LinearLayout>
+
+                        <TextView
+                            android:id="@+id/tv_sound_trending_rank"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="#1 Trending"
+                            android:textColor="@color/brand_accent"
+                            android:textSize="11sp"
+                            android:fontFamily="sans-serif-medium"
+                            android:layout_marginTop="4dp"
+                            android:visibility="gone"/>
+                    </LinearLayout>
+
+                    <!-- Play/Pause button -->
+                    <ImageButton
+                        android:id="@+id/btn_sound_play_pause"
+                        android:layout_width="52dp"
+                        android:layout_height="52dp"
+                        android:src="@drawable/ic_play"
+                        android:tint="#A855F7"
+                        android:background="@drawable/bg_play_pause_btn"
+                        android:padding="14dp"
+                        android:contentDescription="Play preview"/>
                 </LinearLayout>
 
-                <ImageView
-                    android:layout_width="20dp"
-                    android:layout_height="20dp"
-                    android:src="@drawable/ic_arrow_forward"
-                    android:tint="#55FFFFFF"
-                    android:scaleType="fitCenter"/>
+                <!-- Seekbar + time row -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:layout_marginTop="16dp">
+
+                    <SeekBar
+                        android:id="@+id/seekbar_sound"
+                        android:layout_width="match_parent"
+                        android:layout_height="28dp"
+                        android:progressTint="#A855F7"
+                        android:thumbTint="#A855F7"
+                        android:progressBackgroundTint="#33FFFFFF"
+                        android:max="100"/>
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:layout_marginTop="2dp">
+
+                        <TextView
+                            android:id="@+id/tv_sound_current_time"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="0:00"
+                            android:textColor="#77FFFFFF"
+                            android:textSize="11sp"/>
+
+                        <View android:layout_width="0dp" android:layout_height="1dp" android:layout_weight="1"/>
+
+                        <TextView
+                            android:id="@+id/tv_sound_total_time"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="0:00"
+                            android:textColor="#77FFFFFF"
+                            android:textSize="11sp"/>
+                    </LinearLayout>
+                </LinearLayout>
+
+                <!-- Waveform -->
+                <LinearLayout
+                    android:id="@+id/layout_sound_waveform"
+                    android:layout_width="match_parent"
+                    android:layout_height="40dp"
+                    android:orientation="horizontal"
+                    android:gravity="bottom|center_horizontal"
+                    android:layout_marginTop="12dp"
+                    android:layout_marginBottom="4dp"/>
+
+                <!-- Original Creator row -->
+                <LinearLayout
+                    android:id="@+id/layout_sound_creator"
+                    android:layout_width="match_parent"
+                    android:layout_height="56dp"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:background="?attr/selectableItemBackground"
+                    android:layout_marginTop="12dp"
+                    android:paddingHorizontal="2dp"
+                    android:visibility="gone">
+
+                    <ImageView
+                        android:id="@+id/iv_creator_avatar"
+                        android:layout_width="38dp"
+                        android:layout_height="38dp"
+                        android:scaleType="centerCrop"
+                        android:src="@drawable/ic_person"/>
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:layout_marginStart="10dp">
+
+                        <TextView
+                            android:id="@+id/tv_creator_label"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Original Creator"
+                            android:textColor="#77FFFFFF"
+                            android:textSize="10sp"
+                            android:fontFamily="sans-serif-medium"
+                            android:textAllCaps="true"
+                            android:letterSpacing="0.06"/>
+
+                        <TextView
+                            android:id="@+id/tv_creator_name"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@username"
+                            android:textColor="@color/white"
+                            android:textSize="14sp"
+                            android:fontFamily="sans-serif-medium"
+                            android:maxLines="1"
+                            android:ellipsize="end"
+                            android:layout_marginTop="1dp"/>
+                    </LinearLayout>
+
+                    <ImageView
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:src="@drawable/ic_arrow_forward"
+                        android:tint="#55FFFFFF"
+                        android:scaleType="fitCenter"/>
+                </LinearLayout>
+
+                <!-- thin divider after creator row -->
+                <View
+                    android:id="@+id/divider_creator"
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:background="#1AFFFFFF"
+                    android:layout_marginTop="4dp"
+                    android:layout_marginBottom="4dp"
+                    android:visibility="gone"/>
+
+                <!-- CHANGE 6: Use sound buttons — camera now outline (no solid fill) -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginTop="16dp">
+
+                    <TextView
+                        android:id="@+id/btn_use_sound_camera"
+                        android:layout_width="0dp"
+                        android:layout_height="44dp"
+                        android:layout_weight="1"
+                        android:text="Use in Camera"
+                        android:gravity="center"
+                        android:textColor="@color/brand_primary"
+                        android:textSize="14sp"
+                        android:fontFamily="sans-serif-medium"
+                        android:background="@drawable/bg_reel_follow_btn"
+                        android:layout_marginEnd="8dp"/>
+
+                    <TextView
+                        android:id="@+id/btn_use_sound_gallery"
+                        android:layout_width="0dp"
+                        android:layout_height="44dp"
+                        android:layout_weight="1"
+                        android:text="Use with Video"
+                        android:gravity="center"
+                        android:textColor="@color/brand_primary"
+                        android:textSize="14sp"
+                        android:fontFamily="sans-serif-medium"
+                        android:background="@drawable/bg_reel_follow_btn"/>
+                </LinearLayout>
+
+                <!-- Trim start chip -->
+                <TextView
+                    android:id="@+id/btn_trim_start"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:text="✂ Set Start Point"
+                    android:textColor="#FFFFFF"
+                    android:textSize="13sp"
+                    android:fontFamily="sans-serif-medium"
+                    android:gravity="center"
+                    android:paddingHorizontal="16dp"
+                    android:background="@drawable/bg_sort_chip"
+                    android:layout_marginTop="10dp"
+                    android:visibility="gone"/>
             </LinearLayout>
 
-            <!-- thin divider after creator row -->
-            <View
-                android:id="@+id/divider_creator"
-                android:layout_width="match_parent"
-                android:layout_height="1dp"
-                android:background="#1AFFFFFF"
-                android:layout_marginTop="4dp"
-                android:layout_marginBottom="4dp"
-                android:visibility="gone"/>
-
-            <!-- Use sound buttons -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:layout_marginTop="16dp">
-
-                <TextView
-                    android:id="@+id/btn_use_sound_camera"
-                    android:layout_width="0dp"
-                    android:layout_height="44dp"
-                    android:layout_weight="1"
-                    android:text="Use in Camera"
-                    android:gravity="center"
-                    android:textColor="@color/white"
-                    android:textSize="14sp"
-                    android:fontFamily="sans-serif-medium"
-                    android:background="@drawable/bg_sound_use_camera_btn"
-                    android:layout_marginEnd="8dp"/>
-
-                <TextView
-                    android:id="@+id/btn_use_sound_gallery"
-                    android:layout_width="0dp"
-                    android:layout_height="44dp"
-                    android:layout_weight="1"
-                    android:text="Use with Video"
-                    android:gravity="center"
-                    android:textColor="@color/brand_primary"
-                    android:textSize="14sp"
-                    android:fontFamily="sans-serif-medium"
-                    android:background="@drawable/bg_reel_follow_btn"/>
-            </LinearLayout>
-
-            <!-- Trim start chip -->
-            <TextView
-                android:id="@+id/btn_trim_start"
-                android:layout_width="wrap_content"
-                android:layout_height="36dp"
-                android:text="✂ Set Start Point"
-                android:textColor="#FFFFFF"
-                android:textSize="13sp"
-                android:fontFamily="sans-serif-medium"
-                android:gravity="center"
-                android:paddingHorizontal="16dp"
-                android:background="@drawable/bg_sort_chip"
-                android:layout_marginTop="10dp"
-                android:visibility="gone"/>
-        </LinearLayout>
-
-        <!-- Progress bar -->
-        <ProgressBar
-            android:id="@+id/progress_sound"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="center_horizontal"
-            android:indeterminateTint="@color/brand_primary"
-            android:layout_marginVertical="8dp"
-            android:visibility="gone"/>
-
-        <!-- Reels with this sound -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:paddingHorizontal="16dp"
-            android:paddingTop="16dp"
-            android:paddingBottom="8dp">
-
-            <TextView
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="Reels with this sound"
-                android:textColor="@color/white"
-                android:textSize="15sp"
-                android:fontFamily="sans-serif-medium"/>
-
-            <TextView
-                android:id="@+id/tv_see_all_reels"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="See all"
-                android:textColor="#A855F7"
-                android:textSize="13sp"/>
-        </LinearLayout>
-
-        <androidx.recyclerview.widget.RecyclerView
-            android:id="@+id/rv_sound_reels"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:nestedScrollingEnabled="false"
-            android:clipToPadding="false"/>
-
-        <!-- Footer spinner shown while the next page of reels is loading -->
-        <ProgressBar
-            android:id="@+id/progress_reels_pagination"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="center_horizontal"
-            android:indeterminateTint="@color/brand_primary"
-            android:layout_marginVertical="10dp"
-            android:visibility="gone"/>
-
-        <!-- Related sounds section -->
-        <LinearLayout
-            android:id="@+id/layout_related_sounds_section"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:visibility="gone">
-
+            <!-- Reels with this sound -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -478,13 +542,13 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:text="Similar Sounds"
+                    android:text="Reels with this sound"
                     android:textColor="@color/white"
                     android:textSize="15sp"
                     android:fontFamily="sans-serif-medium"/>
 
                 <TextView
-                    android:id="@+id/tv_see_all_related"
+                    android:id="@+id/tv_see_all_reels"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="See all"
@@ -493,19 +557,124 @@
             </LinearLayout>
 
             <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/rv_related_sounds"
+                android:id="@+id/rv_sound_reels"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:paddingHorizontal="12dp"
-                android:paddingBottom="16dp"
+                android:nestedScrollingEnabled="false"
                 android:clipToPadding="false"/>
+
+            <ProgressBar
+                android:id="@+id/progress_reels_pagination"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_horizontal"
+                android:indeterminateTint="@color/brand_primary"
+                android:layout_marginVertical="10dp"
+                android:visibility="gone"/>
+
+            <!-- Related sounds section -->
+            <LinearLayout
+                android:id="@+id/layout_related_sounds_section"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:paddingHorizontal="16dp"
+                    android:paddingTop="16dp"
+                    android:paddingBottom="8dp">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Similar Sounds"
+                        android:textColor="@color/white"
+                        android:textSize="15sp"
+                        android:fontFamily="sans-serif-medium"/>
+
+                    <TextView
+                        android:id="@+id/tv_see_all_related"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="See all"
+                        android:textColor="#A855F7"
+                        android:textSize="13sp"/>
+                </LinearLayout>
+
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/rv_related_sounds"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:paddingHorizontal="12dp"
+                    android:paddingBottom="16dp"
+                    android:clipToPadding="false"/>
+            </LinearLayout>
+
+            <!-- Bottom padding for mini-player + nav bar -->
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="120dp"/>
+
         </LinearLayout>
+    </ScrollView>
 
-        <!-- Bottom padding for nav bar -->
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="80dp"/>
+    <!-- CHANGE 5: Floating mini-player — anchored to bottom, persists when navigating -->
+    <LinearLayout
+        android:id="@+id/mini_player_container"
+        android:layout_width="match_parent"
+        android:layout_height="64dp"
+        android:layout_gravity="bottom"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="#CC1A1A1A"
+        android:paddingHorizontal="12dp"
+        android:elevation="8dp"
+        android:visibility="gone">
 
+        <ImageView
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:scaleType="centerCrop"
+            android:src="@drawable/ic_music_note"
+            android:id="@+id/iv_mini_cover"/>
+
+        <TextView
+            android:id="@+id/tv_mini_title"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Now Playing"
+            android:textColor="@color/white"
+            android:textSize="13sp"
+            android:fontFamily="sans-serif-medium"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:layout_marginHorizontal="10dp"/>
+
+        <ImageButton
+            android:id="@+id/btn_mini_play_pause"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:src="@drawable/ic_play"
+            android:tint="#A855F7"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Play/Pause"/>
+
+        <ImageButton
+            android:id="@+id/btn_mini_close"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:src="@drawable/ic_close"
+            android:tint="#77FFFFFF"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Close mini player"/>
     </LinearLayout>
-</ScrollView>
+
+</FrameLayout>
