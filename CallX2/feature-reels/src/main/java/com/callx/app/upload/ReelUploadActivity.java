@@ -1714,7 +1714,12 @@ public class ReelUploadActivity extends AppCompatActivity {
                                               String reelId, String ownerUid, String ownerName,
                                               String thumbUrl, String videoUrl, String audioUrl,
                                               String soundChosenId) {
-        if (activity == null || activity.isFinishing() || activity.isDestroyed()) return;
+        // ⚠️ NOTE: by the time this callback fires, the activity has almost
+        // always already called finish() — the audio extraction runs in the
+        // background AFTER the reel post is confirmed, so the upload screen
+        // is gone before extraction completes. This method must NOT depend
+        // on activity.isFinishing()/isDestroyed() — it's pure Firebase writes,
+        // no UI involved, so it must always run regardless of activity state.
 
         boolean usingExistingSound = soundChosenId != null && !soundChosenId.isEmpty();
         final String soundId = usingExistingSound ? soundChosenId : ("orig_" + reelId);
