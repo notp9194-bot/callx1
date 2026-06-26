@@ -39,6 +39,7 @@ import com.callx.app.utils.FirebaseUtils;
 import com.callx.app.utils.ReelFirebaseUtils;
 import com.facebook.shimmer.ShimmerFrameLayout;
 import com.google.firebase.database.*;
+import com.google.firebase.auth.FirebaseAuth;
 
 import java.util.*;
 
@@ -933,15 +934,53 @@ public class SoundDetailActivity extends AppCompatActivity implements Player.Lis
         if (btnMore != null) {
             btnMore.setOnClickListener(v -> {
                 PopupMenu popup = new PopupMenu(this, btnMore);
+
+                // Common options — visible to everyone
                 popup.getMenu().add(0, 1, 0, "Report sound");
-                popup.getMenu().add(0, 2, 0, "Add to playlist");
-                popup.getMenu().add(0, 3, 0, "Copy link");
-                popup.getMenu().add(0, 4, 0, "Not interested");
+                popup.getMenu().add(0, 2, 1, "Add to playlist");
+                popup.getMenu().add(0, 3, 2, "Copy link");
+                popup.getMenu().add(0, 4, 3, "Not interested");
+
+                // Creator-only options — only shown if current user owns this sound
+                String myUid = FirebaseAuth.getInstance().getUid();
+                boolean isMySound = myUid != null
+                        && creatorUid != null
+                        && myUid.equals(creatorUid);
+                if (isMySound) {
+                    popup.getMenu().add(0, 5, 4, "Upload Sound");
+                    popup.getMenu().add(0, 6, 5, "View Analytics");
+                }
+
                 popup.setOnMenuItemClickListener(item -> {
-                    // TODO: wire up actions
                     switch (item.getItemId()) {
-                        case 3: shareSound(); return true;
-                        default: return true;
+
+                        case 2: // Add to playlist
+                            Intent pi = new Intent(this, SoundPlaylistActivity.class);
+                            pi.putExtra("sound_id",    soundId);
+                            pi.putExtra("sound_title", soundTitle);
+                            pi.putExtra("sound_url",   soundUrl);
+                            startActivity(pi);
+                            return true;
+
+                        case 3: // Copy link
+                            shareSound();
+                            return true;
+
+                        case 5: // Upload Sound (creator only)
+                            Intent ui = new Intent(this, SoundUploadActivity.class);
+                            ui.putExtra("sound_id",    soundId);
+                            ui.putExtra("sound_title", soundTitle);
+                            startActivity(ui);
+                            return true;
+
+                        case 6: // View Analytics (creator only)
+                            Intent ai = new Intent(this, SoundAnalyticsActivity.class);
+                            ai.putExtra(SoundAnalyticsActivity.EXTRA_SOUND_ID, soundId);
+                            startActivity(ai);
+                            return true;
+
+                        default:
+                            return true;
                     }
                 });
                 popup.show();
