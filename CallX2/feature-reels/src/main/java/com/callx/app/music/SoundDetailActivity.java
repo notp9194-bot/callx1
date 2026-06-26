@@ -5,22 +5,26 @@ import com.callx.app.camera.ReelCameraActivity;
 import com.callx.app.editor.ReelMusicTrimActivity;
 import com.callx.app.upload.ReelUploadActivity;
 
-import android.animation.ObjectAnimator;
-import android.animation.ValueAnimator;
-import android.content.Context;
 import android.content.Intent;
-import android.net.Uri;
+import android.graphics.drawable.Drawable;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.view.Gravity;
+import android.view.MenuItem;
 import android.view.View;
 import android.view.animation.LinearInterpolator;
 import android.widget.*;
+import android.animation.ObjectAnimator;
+import android.animation.ValueAnimator;
+import android.animation.AnimatorListenerAdapter;
+import android.animation.Animator;
+
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.PopupMenu;
 import androidx.media3.common.MediaItem;
+import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.recyclerview.widget.GridLayoutManager;
@@ -29,6 +33,7 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.load.resource.bitmap.CircleCrop;
+import com.bumptech.glide.request.RequestOptions;
 import com.callx.app.reels.R;
 import com.callx.app.utils.FirebaseUtils;
 import com.callx.app.utils.ReelFirebaseUtils;
@@ -40,17 +45,19 @@ import java.util.*;
 /**
  * SoundDetailActivity — Production-level Audio/Sound Detail Screen.
  *
- * Changes v2:
- *  ✅ Creator denormalized — reads creatorName/creatorPhoto from sounds node first (1 read)
- *  ✅ ExoPlayer/Media3 replaces MediaPlayer — better buffering, adaptive streaming, seek
- *  ✅ Thumbnail preloading — Glide .preload() for next page before scroll hits
- *  ✅ Shimmer/skeleton placeholder instead of plain ProgressBar
- *  ✅ Mini-player persistence — floating overlay mini-player survives navigation
- *  ✅ "Use in Camera" button — outline style, no solid color fill
- *  ✅ Original creator click → opens reel profile screen
- *  ✅ 3-dot menu in top-right toolbar
+ * Changes in this revision:
+ *  ✅ ExoPlayer (Media3) replaces MediaPlayer — better buffering, adaptive streaming, proper seek
+ *  ✅ Creator denormalised — reads creatorName/creatorPhoto directly from sounds/{id} (written at
+ *     upload time), falls back to reels/users + users nodes only when the denormalised fields are absent
+ *  ✅ Shimmer/skeleton placeholder replaces plain ProgressBar — shown until data arrives, then swapped
+ *  ✅ Glide thumbnail preloading — next page's thumbnails are preloaded before the scroll hits the grid bottom
+ *  ✅ Mini-player bar — stays visible (within this screen) when a related sound is tapped;
+ *     full cross-Activity persistence requires a bound Service (left as TODO)
+ *  ✅ "Use in Camera" button — now outline style (same as "Use with Video"), no fill colour
+ *  ✅ Original creator click — opens UserProfileActivity (same className-based Intent as before)
+ *  ✅ Top-right 3-dot overflow menu — PopupMenu; add real actions later
  */
-public class SoundDetailActivity extends AppCompatActivity {
+public class SoundDetailActivity extends AppCompatActivity implements Player.Listener {
 
     // ─── Intent Extras ─────────────────────────────────────────────────────────
     public static final String EXTRA_SOUND_ID           = "sound_id";
@@ -65,73 +72,78 @@ public class SoundDetailActivity extends AppCompatActivity {
     public static final String EXTRA_CREATOR_UID        = "sound_creator_uid";
 
     // ─── Views ─────────────────────────────────────────────────────────────────
-    private ImageButton  btnBack, btnPlayPause, btnShare, btnMore;
+    private ImageButton  btnBack, btnShare, btnSaveSound, btnMore;
+    private ImageButton  btnPlayPause;
     private TextView     tvSoundTitle, tvArtist, tvDuration, tvReelCount,
                          tvTrendingRank, tvSavesCount, tvBpm, tvGenre,
                          tvOriginalBadge, tvIsVerified;
     private TextView     btnUseSoundCamera, btnUseSoundGallery, btnTrimStart;
     private ImageView    ivSoundCover, ivDiscRing;
-    private ImageButton  btnSaveSound;
     private RecyclerView rvReels, rvRelated;
-    private ShimmerFrameLayout shimmerSound;
+    private ProgressBar  progressBar;
     private View         layoutSoundInfo;
     private LinearLayout layoutWaveform;
     private SeekBar      seekBar;
     private TextView     tvCurrentTime, tvTotalTime;
+    private ShimmerFrameLayout shimmerLayout;
+    private View         layoutReelsHeader;
 
-    // ─── Creator row ───────────────────────────────────────────────────────────
+    // Creator row
     private LinearLayout layoutCreator;
     private View         dividerCreator;
     private ImageView    ivCreatorAvatar;
     private TextView     tvCreatorName;
 
-    // ─── Mini-player ───────────────────────────────────────────────────────────
-    private FrameLayout  miniPlayerContainer;
-    private ImageButton  btnMiniPlayPause, btnMiniClose;
+    // Mini-player
+    private View         layoutMiniPlayer;
+    private ImageView    ivMiniCover;
     private TextView     tvMiniTitle;
-    private boolean      miniPlayerVisible = false;
+    private ImageButton  btnMiniPlayPause, btnMiniClose;
+    private boolean      miniPlayerActive = false;
 
     // ─── Reels grid pagination ─────────────────────────────────────────────────
     private static final int REELS_PAGE_SIZE     = 12;
     private ScrollView  scrollSoundDetail;
     private ProgressBar progressReelsPagination;
     private String       lastReelKey        = null;
-    private boolean      isLoadingMoreReels = false;
-    private boolean      hasMoreReels       = true;
+    private boolean       isLoadingMoreReels = false;
+    private boolean       hasMoreReels       = true;
 
     // ─── State ─────────────────────────────────────────────────────────────────
     private String  soundId, soundTitle, soundUrl, artist, coverUrl, genre;
     private int     durationMs, bpm;
     private boolean isSaved         = false;
     private boolean isPlaying       = false;
+    private boolean isPreparing     = false;
     private boolean userSeeking     = false;
+    private boolean retried         = false;
 
     // ─── Creator ───────────────────────────────────────────────────────────────
     private String  creatorUid, creatorName, creatorPhoto;
 
-    // ─── ExoPlayer ─────────────────────────────────────────────────────────────
-    private ExoPlayer               exoPlayer;
-    private final Handler           seekHandler    = new Handler(Looper.getMainLooper());
+    // ─── ExoPlayer (Media3) ────────────────────────────────────────────────────
+    private ExoPlayer                  exoPlayer;
+    private final Handler              mainHandler    = new Handler(Looper.getMainLooper());
 
     // ─── Animation ─────────────────────────────────────────────────────────────
     private ObjectAnimator             discAnimator;
     private final List<ValueAnimator>  waveAnimators  = new ArrayList<>();
+    private final Handler              seekHandler    = new Handler(Looper.getMainLooper());
 
     // ─── Data ──────────────────────────────────────────────────────────────────
     private final List<RelatedItem>    relatedItems   = new ArrayList<>();
     private final List<ReelThumbItem>  reelItems      = new ArrayList<>();
     private ReelThumbAdapter           reelThumbAdapter;
 
-    // ─── Seek update ───────────────────────────────────────────────────────────
+    // ─── Seek runnable ─────────────────────────────────────────────────────────
     private final Runnable seekUpdateRunnable = new Runnable() {
         @Override public void run() {
             if (exoPlayer != null && isPlaying && !userSeeking) {
                 long pos = exoPlayer.getCurrentPosition();
                 long dur = exoPlayer.getDuration();
-                if (dur > 0 && seekBar != null) {
+                if (dur > 0 && seekBar != null)
                     seekBar.setProgress((int)(100L * pos / dur));
-                }
-                if (tvCurrentTime != null) tvCurrentTime.setText(formatMs((int) pos));
+                if (tvCurrentTime != null) tvCurrentTime.setText(formatMs((int)pos));
             }
             if (isPlaying) seekHandler.postDelayed(this, 300);
         }
@@ -158,13 +170,13 @@ public class SoundDetailActivity extends AppCompatActivity {
 
         String originalAudioUrl = getIntent().getStringExtra(EXTRA_ORIGINAL_AUDIO_URL);
         if (originalAudioUrl != null && !originalAudioUrl.isEmpty()) soundUrl = originalAudioUrl;
-
         if (soundUrl == null || soundUrl.isEmpty()) {
             String reelVideoUrl = getIntent().getStringExtra("reel_video_url");
             if (reelVideoUrl != null && !reelVideoUrl.isEmpty()) soundUrl = reelVideoUrl;
         }
 
         bindViews();
+        showShimmer(true);
         populateSoundInfo();
         loadSoundData();
         loadReelsForSound();
@@ -177,20 +189,32 @@ public class SoundDetailActivity extends AppCompatActivity {
     @Override
     protected void onPause() {
         super.onPause();
-        if (isPlaying) {
-            pausePlayback();
-            // mini-player: only show if we actually have a player running
-            if (exoPlayer != null && miniPlayerContainer != null) showMiniPlayer();
-        }
+        if (isPlaying) pausePlayback();
     }
 
     @Override
     protected void onDestroy() {
         seekHandler.removeCallbacksAndMessages(null);
+        mainHandler.removeCallbacksAndMessages(null);
         stopDiscAnimation();
         stopWaveAnimation();
-        releaseExoPlayer();
+        releasePlayer();
         super.onDestroy();
+    }
+
+    // ───────────────────────────────────────────────────────────────────────────
+    //  Shimmer helpers
+    // ───────────────────────────────────────────────────────────────────────────
+
+    /** Toggle shimmer/skeleton ↔ real content. */
+    private void showShimmer(boolean show) {
+        if (shimmerLayout != null) {
+            shimmerLayout.setVisibility(show ? View.VISIBLE : View.GONE);
+            if (show) shimmerLayout.startShimmer();
+            else      shimmerLayout.stopShimmer();
+        }
+        if (layoutSoundInfo   != null) layoutSoundInfo.setVisibility(show ? View.GONE : View.VISIBLE);
+        if (layoutReelsHeader != null) layoutReelsHeader.setVisibility(show ? View.GONE : View.VISIBLE);
     }
 
     // ───────────────────────────────────────────────────────────────────────────
@@ -220,12 +244,14 @@ public class SoundDetailActivity extends AppCompatActivity {
         btnSaveSound      = findViewById(R.id.btn_save_sound);
         rvReels           = findViewById(R.id.rv_sound_reels);
         rvRelated         = findViewById(R.id.rv_related_sounds);
-        shimmerSound      = findViewById(R.id.shimmer_sound);
+        progressBar       = findViewById(R.id.progress_sound);
         layoutSoundInfo   = findViewById(R.id.layout_sound_info);
         layoutWaveform    = findViewById(R.id.layout_sound_waveform);
         seekBar           = findViewById(R.id.seekbar_sound);
         tvCurrentTime     = findViewById(R.id.tv_sound_current_time);
         tvTotalTime       = findViewById(R.id.tv_sound_total_time);
+        shimmerLayout     = findViewById(R.id.shimmer_sound_detail);
+        layoutReelsHeader = findViewById(R.id.layout_reels_header);
 
         // Creator row
         layoutCreator  = findViewById(R.id.layout_sound_creator);
@@ -234,12 +260,13 @@ public class SoundDetailActivity extends AppCompatActivity {
         tvCreatorName  = findViewById(R.id.tv_creator_name);
 
         // Mini-player
-        miniPlayerContainer = findViewById(R.id.mini_player_container);
-        btnMiniPlayPause    = findViewById(R.id.btn_mini_play_pause);
-        btnMiniClose        = findViewById(R.id.btn_mini_close);
-        tvMiniTitle         = findViewById(R.id.tv_mini_title);
+        layoutMiniPlayer = findViewById(R.id.layout_mini_player);
+        ivMiniCover      = findViewById(R.id.iv_mini_cover);
+        tvMiniTitle      = findViewById(R.id.tv_mini_title);
+        btnMiniPlayPause = findViewById(R.id.btn_mini_play_pause);
+        btnMiniClose     = findViewById(R.id.btn_mini_close);
 
-        // Reels grid pagination
+        // Pagination
         scrollSoundDetail       = findViewById(R.id.scroll_sound_detail);
         progressReelsPagination = findViewById(R.id.progress_reels_pagination);
 
@@ -258,7 +285,7 @@ public class SoundDetailActivity extends AppCompatActivity {
                 @Override public void onStartTrackingTouch(SeekBar sb) { userSeeking = true; }
                 @Override public void onStopTrackingTouch(SeekBar sb) {
                     userSeeking = false;
-                    if (exoPlayer != null) {
+                    if (exoPlayer != null && !isPreparing) {
                         long dur = exoPlayer.getDuration();
                         if (dur > 0) exoPlayer.seekTo(dur * sb.getProgress() / 100);
                     }
@@ -322,7 +349,7 @@ public class SoundDetailActivity extends AppCompatActivity {
             int h = (int)((10 + rng.nextInt(30)) * density);
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(barW, h);
             lp.setMargins(gap, 0, gap, 0);
-            lp.gravity = Gravity.BOTTOM;
+            lp.gravity = android.view.Gravity.BOTTOM;
             bar.setLayoutParams(lp);
             bar.setBackgroundColor(0x44FFFFFF);
             bar.setTag("waveBar");
@@ -368,7 +395,7 @@ public class SoundDetailActivity extends AppCompatActivity {
     }
 
     // ───────────────────────────────────────────────────────────────────────────
-    //  Disc spin animation
+    //  Disc animation
     // ───────────────────────────────────────────────────────────────────────────
 
     private void startDiscAnimation() {
@@ -381,30 +408,25 @@ public class SoundDetailActivity extends AppCompatActivity {
         discAnimator.setRepeatMode(ObjectAnimator.RESTART);
         discAnimator.setInterpolator(new LinearInterpolator());
         discAnimator.addUpdateListener(a -> {
-            float angle = (float) a.getAnimatedValue();
-            if (ivDiscRing != null) ivDiscRing.setRotation(angle);
+            if (ivDiscRing != null) ivDiscRing.setRotation((float) a.getAnimatedValue());
         });
         discAnimator.start();
     }
 
     private void stopDiscAnimation() {
-        if (discAnimator != null) {
-            discAnimator.cancel();
-            discAnimator = null;
-        }
+        if (discAnimator != null) { discAnimator.cancel(); discAnimator = null; }
     }
 
     // ───────────────────────────────────────────────────────────────────────────
-    //  Firebase data loading — CHANGE 1: Creator denormalized on sounds node
+    //  Firebase data loading
     // ───────────────────────────────────────────────────────────────────────────
 
     private void loadSoundData() {
         if (soundId == null || soundId.isEmpty()) {
-            hideShimmer();
+            showShimmer(false);
             updatePlayButtonState();
             return;
         }
-        showShimmer();
 
         FirebaseUtils.db().getReference("sounds").child(soundId)
             .addListenerForSingleValueEvent(new ValueEventListener() {
@@ -418,22 +440,26 @@ public class SoundDetailActivity extends AppCompatActivity {
                     Boolean ver         = snap.child("is_verified").getValue(Boolean.class);
                     Boolean trendingFlg = snap.child("is_trending").getValue(Boolean.class);
 
-                    // ── CHANGE 1: read denormalized creator fields directly ──
+                    // ── Denormalised creator fields (written at upload time) ──
+                    // These mean we can avoid the extra reels/users + users reads
+                    // on every open. fetchCreatorUserData() is still called as
+                    // fallback for sounds uploaded before denormalisation was added.
                     if (creatorUid == null || creatorUid.isEmpty()) {
-                        String cUid = snap.child("creatorUid").getValue(String.class);
-                        if (cUid != null && !cUid.isEmpty()) creatorUid = cUid;
+                        String uid = snap.child("creatorUid").getValue(String.class);
+                        if (uid != null && !uid.isEmpty()) creatorUid = uid;
                     }
-                    String cName  = snap.child("creatorName").getValue(String.class);
-                    String cPhoto = snap.child("creatorPhoto").getValue(String.class);
-                    if (cName != null && !cName.isEmpty()) {
-                        creatorName  = cName;
-                        creatorPhoto = cPhoto;
-                        if (creatorUid != null && !creatorUid.isEmpty()) {
-                            bindCreatorRow(creatorUid, creatorName, creatorPhoto);
-                            sortAndApplyReelItems();
-                        }
+                    String denormName  = snap.child("creatorName").getValue(String.class);
+                    String denormPhoto = snap.child("creatorPhoto").getValue(String.class);
+                    if (denormName  != null && !denormName.isEmpty())  creatorName  = denormName;
+                    if (denormPhoto != null && !denormPhoto.isEmpty()) creatorPhoto = denormPhoto;
+
+                    if (creatorUid != null && !creatorUid.isEmpty()
+                            && creatorName != null && !creatorName.isEmpty()) {
+                        // Denormalised data complete — bind immediately, no extra reads
+                        bindCreatorRow(creatorUid, creatorName, creatorPhoto);
+                        sortAndApplyReelItems();
                     }
-                    // ── End change 1 ──
+                    // else: loadCreatorProfile() (called from onCreate) will handle it
 
                     if (soundUrl == null || soundUrl.isEmpty()) {
                         String u = snap.child("audioUrl").getValue(String.class);
@@ -447,12 +473,11 @@ public class SoundDetailActivity extends AppCompatActivity {
                         if (c == null) c = snap.child("cover_url").getValue(String.class);
                         if (c != null && !c.isEmpty()) {
                             coverUrl = c;
-                            if (ivSoundCover != null) {
+                            if (ivSoundCover != null)
                                 Glide.with(SoundDetailActivity.this).load(coverUrl)
                                     .transform(new CircleCrop())
                                     .placeholder(R.drawable.ic_music_note)
                                     .into(ivSoundCover);
-                            }
                         }
                     }
 
@@ -494,13 +519,13 @@ public class SoundDetailActivity extends AppCompatActivity {
                     if (tvIsVerified != null)
                         tvIsVerified.setVisibility(Boolean.TRUE.equals(ver) ? View.VISIBLE : View.GONE);
 
-                    hideShimmer();
+                    showShimmer(false);
                     updatePlayButtonState();
                     updateTrimButtonVisibility();
                 }
 
                 @Override public void onCancelled(@NonNull DatabaseError e) {
-                    if (!isFinishing()) hideShimmer();
+                    if (!isFinishing()) showShimmer(false);
                     updatePlayButtonState();
                 }
             });
@@ -533,10 +558,12 @@ public class SoundDetailActivity extends AppCompatActivity {
                     }
                     if (rvRelated != null && !relatedItems.isEmpty()) {
                         rvRelated.setAdapter(new RelatedAdapter(relatedItems, item -> {
-                            // ── CHANGE 3: preload thumbnails of related sounds ──
-                            Glide.with(SoundDetailActivity.this)
-                                .load(item.coverUrl)
-                                .preload();
+                            // ── Mini-player: keep audio alive when opening related sound ──
+                            // Show the mini bar so the user can still control the current
+                            // audio, then open the new SoundDetailActivity in front of it.
+                            // TODO: for full cross-Activity persistence, bind a MediaService.
+                            showMiniPlayer();
+
                             Intent i = new Intent(SoundDetailActivity.this, SoundDetailActivity.class);
                             i.putExtra(EXTRA_SOUND_ID,    item.id);
                             i.putExtra(EXTRA_SOUND_TITLE, item.title);
@@ -569,11 +596,9 @@ public class SoundDetailActivity extends AppCompatActivity {
         if (scrollSoundDetail != null) {
             scrollSoundDetail.setOnScrollChangeListener((View.OnScrollChangeListener) (v, scrollX, scrollY, oldX, oldY) -> {
                 if (scrollY <= oldY || rvReels == null || isLoadingMoreReels || !hasMoreReels) return;
-                int gridBottom = rvReels.getBottom();
+                int gridBottom    = rvReels.getBottom();
                 int visibleBottom = scrollY + scrollSoundDetail.getHeight();
-                if (visibleBottom >= gridBottom - 600) {
-                    loadMoreReelsForSound();
-                }
+                if (visibleBottom >= gridBottom - 600) loadMoreReelsForSound();
             });
         }
 
@@ -583,9 +608,8 @@ public class SoundDetailActivity extends AppCompatActivity {
     private void loadMoreReelsForSound() {
         if (isLoadingMoreReels || !hasMoreReels || isFinishing() || isDestroyed()) return;
         isLoadingMoreReels = true;
-        if (progressReelsPagination != null && lastReelKey != null) {
+        if (progressReelsPagination != null && lastReelKey != null)
             progressReelsPagination.setVisibility(View.VISIBLE);
-        }
 
         Query q = FirebaseUtils.db().getReference("sounds").child(soundId).child("reels")
             .orderByKey();
@@ -617,10 +641,6 @@ public class SoundDetailActivity extends AppCompatActivity {
                     loadReelsFromReelsNode();
                     return;
                 }
-
-                // ── CHANGE 3: preload next-page thumbnails before user scrolls there ──
-                preloadNextPageThumbnails(page);
-
                 fetchViewCountsForPage(page);
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {
@@ -629,15 +649,6 @@ public class SoundDetailActivity extends AppCompatActivity {
                 if (reelItems.isEmpty()) loadReelsFromReelsNode();
             }
         });
-    }
-
-    /** CHANGE 3: Glide preload thumbnails so they're cached before scroll */
-    private void preloadNextPageThumbnails(List<ReelThumbItem> page) {
-        for (ReelThumbItem item : page) {
-            if (item.thumbnailUrl != null && !item.thumbnailUrl.isEmpty()) {
-                Glide.with(this).load(item.thumbnailUrl).preload();
-            }
-        }
     }
 
     private void loadReelsFromReelsNode() {
@@ -667,7 +678,6 @@ public class SoundDetailActivity extends AppCompatActivity {
                             page.add(item);
                         }
                     }
-                    preloadNextPageThumbnails(page);
                     finishAppendingPage(page, false);
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) { isLoadingMoreReels = false; }
@@ -676,6 +686,19 @@ public class SoundDetailActivity extends AppCompatActivity {
 
     private void fetchViewCountsForPage(List<ReelThumbItem> page) {
         if (page.isEmpty()) { finishAppendingPage(page, false); return; }
+        // ── Thumbnail preloading ──
+        // Fire off Glide .preload() for each thumbnail while we wait for view-count
+        // fetches — images start downloading now, so by the time they land in the
+        // grid RecyclerView they're already in Glide's disk/memory cache.
+        for (ReelThumbItem item : page) {
+            if (item.thumbnailUrl != null && !item.thumbnailUrl.isEmpty()) {
+                Glide.with(this)
+                    .load(item.thumbnailUrl)
+                    .apply(new RequestOptions().centerCrop().override(300, 533))
+                    .preload();
+            }
+        }
+
         final int total = page.size();
         final int[] done = {0};
         for (ReelThumbItem item : page) {
@@ -734,21 +757,30 @@ public class SoundDetailActivity extends AppCompatActivity {
     }
 
     // ───────────────────────────────────────────────────────────────────────────
-    //  Creator profile — CHANGE 1: check denormalized fields before reading users
+    //  Creator profile — DENORMALISED fast path + fallback
     // ───────────────────────────────────────────────────────────────────────────
 
+    /**
+     * Called from onCreate. By the time loadSoundData() finishes, creatorName
+     * may already be set from the denormalised fields — in that case bindCreatorRow
+     * is called there and this method becomes a no-op for the avatar/name binding.
+     * The uid resolution chain still runs so we have creatorUid for the grid sort.
+     */
     private void loadCreatorProfile() {
-        // If we already got creatorName from the sounds node in loadSoundData(), skip user reads
-        if (creatorName != null && !creatorName.isEmpty() && creatorUid != null && !creatorUid.isEmpty()) {
+        // If denormalised name already arrived via the intent extra, bind now.
+        if (creatorUid != null && !creatorUid.isEmpty()
+                && creatorName != null && !creatorName.isEmpty()) {
             bindCreatorRow(creatorUid, creatorName, creatorPhoto);
             return;
         }
+        // Otherwise: if we at least have uid, skip to user-data fetch
         if (creatorUid != null && !creatorUid.isEmpty()) {
             fetchCreatorUserData(creatorUid);
             return;
         }
         if (soundId == null || soundId.isEmpty()) return;
 
+        // Need to resolve uid from sounds node first
         FirebaseUtils.db().getReference("sounds").child(soundId).child("creatorUid")
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(@NonNull DataSnapshot snap) {
@@ -810,16 +842,12 @@ public class SoundDetailActivity extends AppCompatActivity {
                 @Override public void onDataChange(@NonNull DataSnapshot snap) {
                     if (isFinishing() || isDestroyed()) return;
                     String name = snap.child("displayName").getValue(String.class);
-                    if (name == null || name.isEmpty())
-                        name = snap.child("username").getValue(String.class);
-                    if (name == null || name.isEmpty())
-                        name = snap.child("name").getValue(String.class);
+                    if (name == null || name.isEmpty()) name = snap.child("username").getValue(String.class);
+                    if (name == null || name.isEmpty()) name = snap.child("name").getValue(String.class);
                     if (name == null || name.isEmpty()) name = "Unknown";
                     String photo = snap.child("photoUrl").getValue(String.class);
-                    if (photo == null || photo.isEmpty())
-                        photo = snap.child("profilePic").getValue(String.class);
-                    if (photo == null || photo.isEmpty())
-                        photo = snap.child("avatar").getValue(String.class);
+                    if (photo == null || photo.isEmpty()) photo = snap.child("profilePic").getValue(String.class);
+                    if (photo == null || photo.isEmpty()) photo = snap.child("avatar").getValue(String.class);
                     creatorName  = name;
                     creatorPhoto = photo;
                     bindCreatorRow(uid, name, photo);
@@ -828,7 +856,10 @@ public class SoundDetailActivity extends AppCompatActivity {
             });
     }
 
-    /** CHANGE 7: Original creator click → ReelProfileActivity */
+    /**
+     * Binds creator avatar + name row, and opens UserProfileActivity on tap.
+     * Uses className-based Intent to avoid circular dependency with :app module.
+     */
     private void bindCreatorRow(final String uid, final String name, final String photo) {
         if (layoutCreator == null || tvCreatorName == null) return;
 
@@ -847,20 +878,24 @@ public class SoundDetailActivity extends AppCompatActivity {
         layoutCreator.setVisibility(View.VISIBLE);
         if (dividerCreator != null) dividerCreator.setVisibility(View.VISIBLE);
 
-        // CHANGE 7: original creator click → UserProfileActivity
-        layoutCreator.setOnClickListener(v -> {
-            if (uid == null || uid.isEmpty()) return;
-            try {
-                Intent i = new Intent()
-                    .setClassName(SoundDetailActivity.this, "com.callx.app.activities.UserProfileActivity");
-                i.putExtra("uid",   uid);
-                i.putExtra("name",  name  != null ? name  : "");
-                i.putExtra("photo", photo != null ? photo : "");
-                startActivity(i);
-            } catch (Exception ex) {
-                android.util.Log.w("SoundDetail", "UserProfileActivity not found", ex);
-            }
-        });
+        // ── Creator click — opens UserProfileActivity ──
+        // Reels screen bottom username tap already navigates here via the same pattern.
+        layoutCreator.setOnClickListener(v -> openUserProfile(uid, name, photo));
+    }
+
+    /** Opens UserProfileActivity via className (avoids circular module dependency). */
+    private void openUserProfile(String uid, String name, String photo) {
+        if (uid == null || uid.isEmpty()) return;
+        try {
+            Intent i = new Intent()
+                .setClassName(SoundDetailActivity.this, "com.callx.app.activities.UserProfileActivity");
+            i.putExtra("uid",   uid);
+            i.putExtra("name",  name  != null ? name  : "");
+            i.putExtra("photo", photo != null ? photo : "");
+            startActivity(i);
+        } catch (Exception ex) {
+            android.util.Log.w("SoundDetail", "UserProfileActivity not found", ex);
+        }
     }
 
     private void checkIfSaved() {
@@ -878,17 +913,30 @@ public class SoundDetailActivity extends AppCompatActivity {
     }
 
     // ───────────────────────────────────────────────────────────────────────────
-    //  Click listeners — CHANGE 8: 3-dot menu
+    //  Click listeners
     // ───────────────────────────────────────────────────────────────────────────
 
     private void setupClickListeners() {
         if (btnBack != null) btnBack.setOnClickListener(v -> finish());
-        if (btnPlayPause != null) btnPlayPause.setOnClickListener(v -> togglePlayPause());
         if (btnShare != null) btnShare.setOnClickListener(v -> shareSound());
 
-        // CHANGE 8: 3-dot more menu
+        // ── 3-dot overflow menu ──
         if (btnMore != null) {
-            btnMore.setOnClickListener(v -> showMoreMenu(v));
+            btnMore.setOnClickListener(v -> {
+                PopupMenu popup = new PopupMenu(this, btnMore);
+                popup.getMenu().add(0, 1, 0, "Report sound");
+                popup.getMenu().add(0, 2, 0, "Add to playlist");
+                popup.getMenu().add(0, 3, 0, "Copy link");
+                popup.getMenu().add(0, 4, 0, "Not interested");
+                popup.setOnMenuItemClickListener(item -> {
+                    // TODO: wire up actions
+                    switch (item.getItemId()) {
+                        case 3: shareSound(); return true;
+                        default: return true;
+                    }
+                });
+                popup.show();
+            });
         }
 
         if (btnSaveSound != null) {
@@ -899,12 +947,14 @@ public class SoundDetailActivity extends AppCompatActivity {
             });
         }
 
+        if (btnPlayPause != null) btnPlayPause.setOnClickListener(v -> togglePlayPause());
+
         if (btnUseSoundCamera != null) btnUseSoundCamera.setOnClickListener(v -> {
             Intent i = new Intent(this, ReelCameraActivity.class);
-            i.putExtra("selected_sound_id",         soundId);
-            i.putExtra("selected_sound_title",       soundTitle);
-            i.putExtra("selected_sound_url",         soundUrl);
-            i.putExtra("replace_audio_with_sound",   true);
+            i.putExtra("selected_sound_id",       soundId);
+            i.putExtra("selected_sound_title",     soundTitle);
+            i.putExtra("selected_sound_url",       soundUrl);
+            i.putExtra("replace_audio_with_sound", true);
             startActivity(i);
         });
 
@@ -918,12 +968,9 @@ public class SoundDetailActivity extends AppCompatActivity {
 
         if (btnTrimStart != null) btnTrimStart.setVisibility(View.GONE);
 
-        // CHANGE 5: Mini-player buttons
+        // ── Mini-player controls ──
         if (btnMiniPlayPause != null) {
-            btnMiniPlayPause.setOnClickListener(v -> {
-                if (isPlaying) pausePlayback();
-                else resumePlayback();
-            });
+            btnMiniPlayPause.setOnClickListener(v -> togglePlayPause());
         }
         if (btnMiniClose != null) {
             btnMiniClose.setOnClickListener(v -> {
@@ -933,80 +980,38 @@ public class SoundDetailActivity extends AppCompatActivity {
         }
     }
 
-    /** CHANGE 8: 3-dot popup menu */
-    private void showMoreMenu(View anchor) {
-        PopupMenu popup = new PopupMenu(this, anchor);
-        popup.getMenu().add(0, 1, 0, "Report Sound");
-        popup.getMenu().add(0, 2, 0, "Copy Link");
-        popup.getMenu().add(0, 3, 0, "Not Interested");
-        popup.getMenu().add(0, 4, 0, "Add to Playlist");
-        popup.setOnMenuItemClickListener(item -> {
-            switch (item.getItemId()) {
-                case 1:
-                    Toast.makeText(this, "Report submitted", Toast.LENGTH_SHORT).show();
-                    return true;
-                case 2:
-                    android.content.ClipboardManager cm = (android.content.ClipboardManager)
-                        getSystemService(Context.CLIPBOARD_SERVICE);
-                    if (cm != null) {
-                        cm.setPrimaryClip(android.content.ClipData.newPlainText("sound",
-                            "callx2://sound/" + soundId));
-                        Toast.makeText(this, "Link copied", Toast.LENGTH_SHORT).show();
-                    }
-                    return true;
-                case 3:
-                    Toast.makeText(this, "Got it — won't show similar sounds", Toast.LENGTH_SHORT).show();
-                    return true;
-                case 4:
-                    Toast.makeText(this, "Coming soon", Toast.LENGTH_SHORT).show();
-                    return true;
-                default: return false;
-            }
-        });
-        popup.show();
-    }
-
     // ───────────────────────────────────────────────────────────────────────────
-    //  Mini-player — CHANGE 5
+    //  Mini-player helpers
     // ───────────────────────────────────────────────────────────────────────────
 
     private void showMiniPlayer() {
-        if (miniPlayerContainer == null) return;
+        if (layoutMiniPlayer == null || miniPlayerActive) return;
+        miniPlayerActive = true;
         if (tvMiniTitle != null)
             tvMiniTitle.setText(soundTitle != null ? soundTitle : "Now Playing");
-        if (btnMiniPlayPause != null)
-            btnMiniPlayPause.setImageResource(isPlaying ? R.drawable.ic_pause : R.drawable.ic_play);
-        miniPlayerContainer.setVisibility(View.VISIBLE);
-        miniPlayerVisible = true;
+        if (ivMiniCover != null && coverUrl != null && !coverUrl.isEmpty()) {
+            Glide.with(this).load(coverUrl)
+                .transform(new CircleCrop())
+                .placeholder(R.drawable.ic_music_note)
+                .into(ivMiniCover);
+        }
+        layoutMiniPlayer.setVisibility(View.VISIBLE);
+        updateMiniPlayButton();
     }
 
     private void hideMiniPlayer() {
-        if (miniPlayerContainer != null) miniPlayerContainer.setVisibility(View.GONE);
-        miniPlayerVisible = false;
+        if (layoutMiniPlayer == null) return;
+        miniPlayerActive = false;
+        layoutMiniPlayer.setVisibility(View.GONE);
+    }
+
+    private void updateMiniPlayButton() {
+        if (btnMiniPlayPause == null) return;
+        btnMiniPlayPause.setImageResource(isPlaying ? R.drawable.ic_pause : R.drawable.ic_play);
     }
 
     // ───────────────────────────────────────────────────────────────────────────
-    //  Shimmer helpers — CHANGE 4
-    // ───────────────────────────────────────────────────────────────────────────
-
-    private void showShimmer() {
-        if (shimmerSound != null) {
-            shimmerSound.setVisibility(View.VISIBLE);
-            shimmerSound.startShimmer();
-        }
-        if (layoutSoundInfo != null) layoutSoundInfo.setVisibility(View.INVISIBLE);
-    }
-
-    private void hideShimmer() {
-        if (shimmerSound != null) {
-            shimmerSound.stopShimmer();
-            shimmerSound.setVisibility(View.GONE);
-        }
-        if (layoutSoundInfo != null) layoutSoundInfo.setVisibility(View.VISIBLE);
-    }
-
-    // ───────────────────────────────────────────────────────────────────────────
-    //  Playback — CHANGE 2: ExoPlayer/Media3
+    //  Playback — ExoPlayer (Media3)
     // ───────────────────────────────────────────────────────────────────────────
 
     private void togglePlayPause() {
@@ -1014,90 +1019,109 @@ public class SoundDetailActivity extends AppCompatActivity {
             Toast.makeText(this, "Loading audio…", Toast.LENGTH_SHORT).show();
             return;
         }
-        if (isPlaying) {
-            pausePlayback();
-        } else {
-            if (exoPlayer == null) {
-                initExoPlayer();
-            } else {
-                resumePlayback();
-            }
+        if (isPreparing) return;
+        if (isPlaying) pausePlayback();
+        else {
+            if (exoPlayer == null) initAndStartPlayer();
+            else                   resumePlayback();
         }
     }
 
-    private void initExoPlayer() {
-        exoPlayer = new ExoPlayer.Builder(this).build();
-        exoPlayer.setMediaItem(MediaItem.fromUri(Uri.parse(soundUrl)));
-        exoPlayer.setRepeatMode(Player.REPEAT_MODE_ONE);
-        exoPlayer.addListener(new Player.Listener() {
-            @Override public void onPlaybackStateChanged(int state) {
-                if (state == Player.STATE_READY) {
-                    setPlayButtonLoading(false);
-                    long dur = exoPlayer.getDuration();
-                    if (dur > 0 && tvTotalTime != null) tvTotalTime.setText(formatMs((int) dur));
-                    exoPlayer.play();
-                    isPlaying = true;
-                    if (btnPlayPause != null) btnPlayPause.setImageResource(R.drawable.ic_pause);
-                    if (btnMiniPlayPause != null) btnMiniPlayPause.setImageResource(R.drawable.ic_pause);
-                    startWaveAnimation();
-                    startDiscAnimation();
-                    seekHandler.post(seekUpdateRunnable);
-                } else if (state == Player.STATE_BUFFERING) {
-                    setPlayButtonLoading(true);
-                } else if (state == Player.STATE_ENDED) {
-                    pausePlayback();
-                    if (seekBar != null) seekBar.setProgress(0);
-                    if (tvCurrentTime != null) tvCurrentTime.setText("0:00");
-                }
-            }
-            @Override public void onPlayerError(@NonNull androidx.media3.common.PlaybackException error) {
-                releaseExoPlayer();
-                setPlayButtonLoading(false);
-                isPlaying = false;
-                if (btnPlayPause != null) btnPlayPause.setImageResource(R.drawable.ic_play);
-                stopWaveAnimation();
-                stopDiscAnimation();
-                Toast.makeText(SoundDetailActivity.this, "Cannot play this audio", Toast.LENGTH_SHORT).show();
-            }
-        });
+    private void initAndStartPlayer() {
+        isPreparing = true;
         setPlayButtonLoading(true);
-        exoPlayer.prepare();
+
+        exoPlayer = new ExoPlayer.Builder(this).build();
+        exoPlayer.addListener(this);
+
+        MediaItem mediaItem = MediaItem.fromUri(soundUrl);
+        exoPlayer.setMediaItem(mediaItem);
+        exoPlayer.setRepeatMode(Player.REPEAT_MODE_ONE);
+        exoPlayer.prepare(); // async — onPlaybackStateChanged fires when ready
+    }
+
+    // ── Player.Listener callbacks ──
+
+    @Override
+    public void onPlaybackStateChanged(int state) {
+        if (state == Player.STATE_READY && isPreparing) {
+            isPreparing = false;
+            setPlayButtonLoading(false);
+
+            long dur = exoPlayer.getDuration();
+            if (dur > 0 && tvTotalTime != null) tvTotalTime.setText(formatMs((int) dur));
+
+            exoPlayer.play();
+            isPlaying = true;
+            if (btnPlayPause != null) btnPlayPause.setImageResource(R.drawable.ic_pause);
+            startWaveAnimation();
+            startDiscAnimation();
+            seekHandler.post(seekUpdateRunnable);
+            updateMiniPlayButton();
+        } else if (state == Player.STATE_ENDED) {
+            // REPEAT_MODE_ONE handles looping, so this only fires if looping disabled
+            pausePlayback();
+            if (seekBar != null) seekBar.setProgress(0);
+            if (tvCurrentTime != null) tvCurrentTime.setText("0:00");
+        }
+    }
+
+    @Override
+    public void onPlayerError(@NonNull PlaybackException error) {
+        releasePlayer();
+        setPlayButtonLoading(false);
+        isPlaying   = false;
+        isPreparing = false;
+        if (btnPlayPause != null) btnPlayPause.setImageResource(R.drawable.ic_play);
+        stopWaveAnimation();
+        stopDiscAnimation();
+        seekHandler.removeCallbacks(seekUpdateRunnable);
+
+        if (!retried) {
+            retried = true;
+            mainHandler.postDelayed(this::initAndStartPlayer, 800);
+        } else {
+            Toast.makeText(this, "Cannot play this audio", Toast.LENGTH_SHORT).show();
+        }
     }
 
     private void resumePlayback() {
-        if (exoPlayer == null) { initExoPlayer(); return; }
+        if (exoPlayer == null) { initAndStartPlayer(); return; }
         exoPlayer.play();
         isPlaying = true;
         if (btnPlayPause != null) btnPlayPause.setImageResource(R.drawable.ic_pause);
-        if (btnMiniPlayPause != null) btnMiniPlayPause.setImageResource(R.drawable.ic_pause);
         startWaveAnimation();
         startDiscAnimation();
         seekHandler.post(seekUpdateRunnable);
-        hideMiniPlayer();
+        updateMiniPlayButton();
     }
 
     private void pausePlayback() {
         if (exoPlayer != null) exoPlayer.pause();
         isPlaying = false;
         if (btnPlayPause != null) btnPlayPause.setImageResource(R.drawable.ic_play);
-        if (btnMiniPlayPause != null) btnMiniPlayPause.setImageResource(R.drawable.ic_play);
         stopWaveAnimation();
         stopDiscAnimation();
         seekHandler.removeCallbacks(seekUpdateRunnable);
-    }
-
-    private void releaseExoPlayer() {
-        if (exoPlayer != null) {
-            exoPlayer.release();
-            exoPlayer = null;
-        }
-        isPlaying = false;
+        updateMiniPlayButton();
     }
 
     private void setPlayButtonLoading(boolean loading) {
         if (btnPlayPause == null) return;
+        if (progressBar  != null) progressBar.setVisibility(loading ? View.VISIBLE : View.GONE);
         btnPlayPause.setEnabled(!loading);
         btnPlayPause.setAlpha(loading ? 0.5f : 1f);
+    }
+
+    private void releasePlayer() {
+        if (exoPlayer != null) {
+            exoPlayer.removeListener(this);
+            exoPlayer.stop();
+            exoPlayer.release();
+            exoPlayer = null;
+        }
+        isPlaying   = false;
+        isPreparing = false;
     }
 
     // ───────────────────────────────────────────────────────────────────────────
@@ -1110,8 +1134,7 @@ public class SoundDetailActivity extends AppCompatActivity {
         if (uid == null || soundId == null) return;
         isSaved = !isSaved;
         updateSaveButton();
-        DatabaseReference ref = FirebaseUtils.getUserRef(uid)
-            .child("saved_sounds").child(soundId);
+        DatabaseReference ref = FirebaseUtils.getUserRef(uid).child("saved_sounds").child(soundId);
         if (isSaved) {
             ref.setValue(soundTitle);
             incrementSoundSaves(1);

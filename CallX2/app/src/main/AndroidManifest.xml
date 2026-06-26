@@ -298,6 +298,12 @@
             android:exported="false"
             android:windowSoftInputMode="adjustResize"/>
 
+        <!-- ── Sound Detail ── -->
+        <activity android:name=".activities.SoundDetailActivity"
+            android:exported="false"
+            android:theme="@style/Theme.CallX.Fullscreen"
+            android:screenOrientation="portrait"/>
+
         <!-- ── Reel Filters & Effects ── -->
         <activity android:name=".activities.ReelFiltersActivity"
             android:exported="false"
