@@ -705,8 +705,8 @@ public class SoundDetailActivity extends AppCompatActivity
         if (photo != null && !photo.isEmpty() && ivCreatorAvatar != null) {
             Glide.with(SoundDetailActivity.this).load(photo)
                 .transform(new CircleCrop())
-                .placeholder(R.drawable.ic_default_avatar)
-                .error(R.drawable.ic_default_avatar)
+                .placeholder(R.drawable.ic_person)
+                .error(R.drawable.ic_person)
                 .into(ivCreatorAvatar);
         }
 
@@ -715,16 +715,14 @@ public class SoundDetailActivity extends AppCompatActivity
 
         layoutCreator.setOnClickListener(v -> {
             if (uid == null || uid.isEmpty()) return;
-            try {
-                Intent i = new Intent(SoundDetailActivity.this,
-                    com.callx.app.activities.UserProfileActivity.class);
-                i.putExtra("uid",   uid);
-                i.putExtra("name",  name  != null ? name  : "");
-                i.putExtra("photo", photo != null ? photo : "");
-                startActivity(i);
-            } catch (Exception ex) {
-                android.util.Log.w("SoundDetail", "UserProfileActivity not found", ex);
-            }
+            // Use setClassName — UserProfileActivity is in :app module, not accessible
+            // as a compiled class from :feature-reels.
+            Intent i = new Intent()
+                .setClassName(getPackageName(), "com.callx.app.activities.UserProfileActivity")
+                .putExtra("uid",   uid)
+                .putExtra("name",  name  != null ? name  : "")
+                .putExtra("photo", photo != null ? photo : "");
+            startActivity(i);
         });
     }
 
