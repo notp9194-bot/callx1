@@ -347,8 +347,24 @@ public class ReelDuetController {
         if (!delegate.isAdded() || delegate.getActivity() == null) return;
         ReelModel reel = delegate.getReel();
         if (reel == null) return;
+
+        // ⚠️ reel.musicId is written by a BACKGROUND job (audio extraction +
+        // sound registration) that runs AFTER the reel is already live, so it
+        // can still be empty in this in-memory/just-synced reel snapshot even
+        // though the sound entity is about to exist (or already exists) on
+        // Firebase. Don't rely on musicId alone — fall back to the same
+        // deterministic "orig_{reelId}" ID that ReelUploadActivity registers
+        // original audio under. This guarantees "Use this sound" always links
+        // back to the ONE real sound entity for this reel (so reel_count and
+        // the reels-grid update correctly), instead of a fresh duplicate
+        // sound getting created every time someone reuses audio too soon.
+        String soundId = reel.musicId;
+        if ((soundId == null || soundId.isEmpty()) && reel.reelId != null && !reel.reelId.isEmpty()) {
+            soundId = "orig_" + reel.reelId;
+        }
+
         Intent i = new Intent(delegate.getActivity(), SoundDetailActivity.class);
-        i.putExtra(SoundDetailActivity.EXTRA_SOUND_ID,    reel.musicId    != null ? reel.musicId    : "");
+        i.putExtra(SoundDetailActivity.EXTRA_SOUND_ID,    soundId != null ? soundId : "");
         i.putExtra(SoundDetailActivity.EXTRA_SOUND_TITLE, reel.musicName  != null ? reel.musicName  : "Original Audio");
         i.putExtra(SoundDetailActivity.EXTRA_SOUND_URL,   reel.musicUrl   != null ? reel.musicUrl   : "");
         i.putExtra(SoundDetailActivity.EXTRA_COVER_URL,   reel.musicCoverUrl != null ? reel.musicCoverUrl : "");
