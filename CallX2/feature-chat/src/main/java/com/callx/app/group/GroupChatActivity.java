@@ -676,37 +676,19 @@ public class GroupChatActivity extends AppCompatActivity
                 }
                 if (!initialScrollDone) return;
                 int total = pagingAdapter.getItemCount();
-
-                // Check inserted items for own vs others messages
-                boolean ownMsgInserted = false;
+                // AUTO-SCROLL DISABLED — see ChatActivity's onItemRangeInserted
+                // comment. New inserts never force-scroll, regardless of
+                // bottom state; user taps the "↓ N new messages" indicator/FAB.
                 int othersCount = 0;
                 for (int i = positionStart; i < Math.min(positionStart + itemCount, total); i++) {
                     com.callx.app.models.Message m = pagingAdapter.peek(i);
-                    if (m != null && m.senderId != null) {
-                        if (m.senderId.equals(currentUid)) {
-                            ownMsgInserted = true;
-                        } else {
-                            othersCount++;
-                        }
+                    if (m != null && m.senderId != null && !m.senderId.equals(currentUid)) {
+                        othersCount++;
                     }
                 }
-
-                // WHATSAPP-STYLE: When the user sends their own message,
-                // instantly scroll to bottom — no animation, no flicker.
-                if (ownMsgInserted) {
-                    binding.rvMessages.scrollToPosition(total - 1);
-                    isUserAtBottom = true;
-                    pendingNewMsgCount = 0;
-                    hideNewMessagesIndicator();
-                    com.callx.app.chat.ui.MessageHighlightAnimator.hideFab(binding.fabBackToLatest);
-                    return;
-                }
-
                 if (othersCount > 0 && !isUserAtBottom) {
                     pendingNewMsgCount += othersCount;
                     updateNewMessagesIndicator(pendingNewMsgCount);
-                } else if (othersCount > 0 && isUserAtBottom) {
-                    binding.rvMessages.scrollToPosition(total - 1);
                 }
             }
         });
@@ -878,12 +860,26 @@ public class GroupChatActivity extends AppCompatActivity
 
         if (db == null) return;
 
-        // FLICKER FIX v46: severPaging+reanchor hata diya — same fix as ChatActivity.
-        // Room InvalidationTracker khud diff karega, Pager restart se blink band hoga.
+        // BUG FIX (v2): sever the OLD Pager's source BEFORE the write — see
+        // ChatActivity.flushPendingRoomWrites() for full reasoning. Removing
+        // it after the write loses the race against Room's invalidation
+        // tracker, which is why the top-jump persisted with the earlier fix.
+        boolean willReanchor = isUserAtBottom;
+        if (willReanchor && currentPagingLiveSource != null && pagingMediator != null) {
+            pagingMediator.removeSource(currentPagingLiveSource);
+            currentPagingLiveSource = null;
+        }
+
         ioExecutor.execute(() -> {
             List<MessageEntity> entities = new ArrayList<>(upsertsSnapshot.size());
             for (Message m : upsertsSnapshot) entities.add(modelToEntity(m));
             db.messageDao().applyBufferedChanges(entities, removalsSnapshot, null);
+
+            if (willReanchor) {
+                int count = db.messageDao().getMessageCount(groupId);
+                Integer initialKey = (count > 0) ? Integer.valueOf(count - 1) : null;
+                runOnUiThread(() -> attachPagerWithKey(initialKey));
+            }
         });
     }
 

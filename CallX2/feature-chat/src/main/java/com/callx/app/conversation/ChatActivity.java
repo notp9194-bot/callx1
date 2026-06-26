@@ -1284,42 +1284,22 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                     return;
                 }
                 int total = pagingAdapter.getItemCount();
-
-                // Check inserted items for own vs others messages
-                boolean ownMsgInserted = false;
+                // AUTO-SCROLL DISABLED: new inserts no longer force the
+                // RecyclerView to jump to the bottom, regardless of whether
+                // the user is currently at the bottom or scrolled up. The
+                // list simply grows in place; the user explicitly taps the
+                // "↓ N new messages" indicator / FAB (or scrolls manually)
+                // to go to the latest message.
                 int othersCount = 0;
                 for (int i = positionStart; i < Math.min(positionStart + itemCount, total); i++) {
                     Message m = pagingAdapter.peek(i);
-                    if (m != null && m.senderId != null) {
-                        if (m.senderId.equals(currentUid)) {
-                            ownMsgInserted = true;
-                        } else {
-                            othersCount++;
-                        }
+                    if (m != null && m.senderId != null && !m.senderId.equals(currentUid)) {
+                        othersCount++;
                     }
                 }
-
-                // WHATSAPP-STYLE: When the user sends their own message,
-                // instantly scroll to the bottom without animation.
-                // scrollToPosition() is instant (no animator) so the list
-                // doesn't "jump" — it just snaps cleanly like WhatsApp.
-                // This also prevents the stackFromEnd re-anchor flicker
-                // that caused upper messages to flash/jitter on send.
-                if (ownMsgInserted) {
-                    binding.rvMessages.scrollToPosition(total - 1);
-                    isUserAtBottom = true;
-                    pendingNewMsgCount = 0;
-                    hideNewMessagesIndicator();
-                    MessageHighlightAnimator.hideFab(binding.fabBackToLatest);
-                    return;
-                }
-
                 if (othersCount > 0 && !isUserAtBottom) {
                     pendingNewMsgCount += othersCount;
                     updateNewMessagesIndicator(pendingNewMsgCount);
-                } else if (othersCount > 0 && isUserAtBottom) {
-                    // User is at bottom and others' message arrived — snap to bottom
-                    binding.rvMessages.scrollToPosition(total - 1);
                 }
             }
         });
@@ -1569,14 +1549,21 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         for (Message m : upsertsSnapshot) LastMessagesCache.getInstance().upsert(chatId, m);
         for (String removedId : removalsSnapshot) LastMessagesCache.getInstance().removeMessage(chatId, removedId);
 
-        // FLICKER FIX v46: severPagingIfAtBottom()+reanchorPagingToBottom() yahan se
-        // bhi hata diya. Incoming messages ka flush (Firebase → Room) ab sirf Room
-        // write karta hai — Paging 3 ka InvalidationTracker diff karega, existing
-        // messages kabhi remove+re-add nahi honge. Zero blink on receive bhi.
+        // BUG FIX (v2): sever the OLD Pager's source HERE, before the write
+        // starts — see severPagingIfAtBottom() doc above for why doing this
+        // after the write loses the race against Room's invalidation
+        // tracker (which is what caused the top-jump to persist even after
+        // the v1 fix). Shared with ChatMessageSender's direct write paths
+        // (insertMessage / updateStatus) which bypass this buffered method
+        // entirely — see severPagingIfAtBottom()/reanchorPagingToBottom().
+        boolean willReanchor = severPagingIfAtBottom();
+
         ioExecutor.execute(() -> {
             java.util.List<MessageEntity> entities = new java.util.ArrayList<>(upsertsSnapshot.size());
             for (Message m : upsertsSnapshot) entities.add(modelToEntity(m));
             db.messageDao().applyBufferedChanges(entities, removalsSnapshot, readSnapshot);
+
+            if (willReanchor) reanchorPagingToBottom();
         });
     }
 
