@@ -42,7 +42,7 @@
                 android:layout_width="48dp"
                 android:layout_height="48dp"
                 android:src="@drawable/ic_share_reel"
-            android:tint="#00F260"
+                android:tint="#00F260"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:contentDescription="Share sound"/>
 
@@ -51,7 +51,7 @@
                 android:layout_width="48dp"
                 android:layout_height="48dp"
                 android:src="@drawable/ic_bookmark"
-            android:tint="#00C6FF"
+                android:tint="#00C6FF"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:contentDescription="Save sound"/>
         </LinearLayout>
@@ -62,32 +62,45 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:background="#1A1A1A"
+            android:background="#111111"
             android:padding="20dp"
             android:visibility="visible">
 
+            <!-- Cover + meta row -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
                 android:gravity="center_vertical">
 
-                <!-- Album art -->
+                <!-- Spinning disc cover -->
                 <FrameLayout
-                    android:layout_width="72dp"
-                    android:layout_height="72dp">
+                    android:layout_width="80dp"
+                    android:layout_height="80dp">
 
+                    <!-- Outer disc ring -->
+                    <ImageView
+                        android:id="@+id/iv_disc_ring"
+                        android:layout_width="80dp"
+                        android:layout_height="80dp"
+                        android:layout_gravity="center"
+                        android:src="@drawable/ic_music_disc"
+                        android:tint="#2A2A2A"
+                        android:scaleType="fitXY"/>
+
+                    <!-- Album art (circular, clips to circle in code) -->
                     <ImageView
                         android:id="@+id/iv_sound_cover"
-                        android:layout_width="72dp"
-                        android:layout_height="72dp"
+                        android:layout_width="60dp"
+                        android:layout_height="60dp"
+                        android:layout_gravity="center"
                         android:scaleType="centerCrop"
-                        android:background="@drawable/circle_primary"
                         android:src="@drawable/ic_music_note"/>
 
+                    <!-- Center hole -->
                     <View
-                        android:layout_width="20dp"
-                        android:layout_height="20dp"
+                        android:layout_width="14dp"
+                        android:layout_height="14dp"
                         android:layout_gravity="center"
                         android:background="@drawable/bg_circle_white"/>
                 </FrameLayout>
@@ -107,7 +120,7 @@
                         android:textColor="@color/white"
                         android:textSize="16sp"
                         android:fontFamily="sans-serif-medium"
-                        android:maxLines="1"
+                        android:maxLines="2"
                         android:ellipsize="end"/>
 
                     <TextView
@@ -117,8 +130,9 @@
                         android:text="• Original Audio"
                         android:textColor="#AAFFFFFF"
                         android:textSize="13sp"
-                        android:layout_marginTop="2dp"/>
+                        android:layout_marginTop="3dp"/>
 
+                    <!-- Stats row: duration • reels • saves -->
                     <LinearLayout
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
@@ -152,7 +166,7 @@
                             android:visibility="gone"/>
                     </LinearLayout>
 
-                    <!-- Metadata badges row -->
+                    <!-- BPM + Genre + badges -->
                     <LinearLayout
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
@@ -192,7 +206,7 @@
                             android:id="@+id/tv_sound_verified_badge"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="Verified"
+                            android:text="✓ Verified"
                             android:textColor="#4FC3F7"
                             android:textSize="10sp"
                             android:fontFamily="sans-serif-medium"
@@ -200,7 +214,6 @@
                             android:visibility="gone"/>
                     </LinearLayout>
 
-                    <!-- Trending badge -->
                     <TextView
                         android:id="@+id/tv_sound_trending_rank"
                         android:layout_width="wrap_content"
@@ -216,23 +229,65 @@
                 <!-- Play/Pause button -->
                 <ImageButton
                     android:id="@+id/btn_sound_play_pause"
-                    android:layout_width="48dp"
-                    android:layout_height="48dp"
+                    android:layout_width="52dp"
+                    android:layout_height="52dp"
                     android:src="@drawable/ic_play"
-            android:tint="#A855F7"
-                    android:background="@drawable/circle_primary"
-                    android:padding="12dp"
+                    android:tint="#A855F7"
+                    android:background="@drawable/bg_play_pause_btn"
+                    android:padding="14dp"
                     android:contentDescription="Play preview"/>
             </LinearLayout>
 
-            <!-- Animated waveform -->
+            <!-- Seekbar + time row -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:layout_marginTop="16dp">
+
+                <SeekBar
+                    android:id="@+id/seekbar_sound"
+                    android:layout_width="match_parent"
+                    android:layout_height="28dp"
+                    android:progressTint="#A855F7"
+                    android:thumbTint="#A855F7"
+                    android:progressBackgroundTint="#33FFFFFF"
+                    android:max="100"/>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginTop="2dp">
+
+                    <TextView
+                        android:id="@+id/tv_sound_current_time"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="0:00"
+                        android:textColor="#77FFFFFF"
+                        android:textSize="11sp"/>
+
+                    <View android:layout_width="0dp" android:layout_height="1dp" android:layout_weight="1"/>
+
+                    <TextView
+                        android:id="@+id/tv_sound_total_time"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="0:00"
+                        android:textColor="#77FFFFFF"
+                        android:textSize="11sp"/>
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- Waveform (visible while playing) -->
             <LinearLayout
                 android:id="@+id/layout_sound_waveform"
                 android:layout_width="match_parent"
-                android:layout_height="48dp"
+                android:layout_height="40dp"
                 android:orientation="horizontal"
                 android:gravity="bottom|center_horizontal"
-                android:layout_marginTop="16dp"
+                android:layout_marginTop="12dp"
                 android:layout_marginBottom="4dp"/>
 
             <!-- Use sound buttons -->
@@ -273,7 +328,7 @@
                 android:id="@+id/btn_trim_start"
                 android:layout_width="wrap_content"
                 android:layout_height="36dp"
-                android:text="Set Start Point"
+                android:text="✂ Set Start Point"
                 android:textColor="#FFFFFF"
                 android:textSize="13sp"
                 android:fontFamily="sans-serif-medium"
@@ -294,20 +349,38 @@
             android:layout_marginVertical="8dp"
             android:visibility="gone"/>
 
-        <!-- Reels using this sound header -->
-        <TextView
-            android:layout_width="wrap_content"
+        <!-- Reels with this sound -->
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Reels with this sound"
-            android:textColor="@color/white"
-            android:textSize="14sp"
-            android:fontFamily="sans-serif-medium"
-            android:padding="16dp"/>
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingHorizontal="16dp"
+            android:paddingTop="16dp"
+            android:paddingBottom="8dp">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Reels with this sound"
+                android:textColor="@color/white"
+                android:textSize="15sp"
+                android:fontFamily="sans-serif-medium"/>
+
+            <TextView
+                android:id="@+id/tv_see_all_reels"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="See all"
+                android:textColor="#A855F7"
+                android:textSize="13sp"/>
+        </LinearLayout>
 
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/rv_sound_reels"
             android:layout_width="match_parent"
-            android:layout_height="300dp"
+            android:layout_height="330dp"
             android:clipToPadding="false"/>
 
         <!-- Related sounds section -->
@@ -318,16 +391,32 @@
             android:orientation="vertical"
             android:visibility="gone">
 
-            <TextView
-                android:layout_width="wrap_content"
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Similar Sounds"
-                android:textColor="@color/white"
-                android:textSize="14sp"
-                android:fontFamily="sans-serif-medium"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
                 android:paddingHorizontal="16dp"
                 android:paddingTop="16dp"
-                android:paddingBottom="8dp"/>
+                android:paddingBottom="8dp">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Similar Sounds"
+                    android:textColor="@color/white"
+                    android:textSize="15sp"
+                    android:fontFamily="sans-serif-medium"/>
+
+                <TextView
+                    android:id="@+id/tv_see_all_related"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="See all"
+                    android:textColor="#A855F7"
+                    android:textSize="13sp"/>
+            </LinearLayout>
 
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/rv_related_sounds"
@@ -338,6 +427,11 @@
                 android:paddingBottom="16dp"
                 android:clipToPadding="false"/>
         </LinearLayout>
+
+        <!-- Bottom padding for nav bar -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="80dp"/>
 
     </LinearLayout>
 </ScrollView>
