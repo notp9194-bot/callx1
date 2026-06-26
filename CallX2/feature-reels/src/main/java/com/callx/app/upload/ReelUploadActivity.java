@@ -1634,6 +1634,7 @@ public class ReelUploadActivity extends AppCompatActivity {
                         // This runs after the reel is already live, so user doesn't wait.
                         java.io.File videoFileForAudio = new java.io.File(videoPath);
                         if (videoFileForAudio.exists()) {
+                            final String soundChosenId = b.preSelectedSoundId;
                             VideoUploader.uploadOriginalAudio(b, videoFileForAudio,
                                 new VideoUploader.AudioUploadCallback() {
                                     @Override
@@ -1645,6 +1646,13 @@ public class ReelUploadActivity extends AppCompatActivity {
                                             .setValue(audioUrl);
                                         Log.d("ReelUpload",
                                             "originalAudioUrl saved: " + audioUrl);
+
+                                        // ✅ Make this audio reusable/discoverable, Instagram-style:
+                                        // register it as a proper "sounds/{soundId}" entity so
+                                        // other users can find it, see waveform/reel-count, and
+                                        // use it on their own reels — not just play it back here.
+                                        registerOrLinkSound(b, finalReelId, myUid, myName,
+                                            thumbUrl, videoUrl, audioUrl, soundChosenId);
                                     }
                                     @Override
                                     public void onError(Exception e) {
@@ -1676,6 +1684,108 @@ public class ReelUploadActivity extends AppCompatActivity {
                 Toast.makeText(a, "Database error: " + e.getMessage(), Toast.LENGTH_SHORT).show();
             }
         });
+    }
+
+    /**
+     * ✅ Instagram-style audio reusability.
+     *
+     * Earlier, the extracted "original audio" was only ever saved on the reel
+     * itself (reel.originalAudioUrl) — it was playable on that one reel's Sound
+     * screen but never became a real, indexed "sounds/{soundId}" entity. So it
+     * never showed up under "X Reels" / trending / "Use this sound" anywhere
+     * else, and other users could never discover or reuse it.
+     *
+     * This now mirrors how Instagram treats audio:
+     *  - If the creator did NOT pick an existing sound (soundChosenId empty),
+     *    the just-extracted original audio is registered as a brand-new,
+     *    standalone sound entity under sounds/{soundId} — with its own cover,
+     *    artist, reel-count, and saves — so it becomes searchable/usable by
+     *    anyone, exactly like a real Instagram "Original audio".
+     *  - If the creator DID pick an existing sound, instead of silently doing
+     *    nothing, we register this reel under that sound's reel list and bump
+     *    its reel_count, so the sound's "Reels with this sound" grid + count
+     *    actually reflect every reel that used it.
+     *
+     * Either way, reel.musicId ends up pointing at a real sounds/{soundId}
+     * node, so SoundDetailActivity (and "Use this sound") work the same for
+     * original audio as they do for picked/trending sounds.
+     */
+    private static void registerOrLinkSound(ReelUploadActivity activity,
+                                              String reelId, String ownerUid, String ownerName,
+                                              String thumbUrl, String videoUrl, String audioUrl,
+                                              String soundChosenId) {
+        if (activity == null || activity.isFinishing() || activity.isDestroyed()) return;
+
+        boolean usingExistingSound = soundChosenId != null && !soundChosenId.isEmpty();
+        final String soundId = usingExistingSound ? soundChosenId : ("orig_" + reelId);
+
+        com.google.firebase.database.DatabaseReference soundRef =
+            FirebaseUtils.db().getReference("sounds").child(soundId);
+
+        // Always link this reel → real sound entity (so SoundDetailActivity,
+        // "Use this sound" etc. behave the same for original audio as for any
+        // other sound).
+        FirebaseUtils.getReelsRef().child(reelId).child("musicId").setValue(soundId);
+
+        // Add this reel into the sound's own reel list (drives "Reels with
+        // this sound" grid + total count on SoundDetailActivity).
+        java.util.Map<String, Object> reelEntry = new java.util.HashMap<>();
+        reelEntry.put("thumbnailUrl", thumbUrl != null ? thumbUrl : "");
+        reelEntry.put("videoUrl",     videoUrl != null ? videoUrl : "");
+        reelEntry.put("ownerUid",     ownerUid != null ? ownerUid : "");
+        soundRef.child("reels").child(reelId).setValue(reelEntry);
+
+        // Bump reel_count via transaction (works whether the sound node
+        // already existed or is being created for the first time).
+        soundRef.child("reel_count").runTransaction(new Transaction.Handler() {
+            @NonNull @Override
+            public Transaction.Result doTransaction(@NonNull MutableData d) {
+                Long cur = d.getValue(Long.class);
+                d.setValue((cur != null ? cur : 0) + 1);
+                return Transaction.success(d);
+            }
+            @Override public void onComplete(DatabaseError e, boolean committed, DataSnapshot s) {}
+        });
+
+        if (usingExistingSound) {
+            // Existing sound already has its own title/artist/cover — don't
+            // clobber them, just fill in audioUrl if it was somehow missing.
+            soundRef.child("audioUrl").runTransaction(new Transaction.Handler() {
+                @NonNull @Override
+                public Transaction.Result doTransaction(@NonNull MutableData d) {
+                    String cur = d.getValue(String.class);
+                    if (cur == null || cur.isEmpty()) d.setValue(audioUrl);
+                    return Transaction.success(d);
+                }
+                @Override public void onComplete(DatabaseError e, boolean committed, DataSnapshot s) {}
+            });
+            return;
+        }
+
+        // Brand-new original-audio entity — fill out full metadata once.
+        java.util.Map<String, Object> soundData = new java.util.HashMap<>();
+        soundData.put("audioUrl",     audioUrl != null ? audioUrl : "");
+        soundData.put("title",        "Original audio");
+        soundData.put("artist",       ownerName != null ? ownerName : "");
+        soundData.put("coverUrl",     thumbUrl != null ? thumbUrl : "");
+        soundData.put("is_original",  true);
+        soundData.put("is_verified",  false);
+        soundData.put("total_saves",  0);
+        soundData.put("trending_rank", 0);
+        soundData.put("ownerUid",     ownerUid != null ? ownerUid : "");
+        soundData.put("sourceReelId", reelId);
+        soundData.put("created_at",   ServerValue.TIMESTAMP);
+        soundRef.updateChildren(soundData);
+
+        // Reflect the new soundId + clean display fields back on the reel too,
+        // so the feed's own "sound" row also points at the real entity.
+        java.util.Map<String, Object> reelUpdate = new java.util.HashMap<>();
+        reelUpdate.put("musicId",        soundId);
+        reelUpdate.put("musicUrl",       audioUrl != null ? audioUrl : "");
+        reelUpdate.put("musicCoverUrl",  thumbUrl != null ? thumbUrl : "");
+        reelUpdate.put("musicArtist",    ownerName != null ? ownerName : "");
+        reelUpdate.put("musicName",      "Original audio");
+        FirebaseUtils.getReelsRef().child(reelId).updateChildren(reelUpdate);
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────
