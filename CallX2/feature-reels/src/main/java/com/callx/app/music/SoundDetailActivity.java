@@ -570,14 +570,17 @@ public class SoundDetailActivity extends AppCompatActivity
 
     private void loadReelsForSound() {
         if (soundId == null || soundId.isEmpty() || rvReels == null) return;
-        reelThumbAdapter = new ReelThumbAdapter(reelItems, item -> {
+        reelThumbAdapter = new ReelThumbAdapter(reelItems, position -> {
+            // Pass every reel currently in the grid (same order), not just the
+            // tapped one, so the player screen has a full feed to scroll
+            // through — previously only the single tapped reel_id was sent,
+            // which is why only one reel played and there was nothing to
+            // scroll down to.
+            ArrayList<String> ids = new ArrayList<>();
+            for (ReelThumbItem r : reelItems) ids.add(r.reelId);
             Intent i = new Intent(this, SingleReelPlayerActivity.class);
-            // ⚠️ Bug fix: was putExtra("reel_id", ...) which never matched
-            // SingleReelPlayerActivity.EXTRA_REEL_ID ("reelId") nor EXTRA_REEL_IDS
-            // ("reel_ids") nor EXTRA_UID ("uid") — so the target activity fell
-            // through to "No reels to show" and finished immediately, which is
-            // why tapping a reel in this grid never actually played anything.
-            i.putExtra(SingleReelPlayerActivity.EXTRA_REEL_ID, item.reelId);
+            i.putStringArrayListExtra(SingleReelPlayerActivity.EXTRA_REEL_IDS, ids);
+            i.putExtra(SingleReelPlayerActivity.EXTRA_START_POSITION, position);
             startActivity(i);
         });
         rvReels.setAdapter(reelThumbAdapter);
@@ -1146,7 +1149,7 @@ public class SoundDetailActivity extends AppCompatActivity
 
     static class ReelThumbAdapter extends RecyclerView.Adapter<ReelThumbAdapter.VH> {
         private static final int GRID_COLUMNS = 3;
-        interface OnClick { void click(ReelThumbItem item); }
+        interface OnClick { void click(int position); }
         private final List<ReelThumbItem> items;
         private final OnClick             onClick;
         ReelThumbAdapter(List<ReelThumbItem> items, OnClick onClick) {
@@ -1179,7 +1182,10 @@ public class SoundDetailActivity extends AppCompatActivity
                 h.ivThumb.setImageResource(R.drawable.ic_play);
             }
             h.tvOriginalStrip.setVisibility(item.isOriginalCreator ? View.VISIBLE : View.GONE);
-            h.itemView.setOnClickListener(v -> onClick.click(item));
+            h.itemView.setOnClickListener(v -> {
+                int adapterPos = h.getBindingAdapterPosition();
+                if (adapterPos != RecyclerView.NO_POSITION) onClick.click(adapterPos);
+            });
         }
 
         @Override public int getItemCount() { return items.size(); }
