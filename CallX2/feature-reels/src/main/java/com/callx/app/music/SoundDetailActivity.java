@@ -5,25 +5,19 @@ import com.callx.app.camera.ReelCameraActivity;
 import com.callx.app.editor.ReelMusicTrimActivity;
 import com.callx.app.upload.ReelUploadActivity;
 
-import android.animation.Animator;
-import android.animation.AnimatorListenerAdapter;
 import android.animation.ObjectAnimator;
 import android.animation.ValueAnimator;
 import android.content.Context;
 import android.content.Intent;
-import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.Gravity;
-import android.view.LayoutInflater;
-import android.view.MenuItem;
 import android.view.View;
 import android.view.animation.LinearInterpolator;
 import android.widget.*;
 import androidx.annotation.NonNull;
-import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.PopupMenu;
 import androidx.media3.common.MediaItem;
@@ -185,7 +179,8 @@ public class SoundDetailActivity extends AppCompatActivity {
         super.onPause();
         if (isPlaying) {
             pausePlayback();
-            showMiniPlayer();
+            // mini-player: only show if we actually have a player running
+            if (exoPlayer != null && miniPlayerContainer != null) showMiniPlayer();
         }
     }
 
@@ -852,28 +847,18 @@ public class SoundDetailActivity extends AppCompatActivity {
         layoutCreator.setVisibility(View.VISIBLE);
         if (dividerCreator != null) dividerCreator.setVisibility(View.VISIBLE);
 
+        // CHANGE 7: original creator click → UserProfileActivity
         layoutCreator.setOnClickListener(v -> {
             if (uid == null || uid.isEmpty()) return;
             try {
-                // CHANGE 7: open ReelProfileActivity (reel profile), not UserProfileActivity
                 Intent i = new Intent()
-                    .setClassName(SoundDetailActivity.this, "com.callx.app.reels.ReelProfileActivity");
+                    .setClassName(SoundDetailActivity.this, "com.callx.app.activities.UserProfileActivity");
                 i.putExtra("uid",   uid);
                 i.putExtra("name",  name  != null ? name  : "");
                 i.putExtra("photo", photo != null ? photo : "");
                 startActivity(i);
             } catch (Exception ex) {
-                // fallback to main UserProfileActivity if reel profile not found
-                try {
-                    Intent i2 = new Intent()
-                        .setClassName(SoundDetailActivity.this, "com.callx.app.activities.UserProfileActivity");
-                    i2.putExtra("uid",   uid);
-                    i2.putExtra("name",  name  != null ? name  : "");
-                    i2.putExtra("photo", photo != null ? photo : "");
-                    startActivity(i2);
-                } catch (Exception ex2) {
-                    android.util.Log.w("SoundDetail", "Profile activity not found", ex2);
-                }
+                android.util.Log.w("SoundDetail", "UserProfileActivity not found", ex);
             }
         });
     }
