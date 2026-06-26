@@ -100,6 +100,17 @@
                 android:textSize="12sp"
                 android:textColor="?attr/colorOnSurfaceVariant"/>
         </LinearLayout>
+
+        <Button
+            android:id="@+id/btn_mixer_change_music"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:text="Change"
+            android:textSize="13sp"
+            android:textColor="#FFFFFF"
+            android:backgroundTint="#FF3B5C"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"/>
     </LinearLayout>
 
     <ScrollView

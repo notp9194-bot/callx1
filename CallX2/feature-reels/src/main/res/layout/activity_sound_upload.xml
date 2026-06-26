@@ -55,7 +55,7 @@
                 android:textSize="12sp"
                 android:textAllCaps="true"
                 android:letterSpacing="0.1"
-                android:marginBottom="6dp"/>
+                android:layout_marginBottom="6dp"/>
 
             <Button
                 android:id="@+id/btn_pick_audio"
@@ -86,7 +86,7 @@
                 android:textSize="12sp"
                 android:textAllCaps="true"
                 android:letterSpacing="0.1"
-                android:marginBottom="6dp"/>
+                android:layout_marginBottom="6dp"/>
 
             <EditText
                 android:id="@+id/et_upload_title"
@@ -99,7 +99,7 @@
                 android:paddingStart="12dp"
                 android:paddingEnd="12dp"
                 android:inputType="textCapWords"
-                android:marginBottom="16dp"/>
+                android:layout_marginBottom="16dp"/>
 
             <!-- Artist -->
             <TextView
@@ -110,7 +110,7 @@
                 android:textSize="12sp"
                 android:textAllCaps="true"
                 android:letterSpacing="0.1"
-                android:marginBottom="6dp"/>
+                android:layout_marginBottom="6dp"/>
 
             <EditText
                 android:id="@+id/et_upload_artist"
@@ -123,7 +123,7 @@
                 android:paddingStart="12dp"
                 android:paddingEnd="12dp"
                 android:inputType="textCapWords"
-                android:marginBottom="16dp"/>
+                android:layout_marginBottom="16dp"/>
 
             <!-- Genre -->
             <TextView
@@ -134,7 +134,7 @@
                 android:textSize="12sp"
                 android:textAllCaps="true"
                 android:letterSpacing="0.1"
-                android:marginBottom="6dp"/>
+                android:layout_marginBottom="6dp"/>
 
             <Spinner
                 android:id="@+id/spinner_upload_genre"
@@ -142,7 +142,7 @@
                 android:layout_height="48dp"
                 android:background="#1A1A1A"
                 android:paddingStart="12dp"
-                android:marginBottom="24dp"/>
+                android:layout_marginBottom="24dp"/>
 
             <!-- Upload status -->
             <TextView
@@ -164,7 +164,7 @@
                 android:progressTint="#FF3B5C"
                 android:max="100"
                 android:visibility="gone"
-                android:marginBottom="16dp"/>
+                android:layout_marginBottom="16dp"/>
 
             <!-- Upload button -->
             <Button
