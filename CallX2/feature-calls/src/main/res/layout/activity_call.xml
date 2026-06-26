@@ -1,0 +1,268 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#FF0D0D1A">
+
+    <!-- Remote video (full screen background) -->
+    <org.webrtc.SurfaceViewRenderer
+        android:id="@+id/remote_video"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"/>
+
+    <!-- Dark scrim over remote video -->
+    <View
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:background="#66000000"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"/>
+
+    <!-- Remote cam off avatar (shown when remote video is off) -->
+    <de.hdodenhof.circleimageview.CircleImageView
+        android:id="@+id/iv_remote_cam_off_avatar"
+        android:layout_width="120dp"
+        android:layout_height="120dp"
+        android:src="@drawable/ic_person"
+        android:visibility="gone"
+        app:civ_border_color="#4400E5FF"
+        app:civ_border_width="2dp"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintVertical_bias="0.38"/>
+
+    <!-- Caller avatar (center — hidden once call connects in video mode) -->
+    <de.hdodenhof.circleimageview.CircleImageView
+        android:id="@+id/iv_call_avatar"
+        android:layout_width="140dp"
+        android:layout_height="140dp"
+        android:src="@drawable/ic_person"
+        app:civ_border_color="#FF00E5FF"
+        app:civ_border_width="3dp"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintVertical_bias="0.33"/>
+
+    <!-- Caller name -->
+    <TextView
+        android:id="@+id/tv_caller_name"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Caller"
+        android:textColor="#FFFFFF"
+        android:textSize="28sp"
+        android:textStyle="bold"
+        android:gravity="center"
+        android:shadowColor="#AA7B2FFF"
+        android:shadowDx="0"
+        android:shadowDy="0"
+        android:shadowRadius="10"
+        android:layout_marginTop="16dp"
+        app:layout_constraintTop_toBottomOf="@id/iv_call_avatar"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"/>
+
+    <!-- Call status (Calling… / Connected • 0:12) -->
+    <TextView
+        android:id="@+id/tv_call_status"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Calling..."
+        android:textColor="#CC00E5FF"
+        android:textSize="14sp"
+        android:letterSpacing="0.06"
+        android:layout_marginTop="8dp"
+        app:layout_constraintTop_toBottomOf="@id/tv_caller_name"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"/>
+
+    <!-- Local video PiP (draggable corner) -->
+    <org.webrtc.SurfaceViewRenderer
+        android:id="@+id/local_video"
+        android:layout_width="96dp"
+        android:layout_height="140dp"
+        android:layout_marginTop="56dp"
+        android:layout_marginEnd="16dp"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"/>
+
+    <!-- Local cam-off badge (shown over local_video when camera is off) -->
+    <FrameLayout
+        android:id="@+id/layout_local_cam_off_badge"
+        android:layout_width="96dp"
+        android:layout_height="140dp"
+        android:layout_marginTop="56dp"
+        android:layout_marginEnd="16dp"
+        android:background="#CC1A1A2E"
+        android:visibility="gone"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
+
+        <ImageView
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:layout_gravity="center"
+            android:src="@drawable/ic_video_off"
+            android:tint="#88FFFFFF"/>
+    </FrameLayout>
+
+    <!-- Bottom controls area -->
+    <LinearLayout
+        android:id="@+id/layout_controls"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:layout_marginBottom="40dp"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
+
+        <!-- Top row: Mic | Speaker | Camera | Flip -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center"
+            android:layout_marginBottom="24dp">
+
+            <!-- Toggle Mic -->
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:gravity="center">
+
+                <ImageButton
+                    android:id="@+id/btn_toggle_mic"
+                    android:layout_width="56dp"
+                    android:layout_height="56dp"
+                    android:src="@drawable/ic_mic"
+                    android:background="@drawable/bg_call_btn_secondary"
+                    android:tint="#FFFFFF"
+                    android:elevation="4dp"
+                    android:contentDescription="Mute mic"/>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Mute"
+                    android:textColor="#CCFFFFFF"
+                    android:textSize="11sp"
+                    android:layout_marginTop="6dp"/>
+            </LinearLayout>
+
+            <!-- Toggle Speaker -->
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:gravity="center">
+
+                <ImageButton
+                    android:id="@+id/btn_toggle_speaker"
+                    android:layout_width="56dp"
+                    android:layout_height="56dp"
+                    android:src="@drawable/ic_volume_on"
+                    android:background="@drawable/bg_call_btn_secondary"
+                    android:tint="#FFFFFF"
+                    android:elevation="4dp"
+                    android:contentDescription="Speaker"/>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Speaker"
+                    android:textColor="#CCFFFFFF"
+                    android:textSize="11sp"
+                    android:layout_marginTop="6dp"/>
+            </LinearLayout>
+
+            <!-- Toggle Camera -->
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:gravity="center">
+
+                <ImageButton
+                    android:id="@+id/btn_toggle_camera"
+                    android:layout_width="56dp"
+                    android:layout_height="56dp"
+                    android:src="@drawable/ic_video"
+                    android:background="@drawable/bg_call_btn_secondary"
+                    android:tint="#FFFFFF"
+                    android:elevation="4dp"
+                    android:contentDescription="Toggle camera"/>
+
+                <TextView
+                    android:id="@+id/tv_camera_label"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Camera"
+                    android:textColor="#CCFFFFFF"
+                    android:textSize="11sp"
+                    android:layout_marginTop="6dp"/>
+            </LinearLayout>
+
+            <!-- Switch Camera -->
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:gravity="center">
+
+                <ImageButton
+                    android:id="@+id/btn_switch_camera"
+                    android:layout_width="56dp"
+                    android:layout_height="56dp"
+                    android:src="@drawable/ic_flip_camera"
+                    android:background="@drawable/bg_call_btn_secondary"
+                    android:tint="#FFFFFF"
+                    android:elevation="4dp"
+                    android:contentDescription="Switch camera"/>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Flip"
+                    android:textColor="#CCFFFFFF"
+                    android:textSize="11sp"
+                    android:layout_marginTop="6dp"/>
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- End call button (center) -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center">
+
+            <ImageButton
+                android:id="@+id/btn_end_call"
+                android:layout_width="72dp"
+                android:layout_height="72dp"
+                android:src="@drawable/ic_phone_off"
+                android:background="@drawable/bg_btn_reject_gradient"
+                android:tint="@color/white"
+                android:elevation="8dp"
+                android:contentDescription="End call"/>
+        </LinearLayout>
+    </LinearLayout>
+
+</androidx.constraintlayout.widget.ConstraintLayout>
