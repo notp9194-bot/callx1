@@ -747,8 +747,8 @@ public class SoundDetailActivity extends AppCompatActivity
         if (photo != null && !photo.isEmpty() && ivCreatorAvatar != null) {
             Glide.with(SoundDetailActivity.this).load(photo)
                 .transform(new CircleCrop())
-                .placeholder(R.drawable.ic_default_avatar)
-                .error(R.drawable.ic_default_avatar)
+                .placeholder(R.drawable.ic_person)
+                .error(R.drawable.ic_person)
                 .into(ivCreatorAvatar);
         }
 
@@ -758,8 +758,8 @@ public class SoundDetailActivity extends AppCompatActivity
         layoutCreator.setOnClickListener(v -> {
             if (uid == null || uid.isEmpty()) return;
             try {
-                Intent i = new Intent(SoundDetailActivity.this,
-                    com.callx.app.activities.UserProfileActivity.class);
+                Class<?> cls = Class.forName("com.callx.app.activities.UserProfileActivity");
+                Intent i = new Intent(SoundDetailActivity.this, cls);
                 i.putExtra("uid",   uid);
                 i.putExtra("name",  name  != null ? name  : "");
                 i.putExtra("photo", photo != null ? photo : "");
