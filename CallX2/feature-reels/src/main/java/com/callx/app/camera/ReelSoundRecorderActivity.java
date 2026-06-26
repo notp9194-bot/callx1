@@ -2,6 +2,7 @@ package com.callx.app.camera;
 
 import com.callx.app.editor.ReelEditorActivity;
 import com.callx.app.editor.ReelAudioMixerActivity;
+import com.callx.app.music.SoundDetailActivity;
 
 import android.Manifest;
 import android.content.Intent;
@@ -47,6 +48,8 @@ public class ReelSoundRecorderActivity extends AppCompatActivity {
 
     private ImageButton  btnBack, btnRecord, btnPlay, btnRetake;
     private TextView     tvTimer, tvStatus, btnUse;
+    /** ✅ NEW: "View Sound Detail" — visible after recording, opens SoundDetailActivity */
+    private TextView     btnViewDetail;
     private SeekBar      sbPlayback;
     private LinearLayout layoutWaveform, layoutEffects;
     private CheckBox     cbEcho, cbReverb, cbPitchUp, cbPitchDown;
@@ -112,6 +115,11 @@ public class ReelSoundRecorderActivity extends AppCompatActivity {
         cbPitchDown   = findViewById(R.id.cb_effect_pitch_down);
         progress      = findViewById(R.id.progress_recorder);
         etSoundTitle  = findViewById(R.id.et_sound_title);
+        // ✅ NEW: bind View Sound Detail button (add btn_recorder_view_detail to layout XML)
+        btnViewDetail = findViewById(R.id.btn_recorder_view_detail);
+        if (btnViewDetail != null) {
+            btnViewDetail.setOnClickListener(v -> openSoundDetailForRecording());
+        }
 
         btnBack.setOnClickListener(v -> finish());
         btnRecord.setOnClickListener(v -> { if (isRecording) stopRecording(); else startRecording(); });
@@ -331,11 +339,34 @@ public class ReelSoundRecorderActivity extends AppCompatActivity {
 
     private void setPlaybackControlsVisible(boolean v) {
         int vis = v ? View.VISIBLE : View.GONE;
-        if (btnPlay    != null) btnPlay.setVisibility(vis);
-        if (btnRetake  != null) btnRetake.setVisibility(vis);
-        if (btnUse     != null) btnUse.setVisibility(vis);
-        if (sbPlayback != null) sbPlayback.setVisibility(vis);
+        if (btnPlay       != null) btnPlay.setVisibility(vis);
+        if (btnRetake     != null) btnRetake.setVisibility(vis);
+        if (btnUse        != null) btnUse.setVisibility(vis);
+        if (sbPlayback    != null) sbPlayback.setVisibility(vis);
         if (layoutEffects != null) layoutEffects.setVisibility(vis);
+        // ✅ NEW: show "View Sound Detail" alongside the other playback controls
+        if (btnViewDetail != null) btnViewDetail.setVisibility(vis);
+    }
+
+    // ✅ NEW: Opens SoundDetailActivity for the just-recorded local audio file
+    private void openSoundDetailForRecording() {
+        if (!hasRecording || outputPath == null) {
+            Toast.makeText(this, "Nothing recorded yet", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        String title = (etSoundTitle != null && etSoundTitle.getText() != null)
+            ? etSoundTitle.getText().toString().trim() : "";
+        if (title.isEmpty()) title = "Original Sound";
+
+        Intent i = new Intent(this, SoundDetailActivity.class);
+        // Pass the local file path so SoundDetail can preview it locally
+        i.putExtra(SoundDetailActivity.EXTRA_SOUND_ID,    "local_" + System.currentTimeMillis());
+        i.putExtra(SoundDetailActivity.EXTRA_SOUND_TITLE, title);
+        i.putExtra(SoundDetailActivity.EXTRA_ARTIST,      "Original Sound");
+        i.putExtra(SoundDetailActivity.EXTRA_SOUND_URL,   outputPath);
+        i.putExtra(SoundDetailActivity.EXTRA_DURATION_MS, 0L);
+        i.putExtra(SoundDetailActivity.EXTRA_GENRE,       "Original");
+        startActivity(i);
     }
 
     private void animateWaveform() {

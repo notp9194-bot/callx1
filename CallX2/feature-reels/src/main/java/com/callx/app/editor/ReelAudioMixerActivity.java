@@ -1,6 +1,8 @@
 package com.callx.app.editor;
 
 import com.callx.app.upload.ReelUploadActivity;
+import com.callx.app.music.SoundDetailActivity;
+import com.callx.app.music.ReelTrendingAudioActivity;
 
 import android.Manifest;
 import android.content.Intent;
@@ -51,13 +53,18 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
     public static final String EXTRA_MUSIC_TITLE  = "mixer_music_title";
     public static final String EXTRA_MUSIC_ARTIST = "mixer_music_artist";
     public static final String EXTRA_MUSIC_URL    = "mixer_music_url";
+    /** ✅ NEW: optional sound ID passed in so Mixer can open SoundDetailActivity */
+    public static final String EXTRA_SOUND_ID     = "mixer_sound_id";
 
     public static final String RESULT_ORIG_VOL      = "result_orig_vol";
     public static final String RESULT_MUSIC_VOL     = "result_music_vol";
     public static final String RESULT_VOICEOVER_PATH= "result_vo_path";
     public static final String RESULT_VOICEOVER_VOL = "result_vo_vol";
 
-    private static final int REQ_MIC = 501;
+    private static final int REQ_MIC          = 501;
+    /** ✅ NEW: request codes for SoundDetail and "Change Music" pickers */
+    private static final int REQ_SOUND_DETAIL = 901;
+    private static final int REQ_CHANGE_MUSIC = 902;
 
     private PlayerView    playerView;
     private ImageButton   btnBack, btnApply;
@@ -78,6 +85,10 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
     private boolean isFilePath;
     private String musicUrl;
     private String voiceoverPath;
+    // ✅ NEW: stored so we can open SoundDetailActivity
+    private String soundId       = "";
+    private String currentTitle  = "";
+    private String currentArtist = "";
     private boolean isRecordingVoiceover = false;
 
     private float origVol     = 1.0f;
@@ -91,18 +102,20 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_reel_audio_mixer);
 
-        videoUri   = getIntent().getStringExtra(EXTRA_VIDEO_URI);
-        isFilePath = getIntent().getBooleanExtra(EXTRA_IS_FILE_PATH, true);
-        musicUrl   = getIntent().getStringExtra(EXTRA_MUSIC_URL);
-        String musicTitle  = getIntent().getStringExtra(EXTRA_MUSIC_TITLE);
-        String musicArtist = getIntent().getStringExtra(EXTRA_MUSIC_ARTIST);
+        videoUri      = getIntent().getStringExtra(EXTRA_VIDEO_URI);
+        isFilePath    = getIntent().getBooleanExtra(EXTRA_IS_FILE_PATH, true);
+        musicUrl      = getIntent().getStringExtra(EXTRA_MUSIC_URL);
+        soundId       = nvl(getIntent().getStringExtra(EXTRA_SOUND_ID));
+        currentTitle  = nvl(getIntent().getStringExtra(EXTRA_MUSIC_TITLE));
+        currentArtist = nvl(getIntent().getStringExtra(EXTRA_MUSIC_ARTIST));
 
         bindViews();
-        populateMusicInfo(musicTitle, musicArtist);
+        populateMusicInfo(currentTitle, currentArtist);
         setupPlayer();
         setupSliders();
         setupMuteToggles();
         setupVoiceover();
+        setupMusicRowClicks();   // ✅ NEW
 
         btnBack.setOnClickListener(v -> finish());
         btnApply.setOnClickListener(v -> applyAndReturn());
@@ -297,6 +310,93 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
         btnVoiceoverRecord.setImageResource(R.drawable.ic_mic);
         tvVoiceoverStatus.setText("Voiceover recorded");
     }
+
+    // ✅ NEW: Wire click on music title/artist row → SoundDetailActivity;
+    //         and hook up a "Change Music" button if the layout has one.
+    private void setupMusicRowClicks() {
+        if (tvMusicTitle != null) {
+            tvMusicTitle.setOnClickListener(v -> openSoundDetail());
+        }
+        if (tvMusicArtist != null) {
+            tvMusicArtist.setOnClickListener(v -> openSoundDetail());
+        }
+        // "Change Music" button (id: btn_mixer_change_music) — optional in layout
+        View btnChangeMusic = findViewById(R.id.btn_mixer_change_music);
+        if (btnChangeMusic != null) {
+            btnChangeMusic.setOnClickListener(v -> openChangeMusicPicker());
+        }
+    }
+
+    /** Opens SoundDetailActivity for the currently loaded sound. */
+    private void openSoundDetail() {
+        if (musicUrl == null || musicUrl.isEmpty()) {
+            // No sound loaded — go to picker instead
+            openChangeMusicPicker();
+            return;
+        }
+        Intent i = new Intent(this, SoundDetailActivity.class);
+        i.putExtra(SoundDetailActivity.EXTRA_SOUND_ID,    soundId);
+        i.putExtra(SoundDetailActivity.EXTRA_SOUND_TITLE, currentTitle);
+        i.putExtra(SoundDetailActivity.EXTRA_ARTIST,      currentArtist);
+        i.putExtra(SoundDetailActivity.EXTRA_SOUND_URL,   musicUrl);
+        startActivityForResult(i, REQ_SOUND_DETAIL);
+    }
+
+    /** Opens ReelTrendingAudioActivity so the user can pick a different track. */
+    private void openChangeMusicPicker() {
+        startActivityForResult(
+            new Intent(this, ReelTrendingAudioActivity.class), REQ_CHANGE_MUSIC);
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (resultCode != RESULT_OK || data == null) return;
+
+        if (requestCode == REQ_SOUND_DETAIL) {
+            // "Use This Sound" tapped in SoundDetail for the already-loaded sound —
+            // just dismiss; the sound is unchanged (it was already loaded).
+            Toast.makeText(this, "Sound confirmed", Toast.LENGTH_SHORT).show();
+
+        } else if (requestCode == REQ_CHANGE_MUSIC) {
+            // User selected a new track from ReelTrendingAudioActivity
+            String newId     = nvl(data.getStringExtra(ReelTrendingAudioActivity.RESULT_AUDIO_ID));
+            String newTitle  = nvl(data.getStringExtra(ReelTrendingAudioActivity.RESULT_AUDIO_TITLE));
+            String newArtist = nvl(data.getStringExtra(ReelTrendingAudioActivity.RESULT_AUDIO_ARTIST));
+            String newUrl    = nvl(data.getStringExtra(ReelTrendingAudioActivity.RESULT_AUDIO_URL));
+            if (!newUrl.isEmpty()) {
+                soundId       = newId;
+                currentTitle  = newTitle;
+                currentArtist = newArtist;
+                musicUrl      = newUrl;
+                populateMusicInfo(currentTitle, currentArtist);
+                // Restart music preview player with new URL
+                if (musicPlayer != null) {
+                    try { musicPlayer.stop(); musicPlayer.release(); } catch (Exception ignored) {}
+                    musicPlayer = null;
+                }
+                startMusicPreview(newUrl);
+                Toast.makeText(this, "Music changed: " + newTitle, Toast.LENGTH_SHORT).show();
+            }
+        }
+    }
+
+    /** Starts (or restarts) the background music preview player. */
+    private void startMusicPreview(String url) {
+        try {
+            musicPlayer = new MediaPlayer();
+            musicPlayer.setDataSource(url);
+            musicPlayer.setLooping(true);
+            musicPlayer.prepareAsync();
+            musicPlayer.setOnPreparedListener(mp -> {
+                mp.setVolume(musicVol, musicVol);
+                mp.start();
+            });
+        } catch (Exception ignored) {}
+    }
+
+    /** Null-safe empty-string default. */
+    private static String nvl(String s) { return s != null ? s : ""; }
 
     private void applyAndReturn() {
         Intent result = new Intent();

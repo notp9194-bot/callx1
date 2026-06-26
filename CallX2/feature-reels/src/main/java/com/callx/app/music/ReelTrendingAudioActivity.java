@@ -15,6 +15,8 @@ import com.callx.app.utils.FirebaseUtils;
 import com.google.firebase.database.*;
 import java.util.*;
 
+// ✅ CONNECTED: ReelTrendingAudioActivity → SoundDetailActivity
+
 /**
  * ReelTrendingAudioActivity — Dedicated trending audio browser.
  *
@@ -43,6 +45,9 @@ public class ReelTrendingAudioActivity extends AppCompatActivity {
     public static final String RESULT_AUDIO_ARTIST= "audio_artist";
     public static final String RESULT_AUDIO_URL   = "audio_url";
     public static final String RESULT_COVER_URL   = "audio_cover_url";
+
+    // ✅ NEW: Request code for opening SoundDetailActivity
+    private static final int REQ_SOUND_DETAIL = 901;
 
     private static final long VIRAL_WINDOW_MS = 7L * 24 * 60 * 60 * 1000;
     private static final long NEW_WINDOW_MS   = 24L * 60 * 60 * 1000;
@@ -112,7 +117,8 @@ public class ReelTrendingAudioActivity extends AppCompatActivity {
         adapter = new AudioAdapter(displayed,
             audio -> previewAudio(audio),
             audio -> saveToggle(audio),
-            audio -> useAudio(audio));
+            audio -> useAudio(audio),
+            audio -> openSoundDetail(audio));   // ✅ NEW: item tap → SoundDetailActivity
         if (rv != null) {
             rv.setLayoutManager(new LinearLayoutManager(this));
             rv.setAdapter(adapter);
@@ -395,6 +401,31 @@ public class ReelTrendingAudioActivity extends AppCompatActivity {
         finish();
     }
 
+    // ✅ NEW: Opens SoundDetailActivity for the tapped audio row
+    private void openSoundDetail(Audio audio) {
+        if (audio == null) return;
+        Intent i = new Intent(this, SoundDetailActivity.class);
+        i.putExtra(SoundDetailActivity.EXTRA_SOUND_ID,    audio.id    != null ? audio.id    : "");
+        i.putExtra(SoundDetailActivity.EXTRA_SOUND_TITLE, audio.title != null ? audio.title : "");
+        i.putExtra(SoundDetailActivity.EXTRA_ARTIST,      audio.artist!= null ? audio.artist: "");
+        i.putExtra(SoundDetailActivity.EXTRA_SOUND_URL,   audio.audioUrl != null ? audio.audioUrl : "");
+        i.putExtra(SoundDetailActivity.EXTRA_COVER_URL,   audio.coverUrl != null ? audio.coverUrl : "");
+        i.putExtra(SoundDetailActivity.EXTRA_DURATION_MS, audio.durationMs);
+        i.putExtra(SoundDetailActivity.EXTRA_GENRE,       audio.genre != null ? audio.genre : "");
+        startActivityForResult(i, REQ_SOUND_DETAIL);
+    }
+
+    // ✅ NEW: Handle "Use This Sound" coming back from SoundDetailActivity
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQ_SOUND_DETAIL && resultCode == RESULT_OK && data != null) {
+            // User tapped "Use This Sound" inside SoundDetail → propagate result up to caller
+            setResult(RESULT_OK, data);
+            finish();
+        }
+    }
+
     @Override protected void onDestroy() {
         stopPreview();
         handler.removeCallbacksAndMessages(null);
@@ -411,11 +442,12 @@ public class ReelTrendingAudioActivity extends AppCompatActivity {
 
     static class AudioAdapter extends RecyclerView.Adapter<AudioAdapter.VH> {
         private final List<Audio> items;
-        private final AudioAction onPreview, onSave, onUse;
+        private final AudioAction onPreview, onSave, onUse, onDetail;
         private Set<String> savedIds = new HashSet<>();
         private String playingId;
-        AudioAdapter(List<Audio> i, AudioAction p, AudioAction s, AudioAction u) {
-            items = i; onPreview = p; onSave = s; onUse = u;
+        // ✅ NEW: 5th param onDetail — fires when user taps the row (not a button)
+        AudioAdapter(List<Audio> i, AudioAction p, AudioAction s, AudioAction u, AudioAction d) {
+            items = i; onPreview = p; onSave = s; onUse = u; onDetail = d;
         }
         void setSavedIds(Set<String> ids) { savedIds = new HashSet<>(ids); }
         void setPlayingId(String id) { playingId = id; }
@@ -471,6 +503,8 @@ public class ReelTrendingAudioActivity extends AppCompatActivity {
             h.btnPreview.setOnClickListener(v -> onPreview.run(a));
             h.btnSave.setOnClickListener(v -> onSave.run(a));
             h.btnUse.setOnClickListener(v -> onUse.run(a));
+            // ✅ NEW: tap anywhere on the row → open SoundDetailActivity
+            h.itemView.setOnClickListener(v -> { if (onDetail != null) onDetail.run(a); });
         }
 
         @Override public int getItemCount() { return items.size(); }

@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="#000000">
+
+    <!-- Toolbar -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="8dp"
+        android:paddingEnd="16dp"
+        android:background="#1A1A1A">
+
+        <ImageButton
+            android:id="@+id/btn_playlist_back"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:src="@drawable/ic_back"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Back"/>
+
+        <TextView
+            android:id="@+id/tv_playlist_title"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Sound Playlists"
+            android:textColor="#FFFFFF"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:paddingStart="8dp"/>
+
+        <Button
+            android:id="@+id/btn_playlist_create"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:text="+ New"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp"
+            android:backgroundTint="#FF3B5C"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"/>
+    </LinearLayout>
+
+    <!-- Progress -->
+    <ProgressBar
+        android:id="@+id/progress_playlists"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:visibility="gone"
+        android:indeterminateTint="#FF3B5C"/>
+
+    <!-- Empty state -->
+    <TextView
+        android:id="@+id/tv_playlists_empty"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="No playlists yet.\nTap '+ New' to create your first sound collection."
+        android:textColor="#888888"
+        android:textSize="15sp"
+        android:gravity="center"
+        android:padding="40dp"
+        android:visibility="gone"/>
+
+    <!-- List -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/rv_playlists"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:paddingTop="8dp"
+        android:clipToPadding="false"/>
+
+</LinearLayout>

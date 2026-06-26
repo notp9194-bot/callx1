@@ -86,6 +86,10 @@ public class ReelEditorActivity extends AppCompatActivity {
     private static final int REQ_VOICE       = 405;
     private static final int REQ_AUDIO_MIXER = 406;
     private static final int REQ_THUMBNAIL   = 407;
+    /** ✅ NEW: open MusicPickerActivity to select a sound from scratch */
+    private static final int REQ_MUSIC_PICKER = 408;
+    /** ✅ NEW: open SoundDetailActivity for the already-selected sound */
+    private static final int REQ_SOUND_DETAIL = 409;
 
     // ── XML views ─────────────────────────────────────────────────────────
     private PlayerView    playerView;
@@ -98,6 +102,8 @@ public class ReelEditorActivity extends AppCompatActivity {
     private ProgressBar   progressBuffering;
     private ImageButton   btnToolFilters, btnToolStickers, btnToolSubtitles,
                           btnToolTransitions, btnToolVoice, btnToolAudioMixer, btnToolThumbnail;
+    /** ✅ NEW: music chip / tool button — opens SoundDetail (if sound selected) or MusicPicker */
+    private ImageButton   btnToolMusic;
 
     // ── Dynamic overlay views (added programmatically to the video FrameLayout) ──
     /** Semi-transparent colour overlay that simulates the selected filter */
@@ -276,6 +282,8 @@ public class ReelEditorActivity extends AppCompatActivity {
         btnToolVoice       = findViewById(R.id.btn_tool_voice);
         btnToolAudioMixer  = findViewById(R.id.btn_tool_audio_mixer);
         btnToolThumbnail   = findViewById(R.id.btn_tool_thumbnail);
+        // ✅ NEW: music chip button (add btn_tool_music ImageButton to the toolbar XML)
+        btnToolMusic       = findViewById(R.id.btn_tool_music);
     }
 
     // ── Inject dynamic overlay views into the video FrameLayout ──────────
@@ -688,6 +696,13 @@ public class ReelEditorActivity extends AppCompatActivity {
             startActivityForResult(i, REQ_THUMBNAIL);
         });
 
+        // ✅ NEW: Music chip — if a sound is already selected tap → SoundDetail,
+        //                       otherwise → MusicPickerActivity to pick one.
+        if (btnToolMusic != null) btnToolMusic.setOnClickListener(v -> openMusicChip());
+
+        // Auto-show music badge if a sound was pre-selected from camera screen
+        if (!preSelectedSoundTitle.isEmpty()) updateBadge("music", "🎵 " + preSelectedSoundTitle);
+
         btnNext.setOnClickListener(v -> proceedToUpload());
     }
 
@@ -782,6 +797,38 @@ public class ReelEditorActivity extends AppCompatActivity {
                 break;
             }
 
+            // ✅ NEW: user picked a fresh sound from MusicPickerActivity
+            case REQ_MUSIC_PICKER: {
+                String pid = nvl(data.getStringExtra("selected_sound_id"));
+                String pt  = nvl(data.getStringExtra("selected_sound_title"));
+                String pu  = nvl(data.getStringExtra("selected_sound_url"));
+                if (!pid.isEmpty()) {
+                    preSelectedSoundId    = pid;
+                    preSelectedSoundTitle = pt;
+                    preSelectedSoundUrl   = pu;
+                    updateBadge("music", "🎵 " + pt);
+                    if (btnToolMusic != null) btnToolMusic.setColorFilter(
+                        android.graphics.Color.argb(200, 255, 100, 180)); // pink tint = active
+                }
+                break;
+            }
+
+            // ✅ NEW: returned from SoundDetailActivity (user may have chosen a different sound)
+            case REQ_SOUND_DETAIL: {
+                String sid = nvl(data.getStringExtra(SoundDetailActivity.EXTRA_SOUND_ID));
+                String st  = nvl(data.getStringExtra(SoundDetailActivity.EXTRA_SOUND_TITLE));
+                String su  = nvl(data.getStringExtra(SoundDetailActivity.EXTRA_SOUND_URL));
+                if (!sid.isEmpty()) {
+                    preSelectedSoundId    = sid;
+                    preSelectedSoundTitle = st.isEmpty() ? preSelectedSoundTitle : st;
+                    preSelectedSoundUrl   = su.isEmpty() ? preSelectedSoundUrl   : su;
+                    updateBadge("music", "🎵 " + preSelectedSoundTitle);
+                    if (btnToolMusic != null) btnToolMusic.setColorFilter(
+                        android.graphics.Color.argb(200, 255, 100, 180));
+                }
+                break;
+            }
+
             case REQ_AUDIO_MIXER: {
                 mixOrigVol       = data.getFloatExtra(ReelAudioMixerActivity.RESULT_ORIG_VOL,       1.0f);
                 mixMusicVol      = data.getFloatExtra(ReelAudioMixerActivity.RESULT_MUSIC_VOL,      0.8f);
@@ -809,6 +856,29 @@ public class ReelEditorActivity extends AppCompatActivity {
                 }
                 break;
             }
+        }
+    }
+
+    // ── Music chip ────────────────────────────────────────────────────────
+
+    /**
+     * ✅ NEW: Called when the user taps the music chip / tool button.
+     * - If a sound is already pre-selected → open SoundDetailActivity so they can
+     *   view stats, see reels using this sound, or change it from there.
+     * - If no sound is selected → open MusicPickerActivity to choose one.
+     */
+    private void openMusicChip() {
+        if (!preSelectedSoundId.isEmpty()) {
+            // Sound already chosen → show its detail page
+            Intent i = new Intent(this, SoundDetailActivity.class);
+            i.putExtra(SoundDetailActivity.EXTRA_SOUND_ID,    preSelectedSoundId);
+            i.putExtra(SoundDetailActivity.EXTRA_SOUND_TITLE, preSelectedSoundTitle);
+            i.putExtra(SoundDetailActivity.EXTRA_SOUND_URL,   preSelectedSoundUrl);
+            startActivityForResult(i, REQ_SOUND_DETAIL);
+        } else {
+            // No sound yet → open picker
+            startActivityForResult(
+                new Intent(this, MusicPickerActivity.class), REQ_MUSIC_PICKER);
         }
     }
 
