@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 9:16 vertical reel thumbnail for SoundDetailActivity grid -->
+<FrameLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#1A1A1A"
+    android:clickable="true"
+    android:focusable="true">
+
+    <!-- Thumbnail image -->
+    <ImageView
+        android:id="@+id/iv_reel_thumb"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="centerCrop"
+        android:src="@drawable/ic_play"/>
+
+    <!-- Play icon overlay (center) -->
+    <ImageView
+        android:id="@+id/iv_play_icon"
+        android:layout_width="28dp"
+        android:layout_height="28dp"
+        android:layout_gravity="center"
+        android:src="@drawable/ic_play"
+        android:tint="#CCFFFFFF"
+        android:alpha="0.7"/>
+
+    <!-- ORIGINAL strip at top (Instagram-style) — shown only for creator's reel -->
+    <TextView
+        android:id="@+id/tv_original_strip"
+        android:layout_width="match_parent"
+        android:layout_height="20dp"
+        android:layout_gravity="top"
+        android:gravity="center"
+        android:text="ORIGINAL"
+        android:textColor="#FFFFFF"
+        android:textSize="9sp"
+        android:fontFamily="sans-serif-bold"
+        android:letterSpacing="0.1"
+        android:background="#CCFF3B5C"
+        android:visibility="gone"/>
+
+    <!-- Views count at bottom -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:padding="4dp"
+        android:background="@drawable/gradient_reel_bottom">
+
+        <ImageView
+            android:layout_width="10dp"
+            android:layout_height="10dp"
+            android:src="@drawable/ic_play"
+            android:tint="#CCFFFFFF"/>
+
+        <TextView
+            android:id="@+id/tv_view_count"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text=""
+            android:textColor="#CCFFFFFF"
+            android:textSize="9sp"
+            android:layout_marginStart="2dp"/>
+    </LinearLayout>
+
+</FrameLayout>

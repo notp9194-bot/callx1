@@ -94,8 +94,6 @@ public class SoundDetailActivity extends AppCompatActivity
 
     // ─── Views ─────────────────────────────────────────────────────────────────
     private ImageButton  btnBack, btnPlayPause, btnShare;
-    private FrameLayout  flPlayOverlay;
-    private ImageButton  btnPlayHint;
     private TextView     tvSoundTitle, tvArtist, tvDuration, tvReelCount,
                          tvTrendingRank, tvSavesCount, tvBpm, tvGenre,
                          tvOriginalBadge, tvIsVerified;
@@ -228,8 +226,6 @@ public class SoundDetailActivity extends AppCompatActivity
         btnBack           = findViewById(R.id.btn_sound_back);
         btnPlayPause      = findViewById(R.id.btn_sound_play_pause);
         btnShare          = findViewById(R.id.btn_sound_share);
-        flPlayOverlay     = findViewById(R.id.fl_play_overlay);
-        btnPlayHint       = findViewById(R.id.btn_sound_play_hint);
         tvSoundTitle      = findViewById(R.id.tv_sound_title);
         tvArtist          = findViewById(R.id.tv_sound_artist);
         tvDuration        = findViewById(R.id.tv_sound_duration);
@@ -261,7 +257,11 @@ public class SoundDetailActivity extends AppCompatActivity
         ivCreatorAvatar= findViewById(R.id.iv_creator_avatar);
         tvCreatorName  = findViewById(R.id.tv_creator_name);
 
-        if (rvReels   != null) rvReels.setLayoutManager(new GridLayoutManager(this, 2));
+        if (rvReels   != null) {
+            GridLayoutManager glm = new GridLayoutManager(this, 3);
+            rvReels.setLayoutManager(glm);
+            rvReels.setHasFixedSize(false);
+        }
         if (rvRelated != null) rvRelated.setLayoutManager(
             new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
 
@@ -492,18 +492,15 @@ public class SoundDetailActivity extends AppCompatActivity
                     if (saves == null) saves = 0L;
 
                     if (tvReelCount  != null) tvReelCount.setText(formatCount(count));
-                    if (tvSavesCount != null) {
-                        tvSavesCount.setText(formatCount(saves));
-                        tvSavesCount.setVisibility(View.VISIBLE);
-                    }
+                    if (tvSavesCount != null) tvSavesCount.setText(formatCount(saves));
 
                     if (tvTrendingRank != null) {
                         if (rank > 0 && rank <= 50) {
                             tvTrendingRank.setVisibility(View.VISIBLE);
-                            tvTrendingRank.setText("↗ #" + rank + " Trending");
+                            tvTrendingRank.setText("#" + rank + " Trending");
                         } else if (Boolean.TRUE.equals(trendingFlg)) {
                             tvTrendingRank.setVisibility(View.VISIBLE);
-                            tvTrendingRank.setText("↗ Trending");
+                            tvTrendingRank.setText("🔥 Trending");
                         } else {
                             tvTrendingRank.setVisibility(View.GONE);
                         }
@@ -574,32 +571,50 @@ public class SoundDetailActivity extends AppCompatActivity
 
     private void loadReelsForSound() {
         if (soundId == null || soundId.isEmpty() || rvReels == null) return;
-        reelThumbAdapter = new ReelThumbAdapter(reelItems, (item, position) -> {
-            // Build ordered list of all reel IDs for ViewPager swipe
-            ArrayList<String> ids = new ArrayList<>();
-            for (ReelThumbItem ri : reelItems) ids.add(ri.reelId);
+        reelThumbAdapter = new ReelThumbAdapter(reelItems, item -> {
             Intent i = new Intent(this, SingleReelPlayerActivity.class);
-            i.putStringArrayListExtra(SingleReelPlayerActivity.EXTRA_REEL_IDS, ids);
-            i.putExtra(SingleReelPlayerActivity.EXTRA_START_POSITION, position);
+            i.putExtra("reel_id", item.reelId);
+            i.putExtra("video_url", item.videoUrl);
             startActivity(i);
         });
         rvReels.setAdapter(reelThumbAdapter);
 
         FirebaseUtils.db().getReference("sounds").child(soundId).child("reels")
-            .limitToFirst(12)
+            .limitToFirst(24)
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(@NonNull DataSnapshot snap) {
                     if (isFinishing() || isDestroyed()) return;
                     reelItems.clear();
+                    List<ReelThumbItem> creatorReels = new ArrayList<>();
+                    List<ReelThumbItem> otherReels   = new ArrayList<>();
+
                     for (DataSnapshot s : snap.getChildren()) {
                         String rid   = s.getKey();
                         String thumb = s.child("thumbnailUrl").getValue(String.class);
                         if (thumb == null) thumb = s.child("thumbnail").getValue(String.class);
                         String vid   = s.child("videoUrl").getValue(String.class);
-                        if (rid != null)
-                            reelItems.add(new ReelThumbItem(rid,
-                                thumb != null ? thumb : "", vid != null ? vid : ""));
+                        String uid   = s.child("uid").getValue(String.class);
+                        Long   views = s.child("views").getValue(Long.class);
+                        if (views == null) views = s.child("view_count").getValue(Long.class);
+                        if (views == null) views = 0L;
+                        if (rid == null) continue;
+
+                        boolean isOrig = creatorUid != null && creatorUid.equals(uid);
+                        ReelThumbItem item = new ReelThumbItem(rid,
+                            thumb != null ? thumb : "",
+                            vid   != null ? vid   : "",
+                            isOrig, views);
+
+                        if (isOrig) creatorReels.add(item);
+                        else        otherReels.add(item);
                     }
+
+                    // Sort others by view count desc
+                    otherReels.sort((a, b) -> Long.compare(b.viewCount, a.viewCount));
+
+                    reelItems.addAll(creatorReels);  // original creator first
+                    reelItems.addAll(otherReels);     // then most-viewed
+
                     if (!reelItems.isEmpty()) reelThumbAdapter.notifyDataSetChanged();
                     else loadReelsFromReelsNode();
                 }
@@ -611,19 +626,38 @@ public class SoundDetailActivity extends AppCompatActivity
         if (soundId == null || isFinishing() || isDestroyed()) return;
         FirebaseUtils.db().getReference("reels")
             .orderByChild("soundId").equalTo(soundId)
-            .limitToFirst(12)
+            .limitToFirst(24)
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(@NonNull DataSnapshot snap) {
                     if (isFinishing() || isDestroyed()) return;
+                    List<ReelThumbItem> creatorReels = new ArrayList<>();
+                    List<ReelThumbItem> otherReels   = new ArrayList<>();
+
                     for (DataSnapshot s : snap.getChildren()) {
                         String rid   = s.getKey();
                         String thumb = s.child("thumbnailUrl").getValue(String.class);
                         if (thumb == null) thumb = s.child("thumbnail").getValue(String.class);
                         String vid   = s.child("videoUrl").getValue(String.class);
-                        if (rid != null)
-                            reelItems.add(new ReelThumbItem(rid,
-                                thumb != null ? thumb : "", vid != null ? vid : ""));
+                        String uid   = s.child("uid").getValue(String.class);
+                        Long   views = s.child("views").getValue(Long.class);
+                        if (views == null) views = s.child("view_count").getValue(Long.class);
+                        if (views == null) views = 0L;
+                        if (rid == null) continue;
+
+                        boolean isOrig = creatorUid != null && creatorUid.equals(uid);
+                        ReelThumbItem item = new ReelThumbItem(rid,
+                            thumb != null ? thumb : "",
+                            vid   != null ? vid   : "",
+                            isOrig, views);
+
+                        if (isOrig) creatorReels.add(item);
+                        else        otherReels.add(item);
                     }
+
+                    otherReels.sort((a, b) -> Long.compare(b.viewCount, a.viewCount));
+                    reelItems.addAll(creatorReels);
+                    reelItems.addAll(otherReels);
+
                     if (reelThumbAdapter != null) reelThumbAdapter.notifyDataSetChanged();
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) {}
@@ -713,8 +747,8 @@ public class SoundDetailActivity extends AppCompatActivity
         if (photo != null && !photo.isEmpty() && ivCreatorAvatar != null) {
             Glide.with(SoundDetailActivity.this).load(photo)
                 .transform(new CircleCrop())
-                .placeholder(R.drawable.ic_person)
-                .error(R.drawable.ic_person)
+                .placeholder(R.drawable.ic_default_avatar)
+                .error(R.drawable.ic_default_avatar)
                 .into(ivCreatorAvatar);
         }
 
@@ -723,14 +757,16 @@ public class SoundDetailActivity extends AppCompatActivity
 
         layoutCreator.setOnClickListener(v -> {
             if (uid == null || uid.isEmpty()) return;
-            // Use setClassName — UserProfileActivity is in :app module, not accessible
-            // as a compiled class from :feature-reels.
-            Intent i = new Intent()
-                .setClassName(getPackageName(), "com.callx.app.activities.UserProfileActivity")
-                .putExtra("uid",   uid)
-                .putExtra("name",  name  != null ? name  : "")
-                .putExtra("photo", photo != null ? photo : "");
-            startActivity(i);
+            try {
+                Intent i = new Intent(SoundDetailActivity.this,
+                    com.callx.app.activities.UserProfileActivity.class);
+                i.putExtra("uid",   uid);
+                i.putExtra("name",  name  != null ? name  : "");
+                i.putExtra("photo", photo != null ? photo : "");
+                startActivity(i);
+            } catch (Exception ex) {
+                android.util.Log.w("SoundDetail", "UserProfileActivity not found", ex);
+            }
         });
     }
 
@@ -755,7 +791,6 @@ public class SoundDetailActivity extends AppCompatActivity
     private void setupClickListeners() {
         if (btnBack != null) btnBack.setOnClickListener(v -> finish());
         if (btnPlayPause != null) btnPlayPause.setOnClickListener(v -> togglePlayPause());
-        if (btnPlayHint  != null) btnPlayHint.setOnClickListener(v -> togglePlayPause());
         if (btnShare != null) btnShare.setOnClickListener(v -> shareSound());
 
         if (btnSaveSound != null) {
@@ -838,8 +873,6 @@ public class SoundDetailActivity extends AppCompatActivity
                 mp.start();
                 isPlaying = true;
                 if (btnPlayPause != null) btnPlayPause.setImageResource(R.drawable.ic_pause);
-                if (flPlayOverlay != null) flPlayOverlay.setVisibility(View.VISIBLE);
-                if (btnPlayHint   != null) btnPlayHint.setVisibility(View.GONE);
                 startWaveAnimation();
                 startDiscAnimation();
                 seekHandler.post(seekUpdateRunnable);
@@ -865,8 +898,6 @@ public class SoundDetailActivity extends AppCompatActivity
             mediaPlayer.start();
             isPlaying = true;
             if (btnPlayPause != null) btnPlayPause.setImageResource(R.drawable.ic_pause);
-            if (flPlayOverlay != null) flPlayOverlay.setVisibility(View.VISIBLE);
-            if (btnPlayHint   != null) btnPlayHint.setVisibility(View.GONE);
             startWaveAnimation();
             startDiscAnimation();
             seekHandler.post(seekUpdateRunnable);
@@ -879,8 +910,6 @@ public class SoundDetailActivity extends AppCompatActivity
         }
         isPlaying = false;
         if (btnPlayPause != null) btnPlayPause.setImageResource(R.drawable.ic_play);
-        if (flPlayOverlay != null) flPlayOverlay.setVisibility(View.GONE);
-        if (btnPlayHint   != null) btnPlayHint.setVisibility(View.VISIBLE);
         stopWaveAnimation();
         stopDiscAnimation();
         seekHandler.removeCallbacks(seekUpdateRunnable);
@@ -1082,11 +1111,16 @@ public class SoundDetailActivity extends AppCompatActivity
 
     static class ReelThumbItem {
         String reelId, thumbnailUrl, videoUrl;
+        boolean isOriginalCreator = false;
+        long viewCount = 0;
         ReelThumbItem(String r, String t, String v) { reelId = r; thumbnailUrl = t; videoUrl = v; }
+        ReelThumbItem(String r, String t, String v, boolean orig, long views) {
+            reelId = r; thumbnailUrl = t; videoUrl = v; isOriginalCreator = orig; viewCount = views;
+        }
     }
 
     static class ReelThumbAdapter extends RecyclerView.Adapter<ReelThumbAdapter.VH> {
-        interface OnClick { void click(ReelThumbItem item, int position); }
+        interface OnClick { void click(ReelThumbItem item); }
         private final List<ReelThumbItem> items;
         private final OnClick             onClick;
         ReelThumbAdapter(List<ReelThumbItem> items, OnClick onClick) {
@@ -1095,34 +1129,68 @@ public class SoundDetailActivity extends AppCompatActivity
 
         @NonNull @Override
         public VH onCreateViewHolder(@NonNull android.view.ViewGroup parent, int vt) {
+            // Calculate 9:16 height from 1/3 of screen width
+            int screenW = parent.getResources().getDisplayMetrics().widthPixels;
+            int itemW   = screenW / 3;
+            int itemH   = (int)(itemW * 16f / 9f);
+
             View v = android.view.LayoutInflater.from(parent.getContext())
-                .inflate(R.layout.item_reel_thumb_9x16, parent, false);
+                .inflate(com.callx.app.reels.R.layout.item_sound_reel_thumb, parent, false);
+            android.view.ViewGroup.LayoutParams lp = v.getLayoutParams();
+            lp.width  = itemW;
+            lp.height = itemH;
+            v.setLayoutParams(lp);
             return new VH(v);
         }
 
         @Override public void onBindViewHolder(@NonNull VH h, int pos) {
             ReelThumbItem item = items.get(pos);
+
+            // Load thumbnail
             if (item.thumbnailUrl != null && !item.thumbnailUrl.isEmpty()) {
-                Glide.with(h.ivThumb).load(item.thumbnailUrl)
-                    .placeholder(R.drawable.ic_music_note)
-                    .centerCrop().into(h.ivThumb);
+                com.bumptech.glide.Glide.with(h.ivThumb)
+                    .load(item.thumbnailUrl)
+                    .placeholder(com.callx.app.reels.R.drawable.ic_play)
+                    .centerCrop()
+                    .into(h.ivThumb);
             } else {
-                h.ivThumb.setImageResource(R.drawable.ic_play);
+                h.ivThumb.setImageResource(com.callx.app.reels.R.drawable.ic_play);
             }
-            // Play icon overlay
-            h.ivPlay.setVisibility(View.VISIBLE);
-            h.itemView.setOnClickListener(v -> onClick.click(item, pos));
+
+            // ORIGINAL strip — show only for the original creator's reel
+            if (h.tvOriginalStrip != null) {
+                h.tvOriginalStrip.setVisibility(
+                    item.isOriginalCreator ? View.VISIBLE : View.GONE);
+            }
+
+            // Views count
+            if (h.tvViewCount != null) {
+                if (item.viewCount > 0) {
+                    String vc = item.viewCount >= 1_000_000
+                        ? String.format(java.util.Locale.US, "%.1fM", item.viewCount / 1_000_000.0)
+                        : item.viewCount >= 1_000
+                            ? String.format(java.util.Locale.US, "%.1fK", item.viewCount / 1_000.0)
+                            : String.valueOf(item.viewCount);
+                    h.tvViewCount.setText(vc);
+                } else {
+                    h.tvViewCount.setText("");
+                }
+            }
+
+            // Click → play this reel
+            h.itemView.setOnClickListener(v -> onClick.click(item));
         }
 
         @Override public int getItemCount() { return items.size(); }
 
         static class VH extends RecyclerView.ViewHolder {
             android.widget.ImageView ivThumb;
-            android.widget.ImageView ivPlay;
+            TextView tvOriginalStrip, tvViewCount;
             VH(View v) {
                 super(v);
-                ivThumb = v.findViewById(R.id.iv_reel_thumb);
-                ivPlay  = v.findViewById(R.id.iv_play_icon);
+                ivThumb        = v.findViewById(com.callx.app.reels.R.id.iv_reel_thumb);
+                tvOriginalStrip= v.findViewById(com.callx.app.reels.R.id.tv_original_strip);
+                tvViewCount    = v.findViewById(com.callx.app.reels.R.id.tv_view_count);
             }
         }
     }
