@@ -86,12 +86,20 @@ public class SoundUploadActivity extends AppCompatActivity {
     // ─── Pick Audio ───────────────────────────────────────────────────────────
 
     private void pickAudioFile() {
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE)
-                != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(this,
-                new String[]{Manifest.permission.READ_EXTERNAL_STORAGE}, RC_READ_PERM);
-            return;
+        // Android 13+ (API 33): ACTION_GET_CONTENT with content:// URI needs no
+        // storage permission. Only ask READ_EXTERNAL_STORAGE on API 32 and below.
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE)
+                    != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(this,
+                    new String[]{Manifest.permission.READ_EXTERNAL_STORAGE}, RC_READ_PERM);
+                return;
+            }
         }
+        launchAudioPicker();
+    }
+
+    private void launchAudioPicker() {
         Intent i = new Intent(Intent.ACTION_GET_CONTENT);
         i.setType("audio/*");
         i.addCategory(Intent.CATEGORY_OPENABLE);
@@ -102,9 +110,9 @@ public class SoundUploadActivity extends AppCompatActivity {
     public void onRequestPermissionsResult(int rc, @NonNull String[] p, @NonNull int[] g) {
         super.onRequestPermissionsResult(rc, p, g);
         if (rc == RC_READ_PERM && g.length > 0 && g[0] == PackageManager.PERMISSION_GRANTED) {
-            pickAudioFile();
+            launchAudioPicker();
         } else {
-            Toast.makeText(this, "Storage permission required", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "Storage permission denied", Toast.LENGTH_SHORT).show();
         }
     }
 
