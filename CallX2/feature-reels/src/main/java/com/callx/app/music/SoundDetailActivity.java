@@ -261,7 +261,7 @@ public class SoundDetailActivity extends AppCompatActivity
         ivCreatorAvatar= findViewById(R.id.iv_creator_avatar);
         tvCreatorName  = findViewById(R.id.tv_creator_name);
 
-        if (rvReels   != null) rvReels.setLayoutManager(new GridLayoutManager(this, 3));
+        if (rvReels   != null) rvReels.setLayoutManager(new GridLayoutManager(this, 2));
         if (rvRelated != null) rvRelated.setLayoutManager(
             new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
 
@@ -491,9 +491,9 @@ public class SoundDetailActivity extends AppCompatActivity
                     if (rank  == null) rank  = 0L;
                     if (saves == null) saves = 0L;
 
-                    if (tvReelCount  != null) tvReelCount.setText(formatCount(count) + " Reels");
+                    if (tvReelCount  != null) tvReelCount.setText(formatCount(count));
                     if (tvSavesCount != null) {
-                        tvSavesCount.setText(formatCount(saves) + " Saves");
+                        tvSavesCount.setText(formatCount(saves));
                         tvSavesCount.setVisibility(View.VISIBLE);
                     }
 
@@ -574,9 +574,13 @@ public class SoundDetailActivity extends AppCompatActivity
 
     private void loadReelsForSound() {
         if (soundId == null || soundId.isEmpty() || rvReels == null) return;
-        reelThumbAdapter = new ReelThumbAdapter(reelItems, item -> {
+        reelThumbAdapter = new ReelThumbAdapter(reelItems, (item, position) -> {
+            // Build ordered list of all reel IDs for ViewPager swipe
+            ArrayList<String> ids = new ArrayList<>();
+            for (ReelThumbItem ri : reelItems) ids.add(ri.reelId);
             Intent i = new Intent(this, SingleReelPlayerActivity.class);
-            i.putExtra("reel_id", item.reelId);
+            i.putStringArrayListExtra(SingleReelPlayerActivity.EXTRA_REEL_IDS, ids);
+            i.putExtra(SingleReelPlayerActivity.EXTRA_START_POSITION, position);
             startActivity(i);
         });
         rvReels.setAdapter(reelThumbAdapter);
@@ -1082,7 +1086,7 @@ public class SoundDetailActivity extends AppCompatActivity
     }
 
     static class ReelThumbAdapter extends RecyclerView.Adapter<ReelThumbAdapter.VH> {
-        interface OnClick { void click(ReelThumbItem item); }
+        interface OnClick { void click(ReelThumbItem item, int position); }
         private final List<ReelThumbItem> items;
         private final OnClick             onClick;
         ReelThumbAdapter(List<ReelThumbItem> items, OnClick onClick) {
@@ -1092,10 +1096,7 @@ public class SoundDetailActivity extends AppCompatActivity
         @NonNull @Override
         public VH onCreateViewHolder(@NonNull android.view.ViewGroup parent, int vt) {
             View v = android.view.LayoutInflater.from(parent.getContext())
-                .inflate(R.layout.item_media_thumb, parent, false);
-            android.view.ViewGroup.LayoutParams lp = v.getLayoutParams();
-            lp.height = (int)(110 * v.getResources().getDisplayMetrics().density);
-            v.setLayoutParams(lp);
+                .inflate(R.layout.item_reel_thumb_9x16, parent, false);
             return new VH(v);
         }
 
@@ -1108,14 +1109,21 @@ public class SoundDetailActivity extends AppCompatActivity
             } else {
                 h.ivThumb.setImageResource(R.drawable.ic_play);
             }
-            h.itemView.setOnClickListener(v -> onClick.click(item));
+            // Play icon overlay
+            h.ivPlay.setVisibility(View.VISIBLE);
+            h.itemView.setOnClickListener(v -> onClick.click(item, pos));
         }
 
         @Override public int getItemCount() { return items.size(); }
 
         static class VH extends RecyclerView.ViewHolder {
             android.widget.ImageView ivThumb;
-            VH(View v) { super(v); ivThumb = v.findViewById(R.id.iv_media_thumb); }
+            android.widget.ImageView ivPlay;
+            VH(View v) {
+                super(v);
+                ivThumb = v.findViewById(R.id.iv_reel_thumb);
+                ivPlay  = v.findViewById(R.id.iv_play_icon);
+            }
         }
     }
 

@@ -39,7 +39,7 @@
                     android:layout_height="1dp"
                     android:layout_weight="1"/>
 
-                <!-- Trending pill — matches screenshot -->
+                <!-- Trending pill -->
                 <TextView
                     android:id="@+id/tv_sound_trending_rank"
                     android:layout_width="wrap_content"
@@ -160,7 +160,7 @@
                         android:textSize="13sp"
                         android:layout_marginTop="3dp"/>
 
-                    <!-- Duration · Reels count -->
+                    <!-- Duration row -->
                     <LinearLayout
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
@@ -175,26 +175,9 @@
                             android:text="0:03"
                             android:textColor="#77FFFFFF"
                             android:textSize="12sp"/>
-
-                        <TextView
-                            android:id="@+id/tv_sound_reel_count"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text=" · 21K reels"
-                            android:textColor="#77FFFFFF"
-                            android:textSize="12sp"/>
-
-                        <TextView
-                            android:id="@+id/tv_sound_saves_count"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text=""
-                            android:textColor="#77FFFFFF"
-                            android:textSize="12sp"
-                            android:visibility="gone"/>
                     </LinearLayout>
 
-                    <!-- BPM + Genre + badges row (hidden by default) -->
+                    <!-- BPM + Genre + badges row -->
                     <LinearLayout
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
@@ -243,7 +226,7 @@
                     </LinearLayout>
                 </LinearLayout>
 
-                <!-- Right: Bookmark + Share stacked vertically -->
+                <!-- Right: Bookmark + Share -->
                 <LinearLayout
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -271,7 +254,99 @@
                 </LinearLayout>
             </LinearLayout>
 
-            <!-- ── Seekbar + time (compact) ─────────────────────────────────── -->
+            <!-- ── COLORFUL STATS CHIPS ──────────────────────────────────────── -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:paddingHorizontal="16dp"
+                android:paddingBottom="12dp"
+                android:gravity="center_vertical">
+
+                <!-- Reels count chip — purple/pink gradient -->
+                <LinearLayout
+                    android:id="@+id/chip_reel_count"
+                    android:layout_width="0dp"
+                    android:layout_height="44dp"
+                    android:layout_weight="1"
+                    android:orientation="horizontal"
+                    android:gravity="center"
+                    android:background="@drawable/bg_stat_chip_reels"
+                    android:layout_marginEnd="6dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="🎬 "
+                        android:textSize="16sp"/>
+
+                    <LinearLayout
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:gravity="center_horizontal">
+
+                        <TextView
+                            android:id="@+id/tv_sound_reel_count"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="0"
+                            android:textColor="@color/white"
+                            android:textSize="15sp"
+                            android:fontFamily="sans-serif-bold"/>
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Reels"
+                            android:textColor="#DDFFFFFF"
+                            android:textSize="10sp"/>
+                    </LinearLayout>
+                </LinearLayout>
+
+                <!-- Saves count chip — orange/yellow gradient -->
+                <LinearLayout
+                    android:id="@+id/chip_saves_count"
+                    android:layout_width="0dp"
+                    android:layout_height="44dp"
+                    android:layout_weight="1"
+                    android:orientation="horizontal"
+                    android:gravity="center"
+                    android:background="@drawable/bg_stat_chip_saves"
+                    android:layout_marginStart="6dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="🔖 "
+                        android:textSize="16sp"/>
+
+                    <LinearLayout
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:gravity="center_horizontal">
+
+                        <TextView
+                            android:id="@+id/tv_sound_saves_count"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="0"
+                            android:textColor="@color/white"
+                            android:textSize="15sp"
+                            android:fontFamily="sans-serif-bold"/>
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Saves"
+                            android:textColor="#DDFFFFFF"
+                            android:textSize="10sp"/>
+                    </LinearLayout>
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- ── Seekbar + time ───────────────────────────────────────────── -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -324,7 +399,7 @@
                 android:layout_marginTop="8dp"
                 android:layout_marginBottom="2dp"/>
 
-            <!-- ── Use audio button (full width blue — screenshot exact) ─────── -->
+            <!-- ── Use audio button ─────────────────────────────────────────── -->
             <TextView
                 android:id="@+id/btn_use_sound_camera"
                 android:layout_width="match_parent"
@@ -339,7 +414,6 @@
                 android:layout_marginTop="12dp"
                 android:layout_marginBottom="4dp"/>
 
-            <!-- Gallery / Use with video — secondary smaller button -->
             <TextView
                 android:id="@+id/btn_use_sound_gallery"
                 android:layout_width="match_parent"
@@ -353,69 +427,86 @@
                 android:layout_marginHorizontal="16dp"
                 android:visibility="gone"/>
 
-            <!-- ── Creator row ───────────────────────────────────────────────── -->
+            <!-- ── ORIGINAL CREATOR STRIP ────────────────────────────────────── -->
             <LinearLayout
                 android:id="@+id/layout_sound_creator"
                 android:layout_width="match_parent"
-                android:layout_height="56dp"
-                android:orientation="horizontal"
-                android:gravity="center_vertical"
-                android:background="?attr/selectableItemBackground"
-                android:paddingHorizontal="16dp"
-                android:layout_marginTop="4dp"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:layout_marginTop="12dp"
+                android:layout_marginHorizontal="16dp"
+                android:background="@drawable/bg_creator_strip"
+                android:padding="12dp"
                 android:visibility="gone">
 
-                <ImageView
-                    android:id="@+id/iv_creator_avatar"
-                    android:layout_width="36dp"
-                    android:layout_height="36dp"
-                    android:scaleType="centerCrop"
-                    android:src="@drawable/ic_person"/>
-
-                <LinearLayout
-                    android:layout_width="0dp"
+                <!-- Label -->
+                <TextView
+                    android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:layout_marginStart="10dp">
+                    android:text="🎵  ORIGINAL CREATOR"
+                    android:textColor="#FFD700"
+                    android:textSize="10sp"
+                    android:fontFamily="sans-serif-medium"
+                    android:letterSpacing="0.1"
+                    android:layout_marginBottom="8dp"/>
+
+                <!-- Avatar + name row -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:background="?attr/selectableItemBackground">
+
+                    <ImageView
+                        android:id="@+id/iv_creator_avatar"
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
+                        android:scaleType="centerCrop"
+                        android:src="@drawable/ic_person"/>
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:layout_marginStart="10dp">
+
+                        <TextView
+                            android:id="@+id/tv_creator_name"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@username"
+                            android:textColor="@color/white"
+                            android:textSize="14sp"
+                            android:fontFamily="sans-serif-medium"
+                            android:maxLines="1"
+                            android:ellipsize="end"/>
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Sound creator"
+                            android:textColor="#AAFFFFFF"
+                            android:textSize="11sp"
+                            android:layout_marginTop="1dp"/>
+                    </LinearLayout>
 
                     <TextView
-                        android:id="@+id/tv_creator_label"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="ORIGINAL CREATOR"
-                        android:textColor="#77FFFFFF"
-                        android:textSize="10sp"
-                        android:fontFamily="sans-serif-medium"
-                        android:letterSpacing="0.05"/>
-
-                    <TextView
-                        android:id="@+id/tv_creator_name"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="@username"
-                        android:textColor="@color/white"
-                        android:textSize="14sp"
-                        android:fontFamily="sans-serif-medium"
-                        android:maxLines="1"
-                        android:ellipsize="end"
-                        android:layout_marginTop="1dp"/>
+                        android:text="View profile →"
+                        android:textColor="#FFD700"
+                        android:textSize="12sp"
+                        android:fontFamily="sans-serif-medium"/>
                 </LinearLayout>
-
-                <ImageView
-                    android:layout_width="18dp"
-                    android:layout_height="18dp"
-                    android:src="@drawable/ic_arrow_right"
-                    android:tint="#44FFFFFF"
-                    android:scaleType="fitCenter"/>
             </LinearLayout>
 
+            <!-- hidden divider (kept for backward compat) -->
             <View
                 android:id="@+id/divider_creator"
-                android:layout_width="match_parent"
-                android:layout_height="1dp"
-                android:background="#0DFFFFFF"
-                android:layout_marginStart="16dp" android:layout_marginEnd="16dp"
+                android:layout_width="0dp"
+                android:layout_height="0dp"
                 android:visibility="gone"/>
 
             <!-- ── Trim chip ─────────────────────────────────────────────────── -->
@@ -472,11 +563,12 @@
                     android:textSize="13sp"/>
             </LinearLayout>
 
-            <!-- ── Reels grid ────────────────────────────────────────────────── -->
+            <!-- ── Reels grid (2-col, 9:16 vertical) ───────────────────────── -->
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/rv_sound_reels"
                 android:layout_width="match_parent"
-                android:layout_height="330dp"
+                android:layout_height="wrap_content"
+                android:nestedScrollingEnabled="false"
                 android:clipToPadding="false"/>
 
             <!-- ── Related sounds section ────────────────────────────────────── -->
