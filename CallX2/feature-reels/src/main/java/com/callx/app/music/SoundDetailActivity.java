@@ -40,6 +40,7 @@ import com.bumptech.glide.request.target.CustomTarget;
 import com.bumptech.glide.request.transition.Transition;
 import com.callx.app.reels.R;
 import com.callx.app.utils.FirebaseUtils;
+import com.callx.app.utils.ReelFirebaseUtils;
 import com.google.firebase.database.*;
 
 import java.util.*;
@@ -112,6 +113,19 @@ public class SoundDetailActivity extends AppCompatActivity
     private View         dividerCreator;
     private ImageView    ivCreatorAvatar;
     private TextView     tvCreatorName;
+
+    // ─── Reels grid pagination ─────────────────────────────────────────────────
+    // The grid used to hard-cap at 12 via a single limitToFirst(12) read.
+    // Now it pages through sounds/{soundId}/reels in REELS_PAGE_SIZE chunks,
+    // fetching the next page lazily only once the user scrolls near the
+    // bottom of the grid — keeps this screen cheap for sounds used in
+    // thousands of reels instead of always reading + sorting a big batch.
+    private static final int REELS_PAGE_SIZE     = 12;
+    private ScrollView  scrollSoundDetail;
+    private ProgressBar progressReelsPagination;
+    private String       lastReelKey        = null;
+    private boolean       isLoadingMoreReels = false;
+    private boolean       hasMoreReels       = true;
 
     // ─── State ─────────────────────────────────────────────────────────────────
     private String  soundId, soundTitle, soundUrl, artist, coverUrl, genre;
@@ -256,6 +270,10 @@ public class SoundDetailActivity extends AppCompatActivity
         dividerCreator = findViewById(R.id.divider_creator);
         ivCreatorAvatar= findViewById(R.id.iv_creator_avatar);
         tvCreatorName  = findViewById(R.id.tv_creator_name);
+
+        // Reels grid pagination
+        scrollSoundDetail       = findViewById(R.id.scroll_sound_detail);
+        progressReelsPagination = findViewById(R.id.progress_reels_pagination);
 
         if (rvReels   != null) rvReels.setLayoutManager(new GridLayoutManager(this, 3));
         if (rvRelated != null) rvRelated.setLayoutManager(
@@ -571,11 +589,11 @@ public class SoundDetailActivity extends AppCompatActivity
     private void loadReelsForSound() {
         if (soundId == null || soundId.isEmpty() || rvReels == null) return;
         reelThumbAdapter = new ReelThumbAdapter(reelItems, position -> {
-            // Pass every reel currently in the grid (same order), not just the
-            // tapped one, so the player screen has a full feed to scroll
-            // through — previously only the single tapped reel_id was sent,
-            // which is why only one reel played and there was nothing to
-            // scroll down to.
+            // Pass every reel currently loaded in the grid (same order), not
+            // just the tapped one, so the player screen has a full feed to
+            // scroll through — previously only the single tapped reel_id was
+            // sent, which is why only one reel played and there was nothing
+            // to scroll down to.
             ArrayList<String> ids = new ArrayList<>();
             for (ReelThumbItem r : reelItems) ids.add(r.reelId);
             Intent i = new Intent(this, SingleReelPlayerActivity.class);
@@ -585,40 +603,99 @@ public class SoundDetailActivity extends AppCompatActivity
         });
         rvReels.setAdapter(reelThumbAdapter);
 
-        FirebaseUtils.db().getReference("sounds").child(soundId).child("reels")
-            .limitToFirst(12)
-            .addListenerForSingleValueEvent(new ValueEventListener() {
-                @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                    if (isFinishing() || isDestroyed()) return;
-                    reelItems.clear();
-                    for (DataSnapshot s : snap.getChildren()) {
-                        String rid   = s.getKey();
-                        String thumb = s.child("thumbnailUrl").getValue(String.class);
-                        if (thumb == null) thumb = s.child("thumbnail").getValue(String.class);
-                        String vid   = s.child("videoUrl").getValue(String.class);
-                        String uid   = s.child("ownerUid").getValue(String.class);
-                        if (rid != null) {
-                            ReelThumbItem item = new ReelThumbItem(rid,
-                                thumb != null ? thumb : "", vid != null ? vid : "");
-                            item.uid = uid;
-                            reelItems.add(item);
-                        }
-                    }
-                    if (!reelItems.isEmpty()) fetchViewCountsAndSort();
-                    else loadReelsFromReelsNode();
+        // rv_sound_reels lives inside the screen's outer ScrollView with
+        // nestedScrollingEnabled="false" and wrap_content height — it never
+        // scrolls on its own, the ScrollView does. So pagination is driven
+        // off the ScrollView's scroll position, not a RecyclerView scroll
+        // listener (which would never fire here).
+        if (scrollSoundDetail != null) {
+            scrollSoundDetail.setOnScrollChangeListener((View.OnScrollChangeListener) (v, scrollX, scrollY, oldX, oldY) -> {
+                if (scrollY <= oldY || rvReels == null || isLoadingMoreReels || !hasMoreReels) return;
+                int gridBottom = rvReels.getBottom();
+                int visibleBottom = scrollY + scrollSoundDetail.getHeight();
+                // Start fetching a bit before the grid's actual bottom edge
+                // scrolls into view so the next page feels already there.
+                if (visibleBottom >= gridBottom - 600) {
+                    loadMoreReelsForSound();
                 }
-                @Override public void onCancelled(@NonNull DatabaseError e) { loadReelsFromReelsNode(); }
             });
+        }
+
+        loadMoreReelsForSound(); // first page
     }
 
+    /**
+     * Fetches the next page (REELS_PAGE_SIZE) of sounds/{soundId}/reels,
+     * ordered by key, resuming from lastReelKey. Falls back once to the
+     * legacy full-reels-node query only if the summary node has nothing at
+     * all (older sounds created before this lightweight node existed).
+     */
+    private void loadMoreReelsForSound() {
+        if (isLoadingMoreReels || !hasMoreReels || isFinishing() || isDestroyed()) return;
+        isLoadingMoreReels = true;
+        if (progressReelsPagination != null && lastReelKey != null) {
+            progressReelsPagination.setVisibility(View.VISIBLE);
+        }
+
+        Query q = FirebaseUtils.db().getReference("sounds").child(soundId).child("reels")
+            .orderByKey();
+        q = (lastReelKey != null) ? q.startAfter(lastReelKey).limitToFirst(REELS_PAGE_SIZE)
+                                   : q.limitToFirst(REELS_PAGE_SIZE);
+
+        q.addListenerForSingleValueEvent(new ValueEventListener() {
+            @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                if (isFinishing() || isDestroyed()) return;
+                List<ReelThumbItem> page = new ArrayList<>();
+                for (DataSnapshot s : snap.getChildren()) {
+                    String rid   = s.getKey();
+                    String thumb = s.child("thumbnailUrl").getValue(String.class);
+                    if (thumb == null) thumb = s.child("thumbnail").getValue(String.class);
+                    String vid   = s.child("videoUrl").getValue(String.class);
+                    String uid   = s.child("ownerUid").getValue(String.class);
+                    if (rid != null) {
+                        ReelThumbItem item = new ReelThumbItem(rid,
+                            thumb != null ? thumb : "", vid != null ? vid : "");
+                        item.uid = uid;
+                        page.add(item);
+                        lastReelKey = rid;
+                    }
+                }
+                if (page.size() < REELS_PAGE_SIZE) hasMoreReels = false;
+
+                if (page.isEmpty() && reelItems.isEmpty() && lastReelKey == null) {
+                    // No lightweight summary entries at all — legacy sound,
+                    // fall back once to the main reels node (single shot,
+                    // not paginated further).
+                    hasMoreReels = false;
+                    loadReelsFromReelsNode();
+                    return;
+                }
+                fetchViewCountsForPage(page);
+            }
+            @Override public void onCancelled(@NonNull DatabaseError e) {
+                isLoadingMoreReels = false;
+                if (progressReelsPagination != null) progressReelsPagination.setVisibility(View.GONE);
+                if (reelItems.isEmpty()) loadReelsFromReelsNode();
+            }
+        });
+    }
+
+    /**
+     * Legacy fallback for sounds created before sounds/{id}/reels existed —
+     * a single best-effort read, not paginated (rare/old-data path).
+     */
     private void loadReelsFromReelsNode() {
-        if (soundId == null || isFinishing() || isDestroyed()) return;
+        if (soundId == null || isFinishing() || isDestroyed()) {
+            isLoadingMoreReels = false;
+            return;
+        }
         FirebaseUtils.db().getReference("reels")
             .orderByChild("soundId").equalTo(soundId)
-            .limitToFirst(12)
+            .limitToFirst(REELS_PAGE_SIZE)
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                    if (isFinishing() || isDestroyed()) return;
+                    if (isFinishing() || isDestroyed()) { isLoadingMoreReels = false; return; }
+                    List<ReelThumbItem> page = new ArrayList<>();
                     for (DataSnapshot s : snap.getChildren()) {
                         String rid   = s.getKey();
                         String thumb = s.child("thumbnailUrl").getValue(String.class);
@@ -631,61 +708,94 @@ public class SoundDetailActivity extends AppCompatActivity
                                 thumb != null ? thumb : "", vid != null ? vid : "");
                             item.uid        = uid;
                             item.viewsCount = views != null ? views : 0L;
-                            reelItems.add(item);
+                            page.add(item);
                         }
                     }
-                    sortAndApplyReelItems();
+                    finishAppendingPage(page, false /* views already known */);
                 }
-                @Override public void onCancelled(@NonNull DatabaseError e) {}
+                @Override public void onCancelled(@NonNull DatabaseError e) { isLoadingMoreReels = false; }
             });
     }
 
     /**
      * The lightweight sounds/{soundId}/reels summary only stores
-     * thumbnailUrl/videoUrl/ownerUid — no view count — so to sort the grid
+     * thumbnailUrl/videoUrl/ownerUid — no view count — so to sort each page
      * by "most views" we fetch viewsCount per reel from the main reels node.
-     * Limited to ≤12 items (same cap as the grid itself), so this stays cheap.
+     * Limited to one page (≤ REELS_PAGE_SIZE) at a time, so this stays cheap.
      */
-    private void fetchViewCountsAndSort() {
-        final int total = reelItems.size();
+    private void fetchViewCountsForPage(List<ReelThumbItem> page) {
+        if (page.isEmpty()) { finishAppendingPage(page, false); return; }
+        final int total = page.size();
         final int[] done = {0};
-        for (ReelThumbItem item : reelItems) {
+        for (ReelThumbItem item : page) {
             FirebaseUtils.getReelsRef().child(item.reelId).child("viewsCount")
                 .addListenerForSingleValueEvent(new ValueEventListener() {
                     @Override public void onDataChange(@NonNull DataSnapshot snap) {
                         Long v = snap.getValue(Long.class);
                         item.viewsCount = v != null ? v : 0L;
                         done[0]++;
-                        if (done[0] >= total) sortAndApplyReelItems();
+                        if (done[0] >= total) finishAppendingPage(page, true);
                     }
                     @Override public void onCancelled(@NonNull DatabaseError e) {
                         done[0]++;
-                        if (done[0] >= total) sortAndApplyReelItems();
+                        if (done[0] >= total) finishAppendingPage(page, true);
                     }
                 });
         }
     }
 
     /**
-     * Grid order: the sound's original creator's reel(s) first, then the
-     * remaining reels sorted by view count (highest first) — matches the
-     * requested "original creator pehle, uske baad most-views vali" order.
-     * Safe to call again later if creatorUid resolves after the reels did.
+     * Sorts just the newly-fetched page (original creator's reel(s) first,
+     * then by view count) and appends it to the grid — intentionally does
+     * NOT re-sort already-visible earlier pages, so items the user already
+     * scrolled past don't jump around as more pages load.
+     */
+    private void finishAppendingPage(List<ReelThumbItem> page, boolean needsSort) {
+        isLoadingMoreReels = false;
+        if (progressReelsPagination != null) progressReelsPagination.setVisibility(View.GONE);
+        if (isFinishing() || isDestroyed() || page.isEmpty()) return;
+
+        if (needsSort) {
+            for (ReelThumbItem item : page) {
+                item.isOriginalCreator = creatorUid != null && !creatorUid.isEmpty()
+                    && creatorUid.equals(item.uid);
+            }
+            page.sort((a, b) -> {
+                if (a.isOriginalCreator != b.isOriginalCreator) return a.isOriginalCreator ? -1 : 1;
+                return Long.compare(b.viewsCount, a.viewsCount);
+            });
+        }
+
+        int insertStart = reelItems.size();
+        reelItems.addAll(page);
+        if (reelThumbAdapter != null) reelThumbAdapter.notifyItemRangeInserted(insertStart, page.size());
+    }
+
+    /**
+     * Called once creatorUid resolves (sometimes slightly after the first
+     * page of reels already loaded). Promotes any already-loaded original
+     * creator reel(s) to the front of the whole accumulated list — a cheap
+     * one-off resort, not a per-page operation.
      */
     private void sortAndApplyReelItems() {
         if (isFinishing() || isDestroyed()) return;
+        if (creatorUid == null || creatorUid.isEmpty() || reelItems.isEmpty()) return;
+        boolean changed = false;
         for (ReelThumbItem item : reelItems) {
-            item.isOriginalCreator = creatorUid != null && !creatorUid.isEmpty()
-                && creatorUid.equals(item.uid);
+            boolean isOrig = creatorUid.equals(item.uid);
+            if (isOrig != item.isOriginalCreator) changed = true;
+            item.isOriginalCreator = isOrig;
         }
+        if (!changed) return;
+        // Stable sort — only reorders the original-creator/non-creator
+        // grouping, otherwise keeps each item's existing relative position.
         reelItems.sort((a, b) -> {
-            if (a.isOriginalCreator != b.isOriginalCreator) {
-                return a.isOriginalCreator ? -1 : 1;
-            }
-            return Long.compare(b.viewsCount, a.viewsCount);
+            if (a.isOriginalCreator != b.isOriginalCreator) return a.isOriginalCreator ? -1 : 1;
+            return 0;
         });
         if (reelThumbAdapter != null) reelThumbAdapter.notifyDataSetChanged();
     }
+
 
     // ───────────────────────────────────────────────────────────────────────────
     //  Creator profile
@@ -738,6 +848,40 @@ public class SoundDetailActivity extends AppCompatActivity
     }
 
     private void fetchCreatorUserData(String uid) {
+        // The Reels feature keeps its own profile node — reels/users/{uid},
+        // via ReelFirebaseUtils — separate from the main app's users/{uid}.
+        // A reel creator's avatar/display name (set via ReelProfileSetup
+        // Activity / ReelEditProfileActivity) lives there, not on the main
+        // node. This was previously only reading users/{uid}, which is why
+        // the original creator's avatar never showed up. Check the
+        // reels-specific node first, fall back to the main one if empty.
+        ReelFirebaseUtils.reelUserRef(uid)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    if (isFinishing() || isDestroyed()) return;
+                    String name = snap.child("displayName").getValue(String.class);
+                    if (name == null || name.isEmpty())
+                        name = snap.child("handle").getValue(String.class);
+
+                    String photo = snap.child("photoUrl").getValue(String.class);
+                    if (photo == null || photo.isEmpty())
+                        photo = snap.child("thumbUrl").getValue(String.class);
+
+                    if ((name != null && !name.isEmpty()) || (photo != null && !photo.isEmpty())) {
+                        creatorName  = (name != null && !name.isEmpty()) ? name : "Unknown";
+                        creatorPhoto = photo;
+                        bindCreatorRow(uid, creatorName, photo);
+                    } else {
+                        fetchCreatorFromMainUsersNode(uid);
+                    }
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) {
+                    fetchCreatorFromMainUsersNode(uid);
+                }
+            });
+    }
+
+    private void fetchCreatorFromMainUsersNode(String uid) {
         FirebaseUtils.getUserRef(uid)
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(@NonNull DataSnapshot snap) {
@@ -774,6 +918,8 @@ public class SoundDetailActivity extends AppCompatActivity
                 .placeholder(R.drawable.ic_person)
                 .error(R.drawable.ic_person)
                 .into(ivCreatorAvatar);
+        } else if (ivCreatorAvatar != null) {
+            ivCreatorAvatar.setImageResource(R.drawable.ic_person);
         }
 
         layoutCreator.setVisibility(View.VISIBLE);

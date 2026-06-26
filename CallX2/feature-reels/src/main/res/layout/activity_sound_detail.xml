@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/scroll_sound_detail"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="#000000"
@@ -369,7 +370,7 @@
                     android:textColor="@color/white"
                     android:textSize="14sp"
                     android:fontFamily="sans-serif-medium"
-                    android:background="@drawable/bg_reel_upload_btn"
+                    android:background="@drawable/bg_sound_use_camera_btn"
                     android:layout_marginEnd="8dp"/>
 
                 <TextView
@@ -445,6 +446,16 @@
             android:layout_height="wrap_content"
             android:nestedScrollingEnabled="false"
             android:clipToPadding="false"/>
+
+        <!-- Footer spinner shown while the next page of reels is loading -->
+        <ProgressBar
+            android:id="@+id/progress_reels_pagination"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal"
+            android:indeterminateTint="@color/brand_primary"
+            android:layout_marginVertical="10dp"
+            android:visibility="gone"/>
 
         <!-- Related sounds section -->
         <LinearLayout
