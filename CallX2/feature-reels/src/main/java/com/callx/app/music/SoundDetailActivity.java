@@ -736,7 +736,16 @@ public class SoundDetailActivity extends AppCompatActivity implements Player.Lis
 
         int insertStart = reelItems.size();
         reelItems.addAll(page);
-        if (reelThumbAdapter != null) reelThumbAdapter.notifyItemRangeInserted(insertStart, page.size());
+        if (reelThumbAdapter != null) {
+            reelThumbAdapter.notifyItemRangeInserted(insertStart, page.size());
+            // Force ScrollView to remeasure after items are inserted.
+            // wrap_content RecyclerView inside ScrollView sometimes clips the last
+            // row because the parent measured before the adapter had all items.
+            // requestLayout() + post ensures measurement runs after bind completes.
+            if (rvReels != null) rvReels.post(() -> {
+                if (rvReels != null) rvReels.requestLayout();
+            });
+        }
     }
 
     private void sortAndApplyReelItems() {
