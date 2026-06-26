@@ -94,6 +94,8 @@ public class SoundDetailActivity extends AppCompatActivity
 
     // ─── Views ─────────────────────────────────────────────────────────────────
     private ImageButton  btnBack, btnPlayPause, btnShare;
+    private FrameLayout  flPlayOverlay;
+    private ImageButton  btnPlayHint;
     private TextView     tvSoundTitle, tvArtist, tvDuration, tvReelCount,
                          tvTrendingRank, tvSavesCount, tvBpm, tvGenre,
                          tvOriginalBadge, tvIsVerified;
@@ -226,6 +228,8 @@ public class SoundDetailActivity extends AppCompatActivity
         btnBack           = findViewById(R.id.btn_sound_back);
         btnPlayPause      = findViewById(R.id.btn_sound_play_pause);
         btnShare          = findViewById(R.id.btn_sound_share);
+        flPlayOverlay     = findViewById(R.id.fl_play_overlay);
+        btnPlayHint       = findViewById(R.id.btn_sound_play_hint);
         tvSoundTitle      = findViewById(R.id.tv_sound_title);
         tvArtist          = findViewById(R.id.tv_sound_artist);
         tvDuration        = findViewById(R.id.tv_sound_duration);
@@ -496,10 +500,10 @@ public class SoundDetailActivity extends AppCompatActivity
                     if (tvTrendingRank != null) {
                         if (rank > 0 && rank <= 50) {
                             tvTrendingRank.setVisibility(View.VISIBLE);
-                            tvTrendingRank.setText("#" + rank + " Trending");
+                            tvTrendingRank.setText("↗ #" + rank + " Trending");
                         } else if (Boolean.TRUE.equals(trendingFlg)) {
                             tvTrendingRank.setVisibility(View.VISIBLE);
-                            tvTrendingRank.setText("🔥 Trending");
+                            tvTrendingRank.setText("↗ Trending");
                         } else {
                             tvTrendingRank.setVisibility(View.GONE);
                         }
@@ -747,6 +751,7 @@ public class SoundDetailActivity extends AppCompatActivity
     private void setupClickListeners() {
         if (btnBack != null) btnBack.setOnClickListener(v -> finish());
         if (btnPlayPause != null) btnPlayPause.setOnClickListener(v -> togglePlayPause());
+        if (btnPlayHint  != null) btnPlayHint.setOnClickListener(v -> togglePlayPause());
         if (btnShare != null) btnShare.setOnClickListener(v -> shareSound());
 
         if (btnSaveSound != null) {
@@ -829,6 +834,8 @@ public class SoundDetailActivity extends AppCompatActivity
                 mp.start();
                 isPlaying = true;
                 if (btnPlayPause != null) btnPlayPause.setImageResource(R.drawable.ic_pause);
+                if (flPlayOverlay != null) flPlayOverlay.setVisibility(View.VISIBLE);
+                if (btnPlayHint   != null) btnPlayHint.setVisibility(View.GONE);
                 startWaveAnimation();
                 startDiscAnimation();
                 seekHandler.post(seekUpdateRunnable);
@@ -854,6 +861,8 @@ public class SoundDetailActivity extends AppCompatActivity
             mediaPlayer.start();
             isPlaying = true;
             if (btnPlayPause != null) btnPlayPause.setImageResource(R.drawable.ic_pause);
+            if (flPlayOverlay != null) flPlayOverlay.setVisibility(View.VISIBLE);
+            if (btnPlayHint   != null) btnPlayHint.setVisibility(View.GONE);
             startWaveAnimation();
             startDiscAnimation();
             seekHandler.post(seekUpdateRunnable);
@@ -866,6 +875,8 @@ public class SoundDetailActivity extends AppCompatActivity
         }
         isPlaying = false;
         if (btnPlayPause != null) btnPlayPause.setImageResource(R.drawable.ic_play);
+        if (flPlayOverlay != null) flPlayOverlay.setVisibility(View.GONE);
+        if (btnPlayHint   != null) btnPlayHint.setVisibility(View.VISIBLE);
         stopWaveAnimation();
         stopDiscAnimation();
         seekHandler.removeCallbacks(seekUpdateRunnable);
