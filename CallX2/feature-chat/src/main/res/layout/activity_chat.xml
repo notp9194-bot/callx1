@@ -1070,6 +1070,14 @@
             android:src="@drawable/ic_camera"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="Camera"/>
+        <ImageButton
+            android:id="@+id/btn_view_once"
+            android:layout_width="34dp"
+            android:layout_height="34dp"
+            android:padding="6dp"
+            android:src="@drawable/ic_view_once"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="View Once"/>
         <FrameLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"

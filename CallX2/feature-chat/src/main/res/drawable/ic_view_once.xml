@@ -1,0 +1,7 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="24" android:viewportHeight="24">
+    <!-- Simple "1" inside a circle — view-once badge icon, single flat path, no gradients/shadows -->
+    <path android:fillColor="#FFFFFFFF"
+        android:pathData="M12,2 C6.48,2 2,6.48 2,12 C2,17.52 6.48,22 12,22 C17.52,22 22,17.52 22,12 C22,6.48 17.52,2 12,2 Z M13,17 L11,17 L11,10 L9,10 L9,8.5 C10.1,8.5 11.2,8 11.5,7 L13,7 Z"/>
+</vector>

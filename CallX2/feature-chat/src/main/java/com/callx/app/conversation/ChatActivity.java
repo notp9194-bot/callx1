@@ -151,6 +151,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
 
     // ── Paging 3 ──────────────────────────────────────────────────────────
     private MessagePagingAdapter pagingAdapter;
+    private boolean isViewOnceModeOn = false;
     private AppDatabase          db;
     private final Executor       ioExecutor = Executors.newFixedThreadPool(2);
 
@@ -791,6 +792,12 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
 
     @Override
     public void pushMessage(Message m, String previewText) {
+        // Feature 13: View Once — apply tag if toggle is ON, then auto-reset
+        // (one-shot per message, same UX pattern as WhatsApp's view-once camera).
+        if (isViewOnceModeOn) {
+            com.callx.app.conversation.controllers.ChatViewOnceController.tagMessageAsViewOnce(m);
+            setViewOnceMode(false);
+        }
         messageSender.pushMessage(m, previewText);
     }
 
@@ -1825,6 +1832,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             }
         });
         binding.btnAttach.setOnClickListener(v -> mediaController.showAttachSheet());
+        binding.btnViewOnce.setOnClickListener(v -> setViewOnceMode(!isViewOnceModeOn));
         binding.btnCamera.setOnClickListener(v -> mediaController.launchCamera());
 
         if (binding.btnCancelReply != null)
@@ -1849,6 +1857,20 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // ─────────────────────────────────────────────────────────────────────
     // SEND TEXT MESSAGE
     // ─────────────────────────────────────────────────────────────────────
+
+    /**
+     * Toggles "View Once" send mode. PERF: just a tint swap (setColorFilter) —
+     * no animation loop, no layout pass, no GPU overdraw. Auto-resets to off
+     * after one send (see pushMessage()), so it never silently stays sticky.
+     */
+    private void setViewOnceMode(boolean on) {
+        isViewOnceModeOn = on;
+        if (binding == null || binding.btnViewOnce == null) return;
+        binding.btnViewOnce.setColorFilter(on
+                ? android.graphics.Color.parseColor("#FF6200EE")   // active tint
+                : android.graphics.Color.parseColor("#FF8A8A8A")); // idle/grey tint
+        binding.etMessage.setHint(on ? "View once message…" : getString(R.string.hint_message));
+    }
 
     private void sendTextMessage() {
         String text = binding.etMessage.getText().toString().trim();
