@@ -2,10 +2,8 @@
 <!--
   item_view_once_expired.xml
   Shown AFTER the receiver has opened the view-once message.
-  Both sender and receiver see this "Opened" greyed-out pill once viewOnceState = "opened".
-  (Sender sees item_view_once_sent_waiting.xml while the message is pending.)
-
-  PERFORMANCE: ConstraintLayout, single pass, solid color, no hardware layer.
+  Sender sees "Opened · Jun 28, 3:45 PM" (tv_opened_at, VISIBLE only for sender).
+  Receiver sees just "Opened" (tv_opened_at is GONE for receiver).
 -->
 <androidx.constraintlayout.widget.ConstraintLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
@@ -16,13 +14,14 @@
 
     <androidx.constraintlayout.widget.ConstraintLayout
         android:id="@+id/ll_bubble"
-        android:layout_width="180dp"
+        android:layout_width="220dp"
         android:layout_height="wrap_content"
         android:background="@drawable/bg_view_once_expired"
         android:padding="10dp"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent">
 
+        <!-- Eye icon -->
         <TextView
             android:id="@+id/tv_expired_icon"
             android:layout_width="wrap_content"
@@ -34,6 +33,7 @@
             app:layout_constraintTop_toTopOf="parent"
             app:layout_constraintBottom_toBottomOf="parent"/>
 
+        <!-- "Opened" label -->
         <TextView
             android:id="@+id/tv_expired_label"
             android:layout_width="0dp"
@@ -45,17 +45,33 @@
             app:layout_constraintStart_toEndOf="@id/tv_expired_icon"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintBottom_toTopOf="@id/tv_opened_at"/>
+
+        <!-- "Opened · Jun 28, 3:45 PM" — only visible to sender -->
+        <TextView
+            android:id="@+id/tv_opened_at"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:textColor="#77FFFFFF"
+            android:textSize="10sp"
+            android:layout_marginStart="8dp"
+            android:layout_marginTop="2dp"
+            android:visibility="gone"
+            app:layout_constraintStart_toEndOf="@id/tv_expired_icon"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/tv_expired_label"
             app:layout_constraintBottom_toTopOf="@id/tv_time"/>
 
+        <!-- Message sent timestamp -->
         <TextView
             android:id="@+id/tv_time"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:textColor="#66FFFFFF"
+            android:textColor="@android:color/transparent"
             android:textSize="9sp"
             android:layout_marginTop="4dp"
             app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintTop_toBottomOf="@id/tv_expired_label"/>
+            app:layout_constraintTop_toBottomOf="@id/tv_opened_at"/>
 
     </androidx.constraintlayout.widget.ConstraintLayout>
 

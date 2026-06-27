@@ -2527,11 +2527,28 @@ public class MessagePagingAdapter
      */
     private void bindViewOnceExpired(RecyclerView.ViewHolder holder, Message m) {
         android.view.View root = holder.itemView;
+
+        // Message sent time (bottom-right)
         android.widget.TextView tvTime = root.findViewById(com.callx.app.chat.R.id.tv_time);
         if (tvTime != null && m.timestamp != null) {
             tvTime.setText(new java.text.SimpleDateFormat("h:mm a",
                     java.util.Locale.getDefault()).format(new java.util.Date(m.timestamp)));
         }
+
+        // "Opened on" date+time — shown only to sender (openedAt is set by receiver's device)
+        android.widget.TextView tvOpenedAt = root.findViewById(com.callx.app.chat.R.id.tv_opened_at);
+        if (tvOpenedAt != null) {
+            if (currentUid != null && currentUid.equals(m.senderId) && m.openedAt != null) {
+                // Format: "Opened · Jun 28, 3:45 PM"
+                java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat(
+                        "MMM d, h:mm a", java.util.Locale.getDefault());
+                tvOpenedAt.setText("Opened · " + sdf.format(new java.util.Date(m.openedAt)));
+                tvOpenedAt.setVisibility(android.view.View.VISIBLE);
+            } else {
+                tvOpenedAt.setVisibility(android.view.View.GONE);
+            }
+        }
+
         android.view.View bubble = root.findViewById(com.callx.app.chat.R.id.ll_bubble);
         android.view.View tapTarget = bubble != null ? bubble : root;
         tapTarget.setOnClickListener(null);

@@ -8,6 +8,8 @@ import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.graphics.Color;
+import android.graphics.drawable.ColorDrawable;
 import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
@@ -2094,9 +2096,26 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 .setCancelable(false)
                 .create();
 
+        // SECURITY: Block screenshot/screen-record inside dialog too (defence-in-depth).
+        // FLAG_SECURE is already set by ChatViewOnceController, but dialog windows
+        // can have a separate surface in some OEM builds — set it here explicitly.
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE);
+            // ROUNDED CORNERS: replace default AlertDialog background with rounded drawable.
+            // Must be set before show() so the window layout pass picks it up.
+            dialog.getWindow().setBackgroundDrawable(
+                    new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
+        }
+
         // Wire positive button AFTER show() to prevent auto-dismiss on click.
         // We dismiss manually after cleanup so no race condition with dismiss listener.
         dialog.setOnShowListener(d -> {
+            // Apply rounded background on the dialog's decorView after it is shown
+            if (dialog.getWindow() != null) {
+                dialog.getWindow().getDecorView().setBackground(
+                        androidx.core.content.ContextCompat.getDrawable(
+                                this, com.callx.app.chat.R.drawable.bg_view_once_dialog));
+            }
             dialog.getButton(AlertDialog.BUTTON_POSITIVE)
                   .setOnClickListener(v -> {
                       doCleanupAndDelete.run();
