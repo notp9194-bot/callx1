@@ -73,13 +73,20 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
     public static final String ACTION_QR_CODE             = "qr_code";
     public static final String ACTION_DELETE              = "delete";
       // ── Advanced Duet Actions (v10) ──
-      public static final String ACTION_DUET_INVITE   = "duet_invite";
-      public static final String ACTION_DUET_BATTLE   = "duet_battle";
-      public static final String ACTION_DUET_TREE     = "duet_tree";
+      public static final String ACTION_DUET_INVITE    = "duet_invite";
+      public static final String ACTION_DUET_BATTLE    = "duet_battle";
+      public static final String ACTION_DUET_TREE      = "duet_tree";
       public static final String ACTION_DUET_CHALLENGE = "duet_challenge";
-      public static final String ACTION_MULTI_DUET    = "multi_duet";
-      public static final String ACTION_DUET_APPROVAL = "duet_approval";
-      public static final String ACTION_VIEW_SERIES  = "view_series";
+      public static final String ACTION_MULTI_DUET     = "multi_duet";
+      public static final String ACTION_DUET_APPROVAL  = "duet_approval";
+      public static final String ACTION_VIEW_SERIES    = "view_series";
+      // ── Remix (v12) ──
+      public static final String ACTION_REMIX           = "remix";
+      public static final String ACTION_VIEW_REMIXES    = "view_remixes";
+      // ── Watch History ──
+      public static final String ACTION_WATCH_HISTORY   = "watch_history";
+      // ── Quality Settings ──
+      public static final String ACTION_QUALITY         = "quality";
 
     // ─── Item model ──────────────────────────────────────────────────────────
     private static class MenuItem {
@@ -311,11 +318,17 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
             list.add(new MenuItem(ACTION_VIEW_SERIES, "View Series 🎬", R.drawable.ic_duet_series, CLR_CYAN, false, false));
         }
 
+        // ── Remix (v12) ──
+        list.add(new MenuItem(ACTION_REMIX,         "🎬 Remix",          R.drawable.ic_reels,       CLR_PURPLE,  false, false));
+        list.add(new MenuItem(ACTION_VIEW_REMIXES,  "View Remixes",      R.drawable.ic_reels,       CLR_TEAL,    true,  false));
+
         list.add(new MenuItem(ACTION_VIDEO_REPLY,   "Video Reply",        R.drawable.ic_reply,       CLR_PURPLE,  false, false));
         list.add(new MenuItem(ACTION_SHARE_TO_STORY,"Share to Story",   R.drawable.ic_share_reel,  CLR_GREEN,   true,  false));
         list.add(new MenuItem(ACTION_COLLAB_REPOST, "🤝 Collab Repost", R.drawable.ic_group,       CLR_COLLAB,  false, false));
         list.add(new MenuItem(ACTION_COLLAB_REQUEST,"Collab Request",   R.drawable.ic_group,       CLR_TEAL,    true,  false));
         list.add(new MenuItem(ACTION_NOT_INTERESTED,"Not Interested",   R.drawable.ic_eye_off,     CLR_GOLD,    false, false));
+        list.add(new MenuItem(ACTION_QUALITY,       "Video Quality",    R.drawable.ic_speed,       CLR_CYAN,    false, false));
+        list.add(new MenuItem(ACTION_WATCH_HISTORY, "Watch History",    R.drawable.ic_history,     CLR_ORANGE,  true,  false));
         list.add(new MenuItem(ACTION_COPY_LINK,     "Copy Link",        R.drawable.ic_link,        CLR_CYAN,   true,  false));
         list.add(new MenuItem(ACTION_REPORT,        "Report",           R.drawable.ic_flag,        CLR_RED,    false, false));
         list.add(new MenuItem(ACTION_BLOCK,         "Block User",       R.drawable.ic_phone_off,   CLR_RED,    false, false));
@@ -351,12 +364,16 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
             list.add(new MenuItem(ACTION_VIEW_SERIES, "View Series 🎬", R.drawable.ic_duet_series, CLR_CYAN, false, false));
         }
 
-        list.add(new MenuItem(ACTION_SHARE_TO_STORY, "Share to Story",   R.drawable.ic_share_reel, CLR_GREEN,   true,  false));
-        list.add(new MenuItem(ACTION_COLLAB_REPOST,  "🤝 Collab Repost", R.drawable.ic_group,      CLR_COLLAB,  false, false));
-        list.add(new MenuItem(ACTION_QR_CODE,        "QR Code",          R.drawable.ic_qr_code,    CLR_ORANGE,  false, false));
-        list.add(new MenuItem(ACTION_COLLAB_REQUEST, "Collab Request",   R.drawable.ic_group,       CLR_TEAL,   true,  false));
-        list.add(new MenuItem(ACTION_COPY_LINK,      "Copy Link",      R.drawable.ic_link,        CLR_CYAN,   false, false));
-        list.add(new MenuItem(ACTION_DELETE,         "Delete",         R.drawable.ic_delete,      CLR_RED,    false, false));
+        // ── Remix (v12 owner) ── View who remixed + manage allow_remix setting
+        list.add(new MenuItem(ACTION_VIEW_REMIXES,   "View Remixes",      R.drawable.ic_reels,      CLR_TEAL,    false, false));
+
+        list.add(new MenuItem(ACTION_SHARE_TO_STORY, "Share to Story",   R.drawable.ic_share_reel,  CLR_GREEN,   true,  false));
+        list.add(new MenuItem(ACTION_COLLAB_REPOST,  "🤝 Collab Repost", R.drawable.ic_group,       CLR_COLLAB,  false, false));
+        list.add(new MenuItem(ACTION_QR_CODE,        "QR Code",          R.drawable.ic_qr_code,     CLR_ORANGE,  false, false));
+        list.add(new MenuItem(ACTION_COLLAB_REQUEST, "Collab Request",   R.drawable.ic_group,       CLR_TEAL,    false, false));
+        list.add(new MenuItem(ACTION_QUALITY,        "Video Quality",    R.drawable.ic_speed,       CLR_CYAN,    true,  false));
+        list.add(new MenuItem(ACTION_COPY_LINK,      "Copy Link",        R.drawable.ic_link,        CLR_CYAN,   false, false));
+        list.add(new MenuItem(ACTION_DELETE,         "Delete",           R.drawable.ic_delete,      CLR_RED,    false, false));
         return list;
     }
 

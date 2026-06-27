@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
@@ -23,14 +24,13 @@
             android:orientation="vertical"
             android:padding="16dp">
 
-            <!-- Bandwidth card -->
+            <!-- Bandwidth card (v2 — live refresh) -->
             <androidx.cardview.widget.CardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="20dp"
                 app:cardCornerRadius="12dp"
-                app:cardElevation="2dp"
-                xmlns:app="http://schemas.android.com/apk/res-auto">
+                app:cardElevation="2dp">
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -38,24 +38,70 @@
                     android:orientation="vertical"
                     android:padding="16dp">
 
-                    <TextView
-                        android:layout_width="wrap_content"
+                    <!-- Network type row -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="Network Speed"
-                        android:textSize="13sp"
-                        android:textColor="?attr/colorOnSurfaceVariant"
-                        android:textAllCaps="true"
-                        android:letterSpacing="0.08"/>
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginBottom="8dp">
 
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="Network Speed"
+                            android:textSize="13sp"
+                            android:textColor="?attr/colorOnSurfaceVariant"
+                            android:textAllCaps="true"
+                            android:letterSpacing="0.08"/>
+
+                        <TextView
+                            android:id="@+id/tv_network_type"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Wi-Fi"
+                            android:textSize="12sp"
+                            android:textColor="#4CAF50"
+                            android:background="#1A4CAF50"
+                            android:paddingStart="8dp"
+                            android:paddingEnd="8dp"
+                            android:paddingTop="3dp"
+                            android:paddingBottom="3dp"/>
+                    </LinearLayout>
+
+                    <!-- Live bandwidth speed -->
                     <TextView
                         android:id="@+id/tv_bandwidth"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="4dp"
                         android:text="Measuring…"
-                        android:textSize="18sp"
+                        android:textSize="22sp"
                         android:fontFamily="sans-serif-medium"
                         android:textColor="?attr/colorPrimary"/>
+
+                    <!-- Bandwidth gauge bar -->
+                    <ProgressBar
+                        android:id="@+id/pb_bandwidth_gauge"
+                        style="?android:attr/progressBarStyleHorizontal"
+                        android:layout_width="match_parent"
+                        android:layout_height="6dp"
+                        android:layout_marginTop="8dp"
+                        android:layout_marginBottom="8dp"
+                        android:max="100"
+                        android:progress="0"
+                        android:progressTint="?attr/colorPrimary"
+                        android:progressBackgroundTint="?attr/colorSurfaceVariant"/>
+
+                    <!-- Quality recommendation -->
+                    <TextView
+                        android:id="@+id/tv_quality_recommendation"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Recommended: Auto"
+                        android:textSize="13sp"
+                        android:textColor="?attr/colorOnSurfaceVariant"
+                        android:drawablePadding="4dp"/>
 
                 </LinearLayout>
             </androidx.cardview.widget.CardView>
@@ -65,7 +111,6 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:background="?attr/selectableItemBackground"
                 android:padding="4dp"
                 android:layout_marginBottom="20dp">
 
@@ -130,31 +175,36 @@
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="24dp">
 
-                <RadioButton android:id="@+id/rb_auto"
+                <RadioButton
+                    android:id="@+id/rb_wifi_auto"
                     android:layout_width="match_parent"
                     android:layout_height="48dp"
                     android:text="Auto (Recommended) — ABR picks best quality"
                     android:textSize="14sp"
                     android:paddingStart="8dp"/>
-                <RadioButton android:id="@+id/rb_1080p"
+                <RadioButton
+                    android:id="@+id/rb_wifi_1080p"
                     android:layout_width="match_parent"
                     android:layout_height="48dp"
                     android:text="1080p — HD (uses more data)"
                     android:textSize="14sp"
                     android:paddingStart="8dp"/>
-                <RadioButton android:id="@+id/rb_720p"
+                <RadioButton
+                    android:id="@+id/rb_wifi_720p"
                     android:layout_width="match_parent"
                     android:layout_height="48dp"
                     android:text="720p — Good quality"
                     android:textSize="14sp"
                     android:paddingStart="8dp"/>
-                <RadioButton android:id="@+id/rb_480p"
+                <RadioButton
+                    android:id="@+id/rb_wifi_480p"
                     android:layout_width="match_parent"
                     android:layout_height="48dp"
                     android:text="480p — Balanced"
                     android:textSize="14sp"
                     android:paddingStart="8dp"/>
-                <RadioButton android:id="@+id/rb_360p"
+                <RadioButton
+                    android:id="@+id/rb_wifi_360p"
                     android:layout_width="match_parent"
                     android:layout_height="48dp"
                     android:text="360p — Saves data"
@@ -183,26 +233,30 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content">
 
-                    <RadioButton android:id="@+id/rb_auto"
+                    <RadioButton
+                        android:id="@+id/rb_data_auto"
                         android:layout_width="match_parent"
                         android:layout_height="48dp"
                         android:text="Auto"
                         android:textSize="14sp"
                         android:paddingStart="8dp"/>
-                    <RadioButton android:id="@+id/rb_720p"
+                    <RadioButton
+                        android:id="@+id/rb_data_720p"
                         android:layout_width="match_parent"
                         android:layout_height="48dp"
                         android:text="720p"
                         android:textSize="14sp"
                         android:paddingStart="8dp"/>
-                    <RadioButton android:id="@+id/rb_480p"
+                    <RadioButton
+                        android:id="@+id/rb_data_480p"
                         android:layout_width="match_parent"
                         android:layout_height="48dp"
                         android:text="480p (Recommended for mobile)"
                         android:textSize="14sp"
                         android:paddingStart="8dp"
                         android:checked="true"/>
-                    <RadioButton android:id="@+id/rb_360p"
+                    <RadioButton
+                        android:id="@+id/rb_data_360p"
                         android:layout_width="match_parent"
                         android:layout_height="48dp"
                         android:text="360p — Save data"

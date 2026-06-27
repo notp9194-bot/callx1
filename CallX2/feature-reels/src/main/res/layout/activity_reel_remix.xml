@@ -4,22 +4,21 @@
     android:layout_height="match_parent"
     android:background="#000000">
 
-    <!-- Original reel player (left half / full screen depending on layout) -->
+    <!-- Original reel player -->
     <androidx.media3.ui.PlayerView
         android:id="@+id/pv_remix_original"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:layout_gravity="start"
-        android:layout_marginEnd="0dp"/>
+        android:layout_gravity="start"/>
 
-    <!-- Camera preview (right half for side_by_side; full for green_screen / overlay) -->
+    <!-- Camera preview -->
     <androidx.camera.view.PreviewView
         android:id="@+id/pv_remix_camera"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:layout_gravity="end"/>
 
-    <!-- Floating cam container (for react_cam mode — top right PiP) -->
+    <!-- Floating PiP cam (react_cam mode) -->
     <FrameLayout
         android:id="@+id/container_floating_cam"
         android:layout_width="110dp"
@@ -37,7 +36,7 @@
             android:layout_height="match_parent"/>
     </FrameLayout>
 
-    <!-- Overlay dim view (for overlay mode) -->
+    <!-- Overlay dim view -->
     <View
         android:id="@+id/view_overlay_dim"
         android:layout_width="match_parent"
@@ -45,7 +44,7 @@
         android:background="#80000000"
         android:visibility="gone"/>
 
-    <!-- Top bar -->
+    <!-- ── Top bar ──────────────────────────────────────────────────────── -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -88,6 +87,18 @@
                 android:textColor="#CCCCCC"/>
         </LinearLayout>
 
+        <!-- Mute original audio button (v2) -->
+        <ImageButton
+            android:id="@+id/btn_remix_mute_original"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:src="@drawable/ic_volume_on"
+            android:tint="#FFFFFF"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Mute original audio"
+            android:layout_marginEnd="4dp"/>
+
+        <!-- Flip camera -->
         <ImageButton
             android:id="@+id/btn_remix_flip"
             android:layout_width="40dp"
@@ -96,33 +107,56 @@
             android:tint="#FFFFFF"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="Flip camera"/>
-
-        <!-- Duration progress bar (horizontal, top) -->
-        <ProgressBar
-            android:id="@+id/pb_remix_duration"
-            style="?android:attr/progressBarStyleHorizontal"
-            android:layout_width="0dp"
-            android:layout_height="4dp"
-            android:layout_weight="1"
-            android:layout_marginStart="8dp"
-            android:max="60"
-            android:progress="0"
-            android:progressTint="#00C6FF"
-            android:layout_gravity="center_vertical"/>
     </LinearLayout>
 
-    <!-- Timer -->
+    <!-- Duration bar (below top bar) -->
+    <ProgressBar
+        android:id="@+id/pb_remix_duration"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="3dp"
+        android:layout_gravity="top"
+        android:layout_marginTop="64dp"
+        android:max="60"
+        android:progress="0"
+        android:progressTint="#00C6FF"
+        android:progressBackgroundTint="#33FFFFFF"/>
+
+    <!-- Timer (top-center) -->
     <TextView
         android:id="@+id/tv_remix_timer"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="top|center_horizontal"
-        android:layout_marginTop="60dp"
+        android:layout_marginTop="72dp"
         android:text="00:00"
         android:textSize="16sp"
         android:fontFamily="sans-serif-medium"
         android:textColor="#FFFFFF"
+        android:background="#66000000"
+        android:paddingStart="10dp"
+        android:paddingEnd="10dp"
+        android:paddingTop="4dp"
+        android:paddingBottom="4dp"
         android:visibility="invisible"/>
+
+    <!-- Remaining seconds (v2) -->
+    <TextView
+        android:id="@+id/tv_remix_remaining"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|end"
+        android:layout_marginTop="72dp"
+        android:layout_marginEnd="16dp"
+        android:text="60s left"
+        android:textSize="13sp"
+        android:textColor="#CCCCCC"
+        android:background="#66000000"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp"
+        android:paddingTop="3dp"
+        android:paddingBottom="3dp"
+        android:visibility="gone"/>
 
     <!-- Countdown overlay (3…2…1…) -->
     <TextView
@@ -137,7 +171,7 @@
         android:textColor="#FFFFFF"
         android:visibility="gone"/>
 
-    <!-- Bottom controls -->
+    <!-- ── Bottom controls ────────────────────────────────────────────────── -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -147,7 +181,6 @@
         android:padding="24dp"
         android:layout_marginBottom="24dp">
 
-        <!-- Record button -->
         <ImageButton
             android:id="@+id/btn_remix_record"
             android:layout_width="72dp"
@@ -156,6 +189,46 @@
             android:tint="#FFFFFF"
             android:background="@drawable/bg_action_btn_circle"
             android:contentDescription="Record"/>
+
+    </LinearLayout>
+
+    <!-- ── Compositing progress overlay (v2) ─────────────────────────────── -->
+    <LinearLayout
+        android:id="@+id/layout_compositing"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:background="#CC000000"
+        android:padding="40dp"
+        android:visibility="gone">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="🎬"
+            android:textSize="40sp"
+            android:layout_marginBottom="16dp"/>
+
+        <TextView
+            android:id="@+id/tv_compositing_status"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Compositing videos…"
+            android:textSize="16sp"
+            android:fontFamily="sans-serif-medium"
+            android:textColor="#FFFFFF"
+            android:layout_marginBottom="20dp"/>
+
+        <ProgressBar
+            android:id="@+id/pb_compositing"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="8dp"
+            android:max="100"
+            android:progress="0"
+            android:progressTint="#00C6FF"
+            android:progressBackgroundTint="#33FFFFFF"/>
 
     </LinearLayout>
 

@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
@@ -12,18 +13,144 @@
         android:background="?attr/colorSurface"
         android:elevation="4dp"/>
 
-    <!-- Count header -->
-    <TextView
-        android:id="@+id/tv_history_total_count"
+    <!-- ── Stats card ────────────────────────────────────────────────────── -->
+    <LinearLayout
+        android:id="@+id/layout_watch_stats"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:padding="16dp"
-        android:paddingBottom="8dp"
-        android:text=""
-        android:textSize="13sp"
-        android:textColor="?attr/colorOnSurfaceVariant"
-        android:visibility="gone"/>
+        android:orientation="horizontal"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingTop="10dp"
+        android:paddingBottom="6dp"
+        android:visibility="gone">
 
+        <!-- Total watched -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:background="@drawable/bg_reel_comment_btn"
+            android:padding="10dp"
+            android:layout_marginEnd="6dp">
+
+            <TextView
+                android:id="@+id/tv_stat_total_watched"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="0 reels"
+                android:textSize="13sp"
+                android:fontFamily="sans-serif-medium"
+                android:textColor="?attr/colorOnSurface"
+                android:gravity="center"/>
+        </LinearLayout>
+
+        <!-- Avg completion -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:background="@drawable/bg_reel_comment_btn"
+            android:padding="10dp"
+            android:layout_marginEnd="6dp">
+
+            <TextView
+                android:id="@+id/tv_stat_avg_completion"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Avg: 0%"
+                android:textSize="12sp"
+                android:textColor="?attr/colorOnSurfaceVariant"
+                android:gravity="center"/>
+        </LinearLayout>
+
+        <!-- Top creator -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:background="@drawable/bg_reel_comment_btn"
+            android:padding="10dp">
+
+            <TextView
+                android:id="@+id/tv_stat_top_creator"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text=""
+                android:textSize="11sp"
+                android:textColor="#00C6FF"
+                android:gravity="center"
+                android:maxLines="2"
+                android:ellipsize="end"
+                android:visibility="gone"/>
+        </LinearLayout>
+
+    </LinearLayout>
+
+    <!-- ── Filter tabs: All / Completed / Replayed ───────────────────────── -->
+    <RadioGroup
+        android:id="@+id/rg_history_filter"
+        android:layout_width="match_parent"
+        android:layout_height="40dp"
+        android:orientation="horizontal"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingTop="4dp"
+        android:paddingBottom="4dp">
+
+        <RadioButton
+            android:id="@+id/rb_filter_all"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:text="All"
+            android:gravity="center"
+            android:button="@null"
+            android:textSize="13sp"
+            android:checked="true"
+            android:background="@drawable/bg_tab_selector"
+            android:textColor="@drawable/tab_text_color_selector"/>
+
+        <RadioButton
+            android:id="@+id/rb_filter_completed"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:text="Completed"
+            android:gravity="center"
+            android:button="@null"
+            android:textSize="13sp"
+            android:background="@drawable/bg_tab_selector"
+            android:textColor="@drawable/tab_text_color_selector"/>
+
+        <RadioButton
+            android:id="@+id/rb_filter_replayed"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:text="Replayed"
+            android:gravity="center"
+            android:button="@null"
+            android:textSize="13sp"
+            android:background="@drawable/bg_tab_selector"
+            android:textColor="@drawable/tab_text_color_selector"/>
+
+    </RadioGroup>
+
+    <!-- ── Divider ─────────────────────────────────────────────────────────── -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="?attr/dividerHorizontal"
+        android:layout_marginTop="4dp"/>
+
+    <!-- ── Content frame ──────────────────────────────────────────────────── -->
     <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent">
