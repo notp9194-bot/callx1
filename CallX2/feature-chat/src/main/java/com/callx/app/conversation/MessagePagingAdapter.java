@@ -457,15 +457,6 @@ public class MessagePagingAdapter
     @NonNull
     @Override
     public VH onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-        // Feature 13: View Once fast-exit binding
-        if (viewType == TYPE_VIEW_ONCE_SENT) {
-            bindViewOnceSent(holder, m);
-            return;
-        }
-        if (viewType == TYPE_VIEW_ONCE_EXPIRED) {
-            bindViewOnceExpired(holder, m);
-            return;
-        }
         if (viewType == TYPE_HIDDEN) {
             View v = new View(parent.getContext());
             v.setLayoutParams(new ViewGroup.LayoutParams(0, 0));
@@ -561,6 +552,19 @@ public class MessagePagingAdapter
         // ── CALL ENTRY BUBBLE — system call log row in chat ──────────────────
         if ("call_entry".equals(m.type)) {
             bindCallEntryBubble(h, m);
+            return;
+        }
+        // ── VIEW ONCE BUBBLES — Feature 13 ────────────────────────────────
+        if (Boolean.TRUE.equals(m.viewOnce)) {
+            if (com.callx.app.conversation.controllers.ChatViewOnceController.isExpired(m)) {
+                bindViewOnceExpired(h, m);
+                return;
+            }
+            if (currentUid.equals(m.senderId)) {
+                bindViewOnceExpired(h, m);
+                return;
+            }
+            bindViewOnceSent(h, m);
             return;
         }
         bindMessage(h, m, position);

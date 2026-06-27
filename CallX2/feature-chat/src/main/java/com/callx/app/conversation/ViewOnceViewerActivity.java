@@ -170,7 +170,7 @@ public class ViewOnceViewerActivity extends AppCompatActivity {
                 });
                 audioPlayer.setOnCompletionListener(mp -> {
                     audioPlaying = false;
-                    btnPlayAudio.setImageResource(com.callx.app.chat.R.drawable.ic_play_arrow);
+                    btnPlayAudio.setImageResource(com.callx.app.chat.R.drawable.ic_play);
                 });
             } catch (Exception e) {
                 releaseAudio();
@@ -179,7 +179,7 @@ public class ViewOnceViewerActivity extends AppCompatActivity {
             if (audioPlaying) {
                 audioPlayer.pause();
                 audioPlaying = false;
-                btnPlayAudio.setImageResource(com.callx.app.chat.R.drawable.ic_play_arrow);
+                btnPlayAudio.setImageResource(com.callx.app.chat.R.drawable.ic_play);
             } else {
                 audioPlayer.start();
                 audioPlaying = true;
