@@ -686,11 +686,12 @@ public class CallxMessagingService extends FirebaseMessagingService {
         final String mediaUrl   = data.getOrDefault("mediaUrl", "");
         final String rawText    = data.getOrDefault("text", "Naya message");
         final String type       = data.getOrDefault("type", "message");
-        // BLUR FIX: view_once messages should not show content in notification.
+        // Feature 4: view once notification — blur text, block image preview
         final boolean isViewOnce = "1".equals(data.getOrDefault("viewOnce", "0"));
         final String text = isViewOnce
-                ? "🔒 View Once message"
+                ? "🔒  View Once message"
                 : previewTextFor(type, rawText);
+        final String effectiveMediaUrl = isViewOnce ? null : mediaUrl; // block image preview
         long ls = 0L;
         try { ls = Long.parseLong(data.getOrDefault("fromLastSeen", "0")); }
         catch (Exception ignored) {}
@@ -776,8 +777,7 @@ public class CallxMessagingService extends FirebaseMessagingService {
             // Direct build — no Firebase, no waiting
             final String myThumbUrl = data.getOrDefault("myThumb", "");
             buildAndShow(fromUid, fromName, fromMobile, avatarUrl,
-                chatId, mediaUrl, text, type, subText, notifId, hist, serverMuted, myThumbUrl,
-                isViewOnce, msgId);
+                chatId, effectiveMediaUrl, text, type, subText, notifId, hist, serverMuted, myThumbUrl, msgId);
             return;
         }
 
@@ -785,7 +785,7 @@ public class CallxMessagingService extends FirebaseMessagingService {
         if (FirebaseAuth.getInstance().getCurrentUser() == null
                 || fromUid == null || fromUid.isEmpty()) {
             buildAndShow(fromUid, fromName, fromMobile, avatarUrl,
-                chatId, mediaUrl, text, type, subText, notifId, null, false);
+                chatId, effectiveMediaUrl, text, type, subText, notifId, null, false);
             return;
         }
         final String myUid = FirebaseAuth.getInstance().getCurrentUser().getUid();
@@ -822,18 +822,18 @@ public class CallxMessagingService extends FirebaseMessagingService {
             final boolean serverSentMuteFlag = data.containsKey("muted");
             if (serverSentMuteFlag) {
                 loadLast3AndBuild(myUid, fromUid, fromName, fromMobile, avatarUrl,
-                    chatId, mediaUrl, text, type, subText, notifId, serverMuted);
+                    chatId, effectiveMediaUrl, text, type, subText, notifId, serverMuted);
             } else {
                 FirebaseUtils.db().getReference("muted").child(myUid).child(fromUid)
                     .addListenerForSingleValueEvent(new ValueEventListener() {
                         @Override public void onDataChange(DataSnapshot s2) {
                             boolean muted = Boolean.TRUE.equals(s2.getValue(Boolean.class));
                             loadLast3AndBuild(myUid, fromUid, fromName, fromMobile,
-                                avatarUrl, chatId, mediaUrl, text, type, subText, notifId, muted);
+                                avatarUrl, chatId, effectiveMediaUrl, text, type, subText, notifId, muted);
                         }
                         @Override public void onCancelled(DatabaseError e) {
                             loadLast3AndBuild(myUid, fromUid, fromName, fromMobile,
-                                avatarUrl, chatId, mediaUrl, text, type, subText, notifId, false);
+                                avatarUrl, chatId, effectiveMediaUrl, text, type, subText, notifId, false);
                         }
                     });
             }
@@ -909,7 +909,7 @@ public class CallxMessagingService extends FirebaseMessagingService {
             final String subText, final int notifId,
             @Nullable final List<HistoryItem> hist, final boolean muted) {
         buildAndShow(fromUid, fromName, fromMobile, fromPhoto, chatId,
-            mediaUrl, text, type, subText, notifId, hist, muted, "", false, "");
+            mediaUrl, text, type, subText, notifId, hist, muted, "");
     }
 
     private void buildAndShow(final String fromUid, final String fromName,
@@ -917,7 +917,17 @@ public class CallxMessagingService extends FirebaseMessagingService {
             final String mediaUrl, final String text, final String type,
             final String subText, final int notifId,
             @Nullable final List<HistoryItem> hist, final boolean muted,
-            final String myThumbUrl, final boolean isViewOnce, final String msgId) {
+            final String myThumbUrl) {
+        buildAndShow(fromUid, fromName, fromMobile, fromPhoto, chatId,
+            mediaUrl, text, type, subText, notifId, hist, muted, myThumbUrl, null);
+    }
+
+    private void buildAndShow(final String fromUid, final String fromName,
+            final String fromMobile, final String fromPhoto, final String chatId,
+            final String mediaUrl, final String text, final String type,
+            final String subText, final int notifId,
+            @Nullable final List<HistoryItem> hist, final boolean muted,
+            final String myThumbUrl, @Nullable final String msgId) {
         // Avatar + (optional) attached image downloaded off-thread.
         // Network-aware: 2G/no-network → skip avatar (instant notification).
         bg.execute(() -> {
@@ -929,8 +939,7 @@ public class CallxMessagingService extends FirebaseMessagingService {
                 myAvatar = loadMyAvatar(myThumbUrl);                      // receiver (me)
             }
             boolean isImage = "image".equals(type)
-                && mediaUrl != null && !mediaUrl.isEmpty()
-                && !isViewOnce; // VIEW ONCE: never download/show image in notification
+                && mediaUrl != null && !mediaUrl.isEmpty();
             // Image preview: only on WiFi/4G/5G (net==3), skip on 3G and below
             Bitmap picture = (isImage && net == 3)
                 ? downloadBitmap(mediaUrl, 400, 300) : null;
@@ -944,8 +953,17 @@ public class CallxMessagingService extends FirebaseMessagingService {
             String type, String subText, int notifId,
             @Nullable List<HistoryItem> hist,
             @Nullable Bitmap avatar, @Nullable Bitmap myAvatar,
-            @Nullable Bitmap picture, boolean muted, String msgId) {
-        // Sender Person (with circular avatar — Feature 5)
+            @Nullable Bitmap picture, boolean muted) {
+        postRichNotification(fromUid, fromName, fromMobile, fromPhoto, chatId, mediaUrl,
+            text, type, subText, notifId, hist, avatar, myAvatar, picture, muted, null);
+    }
+
+    private void postRichNotification(String fromUid, String fromName, String fromMobile,
+            String fromPhoto, String chatId, String mediaUrl, String text,
+            String type, String subText, int notifId,
+            @Nullable List<HistoryItem> hist,
+            @Nullable Bitmap avatar, @Nullable Bitmap myAvatar,
+            @Nullable Bitmap picture, boolean muted, @Nullable String msgId) {
         Person.Builder pb = new Person.Builder().setName(fromName).setKey(fromUid);
         if (avatar != null) pb.setIcon(IconCompat.createWithBitmap(avatar));
         Person sender = pb.build();
@@ -959,11 +977,12 @@ public class CallxMessagingService extends FirebaseMessagingService {
         open.putExtra("partnerUid",   fromUid);
         open.putExtra("partnerName",  fromName);
         open.putExtra("partnerPhoto", fromPhoto != null ? fromPhoto : "");
-        // SECURITY FIX: view_once messages must NOT be auto-opened from notification.
-        // Pass msgId so ChatActivity knows which message triggered the notif —
-        // it will scroll to it but NOT auto-launch the view-once dialog.
-        // (Auto-launch would bypass the FLAG_SECURE + controller guard.)
-        open.putExtra("notif_msg_id", msgId != null ? msgId : "");
+        // Feature 5: pass msgId so ChatActivity scrolls to the message but does NOT
+        // auto-open view-once media. ChatActivity reads notif_msg_id only to highlight
+        // the bubble — it never auto-opens view-once content from a notification tap.
+        if (msgId != null && !msgId.isEmpty()) {
+            open.putExtra("notif_msg_id", msgId);
+        }
         open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         PendingIntent openPi = PendingIntent.getActivity(this, notifId, open,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);

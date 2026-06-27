@@ -154,8 +154,10 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // ── Paging 3 ──────────────────────────────────────────────────────────
     private MessagePagingAdapter pagingAdapter;
     private boolean isViewOnceModeOn = false;
-    /** Optional expiry duration chosen by sender (0 = no expiry). */
-    private long viewOnceExpiryMs = 0L;
+    /** Feature 2: expiry duration chosen by sender (0 = no expiry). */
+    private long selectedViewOnceExpiryMs = 0L;
+    /** Feature 1: track active view-once dialog so onPause() can auto-dismiss it. */
+    private android.app.AlertDialog activeViewOnceDialog = null;
     private AppDatabase          db;
     private final Executor       ioExecutor = Executors.newFixedThreadPool(2);
 
@@ -283,8 +285,6 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     private ChatScheduledSendController scheduledSendController;
     /** Feature 13: View Once / Secret Message controller. */
     private ChatViewOnceController viewOnceController;
-    /** Tracks open view-once dialog — dismissed automatically in onPause(). */
-    private android.app.AlertDialog activeViewOnceDialog = null;
     private ChatSearchController   searchController;
     private ChatThemeController    themeController;
     private ChatMediaController    mediaController;
@@ -672,13 +672,6 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     @Override
     protected void onPause() {
         super.onPause();
-        // VIEW ONCE: App background gaya → dialog turant band karo.
-        // Content security: receiver ne dialog khola tha lekin app switch kar liya —
-        // dialog dismiss hoga → doCleanupAndDelete trigger hoga → message delete hoga.
-        if (activeViewOnceDialog != null && activeViewOnceDialog.isShowing()) {
-            activeViewOnceDialog.dismiss(); // triggers onDismissListener → cleanup + delete
-        }
-        activeViewOnceDialog = null;
         // Cancel any in-flight Glide preloads so we don't decode images for a
         // chat the user just left.  Clearing the strong references also lets
         // Glide GC the targets normally.
@@ -702,6 +695,11 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         if (screenshotNotifier != null) screenshotNotifier.onScreenPaused();
         if (liveTypingController != null) liveTypingController.clearOurPreview();
         typingHandler.removeCallbacks(stopTypingRunnable);
+        // Feature 1: auto-close view-once dialog when app goes to background
+        if (activeViewOnceDialog != null && activeViewOnceDialog.isShowing()) {
+            activeViewOnceDialog.dismiss(); // triggers onDismissListener → doCleanupAndDelete
+        }
+        activeViewOnceDialog = null;
     }
 
     @Override
@@ -808,12 +806,16 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // Feature 13: View Once — apply tag if toggle is ON, then auto-reset
         // (one-shot per message, same UX pattern as WhatsApp's view-once camera).
         if (isViewOnceModeOn) {
-            com.callx.app.conversation.controllers.ChatViewOnceController
-                    .tagMessageAsViewOnceWithExpiry(m, viewOnceExpiryMs);
-            viewOnceExpiryMs = 0L; // reset after use
+            com.callx.app.conversation.controllers.ChatViewOnceController.tagMessageAsViewOnce(m);
+            // Feature 2: write expiry timestamp if sender picked a duration
+            if (selectedViewOnceExpiryMs > 0L) {
+                m.viewOnceExpiresAt = System.currentTimeMillis() + selectedViewOnceExpiryMs;
+                scheduleViewOnceExpiry(m.messageId != null ? m.messageId : m.id,
+                        selectedViewOnceExpiryMs);
+            }
+            selectedViewOnceExpiryMs = 0L;
             setViewOnceMode(false);
             // HIDE real content from chat list — replace preview with generic label.
-            // This prevents text/filename from appearing in chat list last-message row.
             previewText = "🔒 View Once";
         }
         messageSender.pushMessage(m, previewText);
@@ -1010,6 +1012,15 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         partnerThumb= i.getStringExtra("partnerThumb");
         currentName = i.getStringExtra("currentName");
 
+        // Feature 5: notification tap passes notif_msg_id so we can scroll to the
+        // message. We intentionally do NOT auto-open view-once content from here —
+        // the user must manually tap the bubble to open view-once messages.
+        String notifMsgId = i.getStringExtra("notif_msg_id");
+        if (notifMsgId != null && !notifMsgId.isEmpty()) {
+            // Scroll to that message after adapter loads, without opening media
+            binding.getRoot().postDelayed(() -> scrollToMessageById(notifMsgId), 800);
+        }
+
         com.google.firebase.auth.FirebaseUser fu = FirebaseAuth.getInstance().getCurrentUser();
         currentUid = fu != null ? fu.getUid() : "";
         chatId     = buildChatId(currentUid, partnerUid);
@@ -1200,15 +1211,21 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             viewOnceController.openViewOnce(message, () -> showViewOnceDialog(message));
         });
 
-        // REVOKE: sender long-presses pending bubble → confirm revoke dialog
-        pagingAdapter.setRevokeViewOnceListener(message -> {
-            if (viewOnceController == null) return;
+        // Feature 3: long-press on sender's lock bubble → revoke confirm dialog
+        pagingAdapter.setViewOnceRevokeListener(message -> {
+            String msgId = message.messageId != null ? message.messageId : message.id;
             new android.app.AlertDialog.Builder(this)
-                    .setTitle("Revoke View Once?")
-                    .setMessage("This will permanently delete the message before the receiver opens it.")
-                    .setPositiveButton("Revoke", (d, w) -> viewOnceController.revokeViewOnce(message))
-                    .setNegativeButton("Cancel", null)
-                    .show();
+                .setTitle("Remove message?")
+                .setMessage("This will permanently delete the message before your partner opens it. They will see \"Removed\".")
+                .setPositiveButton("Remove", (d, w) -> {
+                    if (viewOnceController != null && msgId != null) {
+                        viewOnceController.revokeViewOnce(msgId,
+                            () -> Toast.makeText(this, "Message removed", Toast.LENGTH_SHORT).show(),
+                            () -> Toast.makeText(this, "Failed to remove, try again", Toast.LENGTH_SHORT).show());
+                    }
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
         });
 
         pagingAdapter.setActionListener(new MessagePagingAdapter.ActionListener() {
@@ -1749,8 +1766,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         m.reelOwnerUid = e.reelOwnerUid;
         m.reactions = com.callx.app.utils.ReactionJsonUtil.reactionsFromJson(e.reactionsJson);
         m.reelThumbUrl = e.reelThumbUrl; m.fontStyle = e.fontStyle; m.expiresAt = e.expiresAt;
-        m.viewOnce = e.viewOnce; m.viewOnceState = e.viewOnceState; m.openedAt = e.openedAt;
-        m.viewOnceExpiresAt = e.viewOnceExpiresAt;
+        m.viewOnce = e.viewOnce; m.viewOnceState = e.viewOnceState; m.openedAt = e.openedAt; m.viewOnceExpiresAt = e.viewOnceExpiresAt;
         m.pollQuestion = e.pollQuestion;
         m.pollOptions  = com.callx.app.utils.PollJsonUtil.optionsFromJson(e.pollOptionsJson);
         m.pollVotes    = com.callx.app.utils.PollJsonUtil.votesFromJson(e.pollVotesJson);
@@ -1776,8 +1792,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         e.pinned = Boolean.TRUE.equals(m.pinned); e.reelId = m.reelId;
         e.reelOwnerUid = m.reelOwnerUid;
         e.reelThumbUrl = m.reelThumbUrl; e.fontStyle = m.fontStyle; e.expiresAt = m.expiresAt;
-        e.viewOnce = m.viewOnce; e.viewOnceState = m.viewOnceState; e.openedAt = m.openedAt;
-        e.viewOnceExpiresAt = m.viewOnceExpiresAt;
+        e.viewOnce = m.viewOnce; e.viewOnceState = m.viewOnceState; e.openedAt = m.openedAt; e.viewOnceExpiresAt = m.viewOnceExpiresAt;
         e.pollQuestion    = m.pollQuestion;
         e.pollOptionsJson = com.callx.app.utils.PollJsonUtil.optionsToJson(m.pollOptions);
         e.pollVotesJson   = com.callx.app.utils.PollJsonUtil.votesToJson(m.pollVotes);
@@ -1846,16 +1861,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             }
         });
         binding.btnAttach.setOnClickListener(v -> mediaController.showAttachSheet());
-        binding.btnViewOnce.setOnClickListener(v -> {
-            if (isViewOnceModeOn) {
-                // Already on — tap again to turn off
-                viewOnceExpiryMs = 0L;
-                setViewOnceMode(false);
-            } else {
-                // Show expiry picker dialog (optional)
-                showViewOnceExpiryPicker();
-            }
-        });
+        binding.btnViewOnce.setOnClickListener(v -> showViewOnceExpiryPicker());
         binding.btnCamera.setOnClickListener(v -> mediaController.launchCamera());
 
         if (binding.btnCancelReply != null)
@@ -1882,9 +1888,31 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // ─────────────────────────────────────────────────────────────────────
 
     /**
-     * Toggles "View Once" send mode. PERF: just a tint swap (setColorFilter) —
-     * no animation loop, no layout pass, no GPU overdraw. Auto-resets to off
-     * after one send (see pushMessage()), so it never silently stays sticky.
+     * Feature 2 — Expiry timer picker.
+     * Shows a dialog: No expiry / 1hr / 6hr / 24hr / 3d / 7d.
+     * On selection, enables view-once mode with chosen duration.
+     * If already on, tapping again lets sender re-pick or cancel.
+     */
+    private void showViewOnceExpiryPicker() {
+        String[] options = {"No expiry", "1 hour", "6 hours", "24 hours", "3 days", "7 days"};
+        long[]   durations = {0L, 3_600_000L, 21_600_000L, 86_400_000L, 259_200_000L, 604_800_000L};
+        new android.app.AlertDialog.Builder(this)
+            .setTitle("View Once — Expiry")
+            .setItems(options, (d, which) -> {
+                selectedViewOnceExpiryMs = durations[which];
+                setViewOnceMode(true);
+            })
+            .setNegativeButton("Cancel", (d, w) -> {
+                if (isViewOnceModeOn) {
+                    setViewOnceMode(false);
+                    selectedViewOnceExpiryMs = 0L;
+                }
+            })
+            .show();
+    }
+
+    /**
+     * Toggles "View Once" send mode. Auto-resets to off after one send.
      */
     private void setViewOnceMode(boolean on) {
         isViewOnceModeOn = on;
@@ -1892,43 +1920,29 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         binding.btnViewOnce.setColorFilter(on
                 ? android.graphics.Color.parseColor("#FF6200EE")   // active tint
                 : android.graphics.Color.parseColor("#FF8A8A8A")); // idle/grey tint
-        String hint = on
-                ? (viewOnceExpiryMs > 0
-                        ? "View once · expires in " + formatExpiryLabel(viewOnceExpiryMs)
-                        : "View once message…")
-                : getString(R.string.hint_message);
-        binding.etMessage.setHint(hint);
+        binding.etMessage.setHint(on ? "View once message…" : getString(R.string.hint_message));
     }
 
     /**
-     * Shows a simple dialog so sender can optionally set an expiry time
-     * for the view-once message (e.g. must be opened within 1hr / 24hrs / 7days).
-     * Selecting "No expiry" sends with no time limit.
+     * Feature 2: Schedule a WorkManager job to expire the view-once message
+     * after delayMs. The Worker checks that viewOnceState is still "sent"
+     * before calling markExpiredByTimer(), so already-opened messages are safe.
      */
-    private void showViewOnceExpiryPicker() {
-        final String[] labels = {"No expiry", "1 hour", "6 hours", "24 hours", "3 days", "7 days"};
-        final long[]   values = {0L,
-                60 * 60 * 1000L,
-                6  * 60 * 60 * 1000L,
-                24 * 60 * 60 * 1000L,
-                3  * 24 * 60 * 60 * 1000L,
-                7  * 24 * 60 * 60 * 1000L};
-        new android.app.AlertDialog.Builder(this)
-                .setTitle("View Once — Expiry (optional)")
-                .setItems(labels, (d, which) -> {
-                    viewOnceExpiryMs = values[which];
-                    setViewOnceMode(true);
-                })
-                .setNegativeButton("Cancel", null)
-                .show();
-    }
-
-    private static String formatExpiryLabel(long ms) {
-        long hours = ms / (60 * 60 * 1000L);
-        if (hours < 1)  return "< 1 hr";
-        if (hours < 24) return hours + "h";
-        long days = hours / 24;
-        return days + "d";
+    private void scheduleViewOnceExpiry(String messageId, long delayMs) {
+        if (messageId == null || messageId.isEmpty() || delayMs <= 0) return;
+        String chatId = getChatId(); // delegate.getChatId()
+        if (chatId == null) return;
+        androidx.work.Data inputData = new androidx.work.Data.Builder()
+                .putString("messageId", messageId)
+                .putString("chatId", chatId)
+                .build();
+        androidx.work.OneTimeWorkRequest req = new androidx.work.OneTimeWorkRequest.Builder(
+                com.callx.app.conversation.workers.ViewOnceExpiryWorker.class)
+                .setInitialDelay(delayMs, java.util.concurrent.TimeUnit.MILLISECONDS)
+                .setInputData(inputData)
+                .addTag("view_once_expiry_" + messageId)
+                .build();
+        androidx.work.WorkManager.getInstance(this).enqueue(req);
     }
 
     private void sendTextMessage() {
@@ -2196,10 +2210,31 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
 
         // Dismiss listener is a safety net: if dialog is dismissed by any other
         // means (e.g., activity finish, system), ensure cleanup still runs.
-        dialog.setOnDismissListener(d -> doCleanupAndDelete.run());
+        dialog.setOnDismissListener(d -> {
+            doCleanupAndDelete.run();
+            activeViewOnceDialog = null; // Feature 1: clear reference on any dismiss
+        });
 
         dialog.show();
-        activeViewOnceDialog = dialog; // track for onPause auto-close
+        activeViewOnceDialog = dialog; // Feature 1: track for onPause auto-dismiss
+    }
+
+    /**
+     * Feature 5: Scroll RecyclerView to the message with the given ID.
+     * Called after notification tap. Does NOT open view-once content automatically.
+     */
+    private void scrollToMessageById(String targetMsgId) {
+        if (pagingAdapter == null || targetMsgId == null) return;
+        int count = pagingAdapter.getItemCount();
+        for (int i = 0; i < count; i++) {
+            com.callx.app.models.Message m = pagingAdapter.peek(i);
+            if (m == null) continue;
+            String id = m.messageId != null ? m.messageId : m.id;
+            if (targetMsgId.equals(id)) {
+                binding.rvMessages.scrollToPosition(i);
+                return;
+            }
+        }
     }
 
     /** Format milliseconds → M:SS for view-once audio label. */

@@ -27,6 +27,8 @@ import java.util.concurrent.Executors;
  *
  * ┌─────────────────────────────────────────────────────────────────────────┐
  * │  STATES:  SENT → DELIVERED → OPENED → DELETED                          │
+ * │           SENT → EXPIRED  (timer ran out, never opened)                │
+ * │           SENT → REVOKED  (sender revoked before receiver opened)      │
  * │                                                                         │
  * │  Flow (receiver side):                                                  │
  * │    1. Receiver taps "View Once" badge → openViewOnce() called           │
@@ -37,9 +39,20 @@ import java.util.concurrent.Executors;
  * │    6. hardDeleteFromFirebase() + softDeleteLocally() → both sides clean  │
  * │    7. FLAG_SECURE cleared after close                                   │
  * │                                                                         │
+ * │  Flow (expiry timer — Feature 7):                                       │
+ * │    viewOnceExpiresAt saved on Firebase when sender picks duration.      │
+ * │    Scheduled check (WorkManager/alarm) calls markExpiredByTimer()       │
+ * │    → viewOnceState = "expired" + content wiped permanently.            │
+ * │    Receiver sees "Expired" bubble; sender sees it too.                 │
+ * │                                                                         │
+ * │  Flow (revoke — Feature 8):                                             │
+ * │    Sender long-presses pending lock bubble → confirm dialog →          │
+ * │    revokeViewOnce() → viewOnceState = "revoked" + content wiped.       │
+ * │    Receiver sees "Removed" bubble.                                     │
+ * │                                                                         │
  * │  Flow (sender side):                                                    │
  * │    Firebase listener in MessagePagingAdapter picks up viewOnceState     │
- * │    change → DiffUtil payload update → bubble shows "Opened" state       │
+ * │    change → DiffUtil payload update → bubble shows correct state        │
  * └─────────────────────────────────────────────────────────────────────────┘
  *
  * PERFORMANCE:
@@ -64,18 +77,25 @@ public class ChatViewOnceController {
     public static final String STATE_OPENED   = "opened";
     /** Deleted from Firebase (hard delete). Local DB keeps soft-delete row. */
     public static final String STATE_DELETED  = "deleted";
-    /** Sender revoked the message before receiver opened it. */
+    /**
+     * Expiry timer ran out before receiver opened it.
+     * Receiver sees "Expired" bubble; content permanently deleted.
+     */
+    public static final String STATE_EXPIRED  = "expired";
+    /**
+     * Sender revoked the message before receiver opened it.
+     * Receiver sees "Removed" bubble; content permanently deleted.
+     */
     public static final String STATE_REVOKED  = "revoked";
 
     // ── Firebase field names ──────────────────────────────────────────────
-    public static final String FIELD_VIEW_ONCE       = "viewOnce";
-    public static final String FIELD_VIEW_ONCE_STATE = "viewOnceState";
-    public static final String FIELD_OPENED_AT       = "openedAt";
-    public static final String FIELD_DELETED         = "deleted";
-    public static final String FIELD_TEXT            = "text";
-    public static final String FIELD_MEDIA_URL       = "mediaUrl";
-    public static final String FIELD_THUMBNAIL_URL   = "thumbnailUrl";
-    /** Optional sender-set expiry timestamp (epoch ms). */
+    public static final String FIELD_VIEW_ONCE          = "viewOnce";
+    public static final String FIELD_VIEW_ONCE_STATE    = "viewOnceState";
+    public static final String FIELD_OPENED_AT          = "openedAt";
+    public static final String FIELD_DELETED            = "deleted";
+    public static final String FIELD_TEXT               = "text";
+    public static final String FIELD_MEDIA_URL          = "mediaUrl";
+    public static final String FIELD_THUMBNAIL_URL      = "thumbnailUrl";
     public static final String FIELD_VIEW_ONCE_EXPIRES_AT = "viewOnceExpiresAt";
 
     // ── Delete delay: give receiver 1 second to register the open visually ─
@@ -123,9 +143,11 @@ public class ChatViewOnceController {
         String msgId = resolveId(message);
         if (msgId == null) return;
 
-        // Guard: already opened or deleted — ignore tap
+        // Guard: already opened, deleted, expired, or revoked — ignore tap
         if (STATE_OPENED.equals(message.viewOnceState)
                 || STATE_DELETED.equals(message.viewOnceState)
+                || STATE_EXPIRED.equals(message.viewOnceState)
+                || STATE_REVOKED.equals(message.viewOnceState)
                 || Boolean.TRUE.equals(message.deleted)) {
             return;
         }
@@ -166,17 +188,6 @@ public class ChatViewOnceController {
     }
 
     /**
-     * Same as tagMessageAsViewOnce but with an optional expiry duration.
-     * @param expiryMs Duration in ms after which this message auto-expires if not opened.
-     *                 Pass 0 for no expiry.
-     */
-    public static void tagMessageAsViewOnceWithExpiry(@NonNull Message m, long expiryMs) {
-        m.viewOnce           = true;
-        m.viewOnceState      = STATE_SENT;
-        m.viewOnceExpiresAt  = expiryMs > 0 ? (System.currentTimeMillis() + expiryMs) : null;
-    }
-
-    /**
      * Called when the dialog is closed by the user (explicit "Close & Delete" tap).
      * THIS is where we mark opened in Firebase — only after user has actually seen content.
      * Then immediately hard-deletes from Firebase on both sides.
@@ -190,38 +201,6 @@ public class ChatViewOnceController {
         // Mark opened in Firebase NOW (user has viewed) + immediately hard delete
         markOpened(messageId);
         hardDeleteFromFirebase(messageId);
-    }
-
-    /**
-     * Sender revokes a view-once message BEFORE the receiver opens it.
-     * Sets viewOnceState = "revoked" + wipes content from Firebase.
-     * Receiver will see "Revoked" expired bubble instead of the tap-to-open badge.
-     * Guard: only works while state is still "sent" (not yet opened).
-     *
-     * @param message The view-once message to revoke.
-     */
-    public void revokeViewOnce(@NonNull Message message) {
-        String msgId = resolveId(message);
-        if (msgId == null) return;
-        // Only sender can revoke, and only if not yet opened
-        String currentUid = delegate.getCurrentUid();
-        if (currentUid == null || !currentUid.equals(message.senderId)) return;
-        if (!STATE_SENT.equals(message.viewOnceState)) return; // already opened/deleted/revoked
-
-        DatabaseReference msgRef = getMessageRef(msgId);
-        if (msgRef == null) return;
-
-        Map<String, Object> updates = new HashMap<>();
-        updates.put(FIELD_VIEW_ONCE_STATE, STATE_REVOKED);
-        updates.put(FIELD_DELETED,         true);
-        updates.put(FIELD_TEXT,            "");
-        updates.put(FIELD_MEDIA_URL,       null);
-        updates.put(FIELD_THUMBNAIL_URL,   null);
-        updates.put("fileName",            null);
-        msgRef.updateChildren(updates);
-
-        // Mirror locally
-        softDeleteLocally(msgId);
     }
 
     /**
@@ -246,24 +225,110 @@ public class ChatViewOnceController {
     }
 
     /**
-     * Returns true if message was view-once and has already been opened/deleted.
-     * Adapter uses this to render the "Opened" / expired bubble state.
-     */
-    /**
-     * Returns true if message was view-once and has already been opened/deleted,
-     * OR if the sender set an expiry time and it has passed.
+     * Returns true if message was view-once and has already been opened/deleted/expired/revoked.
+     * Adapter uses this to render the post-view bubble state.
      */
     public static boolean isExpired(@Nullable Message m) {
         if (m == null || !Boolean.TRUE.equals(m.viewOnce)) return false;
-        // State-based expiry (opened, deleted, or revoked)
-        if (STATE_OPENED.equals(m.viewOnceState)
+        return STATE_OPENED.equals(m.viewOnceState)
                 || STATE_DELETED.equals(m.viewOnceState)
+                || STATE_EXPIRED.equals(m.viewOnceState)
                 || STATE_REVOKED.equals(m.viewOnceState)
-                || Boolean.TRUE.equals(m.deleted)) return true;
-        // Time-based expiry: sender set a deadline and it has passed
-        if (m.viewOnceExpiresAt != null && m.viewOnceExpiresAt > 0
-                && System.currentTimeMillis() > m.viewOnceExpiresAt) return true;
-        return false;
+                || Boolean.TRUE.equals(m.deleted);
+    }
+
+    /**
+     * Returns true if message was revoked by sender before receiver opened it.
+     * Adapter uses this to show "Removed" bubble to receiver.
+     */
+    public static boolean isRevoked(@Nullable Message m) {
+        if (m == null || !Boolean.TRUE.equals(m.viewOnce)) return false;
+        return STATE_REVOKED.equals(m.viewOnceState);
+    }
+
+    /**
+     * Returns true if the expiry timer ran out before receiver opened.
+     * Adapter uses this to show "Expired" bubble to receiver.
+     */
+    public static boolean isTimerExpired(@Nullable Message m) {
+        if (m == null || !Boolean.TRUE.equals(m.viewOnce)) return false;
+        return STATE_EXPIRED.equals(m.viewOnceState);
+    }
+
+    /**
+     * Feature 7 — Expiry timer ran out.
+     * Called by a scheduled background check (e.g. WorkManager / alarm) when
+     * System.currentTimeMillis() >= message.viewOnceExpiresAt and the message
+     * is still in STATE_SENT (not yet opened).
+     *
+     * Sets viewOnceState = "expired" on Firebase + permanently wipes content.
+     * Receiver will see "Expired" bubble; sender sees it too.
+     */
+    public void markExpiredByTimer(@NonNull String messageId) {
+        DatabaseReference msgRef = getMessageRef(messageId);
+        if (msgRef == null) {
+            pendingDeleteIds.add(messageId);
+            return;
+        }
+
+        Map<String, Object> updates = new HashMap<>();
+        updates.put(FIELD_VIEW_ONCE_STATE, STATE_EXPIRED);
+        updates.put(FIELD_DELETED,         true);
+        updates.put(FIELD_TEXT,            "");
+        updates.put(FIELD_MEDIA_URL,       null);
+        updates.put(FIELD_THUMBNAIL_URL,   null);
+        updates.put("fileName",            null);
+
+        msgRef.updateChildren(updates, (error, ref) -> {
+            if (error != null) {
+                pendingDeleteIds.add(messageId);
+            }
+        });
+
+        // Reflect locally immediately
+        softDeleteLocally(messageId);
+    }
+
+    /**
+     * Feature 8 — Sender revokes the message before receiver opens it.
+     * Called when sender long-presses the pending lock bubble and confirms revoke.
+     *
+     * Sets viewOnceState = "revoked" on Firebase + permanently wipes content.
+     * Receiver will see "Removed" bubble.
+     *
+     * @param messageId  The view-once message to revoke.
+     * @param onSuccess  Runs on main thread after Firebase write succeeds (optional).
+     * @param onFailure  Runs on main thread if Firebase write fails (optional).
+     */
+    public void revokeViewOnce(@NonNull String messageId,
+                               @Nullable Runnable onSuccess,
+                               @Nullable Runnable onFailure) {
+        DatabaseReference msgRef = getMessageRef(messageId);
+        if (msgRef == null) {
+            pendingDeleteIds.add(messageId);
+            if (onFailure != null) mainHandler.post(onFailure);
+            return;
+        }
+
+        Map<String, Object> updates = new HashMap<>();
+        updates.put(FIELD_VIEW_ONCE_STATE, STATE_REVOKED);
+        updates.put(FIELD_DELETED,         true);
+        updates.put(FIELD_TEXT,            "");
+        updates.put(FIELD_MEDIA_URL,       null);
+        updates.put(FIELD_THUMBNAIL_URL,   null);
+        updates.put("fileName",            null);
+
+        msgRef.updateChildren(updates, (error, ref) -> {
+            if (error != null) {
+                pendingDeleteIds.add(messageId);
+                if (onFailure != null) mainHandler.post(onFailure);
+            } else {
+                if (onSuccess != null) mainHandler.post(onSuccess);
+            }
+        });
+
+        // Reflect locally immediately
+        softDeleteLocally(messageId);
     }
 
     public void release() {

@@ -150,9 +150,9 @@ public class Message {
     public Long openedAt;
 
     /**
-     * Epoch ms at which this view-once message expires if not opened.
-     * Optional — set by sender before push (e.g. now + 24hrs).
-     * null = no expiry. Only meaningful when viewOnce == true.
+     * Feature 2 (Expiry timer): Unix timestamp (ms) after which the view-once message
+     * auto-expires even if the receiver hasn't opened it.
+     * 0 / null = no expiry (message stays until receiver opens it).
      */
     public Long viewOnceExpiresAt;
 

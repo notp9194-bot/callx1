@@ -2460,9 +2460,8 @@ public class MessagePagingAdapter
     /**
      * Binds the "Waiting to be opened" sender bubble (TYPE_VIEW_ONCE_SENT_WAITING).
      * Shown to the SENDER after sending a view-once message, while receiver hasn't opened it yet.
-     * Shows a lock icon + "Waiting to be opened" label — no tap action for sender.
-     * Once the receiver opens it, Firebase updates viewOnceState → "opened", which triggers
-     * isExpired() = true and the item rebinds to TYPE_VIEW_ONCE_EXPIRED ("Opened").
+     * Shows a lock icon + "Waiting to be opened" label.
+     * Feature 3: sender can LONG-PRESS to revoke (remove) the message before receiver opens it.
      */
     private void bindViewOnceSentWaiting(RecyclerView.ViewHolder holder, Message m) {
         android.view.View root = holder.itemView;
@@ -2471,13 +2470,14 @@ public class MessagePagingAdapter
             tvTime.setText(new java.text.SimpleDateFormat("h:mm a",
                     java.util.Locale.getDefault()).format(new java.util.Date(m.timestamp)));
         }
-        // No tap action for sender — they cannot open their own view-once
         android.view.View bubble = root.findViewById(com.callx.app.chat.R.id.ll_bubble);
         android.view.View tapTarget = bubble != null ? bubble : root;
-        tapTarget.setOnClickListener(null);
-        // REVOKE: long-press on sender's waiting bubble triggers revoke
+        tapTarget.setOnClickListener(null); // sender cannot open their own view-once
+        // Feature 3: long-press → revoke dialog
         tapTarget.setOnLongClickListener(v -> {
-            if (revokeListener != null) revokeListener.onRevokeViewOnce(m);
+            if (viewOnceRevokeListener != null) {
+                viewOnceRevokeListener.onRevokeViewOnce(m);
+            }
             return true;
         });
     }
@@ -2526,7 +2526,8 @@ public class MessagePagingAdapter
     }
 
     /**
-     * Binds the "Opened" expired bubble.
+     * Binds the post-open expired bubble.
+     * Shows "Opened", "Expired", or "Removed" depending on viewOnceState.
      * Called from onBindViewHolder when viewType == TYPE_VIEW_ONCE_EXPIRED.
      */
     private void bindViewOnceExpired(RecyclerView.ViewHolder holder, Message m) {
@@ -2539,11 +2540,30 @@ public class MessagePagingAdapter
                     java.util.Locale.getDefault()).format(new java.util.Date(m.timestamp)));
         }
 
-        // "Opened on" time — shown only to sender (openedAt is set by receiver's device)
+        // Determine label based on state
+        // Feature 7: expired timer → "Expired"
+        // Feature 8: sender revoked → "Removed"
+        // Default: receiver opened → "Opened"
+        android.widget.TextView tvLabel = root.findViewById(com.callx.app.chat.R.id.tv_expired_label);
+        if (tvLabel != null) {
+            if (com.callx.app.conversation.controllers.ChatViewOnceController.isTimerExpired(m)) {
+                tvLabel.setText("Expired");
+            } else if (com.callx.app.conversation.controllers.ChatViewOnceController.isRevoked(m)) {
+                tvLabel.setText("Removed");
+            } else {
+                tvLabel.setText("Opened");
+            }
+        }
+
+        // "Opened on" date+time — shown only to sender (openedAt is set by receiver's device)
+        // For Expired and Removed states there is no openedAt — hide this line.
         android.widget.TextView tvOpenedAt = root.findViewById(com.callx.app.chat.R.id.tv_opened_at);
         if (tvOpenedAt != null) {
-            if (currentUid != null && currentUid.equals(m.senderId) && m.openedAt != null) {
-                // Format: "Opened · 3:45 PM" (time only — clean, no date clutter)
+            boolean isOpenedNormally = !com.callx.app.conversation.controllers.ChatViewOnceController.isTimerExpired(m)
+                    && !com.callx.app.conversation.controllers.ChatViewOnceController.isRevoked(m);
+            if (isOpenedNormally
+                    && currentUid != null && currentUid.equals(m.senderId) && m.openedAt != null) {
+                // Feature 6: format is "h:mm a" only — time, no date (e.g. "Opened · 3:45 PM")
                 java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat(
                         "h:mm a", java.util.Locale.getDefault());
                 tvOpenedAt.setText("Opened · " + sdf.format(new java.util.Date(m.openedAt)));
@@ -2581,15 +2601,18 @@ public class MessagePagingAdapter
         this.viewOnceOpenListener = l;
     }
 
-    /** Callback: sender long-presses their own pending view-once bubble to revoke. */
-    public interface RevokeViewOnceListener {
+    /**
+     * Feature 3: Callback interface — ChatActivity implements this to handle revoke confirmation dialog.
+     * Called when sender long-presses their pending lock bubble.
+     */
+    public interface ViewOnceRevokeListener {
         void onRevokeViewOnce(com.callx.app.models.Message message);
     }
 
-    private RevokeViewOnceListener revokeListener;
+    private ViewOnceRevokeListener viewOnceRevokeListener;
 
-    public void setRevokeViewOnceListener(RevokeViewOnceListener l) {
-        this.revokeListener = l;
+    public void setViewOnceRevokeListener(ViewOnceRevokeListener l) {
+        this.viewOnceRevokeListener = l;
     }
 
 
