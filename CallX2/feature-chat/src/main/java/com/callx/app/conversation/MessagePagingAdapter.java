@@ -121,6 +121,8 @@ public class MessagePagingAdapter
     private static final int TYPE_VIEW_ONCE_SENT    = 8;
     /** View-once message: already opened — shows expired state. */
     private static final int TYPE_VIEW_ONCE_EXPIRED = 9;
+    /** View-once message: sent by ME, not yet opened by receiver — shows lock/waiting state. */
+    private static final int TYPE_VIEW_ONCE_SENT_WAITING = 10;
 
     // ── DiffUtil payload key — only tv_status needs rebind when status changes ──
     static final String PAYLOAD_STATUS     = "status";
@@ -447,8 +449,9 @@ public class MessagePagingAdapter
             if (com.callx.app.conversation.controllers.ChatViewOnceController.isExpired(m)) {
                 return TYPE_VIEW_ONCE_EXPIRED;
             }
-            // Sender sees their own message as expired (they cannot view it)
-            if (currentUid.equals(m.senderId)) return TYPE_VIEW_ONCE_EXPIRED;
+            // Sender sees their own un-opened message as "Waiting to be opened" (lock state)
+            // Only after receiver actually opens it does it become TYPE_VIEW_ONCE_EXPIRED
+            if (currentUid.equals(m.senderId)) return TYPE_VIEW_ONCE_SENT_WAITING;
             return TYPE_VIEW_ONCE_SENT;
         }
         return currentUid.equals(m.senderId) ? TYPE_SENT : TYPE_RECEIVED;
@@ -469,8 +472,9 @@ public class MessagePagingAdapter
             return new VH(v);
         }
         int layout;
-        if (viewType == TYPE_VIEW_ONCE_SENT)    layout = R.layout.item_view_once_bubble;
+        if (viewType == TYPE_VIEW_ONCE_SENT)         layout = R.layout.item_view_once_bubble;
         else if (viewType == TYPE_VIEW_ONCE_EXPIRED) layout = R.layout.item_view_once_expired;
+        else if (viewType == TYPE_VIEW_ONCE_SENT_WAITING) layout = R.layout.item_view_once_sent_waiting;
         else if (viewType == TYPE_SENT)          layout = R.layout.item_message_sent;
         else if (viewType == TYPE_STATUS_SEEN) layout = R.layout.item_status_seen_bubble;
         else if (viewType == TYPE_REEL_SEEN)   layout = R.layout.item_reel_seen_bubble;
@@ -561,7 +565,7 @@ public class MessagePagingAdapter
                 return;
             }
             if (currentUid.equals(m.senderId)) {
-                bindViewOnceExpired(h, m);
+                bindViewOnceSentWaiting(h, m);
                 return;
             }
             bindViewOnceSent(h, m);
@@ -2452,6 +2456,27 @@ public class MessagePagingAdapter
         }
     }
     // ── Feature 13: View Once bubble binding ─────────────────────────────
+
+    /**
+     * Binds the "Waiting to be opened" sender bubble (TYPE_VIEW_ONCE_SENT_WAITING).
+     * Shown to the SENDER after sending a view-once message, while receiver hasn't opened it yet.
+     * Shows a lock icon + "Waiting to be opened" label — no tap action for sender.
+     * Once the receiver opens it, Firebase updates viewOnceState → "opened", which triggers
+     * isExpired() = true and the item rebinds to TYPE_VIEW_ONCE_EXPIRED ("Opened").
+     */
+    private void bindViewOnceSentWaiting(RecyclerView.ViewHolder holder, Message m) {
+        android.view.View root = holder.itemView;
+        android.widget.TextView tvTime = root.findViewById(com.callx.app.chat.R.id.tv_time);
+        if (tvTime != null && m.timestamp != null) {
+            tvTime.setText(new java.text.SimpleDateFormat("h:mm a",
+                    java.util.Locale.getDefault()).format(new java.util.Date(m.timestamp)));
+        }
+        // No tap action for sender — they cannot open their own view-once
+        android.view.View bubble = root.findViewById(com.callx.app.chat.R.id.ll_bubble);
+        android.view.View tapTarget = bubble != null ? bubble : root;
+        tapTarget.setOnClickListener(null);
+        tapTarget.setOnLongClickListener(null);
+    }
 
     /**
      * Binds the "View Once" tap bubble for the receiver.
