@@ -279,7 +279,6 @@
             android:fontFamily="monospace"
             android:hint="Lifetime stats loading…"/>
 
-    </LinearLayout>
     </ScrollView>
 
 </LinearLayout>
