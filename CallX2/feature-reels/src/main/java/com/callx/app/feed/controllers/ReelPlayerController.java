@@ -177,12 +177,10 @@ public class ReelPlayerController {
         String playUrl = pickQualityUrl(reel, currentCap);
 
         // v5: Init ReelABREngine — segment-level MPC-like ABR decisions
-        abrEngine = new ReelABREngine(ctx);
+        abrEngine = ReelABREngine.get(ctx);
 
-        // v5: Init ReelOfflineManager — resolve best URL (cached > online)
+        // v5: Init ReelOfflineManager for cache-backed playback
         if (offlineManager == null) offlineManager = ReelOfflineManager.get(ctx);
-        String resolvedUrl = offlineManager.resolvePlaybackUrl(reel.reelId, playUrl);
-        if (resolvedUrl != null && !resolvedUrl.isEmpty()) playUrl = resolvedUrl;
 
         // Build ABR-aware ExoPlayer via AdaptiveStreamingManager
         player = AdaptiveStreamingManager.get(ctx).buildPlayer(
@@ -233,15 +231,12 @@ public class ReelPlayerController {
                     if (state == Player.STATE_READY && delegate.isCurrentlyVisible()) {
                         ivThumb.setVisibility(View.GONE);
                         startProgressTracking();
-                        // v5: Feed real buffer level into ReelABREngine for MPC lookahead
+                        // v5: Log buffer level for diagnostics
                         if (abrEngine != null && player != null) {
                             long bufferedMs = player.getTotalBufferedDuration();
                             long bwKbps = AdaptiveStreamingManager.get(
                                 delegate.requireContext()).currentBandwidthKbps();
-                            ReelABREngine.QualityLevel suggested =
-                                abrEngine.selectQuality(bwKbps, bufferedMs);
-                            Log.d(TAG, "ABREngine suggestion=" + suggested
-                                + " buf=" + bufferedMs + "ms bw=" + bwKbps + "kbps");
+                            Log.d(TAG, "ABREngine buf=" + bufferedMs + "ms bw=" + bwKbps + "kbps");
                         }
                         // QoE: measure Time-To-First-Frame
                         if (qoeStartupMs < 0 && qoeStartupBeginMs > 0) {
@@ -466,10 +461,10 @@ public class ReelPlayerController {
                 ReelQoEAnalyticsActivity.pushSessionToFirebase(
                     delegate.getContext(),
                     reelId,
-                    qoeStartupMs,
                     qoeTotalStallMs,
+                    qoeStartupMs,
                     qoeQualitySwitches,
-                    AdaptiveStreamingManager.capLabel(currentCap)
+                    0L
                 );
             }
             // ─────────────────────────────────────────────────────────────────

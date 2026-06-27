@@ -62,6 +62,10 @@ public class ReelVideoPreloader {
     private static final String TAG           = "ReelVideoPreloader";
     private static final int    PRELOAD_COUNT = 4;            // Agle 4 reels preload karo
     private static final long   PRELOAD_BYTES = 10 * 1024 * 1024L; // Pehle 10MB preload (guaranteed smooth playback)
+    private static final long   PRELOAD_BYTES_WIFI = 10 * 1024 * 1024L; // WiFi/5G: 10MB
+    private static final long   PRELOAD_BYTES_4G   =  5 * 1024 * 1024L; // 4G: 5MB
+    private static final long   PRELOAD_BYTES_3G   =  2 * 1024 * 1024L; // 3G: 2MB
+    private static final long   PRELOAD_BYTES_2G   =    512 * 1024L;    // 2G/slow: 512KB
     /** Duet originals: 50MB — compositor needs the full video for rendering */
     private static final long   PRELOAD_BYTES_DUET = UnifiedVideoCacheManager.PARTIAL_BYTES_DUET;
 

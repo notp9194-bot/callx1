@@ -201,14 +201,8 @@ public class ReelsFragment extends Fragment {
                 if (thumbPreloader != null) thumbPreloader.preloadFrom(cur, reelIndex);
                 // v5: Record watch event + drive predictive preload order
                 if (predictivePreloader != null && reelIndex < cur.size()) {
-                    ReelModel current = cur.get(reelIndex);
-                    predictivePreloader.recordWatch(
-                        current.reelId,
-                        current.hashtags != null ? current.hashtags : java.util.Collections.emptyList(),
-                        current.uid
-                    );
-                    List<String> preloadOrder = predictivePreloader.getPreloadOrder(cur, reelIndex);
-                    android.util.Log.d("ReelsFragment", "Predictive order=" + preloadOrder);
+                    predictivePreloader.preloadSmartFrom(cur, reelIndex);
+                    android.util.Log.d("ReelsFragment", "Predictive preload from pos=" + reelIndex);
                 }
             }
         });
@@ -749,14 +743,13 @@ public class ReelsFragment extends Fragment {
 
     // ── v5 accessor: lets ReelPlayerFragment notify predictivePreloader ────────
     public void notifyReelWatched(String reelId, java.util.List<String> tags, String uid) {
-        if (predictivePreloader != null)
-            predictivePreloader.recordWatch(reelId, tags, uid);
+        // predictivePreloader.recordWatch takes (ReelModel, long, long) — stub for future use
+        // preloading is already driven by onPageSelected via preloadSmartFrom
     }
 
     @Override
     public void onDestroyView() {
-        // v5: cleanup offline manager network callbacks
-        if (offlineManager != null) offlineManager.destroy();
+        // offlineManager is a singleton, no destroy needed
         super.onDestroyView();
     }
 
