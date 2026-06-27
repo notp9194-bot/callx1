@@ -70,6 +70,7 @@ public class ViewOnceViewerActivity extends AppCompatActivity {
 
     private MediaPlayer  audioPlayer;
     private boolean      audioPlaying = false;
+    private boolean      cleanedUp = false;
     private String       msgId;
     private String       type;
     private String       mediaUrl;
@@ -213,8 +214,18 @@ public class ViewOnceViewerActivity extends AppCompatActivity {
     }
 
     private void cleanup() {
-        // MEMORY: clear Glide image from LRU immediately
-        if (ivImage != null) Glide.with(this).clear(ivImage);
+        // CRASH FIX: onStop() and onDestroy() both call cleanup(). Without this
+        // guard, the second call hits Glide.with(this) on an already-destroyed
+        // Activity, which throws IllegalArgumentException("You cannot start a
+        // load for a destroyed activity") and crashes the app.
+        if (cleanedUp) return;
+        cleanedUp = true;
+
+        // MEMORY: clear Glide image from LRU immediately — only safe while
+        // the activity is still alive; skip entirely once destroyed/finishing.
+        if (ivImage != null && !isDestroyed() && !isFinishing()) {
+            Glide.with(this).clear(ivImage);
+        }
 
         // MEMORY: stop video, release surface
         if (vvVideo != null) {
