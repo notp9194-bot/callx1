@@ -221,11 +221,9 @@ public class GroupInfoActivity extends AppCompatActivity {
         btnSaveDesc.setOnClickListener(v -> saveDescription());
 
         // Quick actions
-        findViewById(R.id.btn_quick_video).setOnClickListener(v ->
-                Toast.makeText(this, "Group video call — coming soon", Toast.LENGTH_SHORT).show());
+        findViewById(R.id.btn_quick_video).setOnClickListener(v -> startGroupCall(true));
 
-        findViewById(R.id.btn_quick_audio).setOnClickListener(v ->
-                Toast.makeText(this, "Group audio call — coming soon", Toast.LENGTH_SHORT).show());
+        findViewById(R.id.btn_quick_audio).setOnClickListener(v -> startGroupCall(false));
 
         findViewById(R.id.btn_quick_search).setOnClickListener(v -> {
             Intent i = new Intent().setClassName(this, "com.callx.app.activities.SearchActivity");
@@ -771,6 +769,18 @@ public class GroupInfoActivity extends AppCompatActivity {
     }
 
     // ── System message helper ─────────────────────────────────────────────
+    private void startGroupCall(boolean isVideo) {
+        String callId = "gcall_" + groupId + "_" + System.currentTimeMillis();
+        Intent i = new Intent().setClassName(this, "com.callx.app.group.GroupCallActivity");
+        i.putExtra("gcall_group_id",   groupId);
+        i.putExtra("gcall_group_name", groupName != null ? groupName : "Group");
+        i.putExtra("gcall_group_icon", currentIconUrl != null ? currentIconUrl : "");
+        i.putExtra("gcall_call_id",    callId);
+        i.putExtra("gcall_is_video",   isVideo);
+        i.putExtra("gcall_is_caller",  true);
+        startActivity(i);
+    }
+
     private void postSystemMessage(String text) {
         DatabaseReference sysRef = FirebaseUtils.getGroupMessagesRef(groupId).push();
         Map<String, Object> sys = new HashMap<>();
