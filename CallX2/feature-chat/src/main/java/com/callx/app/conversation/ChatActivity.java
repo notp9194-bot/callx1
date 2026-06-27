@@ -348,30 +348,11 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         starredController  = new ChatStarredController(this);
         scheduledSendController = new ChatScheduledSendController(this);
         viewOnceController = new ChatViewOnceController(this);
-
-        // Feature 13: View Once — wire adapter listener to controller + viewer launch
-        pagingAdapter.setViewOnceOpenListener(message -> {
-            if (viewOnceController == null) return;
-            viewOnceController.openViewOnce(message, () -> {
-                // Launch full-screen viewer on main thread (already on main via openViewOnce callback)
-                android.content.Intent vi = new android.content.Intent(
-                        ChatActivity.this,
-                        com.callx.app.conversation.ViewOnceViewerActivity.class);
-                vi.putExtra(com.callx.app.conversation.ViewOnceViewerActivity.EXTRA_MSG_ID,
-                        message.messageId != null ? message.messageId : message.id);
-                vi.putExtra(com.callx.app.conversation.ViewOnceViewerActivity.EXTRA_TYPE,
-                        message.type);
-                vi.putExtra(com.callx.app.conversation.ViewOnceViewerActivity.EXTRA_CONTENT,
-                        message.text);
-                vi.putExtra(com.callx.app.conversation.ViewOnceViewerActivity.EXTRA_MEDIA_URL,
-                        message.mediaUrl);
-                vi.putExtra(com.callx.app.conversation.ViewOnceViewerActivity.EXTRA_FILE_NAME,
-                        message.fileName);
-                vi.putExtra(com.callx.app.conversation.ViewOnceViewerActivity.EXTRA_DURATION,
-                        message.duration != null ? message.duration : 0L);
-                startActivity(vi);
-            });
-        });
+        // NOTE: pagingAdapter.setViewOnceOpenListener(...) is wired in
+        // setupPagingRecyclerView() right after pagingAdapter is constructed —
+        // it CANNOT be set here because pagingAdapter is still null at this
+        // point in onCreate, which was crashing ChatActivity with an NPE
+        // every time the chat screen was opened.
 
         searchController   = new ChatSearchController(this);
         themeController    = new ChatThemeController(this);
@@ -1186,6 +1167,31 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     private void setupPagingRecyclerView() {
         pagingAdapter = new MessagePagingAdapter(currentUid, false);
         pagingAdapter.setChatId(chatId);
+
+        // Feature 13: View Once — wire adapter listener to controller + viewer launch
+        // (Moved here from early onCreate block — pagingAdapter must exist first.)
+        pagingAdapter.setViewOnceOpenListener(message -> {
+            if (viewOnceController == null) return;
+            viewOnceController.openViewOnce(message, () -> {
+                android.content.Intent vi = new android.content.Intent(
+                        ChatActivity.this,
+                        com.callx.app.conversation.ViewOnceViewerActivity.class);
+                vi.putExtra(com.callx.app.conversation.ViewOnceViewerActivity.EXTRA_MSG_ID,
+                        message.messageId != null ? message.messageId : message.id);
+                vi.putExtra(com.callx.app.conversation.ViewOnceViewerActivity.EXTRA_TYPE,
+                        message.type);
+                vi.putExtra(com.callx.app.conversation.ViewOnceViewerActivity.EXTRA_CONTENT,
+                        message.text);
+                vi.putExtra(com.callx.app.conversation.ViewOnceViewerActivity.EXTRA_MEDIA_URL,
+                        message.mediaUrl);
+                vi.putExtra(com.callx.app.conversation.ViewOnceViewerActivity.EXTRA_FILE_NAME,
+                        message.fileName);
+                vi.putExtra(com.callx.app.conversation.ViewOnceViewerActivity.EXTRA_DURATION,
+                        message.duration != null ? message.duration : 0L);
+                startActivity(vi);
+            });
+        });
+
         pagingAdapter.setActionListener(new MessagePagingAdapter.ActionListener() {
             @Override public void onReply(Message m)               { startReply(m); }
             @Override public void onDelete(Message m)              { confirmDeleteMessage(m); }
