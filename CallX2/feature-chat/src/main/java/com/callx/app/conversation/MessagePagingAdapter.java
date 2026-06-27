@@ -2477,11 +2477,17 @@ public class MessagePagingAdapter
                     java.util.Locale.getDefault()).format(new java.util.Date(m.timestamp)));
         }
 
-        // Tap → open viewer via ChatViewOnceController
-        root.setOnClickListener(v -> {
+        // BUG FIX: the click listener must go on `ll_bubble` (the actual 200dp
+        // clickable card with its own ripple foreground), NOT on `root`/itemView.
+        // ll_bubble is clickable="true" itself, so it intercepts the touch and
+        // a listener on the full-width root never fires — that's why "Tap to
+        // open" was doing nothing.
+        android.view.View bubble = root.findViewById(com.callx.app.chat.R.id.ll_bubble);
+        android.view.View tapTarget = bubble != null ? bubble : root;
+        tapTarget.setOnClickListener(v -> {
             if (viewOnceOpenListener != null) viewOnceOpenListener.onOpenViewOnce(m);
         });
-        root.setOnLongClickListener(null); // no long-press for view-once (no copy/forward)
+        tapTarget.setOnLongClickListener(null); // no long-press for view-once (no copy/forward)
     }
 
     /**
@@ -2495,8 +2501,10 @@ public class MessagePagingAdapter
             tvTime.setText(new java.text.SimpleDateFormat("h:mm a",
                     java.util.Locale.getDefault()).format(new java.util.Date(m.timestamp)));
         }
-        root.setOnClickListener(null);
-        root.setOnLongClickListener(null);
+        android.view.View bubble = root.findViewById(com.callx.app.chat.R.id.ll_bubble);
+        android.view.View tapTarget = bubble != null ? bubble : root;
+        tapTarget.setOnClickListener(null);
+        tapTarget.setOnLongClickListener(null);
     }
 
     private static String buildTypeHint(String type) {
