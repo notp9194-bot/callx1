@@ -302,6 +302,40 @@ public class ReelPlayerController {
             }).show();
     }
 
+    public void showQualityPicker() {
+        if (!delegate.isAdded() || delegate.getContext() == null) return;
+        String[] options = {"Auto (Recommended)", "1080p", "720p", "480p", "360p"};
+        AdaptiveStreamingManager.QualityCap[] caps = {
+            AdaptiveStreamingManager.QualityCap.AUTO,
+            AdaptiveStreamingManager.QualityCap.Q1080P,
+            AdaptiveStreamingManager.QualityCap.Q720P,
+            AdaptiveStreamingManager.QualityCap.Q480P,
+            AdaptiveStreamingManager.QualityCap.Q360P
+        };
+        new android.app.AlertDialog.Builder(delegate.getContext())
+            .setTitle("Video Quality")
+            .setItems(options, (d, which) -> {
+                currentCap = caps[which];
+                if (tvQualityBadge != null) {
+                    tvQualityBadge.setText(AdaptiveStreamingManager.capLabel(currentCap));
+                    tvQualityBadge.setVisibility(android.view.View.VISIBLE);
+                }
+                // Rebuild player with new cap if currently playing
+                if (player != null && delegate.getReel() != null && delegate.getReel().videoUrl != null) {
+                    long pos = player.getCurrentPosition();
+                    boolean wasPlaying = player.isPlaying();
+                    player.stop();
+                    player.release();
+                    player = AdaptiveStreamingManager.get(delegate.requireContext())
+                        .buildPlayer(delegate.getReel().videoUrl, currentCap, null);
+                    playerView.setPlayer(player);
+                    player.seekTo(pos);
+                    player.prepare();
+                    if (wasPlaying) player.play();
+                }
+            }).show();
+    }
+
     public void releasePlayer() {
         stopProgressTracking();
         delegate.stopPhotoSlideshow();

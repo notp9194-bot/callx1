@@ -174,6 +174,13 @@ public class ReelShareController {
             case ReelMoreBottomSheet.ACTION_DUET_TREE:          delegate.openDuetTree();          break;
             // v11 Duet Series
             case ReelMoreBottomSheet.ACTION_VIEW_SERIES:        delegate.openDuetSeries();        break;
+            // Remix
+            case ReelMoreBottomSheet.ACTION_REMIX:              delegate.openRemix();             break;
+            case ReelMoreBottomSheet.ACTION_VIEW_REMIXES:       delegate.openViewRemixes();       break;
+            // Watch History
+            case ReelMoreBottomSheet.ACTION_WATCH_HISTORY:      delegate.openWatchHistory();      break;
+            // Video Quality picker
+            case ReelMoreBottomSheet.ACTION_QUALITY:            delegate.showQualityPicker();     break;
         }
     }
 }

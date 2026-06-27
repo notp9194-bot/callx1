@@ -392,4 +392,8 @@ public class ReelPlayerFragment extends Fragment
     @Override public void openOwnerStatus()        { duetController.openOwnerStatus(); }
     @Override public void confirmDeleteReel()      { duetController.confirmDeleteReel(); }
     @Override public void blockReelOwner()         { duetController.blockReelOwner(); }
+    @Override public void openRemix()              { duetController.openRemix(); }
+    @Override public void openViewRemixes()        { duetController.openViewRemixes(); }
+    @Override public void openWatchHistory()       { duetController.openWatchHistory(); }
+    @Override public void showQualityPicker()      { playerController.showQualityPicker(); }
 }

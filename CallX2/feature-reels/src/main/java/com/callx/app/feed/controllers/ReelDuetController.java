@@ -447,4 +447,38 @@ public class ReelDuetController {
             .setNegativeButton("Cancel", null)
             .show();
     }
+
+    // ── Remix ─────────────────────────────────────────────────────────────────
+
+    public void openRemix() {
+        ReelModel reel = delegate.getReel();
+        if (reel == null || !delegate.isAdded() || delegate.getActivity() == null) return;
+        Intent i = new Intent(delegate.getActivity(),
+            com.callx.app.social.ReelRemixActivity.class);
+        i.putExtra(com.callx.app.social.ReelRemixActivity.EXTRA_REEL_ID,    reel.reelId);
+        i.putExtra(com.callx.app.social.ReelRemixActivity.EXTRA_OWNER_UID,  reel.uid != null ? reel.uid : "");
+        i.putExtra(com.callx.app.social.ReelRemixActivity.EXTRA_OWNER_NAME, reel.ownerName != null ? reel.ownerName : "");
+        i.putExtra(com.callx.app.social.ReelRemixActivity.EXTRA_VIDEO_URL,  reel.videoUrl != null ? reel.videoUrl : "");
+        i.putExtra(com.callx.app.social.ReelRemixActivity.EXTRA_THUMB_URL,  reel.thumbUrl != null ? reel.thumbUrl : "");
+        delegate.getFragment().startActivity(i);
+    }
+
+    public void openViewRemixes() {
+        ReelModel reel = delegate.getReel();
+        if (reel == null || !delegate.isAdded() || delegate.getActivity() == null) return;
+        Intent i = new Intent(delegate.getActivity(),
+            com.callx.app.social.RemixesByReelActivity.class);
+        i.putExtra(com.callx.app.social.RemixesByReelActivity.EXTRA_REEL_ID,    reel.reelId);
+        i.putExtra(com.callx.app.social.RemixesByReelActivity.EXTRA_OWNER_NAME, reel.ownerName != null ? reel.ownerName : "");
+        delegate.getFragment().startActivity(i);
+    }
+
+    // ── Watch History ─────────────────────────────────────────────────────────
+
+    public void openWatchHistory() {
+        if (!delegate.isAdded() || delegate.getActivity() == null) return;
+        Intent i = new Intent(delegate.getActivity(),
+            com.callx.app.library.WatchHistoryActivity.class);
+        delegate.getFragment().startActivity(i);
+    }
 }

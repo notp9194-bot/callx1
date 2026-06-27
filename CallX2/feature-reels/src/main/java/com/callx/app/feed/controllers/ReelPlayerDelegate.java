@@ -114,4 +114,11 @@ public interface ReelPlayerDelegate {
     void openOwnerStatus();
     void confirmDeleteReel();
     void blockReelOwner();
+    // Remix
+    void openRemix();
+    void openViewRemixes();
+    // Watch History
+    void openWatchHistory();
+    // Quality picker
+    void showQualityPicker();
 }
