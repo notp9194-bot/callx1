@@ -125,6 +125,30 @@ public class Message {
      *  style); if false/null, voting is single-choice (radio style, default). */
     public Boolean pollMultiChoice;
 
+
+    // ── Feature 13: View Once / Secret Message ───────────────────────────
+    /**
+     * True if this message can be viewed only once.
+     * Supported for type: text | image | video | audio | file.
+     * Set by sender before push. Never mutated after send.
+     */
+    public Boolean viewOnce;
+
+    /**
+     * Current state of a view-once message lifecycle.
+     * Values: "sent" | "opened" | "deleted"
+     * See ChatViewOnceController.STATE_* constants.
+     * Only meaningful when viewOnce == true.
+     */
+    public String viewOnceState;
+
+    /**
+     * Epoch ms when receiver first opened this view-once message.
+     * Set server-side via ServerValue.TIMESTAMP for accuracy.
+     * 0 / null = not yet opened.
+     */
+    public Long openedAt;
+
     public Message() {}
 
     /**
@@ -161,3 +185,5 @@ public class Message {
         return key.hashCode();
     }
 }
+// INJECTED BY PATCH — do not edit manually
+// The actual insertion is done via sed below

@@ -1,0 +1,138 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  activity_view_once_viewer.xml
+  Full-screen lightweight viewer for view-once messages.
+
+  PERFORMANCE:
+  - FrameLayout root: zero nesting overhead, single layout pass.
+  - Black background drawn by root FrameLayout — no scrim view layer.
+  - ImageView: no shared element transition (avoids GPU surface allocation).
+  - VideoView: hardware-accelerated by default; no extra layer needed.
+  - Close button: simple TextView — no custom drawable bitmap.
+  - No BlurView, no CardView shadow, no gradient overlays.
+-->
+<FrameLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#000000"
+    android:keepScreenOn="true">
+
+    <!-- Image viewer — GONE by default; shown only for image type -->
+    <ImageView
+        android:id="@+id/iv_view_once"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="fitCenter"
+        android:visibility="gone"
+        android:contentDescription="View once image"/>
+
+    <!-- Video viewer — GONE by default; shown only for video type -->
+    <VideoView
+        android:id="@+id/vv_view_once"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone"/>
+
+    <!-- Text viewer — GONE by default; shown only for text type -->
+    <TextView
+        android:id="@+id/tv_view_once_text"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:textColor="#FFFFFF"
+        android:textSize="20sp"
+        android:padding="24dp"
+        android:lineSpacingExtra="4dp"
+        android:visibility="gone"/>
+
+    <!-- Audio player row — GONE by default -->
+    <LinearLayout
+        android:id="@+id/ll_audio_player"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:orientation="horizontal"
+        android:padding="16dp"
+        android:gravity="center_vertical"
+        android:visibility="gone">
+
+        <ImageButton
+            android:id="@+id/btn_play_audio"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:background="@drawable/bg_circle_white"
+            android:src="@drawable/ic_play_arrow"
+            android:contentDescription="Play"/>
+
+        <TextView
+            android:id="@+id/tv_audio_duration"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="#FFFFFF"
+            android:textSize="16sp"
+            android:layout_marginStart="16dp"/>
+
+    </LinearLayout>
+
+    <!-- File info row — GONE by default -->
+    <LinearLayout
+        android:id="@+id/ll_file_info"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:padding="24dp"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/tv_file_icon"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="📄"
+            android:textSize="48sp"/>
+
+        <TextView
+            android:id="@+id/tv_file_name"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="#FFFFFF"
+            android:textSize="16sp"
+            android:layout_marginTop="8dp"/>
+
+    </LinearLayout>
+
+    <!-- Top bar: close button — anchored to top, no elevation -->
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:layout_gravity="top">
+
+        <TextView
+            android:id="@+id/btn_close_viewer"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_gravity="start|center_vertical"
+            android:layout_marginStart="8dp"
+            android:text="✕"
+            android:textColor="#FFFFFF"
+            android:textSize="20sp"
+            android:gravity="center"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackgroundBorderless"/>
+
+        <TextView
+            android:id="@+id/tv_viewer_label"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:text="View Once"
+            android:textColor="#FFFFFF"
+            android:textSize="16sp"
+            android:textStyle="bold"/>
+
+    </FrameLayout>
+
+</FrameLayout>

@@ -144,6 +144,22 @@ public interface MessageDao {
     List<MessageEntity> getUnreadMessages(String chatId, String partnerUid);
 
     @WorkerThread
+
+    // ── Feature 13: View Once ─────────────────────────────────────────────
+
+    /** Update view-once state for a single message (e.g., "opened", "deleted"). */
+    @Query("UPDATE messages SET viewOnceState = :state WHERE id = :messageId")
+    void updateViewOnceState(String messageId, String state);
+
+    /** Update openedAt timestamp (called after receiver opens). */
+    @Query("UPDATE messages SET openedAt = :openedAt WHERE id = :messageId")
+    void updateOpenedAt(String messageId, long openedAt);
+
+    /** Fetch all view-once messages in OPENED state that haven't been hard-deleted
+     *  locally yet — used by SyncWorker offline flush. */
+    @Query("SELECT * FROM messages WHERE viewOnce = 1 AND viewOnceState = 'opened' AND (deleted IS NULL OR deleted = 0)")
+    List<MessageEntity> getPendingViewOnceDeletes();
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     void insertMessages(List<MessageEntity> messages);
 

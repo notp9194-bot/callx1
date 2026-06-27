@@ -275,6 +275,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     private ChatPollController     pollController;
     private ChatStarredController  starredController;
     private ChatScheduledSendController scheduledSendController;
+    /** Feature 13: View Once / Secret Message controller. */
+    private ChatViewOnceController viewOnceController;
     private ChatSearchController   searchController;
     private ChatThemeController    themeController;
     private ChatMediaController    mediaController;
@@ -344,6 +346,32 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         pollController     = new ChatPollController(this);
         starredController  = new ChatStarredController(this);
         scheduledSendController = new ChatScheduledSendController(this);
+        viewOnceController = new ChatViewOnceController(this);
+
+        // Feature 13: View Once — wire adapter listener to controller + viewer launch
+        pagingAdapter.setViewOnceOpenListener(message -> {
+            if (viewOnceController == null) return;
+            viewOnceController.openViewOnce(message, () -> {
+                // Launch full-screen viewer on main thread (already on main via openViewOnce callback)
+                android.content.Intent vi = new android.content.Intent(
+                        ChatActivity.this,
+                        com.callx.app.conversation.ViewOnceViewerActivity.class);
+                vi.putExtra(com.callx.app.conversation.ViewOnceViewerActivity.EXTRA_MSG_ID,
+                        message.messageId != null ? message.messageId : message.id);
+                vi.putExtra(com.callx.app.conversation.ViewOnceViewerActivity.EXTRA_TYPE,
+                        message.type);
+                vi.putExtra(com.callx.app.conversation.ViewOnceViewerActivity.EXTRA_CONTENT,
+                        message.text);
+                vi.putExtra(com.callx.app.conversation.ViewOnceViewerActivity.EXTRA_MEDIA_URL,
+                        message.mediaUrl);
+                vi.putExtra(com.callx.app.conversation.ViewOnceViewerActivity.EXTRA_FILE_NAME,
+                        message.fileName);
+                vi.putExtra(com.callx.app.conversation.ViewOnceViewerActivity.EXTRA_DURATION,
+                        message.duration != null ? message.duration : 0L);
+                startActivity(vi);
+            });
+        });
+
         searchController   = new ChatSearchController(this);
         themeController    = new ChatThemeController(this);
         messageSender      = new ChatMessageSender(this);
@@ -710,6 +738,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         if (emojiBurstController != null) emojiBurstController.release();
         if (blockController    != null) blockController.release();
         if (scheduledSendController != null) scheduledSendController.release();
+        if (viewOnceController != null) viewOnceController.release();
         if (screenshotNotifier != null) screenshotNotifier.release();
     }
 
@@ -937,6 +966,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                     updateOfflineBanner(false);
                     messageSender.updateSendButtonState(true);
                     messageSender.retryPendingMessages();
+                // Feature 13: flush any offline view-once deletes
+                if (viewOnceController != null) viewOnceController.flushPendingDeletes();
                     ChatRepository.getInstance(getApplicationContext()).syncMessagesDelta(chatId);
                 });
             }
@@ -1692,6 +1723,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         m.reelOwnerUid = e.reelOwnerUid;
         m.reactions = com.callx.app.utils.ReactionJsonUtil.reactionsFromJson(e.reactionsJson);
         m.reelThumbUrl = e.reelThumbUrl; m.fontStyle = e.fontStyle; m.expiresAt = e.expiresAt;
+        m.viewOnce = e.viewOnce; m.viewOnceState = e.viewOnceState; m.openedAt = e.openedAt;
         m.pollQuestion = e.pollQuestion;
         m.pollOptions  = com.callx.app.utils.PollJsonUtil.optionsFromJson(e.pollOptionsJson);
         m.pollVotes    = com.callx.app.utils.PollJsonUtil.votesFromJson(e.pollVotesJson);
@@ -1717,6 +1749,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         e.pinned = Boolean.TRUE.equals(m.pinned); e.reelId = m.reelId;
         e.reelOwnerUid = m.reelOwnerUid;
         e.reelThumbUrl = m.reelThumbUrl; e.fontStyle = m.fontStyle; e.expiresAt = m.expiresAt;
+        e.viewOnce = m.viewOnce; e.viewOnceState = m.viewOnceState; e.openedAt = m.openedAt;
         e.pollQuestion    = m.pollQuestion;
         e.pollOptionsJson = com.callx.app.utils.PollJsonUtil.optionsToJson(m.pollOptions);
         e.pollVotesJson   = com.callx.app.utils.PollJsonUtil.votesToJson(m.pollVotes);

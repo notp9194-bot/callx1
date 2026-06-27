@@ -21,5 +21,14 @@
         <activity android:name="com.callx.app.settings.MutedChatsActivity"
             android:exported="false"
             android:screenOrientation="portrait"/>
+
+        <!-- Feature 13: View Once viewer — FLAG_SECURE, no history -->
+        <activity
+            android:name=".conversation.ViewOnceViewerActivity"
+            android:theme="@style/Theme.AppCompat.NoActionBar"
+            android:screenOrientation="portrait"
+            android:excludeFromRecents="true"
+            android:noHistory="true"/>
+
     </application>
 </manifest>

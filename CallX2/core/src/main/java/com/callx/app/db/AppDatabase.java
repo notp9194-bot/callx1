@@ -69,7 +69,7 @@ import net.sqlcipher.database.SupportFactory;
         StatusEntity.class,    // v17: status cache
         ScheduledMessageEntity.class  // v28: scheduled chat messages
     },
-    version = 18,
+    version = 19,
     exportSchema = true
 )
 public abstract class AppDatabase extends RoomDatabase {
@@ -375,6 +375,22 @@ public abstract class AppDatabase extends RoomDatabase {
         }
     };
 
+
+    static final Migration MIGRATION_18_19 = new Migration(18, 19) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase db) {
+            // Feature 13: View Once / Secret Message columns
+            db.execSQL("ALTER TABLE messages ADD COLUMN viewOnce INTEGER DEFAULT NULL");
+            db.execSQL("ALTER TABLE messages ADD COLUMN viewOnceState TEXT DEFAULT NULL");
+            db.execSQL("ALTER TABLE messages ADD COLUMN openedAt INTEGER DEFAULT NULL");
+            // Index: fast lookup for view-once state changes (adapter + SyncWorker)
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_messages_viewOnce` " +
+                "ON `messages` (`viewOnce`, `viewOnceState`)"
+            );
+        }
+    };
+
     /** PERF FIX: lets callers check, without any I/O or synchronization cost
      *  beyond a volatile read, whether the singleton is already built. If
      *  true, getInstance() below is guaranteed non-blocking (just returns
@@ -423,7 +439,7 @@ public abstract class AppDatabase extends RoomDatabase {
 
         AppDatabase db = Room.databaseBuilder(ctx, AppDatabase.class, DB_NAME)
                 .openHelperFactory(factory)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18)  // v18: chatId+timestamp index backfill for upgrade users
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19)  // v19: view-once columns; v18: chatId+timestamp index backfill for upgrade users
                 .fallbackToDestructiveMigration()
                 // NOTE: WAL mode removed — SQLCipher 4.5.4 + Room WAL combination
                 // causes silent open failures on some devices. The write-batching

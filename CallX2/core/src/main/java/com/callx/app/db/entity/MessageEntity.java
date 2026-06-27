@@ -115,5 +115,27 @@ public class MessageEntity {
     /** Advanced polls: true = voters may tick multiple options (checkbox style). */
     public Boolean pollMultiChoice;
 
+
+    // ── Feature 13: View Once / Secret Message ───────────────────────────
+    /**
+     * True = this message is view-once.
+     * Indexed alongside messageId for fast lookup in softDelete / state queries.
+     */
+    public Boolean viewOnce;
+
+    /**
+     * State: "sent" | "opened" | "deleted"
+     * SENT      → message exists, badge shows "View Once"
+     * OPENED    → receiver tapped; hard-delete pipeline triggered
+     * DELETED   → wiped from Firebase; local tombstone only
+     */
+    public String viewOnceState;
+
+    /**
+     * Epoch ms when receiver first opened the message.
+     * Populated from Firebase ServerValue.TIMESTAMP for clock accuracy.
+     */
+    public Long openedAt;
+
     public MessageEntity() {}
 }

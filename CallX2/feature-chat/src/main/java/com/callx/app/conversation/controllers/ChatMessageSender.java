@@ -47,6 +47,13 @@ public class ChatMessageSender {
         long disappearMs = privMgr.getDisappearingMs();
         if (disappearMs > 0) m.expiresAt = m.timestamp + disappearMs;
 
+        // Feature 13: View Once — if caller tagged this message as view-once,
+        // ensure state is "sent". ChatViewOnceController.tagMessageAsViewOnce()
+        // sets viewOnce=true before pushMessage() is called.
+        if (Boolean.TRUE.equals(m.viewOnce) && m.viewOnceState == null) {
+            m.viewOnceState = com.callx.app.conversation.controllers.ChatViewOnceController.STATE_SENT;
+        }
+
         MessageEntity entity = messageToEntity(m, "pending");
 
         // BUG FIX: this insertMessage() write happens IMMEDIATELY on send —
@@ -193,6 +200,10 @@ public class ChatMessageSender {
         e.syncedAt              = System.currentTimeMillis();
         e.fontStyle             = m.fontStyle;
         e.expiresAt             = m.expiresAt;
+        // Feature 13: View Once
+        e.viewOnce              = m.viewOnce;
+        e.viewOnceState         = m.viewOnceState;
+        e.openedAt              = m.openedAt;
         e.pollQuestion          = m.pollQuestion;
         e.pollOptionsJson       = com.callx.app.utils.PollJsonUtil.optionsToJson(m.pollOptions);
         e.pollVotesJson         = com.callx.app.utils.PollJsonUtil.votesToJson(m.pollVotes);

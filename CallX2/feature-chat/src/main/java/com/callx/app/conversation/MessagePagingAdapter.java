@@ -116,10 +116,15 @@ public class MessagePagingAdapter
     private static final int TYPE_HIDDEN         = 6;
     /** Standalone date separator chip — injected by insertSeparators() in ChatActivity.
      *  Stored as a synthetic Message with type="date_separator"; text holds the label. */
-    private static final int TYPE_DATE_SEPARATOR = 7;
+    private static final int TYPE_DATE_SEPARATOR   = 7;
+    /** View-once message: receiver sees "View Once" tap badge. */
+    private static final int TYPE_VIEW_ONCE_SENT    = 8;
+    /** View-once message: already opened — shows expired state. */
+    private static final int TYPE_VIEW_ONCE_EXPIRED = 9;
 
     // ── DiffUtil payload key — only tv_status needs rebind when status changes ──
-    static final String PAYLOAD_STATUS = "status";
+    static final String PAYLOAD_STATUS     = "status";
+    static final String PAYLOAD_VIEW_ONCE  = "view_once_state";
 
     // PERF: RGB_565 for thumbnail-sized images — half the memory of ARGB_8888.
     // Thumbnails (avatars, video covers, reply previews, status/reel chips) have
@@ -437,12 +442,30 @@ public class MessagePagingAdapter
             return currentUid.equals(m.reelOwnerUid) ? TYPE_REEL_SEEN : TYPE_HIDDEN;
         }
         if ("call_entry".equals(m.type))  return TYPE_CALL_ENTRY;
+        // Feature 13: View Once — intercept before generic sent/received
+        if (Boolean.TRUE.equals(m.viewOnce)) {
+            if (com.callx.app.conversation.controllers.ChatViewOnceController.isExpired(m)) {
+                return TYPE_VIEW_ONCE_EXPIRED;
+            }
+            // Sender sees their own message as expired (they cannot view it)
+            if (currentUid.equals(m.senderId)) return TYPE_VIEW_ONCE_EXPIRED;
+            return TYPE_VIEW_ONCE_SENT;
+        }
         return currentUid.equals(m.senderId) ? TYPE_SENT : TYPE_RECEIVED;
     }
 
     @NonNull
     @Override
     public VH onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+        // Feature 13: View Once fast-exit binding
+        if (viewType == TYPE_VIEW_ONCE_SENT) {
+            bindViewOnceSent(holder, m);
+            return;
+        }
+        if (viewType == TYPE_VIEW_ONCE_EXPIRED) {
+            bindViewOnceExpired(holder, m);
+            return;
+        }
         if (viewType == TYPE_HIDDEN) {
             View v = new View(parent.getContext());
             v.setLayoutParams(new ViewGroup.LayoutParams(0, 0));
@@ -455,7 +478,9 @@ public class MessagePagingAdapter
             return new VH(v);
         }
         int layout;
-        if (viewType == TYPE_SENT)             layout = R.layout.item_message_sent;
+        if (viewType == TYPE_VIEW_ONCE_SENT)    layout = R.layout.item_view_once_bubble;
+        else if (viewType == TYPE_VIEW_ONCE_EXPIRED) layout = R.layout.item_view_once_expired;
+        else if (viewType == TYPE_SENT)          layout = R.layout.item_message_sent;
         else if (viewType == TYPE_STATUS_SEEN) layout = R.layout.item_status_seen_bubble;
         else if (viewType == TYPE_REEL_SEEN)   layout = R.layout.item_reel_seen_bubble;
         else if (viewType == TYPE_CALL_ENTRY)  layout = R.layout.item_call_entry_bubble;
@@ -2422,4 +2447,75 @@ public class MessagePagingAdapter
             llCallEntryPill  = v.findViewById(R.id.ll_call_entry_pill);
         }
     }
+    // ── Feature 13: View Once bubble binding ─────────────────────────────
+
+    /**
+     * Binds the "View Once" tap bubble for the receiver.
+     * Called from onBindViewHolder when viewType == TYPE_VIEW_ONCE_SENT.
+     *
+     * PERFORMANCE: SimpleViewHolder — no complex binding, just time + tap listener.
+     * No Glide load, no media decode here. Media loads only in ViewOnceViewerActivity.
+     */
+    private void bindViewOnceSent(RecyclerView.ViewHolder holder, Message m) {
+        android.view.View root = holder.itemView;
+
+        // Sublabel: show media type hint
+        android.widget.TextView tvSub = root.findViewById(com.callx.app.chat.R.id.tv_vo_sublabel);
+        if (tvSub != null) {
+            String hint = buildTypeHint(m.type);
+            tvSub.setText(hint);
+        }
+
+        // Time
+        android.widget.TextView tvTime = root.findViewById(com.callx.app.chat.R.id.tv_time);
+        if (tvTime != null && m.timestamp != null) {
+            tvTime.setText(new java.text.SimpleDateFormat("h:mm a",
+                    java.util.Locale.getDefault()).format(new java.util.Date(m.timestamp)));
+        }
+
+        // Tap → open viewer via ChatViewOnceController
+        root.setOnClickListener(v -> {
+            if (viewOnceOpenListener != null) viewOnceOpenListener.onOpenViewOnce(m);
+        });
+        root.setOnLongClickListener(null); // no long-press for view-once (no copy/forward)
+    }
+
+    /**
+     * Binds the "Opened" expired bubble.
+     * Called from onBindViewHolder when viewType == TYPE_VIEW_ONCE_EXPIRED.
+     */
+    private void bindViewOnceExpired(RecyclerView.ViewHolder holder, Message m) {
+        android.view.View root = holder.itemView;
+        android.widget.TextView tvTime = root.findViewById(com.callx.app.chat.R.id.tv_time);
+        if (tvTime != null && m.timestamp != null) {
+            tvTime.setText(new java.text.SimpleDateFormat("h:mm a",
+                    java.util.Locale.getDefault()).format(new java.util.Date(m.timestamp)));
+        }
+        root.setOnClickListener(null);
+        root.setOnLongClickListener(null);
+    }
+
+    private static String buildTypeHint(String type) {
+        if (type == null) return "Tap to open";
+        switch (type) {
+            case "image": return "📷  Photo · Tap to open";
+            case "video": return "🎬  Video · Tap to open";
+            case "audio": return "🎵  Audio · Tap to open";
+            case "file":  return "📄  File · Tap to open";
+            default:      return "Tap to open";
+        }
+    }
+
+    /** Callback interface — ChatActivity implements this to wire ViewOnceController. */
+    public interface ViewOnceOpenListener {
+        void onOpenViewOnce(com.callx.app.models.Message message);
+    }
+
+    private ViewOnceOpenListener viewOnceOpenListener;
+
+    public void setViewOnceOpenListener(ViewOnceOpenListener l) {
+        this.viewOnceOpenListener = l;
+    }
+
+
 }
