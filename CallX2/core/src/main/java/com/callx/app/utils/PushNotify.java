@@ -323,14 +323,13 @@ public class PushNotify {
                                        String callId, boolean isVideo, String callerPhoto) {
         try {
             JSONObject body = new JSONObject()
-                .put("groupId",     groupId     == null ? "" : groupId)
-                .put("fromUid",     fromUid     == null ? "" : fromUid)
-                .put("fromName",    fromName    == null ? "" : fromName)
-                .put("callerPhoto", callerPhoto == null ? "" : callerPhoto) // FIX-GCALL-PHOTO
-                .put("gcallCallerPhoto", callerPhoto == null ? "" : callerPhoto) // Constants.GCALL_FCM_CALLER_PHOTO
-                .put("callId",      callId      == null ? "" : callId)
-                .put("isVideo",     isVideo)
-                .put("type",        "group_call");
+                .put("gcallGroupId",    groupId     == null ? "" : groupId)
+                .put("gcallCallerUid",  fromUid     == null ? "" : fromUid)
+                .put("gcallCallerName", fromName    == null ? "" : fromName)
+                .put("gcallCallerPhoto", callerPhoto == null ? "" : callerPhoto)
+                .put("gcallId",         callId      == null ? "" : callId)
+                .put("gcallIsVideo",    isVideo)
+                .put("type",            "group_call");
             postAsync(Constants.SERVER_URL + "/notify/group", body);
         } catch (Exception e) {
             Log.w("PushNotify", "notifyGroupCall err: " + e.getMessage());
