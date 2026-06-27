@@ -2475,7 +2475,11 @@ public class MessagePagingAdapter
         android.view.View bubble = root.findViewById(com.callx.app.chat.R.id.ll_bubble);
         android.view.View tapTarget = bubble != null ? bubble : root;
         tapTarget.setOnClickListener(null);
-        tapTarget.setOnLongClickListener(null);
+        // REVOKE: long-press on sender's waiting bubble triggers revoke
+        tapTarget.setOnLongClickListener(v -> {
+            if (revokeListener != null) revokeListener.onRevokeViewOnce(m);
+            return true;
+        });
     }
 
     /**
@@ -2535,13 +2539,13 @@ public class MessagePagingAdapter
                     java.util.Locale.getDefault()).format(new java.util.Date(m.timestamp)));
         }
 
-        // "Opened on" date+time — shown only to sender (openedAt is set by receiver's device)
+        // "Opened on" time — shown only to sender (openedAt is set by receiver's device)
         android.widget.TextView tvOpenedAt = root.findViewById(com.callx.app.chat.R.id.tv_opened_at);
         if (tvOpenedAt != null) {
             if (currentUid != null && currentUid.equals(m.senderId) && m.openedAt != null) {
-                // Format: "Opened · Jun 28, 3:45 PM"
+                // Format: "Opened · 3:45 PM" (time only — clean, no date clutter)
                 java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat(
-                        "MMM d, h:mm a", java.util.Locale.getDefault());
+                        "h:mm a", java.util.Locale.getDefault());
                 tvOpenedAt.setText("Opened · " + sdf.format(new java.util.Date(m.openedAt)));
                 tvOpenedAt.setVisibility(android.view.View.VISIBLE);
             } else {
@@ -2575,6 +2579,17 @@ public class MessagePagingAdapter
 
     public void setViewOnceOpenListener(ViewOnceOpenListener l) {
         this.viewOnceOpenListener = l;
+    }
+
+    /** Callback: sender long-presses their own pending view-once bubble to revoke. */
+    public interface RevokeViewOnceListener {
+        void onRevokeViewOnce(com.callx.app.models.Message message);
+    }
+
+    private RevokeViewOnceListener revokeListener;
+
+    public void setRevokeViewOnceListener(RevokeViewOnceListener l) {
+        this.revokeListener = l;
     }
 
 

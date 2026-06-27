@@ -204,6 +204,7 @@ public class ChatMessageSender {
         e.viewOnce              = m.viewOnce;
         e.viewOnceState         = m.viewOnceState;
         e.openedAt              = m.openedAt;
+        e.viewOnceExpiresAt     = m.viewOnceExpiresAt;
         e.pollQuestion          = m.pollQuestion;
         e.pollOptionsJson       = com.callx.app.utils.PollJsonUtil.optionsToJson(m.pollOptions);
         e.pollVotesJson         = com.callx.app.utils.PollJsonUtil.votesToJson(m.pollVotes);

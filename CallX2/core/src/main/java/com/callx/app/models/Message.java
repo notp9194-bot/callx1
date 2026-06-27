@@ -149,6 +149,13 @@ public class Message {
      */
     public Long openedAt;
 
+    /**
+     * Epoch ms at which this view-once message expires if not opened.
+     * Optional — set by sender before push (e.g. now + 24hrs).
+     * null = no expiry. Only meaningful when viewOnce == true.
+     */
+    public Long viewOnceExpiresAt;
+
     public Message() {}
 
     /**

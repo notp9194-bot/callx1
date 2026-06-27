@@ -137,5 +137,12 @@ public class MessageEntity {
      */
     public Long openedAt;
 
+    /**
+     * Optional expiry for view-once message (sender sets before push).
+     * If now > viewOnceExpiresAt and message not yet opened → show expired state.
+     * null = no expiry.
+     */
+    public Long viewOnceExpiresAt;
+
     public MessageEntity() {}
 }

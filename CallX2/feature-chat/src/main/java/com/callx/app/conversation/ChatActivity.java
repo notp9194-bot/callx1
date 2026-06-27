@@ -154,6 +154,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // ── Paging 3 ──────────────────────────────────────────────────────────
     private MessagePagingAdapter pagingAdapter;
     private boolean isViewOnceModeOn = false;
+    /** Optional expiry duration chosen by sender (0 = no expiry). */
+    private long viewOnceExpiryMs = 0L;
     private AppDatabase          db;
     private final Executor       ioExecutor = Executors.newFixedThreadPool(2);
 
@@ -281,6 +283,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     private ChatScheduledSendController scheduledSendController;
     /** Feature 13: View Once / Secret Message controller. */
     private ChatViewOnceController viewOnceController;
+    /** Tracks open view-once dialog — dismissed automatically in onPause(). */
+    private android.app.AlertDialog activeViewOnceDialog = null;
     private ChatSearchController   searchController;
     private ChatThemeController    themeController;
     private ChatMediaController    mediaController;
@@ -668,6 +672,13 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     @Override
     protected void onPause() {
         super.onPause();
+        // VIEW ONCE: App background gaya → dialog turant band karo.
+        // Content security: receiver ne dialog khola tha lekin app switch kar liya —
+        // dialog dismiss hoga → doCleanupAndDelete trigger hoga → message delete hoga.
+        if (activeViewOnceDialog != null && activeViewOnceDialog.isShowing()) {
+            activeViewOnceDialog.dismiss(); // triggers onDismissListener → cleanup + delete
+        }
+        activeViewOnceDialog = null;
         // Cancel any in-flight Glide preloads so we don't decode images for a
         // chat the user just left.  Clearing the strong references also lets
         // Glide GC the targets normally.
@@ -797,7 +808,9 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // Feature 13: View Once — apply tag if toggle is ON, then auto-reset
         // (one-shot per message, same UX pattern as WhatsApp's view-once camera).
         if (isViewOnceModeOn) {
-            com.callx.app.conversation.controllers.ChatViewOnceController.tagMessageAsViewOnce(m);
+            com.callx.app.conversation.controllers.ChatViewOnceController
+                    .tagMessageAsViewOnceWithExpiry(m, viewOnceExpiryMs);
+            viewOnceExpiryMs = 0L; // reset after use
             setViewOnceMode(false);
             // HIDE real content from chat list — replace preview with generic label.
             // This prevents text/filename from appearing in chat list last-message row.
@@ -1185,6 +1198,17 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         pagingAdapter.setViewOnceOpenListener(message -> {
             if (viewOnceController == null) return;
             viewOnceController.openViewOnce(message, () -> showViewOnceDialog(message));
+        });
+
+        // REVOKE: sender long-presses pending bubble → confirm revoke dialog
+        pagingAdapter.setRevokeViewOnceListener(message -> {
+            if (viewOnceController == null) return;
+            new android.app.AlertDialog.Builder(this)
+                    .setTitle("Revoke View Once?")
+                    .setMessage("This will permanently delete the message before the receiver opens it.")
+                    .setPositiveButton("Revoke", (d, w) -> viewOnceController.revokeViewOnce(message))
+                    .setNegativeButton("Cancel", null)
+                    .show();
         });
 
         pagingAdapter.setActionListener(new MessagePagingAdapter.ActionListener() {
@@ -1726,6 +1750,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         m.reactions = com.callx.app.utils.ReactionJsonUtil.reactionsFromJson(e.reactionsJson);
         m.reelThumbUrl = e.reelThumbUrl; m.fontStyle = e.fontStyle; m.expiresAt = e.expiresAt;
         m.viewOnce = e.viewOnce; m.viewOnceState = e.viewOnceState; m.openedAt = e.openedAt;
+        m.viewOnceExpiresAt = e.viewOnceExpiresAt;
         m.pollQuestion = e.pollQuestion;
         m.pollOptions  = com.callx.app.utils.PollJsonUtil.optionsFromJson(e.pollOptionsJson);
         m.pollVotes    = com.callx.app.utils.PollJsonUtil.votesFromJson(e.pollVotesJson);
@@ -1752,6 +1777,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         e.reelOwnerUid = m.reelOwnerUid;
         e.reelThumbUrl = m.reelThumbUrl; e.fontStyle = m.fontStyle; e.expiresAt = m.expiresAt;
         e.viewOnce = m.viewOnce; e.viewOnceState = m.viewOnceState; e.openedAt = m.openedAt;
+        e.viewOnceExpiresAt = m.viewOnceExpiresAt;
         e.pollQuestion    = m.pollQuestion;
         e.pollOptionsJson = com.callx.app.utils.PollJsonUtil.optionsToJson(m.pollOptions);
         e.pollVotesJson   = com.callx.app.utils.PollJsonUtil.votesToJson(m.pollVotes);
@@ -1820,7 +1846,16 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             }
         });
         binding.btnAttach.setOnClickListener(v -> mediaController.showAttachSheet());
-        binding.btnViewOnce.setOnClickListener(v -> setViewOnceMode(!isViewOnceModeOn));
+        binding.btnViewOnce.setOnClickListener(v -> {
+            if (isViewOnceModeOn) {
+                // Already on — tap again to turn off
+                viewOnceExpiryMs = 0L;
+                setViewOnceMode(false);
+            } else {
+                // Show expiry picker dialog (optional)
+                showViewOnceExpiryPicker();
+            }
+        });
         binding.btnCamera.setOnClickListener(v -> mediaController.launchCamera());
 
         if (binding.btnCancelReply != null)
@@ -1857,7 +1892,43 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         binding.btnViewOnce.setColorFilter(on
                 ? android.graphics.Color.parseColor("#FF6200EE")   // active tint
                 : android.graphics.Color.parseColor("#FF8A8A8A")); // idle/grey tint
-        binding.etMessage.setHint(on ? "View once message…" : getString(R.string.hint_message));
+        String hint = on
+                ? (viewOnceExpiryMs > 0
+                        ? "View once · expires in " + formatExpiryLabel(viewOnceExpiryMs)
+                        : "View once message…")
+                : getString(R.string.hint_message);
+        binding.etMessage.setHint(hint);
+    }
+
+    /**
+     * Shows a simple dialog so sender can optionally set an expiry time
+     * for the view-once message (e.g. must be opened within 1hr / 24hrs / 7days).
+     * Selecting "No expiry" sends with no time limit.
+     */
+    private void showViewOnceExpiryPicker() {
+        final String[] labels = {"No expiry", "1 hour", "6 hours", "24 hours", "3 days", "7 days"};
+        final long[]   values = {0L,
+                60 * 60 * 1000L,
+                6  * 60 * 60 * 1000L,
+                24 * 60 * 60 * 1000L,
+                3  * 24 * 60 * 60 * 1000L,
+                7  * 24 * 60 * 60 * 1000L};
+        new android.app.AlertDialog.Builder(this)
+                .setTitle("View Once — Expiry (optional)")
+                .setItems(labels, (d, which) -> {
+                    viewOnceExpiryMs = values[which];
+                    setViewOnceMode(true);
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    private static String formatExpiryLabel(long ms) {
+        long hours = ms / (60 * 60 * 1000L);
+        if (hours < 1)  return "< 1 hr";
+        if (hours < 24) return hours + "h";
+        long days = hours / 24;
+        return days + "d";
     }
 
     private void sendTextMessage() {
@@ -2128,6 +2199,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         dialog.setOnDismissListener(d -> doCleanupAndDelete.run());
 
         dialog.show();
+        activeViewOnceDialog = dialog; // track for onPause auto-close
     }
 
     /** Format milliseconds → M:SS for view-once audio label. */

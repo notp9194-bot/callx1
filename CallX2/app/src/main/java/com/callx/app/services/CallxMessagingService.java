@@ -686,7 +686,11 @@ public class CallxMessagingService extends FirebaseMessagingService {
         final String mediaUrl   = data.getOrDefault("mediaUrl", "");
         final String rawText    = data.getOrDefault("text", "Naya message");
         final String type       = data.getOrDefault("type", "message");
-        final String text       = previewTextFor(type, rawText);
+        // BLUR FIX: view_once messages should not show content in notification.
+        final boolean isViewOnce = "1".equals(data.getOrDefault("viewOnce", "0"));
+        final String text = isViewOnce
+                ? "🔒 View Once message"
+                : previewTextFor(type, rawText);
         long ls = 0L;
         try { ls = Long.parseLong(data.getOrDefault("fromLastSeen", "0")); }
         catch (Exception ignored) {}
@@ -924,7 +928,8 @@ public class CallxMessagingService extends FirebaseMessagingService {
                 myAvatar = loadMyAvatar(myThumbUrl);                      // receiver (me)
             }
             boolean isImage = "image".equals(type)
-                && mediaUrl != null && !mediaUrl.isEmpty();
+                && mediaUrl != null && !mediaUrl.isEmpty()
+                && !isViewOnce; // VIEW ONCE: never download/show image in notification
             // Image preview: only on WiFi/4G/5G (net==3), skip on 3G and below
             Bitmap picture = (isImage && net == 3)
                 ? downloadBitmap(mediaUrl, 400, 300) : null;
@@ -953,6 +958,11 @@ public class CallxMessagingService extends FirebaseMessagingService {
         open.putExtra("partnerUid",   fromUid);
         open.putExtra("partnerName",  fromName);
         open.putExtra("partnerPhoto", fromPhoto != null ? fromPhoto : "");
+        // SECURITY FIX: view_once messages must NOT be auto-opened from notification.
+        // Pass msgId so ChatActivity knows which message triggered the notif —
+        // it will scroll to it but NOT auto-launch the view-once dialog.
+        // (Auto-launch would bypass the FLAG_SECURE + controller guard.)
+        open.putExtra("notif_msg_id", msgId != null ? msgId : "");
         open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         PendingIntent openPi = PendingIntent.getActivity(this, notifId, open,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
