@@ -107,6 +107,16 @@
             android:tint="#FFFFFF"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="Flip camera"/>
+
+        <!-- Layout mode icon (side-by-side / react_cam / voice_only) -->
+        <ImageView
+            android:id="@+id/iv_remix_layout_icon"
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:layout_marginStart="4dp"
+            android:src="@drawable/ic_swap"
+            android:tint="#FFFFFF"
+            android:contentDescription="Layout mode"/>
     </LinearLayout>
 
     <!-- Duration bar (below top bar) -->

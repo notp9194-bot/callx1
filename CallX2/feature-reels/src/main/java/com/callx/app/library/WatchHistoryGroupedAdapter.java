@@ -225,9 +225,9 @@ public class WatchHistoryGroupedAdapter extends RecyclerView.Adapter<RecyclerVie
             tvMediaTypeBadge.setText(isPhoto ? "📷 Photos" : "▶ Video");
 
             // Duration badge
-            if (tvDurationBadge != null && item.durationSec > 0) {
+            if (tvDurationBadge != null && item.duration > 0) {
                 tvDurationBadge.setVisibility(View.VISIBLE);
-                tvDurationBadge.setText(formatDuration(item.durationSec));
+                tvDurationBadge.setText(formatDuration(item.duration));
             } else if (tvDurationBadge != null) {
                 tvDurationBadge.setVisibility(View.GONE);
             }

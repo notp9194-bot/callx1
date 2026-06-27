@@ -31,7 +31,6 @@ import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter;
 import com.callx.app.cache.UnifiedVideoCacheManager;
 
 import java.util.Locale;
-import java.util.concurrent.TimeUnit;
 
 /**
  * AdaptiveStreamingManager — Production-grade HLS/DASH + Progressive player
@@ -158,19 +157,19 @@ public class AdaptiveStreamingManager {
         switch (cap) {
             case Q360P:
                 params.setMaxVideoSize(640, 360)
-                      .setMaxVideoBitrate((int) TimeUnit.KBPS.toBytes(800));
+                      .setMaxVideoBitrate((int) (800 * 1000));
                 break;
             case Q480P:
                 params.setMaxVideoSize(854, 480)
-                      .setMaxVideoBitrate((int) TimeUnit.KBPS.toBytes(1_500));
+                      .setMaxVideoBitrate((int) (1_500 * 1000));
                 break;
             case Q720P:
                 params.setMaxVideoSize(1280, 720)
-                      .setMaxVideoBitrate((int) TimeUnit.KBPS.toBytes(4_000));
+                      .setMaxVideoBitrate((int) (4_000 * 1000));
                 break;
             case Q1080P:
                 params.setMaxVideoSize(1920, 1080)
-                      .setMaxVideoBitrate((int) TimeUnit.KBPS.toBytes(8_000));
+                      .setMaxVideoBitrate((int) (8_000 * 1000));
                 break;
             case AUTO:
             default:

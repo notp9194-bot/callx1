@@ -425,6 +425,25 @@
         android:clickable="true"
         android:focusable="true"/>
 
+    <!-- Quality badge (ABR indicator: Auto / 360p / 720p etc) — optional, shown when AdaptiveStreamingManager is active -->
+    <TextView
+        android:id="@+id/tv_quality_badge"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|start"
+        android:layout_marginTop="8dp"
+        android:layout_marginStart="12dp"
+        android:text="Auto"
+        android:textColor="#FFFFFF"
+        android:textSize="10sp"
+        android:fontFamily="sans-serif-medium"
+        android:background="#99000000"
+        android:paddingStart="6dp"
+        android:paddingEnd="6dp"
+        android:paddingTop="2dp"
+        android:paddingBottom="2dp"
+        android:visibility="gone"/>
+
 </FrameLayout>
 
             <TextView
