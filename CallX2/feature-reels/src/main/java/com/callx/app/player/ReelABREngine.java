@@ -116,7 +116,7 @@ public class ReelABREngine {
     }
 
     // ── Per-player session ────────────────────────────────────────────────────
-    private static class ABRSession {
+    public static class ABRSession {
         final ExoPlayer            player;
         final DefaultTrackSelector trackSelector;
         final ABRDecisionListener  listener;
