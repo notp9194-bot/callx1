@@ -2484,7 +2484,13 @@ public class MessagePagingAdapter
         // open" was doing nothing.
         android.view.View bubble = root.findViewById(com.callx.app.chat.R.id.ll_bubble);
         android.view.View tapTarget = bubble != null ? bubble : root;
+        // DEBOUNCE: tag stores last-click timestamp. Prevents spurious double-fires
+        // from RecyclerView rebind or rapid multi-tap causing dialog to open twice.
         tapTarget.setOnClickListener(v -> {
+            Object lastClick = v.getTag(com.callx.app.chat.R.id.ll_bubble);
+            long now = System.currentTimeMillis();
+            if (lastClick instanceof Long && now - (Long) lastClick < 800) return;
+            v.setTag(com.callx.app.chat.R.id.ll_bubble, now);
             if (viewOnceOpenListener != null) viewOnceOpenListener.onOpenViewOnce(m);
         });
         tapTarget.setOnLongClickListener(null); // no long-press for view-once (no copy/forward)

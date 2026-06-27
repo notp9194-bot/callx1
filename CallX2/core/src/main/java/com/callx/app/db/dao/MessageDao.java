@@ -172,7 +172,7 @@ public interface MessageDao {
     void updateMessage(MessageEntity message);
 
     @WorkerThread
-    @Query("UPDATE messages SET deleted = 1, text = '' WHERE id = :messageId")
+    @Query("UPDATE messages SET deleted = 1, text = '', mediaUrl = NULL, thumbnailUrl = NULL, fileName = NULL, viewOnceState = 'deleted' WHERE id = :messageId")
     void softDelete(String messageId);
 
     /**
@@ -182,7 +182,7 @@ public interface MessageDao {
      * One UPDATE for N ids = one PagingSource invalidation, not N.
      */
     @WorkerThread
-    @Query("UPDATE messages SET deleted = 1, text = '' WHERE id IN (:ids)")
+    @Query("UPDATE messages SET deleted = 1, text = '', mediaUrl = NULL, thumbnailUrl = NULL, fileName = NULL, viewOnceState = 'deleted' WHERE id IN (:ids)")
     void softDeleteAll(List<String> ids);
 
     @WorkerThread

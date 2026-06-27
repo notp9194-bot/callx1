@@ -109,6 +109,12 @@ public class ChatViewOnceController {
      * @param onOpened Runs on main thread after state is marked opened —
      *                 caller uses this to launch the full-screen viewer.
      */
+    /**
+     * Tracks which message is currently being viewed (dialog is open).
+     * Prevents double-tap from opening the dialog twice.
+     */
+    private String currentlyViewingId = null;
+
     public void openViewOnce(@NonNull Message message, @Nullable Runnable onOpened) {
         String msgId = resolveId(message);
         if (msgId == null) return;
@@ -120,6 +126,9 @@ public class ChatViewOnceController {
             return;
         }
 
+        // Guard: dialog already open for this message — prevent double-tap
+        if (msgId.equals(currentlyViewingId)) return;
+
         // Only receiver can open (sender's own message shows "sent" state only)
         String currentUid = delegate.getCurrentUid();
         if (currentUid == null || currentUid.equals(message.senderId)) return;
@@ -127,16 +136,19 @@ public class ChatViewOnceController {
         // 1. Block screenshots immediately
         enableSecureWindow();
 
-        // 2. Mark opened in Firebase (batch write)
-        markOpened(msgId);
+        // 2. Track that this message is being viewed
+        currentlyViewingId = msgId;
 
-        // 3. Notify caller to show full-screen viewer
+        // NOTE: We do NOT call markOpened() here on tap.
+        // markOpened (Firebase: viewOnceState="opened") is called only in
+        // onViewerClosed(), AFTER the user explicitly closes the dialog.
+        // This ensures:
+        //   a) Sender does not see "Opened" until receiver has actually finished viewing.
+        //   b) No race where Firebase listener fires and shows expired bubble
+        //      while receiver is still reading content in the dialog.
+
+        // 3. Notify caller to show dialog
         if (onOpened != null) mainHandler.post(onOpened);
-
-        // NOTE: Hard delete is NOT scheduled here automatically.
-        // Delete is triggered only when the viewer/dialog is explicitly closed
-        // via onViewerClosed(). This ensures content stays visible for as long
-        // as the user keeps the dialog open.
     }
 
     /**
@@ -150,12 +162,18 @@ public class ChatViewOnceController {
     }
 
     /**
-     * Called when the full-screen viewer is closed (back pressed / auto-close).
-     * Clears FLAG_SECURE and ensures delete is triggered if not yet done.
+     * Called when the dialog is closed by the user (explicit "Close & Delete" tap).
+     * THIS is where we mark opened in Firebase — only after user has actually seen content.
+     * Then immediately hard-deletes from Firebase on both sides.
      */
     public void onViewerClosed(@NonNull String messageId) {
+        // Clear the in-progress guard
+        if (messageId.equals(currentlyViewingId)) {
+            currentlyViewingId = null;
+        }
         disableSecureWindow();
-        // If delete was somehow not yet triggered, force it now
+        // Mark opened in Firebase NOW (user has viewed) + immediately hard delete
+        markOpened(messageId);
         hardDeleteFromFirebase(messageId);
     }
 
@@ -195,6 +213,7 @@ public class ChatViewOnceController {
         mainHandler.removeCallbacksAndMessages(null);
         ioExecutor.shutdown();
         disableSecureWindow();
+        currentlyViewingId = null;
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -252,6 +271,7 @@ public class ChatViewOnceController {
         wipe.put(FIELD_TEXT,          "");          // wipe content
         wipe.put(FIELD_MEDIA_URL,     null);        // wipe media
         wipe.put(FIELD_THUMBNAIL_URL, null);        // wipe thumbnail
+        wipe.put("fileName",          null);        // wipe file name
 
         msgRef.updateChildren(wipe, (error, ref) -> {
             if (error != null) {

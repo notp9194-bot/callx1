@@ -797,6 +797,9 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         if (isViewOnceModeOn) {
             com.callx.app.conversation.controllers.ChatViewOnceController.tagMessageAsViewOnce(m);
             setViewOnceMode(false);
+            // HIDE real content from chat list — replace preview with generic label.
+            // This prevents text/filename from appearing in chat list last-message row.
+            previewText = "🔒 View Once";
         }
         messageSender.pushMessage(m, previewText);
     }
@@ -1935,6 +1938,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         final android.widget.ImageView[] ivHolder  = {null};
         final android.media.MediaPlayer[] mpHolder = {null};
         final android.widget.VideoView[]  vvHolder = {null};
+        // Guard: ensure cleanup+delete runs exactly once
+        final boolean[] dismissed = {false};
 
         switch (msgType) {
 
@@ -2053,34 +2058,55 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         tvWarn.setPadding(0, 20, 0, 0);
         container.addView(tvWarn);
 
-        // ── Build dialog ───────────────────────────────────────────────────
-        AlertDialog dialog = new AlertDialog.Builder(this)
-                .setTitle("View Once Message")
-                .setView(container)
-                .setPositiveButton("Close & Delete", null)  // listener set below
-                .setCancelable(true)
-                .create();
+        // Helper: release media + trigger permanent delete — runs exactly once
+        Runnable doCleanupAndDelete = () -> {
+            if (dismissed[0]) return;
+            dismissed[0] = true;
 
-        // On any dismiss (back, outside tap, button) → trigger permanent delete
-        android.content.DialogInterface.OnDismissListener dismissListener = d -> {
-            // 1. Release media resources
+            // Release Glide image
             if (ivHolder[0] != null && !isDestroyed()) {
                 try { com.bumptech.glide.Glide.with(this).clear(ivHolder[0]); } catch (Exception ignored) {}
             }
+            // Release VideoView
             if (vvHolder[0] != null) {
                 try { vvHolder[0].stopPlayback(); vvHolder[0].setVideoURI(null); } catch (Exception ignored) {}
             }
+            // Release MediaPlayer
             if (mpHolder[0] != null) {
-                try { mpHolder[0].stop(); } catch (Exception ignored) {}
+                try { if (mpHolder[0].isPlaying()) mpHolder[0].stop(); } catch (Exception ignored) {}
                 try { mpHolder[0].release(); } catch (Exception ignored) {}
                 mpHolder[0] = null;
             }
-            // 2. Trigger permanent delete on both sides via controller
+            // Trigger permanent delete on both sides
             if (viewOnceController != null && msgId != null) {
                 viewOnceController.onViewerClosed(msgId);
             }
         };
-        dialog.setOnDismissListener(dismissListener);
+
+        // ── Build dialog ───────────────────────────────────────────────────
+        // setCancelable(false): back button and outside tap do NOT dismiss.
+        // User must explicitly tap "Close & Delete". This prevents accidental
+        // loss before user has finished viewing.
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("View Once Message")
+                .setView(container)
+                .setPositiveButton("Close & Delete", null) // wired below after show()
+                .setCancelable(false)
+                .create();
+
+        // Wire positive button AFTER show() to prevent auto-dismiss on click.
+        // We dismiss manually after cleanup so no race condition with dismiss listener.
+        dialog.setOnShowListener(d -> {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+                  .setOnClickListener(v -> {
+                      doCleanupAndDelete.run();
+                      dialog.dismiss();
+                  });
+        });
+
+        // Dismiss listener is a safety net: if dialog is dismissed by any other
+        // means (e.g., activity finish, system), ensure cleanup still runs.
+        dialog.setOnDismissListener(d -> doCleanupAndDelete.run());
 
         dialog.show();
     }
