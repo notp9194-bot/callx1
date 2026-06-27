@@ -1,0 +1,217 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="?attr/colorSurface">
+
+    <androidx.appcompat.widget.Toolbar
+        android:id="@+id/toolbar"
+        android:layout_width="match_parent"
+        android:layout_height="?attr/actionBarSize"
+        android:background="?attr/colorSurface"
+        android:elevation="4dp"/>
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <!-- Bandwidth card -->
+            <androidx.cardview.widget.CardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="20dp"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="2dp"
+                xmlns:app="http://schemas.android.com/apk/res-auto">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Network Speed"
+                        android:textSize="13sp"
+                        android:textColor="?attr/colorOnSurfaceVariant"
+                        android:textAllCaps="true"
+                        android:letterSpacing="0.08"/>
+
+                    <TextView
+                        android:id="@+id/tv_bandwidth"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:text="Measuring…"
+                        android:textSize="18sp"
+                        android:fontFamily="sans-serif-medium"
+                        android:textColor="?attr/colorPrimary"/>
+
+                </LinearLayout>
+            </androidx.cardview.widget.CardView>
+
+            <!-- Data Saver -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:background="?attr/selectableItemBackground"
+                android:padding="4dp"
+                android:layout_marginBottom="20dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Data Saver"
+                            android:textSize="16sp"
+                            android:fontFamily="sans-serif-medium"
+                            android:textColor="?attr/colorOnSurface"/>
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Forces 360p on mobile data to save bandwidth"
+                            android:textSize="13sp"
+                            android:textColor="?attr/colorOnSurfaceVariant"/>
+                    </LinearLayout>
+
+                    <Switch
+                        android:id="@+id/sw_data_saver"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"/>
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/tv_data_saver_desc"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="✓ Data saver on — reels will play at 360p on mobile"
+                    android:textSize="13sp"
+                    android:textColor="#4CAF50"
+                    android:visibility="gone"/>
+            </LinearLayout>
+
+            <!-- Wi-Fi Quality -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Wi-Fi Quality"
+                android:textSize="14sp"
+                android:fontFamily="sans-serif-medium"
+                android:textColor="?attr/colorOnSurface"
+                android:layout_marginBottom="8dp"/>
+
+            <RadioGroup
+                android:id="@+id/rg_wifi_quality"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="24dp">
+
+                <RadioButton android:id="@+id/rb_auto"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:text="Auto (Recommended) — ABR picks best quality"
+                    android:textSize="14sp"
+                    android:paddingStart="8dp"/>
+                <RadioButton android:id="@+id/rb_1080p"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:text="1080p — HD (uses more data)"
+                    android:textSize="14sp"
+                    android:paddingStart="8dp"/>
+                <RadioButton android:id="@+id/rb_720p"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:text="720p — Good quality"
+                    android:textSize="14sp"
+                    android:paddingStart="8dp"/>
+                <RadioButton android:id="@+id/rb_480p"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:text="480p — Balanced"
+                    android:textSize="14sp"
+                    android:paddingStart="8dp"/>
+                <RadioButton android:id="@+id/rb_360p"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:text="360p — Saves data"
+                    android:textSize="14sp"
+                    android:paddingStart="8dp"/>
+            </RadioGroup>
+
+            <!-- Mobile Data Quality -->
+            <LinearLayout
+                android:id="@+id/layout_data_quality"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Mobile Data Quality"
+                    android:textSize="14sp"
+                    android:fontFamily="sans-serif-medium"
+                    android:textColor="?attr/colorOnSurface"
+                    android:layout_marginBottom="8dp"/>
+
+                <RadioGroup
+                    android:id="@+id/rg_data_quality"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content">
+
+                    <RadioButton android:id="@+id/rb_auto"
+                        android:layout_width="match_parent"
+                        android:layout_height="48dp"
+                        android:text="Auto"
+                        android:textSize="14sp"
+                        android:paddingStart="8dp"/>
+                    <RadioButton android:id="@+id/rb_720p"
+                        android:layout_width="match_parent"
+                        android:layout_height="48dp"
+                        android:text="720p"
+                        android:textSize="14sp"
+                        android:paddingStart="8dp"/>
+                    <RadioButton android:id="@+id/rb_480p"
+                        android:layout_width="match_parent"
+                        android:layout_height="48dp"
+                        android:text="480p (Recommended for mobile)"
+                        android:textSize="14sp"
+                        android:paddingStart="8dp"
+                        android:checked="true"/>
+                    <RadioButton android:id="@+id/rb_360p"
+                        android:layout_width="match_parent"
+                        android:layout_height="48dp"
+                        android:text="360p — Save data"
+                        android:textSize="14sp"
+                        android:paddingStart="8dp"/>
+                </RadioGroup>
+            </LinearLayout>
+
+        </LinearLayout>
+    </ScrollView>
+
+</LinearLayout>

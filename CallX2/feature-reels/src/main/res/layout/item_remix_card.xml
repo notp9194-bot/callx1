@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.cardview.widget.CardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_margin="6dp"
+    app:cardCornerRadius="12dp"
+    app:cardElevation="2dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:padding="12dp">
+
+        <!-- Thumbnail -->
+        <ImageView
+            android:id="@+id/iv_remix_thumb"
+            android:layout_width="80dp"
+            android:layout_height="120dp"
+            android:scaleType="centerCrop"
+            android:background="#1A1A1A"
+            android:contentDescription="Remix thumbnail"/>
+
+        <!-- Info -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:layout_marginStart="12dp">
+
+            <!-- Avatar + name row -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="6dp">
+
+                <ImageView
+                    android:id="@+id/iv_remix_avatar"
+                    android:layout_width="32dp"
+                    android:layout_height="32dp"
+                    android:scaleType="centerCrop"
+                    android:background="@drawable/bg_action_btn_circle"
+                    android:contentDescription="Remixer avatar"/>
+
+                <TextView
+                    android:id="@+id/tv_remix_remixer_name"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginStart="8dp"
+                    android:text="@username"
+                    android:textSize="14sp"
+                    android:fontFamily="sans-serif-medium"
+                    android:textColor="?attr/colorOnSurface"
+                    android:maxLines="1"
+                    android:ellipsize="end"/>
+            </LinearLayout>
+
+            <!-- Layout mode badge -->
+            <TextView
+                android:id="@+id/tv_remix_layout_mode"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="@drawable/bg_filter_chip_selected"
+                android:paddingStart="8dp"
+                android:paddingEnd="8dp"
+                android:paddingTop="2dp"
+                android:paddingBottom="2dp"
+                android:text="Side by Side"
+                android:textSize="11sp"
+                android:textColor="#00C6FF"
+                android:layout_marginBottom="6dp"/>
+
+            <!-- Caption -->
+            <TextView
+                android:id="@+id/tv_remix_caption"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:text=""
+                android:textSize="13sp"
+                android:textColor="?attr/colorOnSurfaceVariant"
+                android:maxLines="2"
+                android:ellipsize="end"/>
+
+            <!-- Stats -->
+            <TextView
+                android:id="@+id/tv_remix_stats"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="0 views · 0 likes"
+                android:textSize="12sp"
+                android:textColor="?attr/colorOnSurfaceVariant"
+                android:layout_marginTop="4dp"/>
+
+        </LinearLayout>
+
+        <!-- Play arrow -->
+        <ImageView
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:layout_gravity="center_vertical"
+            android:src="@drawable/ic_play"
+            android:tint="?attr/colorOnSurfaceVariant"
+            android:layout_marginStart="8dp"
+            android:contentDescription="Play"/>
+
+    </LinearLayout>
+
+</androidx.cardview.widget.CardView>

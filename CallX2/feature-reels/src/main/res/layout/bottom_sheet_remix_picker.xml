@@ -1,0 +1,226 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@drawable/bg_bottom_sheet_rounded"
+    android:paddingTop="12dp"
+    android:paddingBottom="24dp">
+
+    <!-- Drag handle -->
+    <View
+        android:layout_width="40dp"
+        android:layout_height="4dp"
+        android:layout_gravity="center_horizontal"
+        android:background="@drawable/bg_drag_handle"
+        android:layout_marginBottom="16dp"/>
+
+    <!-- Title -->
+    <TextView
+        android:id="@+id/tv_remix_sheet_title"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal"
+        android:text="Remix this reel"
+        android:textSize="16sp"
+        android:fontFamily="sans-serif-medium"
+        android:textColor="?attr/colorOnSurface"
+        android:layout_marginBottom="8dp"/>
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal"
+        android:text="Choose how your remix will look"
+        android:textSize="13sp"
+        android:textColor="?attr/colorOnSurfaceVariant"
+        android:layout_marginBottom="20dp"/>
+
+    <!-- Option: Side by Side -->
+    <LinearLayout
+        android:id="@+id/layout_remix_side_by_side"
+        android:layout_width="match_parent"
+        android:layout_height="64dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="?attr/selectableItemBackground"
+        android:paddingStart="20dp"
+        android:paddingEnd="20dp">
+
+        <TextView
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:gravity="center"
+            android:textSize="22sp"
+            android:text="⬛⬛"/>
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:layout_marginStart="16dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Side by Side"
+                android:textSize="15sp"
+                android:fontFamily="sans-serif-medium"
+                android:textColor="?attr/colorOnSurface"/>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Original and your video play side by side"
+                android:textSize="13sp"
+                android:textColor="?attr/colorOnSurfaceVariant"/>
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- Option: React Cam -->
+    <LinearLayout
+        android:id="@+id/layout_remix_react_cam"
+        android:layout_width="match_parent"
+        android:layout_height="64dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="?attr/selectableItemBackground"
+        android:paddingStart="20dp"
+        android:paddingEnd="20dp">
+
+        <TextView
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:gravity="center"
+            android:textSize="22sp"
+            android:text="🎥"/>
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:layout_marginStart="16dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="React Cam"
+                android:textSize="15sp"
+                android:fontFamily="sans-serif-medium"
+                android:textColor="?attr/colorOnSurface"/>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Original plays full screen, your face in corner"
+                android:textSize="13sp"
+                android:textColor="?attr/colorOnSurfaceVariant"/>
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- Option: Green Screen -->
+    <LinearLayout
+        android:id="@+id/layout_remix_green_screen"
+        android:layout_width="match_parent"
+        android:layout_height="64dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="?attr/selectableItemBackground"
+        android:paddingStart="20dp"
+        android:paddingEnd="20dp">
+
+        <TextView
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:gravity="center"
+            android:textSize="22sp"
+            android:text="🟩"/>
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:layout_marginStart="16dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Green Screen"
+                android:textSize="15sp"
+                android:fontFamily="sans-serif-medium"
+                android:textColor="?attr/colorOnSurface"/>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="You appear in front of the original reel"
+                android:textSize="13sp"
+                android:textColor="?attr/colorOnSurfaceVariant"/>
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- Option: Overlay -->
+    <LinearLayout
+        android:id="@+id/layout_remix_overlay"
+        android:layout_width="match_parent"
+        android:layout_height="64dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="?attr/selectableItemBackground"
+        android:paddingStart="20dp"
+        android:paddingEnd="20dp"
+        android:layout_marginBottom="12dp">
+
+        <TextView
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:gravity="center"
+            android:textSize="22sp"
+            android:text="🌀"/>
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:layout_marginStart="16dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Overlay"
+                android:textSize="15sp"
+                android:fontFamily="sans-serif-medium"
+                android:textColor="?attr/colorOnSurface"/>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Your video plays transparently over original"
+                android:textSize="13sp"
+                android:textColor="?attr/colorOnSurfaceVariant"/>
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- Divider -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="?attr/dividerColor"
+        android:layout_marginBottom="12dp"/>
+
+    <!-- Cancel -->
+    <Button
+        android:id="@+id/btn_remix_cancel"
+        style="?attr/borderlessButtonStyle"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:text="Cancel"
+        android:textColor="?attr/colorOnSurfaceVariant"
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="16dp"/>
+
+</LinearLayout>

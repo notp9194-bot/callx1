@@ -1,0 +1,40 @@
+{
+  "_comment": "Add these rules to your Firebase RTDB security rules",
+
+  "rules_explanation": {
+    "watchHistory": "Per-user watch history — only the owner can read/write",
+    "reelRemixes": "Public read for remix lists; only authenticated users can write their own remix"
+  },
+
+  "rules": {
+    "watchHistory": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid",
+        "$reelId": {
+          ".validate": "newData.hasChildren(['reelId','watchedAtMs'])"
+        }
+      }
+    },
+
+    "reelRemixes": {
+      "$originalReelId": {
+        ".read": "auth != null",
+        "$remixReelId": {
+          ".write": "auth != null && (newData.child('remixerUid').val() === auth.uid || !data.exists())",
+          ".validate": "newData.hasChildren(['remixReelId','originalReelId','remixerUid','remixVideoUrl','layoutMode','timestamp'])",
+          "remixerUid": {
+            ".validate": "newData.val() === auth.uid"
+          }
+        }
+      }
+    },
+
+    "userRemixes": {
+      "$uid": {
+        ".read": "auth != null",
+        ".write": "auth != null && auth.uid === $uid"
+      }
+    }
+  }
+}
