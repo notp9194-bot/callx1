@@ -270,7 +270,7 @@ public class WatchHistoryActivity extends AppCompatActivity
 
         if (displayItems.isEmpty()) {
             String msg = !searchQuery.isEmpty()
-                ? "No results for "" + searchQuery + """
+                ? "No results for \"" + searchQuery + "\""
                 : activeTab == FilterTab.COMPLETED ? "No fully-watched reels yet"
                 : activeTab == FilterTab.REPLAYED  ? "No replayed reels yet"
                 : "You haven't watched any reels yet";
