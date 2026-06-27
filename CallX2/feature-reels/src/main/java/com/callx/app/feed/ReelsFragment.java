@@ -124,6 +124,7 @@ public class ReelsFragment extends Fragment {
     private ReelThumbnailPreloader thumbPreloader;
     // v5: Predictive preloader + offline manager
     private ReelPredictivePreloader predictivePreloader;
+    private float lastScrollVelocity = 0f; // v6: px/ms, feeds adaptive preload window
     private ReelOfflineManager      offlineManager;
 
     @Nullable
@@ -189,6 +190,26 @@ public class ReelsFragment extends Fragment {
         offlineManager      = ReelOfflineManager.get(requireContext());
 
         vpReels.registerOnPageChangeCallback(new ViewPager2.OnPageChangeCallback() {
+            private long lastScrollNs = 0;
+            private int  lastOffsetPx = 0;
+            private float scrollVelocityPxPerMs = 0f;
+
+            @Override
+            public void onPageScrolled(int position, float positionOffset, int positionOffsetPixels) {
+                // v6: derive scroll velocity (px/ms) for the predictive preloader
+                long nowNs = System.nanoTime();
+                if (lastScrollNs != 0) {
+                    long dtMs = (nowNs - lastScrollNs) / 1_000_000L;
+                    if (dtMs > 0) {
+                        int dPx = Math.abs(positionOffsetPixels - lastOffsetPx);
+                        scrollVelocityPxPerMs = (float) dPx / dtMs;
+                    }
+                }
+                lastScrollNs = nowNs;
+                lastOffsetPx = positionOffsetPixels;
+                ReelsFragment.this.lastScrollVelocity = scrollVelocityPxPerMs;
+            }
+
             @Override
             public void onPageSelected(int position) {
                 controlPlayback(position);
@@ -199,10 +220,12 @@ public class ReelsFragment extends Fragment {
                 // Sync preloader to newly visible fragment
                 wirePreloaderToCurrentFragment(position);
                 if (thumbPreloader != null) thumbPreloader.preloadFrom(cur, reelIndex);
-                // v5: Record watch event + drive predictive preload order
+                // v5/v6: Record watch event + drive predictive preload order
+                // (velocity-adaptive: fast flicks shrink the lookahead window/bytes)
                 if (predictivePreloader != null && reelIndex < cur.size()) {
-                    predictivePreloader.preloadSmartFrom(cur, reelIndex);
-                    android.util.Log.d("ReelsFragment", "Predictive preload from pos=" + reelIndex);
+                    predictivePreloader.preloadSmartFrom(cur, reelIndex, lastScrollVelocity);
+                    android.util.Log.d("ReelsFragment", "Predictive preload from pos=" + reelIndex
+                        + " vel=" + lastScrollVelocity + "px/ms");
                 }
             }
         });

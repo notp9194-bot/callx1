@@ -66,6 +66,11 @@ public class ReelQoEAnalyticsActivity extends AppCompatActivity {
     // Firebase path
     private static final String FB_PATH_QOE = "qoe_analytics";
 
+    // v7: Rolling session trend — last N session stall values, for improving/declining arrow
+    private static final String TREND_PREFS        = "qoe_trend";
+    private static final String KEY_TREND_STALLS   = "recent_stall_values";
+    private static final int    MAX_TREND_SAMPLES   = 20;
+
     // ── Views ─────────────────────────────────────────────────────────────────
     private TextView tvSessions, tvAvgStall, tvAvgTtff, tvSwitches,
                      tvUpgrades, tvDowngrades, tvSyncStatus, tvLastSync;
@@ -152,6 +157,13 @@ public class ReelQoEAnalyticsActivity extends AppCompatActivity {
         set(tvUpgrades,   "↑ " + upgrades);
         set(tvDowngrades, "↓ " + downgrades);
 
+        // v6: Composite QoE Health Score (0-100) — single glanceable number
+        // combining stall rate, switch frequency, and startup latency.
+        int healthScore = computeHealthScore(stallRatePct, switches, sessions, avgTtff);
+        String scoreLabel = healthScore >= 80 ? "Excellent" : healthScore >= 60 ? "Good"
+            : healthScore >= 40 ? "Fair" : "Poor";
+        set(tvSwitches, switches + "  ·  QoE Score: " + healthScore + "/100 (" + scoreLabel + ")");
+
         if (pbStallRate != null) {
             pbStallRate.setProgress((int) stallRatePct);
         }
@@ -160,9 +172,23 @@ public class ReelQoEAnalyticsActivity extends AppCompatActivity {
         long lastSync = getSharedPreferences(SYNC_PREFS, Context.MODE_PRIVATE)
             .getLong(KEY_LAST_SYNC, 0);
         if (tvLastSync != null) {
-            tvLastSync.setText(lastSync == 0 ? "Never synced"
-                : "Last sync: " + formatTime(lastSync));
+            String syncText = lastSync == 0 ? "Never synced" : "Last sync: " + formatTime(lastSync);
+            tvLastSync.setText(syncText + "   ·   Trend: " + computeTrendLabel());
         }
+    }
+
+    /**
+     * v6: Composite QoE Health Score (0-100).
+     * Weighted blend: stall rate (heaviest penalty), switch frequency
+     * (oscillation = bad UX), and startup latency (TTFF).
+     */
+    private int computeHealthScore(float stallRatePct, long switches, long sessions, long avgTtffMs) {
+        double stallPenalty  = Math.min(60.0, stallRatePct * 0.6);              // up to -60
+        double switchesPerSession = sessions > 0 ? (double) switches / sessions : 0;
+        double switchPenalty = Math.min(25.0, switchesPerSession * 3.0);        // up to -25
+        double ttffPenalty   = Math.min(15.0, (avgTtffMs / 1000.0) * 5.0);      // up to -15
+        int score = (int) Math.round(100.0 - stallPenalty - switchPenalty - ttffPenalty);
+        return Math.max(0, Math.min(100, score));
     }
 
     // ── Firebase sync ─────────────────────────────────────────────────────────
@@ -334,6 +360,53 @@ public class ReelQoEAnalyticsActivity extends AppCompatActivity {
             .setValue(data)
             .addOnSuccessListener(v -> Log.d(TAG, "Session QoE pushed: " + reelId))
             .addOnFailureListener(e -> Log.w(TAG, "pushSession failed: " + e.getMessage()));
+
+        // v7: Append this session's stall value to the rolling local trend window
+        recordTrendSample(ctx, stallMs);
+    }
+
+    /** v7: Append a stall-ms sample to the rolling trend window (max MAX_TREND_SAMPLES). */
+    private static void recordTrendSample(Context ctx, long stallMs) {
+        try {
+            SharedPreferences prefs = ctx.getApplicationContext()
+                .getSharedPreferences(TREND_PREFS, Context.MODE_PRIVATE);
+            String raw = prefs.getString(KEY_TREND_STALLS, "");
+            java.util.List<String> values = new java.util.ArrayList<>(
+                java.util.Arrays.asList(raw.isEmpty() ? new String[0] : raw.split(",")));
+            values.add(String.valueOf(stallMs));
+            while (values.size() > MAX_TREND_SAMPLES) values.remove(0);
+            prefs.edit().putString(KEY_TREND_STALLS, String.join(",", values)).apply();
+        } catch (Exception e) {
+            Log.w(TAG, "recordTrendSample: " + e.getMessage());
+        }
+    }
+
+    /**
+     * v7: Compare the average stall time of the first half vs second half of the
+     * rolling sample window to produce a simple "Improving / Declining / Stable" trend.
+     */
+    private String computeTrendLabel() {
+        try {
+            SharedPreferences prefs = getSharedPreferences(TREND_PREFS, Context.MODE_PRIVATE);
+            String raw = prefs.getString(KEY_TREND_STALLS, "");
+            if (raw.isEmpty()) return "Not enough data yet";
+            String[] parts = raw.split(",");
+            if (parts.length < 4) return "Not enough data yet";
+
+            int mid = parts.length / 2;
+            double firstAvg = 0, secondAvg = 0;
+            for (int i = 0; i < mid; i++) firstAvg += Long.parseLong(parts[i]);
+            for (int i = mid; i < parts.length; i++) secondAvg += Long.parseLong(parts[i]);
+            firstAvg  /= mid;
+            secondAvg /= (parts.length - mid);
+
+            double deltaPct = firstAvg == 0 ? 0 : ((secondAvg - firstAvg) / firstAvg) * 100.0;
+            if (deltaPct < -10) return "▲ Improving (stalls down " + (int) -deltaPct + "%)";
+            if (deltaPct >  10) return "▼ Declining (stalls up " + (int) deltaPct + "%)";
+            return "● Stable";
+        } catch (Exception e) {
+            return "";
+        }
     }
 
     // ── Utilities ─────────────────────────────────────────────────────────────

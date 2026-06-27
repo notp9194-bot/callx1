@@ -121,4 +121,7 @@ public interface ReelPlayerDelegate {
     void openWatchHistory();
     // Quality picker
     void showQualityPicker();
+    // v5: Offline save + QoE dashboard entry points
+    void saveReelOffline();
+    void showQoeStats();
 }

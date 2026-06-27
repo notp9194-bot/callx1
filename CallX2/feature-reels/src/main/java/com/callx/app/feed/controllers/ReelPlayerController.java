@@ -104,6 +104,7 @@ public class ReelPlayerController {
 
     // ── v5: ReelABREngine + ReelOfflineManager ────────────────────────────────
     private ReelABREngine    abrEngine;
+    private ReelABREngine.ABRSession abrSession;
     private ReelOfflineManager offlineManager;
     /** Upgrade cooldown — don't upgrade more than once per 30s to avoid flapping */
     private long                                lastUpgradeMs  = 0;
@@ -178,9 +179,22 @@ public class ReelPlayerController {
 
         // v5: Init ReelABREngine — segment-level MPC-like ABR decisions
         abrEngine = ReelABREngine.get(ctx);
+        // v7: Auto-enable Data Saver on low battery (non-charging) at session start
+        abrEngine.autoThrottleForBattery(ctx);
 
-        // v5: Init ReelOfflineManager for cache-backed playback
+        // v5: Init ReelOfflineManager — resolve best playback URL (cache > network)
         if (offlineManager == null) offlineManager = ReelOfflineManager.get(ctx);
+        if (reel.reelId != null) {
+            String resolved = offlineManager.resolvePlaybackUrl(reel.reelId, playUrl);
+            if (resolved != null) {
+                playUrl = resolved;
+            } else {
+                // Offline and not cached — show error state, skip playback
+                Log.w(TAG, "Reel unavailable offline and not cached: " + reel.reelId);
+                if (ivThumb != null) ivThumb.setVisibility(View.VISIBLE);
+                return;
+            }
+        }
 
         // Build ABR-aware ExoPlayer via AdaptiveStreamingManager
         player = AdaptiveStreamingManager.get(ctx).buildPlayer(
@@ -215,6 +229,28 @@ public class ReelPlayerController {
 
         playerView.setPlayer(player);
 
+        // v5: Attach ABR engine — auto-monitors player buffer + bandwidth every 2s
+        abrSession = abrEngine.attachTo(player, null,
+            new ReelABREngine.ABRDecisionListener() {
+                @Override
+                public void onABRDecision(long prevBr, long newBr, long bufMs,
+                                          long bwKbps, boolean isDowngrade, boolean isEmergency) {
+                    qoeQualitySwitches++;
+                    if (isDowngrade) qoeDowngrades++; else qoeUpgrades++;
+                    Log.d(TAG, "ABR: " + prevBr + "→" + newBr + "kbps buf=" + bufMs
+                        + "ms" + (isEmergency ? " [EMERGENCY]" : ""));
+                    if (abrSession != null) abrEngine.sampleBandwidth(abrSession, bwKbps);
+
+                    // v5 fix: actually apply the ABR engine's decision to playback,
+                    // instead of only logging/counting it. Manual user cap always wins.
+                    if (!userManualCap && (isDowngrade || isEmergency)) {
+                        downgradeQuality();
+                    }
+                }
+                @Override public void onStallBegin() { }
+                @Override public void onStallEnd(long ms) { qoeTotalStallMs += ms; }
+            });
+
         player.addListener(new Player.Listener() {
             @Override
             public void onPlaybackStateChanged(int state) {
@@ -231,12 +267,15 @@ public class ReelPlayerController {
                     if (state == Player.STATE_READY && delegate.isCurrentlyVisible()) {
                         ivThumb.setVisibility(View.GONE);
                         startProgressTracking();
-                        // v5: Log buffer level for diagnostics
+                        // v5: Query ABR engine for quality suggestion + log
                         if (abrEngine != null && player != null) {
                             long bufferedMs = player.getTotalBufferedDuration();
                             long bwKbps = AdaptiveStreamingManager.get(
                                 delegate.requireContext()).currentBandwidthKbps();
-                            Log.d(TAG, "ABREngine buf=" + bufferedMs + "ms bw=" + bwKbps + "kbps");
+                            ReelABREngine.QualityLevel suggested =
+                                abrEngine.selectQuality(bwKbps, bufferedMs);
+                            Log.d(TAG, "ABREngine suggestion=" + suggested
+                                + " buf=" + bufferedMs + "ms bw=" + bwKbps + "kbps");
                         }
                         // QoE: measure Time-To-First-Frame
                         if (qoeStartupMs < 0 && qoeStartupBeginMs > 0) {
@@ -419,20 +458,62 @@ public class ReelPlayerController {
         // ─────────────────────────────────────────────────────────────────────
 
         // Mark current selection with ✓
-        String[] options = new String[caps.length];
+        String[] baseOptions = new String[caps.length];
         for (int i = 0; i < caps.length; i++) {
-            options[i] = caps[i] == currentCap ? "✓ " + baseLabels[i] : "   " + baseLabels[i];
+            baseOptions[i] = caps[i] == currentCap ? "✓ " + baseLabels[i] : "   " + baseLabels[i];
         }
+        // v6: Append a Data Saver toggle row at the bottom of the picker
+        boolean dataSaverOn = abrEngine != null && abrEngine.isDataSaverMode();
+        String[] options = new String[baseOptions.length + 1];
+        System.arraycopy(baseOptions, 0, options, 0, baseOptions.length);
+        options[options.length - 1] = (dataSaverOn ? "✓ " : "   ") + "Data Saver Mode (caps ABR ladder)";
 
         new android.app.AlertDialog.Builder(delegate.getContext())
             .setTitle(dialogTitle)
             .setItems(options, (d, which) -> {
+                if (which == options.length - 1) {
+                    // Toggle Data Saver instead of picking a quality
+                    if (abrEngine == null) abrEngine = ReelABREngine.get(delegate.requireContext());
+                    abrEngine.setDataSaverMode(!dataSaverOn);
+                    android.widget.Toast.makeText(delegate.requireContext(),
+                        !dataSaverOn ? "Data Saver enabled" : "Data Saver disabled",
+                        android.widget.Toast.LENGTH_SHORT).show();
+                    return;
+                }
                 AdaptiveStreamingManager.QualityCap chosen = caps[which];
                 userManualCap = (chosen != AdaptiveStreamingManager.QualityCap.AUTO);
                 currentCap = chosen;
                 stallCount = 0;
                 switchToQuality(currentCap, userManualCap ? "(manual)" : "");
             }).show();
+    }
+
+    /** v5: Manually trigger offline caching of the current reel for in-app offline playback. */
+    public void saveReelOffline() {
+        if (!delegate.isAdded() || delegate.getContext() == null) return;
+        ReelModel reel = delegate.getReel();
+        if (reel == null || reel.reelId == null) return;
+        if (offlineManager == null) offlineManager = ReelOfflineManager.get(delegate.requireContext());
+
+        if (offlineManager.isAvailableOffline(reel.reelId)) {
+            android.widget.Toast.makeText(delegate.requireContext(),
+                "Already saved for offline viewing", android.widget.Toast.LENGTH_SHORT).show();
+            return;
+        }
+        offlineManager.downloadForOffline(reel);
+        android.widget.Toast.makeText(delegate.requireContext(),
+            "Saving reel for offline viewing…", android.widget.Toast.LENGTH_SHORT).show();
+    }
+
+    /** v5: Open the QoE Analytics dashboard for this reel session. */
+    public void showQoeStats() {
+        if (!delegate.isAdded() || delegate.getContext() == null) return;
+        ReelModel reel = delegate.getReel();
+        String reelId = (reel != null) ? reel.reelId : null;
+        android.content.Intent intent = new android.content.Intent(
+            delegate.requireContext(), ReelQoEAnalyticsActivity.class);
+        if (reelId != null) intent.putExtra("reelId", reelId);
+        delegate.requireContext().startActivity(intent);
     }
 
     public void releasePlayer() {
@@ -473,7 +554,11 @@ public class ReelPlayerController {
             try { player.release(); } catch (Exception ignored) {}
             player = null;
         }
-        // v5: Release ABR engine for this session
+        // v5: Detach ABR engine session before player release
+        if (abrEngine != null && abrSession != null) {
+            abrEngine.detach(abrSession);
+            abrSession = null;
+        }
         abrEngine = null;
     }
 

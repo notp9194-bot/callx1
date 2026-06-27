@@ -409,4 +409,6 @@ public class ReelPlayerFragment extends Fragment
     @Override public void openViewRemixes()        { duetController.openViewRemixes(); }
     @Override public void openWatchHistory()       { duetController.openWatchHistory(); }
     @Override public void showQualityPicker()      { playerController.showQualityPicker(); }
+    @Override public void saveReelOffline()         { playerController.saveReelOffline(); }
+    @Override public void showQoeStats()            { playerController.showQoeStats(); }
 }

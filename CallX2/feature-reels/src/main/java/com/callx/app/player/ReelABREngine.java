@@ -6,6 +6,7 @@ import android.os.Looper;
 import android.util.Log;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.annotation.OptIn;
 import androidx.media3.common.C;
 import androidx.media3.common.Format;
@@ -144,6 +145,9 @@ public class ReelABREngine {
     private final Handler                     mainHandler  = new Handler(Looper.getMainLooper());
     private final List<ABRSession>            sessions     = new ArrayList<>();
 
+    // v6: Data Saver mode — caps target bitrate ladder when enabled
+    private volatile boolean dataSaverMode = false;
+
     private ReelABREngine(Context ctx) {
         appCtx    = ctx;
         scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
@@ -154,6 +158,47 @@ public class ReelABREngine {
     }
 
     // ── Public API ────────────────────────────────────────────────────────────
+
+    /** v6: Enable/disable Data Saver — caps quality ladder and biases selectQuality() down. */
+    public void setDataSaverMode(boolean enabled) {
+        dataSaverMode = enabled;
+        Log.d(TAG, "DataSaverMode → " + enabled);
+    }
+
+    public boolean isDataSaverMode() { return dataSaverMode; }
+
+    /**
+     * v7: Battery-aware auto-throttle. Call once per session start —
+     * if the device is on low battery (<=15%) and NOT charging, automatically
+     * enables Data Saver to reduce decode/network load and save power.
+     * Does nothing (and doesn't override) if the user already chose manually.
+     *
+     * @return true if throttling was applied
+     */
+    public boolean autoThrottleForBattery(Context ctx) {
+        try {
+            android.content.Intent batteryStatus = ctx.getApplicationContext().registerReceiver(
+                null, new android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED));
+            if (batteryStatus == null) return false;
+
+            int level  = batteryStatus.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1);
+            int scale  = batteryStatus.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, -1);
+            int status = batteryStatus.getIntExtra(android.os.BatteryManager.EXTRA_STATUS, -1);
+            boolean charging = status == android.os.BatteryManager.BATTERY_STATUS_CHARGING
+                             || status == android.os.BatteryManager.BATTERY_STATUS_FULL;
+            if (level < 0 || scale <= 0) return false;
+
+            float pct = 100f * level / scale;
+            if (pct <= 15f && !charging && !dataSaverMode) {
+                setDataSaverMode(true);
+                Log.d(TAG, "Battery low (" + (int) pct + "%, not charging) → auto Data Saver enabled");
+                return true;
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "autoThrottleForBattery: " + e.getMessage());
+        }
+        return false;
+    }
 
     /**
      * Attach the ABR engine to an already-prepared ExoPlayer.
@@ -166,7 +211,7 @@ public class ReelABREngine {
      * @return              The created session — pass to detach() on player release
      */
     public synchronized ABRSession attachTo(@NonNull ExoPlayer player,
-                                             @NonNull DefaultTrackSelector trackSelector,
+                                             @Nullable DefaultTrackSelector trackSelector,
                                              ABRDecisionListener listener) {
         ABRSession session = new ABRSession(player, trackSelector, listener);
         sessions.add(session);
@@ -264,12 +309,14 @@ public class ReelABREngine {
                 List<Long> availableBitrates = getAvailableBitratesKbps(player);
                 if (availableBitrates.isEmpty()) return;
 
-                long bestBitrate     = availableBitrates.get(0);
+                long bestBitrate     = availableBitrates.get(availableBitrates.size() - 1); // safe fallback: lowest
                 double bestQoE       = Double.NEGATIVE_INFINITY;
                 long   currentBr     = session.lastBitrate > 0
                     ? session.lastBitrate : availableBitrates.get(0);
 
                 for (long candidateBr : availableBitrates) {
+                    // v6: Data Saver mode — never evaluate candidates above ~1.5 Mbps
+                    if (dataSaverMode && candidateBr > 1_500L) continue;
                     double qoe = predictQoE(candidateBr, currentBr, bufferMs,
                                             bwEstKbps, session.totalStallMs);
                     if (qoe > bestQoE) { bestQoE = qoe;  bestBitrate = candidateBr; }
@@ -399,6 +446,7 @@ public class ReelABREngine {
     // ── Track selector helpers ────────────────────────────────────────────────
 
     private boolean applyBitrateToTrackSelector(DefaultTrackSelector ts, long targetBrKbps) {
+        if (ts == null) return false;  // no trackSelector provided — skip
         try {
             TrackSelectionParameters.Builder params = ts.getParameters().buildUpon();
             // Allow ±30% tolerance around target bitrate
@@ -516,5 +564,50 @@ public class ReelABREngine {
         q.lastBitrateKbps = session.lastBitrate;
         q.harmonicBwKbps  = harmonicMeanBwKbps(session);
         return q;
+    }
+
+    // ── QualityLevel enum + selectQuality() ──────────────────────────────────
+
+    /** Human-readable quality tiers for UI / logging */
+    public enum QualityLevel {
+        HIGH,    // ≥ 2000 kbps  (1080p / 720p on good connection)
+        MEDIUM,  // 800–1999 kbps (720p / 480p)
+        LOW,     // 300–799  kbps (480p / 360p)
+        MINIMAL  // < 300    kbps (360p / 240p — 2G / critical buffer)
+    }
+
+    /**
+     * Lightweight synchronous quality suggestion based on bandwidth + buffer.
+     * Does NOT apply track selector changes — use attachTo() for full MPC control.
+     * Useful for logging, UI badges, or manual quality hints.
+     *
+     * @param bwKbps    Current bandwidth estimate in kbps
+     * @param bufferMs  Current buffer ahead of playhead in ms
+     * @return Suggested QualityLevel
+     */
+    public QualityLevel selectQuality(long bwKbps, long bufferMs) {
+        // Emergency: critical buffer → force minimal regardless of bandwidth
+        if (bufferMs < BUFFER_CRITICAL_MS) return QualityLevel.MINIMAL;
+
+        // v6: Data Saver — never exceed MEDIUM, halves the effective bandwidth budget
+        if (dataSaverMode) {
+            long effectiveBw = bwKbps / 2;
+            if (bufferMs < BUFFER_LOW_MS) return QualityLevel.MINIMAL;
+            if (effectiveBw >= 800) return QualityLevel.MEDIUM;
+            if (effectiveBw >= 300) return QualityLevel.LOW;
+            return QualityLevel.MINIMAL;
+        }
+
+        // Buffer low: block upgrades, prefer low
+        if (bufferMs < BUFFER_LOW_MS) {
+            if (bwKbps >= 800) return QualityLevel.LOW;
+            return QualityLevel.MINIMAL;
+        }
+
+        // Normal: bandwidth drives the decision
+        if (bwKbps >= 2_000) return QualityLevel.HIGH;
+        if (bwKbps >=   800) return QualityLevel.MEDIUM;
+        if (bwKbps >=   300) return QualityLevel.LOW;
+        return QualityLevel.MINIMAL;
     }
 }

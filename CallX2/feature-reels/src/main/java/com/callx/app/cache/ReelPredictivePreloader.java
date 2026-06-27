@@ -164,6 +164,18 @@ public class ReelPredictivePreloader {
      * @param position Current visible position
      */
     public void preloadSmartFrom(List<ReelModel> reels, int position) {
+        preloadSmartFrom(reels, position, 0f);
+    }
+
+    /**
+     * v6: Scroll-velocity-adaptive variant. Fast flicking through the feed means
+     * the user is skip-browsing — shrink the lookahead window and preload bytes
+     * (cheap, near-term reels only). Slow/settled scrolling means they're likely
+     * to watch — widen the window for deeper lookahead.
+     *
+     * @param scrollVelocityPxPerMs recent scroll speed in px/ms (0 = idle/settled)
+     */
+    public void preloadSmartFrom(List<ReelModel> reels, int position, float scrollVelocityPxPerMs) {
         if (reels == null || reels.isEmpty()) return;
 
         NetworkQualityMonitor.Quality netQ =
@@ -171,8 +183,39 @@ public class ReelPredictivePreloader {
         long bytesPerReel = resolveBytes(netQ);
         if (bytesPerReel <= 0) return;  // offline → don't preload
 
+        // ── Velocity-adaptive window + budget ──────────────────────────────────
+        float absVel = Math.abs(scrollVelocityPxPerMs);
+        int   maxPreload;
+        double byteScale;
+        if (absVel > 3.5f) {
+            // Fast flick — user is skip-browsing, preload less, just the very next reel
+            maxPreload = 1;
+            byteScale  = 0.4;
+        } else if (absVel > 1.2f) {
+            // Moderate scroll — normal window
+            maxPreload = MAX_PRELOAD;
+            byteScale  = 0.75;
+        } else {
+            // Idle / slow settle — likely to watch, preload deeper and fuller
+            maxPreload = MAX_PRELOAD + 2;
+            byteScale  = 1.0;
+        }
+        long adaptiveBytes = (long) (bytesPerReel * byteScale);
+
+        // v7: Time-of-day awareness — late night (12am-6am) WiFi traffic is cheap/uncontended,
+        // so preload more aggressively then; peak evening hours (6pm-11pm) are typically
+        // congested, so trim back slightly to avoid competing for bandwidth with active streaming.
+        int hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY);
+        boolean isWifiLike = netQ == NetworkQualityMonitor.Quality.WIFI
+                          || netQ == NetworkQualityMonitor.Quality.ETHERNET;
+        if (hour >= 0 && hour < 6 && isWifiLike) {
+            adaptiveBytes = (long) (adaptiveBytes * 1.3);   // late night — go deeper
+        } else if (hour >= 18 && hour < 23) {
+            adaptiveBytes = (long) (adaptiveBytes * 0.85);  // peak hours — be conservative
+        }
+
         // Build candidate list (positional window)
-        int window = Math.min(MAX_PRELOAD + 2, reels.size() - position - 1);
+        int window = Math.min(maxPreload + 2, reels.size() - position - 1);
         if (window <= 0) return;
 
         List<ReelCandidate> candidates = new ArrayList<>();
@@ -188,10 +231,10 @@ public class ReelPredictivePreloader {
 
         int launched = 0;
         for (ReelCandidate c : candidates) {
-            if (launched >= MAX_PRELOAD) break;
+            if (launched >= maxPreload) break;
             String url = pickBestUrl(c.reel, netQ);
             if (url == null || url.isEmpty()) continue;
-            preloadSingle(url, bytesPerReel);
+            preloadSingle(url, adaptiveBytes);
             launched++;
         }
     }
@@ -243,6 +286,13 @@ public class ReelPredictivePreloader {
 
         // Position decay: closer reels preloaded first (decay = 1/(1+i))
         double decay = 1.0 / (1.0 + positionOffset * 0.5);
+
+        // v7: Epsilon-greedy exploration — 10% of the time, ignore the learned
+        // model's bias and give this candidate a neutral boost. Prevents the
+        // preloader from permanently starving categories the user hasn't tried yet.
+        if (Math.random() < 0.10) {
+            return 1.0 * decay;
+        }
 
         return affinityScore * transScore * decay;
     }

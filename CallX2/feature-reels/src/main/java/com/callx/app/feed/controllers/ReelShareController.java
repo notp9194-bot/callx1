@@ -181,6 +181,8 @@ public class ReelShareController {
             case ReelMoreBottomSheet.ACTION_WATCH_HISTORY:      delegate.openWatchHistory();      break;
             // Video Quality picker
             case ReelMoreBottomSheet.ACTION_QUALITY:            delegate.showQualityPicker();     break;
+            case ReelMoreBottomSheet.ACTION_SAVE_OFFLINE:       delegate.saveReelOffline();        break;
+            case ReelMoreBottomSheet.ACTION_QOE_STATS:          delegate.showQoeStats();           break;
         }
     }
 }

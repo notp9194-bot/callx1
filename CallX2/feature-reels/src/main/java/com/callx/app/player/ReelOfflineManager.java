@@ -26,6 +26,8 @@ import com.callx.app.cache.ReelCacheManager;
 import com.callx.app.cache.UnifiedVideoCacheManager;
 import com.callx.app.models.ReelModel;
 
+import org.json.JSONObject;
+
 import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
@@ -80,6 +82,13 @@ public class ReelOfflineManager {
     // Full-reel download size (for explicit offline save)
     private static final long   OFFLINE_BYTES      = 50 * 1024 * 1024L; // 50 MB (full reel)
 
+    // v6: Storage cap for offline cache — oldest reels auto-evicted (LRU) past this
+    private static final long   MAX_OFFLINE_STORAGE_BYTES = 500 * 1024 * 1024L; // 500 MB
+    private static final String KEY_OFFLINE_TS      = "offline_reel_timestamps";
+
+    // v7: Saved-offline reels older than this are auto-purged as stale (links may have expired)
+    private static final long   OFFLINE_EXPIRY_MS   = 30L * 24 * 60 * 60 * 1_000L; // 30 days
+
     // ── Singleton ─────────────────────────────────────────────────────────────
     private static volatile ReelOfflineManager sInstance;
 
@@ -124,6 +133,7 @@ public class ReelOfflineManager {
     private final Handler                    mainHandler = new Handler(Looper.getMainLooper());
     private final Map<String, ScheduledFuture<?>> pendingRetries = new ConcurrentHashMap<>();
     private final List<String>               offlineCatalog;     // reelIds saved for offline
+    private final Map<String, Long>          offlineTimestamps;  // v6: reelId → savedAt (for LRU eviction)
 
     private OfflineStateListener             stateListener;
     private OfflineState                     currentState = OfflineState.ONLINE;
@@ -132,11 +142,14 @@ public class ReelOfflineManager {
         appCtx        = ctx;
         prefs         = appCtx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         offlineCatalog = loadOfflineCatalog();
+        offlineTimestamps = loadOfflineTimestamps();
         scheduler     = Executors.newScheduledThreadPool(2, r -> {
             Thread t = new Thread(r, "reel-offline-mgr");
             t.setDaemon(true);
             return t;
         });
+        // v7: Purge anything saved offline more than 30 days ago (stale URLs/cache)
+        scheduler.execute(this::pruneExpiredOfflineReels);
 
         // Listen for network changes to trigger pending retry flushes
         NetworkQualityMonitor.get(appCtx).addListener(this::onNetworkChanged);
@@ -148,6 +161,41 @@ public class ReelOfflineManager {
     // ── Public API ────────────────────────────────────────────────────────────
 
     public void setStateListener(OfflineStateListener l) { stateListener = l; }
+
+    /**
+     * Resolve the best playback URL string for a reel, considering cache + network state.
+     * Returns the resolved URL, or null if reel is offline and not cached.
+     *
+     * Convenience wrapper for callers that need a URL string rather than a MediaSource.
+     *
+     * @param reelId  The reel's unique ID (used for cache lookup)
+     * @param playUrl The already-selected candidate URL (from quality picker)
+     * @return Best URL to use for playback, or null if unavailable offline
+     */
+    @Nullable
+    public String resolvePlaybackUrl(@NonNull String reelId, @Nullable String playUrl) {
+        NetworkQualityMonitor.Quality netQ =
+            NetworkQualityMonitor.get(appCtx).currentQuality();
+
+        // Offline check — see if we have this reel cached
+        if (netQ == NetworkQualityMonitor.Quality.NONE) {
+            if (isAvailableOffline(reelId)) {
+                Log.d(TAG, "resolvePlaybackUrl: offline hit for " + reelId);
+                return playUrl;  // CacheDataSource will serve from cache transparently
+            }
+            Log.d(TAG, "resolvePlaybackUrl: offline, no cache for " + reelId);
+            return null;
+        }
+
+        // Degraded signal — prefer lower quality if playUrl is already low, else return as-is
+        if (netQ == NetworkQualityMonitor.Quality.CELLULAR_2G) {
+            dispatchState(OfflineState.DEGRADED);
+        } else {
+            dispatchState(OfflineState.ONLINE);
+        }
+
+        return playUrl;  // normal online path — return the caller's chosen URL
+    }
 
     /**
      * Resolve the best MediaSource for a reel, taking network state into account.
@@ -231,6 +279,10 @@ public class ReelOfflineManager {
                     offlineCatalog.add(reelId);
                     persistOfflineCatalog();
                 }
+                // v6: track save time + enforce storage cap (evict oldest first)
+                offlineTimestamps.put(reelId, System.currentTimeMillis());
+                persistOfflineTimestamps();
+                enforceStorageCap();
 
                 mainHandler.post(() -> {
                     Log.d(TAG, "Offline download complete: " + reelId);
@@ -249,12 +301,66 @@ public class ReelOfflineManager {
      */
     public void removeOfflineReel(String reelId) {
         offlineCatalog.remove(reelId);
+        offlineTimestamps.remove(reelId);
         persistOfflineCatalog();
+        persistOfflineTimestamps();
         try {
             SimpleCache cache = ReelCacheManager.getSimpleCache();
             if (cache != null) cache.removeResource(reelId);
         } catch (Exception e) {
             Log.w(TAG, "removeOfflineReel cache purge: " + e.getMessage());
+        }
+    }
+
+    /**
+     * v7: Remove offline-saved reels past OFFLINE_EXPIRY_MS — their source URLs
+     * (Cloudinary/CDN) may have rotated, and stale large cached files just waste storage.
+     */
+    private void pruneExpiredOfflineReels() {
+        long now = System.currentTimeMillis();
+        List<String> stale = new ArrayList<>();
+        for (Map.Entry<String, Long> e : offlineTimestamps.entrySet()) {
+            if (now - e.getValue() > OFFLINE_EXPIRY_MS) stale.add(e.getKey());
+        }
+        for (String reelId : stale) {
+            Log.d(TAG, "Pruning expired offline reel (>30d old): " + reelId);
+            mainHandler.post(() -> removeOfflineReel(reelId));
+        }
+    }
+
+    /**
+     * v6: Auto-download a batch of reels for offline playback when on WiFi only
+     * (e.g. liked/saved reels). Skips anything already cached and respects the
+     * storage cap — eviction happens automatically as each new reel lands.
+     */
+    public void downloadAllOnWifi(@NonNull List<ReelModel> reels) {
+        NetworkQualityMonitor.Quality netQ = NetworkQualityMonitor.get(appCtx).currentQuality();
+        if (netQ != NetworkQualityMonitor.Quality.WIFI && netQ != NetworkQualityMonitor.Quality.ETHERNET) {
+            Log.d(TAG, "downloadAllOnWifi skipped — not on WiFi (current=" + netQ + ")");
+            return;
+        }
+        for (ReelModel reel : reels) {
+            if (reel == null || reel.reelId == null) continue;
+            if (isAvailableOffline(reel.reelId)) continue;
+            downloadForOffline(reel);
+        }
+    }
+
+    /**
+     * v6: Evicts the oldest offline-saved reels (LRU by save timestamp) until
+     * total offline cache size is back under MAX_OFFLINE_STORAGE_BYTES.
+     */
+    private void enforceStorageCap() {
+        long used = getOfflineCacheSizeBytes();
+        if (used <= MAX_OFFLINE_STORAGE_BYTES) return;
+
+        List<Map.Entry<String, Long>> byAge = new ArrayList<>(offlineTimestamps.entrySet());
+        byAge.sort((a, b) -> Long.compare(a.getValue(), b.getValue())); // oldest first
+
+        for (Map.Entry<String, Long> e : byAge) {
+            if (getOfflineCacheSizeBytes() <= MAX_OFFLINE_STORAGE_BYTES) break;
+            Log.d(TAG, "Storage cap exceeded (" + used + " bytes) — evicting oldest offline reel: " + e.getKey());
+            removeOfflineReel(e.getKey());
         }
     }
 
@@ -438,6 +544,32 @@ public class ReelOfflineManager {
         prefs.edit()
             .putString(KEY_OFFLINE_IDS, String.join(",", offlineCatalog))
             .apply();
+    }
+
+    private Map<String, Long> loadOfflineTimestamps() {
+        Map<String, Long> map = new java.util.HashMap<>();
+        try {
+            String raw = prefs.getString(KEY_OFFLINE_TS, null);
+            if (raw == null) return map;
+            JSONObject obj = new JSONObject(raw);
+            java.util.Iterator<String> keys = obj.keys();
+            while (keys.hasNext()) {
+                String k = keys.next();
+                map.put(k, obj.getLong(k));
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "loadOfflineTimestamps error: " + e.getMessage());
+        }
+        return map;
+    }
+
+    private void persistOfflineTimestamps() {
+        try {
+            JSONObject obj = new JSONObject(offlineTimestamps);
+            prefs.edit().putString(KEY_OFFLINE_TS, obj.toString()).apply();
+        } catch (Exception e) {
+            Log.w(TAG, "persistOfflineTimestamps error: " + e.getMessage());
+        }
     }
 
     private void notifyDownloadFailed(String reelId, String reason) {
