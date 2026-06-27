@@ -776,7 +776,8 @@ public class CallxMessagingService extends FirebaseMessagingService {
             // Direct build — no Firebase, no waiting
             final String myThumbUrl = data.getOrDefault("myThumb", "");
             buildAndShow(fromUid, fromName, fromMobile, avatarUrl,
-                chatId, mediaUrl, text, type, subText, notifId, hist, serverMuted, myThumbUrl);
+                chatId, mediaUrl, text, type, subText, notifId, hist, serverMuted, myThumbUrl,
+                isViewOnce, msgId);
             return;
         }
 
@@ -908,7 +909,7 @@ public class CallxMessagingService extends FirebaseMessagingService {
             final String subText, final int notifId,
             @Nullable final List<HistoryItem> hist, final boolean muted) {
         buildAndShow(fromUid, fromName, fromMobile, fromPhoto, chatId,
-            mediaUrl, text, type, subText, notifId, hist, muted, "");
+            mediaUrl, text, type, subText, notifId, hist, muted, "", false, "");
     }
 
     private void buildAndShow(final String fromUid, final String fromName,
@@ -916,7 +917,7 @@ public class CallxMessagingService extends FirebaseMessagingService {
             final String mediaUrl, final String text, final String type,
             final String subText, final int notifId,
             @Nullable final List<HistoryItem> hist, final boolean muted,
-            final String myThumbUrl) {
+            final String myThumbUrl, final boolean isViewOnce, final String msgId) {
         // Avatar + (optional) attached image downloaded off-thread.
         // Network-aware: 2G/no-network → skip avatar (instant notification).
         bg.execute(() -> {
@@ -935,7 +936,7 @@ public class CallxMessagingService extends FirebaseMessagingService {
                 ? downloadBitmap(mediaUrl, 400, 300) : null;
             postRichNotification(fromUid, fromName, fromMobile, fromPhoto,
                 chatId, mediaUrl, text, type, subText, notifId, hist,
-                avatar, myAvatar, picture, muted);
+                avatar, myAvatar, picture, muted, msgId);
         });
     }
     private void postRichNotification(String fromUid, String fromName, String fromMobile,
@@ -943,7 +944,7 @@ public class CallxMessagingService extends FirebaseMessagingService {
             String type, String subText, int notifId,
             @Nullable List<HistoryItem> hist,
             @Nullable Bitmap avatar, @Nullable Bitmap myAvatar,
-            @Nullable Bitmap picture, boolean muted) {
+            @Nullable Bitmap picture, boolean muted, String msgId) {
         // Sender Person (with circular avatar — Feature 5)
         Person.Builder pb = new Person.Builder().setName(fromName).setKey(fromUid);
         if (avatar != null) pb.setIcon(IconCompat.createWithBitmap(avatar));

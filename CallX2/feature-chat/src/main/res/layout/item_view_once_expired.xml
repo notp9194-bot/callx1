@@ -1,9 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   item_view_once_expired.xml
-  Shown AFTER the receiver has opened the view-once message.
-  Sender sees "Opened · Jun 28, 3:45 PM" (tv_opened_at, VISIBLE only for sender).
-  Receiver sees just "Opened" (tv_opened_at is GONE for receiver).
+  Shown when a view-once message is no longer available. tv_expired_label is set
+  dynamically by bindViewOnceExpired() based on how the message ended:
+    "Opened"  — receiver opened normally (tv_opened_at shows time to sender)
+    "Expired" — sender's expiry timer elapsed before receiver opened it
+    "Removed" — sender revoked the message before receiver opened it
+  tv_opened_at is shown only to sender, only for the "Opened" state.
 -->
 <androidx.constraintlayout.widget.ConstraintLayout
     xmlns:android="http://schemas.android.com/apk/res/android"

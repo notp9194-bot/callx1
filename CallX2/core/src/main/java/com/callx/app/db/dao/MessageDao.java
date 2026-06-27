@@ -160,6 +160,16 @@ public interface MessageDao {
     @Query("SELECT * FROM messages WHERE viewOnce = 1 AND viewOnceState = 'opened' AND (deleted IS NULL OR deleted = 0)")
     List<MessageEntity> getPendingViewOnceDeletes();
 
+    /**
+     * Fetch view-once messages in STATE_SENT whose sender-set expiry time has elapsed.
+     * Used by scheduleExpiryCleanup() every 30s to fire expireViewOnce() on elapsed messages.
+     * Only "sent" state — we skip already opened/deleted/revoked/expired ones.
+     */
+    @Query("SELECT * FROM messages WHERE viewOnce = 1 AND viewOnceState = 'sent' " +
+           "AND viewOnceExpiresAt IS NOT NULL AND viewOnceExpiresAt > 0 " +
+           "AND viewOnceExpiresAt <= :nowMs AND (deleted IS NULL OR deleted = 0)")
+    List<MessageEntity> getElapsedViewOnceMessages(long nowMs);
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     void insertMessages(List<MessageEntity> messages);
 

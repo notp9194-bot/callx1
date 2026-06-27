@@ -66,6 +66,8 @@ public class ChatViewOnceController {
     public static final String STATE_DELETED  = "deleted";
     /** Sender revoked the message before receiver opened it. */
     public static final String STATE_REVOKED  = "revoked";
+    /** Sender-set expiry timer elapsed before receiver opened it. */
+    public static final String STATE_EXPIRED  = "expired";
 
     // ── Firebase field names ──────────────────────────────────────────────
     public static final String FIELD_VIEW_ONCE       = "viewOnce";
@@ -218,10 +220,13 @@ public class ChatViewOnceController {
         updates.put(FIELD_MEDIA_URL,       null);
         updates.put(FIELD_THUMBNAIL_URL,   null);
         updates.put("fileName",            null);
-        msgRef.updateChildren(updates);
+        msgRef.updateChildren(updates, (error, ref) -> {
+            if (error != null) pendingDeleteIds.add(msgId);
+        });
 
-        // Mirror locally
+        // Mirror locally — wipe content + set state so bubble shows "Removed"
         softDeleteLocally(msgId);
+        updateStateLocally(msgId, STATE_REVOKED);
     }
 
     /**
@@ -250,20 +255,80 @@ public class ChatViewOnceController {
      * Adapter uses this to render the "Opened" / expired bubble state.
      */
     /**
-     * Returns true if message was view-once and has already been opened/deleted,
+     * Returns true if message was view-once and has already been opened/deleted/revoked/expired,
      * OR if the sender set an expiry time and it has passed.
      */
     public static boolean isExpired(@Nullable Message m) {
         if (m == null || !Boolean.TRUE.equals(m.viewOnce)) return false;
-        // State-based expiry (opened, deleted, or revoked)
+        // State-based expiry
         if (STATE_OPENED.equals(m.viewOnceState)
                 || STATE_DELETED.equals(m.viewOnceState)
                 || STATE_REVOKED.equals(m.viewOnceState)
+                || STATE_EXPIRED.equals(m.viewOnceState)
                 || Boolean.TRUE.equals(m.deleted)) return true;
         // Time-based expiry: sender set a deadline and it has passed
         if (m.viewOnceExpiresAt != null && m.viewOnceExpiresAt > 0
                 && System.currentTimeMillis() > m.viewOnceExpiresAt) return true;
         return false;
+    }
+
+    /**
+     * Returns the label to show in the expired bubble.
+     * - STATE_REVOKED  → "Removed"   (sender revoked before open)
+     * - STATE_EXPIRED  → "Expired"   (timer elapsed before open)
+     * - time-based now → "Expired"   (same as above, local check)
+     * - anything else  → "Opened"    (normal open/delete flow)
+     */
+    public static String expiredLabel(@Nullable Message m) {
+        if (m == null) return "Opened";
+        if (STATE_REVOKED.equals(m.viewOnceState)) return "Removed";
+        if (STATE_EXPIRED.equals(m.viewOnceState)) return "Expired";
+        // Local time-based check (Firebase write may still be in-flight)
+        if (m.viewOnceExpiresAt != null && m.viewOnceExpiresAt > 0
+                && System.currentTimeMillis() > m.viewOnceExpiresAt
+                && !STATE_OPENED.equals(m.viewOnceState)
+                && !STATE_DELETED.equals(m.viewOnceState)) return "Expired";
+        return "Opened";
+    }
+
+    /**
+     * Called when the sender-set expiry timer elapses on an un-opened view-once message.
+     * Sets viewOnceState = "expired" + permanently wipes content from Firebase.
+     * Both sender and receiver will see "Expired" in the bubble.
+     *
+     * Safe to call from any thread (Firebase writes are async).
+     *
+     * @param message The view-once message whose timer has elapsed.
+     */
+    public void expireViewOnce(@NonNull Message message) {
+        String msgId = resolveId(message);
+        if (msgId == null) return;
+        // Only expire if still un-opened (guard against race with open)
+        if (STATE_OPENED.equals(message.viewOnceState)
+                || STATE_DELETED.equals(message.viewOnceState)
+                || STATE_REVOKED.equals(message.viewOnceState)
+                || STATE_EXPIRED.equals(message.viewOnceState)) return;
+
+        DatabaseReference msgRef = getMessageRef(msgId);
+        if (msgRef == null) {
+            pendingDeleteIds.add(msgId);
+            return;
+        }
+
+        Map<String, Object> updates = new HashMap<>();
+        updates.put(FIELD_VIEW_ONCE_STATE, STATE_EXPIRED);
+        updates.put(FIELD_DELETED,         true);
+        updates.put(FIELD_TEXT,            "");
+        updates.put(FIELD_MEDIA_URL,       null);
+        updates.put(FIELD_THUMBNAIL_URL,   null);
+        updates.put("fileName",            null);
+        msgRef.updateChildren(updates, (error, ref) -> {
+            if (error != null) pendingDeleteIds.add(msgId);
+        });
+
+        // Mirror locally immediately
+        softDeleteLocally(msgId);
+        updateStateLocally(msgId, STATE_EXPIRED);
     }
 
     public void release() {
@@ -334,6 +399,21 @@ public class ChatViewOnceController {
             if (error != null) {
                 pendingDeleteIds.add(msgId); // retry on reconnect
             }
+        });
+    }
+
+    /**
+     * Update only viewOnceState in local Room DB (does NOT wipe content).
+     * Used for revoke/expire so the adapter can show the correct label
+     * even before the Firebase listener fires on this device.
+     */
+    private void updateStateLocally(@NonNull String msgId, @NonNull String state) {
+        ioExecutor.execute(() -> {
+            Activity act = activityRef.get();
+            if (act == null) return;
+            com.callx.app.db.AppDatabase.getInstance(act)
+                    .messageDao()
+                    .updateViewOnceState(msgId, state);
         });
     }
 

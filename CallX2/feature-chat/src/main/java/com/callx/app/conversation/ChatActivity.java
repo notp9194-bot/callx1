@@ -930,11 +930,35 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 ioExecutor.execute(() -> {
                     int deleted = db.messageDao().deleteExpiredMessages(System.currentTimeMillis());
                     if (deleted > 0) deleteExpiredFromFirebase();
+                    // VIEW ONCE EXPIRY: find un-opened view-once messages whose timer has elapsed
+                    // and fire expireViewOnce() so both sides see "Expired" + content is wiped.
+                    expireElapsedViewOnceMessages();
                 });
                 expiryHandler.postDelayed(this, 30_000L);
             }
         };
         expiryHandler.post(expiryRunnable);
+    }
+
+    /**
+     * Queries local DB for view-once messages in STATE_SENT whose viewOnceExpiresAt has passed.
+     * For each one found, calls viewOnceController.expireViewOnce() which:
+     *   - Sets viewOnceState = "expired" on Firebase (both sides update)
+     *   - Wipes content from Firebase permanently
+     *   - Updates local Room DB state so adapter shows "Expired" label
+     *
+     * Runs on ioExecutor (background thread). Safe to call every 30s.
+     */
+    private void expireElapsedViewOnceMessages() {
+        if (db == null || viewOnceController == null) return;
+        long nowMs = System.currentTimeMillis();
+        java.util.List<com.callx.app.db.entity.MessageEntity> elapsedEntities =
+                db.messageDao().getElapsedViewOnceMessages(nowMs);
+        if (elapsedEntities == null || elapsedEntities.isEmpty()) return;
+        for (com.callx.app.db.entity.MessageEntity entity : elapsedEntities) {
+            com.callx.app.models.Message msg = entityToModel(entity);
+            viewOnceController.expireViewOnce(msg);
+        }
     }
 
     private void deleteExpiredFromFirebase() {
