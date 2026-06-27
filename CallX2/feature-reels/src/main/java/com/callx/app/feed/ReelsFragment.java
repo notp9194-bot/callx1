@@ -487,6 +487,11 @@ public class ReelsFragment extends Fragment {
         // Without this, Firebase callbacks fire after vpReels/adapter are null → NPE crash.
         removeListeners();
 
+        if (videoPreloader != null) { videoPreloader.shutdown(); videoPreloader = null; }
+        thumbPreloader = null;
+        super.onDestroyView();
+    }
+
     // ── Preloader → Fragment wiring ───────────────────────────────────────────
 
     private void wirePreloaderToCurrentFragment(int position) {
@@ -503,11 +508,6 @@ public class ReelsFragment extends Fragment {
     private void wirePreloaderToVisibleFragment() {
         if (vpReels == null) return;
         wirePreloaderToCurrentFragment(vpReels.getCurrentItem());
-    }
-
-        if (videoPreloader != null) { videoPreloader.shutdown(); videoPreloader = null; }
-        thumbPreloader = null;
-        super.onDestroyView();
     }
 
     @Override
