@@ -177,26 +177,27 @@ public class ReelQoEAnalyticsActivity extends AppCompatActivity {
      * @param userTriggered true = show toast feedback
      */
     private void syncToFirebase(boolean userTriggered) {
-        String uid = null;
+        String uidTemp = null;
         try {
             if (FirebaseAuth.getInstance().getCurrentUser() != null)
-                uid = FirebaseAuth.getInstance().getCurrentUser().getUid();
+                uidTemp = FirebaseAuth.getInstance().getCurrentUser().getUid();
         } catch (Exception ignored) {}
-        if (uid == null) {
+        if (uidTemp == null) {
             setSyncStatus("Sign in required to sync");
             return;
         }
+        final String uid = uidTemp;
 
         setSyncStatus("Syncing…");
         if (btnSync != null) btnSync.setEnabled(false);
 
         SharedPreferences prefs = getSharedPreferences(QOE_PREFS, Context.MODE_PRIVATE);
-        long sessions   = prefs.getLong(KEY_TOTAL_SESSIONS,   0);
-        long stallMs    = prefs.getLong(KEY_TOTAL_STALL_MS,   0);
-        long switches   = prefs.getLong(KEY_TOTAL_SWITCHES,   0);
-        long upgrades   = prefs.getLong(KEY_TOTAL_UPGRADES,   0);
-        long downgrades = prefs.getLong(KEY_TOTAL_DOWNGRADES, 0);
-        long avgTtff    = prefs.getLong(KEY_AVG_TTFF_MS,      0);
+        final long sessions   = prefs.getLong(KEY_TOTAL_SESSIONS,   0);
+        final long stallMs    = prefs.getLong(KEY_TOTAL_STALL_MS,   0);
+        final long switches   = prefs.getLong(KEY_TOTAL_SWITCHES,   0);
+        final long upgrades   = prefs.getLong(KEY_TOTAL_UPGRADES,   0);
+        final long downgrades = prefs.getLong(KEY_TOTAL_DOWNGRADES, 0);
+        final long avgTtff    = prefs.getLong(KEY_AVG_TTFF_MS,      0);
 
         Map<String, Object> snapshot = new HashMap<>();
         snapshot.put("sessions",        sessions);
