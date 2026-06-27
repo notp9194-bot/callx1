@@ -69,6 +69,7 @@ import com.callx.app.conversation.controllers.MessageEditHistoryController;
 import com.callx.app.conversation.controllers.ChatPresenceController;
 import com.callx.app.conversation.controllers.ChatPlaybackPresenceController;
 import com.callx.app.conversation.controllers.ChatScheduledSendController;
+import com.callx.app.conversation.controllers.ChatViewOnceController;
 import com.callx.app.conversation.controllers.ChatScreenshotNotifier;
 import com.callx.app.conversation.controllers.ChatSearchController;
 import com.callx.app.conversation.controllers.ChatThemeController;
