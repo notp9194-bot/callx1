@@ -133,8 +133,10 @@ public class ChatViewOnceController {
         // 3. Notify caller to show full-screen viewer
         if (onOpened != null) mainHandler.post(onOpened);
 
-        // 4. Schedule hard delete after viewer closes (or after delay)
-        scheduleDelete(msgId);
+        // NOTE: Hard delete is NOT scheduled here automatically.
+        // Delete is triggered only when the viewer/dialog is explicitly closed
+        // via onViewerClosed(). This ensures content stays visible for as long
+        // as the user keeps the dialog open.
     }
 
     /**

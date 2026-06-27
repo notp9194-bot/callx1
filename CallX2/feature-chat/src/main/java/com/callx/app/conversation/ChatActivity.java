@@ -1179,24 +1179,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // (Moved here from early onCreate block — pagingAdapter must exist first.)
         pagingAdapter.setViewOnceOpenListener(message -> {
             if (viewOnceController == null) return;
-            viewOnceController.openViewOnce(message, () -> {
-                android.content.Intent vi = new android.content.Intent(
-                        ChatActivity.this,
-                        com.callx.app.conversation.ViewOnceViewerActivity.class);
-                vi.putExtra(com.callx.app.conversation.ViewOnceViewerActivity.EXTRA_MSG_ID,
-                        message.messageId != null ? message.messageId : message.id);
-                vi.putExtra(com.callx.app.conversation.ViewOnceViewerActivity.EXTRA_TYPE,
-                        message.type);
-                vi.putExtra(com.callx.app.conversation.ViewOnceViewerActivity.EXTRA_CONTENT,
-                        message.text);
-                vi.putExtra(com.callx.app.conversation.ViewOnceViewerActivity.EXTRA_MEDIA_URL,
-                        message.mediaUrl);
-                vi.putExtra(com.callx.app.conversation.ViewOnceViewerActivity.EXTRA_FILE_NAME,
-                        message.fileName);
-                vi.putExtra(com.callx.app.conversation.ViewOnceViewerActivity.EXTRA_DURATION,
-                        message.duration != null ? message.duration : 0L);
-                startActivity(vi);
-            });
+            viewOnceController.openViewOnce(message, () -> showViewOnceDialog(message));
         });
 
         pagingAdapter.setActionListener(new MessagePagingAdapter.ActionListener() {
@@ -1913,6 +1896,201 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             cm.setPrimaryClip(ClipData.newPlainText("message", m.text));
             Toast.makeText(this, "Message copied", Toast.LENGTH_SHORT).show();
         }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // VIEW ONCE — AlertDialog viewer (content shown inside dialog; deleted on close)
+    // ─────────────────────────────────────────────────────────────────────
+
+    /**
+     * Shows view-once content inside an AlertDialog.
+     * When the user dismisses the dialog (any way: OK / back / outside tap),
+     * the message is permanently deleted from Firebase AND local DB on both sides.
+     *
+     * Supports: text, image, video, audio, file.
+     * FLAG_SECURE is already set by ChatViewOnceController before this runs.
+     */
+    private void showViewOnceDialog(@NonNull com.callx.app.models.Message message) {
+        if (isFinishing() || isDestroyed()) return;
+
+        String msgType = message.type != null ? message.type : "text";
+        String msgId   = message.messageId != null ? message.messageId : message.id;
+
+        // Build dialog container
+        android.widget.LinearLayout container = new android.widget.LinearLayout(this);
+        container.setOrientation(android.widget.LinearLayout.VERTICAL);
+        container.setPadding(48, 32, 48, 16);
+        container.setGravity(android.view.Gravity.CENTER);
+
+        // ── Header icon + label ────────────────────────────────────────────
+        android.widget.TextView tvHeader = new android.widget.TextView(this);
+        tvHeader.setText("🔒  View Once");
+        tvHeader.setTextSize(13f);
+        tvHeader.setTextColor(0xFF888888);
+        tvHeader.setGravity(android.view.Gravity.CENTER);
+        tvHeader.setPadding(0, 0, 0, 12);
+        container.addView(tvHeader);
+
+        // References for cleanup
+        final android.widget.ImageView[] ivHolder  = {null};
+        final android.media.MediaPlayer[] mpHolder = {null};
+        final android.widget.VideoView[]  vvHolder = {null};
+
+        switch (msgType) {
+
+            case "image": {
+                android.widget.ImageView iv = new android.widget.ImageView(this);
+                iv.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
+                int imgSize = (int) (getResources().getDisplayMetrics().widthPixels * 0.75f);
+                android.widget.LinearLayout.LayoutParams lpImg =
+                        new android.widget.LinearLayout.LayoutParams(imgSize, imgSize);
+                lpImg.gravity = android.view.Gravity.CENTER;
+                iv.setLayoutParams(lpImg);
+                ivHolder[0] = iv;
+                container.addView(iv);
+                if (message.mediaUrl != null) {
+                    com.bumptech.glide.Glide.with(this)
+                            .load(message.mediaUrl)
+                            .skipMemoryCache(true)
+                            .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.NONE)
+                            .into(iv);
+                }
+                break;
+            }
+
+            case "video": {
+                android.widget.VideoView vv = new android.widget.VideoView(this);
+                int vidW = (int) (getResources().getDisplayMetrics().widthPixels * 0.75f);
+                int vidH = (int) (vidW * 9f / 16f);
+                android.widget.LinearLayout.LayoutParams lpVid =
+                        new android.widget.LinearLayout.LayoutParams(vidW, vidH);
+                lpVid.gravity = android.view.Gravity.CENTER;
+                vv.setLayoutParams(lpVid);
+                vvHolder[0] = vv;
+                container.addView(vv);
+                if (message.mediaUrl != null) {
+                    vv.setVideoURI(android.net.Uri.parse(message.mediaUrl));
+                    vv.start();
+                }
+                break;
+            }
+
+            case "audio": {
+                // Play/stop button + duration label
+                android.widget.LinearLayout row = new android.widget.LinearLayout(this);
+                row.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+                row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+                row.setPadding(0, 8, 0, 8);
+
+                android.widget.ImageButton btnPlay = new android.widget.ImageButton(this);
+                btnPlay.setImageResource(android.R.drawable.ic_media_play);
+                btnPlay.setBackground(null);
+                btnPlay.setPadding(8, 8, 8, 8);
+                row.addView(btnPlay);
+
+                android.widget.TextView tvDur = new android.widget.TextView(this);
+                long durMs = message.duration != null ? message.duration : 0L;
+                tvDur.setText(durMs > 0 ? formatDurationVo(durMs) : "--:--");
+                tvDur.setTextSize(16f);
+                tvDur.setPadding(16, 0, 0, 0);
+                row.addView(tvDur);
+                container.addView(row);
+
+                if (message.mediaUrl != null) {
+                    android.media.MediaPlayer mp = new android.media.MediaPlayer();
+                    mpHolder[0] = mp;
+                    try {
+                        mp.setDataSource(message.mediaUrl);
+                        mp.prepareAsync();
+                        mp.setOnPreparedListener(prepared -> {
+                            prepared.start();
+                            btnPlay.setImageResource(android.R.drawable.ic_media_pause);
+                        });
+                        mp.setOnCompletionListener(done ->
+                                btnPlay.setImageResource(android.R.drawable.ic_media_play));
+                        btnPlay.setOnClickListener(v -> {
+                            if (mp.isPlaying()) {
+                                mp.pause();
+                                btnPlay.setImageResource(android.R.drawable.ic_media_play);
+                            } else {
+                                mp.start();
+                                btnPlay.setImageResource(android.R.drawable.ic_media_pause);
+                            }
+                        });
+                    } catch (Exception ignored) {}
+                }
+                break;
+            }
+
+            case "file": {
+                android.widget.TextView tvFile = new android.widget.TextView(this);
+                tvFile.setText("📄  " + (message.fileName != null ? message.fileName : "File"));
+                tvFile.setTextSize(16f);
+                tvFile.setGravity(android.view.Gravity.CENTER);
+                tvFile.setPadding(0, 8, 0, 8);
+                container.addView(tvFile);
+                break;
+            }
+
+            default: {
+                // text (and anything else)
+                android.widget.TextView tvContent = new android.widget.TextView(this);
+                tvContent.setText(message.text != null ? message.text : "");
+                tvContent.setTextSize(17f);
+                tvContent.setGravity(android.view.Gravity.CENTER);
+                tvContent.setPadding(0, 8, 0, 8);
+                container.addView(tvContent);
+                break;
+            }
+        }
+
+        // ── Warning footer ─────────────────────────────────────────────────
+        android.widget.TextView tvWarn = new android.widget.TextView(this);
+        tvWarn.setText("⚠️  This message will be permanently deleted when you close this dialog.");
+        tvWarn.setTextSize(11f);
+        tvWarn.setTextColor(0xFFAA4444);
+        tvWarn.setGravity(android.view.Gravity.CENTER);
+        tvWarn.setPadding(0, 20, 0, 0);
+        container.addView(tvWarn);
+
+        // ── Build dialog ───────────────────────────────────────────────────
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("View Once Message")
+                .setView(container)
+                .setPositiveButton("Close & Delete", null)  // listener set below
+                .setCancelable(true)
+                .create();
+
+        // On any dismiss (back, outside tap, button) → trigger permanent delete
+        android.content.DialogInterface.OnDismissListener dismissListener = d -> {
+            // 1. Release media resources
+            if (ivHolder[0] != null && !isDestroyed()) {
+                try { com.bumptech.glide.Glide.with(this).clear(ivHolder[0]); } catch (Exception ignored) {}
+            }
+            if (vvHolder[0] != null) {
+                try { vvHolder[0].stopPlayback(); vvHolder[0].setVideoURI(null); } catch (Exception ignored) {}
+            }
+            if (mpHolder[0] != null) {
+                try { mpHolder[0].stop(); } catch (Exception ignored) {}
+                try { mpHolder[0].release(); } catch (Exception ignored) {}
+                mpHolder[0] = null;
+            }
+            // 2. Trigger permanent delete on both sides via controller
+            if (viewOnceController != null && msgId != null) {
+                viewOnceController.onViewerClosed(msgId);
+            }
+        };
+        dialog.setOnDismissListener(dismissListener);
+
+        dialog.show();
+    }
+
+    /** Format milliseconds → M:SS for view-once audio label. */
+    private static String formatDurationVo(long ms) {
+        long secs = ms / 1000;
+        long mins = secs / 60;
+        secs = secs % 60;
+        return String.format(java.util.Locale.US, "%d:%02d", mins, secs);
     }
 
     // editMessage() moved to MessageEditHistoryController#editMessage —
