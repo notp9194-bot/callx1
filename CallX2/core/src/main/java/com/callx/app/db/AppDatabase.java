@@ -383,11 +383,12 @@ public abstract class AppDatabase extends RoomDatabase {
             db.execSQL("ALTER TABLE messages ADD COLUMN viewOnce INTEGER DEFAULT NULL");
             db.execSQL("ALTER TABLE messages ADD COLUMN viewOnceState TEXT DEFAULT NULL");
             db.execSQL("ALTER TABLE messages ADD COLUMN openedAt INTEGER DEFAULT NULL");
-            // Index: fast lookup for view-once state changes (adapter + SyncWorker)
-            db.execSQL(
-                "CREATE INDEX IF NOT EXISTS `index_messages_viewOnce` " +
-                "ON `messages` (`viewOnce`, `viewOnceState`)"
-            );
+            // NOTE: no manual CREATE INDEX here — an index created in a migration
+            // but not declared via @Index on the entity causes Room's startup
+            // schema validation to fail (IllegalStateException: "Migration didn't
+            // properly handle..."), crashing the entire app on first DB access.
+            // The chatId+timestamp index already covers view-once lookups well
+            // enough at this scale, so we keep this migration simple and safe.
         }
     };
 
