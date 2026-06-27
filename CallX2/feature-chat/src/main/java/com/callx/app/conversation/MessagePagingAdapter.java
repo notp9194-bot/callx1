@@ -2526,26 +2526,11 @@ public class MessagePagingAdapter
     }
 
     /**
-     * Binds the expired bubble — shows "Opened", "Expired", or "Removed"
-     * depending on how the view-once message ended its lifecycle.
-     *
-     *   STATE_OPENED / STATE_DELETED → "Opened"   (receiver opened normally)
-     *   STATE_EXPIRED / time-elapsed  → "Expired"  (timer ran out before open)
-     *   STATE_REVOKED                 → "Removed"  (sender revoked before open)
-     *
+     * Binds the "Opened" expired bubble.
      * Called from onBindViewHolder when viewType == TYPE_VIEW_ONCE_EXPIRED.
      */
     private void bindViewOnceExpired(RecyclerView.ViewHolder holder, Message m) {
         android.view.View root = holder.itemView;
-
-        // Determine which label to show
-        String label = com.callx.app.conversation.controllers.ChatViewOnceController.expiredLabel(m);
-
-        // Main status label (tv_expired_label) — "Opened" / "Expired" / "Removed"
-        android.widget.TextView tvLabel = root.findViewById(com.callx.app.chat.R.id.tv_expired_label);
-        if (tvLabel != null) {
-            tvLabel.setText(label);
-        }
 
         // Message sent time (bottom-right)
         android.widget.TextView tvTime = root.findViewById(com.callx.app.chat.R.id.tv_time);
@@ -2554,14 +2539,11 @@ public class MessagePagingAdapter
                     java.util.Locale.getDefault()).format(new java.util.Date(m.timestamp)));
         }
 
-        // Sub-label line — shows "Opened · 3:45 PM" for sender only when receiver opened it.
-        // Hidden for Expired and Removed states (no openedAt in those flows).
+        // "Opened on" time — shown only to sender (openedAt is set by receiver's device)
         android.widget.TextView tvOpenedAt = root.findViewById(com.callx.app.chat.R.id.tv_opened_at);
         if (tvOpenedAt != null) {
-            boolean isSender   = currentUid != null && currentUid.equals(m.senderId);
-            boolean wasOpened  = com.callx.app.conversation.controllers.ChatViewOnceController.STATE_OPENED.equals(m.viewOnceState)
-                    || com.callx.app.conversation.controllers.ChatViewOnceController.STATE_DELETED.equals(m.viewOnceState);
-            if (isSender && wasOpened && m.openedAt != null) {
+            if (currentUid != null && currentUid.equals(m.senderId) && m.openedAt != null) {
+                // Format: "Opened · 3:45 PM" (time only — clean, no date clutter)
                 java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat(
                         "h:mm a", java.util.Locale.getDefault());
                 tvOpenedAt.setText("Opened · " + sdf.format(new java.util.Date(m.openedAt)));
