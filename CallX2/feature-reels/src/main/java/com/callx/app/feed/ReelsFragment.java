@@ -32,8 +32,10 @@ import com.callx.app.notifications.ReelNotificationsActivity;
 import com.callx.app.upload.ReelUploadActivity;
 import com.callx.app.explore.ReelSearchActivity;
 import com.callx.app.cache.ReelCacheManager;
+import com.callx.app.cache.ReelPredictivePreloader;
 import com.callx.app.cache.ReelVideoPreloader;
 import com.callx.app.cache.ReelThumbnailPreloader;
+import com.callx.app.player.ReelOfflineManager;
 import com.callx.app.feed.ReelsAdapter;
 import com.callx.app.models.ReelModel;
 import com.callx.app.utils.FirebaseUtils;
@@ -120,6 +122,9 @@ public class ReelsFragment extends Fragment {
 
     private ReelVideoPreloader     videoPreloader;
     private ReelThumbnailPreloader thumbPreloader;
+    // v5: Predictive preloader + offline manager
+    private ReelPredictivePreloader predictivePreloader;
+    private ReelOfflineManager      offlineManager;
 
     @Nullable
     @Override
@@ -176,7 +181,12 @@ public class ReelsFragment extends Fragment {
 
         ReelCacheManager.init(requireContext());
         videoPreloader = new ReelVideoPreloader(requireContext());
+        // Wire preloader to existing fragments if any (e.g. after config change)
+        wirePreloaderToVisibleFragment();
         thumbPreloader = new ReelThumbnailPreloader(requireContext());
+        // v5: Init predictive preloader + offline manager
+        predictivePreloader = new ReelPredictivePreloader(requireContext());
+        offlineManager      = ReelOfflineManager.get(requireContext());
 
         vpReels.registerOnPageChangeCallback(new ViewPager2.OnPageChangeCallback() {
             @Override
@@ -186,7 +196,20 @@ public class ReelsFragment extends Fragment {
                 if (reelIndex >= currentPage - 3) loadMoreReels();
                 List<ReelModel> cur = isFypMode ? allReels : followingReels;
                 if (videoPreloader != null) videoPreloader.preloadFrom(cur, reelIndex);
+                // Sync preloader to newly visible fragment
+                wirePreloaderToCurrentFragment(position);
                 if (thumbPreloader != null) thumbPreloader.preloadFrom(cur, reelIndex);
+                // v5: Record watch event + drive predictive preload order
+                if (predictivePreloader != null && reelIndex < cur.size()) {
+                    ReelModel current = cur.get(reelIndex);
+                    predictivePreloader.recordWatch(
+                        current.reelId,
+                        current.hashtags != null ? current.hashtags : java.util.Collections.emptyList(),
+                        current.uid
+                    );
+                    List<String> preloadOrder = predictivePreloader.getPreloadOrder(cur, reelIndex);
+                    android.util.Log.d("ReelsFragment", "Predictive order=" + preloadOrder);
+                }
             }
         });
 
@@ -463,6 +486,25 @@ public class ReelsFragment extends Fragment {
         // CRASH FIX: Remove Firebase listeners BEFORE destroying view.
         // Without this, Firebase callbacks fire after vpReels/adapter are null → NPE crash.
         removeListeners();
+
+    // ── Preloader → Fragment wiring ───────────────────────────────────────────
+
+    private void wirePreloaderToCurrentFragment(int position) {
+        if (adapter == null || vpReels == null) return;
+        try {
+            androidx.fragment.app.Fragment f = getChildFragmentManager()
+                .findFragmentByTag("f" + adapter.getItemId(position));
+            if (f instanceof com.callx.app.feed.ReelPlayerFragment && videoPreloader != null) {
+                ((com.callx.app.feed.ReelPlayerFragment) f).setPreloader(videoPreloader);
+            }
+        } catch (Exception ignored) {}
+    }
+
+    private void wirePreloaderToVisibleFragment() {
+        if (vpReels == null) return;
+        wirePreloaderToCurrentFragment(vpReels.getCurrentItem());
+    }
+
         if (videoPreloader != null) { videoPreloader.shutdown(); videoPreloader = null; }
         thumbPreloader = null;
         super.onDestroyView();
@@ -703,6 +745,19 @@ public class ReelsFragment extends Fragment {
                 FirebaseUtils.getReelFollowsRef(myUid).removeEventListener(followListener);
             followListener = null;
         }
+    }
+
+    // ── v5 accessor: lets ReelPlayerFragment notify predictivePreloader ────────
+    public void notifyReelWatched(String reelId, java.util.List<String> tags, String uid) {
+        if (predictivePreloader != null)
+            predictivePreloader.recordWatch(reelId, tags, uid);
+    }
+
+    @Override
+    public void onDestroyView() {
+        // v5: cleanup offline manager network callbacks
+        if (offlineManager != null) offlineManager.destroy();
+        super.onDestroyView();
     }
 
     // ── Playback control ──────────────────────────────────────────────────

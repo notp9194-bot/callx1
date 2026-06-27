@@ -266,6 +266,20 @@
             </LinearLayout>
 
         </LinearLayout>
+
+        <!-- QoE lifetime stats — persisted across sessions -->
+        <TextView
+            android:id="@+id/tv_qoe_lifetime"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:padding="12dp"
+            android:textSize="11sp"
+            android:textColor="#88FFFFFF"
+            android:fontFamily="monospace"
+            android:hint="Lifetime stats loading…"/>
+
+    </LinearLayout>
     </ScrollView>
 
 </LinearLayout>

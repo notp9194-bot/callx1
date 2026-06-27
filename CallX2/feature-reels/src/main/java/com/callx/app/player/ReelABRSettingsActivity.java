@@ -44,7 +44,7 @@ public class ReelABRSettingsActivity extends AppCompatActivity {
     // ── Views ─────────────────────────────────────────────────────────────────
     private RadioGroup   rgWifi, rgData;
     private Switch       swDataSaver;
-    private TextView     tvBandwidth, tvDataSaverDesc, tvNetworkType, tvRecommended;
+    private TextView     tvBandwidth, tvDataSaverDesc, tvNetworkType, tvRecommended, tvQoeLifetime;
     private LinearLayout layoutDataQuality;
     private ProgressBar  pbBandwidthGauge;
 
@@ -74,6 +74,12 @@ public class ReelABRSettingsActivity extends AppCompatActivity {
         tvRecommended    = findViewById(R.id.tv_quality_recommendation);
         layoutDataQuality = findViewById(R.id.layout_data_quality);
         pbBandwidthGauge  = findViewById(R.id.pb_bandwidth_gauge);
+        tvQoeLifetime     = findViewById(R.id.tv_qoe_lifetime);
+
+        // Show persisted lifetime QoE stats immediately on open
+        if (tvQoeLifetime != null) {
+            tvQoeLifetime.setText(AdaptiveStreamingManager.get(this).getLifetimeQoeSummary());
+        }
 
         loadSavedSettings();
 
@@ -118,7 +124,7 @@ public class ReelABRSettingsActivity extends AppCompatActivity {
 
     private void updateBandwidthUI() {
         AdaptiveStreamingManager mgr = AdaptiveStreamingManager.get(this);
-        long bwKbps = mgr.currentBandwidthKbps();
+        long bwKbps = mgr.getEwmaBandwidthKbps(); // use EWMA, not raw spike
 
         // Network type label
         String netLabel = getNetworkTypeLabel();
@@ -131,16 +137,16 @@ public class ReelABRSettingsActivity extends AppCompatActivity {
             bwText        = "Measuring…";
             gaugeProgress = 0;
         } else if (bwKbps >= 1_000) {
-            bwText = String.format("%.1f Mbps", bwKbps / 1000.0);
+            bwText = String.format("%.1f Mbps (avg)", bwKbps / 1000.0);
             gaugeProgress = (int) Math.min(100, bwKbps / 200); // 20 Mbps = 100%
         } else {
-            bwText        = bwKbps + " Kbps";
+            bwText        = bwKbps + " Kbps (avg)";
             gaugeProgress = (int)(bwKbps / 20);
         }
         tvBandwidth.setText(bwText);
         if (pbBandwidthGauge != null) pbBandwidthGauge.setProgress(gaugeProgress);
 
-        // Recommendation
+        // Recommendation based on EWMA
         if (tvRecommended != null) {
             AdaptiveStreamingManager.QualityCap rec = mgr.recommendedCap(this);
             String recLabel = AdaptiveStreamingManager.capLabel(rec);

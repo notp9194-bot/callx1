@@ -14,6 +14,9 @@ import androidx.media3.datasource.DataSpec;
 
 import com.callx.app.cache.UnifiedVideoCacheManager;
 import com.callx.app.models.ReelModel;
+import com.callx.app.player.AdaptiveStreamingManager;
+import com.callx.app.player.NetworkQualityMonitor;
+import com.callx.app.utils.VideoUploader;
 
 import java.util.HashSet;
 import java.util.List;
@@ -69,11 +72,19 @@ public class ReelVideoPreloader {
     private final Set<String>              mPreloading = ConcurrentHashMap.newKeySet();
     private final ConcurrentHashMap<String, Future<?>> mActiveTasks = new ConcurrentHashMap<>();
 
+    /** Optional quality hint — set from ReelPlayerController so preloader caches the right URL */
+    private AdaptiveStreamingManager.QualityCap mCurrentCap = AdaptiveStreamingManager.QualityCap.AUTO;
+
     public ReelVideoPreloader(Context context) {
         mContext  = context.getApplicationContext();
         // 3 background threads — next 3 reels parallel preload karo
         mExecutor = Executors.newFixedThreadPool(3);
         ReelCacheManager.init(mContext);
+    }
+
+    /** Call from ReelPlayerController whenever currentCap changes */
+    public void setQualityCap(AdaptiveStreamingManager.QualityCap cap) {
+        mCurrentCap = cap != null ? cap : AdaptiveStreamingManager.QualityCap.AUTO;
     }
 
     /**
@@ -85,21 +96,66 @@ public class ReelVideoPreloader {
     public void preloadFrom(List<ReelModel> reels, int position) {
         if (reels == null || reels.isEmpty()) return;
 
-        for (int i = position + 1; i <= position + PRELOAD_COUNT && i < reels.size(); i++) {
+        // Network-aware bytes: WiFi aggressive, 2G minimal
+        NetworkQualityMonitor monitor = NetworkQualityMonitor.get(mContext);
+        NetworkQualityMonitor.Quality netQuality = monitor.currentQuality();
+        long bytesToPreload = networkBytes(netQuality);
+
+        // Quality-aware URL: preload the URL the player will actually use
+        AdaptiveStreamingManager.QualityCap cap = mCurrentCap;
+
+        // Reduce preload count on slow networks to save data
+        int preloadCount = netQuality == NetworkQualityMonitor.Quality.CELLULAR_2G ? 1
+            : netQuality == NetworkQualityMonitor.Quality.CELLULAR_3G ? 2
+            : PRELOAD_COUNT;
+
+        for (int i = position + 1; i <= position + preloadCount && i < reels.size(); i++) {
             ReelModel reel = reels.get(i);
             if (reel == null) continue;
 
-            // Main reel video
-            if (reel.videoUrl != null && !reel.videoUrl.isEmpty()) {
-                preloadSingle(reel.videoUrl, PRELOAD_BYTES);
+            // Pick quality URL matching current player cap
+            String preloadUrl = pickQualityUrl(reel, cap);
+            if (preloadUrl != null && !preloadUrl.isEmpty()) {
+                preloadSingle(preloadUrl, bytesToPreload);
             }
 
             // Duet original — compositor needs large chunk for rendering
-            // Use 50MB preload so DuetVideoCompositor can use cached file directly
             if (reel.duetOriginalUrl != null && !reel.duetOriginalUrl.isEmpty()) {
                 preloadSingle(reel.duetOriginalUrl, PRELOAD_BYTES_DUET);
                 Log.d(TAG, "Duet original preloading (50MB): " + shortUrl(reel.duetOriginalUrl));
             }
+        }
+    }
+
+    /** Pick the same quality URL the player would choose for this cap */
+    private String pickQualityUrl(ReelModel reel, AdaptiveStreamingManager.QualityCap cap) {
+        String url480  = reel.video480  != null && !reel.video480.isEmpty()  ? reel.video480  : null;
+        String url720  = reel.video720  != null && !reel.video720.isEmpty()  ? reel.video720  : null;
+        String url1080 = reel.video1080 != null && !reel.video1080.isEmpty() ? reel.video1080 : null;
+        String fallback = reel.videoUrl != null ? reel.videoUrl : "";
+
+        switch (cap) {
+            case Q480P:  return url480  != null ? url480  : fallback;
+            case Q720P:  return url720  != null ? url720  : fallback;
+            case Q1080P: return url1080 != null ? url1080 : fallback;
+            case Q360P:  return url480  != null ? url480  : fallback;
+            case AUTO:
+            default:
+                return url1080 != null ? url1080 : (url720 != null ? url720 : fallback);
+        }
+    }
+
+    /** Bytes to preload based on network quality */
+    private long networkBytes(NetworkQualityMonitor.Quality q) {
+        switch (q) {
+            case WIFI:
+            case ETHERNET:
+            case CELLULAR_5G: return PRELOAD_BYTES_WIFI;
+            case CELLULAR_4G: return PRELOAD_BYTES_4G;
+            case CELLULAR_3G: return PRELOAD_BYTES_3G;
+            case CELLULAR_2G:
+            case NONE:
+            default:          return PRELOAD_BYTES_2G;
         }
     }
 

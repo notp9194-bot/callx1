@@ -1238,12 +1238,19 @@ public class ReelUploadActivity extends AppCompatActivity {
             }
 
             @Override
-            public void onSuccess(String thumbUrl, String videoUrl,
+            public void onSuccessWithQualities(String thumbUrl, String videoUrl,
+                                  String video480, String video720, String video1080,
                                   int durationMs, int width, int height) {
                 ReelUploadActivity a = ref.get();
                 if (a == null || a.isFinishing() || a.isDestroyed()) return;
-                a.saveReelToFirebase(thumbUrl, videoUrl, durationMs, width, height,
-                    caption, musicName, uploadResult, videoPath);
+                a.saveReelToFirebase(thumbUrl, videoUrl, video480, video720, video1080,
+                    durationMs, width, height, caption, musicName, uploadResult, videoPath);
+            }
+
+            @Override
+            public void onSuccess(String thumbUrl, String videoUrl,
+                                  int durationMs, int width, int height) {
+                // fallback — won't be called if onSuccessWithQualities is overridden
             }
 
             @Override
@@ -1456,6 +1463,7 @@ public class ReelUploadActivity extends AppCompatActivity {
     // ── Firebase save ─────────────────────────────────────────────────────
 
     private void saveReelToFirebase(String thumbUrl, String videoUrl,
+                                    String video480, String video720, String video1080,
                                     int durationMs, int width, int height,
                                     String caption, String musicName,
                                     VideoCompressor.Result result, String videoPath) {
@@ -1500,6 +1508,9 @@ public class ReelUploadActivity extends AppCompatActivity {
                     System.currentTimeMillis(), durationMs, width, height);
 
                 reel.audienceType = audienceType;
+                reel.video480  = video480  != null ? video480  : "";
+                reel.video720  = video720  != null ? video720  : "";
+                reel.video1080 = video1080 != null ? video1080 : "";
 
                 // ✅ Duet & Stitch permission — set by creator at upload time
                 String duetLevel   = a.getDuetLevel();

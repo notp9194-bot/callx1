@@ -117,6 +117,13 @@
         <activity android:name="com.callx.app.analytics.ReelDeepAnalyticsActivity"
             android:exported="false"
             android:screenOrientation="portrait"/>
+
+        <!-- ══ QoE Analytics Dashboard (ReelQoEAnalyticsActivity) ═══════════ -->
+        <activity android:name="com.callx.app.analytics.ReelQoEAnalyticsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:label="QoE Analytics"/>
+
         <activity android:name="com.callx.app.analytics.ReelAudienceInsightsActivity"
             android:exported="false"
             android:screenOrientation="portrait"/>

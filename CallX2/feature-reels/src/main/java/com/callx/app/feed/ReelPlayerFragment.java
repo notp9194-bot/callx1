@@ -183,6 +183,11 @@ public class ReelPlayerFragment extends Fragment
         uiController     = new ReelUiController(this);
     }
 
+    /** Called by ReelsFragment to wire the shared preloader — syncs quality cap */
+    public void setPreloader(com.callx.app.cache.ReelVideoPreloader preloader) {
+        if (playerController != null) playerController.setPreloader(preloader);
+    }
+
     @Nullable
     @Override
     public View onCreateView(@NonNull LayoutInflater inflater,
@@ -248,6 +253,14 @@ public class ReelPlayerFragment extends Fragment
             uiController.startDiscAnimation();
             socialController.recordView();
             socialController.markReelNotificationsRead();
+            // v5: Notify predictive preloader in parent ReelsFragment
+            if (reel != null && getParentFragment() instanceof ReelsFragment) {
+                ((ReelsFragment) getParentFragment()).notifyReelWatched(
+                    reel.reelId,
+                    reel.hashtags != null ? reel.hashtags : java.util.Collections.emptyList(),
+                    reel.uid
+                );
+            }
         } else {
             playerController.pausePlayback();
         }

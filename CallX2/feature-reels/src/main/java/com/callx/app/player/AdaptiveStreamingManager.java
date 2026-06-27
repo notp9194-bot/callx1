@@ -1,6 +1,7 @@
 package com.callx.app.player;
 
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
@@ -19,6 +20,7 @@ import androidx.media3.common.TrackSelectionParameters;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.datasource.DefaultHttpDataSource;
 import androidx.media3.datasource.cache.CacheDataSource;
+import androidx.media3.exoplayer.DefaultLoadControl;
 import androidx.media3.exoplayer.DefaultRenderersFactory;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.dash.DashMediaSource;
@@ -30,6 +32,7 @@ import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter;
 
 import com.callx.app.cache.UnifiedVideoCacheManager;
 
+import java.util.ArrayDeque;
 import java.util.Locale;
 
 /**
@@ -41,18 +44,13 @@ import java.util.Locale;
  *  ✅ Progressive  — fallback for direct MP4 URLs (Cloudinary, Firebase Storage)
  *  ✅ Adaptive bitrate — auto-selects quality based on live bandwidth
  *  ✅ Quality caps — user can lock to 360p / 720p / 1080p / Auto
- *  ✅ Bandwidth meter — DefaultBandwidthMeter tracks real-time Kbps
+ *  ✅ EWMA bandwidth history — 10-sample rolling average smooths spikes
+ *  ✅ Bandwidth-gated upgrade — upgradeQuality() checks EWMA before applying
  *  ✅ Network-aware degradation — drops quality on slow network, recovers on fast
  *  ✅ Shared video cache — uses UnifiedVideoCacheManager (same 500MB pool as reels)
  *  ✅ Stall tracking — counts stalls, fires ReelABRCallback for analytics
+ *  ✅ QoE persistence — cumulative session stats saved to SharedPreferences
  *  ✅ Thread-safe singleton
- *
- * Usage:
- *   AdaptiveStreamingManager mgr = AdaptiveStreamingManager.get(context);
- *   ExoPlayer player = mgr.buildPlayer(videoUrl, QualityCap.AUTO, callback);
- *   playerView.setPlayer(player);
- *   player.prepare();
- *   player.play();
  */
 @OptIn(markerClass = UnstableApi.class)
 public class AdaptiveStreamingManager {
@@ -69,15 +67,38 @@ public class AdaptiveStreamingManager {
     }
 
     // ── Bandwidth thresholds for automatic quality degradation ──────────────
-    private static final long BW_VERY_LOW_KBPS = 300;   // force 360p
-    private static final long BW_LOW_KBPS      = 800;   // force 480p
-    private static final long BW_MED_KBPS      = 2_000; // force 720p
+    private static final long BW_VERY_LOW_KBPS = 300;    // force 360p
+    private static final long BW_LOW_KBPS      = 800;    // force 480p
+    private static final long BW_MED_KBPS      = 2_000;  // force 720p
     // above 2 Mbps → AUTO / 1080p
+
+    // ── Minimum EWMA bandwidth needed to justify each upgrade target ─────────
+    // Must have sustained bandwidth headroom over the target bitrate before
+    // upgradeQuality() will actually switch up. This prevents 720p upgrade
+    // from firing on a 500 Kbps connection just because time elapsed.
+    private static final long BW_MIN_FOR_480P_KBPS  =   600;
+    private static final long BW_MIN_FOR_720P_KBPS  = 1_500;
+    private static final long BW_MIN_FOR_1080P_KBPS = 4_000;
+
+    // ── EWMA bandwidth history ───────────────────────────────────────────────
+    private static final int  EWMA_WINDOW = 10;   // rolling samples
+    private static final double EWMA_ALPHA = 0.3; // weight for newest sample (0–1)
+    private final ArrayDeque<Long> bwHistory   = new ArrayDeque<>();
+    private       double           ewmaBwKbps  = 0.0;
 
     // ── Retry & timeout config ───────────────────────────────────────────────
     private static final int  CONNECT_TIMEOUT_MS = 10_000;
     private static final int  READ_TIMEOUT_MS    = 15_000;
     private static final int  MAX_STALL_COUNT    = 3;     // fire onPersistentStall after 3 stalls
+
+    // ── QoE persistence ──────────────────────────────────────────────────────
+    private static final String QOE_PREFS          = "abr_qoe_stats";
+    private static final String KEY_TOTAL_SESSIONS  = "total_sessions";
+    private static final String KEY_TOTAL_STALL_MS  = "total_stall_ms";
+    private static final String KEY_TOTAL_SWITCHES  = "total_quality_switches";
+    private static final String KEY_TOTAL_UPGRADES  = "total_upgrades";
+    private static final String KEY_TOTAL_DOWNGRADES= "total_downgrades";
+    private static final String KEY_AVG_TTFF_MS     = "avg_ttff_ms";
 
     // ── Singleton ─────────────────────────────────────────────────────────────
     private static volatile AdaptiveStreamingManager instance;
@@ -129,19 +150,50 @@ public class AdaptiveStreamingManager {
         DefaultRenderersFactory renderersFactory = new DefaultRenderersFactory(appCtx)
             .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER);
 
-        // 3. Build ExoPlayer
+        // 3. Tuned LoadControl — short start buffer for instant playback
+        NetworkQualityMonitor.Quality netQ = NetworkQualityMonitor.get(appCtx).currentQuality();
+        int minBufferMs, maxBufferMs, bufferForPlaybackMs, bufferForPlaybackAfterRebufferMs;
+        switch (netQ) {
+            case WIFI:
+            case ETHERNET:
+            case CELLULAR_5G:
+                minBufferMs = 5_000;  maxBufferMs = 12_000;
+                bufferForPlaybackMs = 800; bufferForPlaybackAfterRebufferMs = 2_000;
+                break;
+            case CELLULAR_4G:
+                minBufferMs = 3_000;  maxBufferMs = 8_000;
+                bufferForPlaybackMs = 1_000; bufferForPlaybackAfterRebufferMs = 2_500;
+                break;
+            case CELLULAR_3G:
+                minBufferMs = 2_000;  maxBufferMs = 5_000;
+                bufferForPlaybackMs = 1_500; bufferForPlaybackAfterRebufferMs = 3_000;
+                break;
+            default: // 2G / offline
+                minBufferMs = 1_500;  maxBufferMs = 4_000;
+                bufferForPlaybackMs = 2_000; bufferForPlaybackAfterRebufferMs = 4_000;
+                break;
+        }
+        DefaultLoadControl loadControl = new DefaultLoadControl.Builder()
+            .setBufferDurationsMs(minBufferMs, maxBufferMs,
+                bufferForPlaybackMs, bufferForPlaybackAfterRebufferMs)
+            .setPrioritizeTimeOverSizeThresholds(true)
+            .setBackBuffer(3_000, true)
+            .build();
+
+        // 4. Build ExoPlayer
         ExoPlayer player = new ExoPlayer.Builder(appCtx, renderersFactory)
             .setTrackSelector(trackSelector)
             .setBandwidthMeter(bandwidthMeter)
+            .setLoadControl(loadControl)
             .setHandleAudioBecomingNoisy(true)
             .build();
 
-        // 4. Create media source
+        // 5. Create media source
         MediaSource source = buildSource(url);
         player.setMediaSource(source);
 
-        // 5. Attach stall / quality listener
-        if (callback != null) attachListener(player, callback);
+        // 6. Attach stall / quality listener + EWMA sampler
+        attachListener(player, callback);
 
         Log.d(TAG, "buildPlayer cap=" + cap + " url=" + url);
         return player;
@@ -173,11 +225,9 @@ public class AdaptiveStreamingManager {
                 break;
             case AUTO:
             default:
-                // No cap — ExoPlayer ABR decides freely based on bandwidth
                 break;
         }
 
-        // Always prefer higher frame rate when bitrate allows
         params.setForceHighestSupportedBitrate(cap == QualityCap.Q1080P);
         selector.setParameters(params.build());
         return selector;
@@ -194,7 +244,6 @@ public class AdaptiveStreamingManager {
             .setAllowCrossProtocolRedirects(true)
             .setUserAgent("CallX/1.0 (ABR)");
 
-        // Wrap with shared cache (reads cached bytes, writes new bytes to cache)
         if (!UnifiedVideoCacheManager.isInitialized()) {
             UnifiedVideoCacheManager.init(appCtx);
         }
@@ -216,7 +265,7 @@ public class AdaptiveStreamingManager {
         }
     }
 
-    // ── Listener attachment ───────────────────────────────────────────────────
+    // ── Listener attachment + EWMA sampling ───────────────────────────────────
 
     private void attachListener(ExoPlayer player, ReelABRCallback cb) {
         final int[] stallCount = {0};
@@ -224,43 +273,105 @@ public class AdaptiveStreamingManager {
         player.addListener(new Player.Listener() {
             @Override
             public void onPlaybackStateChanged(int state) {
+                // Sample bandwidth into EWMA on every state change
+                sampleBandwidth();
+
                 if (state == Player.STATE_BUFFERING) {
                     stallCount[0]++;
-                    long bw = bandwidthMeter.getBitrateEstimate() / 1_000; // kbps
-                    Log.d(TAG, "Stall #" + stallCount[0] + " bandwidth=" + bw + "kbps");
-                    mainHandler.post(() -> {
-                        cb.onStall(stallCount[0]);
-                        if (stallCount[0] >= MAX_STALL_COUNT) cb.onPersistentStall();
-                    });
+                    long bw = getEwmaBandwidthKbps();
+                    Log.d(TAG, "Stall #" + stallCount[0] + " ewma_bw=" + bw + "kbps");
+                    if (cb != null) {
+                        mainHandler.post(() -> {
+                            cb.onStall(stallCount[0]);
+                            if (stallCount[0] >= MAX_STALL_COUNT) cb.onPersistentStall();
+                        });
+                    }
                 }
             }
 
             @Override
             public void onVideoSizeChanged(
                     @NonNull androidx.media3.common.VideoSize videoSize) {
-                long bwKbps = bandwidthMeter.getBitrateEstimate() / 1_000;
+                sampleBandwidth();
+                long bwKbps = getEwmaBandwidthKbps();
                 Log.d(TAG, "Quality: " + videoSize.width + "x" + videoSize.height
-                    + " @ " + bwKbps + "kbps");
-                mainHandler.post(() ->
-                    cb.onQualitySelected(videoSize.width, videoSize.height, bwKbps));
+                    + " @ " + bwKbps + "kbps (ewma)");
+                if (cb != null) {
+                    mainHandler.post(() ->
+                        cb.onQualitySelected(videoSize.width, videoSize.height, bwKbps));
+                }
             }
 
             @Override
             public void onPlayerError(@NonNull PlaybackException error) {
                 Log.e(TAG, "Player error: " + error.getMessage());
-                mainHandler.post(() -> cb.onError(error));
+                if (cb != null) {
+                    mainHandler.post(() -> cb.onError(error));
+                }
             }
         });
+    }
+
+    // ── EWMA bandwidth tracking ───────────────────────────────────────────────
+
+    /**
+     * Sample current raw bandwidth from DefaultBandwidthMeter into the EWMA.
+     * Called on playback state changes and video size changes so the average
+     * accumulates over real playback samples, not wall-clock time.
+     */
+    private synchronized void sampleBandwidth() {
+        long rawKbps = bandwidthMeter.getBitrateEstimate() / 1_000;
+        if (rawKbps <= 0) return; // skip uninitialized readings
+
+        // Keep rolling window of last EWMA_WINDOW samples
+        bwHistory.addLast(rawKbps);
+        if (bwHistory.size() > EWMA_WINDOW) bwHistory.pollFirst();
+
+        // Exponential weighted moving average — newer samples weighted more
+        if (ewmaBwKbps <= 0) {
+            ewmaBwKbps = rawKbps; // seed on first sample
+        } else {
+            ewmaBwKbps = EWMA_ALPHA * rawKbps + (1.0 - EWMA_ALPHA) * ewmaBwKbps;
+        }
+        Log.v(TAG, "BW sample raw=" + rawKbps + " ewma=" + (long)ewmaBwKbps + " kbps");
+    }
+
+    /**
+     * Returns the EWMA-smoothed bandwidth estimate in Kbps.
+     * Falls back to raw BandwidthMeter if no samples accumulated yet.
+     */
+    public synchronized long getEwmaBandwidthKbps() {
+        if (ewmaBwKbps > 0) return (long) ewmaBwKbps;
+        return bandwidthMeter.getBitrateEstimate() / 1_000;
+    }
+
+    /**
+     * Returns true if the EWMA bandwidth is high enough to sustain the given
+     * quality cap. Used by upgradeQuality() to gate upgrades.
+     *
+     * @param targetCap the quality we want to upgrade TO
+     */
+    public boolean isBandwidthSufficientFor(QualityCap targetCap) {
+        long ewma = getEwmaBandwidthKbps();
+        if (ewma <= 0) return false; // no data yet → don't upgrade blindly
+
+        switch (targetCap) {
+            case Q480P:  return ewma >= BW_MIN_FOR_480P_KBPS;
+            case Q720P:  return ewma >= BW_MIN_FOR_720P_KBPS;
+            case Q1080P: return ewma >= BW_MIN_FOR_1080P_KBPS;
+            case AUTO:   return ewma >= BW_MIN_FOR_720P_KBPS; // AUTO = at least 720p worthy
+            default:     return true; // Q360P always safe
+        }
     }
 
     // ── Network-aware quality suggestion ─────────────────────────────────────
 
     /**
-     * Returns the recommended QualityCap based on current network bandwidth.
-     * Call before building a player to pre-select an appropriate cap.
+     * Returns the recommended QualityCap based on EWMA bandwidth.
+     * More conservative than raw estimate — won't suggest 720p on a 500kbps line.
      */
     public QualityCap recommendedCap(Context ctx) {
-        long bwKbps = bandwidthMeter.getBitrateEstimate() / 1_000;
+        long bwKbps = getEwmaBandwidthKbps();
         if (bwKbps <= 0) bwKbps = estimateBandwidthFromNetworkType(ctx);
 
         if (bwKbps < BW_VERY_LOW_KBPS) return QualityCap.Q360P;
@@ -269,7 +380,7 @@ public class AdaptiveStreamingManager {
         return QualityCap.AUTO;
     }
 
-    /** Fallback estimate when BandwidthMeter has no data yet */
+    /** Fallback estimate when EWMA has no data yet */
     private long estimateBandwidthFromNetworkType(Context ctx) {
         ConnectivityManager cm =
             (ConnectivityManager) ctx.getSystemService(Context.CONNECTIVITY_SERVICE);
@@ -287,9 +398,73 @@ public class AdaptiveStreamingManager {
 
     // ── Bandwidth info ────────────────────────────────────────────────────────
 
-    /** Current estimated bandwidth in Kbps (0 if not yet measured) */
+    /** Raw bandwidth from BandwidthMeter in Kbps (0 if not yet measured) */
     public long currentBandwidthKbps() {
         return bandwidthMeter.getBitrateEstimate() / 1_000;
+    }
+
+    // ── QoE Persistence ───────────────────────────────────────────────────────
+
+    /**
+     * Persist QoE stats for a completed reel session.
+     * Cumulative — each session adds to running totals.
+     * Safe to call from any thread.
+     *
+     * @param stallMs        total stall time in ms for this session
+     * @param qualitySwitches total quality switches
+     * @param upgrades        quality upgrades
+     * @param downgrades      quality downgrades
+     * @param ttffMs          time-to-first-frame in ms (-1 if unknown)
+     */
+    public void persistQoeSession(long stallMs, int qualitySwitches,
+                                   int upgrades, int downgrades, long ttffMs) {
+        SharedPreferences prefs = appCtx.getSharedPreferences(QOE_PREFS, Context.MODE_PRIVATE);
+        SharedPreferences.Editor ed = prefs.edit();
+
+        long sessions    = prefs.getLong(KEY_TOTAL_SESSIONS,   0) + 1;
+        long totalStall  = prefs.getLong(KEY_TOTAL_STALL_MS,   0) + stallMs;
+        long totalSwitches = prefs.getLong(KEY_TOTAL_SWITCHES, 0) + qualitySwitches;
+        long totalUpgrades = prefs.getLong(KEY_TOTAL_UPGRADES, 0) + upgrades;
+        long totalDown   = prefs.getLong(KEY_TOTAL_DOWNGRADES, 0) + downgrades;
+
+        // Rolling average TTFF
+        long prevAvg     = prefs.getLong(KEY_AVG_TTFF_MS, 0);
+        long newAvgTtff  = ttffMs >= 0
+            ? (prevAvg * (sessions - 1) + ttffMs) / sessions
+            : prevAvg;
+
+        ed.putLong(KEY_TOTAL_SESSIONS,   sessions)
+          .putLong(KEY_TOTAL_STALL_MS,   totalStall)
+          .putLong(KEY_TOTAL_SWITCHES,   totalSwitches)
+          .putLong(KEY_TOTAL_UPGRADES,   totalUpgrades)
+          .putLong(KEY_TOTAL_DOWNGRADES, totalDown)
+          .putLong(KEY_AVG_TTFF_MS,      newAvgTtff)
+          .apply();
+
+        Log.d(TAG, "QoE persisted session=" + sessions
+            + " stallMs=" + stallMs + " switches=" + qualitySwitches
+            + " ttff=" + ttffMs + "ms avgTtff=" + newAvgTtff + "ms");
+    }
+
+    /**
+     * Returns a human-readable lifetime QoE summary from persisted stats.
+     * Useful for debug overlays or settings screens.
+     */
+    public String getLifetimeQoeSummary() {
+        SharedPreferences prefs = appCtx.getSharedPreferences(QOE_PREFS, Context.MODE_PRIVATE);
+        long sessions   = prefs.getLong(KEY_TOTAL_SESSIONS, 0);
+        if (sessions == 0) return "No QoE data yet";
+        long stallMs    = prefs.getLong(KEY_TOTAL_STALL_MS, 0);
+        long switches   = prefs.getLong(KEY_TOTAL_SWITCHES, 0);
+        long upgrades   = prefs.getLong(KEY_TOTAL_UPGRADES, 0);
+        long downgrades = prefs.getLong(KEY_TOTAL_DOWNGRADES, 0);
+        long avgTtff    = prefs.getLong(KEY_AVG_TTFF_MS, 0);
+
+        return "Sessions=" + sessions
+            + " AvgStall=" + (stallMs / sessions) + "ms"
+            + " AvgTTFF=" + avgTtff + "ms"
+            + " Switches=" + switches
+            + " (↑" + upgrades + " ↓" + downgrades + ")";
     }
 
     /** Human-readable label for current QualityCap */

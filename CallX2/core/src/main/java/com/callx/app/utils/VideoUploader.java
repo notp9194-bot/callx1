@@ -51,7 +51,28 @@ public class VideoUploader {
         void onProgress(int percent);
         void onSuccess(String thumbUrl, String videoUrl,
                        int durationMs, int width, int height);
+        /** Called with adaptive quality URLs — override to use them */
+        default void onSuccessWithQualities(String thumbUrl, String videoUrl,
+                       String video480, String video720, String video1080,
+                       int durationMs, int width, int height) {
+            onSuccess(thumbUrl, videoUrl, durationMs, width, height);
+        }
         void onError(Exception e);
+    }
+
+    // ── Generate Cloudinary transformation URLs ────────────────────────────
+    public static String cloudinaryQualityUrl(String originalUrl, int widthPx, int heightPx) {
+        if (originalUrl == null || originalUrl.isEmpty()) return originalUrl;
+        // Insert transformation after /upload/
+        // e.g. https://res.cloudinary.com/dvqqgqdls/video/upload/callx/videos/file/abc.mp4
+        // → https://res.cloudinary.com/dvqqgqdls/video/upload/q_auto,w_854,h_480,c_limit/callx/videos/file/abc.mp4
+        String marker = "/upload/";
+        int idx = originalUrl.indexOf(marker);
+        if (idx < 0) return originalUrl;
+        String transform = "q_auto,w_" + widthPx + ",h_" + heightPx + ",c_limit/";
+        return originalUrl.substring(0, idx + marker.length())
+             + transform
+             + originalUrl.substring(idx + marker.length());
     }
 
     // pause / cancel flags
@@ -109,7 +130,11 @@ public class VideoUploader {
             // Do NOT delete videoOverride — AudioMixHelper cache cleanup handled separately.
 
             final String fThumb = thumbUrl, fVideo = videoUrl;
-            MAIN.post(() -> cb.onSuccess(fThumb, fVideo, r.durationMs, r.width, r.height));
+            final String fVideo480  = cloudinaryQualityUrl(videoUrl, 854,  480);
+            final String fVideo720  = cloudinaryQualityUrl(videoUrl, 1280, 720);
+            final String fVideo1080 = cloudinaryQualityUrl(videoUrl, 1920, 1080);
+            MAIN.post(() -> cb.onSuccessWithQualities(fThumb, fVideo,
+                fVideo480, fVideo720, fVideo1080, r.durationMs, r.width, r.height));
 
         } catch (Exception e) {
             if (cancelled) return;
@@ -164,9 +189,16 @@ public class VideoUploader {
             VideoCompressor.safeDelete(r.thumbFile);
             VideoCompressor.safeDelete(r.videoFile);
 
+            // Generate Cloudinary adaptive quality URLs (no extra upload needed)
+            final String fVideo480  = cloudinaryQualityUrl(videoUrl, 854,  480);
+            final String fVideo720  = cloudinaryQualityUrl(videoUrl, 1280, 720);
+            final String fVideo1080 = cloudinaryQualityUrl(videoUrl, 1920, 1080);
+
             MAIN.post(() -> {
                 cb.onProgress(100);
-                cb.onSuccess(thumbUrl, videoUrl, r.durationMs, r.width, r.height);
+                cb.onSuccessWithQualities(thumbUrl, videoUrl,
+                    fVideo480, fVideo720, fVideo1080,
+                    r.durationMs, r.width, r.height);
             });
 
         } catch (Exception e) {

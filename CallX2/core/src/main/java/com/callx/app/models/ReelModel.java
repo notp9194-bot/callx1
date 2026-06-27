@@ -15,6 +15,9 @@ public class ReelModel {
     public String  ownerName;
     public String  ownerPhoto;
     public String  videoUrl;
+    public String  video480;
+    public String  video720;
+    public String  video1080;
     public String  thumbUrl;
     public String  caption;
     public String  musicName;
