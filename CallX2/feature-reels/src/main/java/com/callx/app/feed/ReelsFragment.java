@@ -747,12 +747,6 @@ public class ReelsFragment extends Fragment {
         // preloading is already driven by onPageSelected via preloadSmartFrom
     }
 
-    @Override
-    public void onDestroyView() {
-        // offlineManager is a singleton, no destroy needed
-        super.onDestroyView();
-    }
-
     // ── Playback control ──────────────────────────────────────────────────
 
     private void controlPlayback(int activePosition) {
