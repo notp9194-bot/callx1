@@ -809,9 +809,12 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             com.callx.app.conversation.controllers.ChatViewOnceController.tagMessageAsViewOnce(m);
             // Feature 2: store expiry duration on the message — ChatMessageSender
             // schedules the WorkManager job after the Firebase key is assigned.
+            // -1 = "Expire with View Once" (no timer — delete on open only, classic flow)
+            // >0  = timer duration — set expiresAt; ChatMessageSender schedules WorkManager job
             if (selectedViewOnceExpiryMs > 0L) {
                 m.viewOnceExpiresAt = System.currentTimeMillis() + selectedViewOnceExpiryMs;
             }
+            // -1 and 0 both leave viewOnceExpiresAt null → no timer scheduled
             selectedViewOnceExpiryMs = 0L;
             setViewOnceMode(false);
             // HIDE real content from chat list — replace preview with generic label.
@@ -1888,13 +1891,27 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
 
     /**
      * Feature 2 — Expiry timer picker.
-     * Shows a dialog: No expiry / 1hr / 6hr / 24hr / 3d / 7d.
-     * On selection, enables view-once mode with chosen duration.
-     * If already on, tapping again lets sender re-pick or cancel.
+     *
+     * Options:
+     *  • "Expire with View Once" (-1) — delete on open only, no timer (classic view-once)
+     *  • "1 hour / 6 hours / 24 hours / 3 days / 7 days" — delete on open OR when timer runs out,
+     *    whichever comes first.
+     *
+     * selectedViewOnceExpiryMs == -1  → no timer, delete only on receiver open
+     * selectedViewOnceExpiryMs >  0   → timer set; also delete on open if receiver opens before timer
      */
     private void showViewOnceExpiryPicker() {
-        String[] options = {"No expiry", "1 hour", "6 hours", "24 hours", "3 days", "7 days"};
-        long[]   durations = {0L, 3_600_000L, 21_600_000L, 86_400_000L, 259_200_000L, 604_800_000L};
+        String[] options  = {
+            "Expire with View Once",   // delete on open, no timer
+            "1 hour",
+            "6 hours",
+            "24 hours",
+            "3 days",
+            "7 days"
+        };
+        // -1 = "expire on view" (no timer). >0 = timer duration in ms.
+        long[] durations = {-1L, 3_600_000L, 21_600_000L, 86_400_000L, 259_200_000L, 604_800_000L};
+
         new android.app.AlertDialog.Builder(this)
             .setTitle("View Once — Expiry")
             .setItems(options, (d, which) -> {
