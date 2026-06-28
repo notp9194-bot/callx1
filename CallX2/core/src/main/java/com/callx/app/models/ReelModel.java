@@ -19,18 +19,6 @@ public class ReelModel {
     public String  video720;
     public String  video1080;
     public String  thumbUrl;
-
-    /**
-     * Returns the best available thumbnail URL.
-     * @Exclude — Firebase ko ignore karna hai, ye sirf helper method hai.
-     */
-    @com.google.firebase.database.Exclude
-    public String effectiveThumbUrl() {
-        if (thumbUrl != null && !thumbUrl.isEmpty()) return thumbUrl;
-        if (thumbnailUrl != null && !thumbnailUrl.isEmpty()) return thumbnailUrl;
-        return "";
-    }
-
     public String  caption;
     public String  musicName;
     public String  musicId;
