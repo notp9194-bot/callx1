@@ -134,14 +134,66 @@ public class CallxMessagingService extends FirebaseMessagingService {
             // Sender ko receiver ne perma-block kar diya — return notification
             showPermaBlockReturnNotification(data);
         } else if ("special_request".equals(type)) {
-            // Sender (jo perma-block ho chuka hai) ne special request bheji
             showSpecialRequestNotification(data);
         } else if ("unblock_notify".equals(type)) {
-            // Blocker ne unblock kar diya — blocked user ko notify karo
             showUnblockNotification(data);
+        } else if ("view_once_viewed".equals(type)) {
+            // Silent data push — sender gets a quiet notification:
+            // "Your secret message was viewed"
+            // No system tray notification. Shows as an in-app snackbar if
+            // the sender has the chat open, or a silent badge update otherwise.
+            handleViewOnceViewed(data);
         } else {
             showMessage(data);
         }
+    }
+
+    /**
+     * Handles "view_once_viewed" silent push received by the SENDER.
+     * Receiver opened the view-once message — show a quiet system notification
+     * so sender knows even if they're in a different screen or killed state.
+     */
+    private void handleViewOnceViewed(Map<String, String> data) {
+        String fromName  = data.getOrDefault("fromName",  "Partner");
+        String chatId    = data.getOrDefault("chatId",    "");
+        String fromUid   = data.getOrDefault("fromUid",   "");
+        String messageId = data.getOrDefault("messageId", "");
+
+        // Build a quiet notification (no sound, no vibration)
+        android.app.NotificationManager nm =
+            (android.app.NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+        if (nm == null) return;
+
+        String channelId = "view_once_viewed";
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            android.app.NotificationChannel ch = new android.app.NotificationChannel(
+                channelId,
+                "View Once Alerts",
+                android.app.NotificationManager.IMPORTANCE_LOW); // quiet — no sound
+            ch.setShowBadge(false);
+            nm.createNotificationChannel(ch);
+        }
+
+        // Tapping opens the chat
+        Intent chatIntent = new Intent(this, com.callx.app.conversation.ChatActivity.class);
+        chatIntent.putExtra("partnerUid", fromUid);
+        chatIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        android.app.PendingIntent pi = android.app.PendingIntent.getActivity(
+            this, messageId.hashCode(), chatIntent,
+            android.app.PendingIntent.FLAG_UPDATE_CURRENT |
+                (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M
+                    ? android.app.PendingIntent.FLAG_IMMUTABLE : 0));
+
+        androidx.core.app.NotificationCompat.Builder builder =
+            new androidx.core.app.NotificationCompat.Builder(this, channelId)
+                .setSmallIcon(com.callx.app.chat.R.drawable.ic_lock_outline)
+                .setContentTitle("Secret message viewed")
+                .setContentText(fromName + " ne aapka secret message dekha 👁")
+                .setAutoCancel(true)
+                .setPriority(androidx.core.app.NotificationCompat.PRIORITY_LOW)
+                .setContentIntent(pi);
+
+        nm.notify(("vo_viewed_" + messageId).hashCode(), builder.build());
     }
     private void showRequest(Map<String, String> data) {
         String fromUid  = data.getOrDefault("fromUid", "");

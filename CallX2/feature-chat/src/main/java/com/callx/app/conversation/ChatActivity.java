@@ -2163,9 +2163,9 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 try { mpHolder[0].release(); } catch (Exception ignored) {}
                 mpHolder[0] = null;
             }
-            // Trigger permanent delete on both sides
+            // Trigger permanent delete on both sides + notify sender (viewed silent push)
             if (viewOnceController != null && msgId != null) {
-                viewOnceController.onViewerClosed(msgId);
+                viewOnceController.onViewerClosed(msgId, message.senderId);
             }
         };
 

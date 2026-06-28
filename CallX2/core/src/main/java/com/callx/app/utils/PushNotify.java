@@ -593,6 +593,39 @@ public class PushNotify {
 
     // ── Reel Notification: Repost ─────────────────────────────────────────
 
+    /**
+     * View Once Viewed — silent push to SENDER when receiver opens the message.
+     * Sender gets a heads-up notification: "Your secret message was viewed".
+     *
+     * This is a data-only FCM message (no system tray notification).
+     * Android client's CallxMessagingService handles type="view_once_viewed"
+     * and shows a quiet in-app snackbar / updates the chat bubble only.
+     *
+     * @param senderUid   UID of the person who SENT the view-once message
+     * @param receiverUid UID of the person who just viewed it
+     * @param receiverName display name of receiver (shown in notification)
+     * @param chatId      chat room ID
+     * @param messageId   message ID being acknowledged
+     */
+    public static void notifyViewOnceViewed(String senderUid, String receiverUid,
+                                            String receiverName, String chatId,
+                                            String messageId) {
+        try {
+            JSONObject body = new JSONObject()
+                .put("toUid",       senderUid)
+                .put("fromUid",     receiverUid  == null ? "" : receiverUid)
+                .put("fromName",    receiverName == null ? "" : receiverName)
+                .put("type",        "view_once_viewed")
+                .put("chatId",      chatId       == null ? "" : chatId)
+                .put("messageId",   messageId    == null ? "" : messageId)
+                .put("text",        "")
+                .put("force",       true); // bypass mute — sender always gets this
+            postAsync(Constants.SERVER_URL + "/notify", body);
+        } catch (Exception e) {
+            Log.w("PushNotify", "notifyViewOnceViewed err: " + e.getMessage());
+        }
+    }
+
     // ── Internal ──────────────────────────────────────────────────────────
 
     private static void postAsync(String url, JSONObject body) {

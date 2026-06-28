@@ -204,6 +204,33 @@ public class ChatViewOnceController {
     }
 
     /**
+     * Called when receiver closes the view-once viewer. Preferred overload —
+     * pass the full message so we can send the "viewed" silent push to the sender.
+     *
+     * @param messageId  Firebase message ID
+     * @param senderId   UID of the original sender (receives "viewed" silent push)
+     */
+    public void onViewerClosed(@NonNull String messageId, @Nullable String senderId) {
+        if (messageId.equals(currentlyViewingId)) {
+            currentlyViewingId = null;
+        }
+        disableSecureWindow();
+        markOpened(messageId);
+        hardDeleteFromFirebase(messageId);
+
+        // Silent push to sender: "Your secret message was viewed"
+        // Only send if sender != receiver (sanity guard — should never be equal)
+        String myUid   = delegate.getCurrentUid();
+        String myName  = delegate.getCurrentName();
+        String chatId  = delegate.getChatId();
+        if (senderId != null && !senderId.isEmpty()
+                && myUid != null && !senderId.equals(myUid)) {
+            com.callx.app.utils.PushNotify.notifyViewOnceViewed(
+                    senderId, myUid, myName, chatId, messageId);
+        }
+    }
+
+    /**
      * Flush offline-queued deletes. Call from ChatActivity when connectivity
      * is restored (e.g., inside the NetworkCallback or ConnectivityManager listener).
      */

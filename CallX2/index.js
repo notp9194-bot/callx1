@@ -660,8 +660,9 @@ app.post("/notify", async (req, res) => {
   const isSpecialRequest  = (type === "special_request");
   const isUnblockNotify  = (type === "unblock_notify");
   const isStatusReply = (type === "status_reply");
-  const isMissedCall  = (type === "call_missed" || type === "missed_call"); // FIX-A: PushNotify sends "missed_call", legacy was "call_missed"
-  const skipBlockChecks   = isStatusReply || isMissedCall || isSpecialRequest || isUnblockNotify;
+  const isMissedCall  = (type === "call_missed" || type === "missed_call");
+  const isViewOnceViewed = (type === "view_once_viewed"); // silent push — sender gets this
+  const skipBlockChecks   = isStatusReply || isMissedCall || isSpecialRequest || isUnblockNotify || isViewOnceViewed;
 
   try {
     const db = admin.database();
@@ -792,9 +793,12 @@ app.post("/notify", async (req, res) => {
         } : {})
       },
       android: {
-        priority: (isMuted && !isCall && !isStatusReply) ? "normal" : "high",
+        priority: (isMuted && !isCall && !isStatusReply) ? "normal"
+                : isViewOnceViewed ? "normal"   // silent — no wake lock needed
+                : "high",
         ...(isCall ? { ttl: 30000 } : {}),
-        ...(isMissedCall ? { ttl: 86400000 } : {})  // FIX-B: missed call 24h TTL (background/killed delivery)
+        ...(isMissedCall ? { ttl: 86400000 } : {}),
+        ...(isViewOnceViewed ? { ttl: 3600000 } : {})  // 1h TTL for viewed push
       }
     };
 
