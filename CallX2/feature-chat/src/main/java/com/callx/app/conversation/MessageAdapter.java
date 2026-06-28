@@ -607,22 +607,23 @@ public class MessageAdapter extends ListAdapter<Message, MessageAdapter.VH> {
                 }
 
                 // ── Open reel in-app on tap ──
-                final String reelId2  = m.reelId   != null ? m.reelId   : "";
+                final String reelId2  = m.reelId      != null ? m.reelId      : "";
                 final String reelUrl2 = m.reelShareUrl != null ? m.reelShareUrl : "";
                 h.llReelShare.setOnClickListener(v -> {
-                    if (!reelId2.isEmpty()) {
-                        // Open in-app reel player via deep link
+                    // Try deep link URI first (opens in-app via DeepLinkRouterActivity)
+                    String deepLink = !reelId2.isEmpty()
+                            ? com.callx.app.utils.Constants.DEEP_LINK_BASE_URL + "/reel/" + reelId2
+                            : reelUrl2;
+                    if (!deepLink.isEmpty()) {
                         try {
-                            Intent ri = new Intent(ctx, com.callx.app.activities.DeepLinkRouterActivity.class);
-                            ri.setData(android.net.Uri.parse(
-                                com.callx.app.utils.Constants.DEEP_LINK_BASE_URL + "/reel/" + reelId2));
+                            Intent ri = new Intent(Intent.ACTION_VIEW,
+                                    android.net.Uri.parse(deepLink));
+                            ri.setPackage(ctx.getPackageName()); // stay in-app
                             ri.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                             ctx.startActivity(ri);
                         } catch (Exception ignored) {
                             if (!reelUrl2.isEmpty()) openInCustomTab(ctx, reelUrl2);
                         }
-                    } else if (!reelUrl2.isEmpty()) {
-                        openInCustomTab(ctx, reelUrl2);
                     }
                 });
                 break;
