@@ -247,11 +247,15 @@ public class ReelShareSheetFragment extends BottomSheetDialogFragment
 
         DatabaseReference msgRef = FirebaseUtils.getMessagesRef(chatId).push();
         Map<String, Object> msg  = new HashMap<>();
-        msg.put("senderId",  myUid);
-        msg.put("text",      text);
-        msg.put("type",      "reel_share");
-        msg.put("reelId",    reelId);
-        msg.put("timestamp", System.currentTimeMillis());
+        msg.put("senderId",        myUid);
+        msg.put("text",            text);
+        msg.put("type",            "reel_share");
+        msg.put("reelId",          reelId);
+        msg.put("reelShareUrl",    DEEP_LINK_PREFIX + reelId);
+        msg.put("reelShareThumb",  thumbUrl  != null ? thumbUrl  : "");
+        msg.put("reelShareCaption",caption   != null ? caption   : "");
+        msg.put("reelShareUsername", ownerUid != null ? ownerUid : "");
+        msg.put("timestamp",       System.currentTimeMillis());
         msgRef.setValue(msg);
 
         incrementShareCount();

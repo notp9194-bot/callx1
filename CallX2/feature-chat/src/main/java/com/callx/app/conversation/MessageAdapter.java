@@ -574,37 +574,56 @@ public class MessageAdapter extends ListAdapter<Message, MessageAdapter.VH> {
             case "reel_share": {
                 ensureReelShareInflated(h);
                 h.llReelShare.setVisibility(View.VISIBLE);
-                // Username
-                if (h.tvReelShareUsername != null) {
-                    String uname = m.reelShareUsername != null && !m.reelShareUsername.isEmpty()
-                            ? "@" + m.reelShareUsername : "instagram";
-                    h.tvReelShareUsername.setText(uname);
+
+                // ── Populate card with whatever data is already on the message ──
+                bindReelShareCard(h, m, ctx);
+
+                // ── If thumb is missing but reelId exists, fetch from Firebase ──
+                boolean thumbMissing = m.reelShareThumb == null || m.reelShareThumb.isEmpty();
+                boolean hasReelId    = m.reelId != null && !m.reelId.isEmpty();
+                if (thumbMissing && hasReelId) {
+                    com.google.firebase.database.FirebaseDatabase.getInstance()
+                        .getReference("reels").child(m.reelId)
+                        .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
+                            @Override
+                            public void onDataChange(@androidx.annotation.NonNull com.google.firebase.database.DataSnapshot snap) {
+                                if (snap.exists()) {
+                                    // Patch message object with live data
+                                    String t  = snap.child("thumbUrl").getValue(String.class);
+                                    String c  = snap.child("caption").getValue(String.class);
+                                    String u  = snap.child("uid").getValue(String.class);
+                                    String vu = snap.child("videoUrl").getValue(String.class);
+                                    if (t  != null) m.reelShareThumb    = t;
+                                    if (c  != null) m.reelShareCaption   = c;
+                                    if (u  != null) m.reelShareUsername  = u;
+                                    if (vu != null && (m.reelShareUrl == null || m.reelShareUrl.isEmpty()))
+                                        m.reelShareUrl = vu;
+                                    bindReelShareCard(h, m, ctx);
+                                }
+                            }
+                            @Override
+                            public void onCancelled(@androidx.annotation.NonNull com.google.firebase.database.DatabaseError e) {}
+                        });
                 }
-                // Caption
-                if (h.tvReelShareCaption != null) {
-                    if (m.reelShareCaption != null && !m.reelShareCaption.isEmpty()) {
-                        h.tvReelShareCaption.setText(m.reelShareCaption);
-                        h.tvReelShareCaption.setVisibility(View.VISIBLE);
-                    } else {
-                        h.tvReelShareCaption.setVisibility(View.GONE);
-                    }
-                }
-                // Thumbnail
-                if (h.ivReelShareThumb != null) {
-                    String thumb = m.reelShareThumb != null ? m.reelShareThumb : "";
-                    if (!thumb.isEmpty()) {
-                        Glide.with(ctx)
-                                .load(thumb)
-                                .diskCacheStrategy(DiskCacheStrategy.ALL)
-                                .centerCrop()
-                                .placeholder(android.R.color.darker_gray)
-                                .into(h.ivReelShareThumb);
-                    }
-                }
-                // Open reel URL on tap
-                final String reelUrl = m.reelShareUrl != null ? m.reelShareUrl : "";
+
+                // ── Open reel in-app on tap ──
+                final String reelId2  = m.reelId   != null ? m.reelId   : "";
+                final String reelUrl2 = m.reelShareUrl != null ? m.reelShareUrl : "";
                 h.llReelShare.setOnClickListener(v -> {
-                    if (!reelUrl.isEmpty()) openInCustomTab(ctx, reelUrl);
+                    if (!reelId2.isEmpty()) {
+                        // Open in-app reel player via deep link
+                        try {
+                            Intent ri = new Intent(ctx, com.callx.app.activities.DeepLinkRouterActivity.class);
+                            ri.setData(android.net.Uri.parse(
+                                com.callx.app.utils.Constants.DEEP_LINK_BASE_URL + "/reel/" + reelId2));
+                            ri.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                            ctx.startActivity(ri);
+                        } catch (Exception ignored) {
+                            if (!reelUrl2.isEmpty()) openInCustomTab(ctx, reelUrl2);
+                        }
+                    } else if (!reelUrl2.isEmpty()) {
+                        openInCustomTab(ctx, reelUrl2);
+                    }
                 });
                 break;
             }
@@ -817,6 +836,40 @@ public class MessageAdapter extends ListAdapter<Message, MessageAdapter.VH> {
         h.ivReelShareThumb     = h.itemView.findViewById(R.id.iv_reel_share_thumb);
         h.tvReelShareUsername  = h.itemView.findViewById(R.id.tv_reel_share_username);
         h.tvReelShareCaption   = h.itemView.findViewById(R.id.tv_reel_share_caption);
+    }
+
+    /** Fills the reel share card views from a (possibly partially populated) Message. */
+    private void bindReelShareCard(@NonNull VH h, Message m, Context ctx) {
+        // Username
+        if (h.tvReelShareUsername != null) {
+            String uname = (m.reelShareUsername != null && !m.reelShareUsername.isEmpty())
+                    ? "@" + m.reelShareUsername : "@callx_reel";
+            h.tvReelShareUsername.setText(uname);
+        }
+        // Caption
+        if (h.tvReelShareCaption != null) {
+            if (m.reelShareCaption != null && !m.reelShareCaption.isEmpty()) {
+                h.tvReelShareCaption.setText(m.reelShareCaption);
+                h.tvReelShareCaption.setVisibility(View.VISIBLE);
+            } else {
+                h.tvReelShareCaption.setVisibility(View.GONE);
+            }
+        }
+        // Thumbnail
+        if (h.ivReelShareThumb != null) {
+            String thumb = m.reelShareThumb != null ? m.reelShareThumb : "";
+            if (!thumb.isEmpty()) {
+                Glide.with(ctx)
+                        .load(thumb)
+                        .diskCacheStrategy(DiskCacheStrategy.ALL)
+                        .centerCrop()
+                        .placeholder(android.R.color.darker_gray)
+                        .error(android.R.color.darker_gray)
+                        .into(h.ivReelShareThumb);
+            } else {
+                h.ivReelShareThumb.setImageResource(android.R.color.darker_gray);
+            }
+        }
     }
 
     // ── Poll bind helper ──────────────────────────────────────────────────────
