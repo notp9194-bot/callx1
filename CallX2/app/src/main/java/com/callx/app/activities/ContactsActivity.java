@@ -89,10 +89,10 @@ public class ContactsActivity extends AppCompatActivity {
         tb.setNavigationOnClickListener(v -> finish());
 
         // Single-message forward extras
-        forwardText     = getIntent().getStringExtra(\"forwardText\");
-        forwardType     = getIntent().getStringExtra(\"forwardType\");
-        forwardMedia    = getIntent().getStringExtra(\"forwardMedia\");
-        forwardFileName = getIntent().getStringExtra(\"forwardFileName\");
+        forwardText     = getIntent().getStringExtra("forwardText");
+        forwardType     = getIntent().getStringExtra("forwardType");
+        forwardMedia    = getIntent().getStringExtra("forwardMedia");
+        forwardFileName = getIntent().getStringExtra("forwardFileName");
 
         // ── Handle ACTION_SEND from external apps (e.g. Instagram reel share) ──
         if (Intent.ACTION_SEND.equals(getIntent().getAction())) {
