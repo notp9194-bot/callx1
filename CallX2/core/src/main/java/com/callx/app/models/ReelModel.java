@@ -22,9 +22,9 @@ public class ReelModel {
 
     /**
      * Returns the best available thumbnail URL.
-     * Firebase saves as "thumbnailUrl", legacy code reads "thumbUrl" —
-     * this resolves both so share cards always get a non-empty URL.
+     * @Exclude — Firebase ko ignore karna hai, ye sirf helper method hai.
      */
+    @com.google.firebase.database.Exclude
     public String effectiveThumbUrl() {
         if (thumbUrl != null && !thumbUrl.isEmpty()) return thumbUrl;
         if (thumbnailUrl != null && !thumbnailUrl.isEmpty()) return thumbnailUrl;
