@@ -54,6 +54,30 @@ public class ChatMessageSender {
             m.viewOnceState = com.callx.app.conversation.controllers.ChatViewOnceController.STATE_SENT;
         }
 
+        // Feature 2: schedule expiry WorkManager job now that we have the real key.
+        // m.viewOnceExpiresAt is already set by ChatActivity.pushMessage() if sender
+        // picked a duration. We schedule here (not in ChatActivity) because this is
+        // the first place the Firebase key (m.id) is known.
+        if (Boolean.TRUE.equals(m.viewOnce)
+                && m.viewOnceExpiresAt != null && m.viewOnceExpiresAt > 0) {
+            long delayMs = m.viewOnceExpiresAt - System.currentTimeMillis();
+            if (delayMs > 0) {
+                String chatId = delegate.getChatId();
+                androidx.work.Data inputData = new androidx.work.Data.Builder()
+                        .putString("messageId", key)
+                        .putString("chatId", chatId)
+                        .build();
+                androidx.work.OneTimeWorkRequest req =
+                        new androidx.work.OneTimeWorkRequest.Builder(
+                                com.callx.app.conversation.workers.ViewOnceExpiryWorker.class)
+                        .setInitialDelay(delayMs, java.util.concurrent.TimeUnit.MILLISECONDS)
+                        .setInputData(inputData)
+                        .addTag("view_once_expiry_" + key)
+                        .build();
+                androidx.work.WorkManager.getInstance(delegate.getActivity()).enqueue(req);
+            }
+        }
+
         MessageEntity entity = messageToEntity(m, "pending");
 
         // BUG FIX: this insertMessage() write happens IMMEDIATELY on send —
@@ -204,6 +228,7 @@ public class ChatMessageSender {
         e.viewOnce              = m.viewOnce;
         e.viewOnceState         = m.viewOnceState;
         e.openedAt              = m.openedAt;
+        e.viewOnceExpiresAt     = m.viewOnceExpiresAt;
         e.pollQuestion          = m.pollQuestion;
         e.pollOptionsJson       = com.callx.app.utils.PollJsonUtil.optionsToJson(m.pollOptions);
         e.pollVotesJson         = com.callx.app.utils.PollJsonUtil.votesToJson(m.pollVotes);

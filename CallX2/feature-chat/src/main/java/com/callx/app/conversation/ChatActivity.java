@@ -807,11 +807,10 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // (one-shot per message, same UX pattern as WhatsApp's view-once camera).
         if (isViewOnceModeOn) {
             com.callx.app.conversation.controllers.ChatViewOnceController.tagMessageAsViewOnce(m);
-            // Feature 2: write expiry timestamp if sender picked a duration
+            // Feature 2: store expiry duration on the message — ChatMessageSender
+            // schedules the WorkManager job after the Firebase key is assigned.
             if (selectedViewOnceExpiryMs > 0L) {
                 m.viewOnceExpiresAt = System.currentTimeMillis() + selectedViewOnceExpiryMs;
-                scheduleViewOnceExpiry(m.messageId != null ? m.messageId : m.id,
-                        selectedViewOnceExpiryMs);
             }
             selectedViewOnceExpiryMs = 0L;
             setViewOnceMode(false);
@@ -1928,23 +1927,6 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
      * after delayMs. The Worker checks that viewOnceState is still "sent"
      * before calling markExpiredByTimer(), so already-opened messages are safe.
      */
-    private void scheduleViewOnceExpiry(String messageId, long delayMs) {
-        if (messageId == null || messageId.isEmpty() || delayMs <= 0) return;
-        String chatId = getChatId(); // delegate.getChatId()
-        if (chatId == null) return;
-        androidx.work.Data inputData = new androidx.work.Data.Builder()
-                .putString("messageId", messageId)
-                .putString("chatId", chatId)
-                .build();
-        androidx.work.OneTimeWorkRequest req = new androidx.work.OneTimeWorkRequest.Builder(
-                com.callx.app.conversation.workers.ViewOnceExpiryWorker.class)
-                .setInitialDelay(delayMs, java.util.concurrent.TimeUnit.MILLISECONDS)
-                .setInputData(inputData)
-                .addTag("view_once_expiry_" + messageId)
-                .build();
-        androidx.work.WorkManager.getInstance(this).enqueue(req);
-    }
-
     private void sendTextMessage() {
         String text = binding.etMessage.getText().toString().trim();
         if (text.isEmpty()) return;

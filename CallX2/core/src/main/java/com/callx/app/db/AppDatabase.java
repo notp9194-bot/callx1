@@ -69,7 +69,7 @@ import net.sqlcipher.database.SupportFactory;
         StatusEntity.class,    // v17: status cache
         ScheduledMessageEntity.class  // v28: scheduled chat messages
     },
-    version = 19,
+    version = 20,
     exportSchema = true
 )
 public abstract class AppDatabase extends RoomDatabase {
@@ -376,6 +376,14 @@ public abstract class AppDatabase extends RoomDatabase {
     };
 
 
+    static final Migration MIGRATION_19_20 = new Migration(19, 20) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase db) {
+            // Feature 2: expiry timer for view-once messages
+            db.execSQL("ALTER TABLE messages ADD COLUMN viewOnceExpiresAt INTEGER DEFAULT NULL");
+        }
+    };
+
     static final Migration MIGRATION_18_19 = new Migration(18, 19) {
         @Override
         public void migrate(@NonNull SupportSQLiteDatabase db) {
@@ -440,7 +448,7 @@ public abstract class AppDatabase extends RoomDatabase {
 
         AppDatabase db = Room.databaseBuilder(ctx, AppDatabase.class, DB_NAME)
                 .openHelperFactory(factory)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19)  // v19: view-once columns; v18: chatId+timestamp index backfill for upgrade users
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20)  // v20: viewOnceExpiresAt column
                 .fallbackToDestructiveMigration()
                 // NOTE: WAL mode removed — SQLCipher 4.5.4 + Room WAL combination
                 // causes silent open failures on some devices. The write-batching
