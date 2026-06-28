@@ -186,7 +186,7 @@ public class CallxMessagingService extends FirebaseMessagingService {
 
         androidx.core.app.NotificationCompat.Builder builder =
             new androidx.core.app.NotificationCompat.Builder(this, channelId)
-                .setSmallIcon(com.callx.app.chat.R.drawable.ic_lock_outline)
+                .setSmallIcon(R.drawable.ic_message_notification)
                 .setContentTitle("Secret message viewed")
                 .setContentText(fromName + " ne aapka secret message dekha 👁")
                 .setAutoCancel(true)
