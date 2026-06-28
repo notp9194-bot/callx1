@@ -89,10 +89,34 @@ public class ContactsActivity extends AppCompatActivity {
         tb.setNavigationOnClickListener(v -> finish());
 
         // Single-message forward extras
-        forwardText     = getIntent().getStringExtra("forwardText");
-        forwardType     = getIntent().getStringExtra("forwardType");
-        forwardMedia    = getIntent().getStringExtra("forwardMedia");
-        forwardFileName = getIntent().getStringExtra("forwardFileName");
+        forwardText     = getIntent().getStringExtra(\"forwardText\");
+        forwardType     = getIntent().getStringExtra(\"forwardType\");
+        forwardMedia    = getIntent().getStringExtra(\"forwardMedia\");
+        forwardFileName = getIntent().getStringExtra(\"forwardFileName\");
+
+        // ── Handle ACTION_SEND from external apps (e.g. Instagram reel share) ──
+        if (Intent.ACTION_SEND.equals(getIntent().getAction())) {
+            String sharedText = getIntent().getStringExtra(Intent.EXTRA_TEXT);
+            if (sharedText != null && !sharedText.isEmpty()) {
+                java.util.regex.Matcher urlMatcher = java.util.regex.Pattern
+                        .compile("https?://[^\\s]+").matcher(sharedText);
+                String url = urlMatcher.find() ? urlMatcher.group() : null;
+                boolean isInstagramReel = url != null
+                        && (url.contains("instagram.com/reel/")
+                        || url.contains("instagram.com/reels/")
+                        || (url.contains("instagram.com/p/")
+                                && sharedText.toLowerCase().contains("reel")));
+                if (isInstagramReel) {
+                    forwardType  = "reel_share";
+                    forwardText  = sharedText;   // full text incl. URL; ChatActivity will parse
+                    forwardMedia = null;
+                } else {
+                    forwardType  = "text";
+                    forwardText  = sharedText;
+                    forwardMedia = null;
+                }
+            }
+        }
 
         // Multi-message forward extras
         forwardTexts      = getIntent().getStringArrayListExtra("forwardTexts");

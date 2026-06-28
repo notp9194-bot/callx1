@@ -288,6 +288,7 @@ public class MessageAdapter extends ListAdapter<Message, MessageAdapter.VH> {
         if (h.llFile        != null) h.llFile.setVisibility(View.GONE);
         if (h.llPoll        != null) h.llPoll.setVisibility(View.GONE);
         if (h.llLinkPreview != null) h.llLinkPreview.setVisibility(View.GONE);
+        if (h.llReelShare   != null) h.llReelShare.setVisibility(View.GONE);
         if (h.tvEdited      != null) h.tvEdited.setVisibility(View.GONE);
 
         // Pinned label
@@ -569,6 +570,45 @@ public class MessageAdapter extends ListAdapter<Message, MessageAdapter.VH> {
                 break;
             }
 
+            // ── REEL SHARE ───────────────────────────────────────────────────
+            case "reel_share": {
+                ensureReelShareInflated(h);
+                h.llReelShare.setVisibility(View.VISIBLE);
+                // Username
+                if (h.tvReelShareUsername != null) {
+                    String uname = m.reelShareUsername != null && !m.reelShareUsername.isEmpty()
+                            ? "@" + m.reelShareUsername : "instagram";
+                    h.tvReelShareUsername.setText(uname);
+                }
+                // Caption
+                if (h.tvReelShareCaption != null) {
+                    if (m.reelShareCaption != null && !m.reelShareCaption.isEmpty()) {
+                        h.tvReelShareCaption.setText(m.reelShareCaption);
+                        h.tvReelShareCaption.setVisibility(View.VISIBLE);
+                    } else {
+                        h.tvReelShareCaption.setVisibility(View.GONE);
+                    }
+                }
+                // Thumbnail
+                if (h.ivReelShareThumb != null) {
+                    String thumb = m.reelShareThumb != null ? m.reelShareThumb : "";
+                    if (!thumb.isEmpty()) {
+                        Glide.with(ctx)
+                                .load(thumb)
+                                .diskCacheStrategy(DiskCacheStrategy.ALL)
+                                .centerCrop()
+                                .placeholder(android.R.color.darker_gray)
+                                .into(h.ivReelShareThumb);
+                    }
+                }
+                // Open reel URL on tap
+                final String reelUrl = m.reelShareUrl != null ? m.reelShareUrl : "";
+                h.llReelShare.setOnClickListener(v -> {
+                    if (!reelUrl.isEmpty()) openInCustomTab(ctx, reelUrl);
+                });
+                break;
+            }
+
             // ── TEXT (default) ───────────────────────────────────────────────
             default: {
                 h.tvMessage.setVisibility(View.VISIBLE);
@@ -767,6 +807,16 @@ public class MessageAdapter extends ListAdapter<Message, MessageAdapter.VH> {
         h.tvLinkTitle       = h.itemView.findViewById(R.id.tv_link_title);
         h.tvLinkDescription = h.itemView.findViewById(R.id.tv_link_description);
         h.ivLinkThumb       = h.itemView.findViewById(R.id.iv_link_thumb);
+    }
+
+    private void ensureReelShareInflated(@NonNull VH h) {
+        if (h.llReelShare != null) return;
+        if (h.stubReelShare == null) return;
+        h.stubReelShare.inflate();
+        h.llReelShare          = h.itemView.findViewById(R.id.ll_reel_share);
+        h.ivReelShareThumb     = h.itemView.findViewById(R.id.iv_reel_share_thumb);
+        h.tvReelShareUsername  = h.itemView.findViewById(R.id.tv_reel_share_username);
+        h.tvReelShareCaption   = h.itemView.findViewById(R.id.tv_reel_share_caption);
     }
 
     // ── Poll bind helper ──────────────────────────────────────────────────────
@@ -1421,6 +1471,7 @@ public class MessageAdapter extends ListAdapter<Message, MessageAdapter.VH> {
         ViewStub stubFile;
         ViewStub stubPoll;
         ViewStub stubLinkPreview;
+        ViewStub stubReelShare;
 
         // ── Heavy view refs — null until the stub is inflated ──
         // Video
@@ -1442,6 +1493,10 @@ public class MessageAdapter extends ListAdapter<Message, MessageAdapter.VH> {
         LinearLayout llLinkPreview;
         TextView     tvLinkTitle, tvLinkDomain, tvLinkDescription;
         ImageView    ivLinkThumb;
+        // Reel share
+        LinearLayout llReelShare;
+        ImageView    ivReelShareThumb;
+        TextView     tvReelShareUsername, tvReelShareCaption;
 
         VH(View v) {
             super(v);
@@ -1471,6 +1526,7 @@ public class MessageAdapter extends ListAdapter<Message, MessageAdapter.VH> {
             stubFile        = v.findViewById(R.id.stub_file);
             stubPoll        = v.findViewById(R.id.stub_poll);
             stubLinkPreview = v.findViewById(R.id.stub_link_preview);
+            stubReelShare   = v.findViewById(R.id.stub_reel_share);
 
             // Heavy view refs start null — populated lazily by ensureXxxInflated()
             flVideo         = null;
