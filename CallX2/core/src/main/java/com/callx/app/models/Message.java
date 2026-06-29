@@ -78,6 +78,8 @@ public class Message {
     public String reelShareCaption;
     /** Thumbnail URL for the reel card — may be blank if not available. */
     public String reelShareThumb;
+    /** Owner profile photo URL — shown as circular avatar in card header. */
+    public String reelShareOwnerPhoto;
 
     // ── Feature 9: Reel Seen Bubble ──────────────────────────────
     /** Reel ID — set when type = "reel_seen". Used to open reel on tap. */

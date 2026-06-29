@@ -1277,6 +1277,7 @@ public class MessagePagingAdapter
                     h.stubReelShare.inflate();
                     h.llReelShare         = h.itemView.findViewById(R.id.ll_reel_share);
                     h.ivReelShareThumb    = h.itemView.findViewById(R.id.iv_reel_share_thumb);
+                    h.ivReelShareAvatar   = h.itemView.findViewById(R.id.iv_reel_share_avatar);
                     h.tvReelShareUsername = h.itemView.findViewById(R.id.tv_reel_share_username);
                     h.tvReelShareCaption  = h.itemView.findViewById(R.id.tv_reel_share_caption);
                     h.stubReelShare = null; // mark inflated
@@ -1302,6 +1303,17 @@ public class MessagePagingAdapter
                         h.tvReelShareCaption.setVisibility(View.VISIBLE);
                     } else {
                         h.tvReelShareCaption.setVisibility(View.GONE);
+                    }
+                }
+                // Avatar
+                if (h.ivReelShareAvatar != null) {
+                    String ownerPhoto = m.reelShareOwnerPhoto != null ? m.reelShareOwnerPhoto : "";
+                    if (!ownerPhoto.isEmpty()) {
+                        com.bumptech.glide.Glide.with(ctx)
+                                .load(ownerPhoto)
+                                .circleCrop()
+                                .placeholder(android.R.color.darker_gray)
+                                .into(h.ivReelShareAvatar);
                     }
                 }
                 // Thumbnail
@@ -2453,6 +2465,7 @@ public class MessagePagingAdapter
         // ── Reel share card ──
         LinearLayout llReelShare;
         ImageView    ivReelShareThumb;
+        ImageView    ivReelShareAvatar;
         TextView     tvReelShareUsername, tvReelShareCaption;
         // ── Disappearing messages ──
         TextView                  tvExpiry;
