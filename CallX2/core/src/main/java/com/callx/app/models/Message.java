@@ -69,16 +69,6 @@ public class Message {
     public Boolean pinned;
 
 
-    // ── Feature: Reel Share (Instagram reel shared into chat) ────────────────
-    /** Shared Instagram reel URL — set when type = "reel_share". */
-    public String reelShareUrl;
-    /** Instagram username of the reel creator — shown in the card header. */
-    public String reelShareUsername;
-    /** Caption/description of the reel — shown below the thumbnail. */
-    public String reelShareCaption;
-    /** Thumbnail URL for the reel card — may be blank if not available. */
-    public String reelShareThumb;
-
     // ── Feature 9: Reel Seen Bubble ──────────────────────────────
     /** Reel ID — set when type = "reel_seen". Used to open reel on tap. */
     public String reelId;

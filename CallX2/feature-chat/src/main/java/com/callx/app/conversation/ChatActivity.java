@@ -1070,25 +1070,6 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                     binding.etMessage.setSelection(fwdText.length());
                 });
             }
-        } else if (fwdText != null && !fwdText.isEmpty() && "reel_share".equals(fwdType)) {
-            // Reel shared from Instagram via ContactsActivity
-            final String sharedText = fwdText;
-            binding.getRoot().post(() -> {
-                String url = extractFirstUrl(sharedText);
-                if (url == null) return;
-                java.util.regex.Matcher um = java.util.regex.Pattern
-                        .compile("@([A-Za-z0-9._]+)").matcher(sharedText);
-                String username = um.find() ? um.group(1) : "";
-                String caption  = sharedText.replace(url, "").trim();
-                com.callx.app.models.Message msg = buildOutgoing();
-                msg.type              = "reel_share";
-                msg.reelShareUrl      = url;
-                msg.reelShareUsername = username;
-                msg.reelShareCaption  = caption.isEmpty() ? null : caption;
-                msg.reelShareThumb    = null;
-                msg.text              = url;
-                pushMessage(msg, "📹 Reel");
-            });
         } else if (fwdMedia != null && !fwdMedia.isEmpty()) {
             binding.getRoot().post(() -> {
                 Message m  = buildOutgoing();
@@ -1103,94 +1084,12 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 pushMessage(m, preview);
             });
         }
-
-        // ── Instagram reel share intent handling ──────────────────────────
-        // When user shares a reel from Instagram, it fires ACTION_SEND with
-        // text/plain containing the reel URL. We detect this and send it as
-        // a rich "reel_share" message type instead of a plain text link.
-        String action = i.getAction();
-        if (Intent.ACTION_SEND.equals(action)) {
-            String sharedText = i.getStringExtra(Intent.EXTRA_TEXT);
-            if (sharedText != null && !sharedText.isEmpty()) {
-                handleIncomingShareText(sharedText);
-            }
-        }
     }
 
     private static String buildChatId(String a, String b) {
         if (a == null) a = "";
         if (b == null) b = "";
         return a.compareTo(b) < 0 ? a + "_" + b : b + "_" + a;
-    }
-
-    /**
-     * Called when ChatActivity is launched via a share intent (ACTION_SEND, text/plain).
-     * Detects Instagram reel URLs and sends them as a rich "reel_share" message.
-     * All other shared URLs/text fall back to pre-filling the input box.
-     */
-    private void handleIncomingShareText(String sharedText) {
-        // Extract first URL from the shared text
-        String url = extractFirstUrl(sharedText);
-        if (url == null) {
-            // No URL — just pre-fill the compose box
-            if (binding != null && binding.etMessage != null) {
-                binding.etMessage.post(() -> {
-                    binding.etMessage.setText(sharedText);
-                    binding.etMessage.setSelection(sharedText.length());
-                });
-            }
-            return;
-        }
-
-        // Detect Instagram reel URL patterns:
-        // https://www.instagram.com/reel/XYZ
-        // https://instagram.com/reel/XYZ
-        // https://www.instagram.com/p/XYZ  (some reels share with /p/)
-        boolean isInstagramReel = url.contains("instagram.com/reel/")
-                || url.contains("instagram.com/reels/")
-                || (url.contains("instagram.com/p/") && sharedText.toLowerCase().contains("reel"));
-
-        if (isInstagramReel) {
-            // Extract @username if present in the shared text (Instagram often includes it)
-            String username = "";
-            java.util.regex.Matcher m = java.util.regex.Pattern
-                    .compile("@([A-Za-z0-9._]+)").matcher(sharedText);
-            if (m.find()) username = m.group(1);
-
-            // Use the rest of the text (minus the URL) as caption
-            String caption = sharedText.replace(url, "").trim();
-
-            final String finalUsername = username;
-            final String finalCaption  = caption;
-            final String finalUrl      = url;
-
-            binding.getRoot().post(() -> {
-                com.callx.app.models.Message msg = buildOutgoing();
-                msg.type               = "reel_share";
-                msg.reelShareUrl       = finalUrl;
-                msg.reelShareUsername  = finalUsername;
-                msg.reelShareCaption   = finalCaption.isEmpty() ? null : finalCaption;
-                msg.reelShareThumb     = null; // no thumb from share intent; card still looks good
-                msg.text               = finalUrl; // fallback text for notifications
-                pushMessage(msg, "📹 Reel");
-            });
-        } else {
-            // Non-Instagram URL — pre-fill compose box (user can send manually)
-            if (binding != null && binding.etMessage != null) {
-                binding.etMessage.post(() -> {
-                    binding.etMessage.setText(sharedText);
-                    binding.etMessage.setSelection(sharedText.length());
-                });
-            }
-        }
-    }
-
-    /** Extracts the first http/https URL from a string, or null if none found. */
-    private static String extractFirstUrl(String text) {
-        if (text == null) return null;
-        java.util.regex.Matcher m = java.util.regex.Pattern
-                .compile("https?://[^\\s]+").matcher(text);
-        return m.find() ? m.group() : null;
     }
 
     // ─────────────────────────────────────────────────────────────────────
