@@ -36,8 +36,11 @@ public class ReelShareController {
         if (reel == null || reel.reelId == null || !delegate.isAdded() || delegate.getActivity() == null) return;
         ReelShareSheetFragment sheet = ReelShareSheetFragment.newInstance(
             reel.reelId, reel.videoUrl, reel.effectiveThumbUrl(), reel.caption, reel.uid, reel.allowReposts);
-        if (reel.ownerPhoto != null && !reel.ownerPhoto.isEmpty()) {
-            sheet.getArguments().putString(ReelShareSheetFragment.ARG_OWNER_PHOTO, reel.ownerPhoto);
+        if (sheet.getArguments() != null) {
+            sheet.getArguments().putString(ReelShareSheetFragment.ARG_OWNER_NAME,
+                    reel.ownerName != null ? reel.ownerName : "");
+            sheet.getArguments().putString(ReelShareSheetFragment.ARG_OWNER_PHOTO,
+                    reel.ownerPhoto != null ? reel.ownerPhoto : "");
         }
         delegate.showBottomSheet(sheet, "share_sheet");
     }

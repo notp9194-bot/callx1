@@ -1293,7 +1293,7 @@ public class MessagePagingAdapter
                 // Username
                 if (h.tvReelShareUsername != null) {
                     String uname = (m.reelShareUsername != null && !m.reelShareUsername.isEmpty())
-                            ? "@" + m.reelShareUsername : "@callx_reel";
+                            ? m.reelShareUsername : "Reels";
                     h.tvReelShareUsername.setText(uname);
                 }
                 // Caption
@@ -1345,9 +1345,21 @@ public class MessagePagingAdapter
                                             .centerCrop()
                                             .into(fh.ivReelShareThumb);
                                     }
-                                    String u = snap.child("uid").getValue(String.class);
-                                    if (u != null && fh.tvReelShareUsername != null)
-                                        fh.tvReelShareUsername.setText("@" + u);
+                                    // Fetch ownerName for header
+                                    String ownerN = snap.child("ownerName").getValue(String.class);
+                                    if (ownerN != null && !ownerN.isEmpty() && fh.tvReelShareUsername != null) {
+                                        fm.reelShareUsername = ownerN;
+                                        fh.tvReelShareUsername.setText(ownerN);
+                                    }
+                                    // Fetch ownerPhoto for avatar
+                                    String ownerP = snap.child("ownerPhoto").getValue(String.class);
+                                    if (ownerP != null && !ownerP.isEmpty() && fh.ivReelShareAvatar != null) {
+                                        fm.reelShareOwnerPhoto = ownerP;
+                                        com.bumptech.glide.Glide.with(ctx).load(ownerP)
+                                            .circleCrop()
+                                            .placeholder(android.R.color.darker_gray)
+                                            .into(fh.ivReelShareAvatar);
+                                    }
                                     String c = snap.child("caption").getValue(String.class);
                                     if (c != null && !c.isEmpty() && fh.tvReelShareCaption != null) {
                                         fh.tvReelShareCaption.setText(c);
