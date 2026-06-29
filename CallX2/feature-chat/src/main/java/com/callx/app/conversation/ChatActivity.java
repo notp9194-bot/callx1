@@ -1071,24 +1071,52 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 });
             }
         } else if (fwdText != null && !fwdText.isEmpty() && "reel_share".equals(fwdType)) {
-            // Reel shared from Instagram via ContactsActivity
-            final String sharedText = fwdText;
-            binding.getRoot().post(() -> {
-                String url = extractFirstUrl(sharedText);
-                if (url == null) return;
-                java.util.regex.Matcher um = java.util.regex.Pattern
-                        .compile("@([A-Za-z0-9._]+)").matcher(sharedText);
-                String username = um.find() ? um.group(1) : "";
-                String caption  = sharedText.replace(url, "").trim();
-                com.callx.app.models.Message msg = buildOutgoing();
-                msg.type              = "reel_share";
-                msg.reelShareUrl      = url;
-                msg.reelShareUsername = username;
-                msg.reelShareCaption  = caption.isEmpty() ? null : caption;
-                msg.reelShareThumb    = null;
-                msg.text              = url;
-                pushMessage(msg, "📹 Reel");
-            });
+            // Reel shared from Instagram via ContactsActivity — OR forwarded reel card
+            final String sharedText    = fwdText;
+            final String fwdReelId     = i.getStringExtra("forwardReelId");
+            final String fwdReelUrl    = i.getStringExtra("forwardReelShareUrl");
+            final String fwdReelThumb  = i.getStringExtra("forwardReelShareThumb");
+            final String fwdReelCap    = i.getStringExtra("forwardReelShareCaption");
+            final String fwdReelUser   = i.getStringExtra("forwardReelShareUsername");
+            final String fwdReelPhoto  = i.getStringExtra("forwardReelShareOwnerPhoto");
+
+            boolean isForwardedCard = (fwdReelId != null && !fwdReelId.isEmpty())
+                    || (fwdReelUrl != null && !fwdReelUrl.isEmpty());
+
+            if (isForwardedCard) {
+                // Full reel card forward — all fields available, build card directly
+                binding.getRoot().post(() -> {
+                    com.callx.app.models.Message msg = buildOutgoing();
+                    msg.type               = "reel_share";
+                    msg.reelId             = fwdReelId;
+                    msg.reelShareUrl       = fwdReelUrl;
+                    msg.reelShareThumb     = fwdReelThumb;
+                    msg.reelShareCaption   = fwdReelCap;
+                    msg.reelShareUsername  = fwdReelUser;
+                    msg.reelShareOwnerPhoto= fwdReelPhoto;
+                    msg.text               = fwdReelUrl != null ? fwdReelUrl : sharedText;
+                    msg.forwardedFrom      = partnerName;
+                    pushMessage(msg, "📹 Reel");
+                });
+            } else {
+                // External Instagram share — extract URL from text
+                binding.getRoot().post(() -> {
+                    String url = extractFirstUrl(sharedText);
+                    if (url == null) return;
+                    java.util.regex.Matcher um = java.util.regex.Pattern
+                            .compile("@([A-Za-z0-9._]+)").matcher(sharedText);
+                    String username = um.find() ? um.group(1) : "";
+                    String caption  = sharedText.replace(url, "").trim();
+                    com.callx.app.models.Message msg = buildOutgoing();
+                    msg.type              = "reel_share";
+                    msg.reelShareUrl      = url;
+                    msg.reelShareUsername = username;
+                    msg.reelShareCaption  = caption.isEmpty() ? null : caption;
+                    msg.reelShareThumb    = null;
+                    msg.text              = url;
+                    pushMessage(msg, "📹 Reel");
+                });
+            }
         } else if (fwdMedia != null && !fwdMedia.isEmpty()) {
             binding.getRoot().post(() -> {
                 Message m  = buildOutgoing();
@@ -2382,8 +2410,19 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
 
     private void forwardMessage(Message m) {
         Intent i = new Intent().setClassName(this, "com.callx.app.activities.ContactsActivity");
-        i.putExtra("forwardText", m.text); i.putExtra("forwardType", m.type != null ? m.type : "text");
-        i.putExtra("forwardMedia", m.mediaUrl); i.putExtra("forwardFileName", m.fileName);
+        i.putExtra("forwardText",  m.text);
+        i.putExtra("forwardType",  m.type != null ? m.type : "text");
+        i.putExtra("forwardMedia", m.mediaUrl);
+        i.putExtra("forwardFileName", m.fileName);
+        // ── reel_share: pass all card fields so forwarded card renders correctly ──
+        if ("reel_share".equals(m.type)) {
+            i.putExtra("forwardReelId",            m.reelId             != null ? m.reelId             : "");
+            i.putExtra("forwardReelShareUrl",       m.reelShareUrl       != null ? m.reelShareUrl       : "");
+            i.putExtra("forwardReelShareThumb",     m.reelShareThumb     != null ? m.reelShareThumb     : "");
+            i.putExtra("forwardReelShareCaption",   m.reelShareCaption   != null ? m.reelShareCaption   : "");
+            i.putExtra("forwardReelShareUsername",  m.reelShareUsername  != null ? m.reelShareUsername  : "");
+            i.putExtra("forwardReelShareOwnerPhoto",m.reelShareOwnerPhoto!= null ? m.reelShareOwnerPhoto: "");
+        }
         startActivity(i);
     }
 

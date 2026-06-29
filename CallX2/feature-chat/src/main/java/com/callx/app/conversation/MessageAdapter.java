@@ -838,8 +838,18 @@ public class MessageAdapter extends ListAdapter<Message, MessageAdapter.VH> {
         h.stubReelShare.inflate();
         h.llReelShare          = h.itemView.findViewById(R.id.ll_reel_share);
         h.ivReelShareThumb     = h.itemView.findViewById(R.id.iv_reel_share_thumb);
+        h.ivReelShareAvatar    = h.itemView.findViewById(R.id.iv_reel_share_avatar);
         h.tvReelShareUsername  = h.itemView.findViewById(R.id.tv_reel_share_username);
         h.tvReelShareCaption   = h.itemView.findViewById(R.id.tv_reel_share_caption);
+        // Circular clip for avatar
+        if (h.ivReelShareAvatar != null) {
+            h.ivReelShareAvatar.setClipToOutline(true);
+            h.ivReelShareAvatar.setOutlineProvider(new android.view.ViewOutlineProvider() {
+                @Override public void getOutline(android.view.View v, android.graphics.Outline outline) {
+                    outline.setOval(0, 0, v.getWidth(), v.getHeight());
+                }
+            });
+        }
     }
 
     /** Fills the reel share card views from a (possibly partially populated) Message. */
@@ -849,6 +859,44 @@ public class MessageAdapter extends ListAdapter<Message, MessageAdapter.VH> {
             String uname = (m.reelShareUsername != null && !m.reelShareUsername.isEmpty())
                     ? "@" + m.reelShareUsername : "@callx_reel";
             h.tvReelShareUsername.setText(uname);
+        }
+        // Avatar
+        if (h.ivReelShareAvatar != null) {
+            String avatarUrl = m.reelShareOwnerPhoto != null ? m.reelShareOwnerPhoto : "";
+            if (!avatarUrl.isEmpty()) {
+                Glide.with(ctx)
+                        .load(avatarUrl)
+                        .diskCacheStrategy(DiskCacheStrategy.ALL)
+                        .circleCrop()
+                        .placeholder(android.R.drawable.ic_menu_camera)
+                        .into(h.ivReelShareAvatar);
+            } else if (m.reelShareUsername != null && !m.reelShareUsername.isEmpty()) {
+                // Firebase fallback by username
+                final VH fhA = h; final Message fmA = m; final Context fCtxA = ctx;
+                com.google.firebase.database.FirebaseDatabase.getInstance()
+                    .getReference("users").orderByChild("username")
+                    .equalTo(m.reelShareUsername).limitToFirst(1)
+                    .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
+                        @Override public void onDataChange(@NonNull com.google.firebase.database.DataSnapshot snap) {
+                            if (!snap.exists() || fhA.ivReelShareAvatar == null) return;
+                            for (com.google.firebase.database.DataSnapshot child : snap.getChildren()) {
+                                String photo = child.child("profileImage").getValue(String.class);
+                                if (photo == null || photo.isEmpty()) photo = child.child("photoUrl").getValue(String.class);
+                                if (photo == null || photo.isEmpty()) photo = child.child("profilePhoto").getValue(String.class);
+                                if (photo != null && !photo.isEmpty()) {
+                                    fmA.reelShareOwnerPhoto = photo;
+                                    Glide.with(fCtxA).load(photo)
+                                            .diskCacheStrategy(DiskCacheStrategy.ALL)
+                                            .circleCrop()
+                                            .placeholder(android.R.drawable.ic_menu_camera)
+                                            .into(fhA.ivReelShareAvatar);
+                                }
+                                break;
+                            }
+                        }
+                        @Override public void onCancelled(@NonNull com.google.firebase.database.DatabaseError e) {}
+                    });
+            }
         }
         // Caption
         if (h.tvReelShareCaption != null) {
@@ -1553,6 +1601,7 @@ public class MessageAdapter extends ListAdapter<Message, MessageAdapter.VH> {
         // Reel share
         LinearLayout llReelShare;
         ImageView    ivReelShareThumb;
+        ImageView    ivReelShareAvatar;
         TextView     tvReelShareUsername, tvReelShareCaption;
 
         VH(View v) {

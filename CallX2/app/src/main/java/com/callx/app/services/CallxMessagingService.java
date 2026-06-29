@@ -899,8 +899,10 @@ public class CallxMessagingService extends FirebaseMessagingService {
             case "video": return "🎬 Video";
             case "audio": return "🎤 Voice message";
             case "file":  return "📎 File";
-            case "pdf":   return "📄 PDF document";
-            default:      return "Naya message";
+            case "pdf":        return "📄 PDF document";
+            case "reel_share": return "🎬 Reel";
+            case "reel_link":  return "🎬 Reel";
+            default:           return "Naya message";
         }
     }
     private static int smallIconFor(String type) {

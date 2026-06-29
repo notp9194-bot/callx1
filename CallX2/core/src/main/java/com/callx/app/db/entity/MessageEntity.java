@@ -75,6 +75,13 @@ public class MessageEntity {
     /** UID of the reel owner — the bubble renders ONLY for this user. */
     public String reelOwnerUid;
 
+    // ── Reel Share Card (type = "reel_share") ─────────────────────────────
+    public String reelShareUrl;
+    public String reelShareThumb;
+    public String reelShareCaption;
+    public String reelShareUsername;
+    public String reelShareOwnerPhoto;
+
     /**
      * v18 IMPROVEMENT 5: Offline media upload queue.
      * Image/video/file bhejne ka try offline karo — CloudinaryUploader fail hoga.

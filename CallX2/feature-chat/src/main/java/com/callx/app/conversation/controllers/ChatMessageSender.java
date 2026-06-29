@@ -189,10 +189,16 @@ public class ChatMessageSender {
                 m.pollQuestion    = pe.pollQuestion;
                 m.pollOptions     = com.callx.app.utils.PollJsonUtil.optionsFromJson(pe.pollOptionsJson);
                 m.pollVotes       = com.callx.app.utils.PollJsonUtil.votesFromJson(pe.pollVotesJson);
-                m.pollAnonymous   = pe.pollAnonymous;
-                m.pollClosed      = pe.pollClosed;
-                m.pollMultiChoice = pe.pollMultiChoice;
-                String preview = pe.text != null ? pe.text : "[" + pe.type + "]";
+                m.pollAnonymous       = pe.pollAnonymous;
+                m.pollClosed          = pe.pollClosed;
+                m.pollMultiChoice     = pe.pollMultiChoice;
+                m.reelShareUrl        = pe.reelShareUrl;
+                m.reelShareThumb      = pe.reelShareThumb;
+                m.reelShareCaption    = pe.reelShareCaption;
+                m.reelShareUsername   = pe.reelShareUsername;
+                m.reelShareOwnerPhoto = pe.reelShareOwnerPhoto;
+                String preview = "reel_share".equals(pe.type) ? "📹 Reel"
+                               : pe.text != null ? pe.text : "[" + pe.type + "]";
                 delegate.runOnMain(() -> firebasePushMessage(m, pe.id, preview));
             }
         });
@@ -235,6 +241,14 @@ public class ChatMessageSender {
         e.pollAnonymous         = m.pollAnonymous;
         e.pollClosed            = m.pollClosed;
         e.pollMultiChoice       = m.pollMultiChoice;
+        e.reelId              = m.reelId;
+        e.reelThumbUrl        = m.reelThumbUrl;
+        e.reelOwnerUid        = m.reelOwnerUid;
+        e.reelShareUrl        = m.reelShareUrl;
+        e.reelShareThumb      = m.reelShareThumb;
+        e.reelShareCaption    = m.reelShareCaption;
+        e.reelShareUsername   = m.reelShareUsername;
+        e.reelShareOwnerPhoto = m.reelShareOwnerPhoto;
         return e;
     }
 }
