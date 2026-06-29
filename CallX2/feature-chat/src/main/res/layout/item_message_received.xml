@@ -1,11 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- item_message_received.xml — DiffUtil + ViewStub Optimized -->
+<!-- item_message_received.xml — DiffUtil + ViewStub Optimized – Compact WhatsApp-style -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
     android:gravity="start"
-    android:padding="3dp">
+    android:paddingStart="4dp"
+    android:paddingEnd="48dp"
+    android:paddingTop="1dp"
+    android:paddingBottom="1dp">
 
     <!-- Row: avatar + bubble -->
     <LinearLayout
@@ -17,10 +20,10 @@
         <!-- Group sender avatar -->
         <de.hdodenhof.circleimageview.CircleImageView
             android:id="@+id/iv_sender_avatar"
-            android:layout_width="34dp"
-            android:layout_height="34dp"
+            android:layout_width="30dp"
+            android:layout_height="30dp"
             android:src="@drawable/ic_person"
-            android:layout_marginEnd="6dp"
+            android:layout_marginEnd="5dp"
             android:layout_marginBottom="2dp"
             android:layout_gravity="bottom"
             android:visibility="gone"/>
@@ -36,11 +39,11 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:textColor="@color/brand_primary"
-                android:textSize="12sp"
+                android:textSize="11sp"
                 android:textStyle="bold"
                 android:visibility="gone"
                 android:layout_marginStart="8dp"
-                android:layout_marginBottom="2dp"/>
+                android:layout_marginBottom="1dp"/>
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -54,9 +57,9 @@
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
                     android:background="@drawable/bubble_received"
-                    android:minWidth="80dp">
+                    android:minWidth="60dp">
 
-                    <!-- Reply Preview (lightweight — kept as visibility=gone) -->
+                    <!-- Reply Preview -->
                     <LinearLayout
                         android:id="@+id/ll_reply_preview"
                         android:layout_width="match_parent"
@@ -82,8 +85,8 @@
                             android:orientation="vertical"
                             android:paddingStart="8dp"
                             android:paddingEnd="8dp"
-                            android:paddingTop="5dp"
-                            android:paddingBottom="5dp">
+                            android:paddingTop="4dp"
+                            android:paddingBottom="4dp">
 
                             <TextView
                                 android:id="@+id/tv_reply_sender"
@@ -121,16 +124,20 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content">
 
-                        <!-- Text message -->
+                        <!--
+                            TEXT MESSAGE
+                            paddingEnd reserves space for time on last line (WhatsApp style).
+                            paddingBottom reserves height so footer doesn't cover last line.
+                        -->
                         <TextView
                             android:id="@+id/tv_message"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:maxWidth="@dimen/msg_bubble_max_width"
                             android:paddingStart="8dp"
-                            android:paddingEnd="48dp"
-                            android:paddingTop="6dp"
-                            android:paddingBottom="20dp"
+                            android:paddingEnd="6dp"
+                            android:paddingTop="4dp"
+                            android:paddingBottom="2dp"
                             android:textColor="@color/bubble_received_text"
                             android:textSize="15sp"
                             android:includeFontPadding="false"
@@ -146,14 +153,12 @@
                             android:textSize="10sp"
                             android:textColor="#88000000"
                             android:textStyle="italic"
-                            android:paddingStart="12dp"
-                            android:paddingBottom="4dp"
+                            android:paddingStart="10dp"
+                            android:paddingBottom="2dp"
                             android:visibility="gone"/>
 
                         <!--
-                            IMAGE — Compact 180×180dp card (Instagram/WhatsApp style).
-                            Bubbleless: ll_bubble bg is cleared at runtime for image type.
-                            Timestamp overlays at bottom-end via ll_msg_footer below.
+                            IMAGE — Compact 180×180dp card.
                         -->
                         <ImageView
                             android:id="@+id/iv_image"
@@ -164,7 +169,7 @@
                             android:clipToOutline="true"
                             android:visibility="gone"/>
 
-                        <!-- ═══ Multi Media Group (WhatsApp-style grid) ═══ -->
+                        <!-- Multi Media Group -->
                         <LinearLayout
                             android:id="@+id/ll_media_group"
                             android:layout_width="wrap_content"
@@ -175,7 +180,7 @@
                             android:padding="2dp"
                             android:visibility="gone"/>
 
-                        <!-- ═══ VIEWSTUB: Video player ═══ -->
+                        <!-- VIEWSTUB: Video player -->
                         <ViewStub
                             android:id="@+id/stub_video"
                             android:layout="@layout/layout_msg_video"
@@ -183,7 +188,7 @@
                             android:layout_height="160dp"
                             android:visibility="gone"/>
 
-                        <!-- ═══ VIEWSTUB: Audio player ═══ -->
+                        <!-- VIEWSTUB: Audio player -->
                         <ViewStub
                             android:id="@+id/stub_audio"
                             android:layout="@layout/layout_msg_audio"
@@ -191,7 +196,7 @@
                             android:layout_height="wrap_content"
                             android:visibility="gone"/>
 
-                        <!-- ═══ VIEWSTUB: File card ═══ -->
+                        <!-- VIEWSTUB: File card -->
                         <ViewStub
                             android:id="@+id/stub_file"
                             android:layout="@layout/layout_msg_file"
@@ -199,7 +204,7 @@
                             android:layout_height="wrap_content"
                             android:visibility="gone"/>
 
-                        <!-- ═══ VIEWSTUB: Poll card ═══ -->
+                        <!-- VIEWSTUB: Poll card -->
                         <ViewStub
                             android:id="@+id/stub_poll"
                             android:layout="@layout/layout_msg_poll"
@@ -207,7 +212,7 @@
                             android:layout_height="wrap_content"
                             android:visibility="gone"/>
 
-                        <!-- ═══ VIEWSTUB: Link preview card ═══ -->
+                        <!-- VIEWSTUB: Link preview card -->
                         <ViewStub
                             android:id="@+id/stub_link_preview"
                             android:layout="@layout/layout_msg_link_preview"
@@ -215,10 +220,7 @@
                             android:layout_height="wrap_content"
                             android:visibility="gone"/>
 
-                        <!--
-                            REEL SHARE — 165dp compact card (bubbleless, overlaid timestamp).
-                            Gravity=start so it aligns to the left edge like a received message.
-                        -->
+                        <!-- REEL SHARE -->
                         <ViewStub
                             android:id="@+id/stub_reel_share"
                             android:layout="@layout/layout_msg_reel_share"
@@ -227,20 +229,19 @@
                             android:layout_gravity="start"
                             android:visibility="gone"/>
 
-                        <!-- Footer (overlays bottom-end of media card for media types) -->
+                        <!--
+                            FOOTER: time — inline at bottom-end of bubble (WhatsApp style).
+                            Sits on same visual row as text end. No separate row.
+                        -->
                         <LinearLayout
                             android:id="@+id/ll_msg_footer"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:layout_gravity="bottom|end"
-                            android:layout_marginEnd="6dp"
-                            android:layout_marginBottom="4dp"
+                            android:layout_marginEnd="5dp"
+                            android:layout_marginBottom="3dp"
                             android:orientation="horizontal"
-                            android:gravity="center_vertical"
-                            android:paddingStart="5dp"
-                            android:paddingEnd="5dp"
-                            android:paddingTop="2dp"
-                            android:paddingBottom="2dp">
+                            android:gravity="center_vertical">
 
                             <TextView
                                 android:id="@+id/tv_expiry"
@@ -248,7 +249,7 @@
                                 android:layout_height="wrap_content"
                                 android:textColor="#FFCC00"
                                 android:textSize="9sp"
-                                android:layout_marginEnd="3dp"
+                                android:layout_marginEnd="2dp"
                                 android:visibility="gone"/>
 
                             <TextView
@@ -272,7 +273,7 @@
                                 android:id="@+id/tv_status"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
-                                android:textSize="13sp"
+                                android:textSize="12sp"
                                 android:visibility="gone"/>
 
                         </LinearLayout>
@@ -294,13 +295,13 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:layout_gravity="top|end"
-                            android:layout_marginTop="6dp"
+                            android:layout_marginTop="4dp"
                             android:layout_marginEnd="6dp"
                             android:background="@drawable/bg_listening_badge"
                             android:paddingStart="8dp"
                             android:paddingEnd="8dp"
-                            android:paddingTop="3dp"
-                            android:paddingBottom="3dp"
+                            android:paddingTop="2dp"
+                            android:paddingBottom="2dp"
                             android:text="🎧 listening…"
                             android:textColor="#FFFFFF"
                             android:textSize="10sp"
@@ -318,9 +319,9 @@
                         android:background="#22000000"
                         android:paddingStart="8dp"
                         android:paddingEnd="8dp"
-                        android:paddingTop="3dp"
-                        android:paddingBottom="3dp"
-                        android:layout_margin="4dp"
+                        android:paddingTop="2dp"
+                        android:paddingBottom="2dp"
+                        android:layout_margin="3dp"
                         android:visibility="gone">
 
                         <TextView
@@ -336,8 +337,8 @@
                 <!-- Quick Forward Button -->
                 <ImageButton
                     android:id="@+id/btn_quick_forward"
-                    android:layout_width="32dp"
-                    android:layout_height="32dp"
+                    android:layout_width="28dp"
+                    android:layout_height="28dp"
                     android:src="@drawable/ic_forward_msg"
                     android:background="?attr/selectableItemBackgroundBorderless"
                     android:layout_marginStart="4dp"
