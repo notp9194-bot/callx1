@@ -150,15 +150,59 @@
                             android:paddingBottom="4dp"
                             android:visibility="gone"/>
 
-                        <!-- Image (always inflated — simple ImageView) -->
-                        <ImageView
-                            android:id="@+id/iv_image"
-                            android:layout_width="@dimen/msg_bubble_max_width"
+                        <!-- Image — compact bubbleless (Instagram/WA style) -->
+                        <FrameLayout
+                            android:id="@+id/fl_image_container"
+                            android:layout_width="200dp"
                             android:layout_height="wrap_content"
-                            android:maxHeight="320dp"
-                            android:adjustViewBounds="true"
-                            android:scaleType="fitCenter"
-                            android:visibility="gone"/>
+                            android:clipToOutline="true"
+                            android:outlineProvider="background"
+                            android:background="@drawable/bg_reel_card_shape"
+                            android:elevation="2dp"
+                            android:visibility="gone">
+
+                            <ImageView
+                                android:id="@+id/iv_image"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:maxHeight="200dp"
+                                android:adjustViewBounds="true"
+                                android:scaleType="centerCrop"/>
+
+                            <!-- Time pill overlay (bottom-right) — no tick for received -->
+                            <LinearLayout
+                                android:id="@+id/ll_image_time"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_gravity="bottom|end"
+                                android:layout_margin="5dp"
+                                android:orientation="horizontal"
+                                android:gravity="center_vertical"
+                                android:background="@drawable/bg_time_pill"
+                                android:paddingStart="5dp"
+                                android:paddingEnd="5dp"
+                                android:paddingTop="2dp"
+                                android:paddingBottom="2dp"
+                                android:visibility="gone">
+
+                                <TextView
+                                    android:id="@+id/tv_image_time"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:textColor="#FFFFFF"
+                                    android:textSize="8sp"/>
+
+                                <TextView
+                                    android:id="@+id/tv_image_tick"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginStart="2dp"
+                                    android:textSize="9sp"
+                                    android:visibility="gone"/>
+
+                            </LinearLayout>
+
+                        </FrameLayout>
 
                         <!-- ═══ VIEWSTUB: Video player ═══ -->
                         <ViewStub

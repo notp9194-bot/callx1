@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Subtle card background for bubbleless media (image/reel) — Instagram/WA style -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- shadow layer -->
+    <item
+        android:left="1dp"
+        android:top="1dp"
+        android:right="1dp"
+        android:bottom="1dp">
+        <shape>
+            <solid android:color="#22000000"/>
+            <corners android:radius="12dp"/>
+        </shape>
+    </item>
+    <!-- card layer -->
+    <item>
+        <shape>
+            <solid android:color="#00000000"/>
+            <corners android:radius="12dp"/>
+            <stroke android:width="0dp" android:color="#00000000"/>
+        </shape>
+    </item>
+</layer-list>

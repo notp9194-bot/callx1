@@ -283,6 +283,12 @@ public class MessageAdapter extends ListAdapter<Message, MessageAdapter.VH> {
         // ── Reset all content views (only those already inflated need hiding) ─
         h.tvMessage.setVisibility(View.GONE);
         h.ivImage.setVisibility(View.GONE);
+        // Also hide image container + bubble bg reset for bubbleless reuse
+        android.widget.FrameLayout flImgReset = h.itemView.findViewById(R.id.fl_image_container);
+        if (flImgReset != null) flImgReset.setVisibility(View.GONE);
+        // Reset bubble bg (was cleared for bubbleless — restore handled in type switch above)
+        View llBubbleReset = h.itemView.findViewById(R.id.ll_bubble);
+        if (llBubbleReset != null) llBubbleReset.setMinimumWidth(80);
         if (h.flVideo       != null) h.flVideo.setVisibility(View.GONE);
         if (h.llAudio       != null) h.llAudio.setVisibility(View.GONE);
         if (h.llFile        != null) h.llFile.setVisibility(View.GONE);
@@ -378,12 +384,20 @@ public class MessageAdapter extends ListAdapter<Message, MessageAdapter.VH> {
         if ("gif".equals(type)) type = "gif";
 
         // Bubble background (runtime gradient via ChatThemeManager)
+        // For image/reel_share: bubbleless style (Instagram/WA) — hide bubble bg
+        boolean isBubbleless = "image".equals(type) || "gif".equals(type) || "reel_share".equals(type);
         try {
             View llBubble = h.itemView.findViewById(R.id.ll_bubble);
             if (llBubble != null) {
-                boolean hasReply = m.replyToText != null && !m.replyToText.isEmpty();
-                com.callx.app.utils.ChatThemeManager.get(ctx)
-                        .applyBubble(llBubble, sent, type, hasReply);
+                if (isBubbleless) {
+                    // No bubble shell — transparent bg, no min width constraint
+                    llBubble.setBackground(null);
+                    llBubble.setMinimumWidth(0);
+                } else {
+                    boolean hasReply = m.replyToText != null && !m.replyToText.isEmpty();
+                    com.callx.app.utils.ChatThemeManager.get(ctx)
+                            .applyBubble(llBubble, sent, type, hasReply);
+                }
             }
         } catch (Exception ignored) {}
 
@@ -391,6 +405,9 @@ public class MessageAdapter extends ListAdapter<Message, MessageAdapter.VH> {
             // ── IMAGE / GIF ─────────────────────────────────────────────────
             case "gif":
             case "image": {
+                // Show the FrameLayout container (bubbleless card)
+                android.widget.FrameLayout flImgContainer = h.itemView.findViewById(R.id.fl_image_container);
+                if (flImgContainer != null) flImgContainer.setVisibility(View.VISIBLE);
                 h.ivImage.setVisibility(View.VISIBLE);
                 String url = m.mediaUrl != null ? m.mediaUrl : m.imageUrl;
                 android.util.Log.d("ImageLoad", "Loading image/gif: " + url);
@@ -420,6 +437,32 @@ public class MessageAdapter extends ListAdapter<Message, MessageAdapter.VH> {
                 final String tu = m.thumbnailUrl;
                 h.ivImage.setOnClickListener(v -> showImageActionSheet(ctx, m, fu, tu != null ? tu : fu));
                 h.ivImage.setOnLongClickListener(v -> { openActionSheet(ctx, m); return true; });
+                // ── Image time+tick overlay ──
+                android.widget.FrameLayout flImg = h.itemView.findViewById(R.id.fl_image_container);
+                if (flImg != null) {
+                    android.widget.LinearLayout llImgTime = flImg.findViewById(R.id.ll_image_time);
+                    android.widget.TextView tvImgTime     = flImg.findViewById(R.id.tv_image_time);
+                    android.widget.TextView tvImgTick     = flImg.findViewById(R.id.tv_image_tick);
+                    if (llImgTime != null) llImgTime.setVisibility(View.VISIBLE);
+                    if (tvImgTime != null && m.timestamp != null)
+                        tvImgTime.setText(new java.text.SimpleDateFormat("h:mm a",
+                                java.util.Locale.getDefault()).format(new java.util.Date(m.timestamp)));
+                    if (tvImgTick != null) {
+                        boolean sentImg = currentUid != null && currentUid.equals(m.senderId);
+                        if (sentImg) {
+                            tvImgTick.setVisibility(View.VISIBLE);
+                            if (Boolean.TRUE.equals(m.read) || (m.readBy != null && !m.readBy.isEmpty())) {
+                                tvImgTick.setText("✓✓"); tvImgTick.setTextColor(0xFF34B7F1);
+                            } else if (Boolean.TRUE.equals(m.delivered) || (m.deliveredTo != null && !m.deliveredTo.isEmpty())) {
+                                tvImgTick.setText("✓✓"); tvImgTick.setTextColor(0xAAFFFFFF);
+                            } else {
+                                tvImgTick.setText("✓"); tvImgTick.setTextColor(0xAAFFFFFF);
+                            }
+                        } else {
+                            tvImgTick.setVisibility(View.GONE);
+                        }
+                    }
+                }
                 break;
             }
 
@@ -922,6 +965,31 @@ public class MessageAdapter extends ListAdapter<Message, MessageAdapter.VH> {
                 h.ivReelShareThumb.setImageResource(android.R.color.darker_gray);
             }
         }
+        // ── Time + tick overlay on reel card corner (Instagram/WA style) ──
+        android.widget.TextView tvReelTime = h.llReelShare != null
+                ? (android.widget.TextView) h.llReelShare.findViewById(R.id.tv_reel_time) : null;
+        android.widget.TextView tvReelTick = h.llReelShare != null
+                ? (android.widget.TextView) h.llReelShare.findViewById(R.id.tv_reel_tick) : null;
+        if (tvReelTime != null && m.timestamp > 0) {
+            tvReelTime.setText(new java.text.SimpleDateFormat("h:mm a",
+                    java.util.Locale.getDefault()).format(new java.util.Date(m.timestamp)));
+        }
+        if (tvReelTick != null) {
+            // Mirror main footer tick logic for sent messages
+            boolean sentMsg = currentUid != null && currentUid.equals(m.senderId);
+            if (sentMsg) {
+                tvReelTick.setVisibility(View.VISIBLE);
+                if (Boolean.TRUE.equals(m.read) || (m.readBy != null && !m.readBy.isEmpty())) {
+                    tvReelTick.setText("✓✓"); tvReelTick.setTextColor(0xFF34B7F1);
+                } else if (Boolean.TRUE.equals(m.delivered) || (m.deliveredTo != null && !m.deliveredTo.isEmpty())) {
+                    tvReelTick.setText("✓✓"); tvReelTick.setTextColor(0xAAFFFFFF);
+                } else {
+                    tvReelTick.setText("✓"); tvReelTick.setTextColor(0xAAFFFFFF);
+                }
+            } else {
+                tvReelTick.setVisibility(View.GONE);
+            }
+        }
     }
 
     // ── Poll bind helper ──────────────────────────────────────────────────────
@@ -1184,6 +1252,19 @@ public class MessageAdapter extends ListAdapter<Message, MessageAdapter.VH> {
     }
 
     private void bindFooter(VH h, Message m, boolean sent) {
+        // For bubbleless media (image/reel_share), footer is overlaid inside the card
+        // Hide the bubble-internal footer (ll_msg_footer) to avoid double timestamp
+        String fType = m.type == null ? "text" : m.type;
+        boolean isBubbleless = "image".equals(fType) || "gif".equals(fType) || "reel_share".equals(fType);
+        View llMsgFooter = h.itemView.findViewById(R.id.ll_msg_footer);
+        if (llMsgFooter != null) {
+            if (isBubbleless) {
+                // image/reel_share have their own overlay time+tick — hide bubble footer
+                llMsgFooter.setVisibility(View.GONE);
+            } else {
+                llMsgFooter.setVisibility(View.VISIBLE);
+            }
+        }
         if (h.tvTime != null && m.timestamp != null)
             h.tvTime.setText(formatTime(m.timestamp));
         if (h.tvStarredIcon != null)
