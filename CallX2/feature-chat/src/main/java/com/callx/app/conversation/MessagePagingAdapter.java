@@ -1491,7 +1491,7 @@ public class MessagePagingAdapter
                 // ExpandableTextHelper owns all text-setting, Linkify, and
                 // expand/collapse state. State (isExpanded) lives on the Message
                 // model so RecyclerView recycling is safe.
-                com.callx.app.utils.ExpandableTextHelper.bind(h.tvMessage, m, this, pos, isSentMsg);
+                com.callx.app.utils.ExpandableTextHelper.bind(h.tvMessage, m, this, position, isSentMsg);
                 ++h.textBindToken; // invalidate any in-flight PrecomputedText for this VH
 
                 // ── Search highlight ──────────────────────────────────────────
