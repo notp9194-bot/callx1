@@ -78,8 +78,6 @@ public class ReelShareSheetFragment extends BottomSheetDialogFragment
     public static final String ARG_THUMB_URL    = "share_thumb_url";
     public static final String ARG_CAPTION      = "share_caption";
     public static final String ARG_OWNER_UID    = "share_owner_uid";
-    public static final String ARG_OWNER_NAME   = "share_owner_name";
-    public static final String ARG_OWNER_PHOTO  = "share_owner_photo";
     public static final String ARG_ALLOW_REPOST = "share_allow_repost";
 
     private static final String DEEP_LINK_PREFIX = Constants.DEEP_LINK_BASE_URL + "/reel/";
@@ -100,8 +98,6 @@ public class ReelShareSheetFragment extends BottomSheetDialogFragment
     private String  caption;
     private String  myUid;
     private String  ownerUid;
-    private String  ownerName;
-    private String  ownerPhoto;
     private boolean allowRepost;
 
     // ── Factory ────────────────────────────────────────────────────────────
@@ -115,8 +111,6 @@ public class ReelShareSheetFragment extends BottomSheetDialogFragment
         args.putString(ARG_THUMB_URL,    thumbUrl);
         args.putString(ARG_CAPTION,      caption);
         args.putString(ARG_OWNER_UID,    ownerUid);
-        args.putString(ARG_OWNER_NAME,   "");
-        args.putString(ARG_OWNER_PHOTO,  "");
         args.putBoolean(ARG_ALLOW_REPOST, allowRepost);
 
         ReelShareSheetFragment f = new ReelShareSheetFragment();
@@ -136,8 +130,6 @@ public class ReelShareSheetFragment extends BottomSheetDialogFragment
             thumbUrl    = getArguments().getString(ARG_THUMB_URL);
             caption     = getArguments().getString(ARG_CAPTION);
             ownerUid    = getArguments().getString(ARG_OWNER_UID);
-            ownerName   = getArguments().getString(ARG_OWNER_NAME, "");
-            ownerPhoto  = getArguments().getString(ARG_OWNER_PHOTO, "");
             allowRepost = getArguments().getBoolean(ARG_ALLOW_REPOST, true);
         }
 
@@ -262,8 +254,7 @@ public class ReelShareSheetFragment extends BottomSheetDialogFragment
         msg.put("reelShareUrl",    DEEP_LINK_PREFIX + reelId);
         msg.put("reelShareThumb",  thumbUrl  != null ? thumbUrl  : "");
         msg.put("reelShareCaption",caption   != null ? caption   : "");
-        msg.put("reelShareUsername", ownerName != null && !ownerName.isEmpty() ? ownerName : (ownerUid != null ? ownerUid : ""));
-        msg.put("reelShareOwnerPhoto", ownerPhoto != null ? ownerPhoto : "");
+        msg.put("reelShareUsername", ownerUid != null ? ownerUid : "");
         msg.put("timestamp",       System.currentTimeMillis());
         msgRef.setValue(msg);
 
