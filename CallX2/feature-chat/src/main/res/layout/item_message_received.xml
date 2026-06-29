@@ -164,6 +164,17 @@
                             android:clipToOutline="true"
                             android:visibility="gone"/>
 
+                        <!-- ═══ Multi Media Group (WhatsApp-style grid) ═══ -->
+                        <LinearLayout
+                            android:id="@+id/ll_media_group"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:orientation="vertical"
+                            android:background="@drawable/bg_media_card"
+                            android:clipToOutline="true"
+                            android:padding="2dp"
+                            android:visibility="gone"/>
+
                         <!-- ═══ VIEWSTUB: Video player ═══ -->
                         <ViewStub
                             android:id="@+id/stub_video"

@@ -168,6 +168,13 @@ public class Message {
      */
     public Long viewOnceExpiresAt;
 
+    // ── Feature: Multi Media ──────────────────────────────────────────────
+    /** Set when type = "multi_media". Each entry has keys:
+     *  "url" (CDN URL), "thumbUrl" (optional), "mediaType" ("image" or "video") */
+    public java.util.List<java.util.Map<String, Object>> mediaItems;
+    /** Optional caption attached to a multi_media message. */
+    public String caption;
+
     public Message() {}
 
     /**

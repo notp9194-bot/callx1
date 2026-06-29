@@ -19,6 +19,7 @@ import com.callx.app.chat.R;
 import com.callx.app.models.Message;
 import com.callx.app.utils.FileUtils;
 import com.callx.app.utils.MediaCache;
+import com.callx.app.utils.MediaGroupLayoutHelper;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
 
 import java.text.SimpleDateFormat;
@@ -290,6 +291,7 @@ public class MessageAdapter extends ListAdapter<Message, MessageAdapter.VH> {
         if (h.llLinkPreview != null) h.llLinkPreview.setVisibility(View.GONE);
         if (h.llReelShare   != null) h.llReelShare.setVisibility(View.GONE);
         if (h.tvEdited      != null) h.tvEdited.setVisibility(View.GONE);
+        if (h.llMediaGroup  != null) h.llMediaGroup.setVisibility(View.GONE);
 
         // Pinned label
         if (h.tvPinnedLabel != null)
@@ -382,7 +384,8 @@ public class MessageAdapter extends ListAdapter<Message, MessageAdapter.VH> {
         // no chat-bubble background is drawn; the media card is the only visual frame.
         // Text, audio, file, poll, link_preview keep the standard bubble.
         boolean isMediaMsg = "image".equals(type) || "gif".equals(type)
-                || "video".equals(type) || "reel_share".equals(type);
+                || "video".equals(type) || "reel_share".equals(type)
+                || "multi_media".equals(type);
         if (h.llBubble != null) {
             if (isMediaMsg) {
                 h.llBubble.setBackground(null);
@@ -650,6 +653,16 @@ public class MessageAdapter extends ListAdapter<Message, MessageAdapter.VH> {
                         }
                     }
                 });
+                break;
+            }
+
+            // ── MULTI MEDIA (WhatsApp-style grid) ───────────────────────────
+            case "multi_media": {
+                if (h.llMediaGroup != null && m.mediaItems != null && !m.mediaItems.isEmpty()) {
+                    h.llMediaGroup.setVisibility(View.VISIBLE);
+                    MediaGroupLayoutHelper.populate(ctx, h.llMediaGroup, m.mediaItems, m.caption);
+                    h.llMediaGroup.setOnLongClickListener(v -> { openActionSheet(ctx, m); return true; });
+                }
                 break;
             }
 
@@ -1588,6 +1601,7 @@ public class MessageAdapter extends ListAdapter<Message, MessageAdapter.VH> {
         ImageButton  btnQuickForward;
         LinearLayout llTickPill;
         LinearLayout llBubble;
+        LinearLayout llMediaGroup;
 
         // ── Countdown for disappearing messages ──
 
@@ -1646,6 +1660,7 @@ public class MessageAdapter extends ListAdapter<Message, MessageAdapter.VH> {
             btnQuickForward = v.findViewById(R.id.btn_quick_forward);
             llTickPill      = v.findViewById(R.id.ll_tick_pill);
             llBubble        = v.findViewById(R.id.ll_bubble);
+            llMediaGroup    = v.findViewById(R.id.ll_media_group);
 
             // Bind ViewStub references — these are replaced when inflate() is called
             stubVideo       = v.findViewById(R.id.stub_video);

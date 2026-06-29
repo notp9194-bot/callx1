@@ -1,13 +1,23 @@
 package com.callx.app.conversation.controllers;
 
 import android.Manifest;
+import android.app.Activity;
+import android.content.ClipData;
 import android.content.ContentValues;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.provider.MediaStore;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.widget.Toast;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import androidx.activity.result.ActivityResultCaller;
 import androidx.activity.result.ActivityResultLauncher;
@@ -39,12 +49,13 @@ public class ChatMediaController {
     private final AppCompatActivity activity;
     private final ChatActivityDelegate delegate;
 
-    private ActivityResultLauncher<String> imagePicker;
-    private ActivityResultLauncher<String> videoPicker;
-    private ActivityResultLauncher<String> audioPicker;
-    private ActivityResultLauncher<String> filePicker;
-    private ActivityResultLauncher<Uri>    cameraCapturer;
-    private ActivityResultLauncher<String> wallpaperPicker;
+    private ActivityResultLauncher<String>  imagePicker;
+    private ActivityResultLauncher<String>  videoPicker;
+    private ActivityResultLauncher<String>  audioPicker;
+    private ActivityResultLauncher<String>  filePicker;
+    private ActivityResultLauncher<Uri>     cameraCapturer;
+    private ActivityResultLauncher<String>  wallpaperPicker;
+    private ActivityResultLauncher<Intent>  multiMediaPicker;
 
     private Uri cameraOutputUri;
 
@@ -94,6 +105,24 @@ public class ChatMediaController {
                     if (success && cameraOutputUri != null)
                         uploadAndSend(cameraOutputUri, "image", "image", null);
                 });
+
+        multiMediaPicker = activity.registerForActivityResult(
+                new ActivityResultContracts.StartActivityForResult(),
+                result -> {
+                    if (result.getResultCode() != Activity.RESULT_OK || result.getData() == null)
+                        return;
+                    Intent data = result.getData();
+                    List<Uri> uris = new ArrayList<>();
+                    if (data.getClipData() != null) {
+                        ClipData cd = data.getClipData();
+                        for (int i = 0; i < cd.getItemCount(); i++) {
+                            uris.add(cd.getItemAt(i).getUri());
+                        }
+                    } else if (data.getData() != null) {
+                        uris.add(data.getData());
+                    }
+                    if (!uris.isEmpty()) uploadAndSendMulti(uris, "");
+                });
     }
 
     // ── Launch wallpaper picker (called via delegate) ─────────────────────
@@ -119,8 +148,89 @@ public class ChatMediaController {
         if (optPoll != null) {
             optPoll.setOnClickListener(x -> { sheet.dismiss(); delegate.launchPollCreator(); });
         }
+        View optMulti = v.findViewById(R.id.opt_multi);
+        if (optMulti != null) {
+            optMulti.setOnClickListener(x -> {
+                sheet.dismiss();
+                Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                intent.setType("*/*");
+                intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"image/*", "video/*"});
+                intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+                intent.addCategory(Intent.CATEGORY_OPENABLE);
+                multiMediaPicker.launch(intent);
+            });
+        }
         sheet.setContentView(v);
         sheet.show();
+    }
+
+    // ── Multi media upload & send ─────────────────────────────────────────
+
+    public void uploadAndSendMulti(List<Uri> uris, String caption) {
+        if (!delegate.isOnline()) {
+            Toast.makeText(activity, "No connection — multi media send nahi ho sakta", Toast.LENGTH_LONG).show();
+            return;
+        }
+        if (uris.size() == 1) {
+            Uri uri = uris.get(0);
+            String mime = activity.getContentResolver().getType(uri);
+            if (mime != null && mime.startsWith("video")) {
+                uploadAndSend(uri, "video", "video", null);
+            } else {
+                uploadAndSend(uri, "image", "image", null);
+            }
+            return;
+        }
+
+        com.callx.app.chat.databinding.ActivityChatBinding binding = delegate.getBinding();
+        binding.uploadProgress.setVisibility(View.VISIBLE);
+        Toast.makeText(activity, uris.size() + " media upload ho raha hai...", Toast.LENGTH_SHORT).show();
+
+        List<Map<String, Object>> mediaItems = new ArrayList<>();
+        for (int i = 0; i < uris.size(); i++) mediaItems.add(new HashMap<>());
+
+        AtomicInteger remaining = new AtomicInteger(uris.size());
+        AtomicBoolean hadError  = new AtomicBoolean(false);
+
+        for (int i = 0; i < uris.size(); i++) {
+            final int idx    = i;
+            final Uri uri    = uris.get(i);
+            String rawMime   = activity.getContentResolver().getType(uri);
+            final boolean isVideo  = rawMime != null && rawMime.startsWith("video");
+            final String resType   = isVideo ? "video" : "image";
+            final String folder    = isVideo ? "callx/video" : "callx/image";
+
+            CloudinaryUploader.upload(activity, uri, folder, resType,
+                    new CloudinaryUploader.UploadCallback() {
+                        @Override public void onSuccess(CloudinaryUploader.Result r) {
+                            Map<String, Object> item = new HashMap<>();
+                            item.put("url",       r.secureUrl);
+                            item.put("mediaType", isVideo ? "video" : "image");
+                            if (r.thumbnailUrl != null && !r.thumbnailUrl.isEmpty())
+                                item.put("thumbUrl", r.thumbnailUrl);
+                            mediaItems.set(idx, item);
+
+                            if (remaining.decrementAndGet() == 0 && !hadError.get()) {
+                                binding.uploadProgress.setVisibility(View.GONE);
+                                com.callx.app.models.Message m = delegate.buildOutgoing();
+                                m.type       = "multi_media";
+                                m.mediaItems = mediaItems;
+                                if (caption != null && !caption.isEmpty()) m.caption = caption;
+                                m.text       = "";
+                                delegate.pushMessage(m, "\uD83D\uDDBC\uFE0F " + mediaItems.size() + " photos/videos");
+                                delegate.clearReply();
+                            }
+                        }
+                        @Override public void onError(String err) {
+                            if (hadError.compareAndSet(false, true)) {
+                                binding.uploadProgress.setVisibility(View.GONE);
+                                Toast.makeText(activity,
+                                        err != null ? err : "Media upload failed",
+                                        Toast.LENGTH_LONG).show();
+                            }
+                        }
+                    });
+        }
     }
 
     // ── Camera ────────────────────────────────────────────────────────────
