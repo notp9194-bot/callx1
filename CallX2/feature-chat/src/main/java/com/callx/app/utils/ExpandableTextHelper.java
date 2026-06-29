@@ -60,35 +60,51 @@ public final class ExpandableTextHelper {
 
         final String fullText = msg.text != null ? msg.text : "";
 
-        // ── Short text: may still need expansion if it wraps to many lines ──
-        if (fullText.length() <= MAX_CHARS) {
-            tv.setMaxLines(Integer.MAX_VALUE);
-            setTextWithLinks(tv, fullText, sent);
-
-            // Post a layout pass to check actual line count
-            tv.post(() -> {
-                Layout layout = tv.getLayout();
-                if (layout == null) return;
-                if (layout.getLineCount() > MAX_LINES) {
-                    msg.isExpandable = true;
-                    if (!msg.isExpanded) {
-                        applyCollapsed(tv, msg, fullText, adapter, adapterPosition, sent);
-                    }
-                    // If already expanded, full text is already showing — nothing to do
-                } else {
-                    msg.isExpandable = false;
-                }
-            });
+        // ── Long text: always needs expand/collapse ──
+        if (fullText.length() > MAX_CHARS) {
+            msg.isExpandable = true;
+            if (msg.isExpanded) {
+                applyExpanded(tv, msg, fullText, adapter, adapterPosition, sent);
+            } else {
+                applyCollapsed(tv, msg, fullText, adapter, adapterPosition, sent);
+            }
             return;
         }
 
-        // ── Long text: always needs expand/collapse ──
-        msg.isExpandable = true;
-        if (msg.isExpanded) {
-            applyExpanded(tv, msg, fullText, adapter, adapterPosition, sent);
-        } else {
-            applyCollapsed(tv, msg, fullText, adapter, adapterPosition, sent);
+        // ── Short text: state already known from a previous bind ─────────────
+        // Skip tv.post() entirely — apply directly to avoid RecyclerView
+        // recycling races and the one-frame flicker of showing full text then
+        // collapsing it. isExpandable is set to true permanently once discovered.
+        if (msg.isExpandable) {
+            if (msg.isExpanded) {
+                applyExpanded(tv, msg, fullText, adapter, adapterPosition, sent);
+            } else {
+                applyCollapsed(tv, msg, fullText, adapter, adapterPosition, sent);
+            }
+            return;
         }
+
+        // ── Short text: first bind — measure line count after layout pass ─────
+        // Show full text first, then post to check whether it exceeds MAX_LINES.
+        // This is the ONLY path that uses post(), and only runs once per message.
+        tv.setMaxLines(Integer.MAX_VALUE);
+        setTextWithLinks(tv, fullText, sent);
+
+        tv.post(() -> {
+            Layout layout = tv.getLayout();
+            if (layout == null) return;
+            if (layout.getLineCount() > MAX_LINES) {
+                msg.isExpandable = true;
+                if (!msg.isExpanded) {
+                    applyCollapsed(tv, msg, fullText, adapter, adapterPosition, sent);
+                }
+            } else {
+                // Short text that fits — mark as non-expandable so future
+                // binds skip the post() and don't re-measure unnecessarily.
+                // We use a negative sentinel: isExpandable stays false (default).
+                // Nothing further to do.
+            }
+        });
     }
 
     // ── Collapsed state ───────────────────────────────────────────────────────

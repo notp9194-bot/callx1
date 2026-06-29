@@ -175,6 +175,48 @@ public class MessagePagingAdapter
     // ── Fields ────────────────────────────────────────────────────
     private final String currentUid;
     private final boolean isGroup;
+
+    // ── Search highlight ──────────────────────────────────────────
+    /** Non-null while a search is active. Applied as yellow BackgroundColorSpan in text bubbles. */
+    private volatile String activeSearchQuery = null;
+
+    /**
+     * Set the current search query so text bubbles highlight matching substrings.
+     * Pass null or empty string to clear highlights.
+     * Must be called on the main thread.
+     */
+    public void setSearchQuery(String query) {
+        activeSearchQuery = (query != null && !query.isEmpty()) ? query : null;
+        notifyDataSetChanged();
+    }
+
+    /**
+     * Overlay yellow BackgroundColorSpan on every occurrence of {@code query}
+     * in the TextView's current text. Safe to call even if query is absent.
+     * Called immediately after ExpandableTextHelper.bind() so spans are layered
+     * on top of whatever text (full, truncated, or "Read more" form) is showing.
+     */
+    private void applySearchHighlight(android.widget.TextView tv, String query) {
+        CharSequence cs = tv.getText();
+        if (cs == null || cs.length() == 0) return;
+        String lower = cs.toString().toLowerCase(Locale.getDefault());
+        String lq = query.toLowerCase(Locale.getDefault());
+        int idx = lower.indexOf(lq);
+        if (idx < 0) return;
+        android.text.SpannableString ss = new android.text.SpannableString(cs);
+        while (idx >= 0) {
+            ss.setSpan(
+                new android.text.style.BackgroundColorSpan(0xFFFFD54F),
+                idx, idx + lq.length(),
+                android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            idx = lower.indexOf(lq, idx + 1);
+        }
+        tv.setText(ss);
+        // Preserve LinkMovementMethod if already set by ExpandableTextHelper
+        if (!(tv.getMovementMethod() instanceof android.text.method.LinkMovementMethod)) {
+            tv.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
+        }
+    }
     /** Set by the Activity right after construction (setChatId). Threaded
      *  through to MediaViewerActivity (video) so it can publish playback
      *  presence on chatPlayback/{chatId}/{uid} — audio playback presence
@@ -1438,101 +1480,24 @@ public class MessagePagingAdapter
             }
             default: // "text", "emoji", etc.
                 h.tvMessage.setVisibility(View.VISIBLE);
-                String txt = m.text != null ? m.text : "";
-                if (Boolean.TRUE.equals(m.edited)) txt += " (edited)";
                 // ── Font Style — cached static Typeface, no allocation ────────
                 h.tvMessage.setTypeface(TF_NORMAL);
-                // ── Font Size — moved to onCreateViewHolder for constant case ──
-                // Only call here for safety (noop if already set at create time)
-                // ── Clickable links: URLs, phone numbers, emails ─────────────
-                boolean mightHaveLink = txt.contains("http://")
-                        || txt.contains("https://")
-                        || txt.contains("www.")
-                        || txt.contains("@")
-                        || (txt.length() >= 7 && txt.contains("+"));
-                android.text.SpannableString spanned = new android.text.SpannableString(txt);
-                if (mightHaveLink) {
-                    android.text.util.Linkify.addLinks(spanned,
-                        android.text.util.Linkify.WEB_URLS |
-                        android.text.util.Linkify.PHONE_NUMBERS |
-                        android.text.util.Linkify.EMAIL_ADDRESSES);
-                    // Link color matching bubble theme
-                    boolean isSentMsg = currentUid.equals(m.senderId);
-                    int linkColor = isSentMsg ? 0xFFB3E5FC : 0xFF1565C0;
-                    h.tvMessage.setLinkTextColor(linkColor);
-                    h.tvMessage.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
-                    h.tvMessage.setHighlightColor(0x33FFFFFF);
-                } else {
-                    // Plain text — remove MovementMethod so RecyclerView keeps scroll events
-                    h.tvMessage.setMovementMethod(null);
-                }
                 boolean isSentMsg = currentUid.equals(m.senderId);
                 h.tvMessage.setAlpha(1f);
                 h.tvMessage.setTextColor(
                     com.callx.app.utils.ChatThemeManager.get(ctx).getTextColor(isSentMsg));
 
-                // ── PrecomputedTextCompat — now genuinely async ──────────────
-                // 1) setText(spanned) immediately, always — nothing is ever
-                //    blank, and this costs the same as before.
-                // 2) Bump h.textBindToken on EVERY full text-bind (even for
-                //    short messages) — this is the staleness guard. It
-                //    invalidates any in-flight background result left over
-                //    from whatever message this recycled holder showed
-                //    previously, regardless of how long the new text is.
-                // 3) For long messages, check a small LRU cache keyed by
-                //    messageId+text-hash first — scrolling back to an
-                //    already-seen long message reuses the prior result
-                //    instantly, no background hop needed.
-                // 4) On a cache miss, only the cheap Params extraction
-                //    (current font/size/width — already configured on
-                //    h.tvMessage above) stays on the UI thread. The actual
-                //    expensive work, PrecomputedTextCompat.create() (line
-                //    breaking + measuring), runs on TEXT_PRECOMPUTE_EXECUTOR.
-                //    The result is applied on the main thread ONLY if
-                //    h.textBindToken still matches what was captured before
-                //    dispatch — otherwise the holder has since been rebound
-                //    (or recycled) and the stale result is dropped silently.
-                h.tvMessage.setText(spanned);
-                final int myTextBindToken = ++h.textBindToken;
-                if (txt.length() > 80) {
-                    final String mid = m.messageId != null ? m.messageId : m.id;
-                    final String cacheKey = (mid != null ? mid : "") + "#" + txt.hashCode();
+                // ── Expandable text: WhatsApp-style "Read more / Read less" ───
+                // ExpandableTextHelper owns all text-setting, Linkify, and
+                // expand/collapse state. State (isExpanded) lives on the Message
+                // model so RecyclerView recycling is safe.
+                com.callx.app.utils.ExpandableTextHelper.bind(h.tvMessage, m, this, pos, isSentMsg);
+                ++h.textBindToken; // invalidate any in-flight PrecomputedText for this VH
 
-                    PrecomputedTextCompat cachedPct;
-                    synchronized (precomputeCacheLock) {
-                        cachedPct = precomputedTextCache.get(cacheKey);
-                    }
-                    if (cachedPct != null) {
-                        // Fast path: already computed on a previous bind.
-                        // Must go through TextViewCompat.setPrecomputedText()
-                        // (not plain setText) so the existing measured
-                        // layout is actually reused instead of being
-                        // remeasured from scratch.
-                        TextViewCompat.setPrecomputedText(h.tvMessage, cachedPct);
-                    } else {
-                        final VH holderRef = h;
-                        final android.text.SpannableString finalSpanned = spanned;
-                        // Cheap — must run on UI thread since it reads the
-                        // TextView's current paint/typeface/width.
-                        final PrecomputedTextCompat.Params params =
-                                TextViewCompat.getTextMetricsParams(h.tvMessage);
-                        TEXT_PRECOMPUTE_EXECUTOR.execute(() -> {
-                            PrecomputedTextCompat pct;
-                            try {
-                                pct = PrecomputedTextCompat.create(finalSpanned, params);
-                            } catch (Exception e) {
-                                return; // plain text already on screen — nothing to upgrade
-                            }
-                            synchronized (precomputeCacheLock) {
-                                precomputedTextCache.put(cacheKey, pct);
-                            }
-                            holderRef.itemView.post(() -> {
-                                // Staleness guard — discard if holder moved on.
-                                if (holderRef.textBindToken != myTextBindToken) return;
-                                TextViewCompat.setPrecomputedText(holderRef.tvMessage, pct);
-                            });
-                        });
-                    }
+                // ── Search highlight ──────────────────────────────────────────
+                // Overlay yellow spans on matched substrings while search is active.
+                if (activeSearchQuery != null) {
+                    applySearchHighlight(h.tvMessage, activeSearchQuery);
                 }
 
                 // ── Link preview (ViewStub lazy inflate) ─────────────────────
