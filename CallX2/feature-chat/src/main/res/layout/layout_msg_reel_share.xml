@@ -51,11 +51,12 @@
             <!-- Circular avatar -->
             <ImageView
                 android:id="@+id/iv_reel_share_avatar"
-                android:layout_width="22dp"
-                android:layout_height="22dp"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
                 android:scaleType="centerCrop"
-                android:background="#FF888888"
-                android:clipToOutline="true"/>
+                android:background="@drawable/bg_circle_avatar_placeholder"
+                android:clipToOutline="true"
+                android:outlineProvider="bounds"/>
 
             <TextView
                 android:id="@+id/tv_reel_share_username"

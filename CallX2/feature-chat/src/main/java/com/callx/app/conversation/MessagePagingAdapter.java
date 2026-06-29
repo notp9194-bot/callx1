@@ -1277,8 +1277,18 @@ public class MessagePagingAdapter
                     h.stubReelShare.inflate();
                     h.llReelShare         = h.itemView.findViewById(R.id.ll_reel_share);
                     h.ivReelShareThumb    = h.itemView.findViewById(R.id.iv_reel_share_thumb);
+                    h.ivReelShareAvatar   = h.itemView.findViewById(R.id.iv_reel_share_avatar);
                     h.tvReelShareUsername = h.itemView.findViewById(R.id.tv_reel_share_username);
                     h.tvReelShareCaption  = h.itemView.findViewById(R.id.tv_reel_share_caption);
+                    // Apply circular clip to avatar via ShapeAppearance (no CircleImageView dep needed)
+                    if (h.ivReelShareAvatar != null) {
+                        h.ivReelShareAvatar.setClipToOutline(true);
+                        h.ivReelShareAvatar.setOutlineProvider(new android.view.ViewOutlineProvider() {
+                            @Override public void getOutline(android.view.View v, android.graphics.Outline outline) {
+                                outline.setOval(0, 0, v.getWidth(), v.getHeight());
+                            }
+                        });
+                    }
                     h.stubReelShare = null; // mark inflated
                 }
                 if (h.llReelShare == null) {
@@ -1294,6 +1304,51 @@ public class MessagePagingAdapter
                     String uname = (m.reelShareUsername != null && !m.reelShareUsername.isEmpty())
                             ? "@" + m.reelShareUsername : "@callx_reel";
                     h.tvReelShareUsername.setText(uname);
+                }
+                // Avatar — load from reelShareOwnerPhoto; Firebase fallback reads profileImage/photoUrl
+                if (h.ivReelShareAvatar != null) {
+                    String avatarUrl = m.reelShareOwnerPhoto != null ? m.reelShareOwnerPhoto : "";
+                    if (!avatarUrl.isEmpty()) {
+                        com.bumptech.glide.Glide.with(ctx)
+                                .load(avatarUrl)
+                                .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
+                                .circleCrop()
+                                .placeholder(android.R.drawable.ic_menu_camera)
+                                .into(h.ivReelShareAvatar);
+                    } else if (m.reelShareUsername != null && !m.reelShareUsername.isEmpty()) {
+                        // Try to fetch avatar from Firebase users node by username
+                        final VH fhA = h;
+                        final Message fmA = m;
+                        final android.content.Context fCtxA = ctx;
+                        com.google.firebase.database.FirebaseDatabase.getInstance()
+                            .getReference("users").orderByChild("username")
+                            .equalTo(m.reelShareUsername)
+                            .limitToFirst(1)
+                            .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
+                                @Override public void onDataChange(@androidx.annotation.NonNull com.google.firebase.database.DataSnapshot snap) {
+                                    if (!snap.exists()) return;
+                                    String photo = null;
+                                    for (com.google.firebase.database.DataSnapshot child : snap.getChildren()) {
+                                        photo = child.child("profileImage").getValue(String.class);
+                                        if (photo == null || photo.isEmpty())
+                                            photo = child.child("photoUrl").getValue(String.class);
+                                        if (photo == null || photo.isEmpty())
+                                            photo = child.child("profilePhoto").getValue(String.class);
+                                        break;
+                                    }
+                                    if (photo != null && !photo.isEmpty() && fhA.ivReelShareAvatar != null) {
+                                        fmA.reelShareOwnerPhoto = photo; // cache for next bind
+                                        com.bumptech.glide.Glide.with(fCtxA)
+                                                .load(photo)
+                                                .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
+                                                .circleCrop()
+                                                .placeholder(android.R.drawable.ic_menu_camera)
+                                                .into(fhA.ivReelShareAvatar);
+                                    }
+                                }
+                                @Override public void onCancelled(@androidx.annotation.NonNull com.google.firebase.database.DatabaseError e) {}
+                            });
+                    }
                 }
                 // Caption
                 if (h.tvReelShareCaption != null) {
@@ -1333,9 +1388,24 @@ public class MessagePagingAdapter
                                             .centerCrop()
                                             .into(fh.ivReelShareThumb);
                                     }
-                                    String u = snap.child("uid").getValue(String.class);
-                                    if (u != null && fh.tvReelShareUsername != null)
+                                    String u = snap.child("ownerName").getValue(String.class);
+                                    if (u == null || u.isEmpty())
+                                        u = snap.child("username").getValue(String.class);
+                                    if (u != null && !u.isEmpty() && fh.tvReelShareUsername != null)
                                         fh.tvReelShareUsername.setText("@" + u);
+                                    // Also load avatar if not yet loaded
+                                    String ap = snap.child("ownerPhoto").getValue(String.class);
+                                    if (ap == null || ap.isEmpty())
+                                        ap = snap.child("profileImage").getValue(String.class);
+                                    if (ap != null && !ap.isEmpty() && fh.ivReelShareAvatar != null) {
+                                        fm.reelShareOwnerPhoto = ap;
+                                        com.bumptech.glide.Glide.with(ctx)
+                                                .load(ap)
+                                                .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
+                                                .circleCrop()
+                                                .placeholder(android.R.drawable.ic_menu_camera)
+                                                .into(fh.ivReelShareAvatar);
+                                    }
                                     String c = snap.child("caption").getValue(String.class);
                                     if (c != null && !c.isEmpty() && fh.tvReelShareCaption != null) {
                                         fh.tvReelShareCaption.setText(c);
@@ -2453,6 +2523,7 @@ public class MessagePagingAdapter
         // ── Reel share card ──
         LinearLayout llReelShare;
         ImageView    ivReelShareThumb;
+        ImageView    ivReelShareAvatar;
         TextView     tvReelShareUsername, tvReelShareCaption;
         // ── Disappearing messages ──
         TextView                  tvExpiry;

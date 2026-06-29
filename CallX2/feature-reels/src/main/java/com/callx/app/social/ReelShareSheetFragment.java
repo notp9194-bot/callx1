@@ -73,12 +73,14 @@ public class ReelShareSheetFragment extends BottomSheetDialogFragment
         implements ReelContactShareAdapter.OnContactShareListener {
 
     // ── Argument keys ──────────────────────────────────────────────────────
-    public static final String ARG_REEL_ID      = "share_reel_id";
-    public static final String ARG_VIDEO_URL    = "share_video_url";
-    public static final String ARG_THUMB_URL    = "share_thumb_url";
-    public static final String ARG_CAPTION      = "share_caption";
-    public static final String ARG_OWNER_UID    = "share_owner_uid";
-    public static final String ARG_ALLOW_REPOST = "share_allow_repost";
+    public static final String ARG_REEL_ID        = "share_reel_id";
+    public static final String ARG_VIDEO_URL      = "share_video_url";
+    public static final String ARG_THUMB_URL      = "share_thumb_url";
+    public static final String ARG_CAPTION        = "share_caption";
+    public static final String ARG_OWNER_UID      = "share_owner_uid";
+    public static final String ARG_OWNER_USERNAME = "share_owner_username";
+    public static final String ARG_OWNER_PHOTO    = "share_owner_photo";
+    public static final String ARG_ALLOW_REPOST   = "share_allow_repost";
 
     private static final String DEEP_LINK_PREFIX = Constants.DEEP_LINK_BASE_URL + "/reel/";
 
@@ -98,20 +100,25 @@ public class ReelShareSheetFragment extends BottomSheetDialogFragment
     private String  caption;
     private String  myUid;
     private String  ownerUid;
+    private String  ownerUsername;
+    private String  ownerPhoto;
     private boolean allowRepost;
 
     // ── Factory ────────────────────────────────────────────────────────────
     public static ReelShareSheetFragment newInstance(
             String reelId, String videoUrl, String thumbUrl,
-            String caption, String ownerUid, boolean allowRepost) {
+            String caption, String ownerUid, String ownerUsername,
+            String ownerPhoto, boolean allowRepost) {
 
         Bundle args = new Bundle();
-        args.putString(ARG_REEL_ID,      reelId);
-        args.putString(ARG_VIDEO_URL,    videoUrl);
-        args.putString(ARG_THUMB_URL,    thumbUrl);
-        args.putString(ARG_CAPTION,      caption);
-        args.putString(ARG_OWNER_UID,    ownerUid);
-        args.putBoolean(ARG_ALLOW_REPOST, allowRepost);
+        args.putString(ARG_REEL_ID,        reelId);
+        args.putString(ARG_VIDEO_URL,      videoUrl);
+        args.putString(ARG_THUMB_URL,      thumbUrl);
+        args.putString(ARG_CAPTION,        caption);
+        args.putString(ARG_OWNER_UID,      ownerUid);
+        args.putString(ARG_OWNER_USERNAME, ownerUsername);
+        args.putString(ARG_OWNER_PHOTO,    ownerPhoto);
+        args.putBoolean(ARG_ALLOW_REPOST,  allowRepost);
 
         ReelShareSheetFragment f = new ReelShareSheetFragment();
         f.setArguments(args);
@@ -125,12 +132,14 @@ public class ReelShareSheetFragment extends BottomSheetDialogFragment
         setStyle(STYLE_NORMAL, com.google.android.material.R.style.Theme_Material3_DayNight_BottomSheetDialog);
 
         if (getArguments() != null) {
-            reelId      = getArguments().getString(ARG_REEL_ID);
-            videoUrl    = getArguments().getString(ARG_VIDEO_URL);
-            thumbUrl    = getArguments().getString(ARG_THUMB_URL);
-            caption     = getArguments().getString(ARG_CAPTION);
-            ownerUid    = getArguments().getString(ARG_OWNER_UID);
-            allowRepost = getArguments().getBoolean(ARG_ALLOW_REPOST, true);
+            reelId        = getArguments().getString(ARG_REEL_ID);
+            videoUrl      = getArguments().getString(ARG_VIDEO_URL);
+            thumbUrl      = getArguments().getString(ARG_THUMB_URL);
+            caption       = getArguments().getString(ARG_CAPTION);
+            ownerUid      = getArguments().getString(ARG_OWNER_UID);
+            ownerUsername = getArguments().getString(ARG_OWNER_USERNAME);
+            ownerPhoto    = getArguments().getString(ARG_OWNER_PHOTO);
+            allowRepost   = getArguments().getBoolean(ARG_ALLOW_REPOST, true);
         }
 
         try {
@@ -251,10 +260,12 @@ public class ReelShareSheetFragment extends BottomSheetDialogFragment
         msg.put("text",            text);
         msg.put("type",            "reel_share");
         msg.put("reelId",          reelId);
-        msg.put("reelShareUrl",    DEEP_LINK_PREFIX + reelId);
-        msg.put("reelShareThumb",  thumbUrl  != null ? thumbUrl  : "");
-        msg.put("reelShareCaption",caption   != null ? caption   : "");
-        msg.put("reelShareUsername", ownerUid != null ? ownerUid : "");
+        msg.put("reelShareUrl",        DEEP_LINK_PREFIX + reelId);
+        msg.put("reelShareThumb",      thumbUrl      != null ? thumbUrl      : "");
+        msg.put("reelShareCaption",    caption       != null ? caption       : "");
+        msg.put("reelShareUsername",   ownerUsername != null && !ownerUsername.isEmpty()
+                                        ? ownerUsername : (ownerUid != null ? ownerUid : ""));
+        msg.put("reelShareOwnerPhoto", ownerPhoto    != null ? ownerPhoto    : "");
         msg.put("timestamp",       System.currentTimeMillis());
         msgRef.setValue(msg);
 
