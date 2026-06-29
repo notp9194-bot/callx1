@@ -35,7 +35,7 @@ public class ReelShareController {
         ReelModel reel = delegate.getReel();
         if (reel == null || reel.reelId == null || !delegate.isAdded() || delegate.getActivity() == null) return;
         ReelShareSheetFragment sheet = ReelShareSheetFragment.newInstance(
-            reel.reelId, reel.videoUrl, reel.effectiveThumbUrl(), reel.caption, reel.uid, reel.allowReposts);
+            reel.reelId, reel.videoUrl, reel.thumbUrl, reel.caption, reel.uid, reel.allowReposts);
         delegate.showBottomSheet(sheet, "share_sheet");
     }
 

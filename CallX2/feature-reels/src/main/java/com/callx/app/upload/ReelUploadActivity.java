@@ -1508,10 +1508,6 @@ public class ReelUploadActivity extends AppCompatActivity {
                     System.currentTimeMillis(), durationMs, width, height);
 
                 reel.audienceType = audienceType;
-                // ✅ FIX: sync both thumbnail fields so Firebase has "thumbUrl" AND "thumbnailUrl"
-                if (reel.thumbnailUrl == null || reel.thumbnailUrl.isEmpty()) {
-                    reel.thumbnailUrl = reel.thumbUrl != null ? reel.thumbUrl : "";
-                }
                 reel.video480  = video480  != null ? video480  : "";
                 reel.video720  = video720  != null ? video720  : "";
                 reel.video1080 = video1080 != null ? video1080 : "";

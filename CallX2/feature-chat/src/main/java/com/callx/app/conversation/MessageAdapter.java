@@ -589,14 +589,11 @@ public class MessageAdapter extends ListAdapter<Message, MessageAdapter.VH> {
                             public void onDataChange(@androidx.annotation.NonNull com.google.firebase.database.DataSnapshot snap) {
                                 if (snap.exists()) {
                                     // Patch message object with live data
-                                    // ✅ FIX: check both "thumbUrl" and "thumbnailUrl" — old reels use thumbUrl, new ones use thumbnailUrl
                                     String t  = snap.child("thumbUrl").getValue(String.class);
-                                    if (t == null || t.isEmpty())
-                                        t = snap.child("thumbnailUrl").getValue(String.class);
                                     String c  = snap.child("caption").getValue(String.class);
                                     String u  = snap.child("uid").getValue(String.class);
                                     String vu = snap.child("videoUrl").getValue(String.class);
-                                    if (t  != null && !t.isEmpty()) m.reelShareThumb    = t;
+                                    if (t  != null) m.reelShareThumb    = t;
                                     if (c  != null) m.reelShareCaption   = c;
                                     if (u  != null) m.reelShareUsername  = u;
                                     if (vu != null && (m.reelShareUrl == null || m.reelShareUrl.isEmpty()))

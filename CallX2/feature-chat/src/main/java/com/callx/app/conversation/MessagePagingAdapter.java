@@ -939,7 +939,6 @@ public class MessagePagingAdapter
         if (h.llAudio    != null) h.llAudio.setVisibility(View.GONE);
         if (h.llFile     != null) h.llFile.setVisibility(View.GONE);
         if (h.llPoll     != null) h.llPoll.setVisibility(View.GONE);
-        if (h.llReelShare!= null) h.llReelShare.setVisibility(View.GONE);
         if (h.tvTime     != null) h.tvTime.setVisibility(View.VISIBLE);
 
         // ── Quick Forward Button — media/link messages pe dikhao ──────────
@@ -1270,102 +1269,6 @@ public class MessagePagingAdapter
                     h.tvMessage.setText("\uD83D\uDCCA " + (m.pollQuestion != null ? m.pollQuestion : "Poll"));
                 }
                 break;
-            case "reel_share":
-            case "reel_link": {
-                // ── Inflate ViewStub on first use ──
-                if (h.stubReelShare != null) {
-                    h.stubReelShare.inflate();
-                    h.llReelShare         = h.itemView.findViewById(R.id.ll_reel_share);
-                    h.ivReelShareThumb    = h.itemView.findViewById(R.id.iv_reel_share_thumb);
-                    h.tvReelShareUsername = h.itemView.findViewById(R.id.tv_reel_share_username);
-                    h.tvReelShareCaption  = h.itemView.findViewById(R.id.tv_reel_share_caption);
-                    h.stubReelShare = null; // mark inflated
-                }
-                if (h.llReelShare == null) {
-                    // Fallback: stub missing in layout, show text
-                    h.tvMessage.setVisibility(View.VISIBLE);
-                    h.tvMessage.setText(m.text != null ? m.text : "🎬 Reel");
-                    break;
-                }
-                h.llReelShare.setVisibility(View.VISIBLE);
-
-                // Username
-                if (h.tvReelShareUsername != null) {
-                    String uname = (m.reelShareUsername != null && !m.reelShareUsername.isEmpty())
-                            ? "@" + m.reelShareUsername : "@callx_reel";
-                    h.tvReelShareUsername.setText(uname);
-                }
-                // Caption
-                if (h.tvReelShareCaption != null) {
-                    if (m.reelShareCaption != null && !m.reelShareCaption.isEmpty()) {
-                        h.tvReelShareCaption.setText(m.reelShareCaption);
-                        h.tvReelShareCaption.setVisibility(View.VISIBLE);
-                    } else {
-                        h.tvReelShareCaption.setVisibility(View.GONE);
-                    }
-                }
-                // Thumbnail
-                if (h.ivReelShareThumb != null) {
-                    String thumb = m.reelShareThumb != null ? m.reelShareThumb : "";
-                    if (!thumb.isEmpty()) {
-                        com.bumptech.glide.Glide.with(ctx)
-                                .load(thumb)
-                                .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
-                                .centerCrop()
-                                .placeholder(android.R.color.darker_gray)
-                                .into(h.ivReelShareThumb);
-                    } else if (m.reelId != null && !m.reelId.isEmpty()) {
-                        // Thumb missing — fetch from Firebase
-                        final VH fh = h;
-                        final Message fm = m;
-                        com.google.firebase.database.FirebaseDatabase.getInstance()
-                            .getReference("reels").child(m.reelId)
-                            .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
-                                @Override public void onDataChange(@androidx.annotation.NonNull com.google.firebase.database.DataSnapshot snap) {
-                                    if (!snap.exists()) return;
-                                    String t = snap.child("thumbUrl").getValue(String.class);
-                                    if (t == null || t.isEmpty())
-                                        t = snap.child("thumbnailUrl").getValue(String.class);
-                                    if (t != null && !t.isEmpty() && fh.ivReelShareThumb != null) {
-                                        fm.reelShareThumb = t;
-                                        com.bumptech.glide.Glide.with(ctx).load(t)
-                                            .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
-                                            .centerCrop()
-                                            .into(fh.ivReelShareThumb);
-                                    }
-                                    String u = snap.child("uid").getValue(String.class);
-                                    if (u != null && fh.tvReelShareUsername != null)
-                                        fh.tvReelShareUsername.setText("@" + u);
-                                    String c = snap.child("caption").getValue(String.class);
-                                    if (c != null && !c.isEmpty() && fh.tvReelShareCaption != null) {
-                                        fh.tvReelShareCaption.setText(c);
-                                        fh.tvReelShareCaption.setVisibility(View.VISIBLE);
-                                    }
-                                }
-                                @Override public void onCancelled(@androidx.annotation.NonNull com.google.firebase.database.DatabaseError e) {}
-                            });
-                    }
-                }
-                // Tap to open reel
-                final String fReelId  = m.reelId      != null ? m.reelId      : "";
-                final String fReelUrl = m.reelShareUrl != null ? m.reelShareUrl : "";
-                h.llReelShare.setOnClickListener(v -> {
-                    String deepLink = !fReelId.isEmpty()
-                            ? com.callx.app.utils.Constants.DEEP_LINK_BASE_URL + "/reel/" + fReelId
-                            : fReelUrl;
-                    if (!deepLink.isEmpty()) {
-                        try {
-                            android.content.Intent ri = new android.content.Intent(
-                                    android.content.Intent.ACTION_VIEW,
-                                    android.net.Uri.parse(deepLink));
-                            ri.setPackage(ctx.getPackageName());
-                            ri.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
-                            ctx.startActivity(ri);
-                        } catch (Exception ignored) {}
-                    }
-                });
-                break;
-            }
             default: // "text", "emoji", etc.
                 h.tvMessage.setVisibility(View.VISIBLE);
                 String txt = m.text != null ? m.text : "";
@@ -2426,7 +2329,6 @@ public class MessagePagingAdapter
         android.view.ViewStub stubFile;
         android.view.ViewStub stubPoll;
         android.view.ViewStub stubLinkPreview;
-        android.view.ViewStub stubReelShare;
 
         // ── Heavy view refs — null until their stub is inflated ──────────────
         LinearLayout llAudio, llFile;
@@ -2450,10 +2352,6 @@ public class MessagePagingAdapter
         LinearLayout llLinkPreview;
         TextView     tvLinkTitle, tvLinkDomain;
         ImageView    ivLinkThumb;
-        // ── Reel share card ──
-        LinearLayout llReelShare;
-        ImageView    ivReelShareThumb;
-        TextView     tvReelShareUsername, tvReelShareCaption;
         // ── Disappearing messages ──
         TextView                  tvExpiry;
         // ── Polls ──
@@ -2506,7 +2404,6 @@ public class MessagePagingAdapter
             stubFile        = v.findViewById(R.id.stub_file);
             stubPoll        = v.findViewById(R.id.stub_poll);
             stubLinkPreview = v.findViewById(R.id.stub_link_preview);
-            stubReelShare   = v.findViewById(R.id.stub_reel_share);
             // Heavy child refs start null; populated by ensure*Inflated() below
             llAudio = null; btnPlayPause = null; seekAudio = null; tvAudioDur = null;
             llFile  = null; tvFileName   = null; btnDownload = null;
