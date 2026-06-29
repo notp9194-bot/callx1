@@ -315,6 +315,13 @@ public class MessagePagingAdapter
     private boolean multiSelectMode = false;
     private final java.util.Set<String> selectedMessageIds = new java.util.HashSet<>();
 
+    /**
+     * Expansion state for "Read more / Read less" — stored HERE (not on Message).
+     * The Message model's isExpanded field is transient and dies on PagingData refresh.
+     * Storing state in the adapter means it survives Room invalidations and new snapshots.
+     */
+    private final java.util.Set<String> expandedMessageIds = new java.util.HashSet<>();
+
     // ── "Currently viewing this message" live dots ──────────────────────
     // Set of messageIds that some OTHER participant currently has scrolled
     // into view, fed by ChatPresenceController / GroupWatchingController
@@ -1488,10 +1495,32 @@ public class MessagePagingAdapter
                     com.callx.app.utils.ChatThemeManager.get(ctx).getTextColor(isSentMsg));
 
                 // ── Expandable text: WhatsApp-style "Read more / Read less" ───
-                // ExpandableTextHelper owns all text-setting, Linkify, and
-                // expand/collapse state. State (isExpanded) lives on the Message
-                // model so RecyclerView recycling is safe.
-                com.callx.app.utils.ExpandableTextHelper.bind(h.tvMessage, m, this, position, isSentMsg);
+                // State lives in expandedMessageIds (adapter-level HashSet) so it
+                // survives PagingData refreshes from Room. The tvReadMore button
+                // replaces the old ClickableSpan approach — plain OnClickListener
+                // is 100% reliable inside RecyclerView.
+                {
+                    final String msgIdExp = m.messageId != null ? m.messageId : m.id;
+                    final boolean isExpanded = msgIdExp != null
+                            && expandedMessageIds.contains(msgIdExp);
+                    final int bindPos = position;
+                    com.callx.app.utils.ExpandableTextHelper.bind(
+                            h.tvMessage,
+                            h.tvReadMore,
+                            m.text,
+                            m,
+                            msgIdExp,
+                            isExpanded,
+                            () -> { // onExpand — user tapped "Read more"
+                                if (msgIdExp != null) expandedMessageIds.add(msgIdExp);
+                                notifyItemChanged(bindPos);
+                            },
+                            () -> { // onCollapse — user tapped "Read less"
+                                if (msgIdExp != null) expandedMessageIds.remove(msgIdExp);
+                                notifyItemChanged(bindPos);
+                            },
+                            isSentMsg);
+                }
                 ++h.textBindToken; // invalidate any in-flight PrecomputedText for this VH
 
                 // ── Search highlight ──────────────────────────────────────────
@@ -2477,6 +2506,8 @@ public class MessagePagingAdapter
         // Reactions row (ll_reactions / tv_reactions in both item layouts)
         LinearLayout llReactions;
         TextView     tvReactions;
+        // "Read more / Read less" dedicated button — below the FrameLayout in ll_bubble
+        TextView     tvReadMore;
         // POLISH: Video — proper FrameLayout with thumbnail + play overlay
         android.widget.FrameLayout flVideo;
         ImageView    ivVideoThumb;
@@ -2559,6 +2590,8 @@ public class MessagePagingAdapter
             // Reactions
             llReactions    = v.findViewById(R.id.ll_reactions);
             tvReactions    = v.findViewById(R.id.tv_reactions);
+            // Read more / Read less — null on system-row layouts; always checked before use
+            tvReadMore     = v.findViewById(R.id.tv_read_more);
             // Disappearing messages
             tvExpiry       = v.findViewById(R.id.tv_expiry);
             // PERF: these are rarely shown — GONE by default avoids measure cost
