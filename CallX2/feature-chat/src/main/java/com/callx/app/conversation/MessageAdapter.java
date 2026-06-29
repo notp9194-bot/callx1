@@ -451,9 +451,9 @@ public class MessageAdapter extends ListAdapter<Message, MessageAdapter.VH> {
                         boolean sentImg = currentUid != null && currentUid.equals(m.senderId);
                         if (sentImg) {
                             tvImgTick.setVisibility(View.VISIBLE);
-                            if (Boolean.TRUE.equals(m.read) || (m.readBy != null && !m.readBy.isEmpty())) {
+                            if ("read".equals(m.status)) {
                                 tvImgTick.setText("✓✓"); tvImgTick.setTextColor(0xFF34B7F1);
-                            } else if (Boolean.TRUE.equals(m.delivered) || (m.deliveredTo != null && !m.deliveredTo.isEmpty())) {
+                            } else if ("delivered".equals(m.status)) {
                                 tvImgTick.setText("✓✓"); tvImgTick.setTextColor(0xAAFFFFFF);
                             } else {
                                 tvImgTick.setText("✓"); tvImgTick.setTextColor(0xAAFFFFFF);
@@ -979,9 +979,9 @@ public class MessageAdapter extends ListAdapter<Message, MessageAdapter.VH> {
             boolean sentMsg = currentUid != null && currentUid.equals(m.senderId);
             if (sentMsg) {
                 tvReelTick.setVisibility(View.VISIBLE);
-                if (Boolean.TRUE.equals(m.read) || (m.readBy != null && !m.readBy.isEmpty())) {
+                if ("read".equals(m.status)) {
                     tvReelTick.setText("✓✓"); tvReelTick.setTextColor(0xFF34B7F1);
-                } else if (Boolean.TRUE.equals(m.delivered) || (m.deliveredTo != null && !m.deliveredTo.isEmpty())) {
+                } else if ("delivered".equals(m.status)) {
                     tvReelTick.setText("✓✓"); tvReelTick.setTextColor(0xAAFFFFFF);
                 } else {
                     tvReelTick.setText("✓"); tvReelTick.setTextColor(0xAAFFFFFF);
