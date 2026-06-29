@@ -1904,6 +1904,11 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         m.pollAnonymous = e.pollAnonymous;
         m.pollClosed    = e.pollClosed;
         m.pollMultiChoice = e.pollMultiChoice;
+        m.reelShareUrl        = e.reelShareUrl;
+        m.reelShareThumb      = e.reelShareThumb;
+        m.reelShareCaption    = e.reelShareCaption;
+        m.reelShareUsername   = e.reelShareUsername;
+        m.reelShareOwnerPhoto = e.reelShareOwnerPhoto;
         return m;
     }
 
@@ -1930,6 +1935,11 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         e.pollAnonymous   = m.pollAnonymous;
         e.pollClosed      = m.pollClosed;
         e.pollMultiChoice = m.pollMultiChoice;
+        e.reelShareUrl        = m.reelShareUrl;
+        e.reelShareThumb      = m.reelShareThumb;
+        e.reelShareCaption    = m.reelShareCaption;
+        e.reelShareUsername   = m.reelShareUsername;
+        e.reelShareOwnerPhoto = m.reelShareOwnerPhoto;
         e.syncedAt = System.currentTimeMillis();
         return e;
     }

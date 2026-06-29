@@ -255,6 +255,7 @@ public class ReelShareSheetFragment extends BottomSheetDialogFragment
             : "🎬 Check out this reel!\n" + link;
 
         DatabaseReference msgRef = FirebaseUtils.getMessagesRef(chatId).push();
+        String msgKey = msgRef.getKey();
         Map<String, Object> msg  = new HashMap<>();
         msg.put("senderId",        myUid);
         msg.put("text",            text);
@@ -267,7 +268,22 @@ public class ReelShareSheetFragment extends BottomSheetDialogFragment
                                         ? ownerUsername : (ownerUid != null ? ownerUid : ""));
         msg.put("reelShareOwnerPhoto", ownerPhoto    != null ? ownerPhoto    : "");
         msg.put("timestamp",       System.currentTimeMillis());
-        msgRef.setValue(msg);
+        msgRef.setValue(msg).addOnSuccessListener(unused -> {
+            // ── FCM push — receiver ko background/killed notification mile ──
+            String myName = "";
+            try { myName = FirebaseUtils.getCurrentName(); } catch (Exception ignored) {}
+            if (myName == null) myName = "";
+            com.callx.app.utils.PushNotify.notifyMessage(
+                contact.uid,       // toUid
+                myUid,             // fromUid
+                myName,            // fromName
+                chatId,            // chatId
+                msgKey != null ? msgKey : "",  // messageId
+                "🎬 Reel",         // preview text
+                "reel_share",      // type
+                thumbUrl != null ? thumbUrl : ""  // mediaUrl (thumb for notification)
+            );
+        });
 
         incrementShareCount();
         toast("Shared with " + contact.name);
