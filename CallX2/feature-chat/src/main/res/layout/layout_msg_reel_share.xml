@@ -2,7 +2,7 @@
 <!-- layout_msg_reel_share.xml — Compact Instagram-DM style reel bubble -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/ll_reel_share"
-    android:layout_width="220dp"
+    android:layout_width="165dp"
     android:layout_height="wrap_content"
     android:orientation="vertical"
     android:clickable="true"
@@ -14,7 +14,7 @@
     <!-- Reel thumbnail — tall 9:16 style, compact width -->
     <FrameLayout
         android:layout_width="match_parent"
-        android:layout_height="300dp">
+        android:layout_height="225dp">
 
         <ImageView
             android:id="@+id/iv_reel_share_thumb"
