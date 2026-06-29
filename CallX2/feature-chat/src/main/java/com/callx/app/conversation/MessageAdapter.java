@@ -19,7 +19,7 @@ import com.callx.app.chat.R;
 import com.callx.app.models.Message;
 import com.callx.app.utils.FileUtils;
 import com.callx.app.utils.MediaCache;
-import com.callx.app.utils.MediaGroupLayoutHelper;
+import com.callx.app.conversation.MediaGroupLayoutHelper;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
 
 import java.text.SimpleDateFormat;
