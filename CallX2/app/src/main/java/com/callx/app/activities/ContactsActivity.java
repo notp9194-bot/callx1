@@ -68,6 +68,14 @@ public class ContactsActivity extends AppCompatActivity {
     private String forwardMedia;
     private String forwardFileName;
 
+    // ── Reel share forward extras ─────────────────────────────────────────
+    private String forwardReelId;
+    private String forwardReelShareUrl;
+    private String forwardReelShareThumb;
+    private String forwardReelShareCaption;
+    private String forwardReelShareUsername;
+    private String forwardReelShareOwnerPhoto;
+
     // Forward payload — multiple messages (JSON-serialised ArrayList)
     private ArrayList<String> forwardTexts;
     private ArrayList<String> forwardTypes;
@@ -93,6 +101,14 @@ public class ContactsActivity extends AppCompatActivity {
         forwardType     = getIntent().getStringExtra("forwardType");
         forwardMedia    = getIntent().getStringExtra("forwardMedia");
         forwardFileName = getIntent().getStringExtra("forwardFileName");
+
+        // ── Reel share card extras ─────────────────────────────────────────
+        forwardReelId              = getIntent().getStringExtra("forwardReelId");
+        forwardReelShareUrl        = getIntent().getStringExtra("forwardReelShareUrl");
+        forwardReelShareThumb      = getIntent().getStringExtra("forwardReelShareThumb");
+        forwardReelShareCaption    = getIntent().getStringExtra("forwardReelShareCaption");
+        forwardReelShareUsername   = getIntent().getStringExtra("forwardReelShareUsername");
+        forwardReelShareOwnerPhoto = getIntent().getStringExtra("forwardReelShareOwnerPhoto");
 
         // ── Handle ACTION_SEND from external apps (e.g. Instagram reel share) ──
         if (Intent.ACTION_SEND.equals(getIntent().getAction())) {
@@ -219,6 +235,15 @@ public class ContactsActivity extends AppCompatActivity {
         i.putExtra("forwardType",     forwardType);
         i.putExtra("forwardMedia",    forwardMedia);
         i.putExtra("forwardFileName", forwardFileName);
+        // ── Reel share card extras — thumbnail + avatar ke liye zaroori ──
+        if ("reel_share".equals(forwardType)) {
+            if (forwardReelId              != null) i.putExtra("forwardReelId",              forwardReelId);
+            if (forwardReelShareUrl        != null) i.putExtra("forwardReelShareUrl",        forwardReelShareUrl);
+            if (forwardReelShareThumb      != null) i.putExtra("forwardReelShareThumb",      forwardReelShareThumb);
+            if (forwardReelShareCaption    != null) i.putExtra("forwardReelShareCaption",    forwardReelShareCaption);
+            if (forwardReelShareUsername   != null) i.putExtra("forwardReelShareUsername",   forwardReelShareUsername);
+            if (forwardReelShareOwnerPhoto != null) i.putExtra("forwardReelShareOwnerPhoto", forwardReelShareOwnerPhoto);
+        }
         i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         startActivity(i);
     }
