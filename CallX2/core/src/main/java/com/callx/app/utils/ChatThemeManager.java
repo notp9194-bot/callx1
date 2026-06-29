@@ -14,11 +14,8 @@ public class ChatThemeManager {
 
     private static ChatThemeManager instance;
 
-    // Kept for any lingering references — noop
     public static final int THEME_HYBRID = 0;
 
-    // Bubble drawable cache keyed by (sent<<1 | hasReply).
-    // 4 possible combos: sent+reply, sent+noReply, recv+reply, recv+noReply.
     private final SparseArray<GradientDrawable> bubbleCache = new SparseArray<>(4);
 
     private ChatThemeManager(Context ctx) {}
@@ -32,11 +29,10 @@ public class ChatThemeManager {
     public void setTheme(int id) { bubbleCache.clear(); }
     public void clearBubbleCache() { bubbleCache.clear(); }
 
-    /** Apply bubble background — cached per (sent, hasReply) combo to avoid GC pressure. */
+    /** Apply bubble background — cached per (sent, hasReply) combo. */
     public void applyBubble(View bubbleView, boolean sent, String msgType, boolean hasReply) {
         if (bubbleView == null) return;
 
-        // Cache key: bit0 = sent, bit1 = hasReply  →  4 possible drawables total
         int cacheKey = (sent ? 1 : 0) | (hasReply ? 2 : 0);
         GradientDrawable gd = bubbleCache.get(cacheKey);
 
@@ -61,23 +57,18 @@ public class ChatThemeManager {
             bubbleCache.put(cacheKey, gd);
         }
 
-        // PERF SAFETY: GradientDrawable is mutable — sharing the same instance
-        // across multiple Views means setColor()/setAlpha() on one bubble would
-        // visually affect every other bubble with the same cache key (same
-        // sent/hasReply combo). mutate() ensures each View owns an independent
-        // copy of the state while still reusing the pre-configured corner radii.
         bubbleView.setBackground(gd.mutate());
     }
 
-    /** Text color for bubble content — from color resources. */
+    /**
+     * Text color for bubble content.
+     * Always white — works on green sent bubbles and dark received bubbles in both modes.
+     */
     public int getTextColor(boolean sent) {
-        // Return 0 = use XML layout colors (this method is now only a fallback)
-        // Callers should prefer @color/bubble_sent_text / bubble_received_text in XML
-        return sent ? 0xFF111B21 : 0xFF111B21;
+        return 0xFFFFFFFF;
     }
 
     public int getPrimaryColor() {
-        // Used only for reply accent tint — WhatsApp green
         return 0xFF008069;
     }
 
@@ -93,10 +84,6 @@ public class ChatThemeManager {
         return resolveColor(ctx, com.callx.app.core.R.color.bar_background);
     }
 
-    /**
-     * Apply screen theme — uses color resources instead of hardcoded gradients.
-     * Toolbar and input bar get @color/bar_background (WhatsApp green / dark green).
-     */
     public void applyScreenTheme(
             View toolbar,
             View chatRoot,
@@ -113,12 +100,11 @@ public class ChatThemeManager {
         int chatBgColor = resolveColor(ctx, com.callx.app.core.R.color.surface_chat_bg);
         int brandColor  = resolveColor(ctx, com.callx.app.core.R.color.brand_primary);
 
-        // Solid toolbar — matches @color/bar_background in XML (no gradient override)
         GradientDrawable toolbarBg = new GradientDrawable();
         toolbarBg.setColor(barColor);
         toolbar.setBackground(toolbarBg);
 
-        if (chatRoot != null)    chatRoot.setBackgroundColor(chatBgColor);
+        if (chatRoot != null)     chatRoot.setBackgroundColor(chatBgColor);
         if (inputBarRoot != null) inputBarRoot.setBackgroundColor(barColor);
 
         if (btnSend != null) {
@@ -143,12 +129,6 @@ public class ChatThemeManager {
 
     public int getTickColor(boolean isRead) {
         return isRead ? 0xFF34B7F1 : 0xFF8FAF9F;
-    }
-
-    private boolean isDarkMode(Context ctx) {
-        int flags = ctx.getResources().getConfiguration().uiMode
-                    & android.content.res.Configuration.UI_MODE_NIGHT_MASK;
-        return flags == android.content.res.Configuration.UI_MODE_NIGHT_YES;
     }
 
     private static int resolveColor(Context ctx, int resId) {

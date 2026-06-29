@@ -669,58 +669,17 @@ public class MessageAdapter extends ListAdapter<Message, MessageAdapter.VH> {
             // ── TEXT (default) ───────────────────────────────────────────────
             default: {
                 h.tvMessage.setVisibility(View.VISIBLE);
-                h.tvMessage.setTextColor(
-                        com.callx.app.utils.ChatThemeManager.get(ctx).getTextColor(sent));
-                // setTextSize + applyFontStyle moved to onCreateViewHolder (constants)
+                h.tvMessage.setTextColor(0xFFFFFFFF); // white text in both light & dark modes
                 if (h.tvEdited != null && Boolean.TRUE.equals(m.edited))
                     h.tvEdited.setVisibility(View.VISIBLE);
 
                 String rawText = m.text != null ? m.text : "";
 
-                // ── Linkify ──────────────────────────────────────────────────
-                // Quick pre-check: only allocate SpannableString + run Linkify regex
-                // when text is likely to contain a linkable pattern.
-                // Plain-text messages (no URL/phone/email) skip the allocation entirely.
-                boolean mightHaveLink = rawText.contains("http://")
-                        || rawText.contains("https://")
-                        || rawText.contains("www.")
-                        || rawText.contains("@")
-                        || (rawText.length() >= 7 && rawText.contains("+"));
-                android.text.SpannableString spanned;
-                if (mightHaveLink) {
-                    spanned = new android.text.SpannableString(rawText);
-                    android.text.util.Linkify.addLinks(spanned,
-                            android.text.util.Linkify.WEB_URLS |
-                            android.text.util.Linkify.PHONE_NUMBERS |
-                            android.text.util.Linkify.EMAIL_ADDRESSES);
-                    // Only set MovementMethod when we actually have links — avoids
-                    // unnecessary touch-event interception on plain-text rows.
-                    int linkColor = sent ? 0xFFB3E5FC : 0xFF1565C0;
-                    h.tvMessage.setLinkTextColor(linkColor);
-                    h.tvMessage.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
-                    h.tvMessage.setHighlightColor(0x33FFFFFF);
-                } else {
-                    spanned = new android.text.SpannableString(rawText);
-                    // No links — remove MovementMethod so RecyclerView gets touch events back
-                    h.tvMessage.setMovementMethod(null);
-                }
-
-                // ── PrecomputedTextCompat — avoids heavy text-layout measure on UI thread ──
-                // For long messages (>80 chars), pre-compute layout metadata so the
-                // TextView's measure/draw passes are cheaper.
-                if (rawText.length() > 80) {
-                    try {
-                        PrecomputedTextCompat.Params params =
-                                TextViewCompat.getTextMetricsParams(h.tvMessage);
-                        PrecomputedTextCompat pct =
-                                PrecomputedTextCompat.create(spanned, params);
-                        TextViewCompat.setPrecomputedText(h.tvMessage, pct);
-                    } catch (Exception e) {
-                        h.tvMessage.setText(spanned);
-                    }
-                } else {
-                    h.tvMessage.setText(spanned);
-                }
+                // ── Expandable text: WhatsApp-style "Read more / Read less" ─
+                // ExpandableTextHelper owns all text setting, Linkify, and
+                // expand/collapse state. State (isExpanded) lives on the Message
+                // model so RecyclerView recycles are safe.
+                com.callx.app.utils.ExpandableTextHelper.bind(h.tvMessage, m, this, pos, sent);
 
                 // ── Link Preview ─────────────────────────────────────────────
                 String previewUrl =

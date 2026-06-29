@@ -21,17 +21,16 @@
     <color name="text_primary">#0F172A</color>
     <color name="text_secondary">#64748B</color>
     <color name="text_muted">#94A3B8</color>
-    <!-- Chat message time color -->
-    <color name="chat_time_color">#333333</color>
+    <color name="chat_time_color">#CCFFFFFF</color>
     <color name="text_on_primary">#FFFFFF</color>
 
-    <!-- Bubbles — WhatsApp exact -->
-    <color name="bubble_sent">#D9FDD3</color>
-    <color name="bubble_sent_end">#D9FDD3</color>
-    <color name="bubble_sent_text">#111B21</color>
-    <color name="bubble_received">#FFFFFF</color>
-    <color name="bubble_received_end">#FFFFFF</color>
-    <color name="bubble_received_text">#111B21</color>
+    <!-- Bubbles — Screenshot-matched green with white text -->
+    <color name="bubble_sent">#4CAF50</color>
+    <color name="bubble_sent_end">#43A047</color>
+    <color name="bubble_sent_text">#FFFFFF</color>
+    <color name="bubble_received">#455A64</color>
+    <color name="bubble_received_end">#455A64</color>
+    <color name="bubble_received_text">#FFFFFF</color>
 
     <!-- Status / actions -->
     <color name="status_online">#15803D</color>
