@@ -25,6 +25,7 @@ public class ReelModel {
      * Firebase saves as "thumbnailUrl", legacy code reads "thumbUrl" —
      * this resolves both so share cards always get a non-empty URL.
      */
+    @com.google.firebase.database.Exclude
     public String effectiveThumbUrl() {
         if (thumbUrl != null && !thumbUrl.isEmpty()) return thumbUrl;
         if (thumbnailUrl != null && !thumbnailUrl.isEmpty()) return thumbnailUrl;
@@ -443,6 +444,7 @@ public class ReelModel {
     }
 
     /** Convenience: returns true if this reel is a photo slideshow. */
+    @com.google.firebase.database.Exclude
     public boolean isPhotoSlideshow() {
         return "photo_slideshow".equals(mediaType) && photoUrls != null && !photoUrls.isEmpty();
     }
@@ -452,6 +454,7 @@ public class ReelModel {
      * Respects per-photo override in photoDurationList; falls back to the global
      * photoDurationMs. Also handles beat-sync override via beatIntervalMs.
      */
+    @com.google.firebase.database.Exclude
     public int effectiveDurationForPhoto(int index) {
         if (photoBeatSync && beatIntervalMs > 0) return beatIntervalMs;
         if (photoDurationList != null && index >= 0 && index < photoDurationList.size()) {
@@ -465,6 +468,7 @@ public class ReelModel {
      * Returns the effective transition type for the photo at the given index.
      * Respects per-photo override in photoTransitionList; falls back to transitionType.
      */
+    @com.google.firebase.database.Exclude
     public String effectiveTransitionForPhoto(int index) {
         if (photoTransitionList != null && index >= 0 && index < photoTransitionList.size()) {
             String t = photoTransitionList.get(index);
@@ -477,6 +481,7 @@ public class ReelModel {
      * Returns the effective color filter for the photo at the given index.
      * Respects per-photo override in photoFilterList; falls back to photoFilter.
      */
+    @com.google.firebase.database.Exclude
     public String effectiveFilterForPhoto(int index) {
         if (photoFilterList != null && index >= 0 && index < photoFilterList.size()) {
             String f = photoFilterList.get(index);
@@ -488,6 +493,7 @@ public class ReelModel {
     /**
      * Returns the effective visual effect for the photo at the given index.
      */
+    @com.google.firebase.database.Exclude
     public String effectiveEffectForPhoto(int index) {
         if (photoEffectList != null && index >= 0 && index < photoEffectList.size()) {
             String e = photoEffectList.get(index);
@@ -499,6 +505,7 @@ public class ReelModel {
     /**
      * Returns the caption for the photo at the given index, or null if none.
      */
+    @com.google.firebase.database.Exclude
     public String captionForPhoto(int index) {
         if (photoCaptions != null && index >= 0 && index < photoCaptions.size()) {
             return photoCaptions.get(index);
@@ -509,6 +516,7 @@ public class ReelModel {
     /**
      * Returns the sticker JSON for the photo at the given index, or null if none.
      */
+    @com.google.firebase.database.Exclude
     public String stickerJsonForPhoto(int index) {
         if (photoStickerJsonList != null && index >= 0 && index < photoStickerJsonList.size()) {
             return photoStickerJsonList.get(index);
@@ -519,6 +527,7 @@ public class ReelModel {
     /**
      * Returns the Ken Burns direction for the photo at the given index.
      */
+    @com.google.firebase.database.Exclude
     public String kenBurnsDirectionForPhoto(int index) {
         if (photoKenBurnsDirectionList != null && index >= 0
                 && index < photoKenBurnsDirectionList.size()) {
@@ -531,6 +540,7 @@ public class ReelModel {
     /**
      * Returns the Ken Burns scale target based on kenBurnsIntensity setting.
      */
+    @com.google.firebase.database.Exclude
     public float kenBurnsScaleTarget() {
         if (kenBurnsIntensity == null) return 1.14f;
         switch (kenBurnsIntensity) {
@@ -545,6 +555,7 @@ public class ReelModel {
      * Recomputes and stores totalSlideshowDurationMs from per-photo durations.
      * Call after changing photoDurationList or photoDurationMs.
      */
+    @com.google.firebase.database.Exclude
     public void recomputeTotalDuration() {
         if (photoUrls == null || photoUrls.isEmpty()) { totalSlideshowDurationMs = 0; return; }
         int total = 0;
@@ -562,16 +573,19 @@ public class ReelModel {
         return tags;
     }
 
+    @com.google.firebase.database.Exclude
     public String effectiveAllowDuetLevel() {
         if (allowDuetLevel != null && !allowDuetLevel.isEmpty()) return allowDuetLevel;
         return allowDuet ? "everyone" : "off";
     }
 
+    @com.google.firebase.database.Exclude
     public String effectiveAllowStitchLevel() {
         if (allowStitchLevel != null && !allowStitchLevel.isEmpty()) return allowStitchLevel;
         return allowStitch ? "everyone" : "off";
     }
 
+    @com.google.firebase.database.Exclude
     public float trendingScore() {
         long ageHours = (System.currentTimeMillis() - timestamp) / 3_600_000L;
         float decay   = Math.max(0.05f, 1f - (ageHours / 72f));
