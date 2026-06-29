@@ -204,8 +204,9 @@
                         <ViewStub
                             android:id="@+id/stub_reel_share"
                             android:layout="@layout/layout_msg_reel_share"
-                            android:layout_width="@dimen/msg_bubble_max_width"
+                            android:layout_width="220dp"
                             android:layout_height="wrap_content"
+                            android:layout_gravity="start"
                             android:visibility="gone"/>
 
                         <!-- Footer -->
