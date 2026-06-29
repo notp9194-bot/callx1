@@ -13,11 +13,7 @@ import android.view.View;
 import android.widget.Toast;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import androidx.activity.result.ActivityResultCaller;
 import androidx.activity.result.ActivityResultLauncher;
@@ -35,6 +31,7 @@ import com.callx.app.utils.ImageCompressor;
 import com.callx.app.utils.VideoCompressor;
 import com.callx.app.utils.VideoUploader;
 import com.callx.app.utils.VoiceRecorder;
+import com.callx.app.conversation.MultiMediaPreviewDialog;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
 
 /**
@@ -121,7 +118,16 @@ public class ChatMediaController {
                     } else if (data.getData() != null) {
                         uris.add(data.getData());
                     }
-                    if (!uris.isEmpty()) uploadAndSendMulti(uris, "");
+                    if (!uris.isEmpty()) {
+                        if (uris.size() == 1) {
+                            String m = activity.getContentResolver().getType(uris.get(0));
+                            boolean vid = m != null && m.startsWith("video");
+                            uploadAndSend(uris.get(0), vid ? "video" : "image", vid ? "video" : "image", null);
+                        } else {
+                            MultiMediaPreviewDialog.show(activity, uris,
+                                (selectedUris, caption) -> uploadSequentially(selectedUris, caption, 0));
+                        }
+                    }
                 });
     }
 
@@ -152,7 +158,7 @@ public class ChatMediaController {
         if (optMulti != null) {
             optMulti.setOnClickListener(x -> {
                 sheet.dismiss();
-                Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
                 intent.setType("*/*");
                 intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"image/*", "video/*"});
                 intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
@@ -164,73 +170,67 @@ public class ChatMediaController {
         sheet.show();
     }
 
-    // ── Multi media upload & send ─────────────────────────────────────────
+    // ── Multi media: sequential upload (WhatsApp style — ek ek karke) ────────
 
-    public void uploadAndSendMulti(List<Uri> uris, String caption) {
-        if (!delegate.isOnline()) {
-            Toast.makeText(activity, "No connection — multi media send nahi ho sakta", Toast.LENGTH_LONG).show();
-            return;
-        }
-        if (uris.size() == 1) {
-            Uri uri = uris.get(0);
-            String mime = activity.getContentResolver().getType(uri);
-            if (mime != null && mime.startsWith("video")) {
-                uploadAndSend(uri, "video", "video", null);
-            } else {
-                uploadAndSend(uri, "image", "image", null);
-            }
+    /**
+     * Uploads uris one by one and sends each as a separate image/video message.
+     * Caption (if any) is appended as text on the LAST message (like WhatsApp).
+     */
+    private void uploadSequentially(List<Uri> uris, String caption, int index) {
+        if (index >= uris.size()) {
+            activity.runOnUiThread(() ->
+                delegate.getBinding().uploadProgress.setVisibility(View.GONE));
             return;
         }
 
-        com.callx.app.chat.databinding.ActivityChatBinding binding = delegate.getBinding();
-        binding.uploadProgress.setVisibility(View.VISIBLE);
-        Toast.makeText(activity, uris.size() + " media upload ho raha hai...", Toast.LENGTH_SHORT).show();
+        final int total   = uris.size();
+        final Uri uri     = uris.get(index);
+        final boolean isLast = (index == total - 1);
+        String rawMime    = activity.getContentResolver().getType(uri);
+        final boolean isVideo = rawMime != null && rawMime.startsWith("video");
 
-        List<Map<String, Object>> mediaItems = new ArrayList<>();
-        for (int i = 0; i < uris.size(); i++) mediaItems.add(new HashMap<>());
+        // Show "Sending X / N" toast
+        activity.runOnUiThread(() -> {
+            delegate.getBinding().uploadProgress.setVisibility(View.VISIBLE);
+            Toast.makeText(activity,
+                "📤 Bhej raha hai " + (index + 1) + " / " + total,
+                Toast.LENGTH_SHORT).show();
+        });
 
-        AtomicInteger remaining = new AtomicInteger(uris.size());
-        AtomicBoolean hadError  = new AtomicBoolean(false);
+        String folder  = isVideo ? "callx/video" : "callx/image";
+        String resType = isVideo ? "video" : "image";
 
-        for (int i = 0; i < uris.size(); i++) {
-            final int idx    = i;
-            final Uri uri    = uris.get(i);
-            String rawMime   = activity.getContentResolver().getType(uri);
-            final boolean isVideo  = rawMime != null && rawMime.startsWith("video");
-            final String resType   = isVideo ? "video" : "image";
-            final String folder    = isVideo ? "callx/video" : "callx/image";
-
-            CloudinaryUploader.upload(activity, uri, folder, resType,
-                    new CloudinaryUploader.UploadCallback() {
-                        @Override public void onSuccess(CloudinaryUploader.Result r) {
-                            Map<String, Object> item = new HashMap<>();
-                            item.put("url",       r.secureUrl);
-                            item.put("mediaType", isVideo ? "video" : "image");
-                            if (r.thumbnailUrl != null && !r.thumbnailUrl.isEmpty())
-                                item.put("thumbUrl", r.thumbnailUrl);
-                            mediaItems.set(idx, item);
-
-                            if (remaining.decrementAndGet() == 0 && !hadError.get()) {
-                                binding.uploadProgress.setVisibility(View.GONE);
-                                com.callx.app.models.Message m = delegate.buildOutgoing();
-                                m.type       = "multi_media";
-                                m.mediaItems = mediaItems;
-                                if (caption != null && !caption.isEmpty()) m.caption = caption;
-                                m.text       = "";
-                                delegate.pushMessage(m, "\uD83D\uDDBC\uFE0F " + mediaItems.size() + " photos/videos");
-                                delegate.clearReply();
-                            }
-                        }
-                        @Override public void onError(String err) {
-                            if (hadError.compareAndSet(false, true)) {
-                                binding.uploadProgress.setVisibility(View.GONE);
-                                Toast.makeText(activity,
-                                        err != null ? err : "Media upload failed",
-                                        Toast.LENGTH_LONG).show();
-                            }
-                        }
+        CloudinaryUploader.upload(activity, uri, folder, resType,
+            new CloudinaryUploader.UploadCallback() {
+                @Override public void onSuccess(CloudinaryUploader.Result r) {
+                    // Build and push message on main thread
+                    activity.runOnUiThread(() -> {
+                        Message m  = delegate.buildOutgoing();
+                        m.type     = isVideo ? "video" : "image";
+                        m.mediaUrl = r.secureUrl;
+                        m.imageUrl = isVideo ? null : r.secureUrl;
+                        if (r.thumbnailUrl != null && !r.thumbnailUrl.isEmpty())
+                            m.thumbnailUrl = r.thumbnailUrl;
+                        if (r.bytes     != null) m.fileSize = r.bytes;
+                        if (r.durationMs != null) m.duration = r.durationMs;
+                        // Caption goes on last message (like WhatsApp)
+                        if (isLast && caption != null && !caption.isEmpty())
+                            m.text = caption;
+                        delegate.pushMessage(m, isVideo ? "🎬 Video" : "📷 Photo");
+                        if (isLast) delegate.clearReply();
                     });
-        }
+                    // Upload next item
+                    uploadSequentially(uris, caption, index + 1);
+                }
+                @Override public void onError(String err) {
+                    activity.runOnUiThread(() ->
+                        Toast.makeText(activity,
+                            "File " + (index + 1) + " fail: " + (err != null ? err : "Unknown"),
+                            Toast.LENGTH_SHORT).show());
+                    // Continue with remaining files even if one fails
+                    uploadSequentially(uris, caption, index + 1);
+                }
+            });
     }
 
     // ── Camera ────────────────────────────────────────────────────────────
