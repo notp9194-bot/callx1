@@ -211,8 +211,15 @@
         <activity android:name=".activities.LoginActivityLogActivity" android:exported="false"/>
         <activity android:name=".activities.AppLockActivity" android:exported="false"/>
         <activity android:name=".activities.CacheStatsActivity" android:exported="false"/>
-        <activity android:name=".activities.ContactsActivity" android:exported="false"
-            android:windowSoftInputMode="adjustResize"/>
+        <activity android:name=".activities.ContactsActivity" android:exported="true"
+            android:windowSoftInputMode="adjustResize">
+            <!-- Handle share intents from other apps (e.g. Instagram reel share) -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <data android:mimeType="text/plain"/>
+            </intent-filter>
+        </activity>
         <activity android:name=".activities.AllContactsActivity" android:exported="false"
             android:windowSoftInputMode="adjustResize"/>
         <activity android:name=".activities.LockScreenActivity"
