@@ -54,7 +54,7 @@
                 android:layout_width="22dp"
                 android:layout_height="22dp"
                 android:scaleType="centerCrop"
-                android:background="@drawable/bg_circle_gray"
+                android:background="#FF888888"
                 android:clipToOutline="true"/>
 
             <TextView
