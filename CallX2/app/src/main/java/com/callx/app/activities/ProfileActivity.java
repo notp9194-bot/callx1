@@ -228,54 +228,7 @@ public class ProfileActivity extends AppCompatActivity {
     }
 
     private void showAvatarZoom(String photoUrl) {
-        android.app.Dialog dialog = new android.app.Dialog(
-            this, android.R.style.Theme_Black_NoTitleBar_Fullscreen);
-        dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
-
-        android.widget.FrameLayout root = new android.widget.FrameLayout(this);
-        root.setBackgroundColor(0xEE000000);
-
-        com.github.chrisbanes.photoview.PhotoView photoView =
-            new com.github.chrisbanes.photoview.PhotoView(this);
-        android.widget.FrameLayout.LayoutParams ivLp =
-            new android.widget.FrameLayout.LayoutParams(
-                android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
-                android.widget.FrameLayout.LayoutParams.MATCH_PARENT);
-        photoView.setLayoutParams(ivLp);
-        photoView.setMinimumScale(1f);
-        photoView.setMediumScale(2f);
-        photoView.setMaximumScale(5f);
-        photoView.setOnOutsidePhotoTapListener(v -> dialog.dismiss());
-        com.callx.app.utils.AvatarZoomSwipeHelper.attachSwipeToClose(photoView, dialog);
-
-        android.widget.ImageButton btnClose = new android.widget.ImageButton(this);
-        int closeSizePx = (int)(40 * getResources().getDisplayMetrics().density);
-        android.widget.FrameLayout.LayoutParams closeLp =
-            new android.widget.FrameLayout.LayoutParams(closeSizePx, closeSizePx);
-        closeLp.gravity = android.view.Gravity.TOP | android.view.Gravity.END;
-        closeLp.topMargin  = (int)(40 * getResources().getDisplayMetrics().density);
-        closeLp.rightMargin = (int)(16 * getResources().getDisplayMetrics().density);
-        btnClose.setLayoutParams(closeLp);
-        btnClose.setImageResource(R.drawable.ic_close);
-        btnClose.setBackgroundColor(0x00000000);
-        btnClose.setOnClickListener(v -> dialog.dismiss());
-
-        if (photoUrl != null && !photoUrl.isEmpty()) {
-            Glide.with(this).load(photoUrl)
-                .placeholder(R.drawable.ic_person)
-                .error(R.drawable.ic_person)
-                .into(photoView);
-        } else {
-            photoView.setImageResource(R.drawable.ic_person);
-        }
-
-        root.addView(photoView);
-        root.addView(btnClose);
-        dialog.setContentView(root);
-        android.view.Window w = dialog.getWindow();
-        if (w != null) w.setLayout(
-            android.view.WindowManager.LayoutParams.MATCH_PARENT,
-            android.view.WindowManager.LayoutParams.MATCH_PARENT);
-        dialog.show();
+        com.callx.app.utils.DialogFullscreenHelper.showAvatarZoom(
+            this, photoUrl, R.drawable.ic_person, R.drawable.ic_close);
     }
 }

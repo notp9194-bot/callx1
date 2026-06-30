@@ -1837,58 +1837,8 @@ public class UserReelsActivity extends AppCompatActivity
 
     private void showAvatarZoom(String photoUrl, String name) {
         if (isFinishing() || isDestroyed()) return;
-        android.app.Dialog dialog = new android.app.Dialog(
-            this, android.R.style.Theme_Black_NoTitleBar_Fullscreen);
-        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
-
-        android.widget.FrameLayout root = new android.widget.FrameLayout(this);
-        root.setBackgroundColor(0xEE000000);
-
-        com.github.chrisbanes.photoview.PhotoView photoView =
-            new com.github.chrisbanes.photoview.PhotoView(this);
-        android.widget.FrameLayout.LayoutParams ivLp = new android.widget.FrameLayout.LayoutParams(
-            android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
-            android.widget.FrameLayout.LayoutParams.MATCH_PARENT);
-        photoView.setLayoutParams(ivLp);
-        photoView.setMinimumScale(1f); photoView.setMediumScale(2f); photoView.setMaximumScale(5f);
-        photoView.setOnOutsidePhotoTapListener(v -> dialog.dismiss());
-        com.callx.app.utils.AvatarZoomSwipeHelper.attachSwipeToClose(photoView, dialog);
-
-        android.widget.ImageButton btnClose = new android.widget.ImageButton(this);
-        int dp40 = (int)(40 * getResources().getDisplayMetrics().density);
-        int dp16 = (int)(16 * getResources().getDisplayMetrics().density);
-        android.widget.FrameLayout.LayoutParams closeLp =
-            new android.widget.FrameLayout.LayoutParams(dp40, dp40);
-        closeLp.gravity = Gravity.TOP | Gravity.END;
-        closeLp.topMargin = dp40; closeLp.rightMargin = dp16;
-        btnClose.setLayoutParams(closeLp);
-        btnClose.setImageResource(R.drawable.ic_close);
-        btnClose.setBackgroundColor(0x00000000);
-        btnClose.setOnClickListener(v -> dialog.dismiss());
-
-        android.widget.TextView tvZoomName = new android.widget.TextView(this);
-        tvZoomName.setText(name != null ? name : "");
-        tvZoomName.setTextColor(0xFFFFFFFF); tvZoomName.setTextSize(15f);
-        tvZoomName.setGravity(Gravity.CENTER);
-        int dp32 = (int)(32 * getResources().getDisplayMetrics().density);
-        tvZoomName.setPadding(0, 0, 0, dp32);
-        android.widget.FrameLayout.LayoutParams nameLp = new android.widget.FrameLayout.LayoutParams(
-            android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
-            android.widget.FrameLayout.LayoutParams.WRAP_CONTENT);
-        nameLp.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
-        tvZoomName.setLayoutParams(nameLp);
-
-        if (photoUrl != null && !photoUrl.isEmpty())
-            Glide.with(this).load(photoUrl).placeholder(R.drawable.ic_person)
-                .error(R.drawable.ic_person).into(photoView);
-        else photoView.setImageResource(R.drawable.ic_person);
-
-        root.addView(photoView); root.addView(tvZoomName); root.addView(btnClose);
-        dialog.setContentView(root);
-        android.view.Window dw = dialog.getWindow();
-        if (dw != null) dw.setLayout(
-            WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT);
-        dialog.show();
+        com.callx.app.utils.DialogFullscreenHelper.showAvatarZoom(
+            this, photoUrl, name, R.drawable.ic_person, R.drawable.ic_close);
     }
 
     @Override protected void onPause()   { super.onPause();   dismissPreviewDialog(); stopAvatarAnimation(); }
