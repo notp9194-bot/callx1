@@ -184,6 +184,8 @@ public class GroupChatActivity extends AppCompatActivity
     // ── Media pickers ──────────────────────────────────────────────────────
     private ActivityResultLauncher<String> imagePicker, videoPicker, audioPicker, filePicker;
     private ActivityResultLauncher<String> wallpaperPicker;
+    private androidx.activity.result.ActivityResultLauncher<androidx.activity.result.PickVisualMediaRequest> multiMediaPicker;
+    private static final int MAX_MULTI_PICK = 30;
     private final AudioRecorderHelper recorder = new AudioRecorderHelper();
 
     // ── Network monitoring (Task 5) ────────────────────────────────────────
@@ -2173,6 +2175,26 @@ public class GroupChatActivity extends AppCompatActivity
         filePicker  = registerForActivityResult(new ActivityResultContracts.GetContent(),
                 uri -> { if (uri != null)
                     uploadAndSend(uri, "file", "raw", FileUtils.fileName(this, uri)); });
+        multiMediaPicker = registerForActivityResult(
+                new androidx.activity.result.contract.ActivityResultContracts.PickMultipleVisualMedia(MAX_MULTI_PICK),
+                uris -> {
+                    if (uris == null || uris.isEmpty()) return;
+                    for (Uri u : uris) {
+                        try {
+                            getContentResolver().takePersistableUriPermission(
+                                    u, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                        } catch (SecurityException ignored) {}
+                    }
+                    if (uris.size() == 1) {
+                        Uri only = uris.get(0);
+                        String mt = getContentResolver().getType(only);
+                        boolean vid = mt != null && mt.startsWith("video");
+                        uploadAndSend(only, vid ? "video" : "image", vid ? "video" : "image", null);
+                    } else {
+                        com.callx.app.conversation.MultiMediaPreviewDialog.show(this, uris,
+                                (selectedUris, caption) -> uploadSequentially(selectedUris, caption, 0, new java.util.ArrayList<>()));
+                    }
+                });
     }
 
     private void showAttachSheet() {
@@ -2185,6 +2207,15 @@ public class GroupChatActivity extends AppCompatActivity
         View optPoll = v.findViewById(R.id.opt_poll);
         if (optPoll != null) {
             optPoll.setOnClickListener(x -> { sheet.dismiss(); showCreatePollDialog(); });
+        }
+        View optMulti = v.findViewById(R.id.opt_multi);
+        if (optMulti != null) {
+            optMulti.setOnClickListener(x -> {
+                sheet.dismiss();
+                multiMediaPicker.launch(new androidx.activity.result.PickVisualMediaRequest.Builder()
+                        .setMediaType(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageAndVideo.INSTANCE)
+                        .build());
+            });
         }
         sheet.setContentView(v); sheet.show();
     }
@@ -2230,6 +2261,82 @@ public class GroupChatActivity extends AppCompatActivity
                                 Toast.LENGTH_LONG).show();
                     }
                 });
+    }
+
+    /** Multi-image/video pick → uploads each sequentially, then pushes ONE
+     *  grouped multi_media message (same pattern as 1:1 chat's
+     *  ChatMediaController#uploadSequentially). */
+    private void uploadSequentially(java.util.List<Uri> uris, String caption, int index,
+                                     java.util.List<java.util.Map<String, Object>> collected) {
+        final int total = uris.size();
+
+        if (index >= total) {
+            runOnUiThread(() -> {
+                binding.uploadProgress.setVisibility(View.GONE);
+                if (!collected.isEmpty()) {
+                    Message m    = buildOutgoing();
+                    m.type       = "multi_media";
+                    m.mediaItems = collected;
+                    if (caption != null && !caption.isEmpty()) {
+                        m.caption = caption;
+                        m.text    = caption;
+                    }
+                    Object firstUrl = collected.get(0).get("url");
+                    if (firstUrl instanceof String) m.mediaUrl = (String) firstUrl;
+
+                    String preview = collected.size() == 1
+                            ? "📷 Photo" : "📷 " + collected.size() + " photos";
+                    pushMessage(m, preview);
+                } else {
+                    Toast.makeText(this, "Sab files fail ho gayi", Toast.LENGTH_SHORT).show();
+                }
+            });
+            return;
+        }
+
+        final Uri uri = uris.get(index);
+        String rawMime = getContentResolver().getType(uri);
+        final boolean isVideo = rawMime != null && rawMime.startsWith("video");
+
+        runOnUiThread(() -> {
+            binding.uploadProgress.setVisibility(View.VISIBLE);
+            Toast.makeText(this, "📤 Bhej raha hai " + (index + 1) + " / " + total,
+                    Toast.LENGTH_SHORT).show();
+        });
+
+        String folder  = isVideo ? "callx/video" : "callx/image";
+        String resType = isVideo ? "video" : "image";
+
+        com.callx.app.utils.CloudinaryUploader.upload(this, uri, folder, resType,
+            new com.callx.app.utils.CloudinaryUploader.UploadCallback() {
+                @Override public void onSuccess(com.callx.app.utils.CloudinaryUploader.Result r) {
+                    java.util.Map<String, Object> item = new java.util.HashMap<>();
+                    item.put("url", r.secureUrl);
+                    item.put("mediaType", isVideo ? "video" : "image");
+                    if (r.thumbnailUrl != null && !r.thumbnailUrl.isEmpty())
+                        item.put("thumbUrl", r.thumbnailUrl);
+                    if (r.durationMs != null) {
+                        item.put("duration", formatDuration(r.durationMs));
+                        item.put("durationMs", r.durationMs);
+                    }
+                    if (r.bytes != null) item.put("fileSize", r.bytes);
+                    collected.add(item);
+                    uploadSequentially(uris, caption, index + 1, collected);
+                }
+                @Override public void onError(String err) {
+                    runOnUiThread(() -> Toast.makeText(GroupChatActivity.this,
+                            "File " + (index + 1) + " fail: " + (err != null ? err : "Unknown"),
+                            Toast.LENGTH_SHORT).show());
+                    uploadSequentially(uris, caption, index + 1, collected);
+                }
+            });
+    }
+
+    private static String formatDuration(long ms) {
+        long totalSec = ms / 1000;
+        long min = totalSec / 60;
+        long sec = totalSec % 60;
+        return String.format(java.util.Locale.US, "%d:%02d", min, sec);
     }
 
     private void uploadAndSend(Uri uri, String msgType, String resourceType, String fileName) {
