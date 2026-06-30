@@ -940,6 +940,7 @@ public class MessagePagingAdapter
         if (h.llFile     != null) h.llFile.setVisibility(View.GONE);
         if (h.llPoll     != null) h.llPoll.setVisibility(View.GONE);
         if (h.llReelShare!= null) h.llReelShare.setVisibility(View.GONE);
+        if (h.llMediaGroup != null) h.llMediaGroup.setVisibility(View.GONE);
         if (h.tvTime     != null) h.tvTime.setVisibility(View.VISIBLE);
 
         // ── Quick Forward Button — media/link messages pe dikhao ──────────
@@ -947,6 +948,7 @@ public class MessagePagingAdapter
             String mt = m.type != null ? m.type : "text";
             boolean showFwd = mt.equals("image") || mt.equals("video") || mt.equals("audio")
                     || mt.equals("file") || mt.equals("reel_share") || mt.equals("reel_link")
+                    || mt.equals("multi_media")
                     || (mt.equals("text") && m.text != null
                         && (m.text.contains("http://") || m.text.contains("https://")));
             h.btnQuickForward.setVisibility(showFwd ? View.VISIBLE : View.GONE);
@@ -1137,6 +1139,24 @@ public class MessagePagingAdapter
                     });
                 }
                 break;
+            // ── MULTI MEDIA (WhatsApp-style grid, multi-image send) ──────
+            case "multi_media": {
+                if (h.llMediaGroup != null && m.mediaItems != null && !m.mediaItems.isEmpty()) {
+                    h.llMediaGroup.setVisibility(View.VISIBLE);
+                    MediaGroupLayoutHelper.populate(ctx, h.llMediaGroup, m.mediaItems, m.caption);
+                    h.llMediaGroup.setOnLongClickListener(v -> {
+                        if (actionListener != null) showActionBottomSheet(ctx, m);
+                        return true;
+                    });
+                } else {
+                    // Defensive fallback — if mediaItems somehow came through empty
+                    // (e.g. legacy/partial data), at least show something instead
+                    // of a blank bubble.
+                    h.tvMessage.setVisibility(View.VISIBLE);
+                    h.tvMessage.setText("\uD83D\uDCF7 Photos");
+                }
+                break;
+            }
             case "video": {
                 // POLISH: Use fl_video + iv_video_thumb (thumbnail + play overlay)
                 // Prefer thumbnailUrl (Cloudinary thumb) over raw video URL for preview
@@ -2541,6 +2561,8 @@ public class MessagePagingAdapter
         // every text/image/audio row, every bind). Cached here instead since
         // it's the hottest path in the adapter.
         View         llBubble;
+        // ── Multi-image grouping (WhatsApp-style grid) ──
+        LinearLayout llMediaGroup;
         // ── Quick Forward Button ──
         android.widget.ImageButton btnQuickForward;
 
@@ -2570,6 +2592,7 @@ public class MessagePagingAdapter
             tvSenderName   = v.findViewById(R.id.tv_sender_name);
             tvDateHeader   = null; // removed from item layouts — date chip is now a separate ViewHolder type
             ivImage        = v.findViewById(R.id.iv_image);
+            llMediaGroup   = v.findViewById(R.id.ll_media_group);
             tvStatus       = v.findViewById(R.id.tv_status);
             // ── ViewStub bindings — heavy child layouts inflate only on demand ──
             stubVideo       = v.findViewById(R.id.stub_video);
@@ -2757,6 +2780,7 @@ public class MessagePagingAdapter
         if (type == null) return "Tap to open";
         switch (type) {
             case "image": return "📷  Photo · Tap to open";
+            case "multi_media": return "📷  Photos · Tap to open";
             case "video": return "🎬  Video · Tap to open";
             case "audio": return "🎵  Audio · Tap to open";
             case "file":  return "📄  File · Tap to open";
