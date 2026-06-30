@@ -275,31 +275,72 @@ public class MediaGroupLayoutHelper {
         cell.setBackground(cellBg);
         cell.setOutlineProvider(android.view.ViewOutlineProvider.BACKGROUND);
 
-        // Thumbnail ImageView
-        ImageView iv = new ImageView(ctx);
-        iv.setLayoutParams(new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT));
-        iv.setScaleType(ImageView.ScaleType.CENTER_CROP);
-
         String url      = safeStr(item.get("url"));
         String thumbUrl = safeStr(item.get("thumbUrl"));
         String loadUrl  = (!thumbUrl.isEmpty()) ? thumbUrl : url;
-        boolean isVideoForDesc = "video".equals(item.get("mediaType"));
-        cell.setContentDescription((isVideoForDesc ? "Video" : "Photo")
-                + " " + (index + 1) + " of " + allItems.size());
-        iv.setContentDescription(null); // description lives on the cell, not the bare thumbnail
-        if (!loadUrl.isEmpty()) {
-            Glide.with(ctx)
-                    .load(loadUrl)
-                    .diskCacheStrategy(DiskCacheStrategy.ALL)
-                    .centerCrop()
-                    .placeholder(android.R.color.darker_gray)
-                    .into(iv);
-        }
-        cell.addView(iv);
+        String mediaType = safeStr(item.get("mediaType"));
+        boolean isVideo   = "video".equals(mediaType);
+        boolean isAudio   = "audio".equals(mediaType);
+        boolean isFile    = "file".equals(mediaType);
 
-        boolean isVideo = "video".equals(item.get("mediaType"));
+        String descKind = isVideo ? "Video" : isAudio ? "Audio" : isFile ? "File" : "Photo";
+        cell.setContentDescription(descKind + " " + (index + 1) + " of " + allItems.size());
+
+        if (isAudio || isFile) {
+            // No thumbnail to render — show an icon + filename instead of
+            // running a raw (non-image) url through Glide, which previously
+            // rendered as a broken/placeholder image.
+            cell.setBackgroundColor(0xFF2C2C2C);
+            ImageView icon = new ImageView(ctx);
+            int iconSz = dp(28, d);
+            FrameLayout.LayoutParams iconLp = new FrameLayout.LayoutParams(iconSz, iconSz);
+            iconLp.gravity = Gravity.CENTER;
+            iconLp.bottomMargin = dp(14, d);
+            icon.setLayoutParams(iconLp);
+            icon.setImageResource(isAudio
+                    ? android.R.drawable.ic_btn_speak_now
+                    : android.R.drawable.ic_menu_save);
+            icon.setColorFilter(Color.WHITE);
+            cell.addView(icon);
+
+            String label = isAudio
+                    ? (safeStr(item.get("duration")).isEmpty() ? "Audio" : safeStr(item.get("duration")))
+                    : safeStr(item.get("fileName"));
+            if (label.isEmpty()) label = isAudio ? "Audio" : "File";
+            TextView tvLabel = new TextView(ctx);
+            FrameLayout.LayoutParams lblLp = new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT);
+            lblLp.gravity = Gravity.BOTTOM;
+            lblLp.bottomMargin = dp(4, d);
+            tvLabel.setLayoutParams(lblLp);
+            tvLabel.setText(label);
+            tvLabel.setTextSize(9f);
+            tvLabel.setTextColor(Color.WHITE);
+            tvLabel.setGravity(Gravity.CENTER);
+            tvLabel.setMaxLines(1);
+            tvLabel.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
+            tvLabel.setPadding(dp(2, d), 0, dp(2, d), 0);
+            cell.addView(tvLabel);
+
+        } else {
+            // Thumbnail ImageView (image / video)
+            ImageView iv = new ImageView(ctx);
+            iv.setLayoutParams(new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT));
+            iv.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            iv.setContentDescription(null); // description lives on the cell, not the bare thumbnail
+            if (!loadUrl.isEmpty()) {
+                Glide.with(ctx)
+                        .load(loadUrl)
+                        .diskCacheStrategy(DiskCacheStrategy.ALL)
+                        .centerCrop()
+                        .placeholder(android.R.color.darker_gray)
+                        .into(iv);
+            }
+            cell.addView(iv);
+        }
+
         String itemCaption = safeStr(item.get("caption"));
         boolean hasItemCaption = !itemCaption.isEmpty() && !showMoreOverlay;
 
@@ -434,7 +475,7 @@ public class MediaGroupLayoutHelper {
                 // Kept for backward compatibility with any code path that
                 // still reads single-item extras before gallery mode kicks in.
                 intent.putExtra("url",      url);
-                intent.putExtra("type",     isVideo ? "video" : "image");
+                intent.putExtra("type",     isVideo ? "video" : isAudio ? "audio" : isFile ? "file" : "image");
                 intent.putExtra("thumbUrl", !thumbUrl.isEmpty() ? thumbUrl : url);
                 // Lets MediaViewerActivity hand a swipe-up "reply" request
                 // back to this chat screen via GalleryReplyBridge. Both

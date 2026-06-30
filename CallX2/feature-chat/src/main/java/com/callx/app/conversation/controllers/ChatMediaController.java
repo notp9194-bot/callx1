@@ -181,8 +181,53 @@ public class ChatMediaController {
      * MediaGroupLayoutHelper then render this as a WhatsApp-style grid
      * (1 → full width, 2 → side by side, 3 → top+2, 4 → 2×2, 5+ → 2×2 +"+N").
      */
+    // Set while a multi-media batch is in flight; checked between items so a
+    // mid-batch tap on the progress bar stops launching further uploads
+    // (already-collected items still get sent as a smaller group).
+    private volatile boolean multiUploadCancelled = false;
+
+    /** All uploads attempted (or batch was cancelled mid-way) — push ONE grouped message if we have anything. */
+    private void finishMultiUpload(List<java.util.Map<String, Object>> collected, String caption) {
+        delegate.getBinding().uploadProgress.setVisibility(View.GONE);
+        delegate.getBinding().uploadProgress.setOnClickListener(null);
+        boolean wasCancelled = multiUploadCancelled;
+        multiUploadCancelled = false;
+
+        if (!collected.isEmpty()) {
+            Message m       = delegate.buildOutgoing();
+            m.type          = "multi_media";
+            m.mediaItems    = collected;
+            if (caption != null && !caption.isEmpty()) {
+                m.caption = caption;
+                m.text    = caption;
+            }
+            // Keep first item's url as a fallback preview field
+            Object firstUrl = collected.get(0).get("url");
+            if (firstUrl instanceof String) m.mediaUrl = (String) firstUrl;
+
+            String preview = collected.size() == 1
+                    ? "📷 Photo"
+                    : "📷 " + collected.size() + " photos";
+            delegate.pushMessage(m, preview);
+            delegate.clearReply();
+            if (wasCancelled) {
+                Toast.makeText(activity, "Cancelled — " + collected.size() + " bhej di gayi", Toast.LENGTH_SHORT).show();
+            }
+        } else {
+            Toast.makeText(activity, wasCancelled ? "Cancelled" : "Sab files fail ho gayi", Toast.LENGTH_SHORT).show();
+        }
+    }
+
     private void uploadSequentially(List<Uri> uris, List<String> perItemCaptions, String caption, int index) {
+        multiUploadCancelled = false;
         uploadSequentially(uris, perItemCaptions, caption, index, new ArrayList<>());
+    }
+
+    /** Call to stop an in-progress multi-media batch (e.g. tap on the upload progress bar). */
+    public void cancelMultiUpload() {
+        if (multiUploadCancelled) return;
+        multiUploadCancelled = true;
+        Toast.makeText(activity, "Cancelling… bachi hui files send nahi hongi", Toast.LENGTH_SHORT).show();
     }
 
     private void uploadSequentially(List<Uri> uris, List<String> perItemCaptions, String caption, int index,
@@ -190,30 +235,15 @@ public class ChatMediaController {
         final int total = uris.size();
 
         if (index >= total) {
-            // All uploads attempted — push ONE grouped message if we have anything.
-            activity.runOnUiThread(() -> {
-                delegate.getBinding().uploadProgress.setVisibility(View.GONE);
-                if (!collected.isEmpty()) {
-                    Message m       = delegate.buildOutgoing();
-                    m.type          = "multi_media";
-                    m.mediaItems    = collected;
-                    if (caption != null && !caption.isEmpty()) {
-                        m.caption = caption;
-                        m.text    = caption;
-                    }
-                    // Keep first item's url as a fallback preview field
-                    Object firstUrl = collected.get(0).get("url");
-                    if (firstUrl instanceof String) m.mediaUrl = (String) firstUrl;
+            activity.runOnUiThread(() -> finishMultiUpload(collected, caption));
+            return;
+        }
 
-                    String preview = collected.size() == 1
-                            ? "📷 Photo"
-                            : "📷 " + collected.size() + " photos";
-                    delegate.pushMessage(m, preview);
-                    delegate.clearReply();
-                } else {
-                    Toast.makeText(activity, "Sab files fail ho gayi", Toast.LENGTH_SHORT).show();
-                }
-            });
+        // Cancelled mid-batch (user tapped progress bar) — stop launching new
+        // uploads. Whatever made it into `collected` so far still gets sent
+        // as a (smaller) group below, instead of being thrown away.
+        if (multiUploadCancelled) {
+            activity.runOnUiThread(() -> finishMultiUpload(collected, caption));
             return;
         }
 
@@ -223,26 +253,82 @@ public class ChatMediaController {
         // item even if an earlier item in the batch failed to upload.
         final String itemCaption = (perItemCaptions != null && index < perItemCaptions.size())
                 ? perItemCaptions.get(index) : null;
-        String rawMime     = activity.getContentResolver().getType(uri);
-        final boolean isVideo = rawMime != null && rawMime.startsWith("video");
+        String rawMime = activity.getContentResolver().getType(uri);
+        final String mediaType = classifyMediaType(rawMime);
+        final boolean isVideo  = "video".equals(mediaType);
+        final boolean isAudio  = "audio".equals(mediaType);
+        final boolean isFile   = "file".equals(mediaType);
+        final String fileName  = (isFile || isAudio) ? FileUtils.fileName(activity, uri) : null;
 
-        // Show "Sending X / N" toast
+        // Show "Sending X / N" toast + let user cancel by tapping the bar
         activity.runOnUiThread(() -> {
             delegate.getBinding().uploadProgress.setVisibility(View.VISIBLE);
+            delegate.getBinding().uploadProgress.setOnClickListener(v -> cancelMultiUpload());
             Toast.makeText(activity,
-                "📤 Bhej raha hai " + (index + 1) + " / " + total,
+                "📤 Bhej raha hai " + (index + 1) + " / " + total
+                    + (index == 0 ? " — tap bar to cancel" : ""),
                 Toast.LENGTH_SHORT).show();
         });
 
-        String folder  = isVideo ? "callx/video" : "callx/image";
-        String resType = isVideo ? "video" : "image";
+        // VIDEO items go through the same compress → dual-upload pipeline as
+        // single-video sends (previously multi-select skipped compression
+        // entirely and uploaded the raw file — huge size/data cost).
+        if (isVideo) {
+            VideoCompressor.compress(activity, uri, new VideoCompressor.Callback() {
+                @Override public void onProgress(int percent) { /* batch-level toast only */ }
+                @Override public void onSuccess(VideoCompressor.Result vr) {
+                    VideoUploader.upload(activity, vr, new VideoUploader.UploadCallback() {
+                        @Override public void onProgress(int percent) { }
+                        @Override public void onSuccess(String thumbUrl, String videoUrl,
+                                                        int durationMs, int width, int height) {
+                            java.util.Map<String, Object> item = new java.util.HashMap<>();
+                            item.put("url", videoUrl);
+                            item.put("mediaType", "video");
+                            if (thumbUrl != null && !thumbUrl.isEmpty()) item.put("thumbUrl", thumbUrl);
+                            item.put("duration", formatDuration(durationMs));
+                            item.put("durationMs", durationMs);
+                            if (itemCaption != null && !itemCaption.isEmpty()) item.put("caption", itemCaption);
+                            collected.add(item);
+                            uploadSequentially(uris, perItemCaptions, caption, index + 1, collected);
+                        }
+                        @Override public void onError(Exception e) {
+                            activity.runOnUiThread(() -> Toast.makeText(activity,
+                                "Video " + (index + 1) + " fail: " + (e != null ? e.getMessage() : "Unknown"),
+                                Toast.LENGTH_SHORT).show());
+                            uploadSequentially(uris, perItemCaptions, caption, index + 1, collected);
+                        }
+                    });
+                }
+                @Override public void onError(Exception e) {
+                    // Compression failed — fall back to raw upload rather than
+                    // dropping the item entirely.
+                    android.util.Log.w("ChatMediaController", "Multi-video compress failed, raw upload", e);
+                    rawUploadGroupItem(uri, "video", mediaType, null, itemCaption,
+                            uris, perItemCaptions, caption, index, collected);
+                }
+            });
+            return;
+        }
 
+        // AUDIO / FILE — uploaded as 'raw' so they can sit inside the same
+        // grouped message instead of being silently treated as images.
+        String resType = (isAudio || isFile) ? "raw" : "image";
+        rawUploadGroupItem(uri, resType, mediaType, fileName, itemCaption,
+                uris, perItemCaptions, caption, index, collected);
+    }
+
+    /** image / audio / file: single-shot upload into the in-progress group. */
+    private void rawUploadGroupItem(Uri uri, String resType, String mediaType, String fileName,
+                                    String itemCaption,
+                                    List<Uri> uris, List<String> perItemCaptions, String caption,
+                                    int index, List<java.util.Map<String, Object>> collected) {
+        String folder = "callx/" + mediaType;
         CloudinaryUploader.upload(activity, uri, folder, resType,
             new CloudinaryUploader.UploadCallback() {
                 @Override public void onSuccess(CloudinaryUploader.Result r) {
                     java.util.Map<String, Object> item = new java.util.HashMap<>();
                     item.put("url", r.secureUrl);
-                    item.put("mediaType", isVideo ? "video" : "image");
+                    item.put("mediaType", mediaType);
                     if (r.thumbnailUrl != null && !r.thumbnailUrl.isEmpty())
                         item.put("thumbUrl", r.thumbnailUrl);
                     if (r.durationMs != null) {
@@ -250,6 +336,7 @@ public class ChatMediaController {
                         item.put("durationMs", r.durationMs);
                     }
                     if (r.bytes != null) item.put("fileSize", r.bytes);
+                    if (fileName != null && !fileName.isEmpty()) item.put("fileName", fileName);
                     if (itemCaption != null && !itemCaption.isEmpty())
                         item.put("caption", itemCaption);
                     collected.add(item);
@@ -266,6 +353,15 @@ public class ChatMediaController {
                     uploadSequentially(uris, perItemCaptions, caption, index + 1, collected);
                 }
             });
+    }
+
+    /** image / video / audio / file classifier from a content:// mime type. */
+    private static String classifyMediaType(String rawMime) {
+        if (rawMime == null) return "file";
+        if (rawMime.startsWith("video")) return "video";
+        if (rawMime.startsWith("audio")) return "audio";
+        if (rawMime.startsWith("image")) return "image";
+        return "file";
     }
 
     private static String formatDuration(long ms) {
