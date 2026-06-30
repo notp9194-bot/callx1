@@ -336,6 +336,7 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         photoView.setMaximumScale(5f);
         photoView.setOnOutsidePhotoTapListener(v -> dialog.dismiss());
         photoView.setOnPhotoTapListener((v, x, y) -> { /* prevent dismiss */ });
+        com.callx.app.utils.AvatarZoomSwipeHelper.attachSwipeToClose(photoView, dialog);
 
         android.widget.ImageButton btnClose = new android.widget.ImageButton(ctx);
         int closeSizePx = (int)(40 * ctx.getResources().getDisplayMetrics().density);
