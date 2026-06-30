@@ -583,6 +583,7 @@ public class UserProfileActivity extends AppCompatActivity {
         photoView.setMediumScale(2f);
         photoView.setMaximumScale(5f);
         photoView.setOnOutsidePhotoTapListener(v -> dialog.dismiss());
+        com.callx.app.utils.AvatarZoomSwipeHelper.attachSwipeToClose(photoView, dialog);
 
         ImageButton btnClose = new ImageButton(this);
         int sz = (int)(40 * getResources().getDisplayMetrics().density);

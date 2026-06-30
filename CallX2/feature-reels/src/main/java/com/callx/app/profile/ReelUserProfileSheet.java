@@ -601,6 +601,7 @@ public class ReelUserProfileSheet {
         pv.setLayoutParams(pvLp);
         pv.setMinimumScale(1f); pv.setMediumScale(2f); pv.setMaximumScale(5f);
         pv.setOnOutsidePhotoTapListener(v -> dialog.dismiss());
+        com.callx.app.utils.AvatarZoomSwipeHelper.attachSwipeToClose(pv, dialog);
 
         android.widget.ImageButton btnClose = new android.widget.ImageButton(activity);
         float dp = activity.getResources().getDisplayMetrics().density;

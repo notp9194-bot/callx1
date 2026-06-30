@@ -1069,6 +1069,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         pv.setLayoutParams(pvLp);
         pv.setMinimumScale(1f); pv.setMediumScale(2f); pv.setMaximumScale(5f);
         pv.setOnOutsidePhotoTapListener(v -> dialog.dismiss());
+        com.callx.app.utils.AvatarZoomSwipeHelper.attachSwipeToClose(pv, dialog);
         android.widget.ImageButton btnClose = new android.widget.ImageButton(getContext());
         float dp = getResources().getDisplayMetrics().density;
         int sz = (int)(40 * dp);

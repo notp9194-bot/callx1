@@ -246,6 +246,7 @@ public class ProfileActivity extends AppCompatActivity {
         photoView.setMediumScale(2f);
         photoView.setMaximumScale(5f);
         photoView.setOnOutsidePhotoTapListener(v -> dialog.dismiss());
+        com.callx.app.utils.AvatarZoomSwipeHelper.attachSwipeToClose(photoView, dialog);
 
         android.widget.ImageButton btnClose = new android.widget.ImageButton(this);
         int closeSizePx = (int)(40 * getResources().getDisplayMetrics().density);

@@ -1045,6 +1045,7 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
         photoView.setMaximumScale(5f);
         // Tap outside photo → dismiss
         photoView.setOnOutsidePhotoTapListener(v -> dialog.dismiss());
+        com.callx.app.utils.AvatarZoomSwipeHelper.attachSwipeToClose(photoView, dialog);
 
         // Close button — top right
         android.widget.ImageButton btnClose = new android.widget.ImageButton(getContext());
