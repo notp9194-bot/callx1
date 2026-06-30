@@ -1183,6 +1183,29 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                     pushMessage(msg, "📹 Reel");
                 });
             }
+        } else if ("multi_media".equals(fwdType)
+                && i.getStringExtra("forwardMediaItemsJson") != null
+                && !i.getStringExtra("forwardMediaItemsJson").isEmpty()) {
+            // #1 fix — must be checked BEFORE the generic fwdMedia branch
+            // below: a multi_media message also carries m.mediaUrl as a
+            // fallback (first item's url, set by ChatMediaController), so
+            // if this check ran after the generic branch it would always
+            // win first and silently downgrade the forward into a single
+            // image with no mediaItems (= the "doesn't look like grouped
+            // media" bug).
+            String fwdMediaItemsJson = i.getStringExtra("forwardMediaItemsJson");
+            String fwdCaption        = i.getStringExtra("forwardCaption");
+            binding.getRoot().post(() -> {
+                Message m = buildOutgoing();
+                m.type = "multi_media";
+                m.mediaItems = com.callx.app.utils.MediaItemsJsonUtil.mediaItemsFromJson(fwdMediaItemsJson);
+                m.caption = fwdCaption;
+                if (fwdCaption != null && !fwdCaption.isEmpty()) m.text = fwdCaption;
+                Object firstUrl = !m.mediaItems.isEmpty() ? m.mediaItems.get(0).get("url") : null;
+                if (firstUrl instanceof String) m.mediaUrl = (String) firstUrl;
+                m.forwardedFrom = partnerName;
+                pushMessage(m, "\uD83D\uDCF7 Photos (forwarded)");
+            });
         } else if (fwdMedia != null && !fwdMedia.isEmpty()) {
             binding.getRoot().post(() -> {
                 Message m  = buildOutgoing();
@@ -1196,22 +1219,6 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                                : "\uD83D\uDCCE File (forwarded)";
                 pushMessage(m, preview);
             });
-        } else if ("multi_media".equals(fwdType)) {
-            // #1 fix — forwarding a grouped-media message (whole group or a
-            // subset picked in the gallery's select mode) now actually
-            // carries every item across, not just one.
-            String fwdMediaItemsJson = i.getStringExtra("forwardMediaItemsJson");
-            String fwdCaption        = i.getStringExtra("forwardCaption");
-            if (fwdMediaItemsJson != null && !fwdMediaItemsJson.isEmpty()) {
-                binding.getRoot().post(() -> {
-                    Message m = buildOutgoing();
-                    m.type = "multi_media";
-                    m.mediaItems = com.callx.app.utils.MediaItemsJsonUtil.mediaItemsFromJson(fwdMediaItemsJson);
-                    m.caption = fwdCaption;
-                    m.forwardedFrom = partnerName;
-                    pushMessage(m, "\uD83D\uDCF7 Photos (forwarded)");
-                });
-            }
         }
 
         // ── Instagram reel share intent handling ──────────────────────────
