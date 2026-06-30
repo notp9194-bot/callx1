@@ -119,6 +119,7 @@ public class MessageAdapter extends ListAdapter<Message, MessageAdapter.VH> {
     // ── Multi-select state ────────────────────────────────────────────────────
     private boolean multiSelectMode = false;
     private final Set<String> selectedMessageIds = new HashSet<>();
+    private final Set<String> expandedMessageIds  = new HashSet<>();
     private MultiSelectListener multiSelectListener;
 
     public void setMultiSelectListener(MultiSelectListener l) { this.multiSelectListener = l; }
@@ -676,10 +677,27 @@ public class MessageAdapter extends ListAdapter<Message, MessageAdapter.VH> {
                 String rawText = m.text != null ? m.text : "";
 
                 // ── Expandable text: WhatsApp-style "Read more / Read less" ─
-                // ExpandableTextHelper owns all text setting, Linkify, and
-                // expand/collapse state. State (isExpanded) lives on the Message
-                // model so RecyclerView recycles are safe.
-                com.callx.app.utils.ExpandableTextHelper.bind(h.tvMessage, m, this, pos, sent);
+                {
+                    final String msgIdExp = m.messageId != null ? m.messageId : m.id;
+                    final boolean isExp   = msgIdExp != null && expandedMessageIds.contains(msgIdExp);
+                    final int bindPos     = pos;
+                    com.callx.app.utils.ExpandableTextHelper.bind(
+                            h.tvMessage,
+                            h.tvReadMore,
+                            m.text,
+                            m,
+                            msgIdExp,
+                            isExp,
+                            () -> {
+                                if (msgIdExp != null) expandedMessageIds.add(msgIdExp);
+                                notifyItemChanged(bindPos);
+                            },
+                            () -> {
+                                if (msgIdExp != null) expandedMessageIds.remove(msgIdExp);
+                                notifyItemChanged(bindPos);
+                            },
+                            sent);
+                }
 
                 // ── Link Preview ─────────────────────────────────────────────
                 String previewUrl =
@@ -1550,6 +1568,7 @@ public class MessageAdapter extends ListAdapter<Message, MessageAdapter.VH> {
         TextView     tvReplySender, tvReplyText;
         LinearLayout llReactions;
         TextView     tvReactions;
+        TextView     tvReadMore;
         TextView     tvEdited;
         TextView     tvPinnedLabel;
         TextView     tvForwarded;
@@ -1609,6 +1628,7 @@ public class MessageAdapter extends ListAdapter<Message, MessageAdapter.VH> {
             tvReplyText     = v.findViewById(R.id.tv_reply_text);
             llReactions     = v.findViewById(R.id.ll_reactions);
             tvReactions     = v.findViewById(R.id.tv_reactions);
+            tvReadMore      = v.findViewById(R.id.tv_read_more);
             tvEdited        = v.findViewById(R.id.tv_edited);
             tvPinnedLabel   = v.findViewById(R.id.tv_pinned_label);
             tvForwarded     = v.findViewById(R.id.tv_forwarded);
