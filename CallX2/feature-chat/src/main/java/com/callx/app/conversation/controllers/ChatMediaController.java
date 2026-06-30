@@ -170,23 +170,53 @@ public class ChatMediaController {
         sheet.show();
     }
 
-    // ── Multi media: sequential upload (WhatsApp style — ek ek karke) ────────
+    // ── Multi media: sequential upload, grouped into ONE message ─────────────
 
     /**
-     * Uploads uris one by one and sends each as a separate image/video message.
-     * Caption (if any) is appended as text on the LAST message (like WhatsApp).
+     * Uploads uris one by one (so progress can be shown), but instead of
+     * sending each as its own bubble, collects them into a single
+     * "multi_media" message with a mediaItems list. MessageAdapter +
+     * MediaGroupLayoutHelper then render this as a WhatsApp-style grid
+     * (1 → full width, 2 → side by side, 3 → top+2, 4 → 2×2, 5+ → 2×2 +"+N").
      */
     private void uploadSequentially(List<Uri> uris, String caption, int index) {
-        if (index >= uris.size()) {
-            activity.runOnUiThread(() ->
-                delegate.getBinding().uploadProgress.setVisibility(View.GONE));
+        uploadSequentially(uris, caption, index, new ArrayList<>());
+    }
+
+    private void uploadSequentially(List<Uri> uris, String caption, int index,
+                                    List<java.util.Map<String, Object>> collected) {
+        final int total = uris.size();
+
+        if (index >= total) {
+            // All uploads attempted — push ONE grouped message if we have anything.
+            activity.runOnUiThread(() -> {
+                delegate.getBinding().uploadProgress.setVisibility(View.GONE);
+                if (!collected.isEmpty()) {
+                    Message m       = delegate.buildOutgoing();
+                    m.type          = "multi_media";
+                    m.mediaItems    = collected;
+                    if (caption != null && !caption.isEmpty()) {
+                        m.caption = caption;
+                        m.text    = caption;
+                    }
+                    // Keep first item's url as a fallback preview field
+                    Object firstUrl = collected.get(0).get("url");
+                    if (firstUrl instanceof String) m.mediaUrl = (String) firstUrl;
+
+                    String preview = collected.size() == 1
+                            ? "📷 Photo"
+                            : "📷 " + collected.size() + " photos";
+                    delegate.pushMessage(m, preview);
+                    delegate.clearReply();
+                } else {
+                    Toast.makeText(activity, "Sab files fail ho gayi", Toast.LENGTH_SHORT).show();
+                }
+            });
             return;
         }
 
-        final int total   = uris.size();
-        final Uri uri     = uris.get(index);
-        final boolean isLast = (index == total - 1);
-        String rawMime    = activity.getContentResolver().getType(uri);
+        final Uri uri      = uris.get(index);
+        String rawMime     = activity.getContentResolver().getType(uri);
         final boolean isVideo = rawMime != null && rawMime.startsWith("video");
 
         // Show "Sending X / N" toast
@@ -203,24 +233,20 @@ public class ChatMediaController {
         CloudinaryUploader.upload(activity, uri, folder, resType,
             new CloudinaryUploader.UploadCallback() {
                 @Override public void onSuccess(CloudinaryUploader.Result r) {
-                    // Build and push message on main thread
-                    activity.runOnUiThread(() -> {
-                        Message m  = delegate.buildOutgoing();
-                        m.type     = isVideo ? "video" : "image";
-                        m.mediaUrl = r.secureUrl;
-                        m.imageUrl = isVideo ? null : r.secureUrl;
-                        if (r.thumbnailUrl != null && !r.thumbnailUrl.isEmpty())
-                            m.thumbnailUrl = r.thumbnailUrl;
-                        if (r.bytes     != null) m.fileSize = r.bytes;
-                        if (r.durationMs != null) m.duration = r.durationMs;
-                        // Caption goes on last message (like WhatsApp)
-                        if (isLast && caption != null && !caption.isEmpty())
-                            m.text = caption;
-                        delegate.pushMessage(m, isVideo ? "🎬 Video" : "📷 Photo");
-                        if (isLast) delegate.clearReply();
-                    });
+                    java.util.Map<String, Object> item = new java.util.HashMap<>();
+                    item.put("url", r.secureUrl);
+                    item.put("mediaType", isVideo ? "video" : "image");
+                    if (r.thumbnailUrl != null && !r.thumbnailUrl.isEmpty())
+                        item.put("thumbUrl", r.thumbnailUrl);
+                    if (r.durationMs != null) {
+                        item.put("duration", formatDuration(r.durationMs));
+                        item.put("durationMs", r.durationMs);
+                    }
+                    if (r.bytes != null) item.put("fileSize", r.bytes);
+                    collected.add(item);
+
                     // Upload next item
-                    uploadSequentially(uris, caption, index + 1);
+                    uploadSequentially(uris, caption, index + 1, collected);
                 }
                 @Override public void onError(String err) {
                     activity.runOnUiThread(() ->
@@ -228,9 +254,16 @@ public class ChatMediaController {
                             "File " + (index + 1) + " fail: " + (err != null ? err : "Unknown"),
                             Toast.LENGTH_SHORT).show());
                     // Continue with remaining files even if one fails
-                    uploadSequentially(uris, caption, index + 1);
+                    uploadSequentially(uris, caption, index + 1, collected);
                 }
             });
+    }
+
+    private static String formatDuration(long ms) {
+        long totalSec = ms / 1000;
+        long min = totalSec / 60;
+        long sec = totalSec % 60;
+        return String.format(java.util.Locale.US, "%d:%02d", min, sec);
     }
 
     // ── Camera ────────────────────────────────────────────────────────────
