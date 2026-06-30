@@ -7,7 +7,6 @@ import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
 
 import com.callx.app.chat.databinding.ActivityChatBinding;
-import com.callx.app.conversation.MessagePagingAdapter;
 import com.callx.app.db.entity.MessageEntity;
 
 import java.util.ArrayList;
@@ -95,9 +94,6 @@ public class ChatSearchController {
                 searchMatchPositions.addAll(matches);
                 searchCurrentIndex = matches.isEmpty() ? -1 : matches.size() - 1;
                 updateSearchUI();
-                // Highlight all matching bubbles
-                MessagePagingAdapter pa = delegate.getPagingAdapter();
-                if (pa != null) pa.setSearchQuery(query);
                 if (!matches.isEmpty()) {
                     delegate.getBinding().rvMessages.scrollToPosition(
                             searchMatchPositions.get(searchCurrentIndex));
@@ -148,8 +144,5 @@ public class ChatSearchController {
         searchMatchPositions.clear();
         searchCurrentIndex = -1;
         updateSearchUI();
-        // Clear all search highlights from bubbles
-        MessagePagingAdapter pa = delegate.getPagingAdapter();
-        if (pa != null) pa.setSearchQuery(null);
     }
 }

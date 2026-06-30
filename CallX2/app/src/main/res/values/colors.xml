@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Brand -->
-    <color name="brand_primary">#5B5BF6</color>
-    <color name="brand_primary_dark">#4747D9</color>
+    <color name="brand_primary">#4CAF50</color>
+    <color name="brand_primary_dark">#388E3C</color>
     <color name="brand_accent">#22D3A6</color>
-    <color name="brand_gradient_start">#5B5BF6</color>
-    <color name="brand_gradient_end">#7F4FFB</color>
+    <color name="brand_gradient_start">#4CAF50</color>
+    <color name="brand_gradient_end">#2E7D32</color>
 
     <!-- Surfaces -->
     <color name="surface_bg">#F5F6FA</color>
@@ -13,24 +13,24 @@
     <color name="surface_chat_bg">#ECE5DD</color>
     <color name="surface_input">#F1F3F8</color>
 
-    <!-- Bar colors (header + input bar) — WhatsApp green -->
-    <color name="bar_background">#008069</color>
+    <!-- Bar colors (header + input bar) -->
+    <color name="bar_background">#4CAF50</color>
     <color name="bar_on_background">#FFFFFF</color>
 
     <!-- Text -->
     <color name="text_primary">#0F172A</color>
     <color name="text_secondary">#64748B</color>
     <color name="text_muted">#94A3B8</color>
-    <color name="chat_time_color">#CCFFFFFF</color>
+    <color name="chat_time_color">#333333</color>
     <color name="text_on_primary">#FFFFFF</color>
 
-    <!-- Bubbles — Screenshot-matched green with white text -->
+    <!-- Bubbles — Screenshot exact (solid green, white text) -->
     <color name="bubble_sent">#4CAF50</color>
     <color name="bubble_sent_end">#43A047</color>
     <color name="bubble_sent_text">#FFFFFF</color>
-    <color name="bubble_received">#455A64</color>
-    <color name="bubble_received_end">#455A64</color>
-    <color name="bubble_received_text">#FFFFFF</color>
+    <color name="bubble_received">#FFFFFF</color>
+    <color name="bubble_received_end">#FFFFFF</color>
+    <color name="bubble_received_text">#111B21</color>
 
     <!-- Chat Theme palette (reference — runtime values via ChatThemeManager) -->
     <!-- Ocean -->
@@ -39,10 +39,10 @@
     <color name="theme_ocean_recv_s">#38BDF8</color>
     <color name="theme_ocean_recv_e">#22D3EE</color>
     <!-- Forest -->
-    <color name="theme_forest_sent_s">#16A34A</color>
-    <color name="theme_forest_sent_e">#0D9488</color>
-    <color name="theme_forest_recv_s">#86EFAC</color>
-    <color name="theme_forest_recv_e">#6EE7B7</color>
+    <color name="theme_forest_sent_s">#4CAF50</color>
+    <color name="theme_forest_sent_e">#388E3C</color>
+    <color name="theme_forest_recv_s">#A5D6A7</color>
+    <color name="theme_forest_recv_e">#81C784</color>
     <!-- Sunset -->
     <color name="theme_sunset_sent_s">#F97316</color>
     <color name="theme_sunset_sent_e">#EF4444</color>
@@ -60,15 +60,15 @@
     <color name="theme_midnight_recv_e">#1E293B</color>
     <!-- Classic -->
     <color name="theme_classic_sent">#4CAF50</color>
-    <color name="theme_classic_recv">#455A64</color>
+    <color name="theme_classic_recv">#FFFFFF</color>
     <!-- Mono -->
     <color name="theme_mono_sent">#374151</color>
     <color name="theme_mono_recv">#E5E7EB</color>
 
     <!-- Status / actions -->
-    <color name="status_online">#15803D</color>
-    <color name="status_typing">#15803D</color>
-    <color name="action_call_accept">#22C55E</color>
+    <color name="status_online">#4CAF50</color>
+    <color name="status_typing">#4CAF50</color>
+    <color name="action_call_accept">#4CAF50</color>
     <color name="action_call_reject">#EF4444</color>
     <color name="action_danger">#EF4444</color>
     <color name="divider">#E2E8F0</color>
@@ -77,7 +77,7 @@
     <color name="strength_weak">#EF4444</color>
     <color name="strength_fair">#F97316</color>
     <color name="strength_good">#EAB308</color>
-    <color name="strength_strong">#22C55E</color>
+    <color name="strength_strong">#4CAF50</color>
 
     <color name="white">#FFFFFF</color>
     <color name="black">#000000</color>

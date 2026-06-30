@@ -175,12 +175,6 @@ public class Message {
     /** Optional caption attached to a multi_media message. */
     public String caption;
 
-    // ── Feature: Expandable text (Read more / Read less) ─────────────────────────
-    /** True if this long message is currently expanded by the user. Transient — not persisted. */
-    public transient boolean isExpanded   = false;
-    /** Set by ExpandableTextHelper when message needs collapse control. Transient. */
-    public transient boolean isExpandable = false;
-
     public Message() {}
 
     /**
