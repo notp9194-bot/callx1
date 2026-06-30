@@ -21,12 +21,14 @@ import java.util.Map;
 /**
  * Full WhatsApp-style media group layout.
  *
- * Layout rules (mirrors WhatsApp exactly):
- *  1 item  → single full-width image (240×200dp)
- *  2 items → two equal side-by-side squares
- *  3 items → 1 tall image on top + 2 side-by-side below
- *  4 items → 2×2 equal grid
- *  5+items → 2×2 grid; last (4th) cell shows "+N" overlay on top of thumbnail
+ * Layout rules:
+ *  1 item   → single full-width image (240×200dp)
+ *  2 items  → two equal side-by-side squares
+ *  3 items  → 1 tall image on top + 2 side-by-side below
+ *  4 items  → 2×2 equal grid
+ *  5-9 items→ 3×3 grid (denser preview instead of hiding everything behind
+ *             a 2×2 + "+N"); last visible cell shows "+N" overlay if total > 9
+ *  10+items → 3×3 grid, last cell "+N" overlay
  *
  * Rounded corners: 12dp on outer group container.
  * Video cells: play-button circle overlay + duration badge (bottom-start).
@@ -35,8 +37,10 @@ import java.util.Map;
  */
 public class MediaGroupLayoutHelper {
 
-    // Max thumbnails shown before "+N" overflow
-    private static final int MAX_VISIBLE = 4;
+    // Max thumbnails shown before "+N" overflow, for the 2×2 layout (<=4 items)
+    private static final int MAX_VISIBLE_2x2 = 4;
+    // Max thumbnails shown before "+N" overflow, for the 3×3 layout (5+ items)
+    private static final int MAX_VISIBLE_3x3 = 9;
 
     // Cell size constants (dp)
     private static final int SINGLE_W   = 240;
@@ -45,15 +49,10 @@ public class MediaGroupLayoutHelper {
     private static final int THREE_TOP_W= 240;
     private static final int THREE_TOP_H= 140;
     private static final int THREE_BOT  = 116;
-    private static final int GRID_CELL  = 118;
+    private static final int GRID_CELL  = 118;   // used for 2×2
+    private static final int GRID3_CELL = 78;    // used for 3×3 (denser grid)
     private static final int GAP        = 2;
     private static final int CORNER_R   = 12;
-
-    // Thread-local-ish per-call context for the swipe-up-to-reply handoff.
-    // Set right before building cells, read only inside buildCell's click
-    // listener below — avoids changing every builder method's signature.
-    private static String currentChatId;
-    private static String currentMessageId;
 
     // ─── Public entry point ────────────────────────────────────────────────
     public static void populate(Context ctx, LinearLayout container,
@@ -67,15 +66,20 @@ public class MediaGroupLayoutHelper {
      * MediaViewerActivity can hand a swipe-up "reply" request back to the
      * chat screen via {@link GalleryReplyBridge}. Used by
      * MessagePagingAdapter; pass null/null to keep the old behavior.
+     *
+     * NOTE: chatId/messageId are threaded through as plain method
+     * parameters (not static fields) — RecyclerView binds happen for many
+     * different rows in quick succession (fast scroll, multiple adapters),
+     * so a static "current chat" handoff was a race condition: row A's
+     * click listener could end up carrying row B's chatId/messageId if a
+     * second bind happened before row A's listener fired. Each cell's
+     * click listener now closes over its own local chatId/messageId.
      */
     public static void populate(Context ctx, LinearLayout container,
                                 List<Map<String, Object>> items, String caption,
                                 String chatId, String messageId) {
         container.removeAllViews();
         if (items == null || items.isEmpty()) return;
-
-        currentChatId    = chatId;
-        currentMessageId = messageId;
 
         float d   = ctx.getResources().getDisplayMetrics().density;
         int gapPx = dp(GAP, d);
@@ -87,17 +91,22 @@ public class MediaGroupLayoutHelper {
         container.setOutlineProvider(android.view.ViewOutlineProvider.BACKGROUND);
 
         if (total == 1) {
-            buildSingle(ctx, container, items, d);
+            buildSingle(ctx, container, items, d, chatId, messageId);
 
         } else if (total == 2) {
-            buildTwoSideBySide(ctx, container, items, d, gapPx);
+            buildTwoSideBySide(ctx, container, items, d, gapPx, chatId, messageId);
 
         } else if (total == 3) {
-            buildThree(ctx, container, items, d, gapPx);
+            buildThree(ctx, container, items, d, gapPx, chatId, messageId);
+
+        } else if (total == 4) {
+            // 2×2 grid, fully visible, no overlay needed
+            buildGrid(ctx, container, items, total, d, gapPx, 2, GRID_CELL, chatId, messageId);
 
         } else {
-            // 4 or more → 2×2 grid, last cell may have +N overlay
-            buildGrid(ctx, container, items, total, d, gapPx);
+            // 5+ → denser 3×3 grid; last visible cell gets "+N" overlay
+            // once there are more than MAX_VISIBLE_3x3 items.
+            buildGrid(ctx, container, items, total, d, gapPx, 3, GRID3_CELL, chatId, messageId);
         }
 
         // Optional caption below grid
@@ -121,8 +130,9 @@ public class MediaGroupLayoutHelper {
 
     /** 1 image: full-width tall card */
     private static void buildSingle(Context ctx, LinearLayout parent,
-                                    List<Map<String, Object>> items, float d) {
-        FrameLayout cell = buildCell(ctx, items, 0, false, 0, d);
+                                    List<Map<String, Object>> items, float d,
+                                    String chatId, String messageId) {
+        FrameLayout cell = buildCell(ctx, items, 0, false, 0, d, chatId, messageId);
         int w = dp(SINGLE_W, d);
         int h = dp(SINGLE_H, d);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(w, h);
@@ -133,11 +143,12 @@ public class MediaGroupLayoutHelper {
     /** 2 images: side by side */
     private static void buildTwoSideBySide(Context ctx, LinearLayout parent,
                                            List<Map<String, Object>> items,
-                                           float d, int gapPx) {
+                                           float d, int gapPx,
+                                           String chatId, String messageId) {
         LinearLayout row = makeHRow(ctx);
         int cell = dp(PAIR_CELL, d);
         for (int i = 0; i < 2; i++) {
-            FrameLayout c = buildCell(ctx, items, i, false, 0, d);
+            FrameLayout c = buildCell(ctx, items, i, false, 0, d, chatId, messageId);
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(cell, cell);
             if (i > 0) lp.leftMargin = gapPx;
             c.setLayoutParams(lp);
@@ -149,9 +160,10 @@ public class MediaGroupLayoutHelper {
     /** 3 images: 1 wide on top, 2 side-by-side below */
     private static void buildThree(Context ctx, LinearLayout parent,
                                    List<Map<String, Object>> items,
-                                   float d, int gapPx) {
+                                   float d, int gapPx,
+                                   String chatId, String messageId) {
         // Top: single wide image
-        FrameLayout top = buildCell(ctx, items, 0, false, 0, d);
+        FrameLayout top = buildCell(ctx, items, 0, false, 0, d, chatId, messageId);
         int tw = dp(THREE_TOP_W, d);
         int th = dp(THREE_TOP_H, d);
         top.setLayoutParams(new LinearLayout.LayoutParams(tw, th));
@@ -167,7 +179,7 @@ public class MediaGroupLayoutHelper {
 
         int bc = dp(THREE_BOT, d);
         for (int i = 1; i <= 2; i++) {
-            FrameLayout c = buildCell(ctx, items, i, false, 0, d);
+            FrameLayout c = buildCell(ctx, items, i, false, 0, d, chatId, messageId);
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(bc, bc);
             if (i > 1) lp.leftMargin = gapPx;
             c.setLayoutParams(lp);
@@ -176,13 +188,20 @@ public class MediaGroupLayoutHelper {
         parent.addView(row);
     }
 
-    /** 4+ images: 2×2 grid, last visible cell has +N overlay if total > 4 */
+    /**
+     * N×N grid (N = 2 for exactly-4-item messages, N = 3 for 5+ item
+     * messages). Last visible cell shows a "+remaining" overlay once total
+     * exceeds the grid's capacity (4 for 2×2, 9 for 3×3).
+     */
     private static void buildGrid(Context ctx, LinearLayout parent,
                                   List<Map<String, Object>> items,
-                                  int total, float d, int gapPx) {
-        int visible = Math.min(total, MAX_VISIBLE);
-        int remaining = total - MAX_VISIBLE; // may be negative (safe—only used when > 0)
-        int gc = dp(GRID_CELL, d);
+                                  int total, float d, int gapPx,
+                                  int columns, int cellDp,
+                                  String chatId, String messageId) {
+        int maxVisible = columns * columns;
+        int visible    = Math.min(total, maxVisible);
+        int remaining  = total - maxVisible; // negative is fine, only used when > 0
+        int gc = dp(cellDp, d);
 
         int idx = 0;
         while (idx < visible) {
@@ -193,10 +212,10 @@ public class MediaGroupLayoutHelper {
             if (idx > 0) rowLp.topMargin = gapPx;
             row.setLayoutParams(rowLp);
 
-            for (int col = 0; col < 2 && idx < visible; col++, idx++) {
-                boolean isLast     = (idx == visible - 1);
-                boolean showMore   = isLast && remaining > 0;
-                FrameLayout c      = buildCell(ctx, items, idx, showMore, remaining, d);
+            for (int col = 0; col < columns && idx < visible; col++, idx++) {
+                boolean isLast   = (idx == visible - 1);
+                boolean showMore = isLast && remaining > 0;
+                FrameLayout c    = buildCell(ctx, items, idx, showMore, remaining, d, chatId, messageId);
                 LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(gc, gc);
                 if (col > 0) lp.leftMargin = gapPx;
                 c.setLayoutParams(lp);
@@ -210,7 +229,7 @@ public class MediaGroupLayoutHelper {
 
     private static FrameLayout buildCell(Context ctx, List<Map<String, Object>> allItems, int index,
                                          boolean showMoreOverlay, int remaining,
-                                         float d) {
+                                         float d, String chatId, String messageId) {
         Map<String, Object> item = allItems.get(index);
         FrameLayout cell = new FrameLayout(ctx);
         cell.setClipToOutline(true);
@@ -232,8 +251,6 @@ public class MediaGroupLayoutHelper {
         String thumbUrl = safeStr(item.get("thumbUrl"));
         String loadUrl  = (!thumbUrl.isEmpty()) ? thumbUrl : url;
         boolean isVideoForDesc = "video".equals(item.get("mediaType"));
-        // #8 fix — accessibility: every cell needs a content description so
-        // TalkBack announces what it is instead of staying silent.
         cell.setContentDescription((isVideoForDesc ? "Video" : "Photo")
                 + " " + (index + 1) + " of " + allItems.size());
         iv.setContentDescription(null); // description lives on the cell, not the bare thumbnail
@@ -324,7 +341,11 @@ public class MediaGroupLayoutHelper {
         // Click → open MediaViewerActivity in swipeable gallery mode,
         // starting on the tapped image/video, with left/right swipe
         // across every item in this group (WhatsApp/Instagram-style).
+        // chatId/messageId are captured locally (method params, not a
+        // static field) — see the populate() javadoc for why this matters.
         final int tapIndex = index;
+        final String cbChatId    = chatId;
+        final String cbMessageId = messageId;
         cell.setOnClickListener(v -> {
             if (url.isEmpty()) return;
             try {
@@ -341,9 +362,9 @@ public class MediaGroupLayoutHelper {
                 // Lets MediaViewerActivity hand a swipe-up "reply" request
                 // back to this chat screen via GalleryReplyBridge. Both
                 // are null when called from the legacy 4-arg populate().
-                if (currentChatId != null && currentMessageId != null) {
-                    intent.putExtra("chatId",    currentChatId);
-                    intent.putExtra("messageId", currentMessageId);
+                if (cbChatId != null && cbMessageId != null) {
+                    intent.putExtra("chatId",    cbChatId);
+                    intent.putExtra("messageId", cbMessageId);
                 }
                 intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 ctx.startActivity(intent);

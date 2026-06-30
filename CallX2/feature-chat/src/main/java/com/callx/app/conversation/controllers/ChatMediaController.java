@@ -130,7 +130,8 @@ public class ChatMediaController {
                         uploadAndSend(only, vid ? "video" : "image", vid ? "video" : "image", null);
                     } else {
                         MultiMediaPreviewDialog.show(activity, uris,
-                            (selectedUris, caption) -> uploadSequentially(selectedUris, caption, 0));
+                            (selectedUris, perItemCaptions, caption) ->
+                                uploadSequentially(selectedUris, perItemCaptions, caption, 0));
                     }
                 });
     }
@@ -180,11 +181,11 @@ public class ChatMediaController {
      * MediaGroupLayoutHelper then render this as a WhatsApp-style grid
      * (1 → full width, 2 → side by side, 3 → top+2, 4 → 2×2, 5+ → 2×2 +"+N").
      */
-    private void uploadSequentially(List<Uri> uris, String caption, int index) {
-        uploadSequentially(uris, caption, index, new ArrayList<>());
+    private void uploadSequentially(List<Uri> uris, List<String> perItemCaptions, String caption, int index) {
+        uploadSequentially(uris, perItemCaptions, caption, index, new ArrayList<>());
     }
 
-    private void uploadSequentially(List<Uri> uris, String caption, int index,
+    private void uploadSequentially(List<Uri> uris, List<String> perItemCaptions, String caption, int index,
                                     List<java.util.Map<String, Object>> collected) {
         final int total = uris.size();
 
@@ -217,6 +218,11 @@ public class ChatMediaController {
         }
 
         final Uri uri      = uris.get(index);
+        // Per-item caption set by the user in MultiMediaPreviewDialog — looked
+        // up by the original index, so it stays correctly attached to this
+        // item even if an earlier item in the batch failed to upload.
+        final String itemCaption = (perItemCaptions != null && index < perItemCaptions.size())
+                ? perItemCaptions.get(index) : null;
         String rawMime     = activity.getContentResolver().getType(uri);
         final boolean isVideo = rawMime != null && rawMime.startsWith("video");
 
@@ -244,10 +250,12 @@ public class ChatMediaController {
                         item.put("durationMs", r.durationMs);
                     }
                     if (r.bytes != null) item.put("fileSize", r.bytes);
+                    if (itemCaption != null && !itemCaption.isEmpty())
+                        item.put("caption", itemCaption);
                     collected.add(item);
 
                     // Upload next item
-                    uploadSequentially(uris, caption, index + 1, collected);
+                    uploadSequentially(uris, perItemCaptions, caption, index + 1, collected);
                 }
                 @Override public void onError(String err) {
                     activity.runOnUiThread(() ->
@@ -255,7 +263,7 @@ public class ChatMediaController {
                             "File " + (index + 1) + " fail: " + (err != null ? err : "Unknown"),
                             Toast.LENGTH_SHORT).show());
                     // Continue with remaining files even if one fails
-                    uploadSequentially(uris, caption, index + 1, collected);
+                    uploadSequentially(uris, perItemCaptions, caption, index + 1, collected);
                 }
             });
     }

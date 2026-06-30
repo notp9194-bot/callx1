@@ -2192,7 +2192,8 @@ public class GroupChatActivity extends AppCompatActivity
                         uploadAndSend(only, vid ? "video" : "image", vid ? "video" : "image", null);
                     } else {
                         com.callx.app.conversation.MultiMediaPreviewDialog.show(this, uris,
-                                (selectedUris, caption) -> uploadSequentially(selectedUris, caption, 0, new java.util.ArrayList<>()));
+                                (selectedUris, perItemCaptions, caption) -> uploadSequentially(
+                                        selectedUris, perItemCaptions, caption, 0, new java.util.ArrayList<>()));
                     }
                 });
     }
@@ -2266,7 +2267,8 @@ public class GroupChatActivity extends AppCompatActivity
     /** Multi-image/video pick → uploads each sequentially, then pushes ONE
      *  grouped multi_media message (same pattern as 1:1 chat's
      *  ChatMediaController#uploadSequentially). */
-    private void uploadSequentially(java.util.List<Uri> uris, String caption, int index,
+    private void uploadSequentially(java.util.List<Uri> uris, java.util.List<String> perItemCaptions,
+                                     String caption, int index,
                                      java.util.List<java.util.Map<String, Object>> collected) {
         final int total = uris.size();
 
@@ -2295,6 +2297,10 @@ public class GroupChatActivity extends AppCompatActivity
         }
 
         final Uri uri = uris.get(index);
+        // Per-item caption, looked up by the original index so it stays
+        // correctly attached to this item even if an earlier upload failed.
+        final String itemCaption = (perItemCaptions != null && index < perItemCaptions.size())
+                ? perItemCaptions.get(index) : null;
         String rawMime = getContentResolver().getType(uri);
         final boolean isVideo = rawMime != null && rawMime.startsWith("video");
 
@@ -2320,14 +2326,16 @@ public class GroupChatActivity extends AppCompatActivity
                         item.put("durationMs", r.durationMs);
                     }
                     if (r.bytes != null) item.put("fileSize", r.bytes);
+                    if (itemCaption != null && !itemCaption.isEmpty())
+                        item.put("caption", itemCaption);
                     collected.add(item);
-                    uploadSequentially(uris, caption, index + 1, collected);
+                    uploadSequentially(uris, perItemCaptions, caption, index + 1, collected);
                 }
                 @Override public void onError(String err) {
                     runOnUiThread(() -> Toast.makeText(GroupChatActivity.this,
                             "File " + (index + 1) + " fail: " + (err != null ? err : "Unknown"),
                             Toast.LENGTH_SHORT).show());
-                    uploadSequentially(uris, caption, index + 1, collected);
+                    uploadSequentially(uris, perItemCaptions, caption, index + 1, collected);
                 }
             });
     }
