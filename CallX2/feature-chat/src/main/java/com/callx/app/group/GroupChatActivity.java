@@ -262,6 +262,17 @@ public class GroupChatActivity extends AppCompatActivity
         super.onResume();
         if (watchingController != null) watchingController.setOurInChatScreen(true);
         onTypingStripScreenResumed();
+
+        // Grouped-media gallery (MediaViewerActivity) swipe-up-to-reply
+        // handoff — see GalleryReplyBridge for why this can't be a direct
+        // call from the viewer.
+        if (groupId != null && pagingAdapter != null) {
+            String replyMsgId = com.callx.app.conversation.GalleryReplyBridge.consumeIfMatches(groupId);
+            if (replyMsgId != null) {
+                Message rm = pagingAdapter.findMessageById(replyMsgId);
+                if (rm != null) startReply(rm);
+            }
+        }
     }
 
     @Override

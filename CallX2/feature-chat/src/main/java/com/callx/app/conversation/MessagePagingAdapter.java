@@ -359,6 +359,23 @@ public class MessagePagingAdapter
      *  publish playback presence (see class-level field doc above). */
     public void setChatId(String chatId) { this.chatId = chatId; }
 
+    /**
+     * Finds a Message in the currently loaded paging snapshot by id.
+     * Used by ChatActivity/GroupChatActivity to resolve the message that
+     * GalleryReplyBridge points at after a swipe-up-to-reply gesture in
+     * MediaViewerActivity's grouped-media gallery. Returns null if the
+     * message has scrolled out of the loaded window or id is null.
+     */
+    public Message findMessageById(String id) {
+        if (id == null || id.isEmpty()) return null;
+        androidx.paging.ItemSnapshotList<Message> snapshot = snapshot();
+        for (Message m : snapshot) {
+            if (m == null) continue;
+            if (id.equals(m.id) || id.equals(m.messageId)) return m;
+        }
+        return null;
+    }
+
     public void enterMultiSelectMode(Message firstMessage) {
         multiSelectMode = true;
         selectedMessageIds.clear();
@@ -1143,7 +1160,9 @@ public class MessagePagingAdapter
             case "multi_media": {
                 if (h.llMediaGroup != null && m.mediaItems != null && !m.mediaItems.isEmpty()) {
                     h.llMediaGroup.setVisibility(View.VISIBLE);
-                    MediaGroupLayoutHelper.populate(ctx, h.llMediaGroup, m.mediaItems, m.caption);
+                    String groupMsgId = (m.id != null && !m.id.isEmpty()) ? m.id : m.messageId;
+                    MediaGroupLayoutHelper.populate(ctx, h.llMediaGroup, m.mediaItems, m.caption,
+                            chatId, groupMsgId);
                     h.llMediaGroup.setOnLongClickListener(v -> {
                         if (actionListener != null) showActionBottomSheet(ctx, m);
                         return true;

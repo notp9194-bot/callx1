@@ -535,6 +535,17 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         }
         if (screenshotNotifier != null) screenshotNotifier.onScreenResumed();
 
+        // Grouped-media gallery (MediaViewerActivity) swipe-up-to-reply
+        // handoff — see GalleryReplyBridge for why this can't be a direct
+        // call from the viewer.
+        if (chatId != null && pagingAdapter != null) {
+            String replyMsgId = GalleryReplyBridge.consumeIfMatches(chatId);
+            if (replyMsgId != null) {
+                Message rm = pagingAdapter.findMessageById(replyMsgId);
+                if (rm != null) startReply(rm);
+            }
+        }
+
         // PERF: warm the Glide cache with the last 10 image-bearing messages so
         // the first scroll feels instant — decoded Bitmaps land in Glide's LRU
         // memory cache before the user ever touches the list.

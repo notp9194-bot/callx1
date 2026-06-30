@@ -49,11 +49,33 @@ public class MediaGroupLayoutHelper {
     private static final int GAP        = 2;
     private static final int CORNER_R   = 12;
 
+    // Thread-local-ish per-call context for the swipe-up-to-reply handoff.
+    // Set right before building cells, read only inside buildCell's click
+    // listener below — avoids changing every builder method's signature.
+    private static String currentChatId;
+    private static String currentMessageId;
+
     // ─── Public entry point ────────────────────────────────────────────────
     public static void populate(Context ctx, LinearLayout container,
                                 List<Map<String, Object>> items, String caption) {
+        populate(ctx, container, items, caption, null, null);
+    }
+
+    /**
+     * Same as {@link #populate(Context, LinearLayout, List, String)} but
+     * also stamps chatId + messageId onto the gallery intent so
+     * MediaViewerActivity can hand a swipe-up "reply" request back to the
+     * chat screen via {@link GalleryReplyBridge}. Used by
+     * MessagePagingAdapter; pass null/null to keep the old behavior.
+     */
+    public static void populate(Context ctx, LinearLayout container,
+                                List<Map<String, Object>> items, String caption,
+                                String chatId, String messageId) {
         container.removeAllViews();
         if (items == null || items.isEmpty()) return;
+
+        currentChatId    = chatId;
+        currentMessageId = messageId;
 
         float d   = ctx.getResources().getDisplayMetrics().density;
         int gapPx = dp(GAP, d);
@@ -308,6 +330,13 @@ public class MediaGroupLayoutHelper {
                 intent.putExtra("url",      url);
                 intent.putExtra("type",     isVideo ? "video" : "image");
                 intent.putExtra("thumbUrl", !thumbUrl.isEmpty() ? thumbUrl : url);
+                // Lets MediaViewerActivity hand a swipe-up "reply" request
+                // back to this chat screen via GalleryReplyBridge. Both
+                // are null when called from the legacy 4-arg populate().
+                if (currentChatId != null && currentMessageId != null) {
+                    intent.putExtra("chatId",    currentChatId);
+                    intent.putExtra("messageId", currentMessageId);
+                }
                 intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 ctx.startActivity(intent);
             } catch (Exception ignored) {}

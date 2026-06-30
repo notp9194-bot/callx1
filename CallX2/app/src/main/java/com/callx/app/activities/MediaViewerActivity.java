@@ -59,6 +59,13 @@ public class MediaViewerActivity extends AppCompatActivity {
     private List<Map<String, Object>> galleryItems;
     private int galleryActivePos = -1;
 
+    // ── Swipe-down-to-close / swipe-up-to-reply (gallery mode only) ──────
+    private String replyChatId;
+    private String replyMessageId;
+    private float  vSwipeStartX, vSwipeStartY;
+    private boolean vSwipeDragging = false;
+    private int touchSlop;
+
     // ── Video playback presence (see class doc above) ───────────────────
     private String playbackChatId;
     private String playbackMessageId;
@@ -77,10 +84,18 @@ public class MediaViewerActivity extends AppCompatActivity {
         setContentView(binding.getRoot());
 
         hideSystemUI();
+        touchSlop = android.view.ViewConfiguration.get(this).getScaledTouchSlop();
 
         String url  = getIntent().getStringExtra("url");
         String type = getIntent().getStringExtra("type");
         sharedUrl   = url;
+
+        // Optional — only present when opened from a grouped-media message
+        // tap. Used to send a swipe-up "reply" request back to the chat
+        // screen via GalleryReplyBridge. Both null disables that gesture's
+        // action (the swipe-down-to-close part always works regardless).
+        replyChatId    = getIntent().getStringExtra("chatId");
+        replyMessageId = getIntent().getStringExtra("messageId");
 
         // Optional — only present when opened from a chat bubble. Both
         // null is the normal/expected case for other callers (status
@@ -198,7 +213,86 @@ public class MediaViewerActivity extends AppCompatActivity {
 
     private static String safeStr(Object o) { return (o instanceof String) ? (String) o : ""; }
 
-    // ── Toggle top bar visibility on tap ─────────────────────────
+    // ── Swipe down (close) / swipe up (reply) — gallery mode only ────────
+    // ViewPager2 owns horizontal touch handling for left/right paging, so
+    // we watch for a predominantly-vertical drag at the Activity level and
+    // only take over once it's clearly vertical (avoids fighting the pager
+    // or breaking PhotoView pinch-zoom in single-media mode).
+    private static final float SWIPE_DISMISS_THRESHOLD_DP = 100f;
+
+    @Override
+    public boolean dispatchTouchEvent(android.view.MotionEvent ev) {
+        if (galleryItems == null || galleryItems.isEmpty()) {
+            return super.dispatchTouchEvent(ev);
+        }
+        switch (ev.getActionMasked()) {
+            case android.view.MotionEvent.ACTION_DOWN:
+                vSwipeStartX = ev.getRawX();
+                vSwipeStartY = ev.getRawY();
+                vSwipeDragging = false;
+                return super.dispatchTouchEvent(ev);
+
+            case android.view.MotionEvent.ACTION_MOVE: {
+                float dx = ev.getRawX() - vSwipeStartX;
+                float dy = ev.getRawY() - vSwipeStartY;
+                if (!vSwipeDragging) {
+                    if (Math.abs(dy) > touchSlop && Math.abs(dy) > Math.abs(dx) * 1.5f) {
+                        vSwipeDragging = true;
+                        // Cancel the pager's in-progress touch so it doesn't
+                        // also try to interpret this drag as a page-scroll.
+                        android.view.MotionEvent cancel = android.view.MotionEvent.obtain(ev);
+                        cancel.setAction(android.view.MotionEvent.ACTION_CANCEL);
+                        super.dispatchTouchEvent(cancel);
+                        cancel.recycle();
+                    } else {
+                        return super.dispatchTouchEvent(ev);
+                    }
+                }
+                binding.mediaPager.setTranslationY(dy);
+                float dragFraction = Math.min(1f, Math.abs(dy) / dp(this, 400));
+                binding.mediaPager.setAlpha(1f - dragFraction * 0.6f);
+                binding.getRoot().setBackgroundColor(
+                        android.graphics.Color.argb(
+                                (int) (255 * (1f - dragFraction)), 0, 0, 0));
+                return true;
+            }
+
+            case android.view.MotionEvent.ACTION_UP:
+            case android.view.MotionEvent.ACTION_CANCEL: {
+                if (!vSwipeDragging) return super.dispatchTouchEvent(ev);
+                float dy = ev.getRawY() - vSwipeStartY;
+                float thresholdPx = dp(this, (int) SWIPE_DISMISS_THRESHOLD_DP);
+                vSwipeDragging = false;
+                if (dy <= -thresholdPx) {
+                    // Swipe UP → reply, then close.
+                    if (replyChatId != null && replyMessageId != null) {
+                        com.callx.app.conversation.GalleryReplyBridge
+                                .requestReply(replyChatId, replyMessageId);
+                    }
+                    finish();
+                    overridePendingTransition(0, 0);
+                } else if (dy >= thresholdPx) {
+                    // Swipe DOWN → close.
+                    finish();
+                    overridePendingTransition(0, 0);
+                } else {
+                    // Not far enough — snap back.
+                    binding.mediaPager.animate().translationY(0).alpha(1f).setDuration(180).start();
+                    binding.getRoot().setBackgroundColor(android.graphics.Color.BLACK);
+                }
+                return true;
+            }
+
+            default:
+                return super.dispatchTouchEvent(ev);
+        }
+    }
+
+    private static int dp(android.content.Context ctx, int dp) {
+        return Math.round(dp * ctx.getResources().getDisplayMetrics().density);
+    }
+
+
     private void toggleUI() {
         uiVisible = !uiVisible;
         LinearLayout topBar = binding.llTopBar;
