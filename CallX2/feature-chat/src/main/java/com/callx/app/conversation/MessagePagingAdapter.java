@@ -2351,9 +2351,18 @@ public class MessagePagingAdapter
         dialog.show();
     }
 
-    // FIX [P3-3]: Full emoji picker — swipeable quick-react strip pinned on
-    // top (👍❤️😂😮😢🙏💋 + "+") above an 8-column scrollable grid of
-    // common emojis, WhatsApp-style.
+    // FIX [P3-3]: Full emoji picker dialog. Layout is now split into two
+    // clearly separate areas (matches the requested "alert dialog upar,
+    // strip niche" structure):
+    //   1) TOP   — the actual alert-dialog body: 8-column scrollable grid
+    //              of common emojis.
+    //   2) BOTTOM — a separate, fixed footer row holding the swipeable
+    //              quick-react strip (👍❤️😂😮😢🙏💋), visually divided
+    //              from the grid above by a divider line so it doesn't
+    //              feel like part of the same scroll area.
+    // The strip's HorizontalScrollView now calls requestDisallowInterceptTouchEvent
+    // on touch-down so the parent dialog/grid never steals the horizontal
+    // swipe gesture — that was why it felt "not swipable" before.
     private void showFullEmojiPicker(Context ctx, Message m) {
         if (actionListener == null) return;
         float density = ctx.getResources().getDisplayMetrics().density;
@@ -2361,62 +2370,9 @@ public class MessagePagingAdapter
         android.widget.LinearLayout root = new android.widget.LinearLayout(ctx);
         root.setOrientation(android.widget.LinearLayout.VERTICAL);
 
-        // ── Quick-react strip: swipeable, pinned above the grid ────────────
-        final String[] QUICK_STRIP = {"👍", "❤️", "😂", "😮", "😢", "🙏", "💋"};
         final android.app.AlertDialog[] holder = new android.app.AlertDialog[1];
 
-        android.widget.HorizontalScrollView quickScroll = new android.widget.HorizontalScrollView(ctx);
-        quickScroll.setHorizontalScrollBarEnabled(false);
-        android.widget.LinearLayout quickRow = new android.widget.LinearLayout(ctx);
-        quickRow.setOrientation(android.widget.LinearLayout.HORIZONTAL);
-        quickRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        int rowHPad = (int) (8 * density), rowVPad = (int) (12 * density);
-        quickRow.setPadding(rowHPad, rowVPad, rowHPad, rowVPad);
-
-        for (String emoji : QUICK_STRIP) {
-            android.widget.TextView tv = new android.widget.TextView(ctx);
-            tv.setText(emoji);
-            tv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 28);
-            int btnPad = (int) (10 * density);
-            tv.setPadding(btnPad, btnPad / 2, btnPad, btnPad / 2);
-            boolean already = currentUid != null && m.reactions != null
-                    && emoji.equals(m.reactions.get(currentUid));
-            tv.setAlpha(already ? 1.0f : 0.85f);
-            tv.setScaleX(already ? 1.2f : 1.0f);
-            tv.setScaleY(already ? 1.2f : 1.0f);
-            tv.setOnClickListener(v -> {
-                actionListener.onReact(m, emoji);
-                if (holder[0] != null) holder[0].dismiss();
-            });
-            quickRow.addView(tv);
-        }
-
-        // "+" at the end of the strip — focuses/scrolls the full grid below
-        // (already visible) so the gesture mirrors the screenshot exactly.
-        android.widget.TextView btnPlus = new android.widget.TextView(ctx);
-        btnPlus.setText("+");
-        btnPlus.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 22);
-        btnPlus.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        int plusPad = (int) (10 * density);
-        btnPlus.setPadding(plusPad, plusPad / 2, plusPad, plusPad / 2);
-        android.graphics.drawable.GradientDrawable plusBg = new android.graphics.drawable.GradientDrawable();
-        plusBg.setShape(android.graphics.drawable.GradientDrawable.OVAL);
-        plusBg.setColor(0xFFE0E0E0);
-        btnPlus.setBackground(plusBg);
-        btnPlus.setGravity(android.view.Gravity.CENTER);
-        quickRow.addView(btnPlus);
-
-        quickScroll.addView(quickRow);
-        root.addView(quickScroll);
-
-        // Divider between the quick strip and the full grid
-        android.view.View divider = new android.view.View(ctx);
-        divider.setBackgroundColor(0xFFE0E0E0);
-        android.widget.LinearLayout.LayoutParams dividerLp = new android.widget.LinearLayout.LayoutParams(
-                android.widget.LinearLayout.LayoutParams.MATCH_PARENT, (int) (1 * density));
-        root.addView(divider, dividerLp);
-
-        // ── Full grid ────────────────────────────────────────────────────
+        // ── Full grid (this is the "alert dialog" body — stays on top) ─────
         final String[] ALL_EMOJIS = {
             "❤️","👍","😂","😮","😢","😡","🙏","🔥","✅","💯",
             "👏","🤣","😍","😎","🤔","😴","🥳","😅","🤩","🥰",
@@ -2444,15 +2400,61 @@ public class MessagePagingAdapter
         grid.setAdapter(adapter);
         root.addView(grid);
 
+        // ── Divider — visually separates the dialog's grid body from the
+        // fixed quick-react strip footer below ─────────────────────────────
+        android.view.View divider = new android.view.View(ctx);
+        divider.setBackgroundColor(0xFFE0E0E0);
+        android.widget.LinearLayout.LayoutParams dividerLp = new android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT, (int) (1 * density));
+        root.addView(divider, dividerLp);
+
+        // ── Bottom strip — fixed footer, separate from the grid above, with
+        // a genuinely swipeable quick-react row ─────────────────────────────
+        final String[] QUICK_STRIP = {"👍", "❤️", "😂", "😮", "😢", "🙏", "💋"};
+
+        android.widget.HorizontalScrollView quickScroll = new android.widget.HorizontalScrollView(ctx);
+        quickScroll.setHorizontalScrollBarEnabled(false);
+        // FIX: without this, the GridView above (or the dialog's own touch
+        // handling) was stealing the horizontal drag before the strip ever
+        // saw it, so it looked like the strip "couldn't be swiped". Forcing
+        // the parent to back off as soon as a touch lands on the strip fixes it.
+        quickScroll.setOnTouchListener((v, event) -> {
+            v.getParent().requestDisallowInterceptTouchEvent(true);
+            return false;
+        });
+
+        android.widget.LinearLayout quickRow = new android.widget.LinearLayout(ctx);
+        quickRow.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+        quickRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        int rowHPad = (int) (8 * density), rowVPad = (int) (12 * density);
+        quickRow.setPadding(rowHPad, rowVPad, rowHPad, rowVPad);
+
+        for (String emoji : QUICK_STRIP) {
+            android.widget.TextView tv = new android.widget.TextView(ctx);
+            tv.setText(emoji);
+            tv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 28);
+            int btnPad = (int) (10 * density);
+            tv.setPadding(btnPad, btnPad / 2, btnPad, btnPad / 2);
+            boolean already = currentUid != null && m.reactions != null
+                    && emoji.equals(m.reactions.get(currentUid));
+            tv.setAlpha(already ? 1.0f : 0.85f);
+            tv.setScaleX(already ? 1.2f : 1.0f);
+            tv.setScaleY(already ? 1.2f : 1.0f);
+            tv.setOnClickListener(v -> {
+                actionListener.onReact(m, emoji);
+                if (holder[0] != null) holder[0].dismiss();
+            });
+            quickRow.addView(tv);
+        }
+
+        quickScroll.addView(quickRow);
+        root.addView(quickScroll);
+
         android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(ctx)
                 .setTitle("Pick an emoji")
                 .setView(root)
                 .create();
         holder[0] = dialog;
-
-        // "+" scrolls the grid into view in case the strip pushed it off-screen
-        // on smaller dialogs — harmless no-op when it's already visible.
-        btnPlus.setOnClickListener(v -> grid.requestFocus());
 
         grid.setOnItemClickListener((parent, v, pos, id) -> {
             actionListener.onReact(m, ALL_EMOJIS[pos]);
