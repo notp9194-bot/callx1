@@ -6,19 +6,8 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 
-import com.callx.app.utils.Constants;
+import com.callx.app.utils.CloudinaryUploader;
 import com.callx.app.utils.MediaCompressor;
-
-import okhttp3.MediaType;
-import okhttp3.MultipartBody;
-import okhttp3.OkHttpClient;
-import okhttp3.Request;
-import okhttp3.RequestBody;
-import okhttp3.Response;
-
-import org.json.JSONObject;
-
-import java.util.concurrent.TimeUnit;
 
 /**
  * ReelCloudinaryUtils — Reels profile ke liye dedicated Cloudinary upload helper.
@@ -27,20 +16,14 @@ import java.util.concurrent.TimeUnit;
  *   Avatar thumb  → callx/reels/avatars/thumbs/
  *   Avatar full   → callx/reels/avatars/
  *   Banner image  → callx/reels/banners/
+ *   Slideshow     → callx/reels/slideshows/
  *
- * Same signed-upload flow as CloudinaryUploader.java.
- * Server endpoint: Constants.SERVER_URL + /cloudinary/sign
+ * Upload logic: CloudinaryUploader.uploadBytes() delegate karta hai (core) —
+ * duplicate sign+upload code yahan nahi rakhा gaya hai.
  */
 public class ReelCloudinaryUtils {
 
     private static final String TAG = "ReelCloudinary";
-
-    private static final OkHttpClient client = new OkHttpClient.Builder()
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(120, TimeUnit.SECONDS)
-        .writeTimeout(180, TimeUnit.SECONDS)
-        .build();
-
     private static final Handler UI = new Handler(Looper.getMainLooper());
 
     // ── Callbacks ─────────────────────────────────────────────────────────────
@@ -52,7 +35,7 @@ public class ReelCloudinaryUtils {
         void onError(String message);
     }
 
-    /** Single image (banner) upload callback */
+    /** Single image (banner / slideshow) upload callback */
     public interface ImageUploadCallback {
         void onSuccess(String url);
         void onError(String message);
@@ -64,6 +47,8 @@ public class ReelCloudinaryUtils {
      * Reel profile avatar dual-upload:
      *   Step 1 → 100×100 WebP thumb  → callx/reels/avatars/thumbs/
      *   Step 2 → 800×800 JPEG full   → callx/reels/avatars/
+     *
+     * Delegates byte-level upload to CloudinaryUploader.uploadBytes() (core).
      */
     public static void uploadReelAvatar(Context ctx, Uri uri, AvatarUploadCallback cb) {
         new Thread(() -> {
@@ -74,7 +59,8 @@ public class ReelCloudinaryUtils {
                     postErr(cb, "Thumb compress failed");
                     return;
                 }
-                String thumbUrl = uploadBytes(thumbBytes, "image/webp", "reel_thumb.webp",
+                String thumbUrl = CloudinaryUploader.uploadBytes(
+                    thumbBytes, "image/webp", "reel_thumb.webp",
                     "callx/reels/avatars/thumbs", "image");
                 if (thumbUrl == null) { postErr(cb, "Thumb upload failed"); return; }
                 UI.post(() -> cb.onThumbReady(thumbUrl));
@@ -85,7 +71,8 @@ public class ReelCloudinaryUtils {
                     postErr(cb, "Full photo compress failed");
                     return;
                 }
-                String photoUrl = uploadBytes(fullBytes, "image/jpeg", "reel_photo.jpg",
+                String photoUrl = CloudinaryUploader.uploadBytes(
+                    fullBytes, "image/jpeg", "reel_photo.jpg",
                     "callx/reels/avatars", "image");
                 if (photoUrl == null) { postErr(cb, "Full photo upload failed"); return; }
                 UI.post(() -> cb.onFullReady(photoUrl));
@@ -113,7 +100,8 @@ public class ReelCloudinaryUtils {
                     UI.post(() -> cb.onError("Compress failed for photo " + index));
                     return;
                 }
-                String url = uploadBytes(bytes, "image/jpeg",
+                String url = CloudinaryUploader.uploadBytes(
+                    bytes, "image/jpeg",
                     "reel_slide_" + index + ".jpg",
                     "callx/reels/slideshows", "image");
                 if (url == null) {
@@ -132,7 +120,7 @@ public class ReelCloudinaryUtils {
 
     /**
      * Reel profile banner upload:
-     *   Compressed to 1200×400 JPEG → callx/reels/banners/
+     *   Compressed to 1200px JPEG 80% → callx/reels/banners/
      */
     public static void uploadReelBanner(Context ctx, Uri uri, ImageUploadCallback cb) {
         new Thread(() -> {
@@ -142,7 +130,8 @@ public class ReelCloudinaryUtils {
                     UI.post(() -> cb.onError("Banner compress failed"));
                     return;
                 }
-                String bannerUrl = uploadBytes(bannerBytes, "image/jpeg", "reel_banner.jpg",
+                String bannerUrl = CloudinaryUploader.uploadBytes(
+                    bannerBytes, "image/jpeg", "reel_banner.jpg",
                     "callx/reels/banners", "image");
                 if (bannerUrl == null) {
                     UI.post(() -> cb.onError("Banner upload failed"));
@@ -154,63 +143,6 @@ public class ReelCloudinaryUtils {
                 UI.post(() -> cb.onError(e.getMessage() != null ? e.getMessage() : "Upload error"));
             }
         }).start();
-    }
-
-    // ── Internal: byte[] → Cloudinary → secureUrl ────────────────────────────
-
-    private static String uploadBytes(byte[] bytes, String mime, String filename,
-                                      String folder, String resourceType) {
-        try {
-            // Step 1: Sign
-            JSONObject payload = new JSONObject()
-                .put("folder", folder)
-                .put("resource_type", resourceType);
-            Request signReq = new Request.Builder()
-                .url(Constants.SERVER_URL + "/cloudinary/sign")
-                .post(RequestBody.create(payload.toString(), MediaType.parse("application/json")))
-                .build();
-            Response signRes = client.newCall(signReq).execute();
-            String signBody = signRes.body() != null ? signRes.body().string() : "";
-            signRes.close();
-            if (!signRes.isSuccessful()) {
-                Log.e(TAG, "Sign failed (" + signRes.code() + "): " + signBody);
-                return null;
-            }
-            JSONObject signJson = new JSONObject(signBody);
-            String signature = signJson.getString("signature");
-            String timestamp = signJson.getString("timestamp");
-            String apiKey    = signJson.getString("api_key");
-            String cloudName = signJson.optString("cloud_name", Constants.CLOUDINARY_CLOUD_NAME);
-            String f         = signJson.optString("folder", folder);
-
-            // Step 2: Upload
-            MultipartBody body = new MultipartBody.Builder()
-                .setType(MultipartBody.FORM)
-                .addFormDataPart("file", filename,
-                    RequestBody.create(bytes, MediaType.parse(mime)))
-                .addFormDataPart("api_key", apiKey)
-                .addFormDataPart("timestamp", timestamp)
-                .addFormDataPart("signature", signature)
-                .addFormDataPart("folder", f)
-                .build();
-
-            String upUrl = "https://api.cloudinary.com/v1_1/" + cloudName + "/" + resourceType + "/upload";
-            Request upReq = new Request.Builder().url(upUrl).post(body).build();
-            Response upRes = client.newCall(upReq).execute();
-            String upBody = upRes.body() != null ? upRes.body().string() : "";
-            upRes.close();
-            if (!upRes.isSuccessful()) {
-                Log.e(TAG, "Upload failed: " + upBody);
-                return null;
-            }
-            JSONObject upJson = new JSONObject(upBody);
-            String url = upJson.optString("secure_url", upJson.optString("url"));
-            return (url == null || url.isEmpty()) ? null : url;
-
-        } catch (Exception e) {
-            Log.e(TAG, "uploadBytes error: " + e.getMessage());
-            return null;
-        }
     }
 
     private static void postErr(AvatarUploadCallback cb, String msg) {

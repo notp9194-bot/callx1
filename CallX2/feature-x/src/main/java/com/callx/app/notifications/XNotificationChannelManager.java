@@ -1,12 +1,16 @@
 package com.callx.app.notifications;
 
-import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.content.Context;
 import android.os.Build;
 
+import com.callx.app.notifications.NotificationChannelHelper;
+
 /**
- * X feature ke liye sabhi notification channels create karta hai.
+ * XNotificationChannelManager — X feature ke liye sabhi notification channels create karta hai.
+ *
+ * Registration logic: NotificationChannelHelper (core) ko delegate karta hai —
+ * duplicate channel-creation boilerplate yahan se remove kiya gaya hai.
  *
  * Channels:
  *   CHANNEL_X_GENERAL  — poll ended, list added (default priority)
@@ -21,30 +25,29 @@ public class XNotificationChannelManager {
 
     public static void ensureChannels(Context ctx) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
-
         NotificationManager nm =
                 (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
         if (nm == null) return;
 
-        NotificationChannel general = new NotificationChannel(
-                CHANNEL_X_GENERAL,
-                "X — General",
-                NotificationManager.IMPORTANCE_DEFAULT);
-        general.setDescription("Poll results, list additions aur baaki X activity");
-        nm.createNotificationChannel(general);
+        NotificationChannelHelper.registerChannel(nm,
+            CHANNEL_X_GENERAL,
+            "X — General",
+            "Poll results, list additions aur baaki X activity",
+            NotificationManager.IMPORTANCE_DEFAULT,
+            0xFF1DA1F2);
 
-        NotificationChannel mentions = new NotificationChannel(
-                CHANNEL_X_MENTIONS,
-                "X — Mentions & Interactions",
-                NotificationManager.IMPORTANCE_HIGH);
-        mentions.setDescription("Likes, reposts, replies, mentions, quotes, follows, Spaces");
-        nm.createNotificationChannel(mentions);
+        NotificationChannelHelper.registerChannel(nm,
+            CHANNEL_X_MENTIONS,
+            "X — Mentions & Interactions",
+            "Likes, reposts, replies, mentions, quotes, follows, Spaces",
+            NotificationManager.IMPORTANCE_HIGH,
+            0xFF1DA1F2);
 
-        NotificationChannel dm = new NotificationChannel(
-                CHANNEL_X_DM,
-                "X — Direct Messages",
-                NotificationManager.IMPORTANCE_HIGH);
-        dm.setDescription("X feature ke private messages");
-        nm.createNotificationChannel(dm);
+        NotificationChannelHelper.registerChannel(nm,
+            CHANNEL_X_DM,
+            "X — Direct Messages",
+            "X feature ke private messages",
+            NotificationManager.IMPORTANCE_HIGH,
+            0xFF1DA1F2);
     }
 }

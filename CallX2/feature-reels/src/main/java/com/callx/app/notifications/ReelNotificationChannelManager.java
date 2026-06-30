@@ -1,17 +1,19 @@
 package com.callx.app.notifications;
 
-import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.content.Context;
-import android.media.AudioAttributes;
-import android.net.Uri;
 import android.os.Build;
+
+import com.callx.app.notifications.NotificationChannelHelper;
 
 /**
  * ReelNotificationChannelManager — Registers ALL reel notification channels.
  *
  * Call ensureChannels(context) once at app startup and from the FCM service.
  * All channels are idempotent (safe to call multiple times).
+ *
+ * Registration logic: NotificationChannelHelper (core) ko delegate karta hai —
+ * duplicate registerChannel() code yahan se remove kiya gaya hai.
  *
  * Channel hierarchy:
  *  HIGH importance  → Likes, Comments, Mentions, Milestones, Collab, Live, Gifts
@@ -71,76 +73,48 @@ public class ReelNotificationChannelManager {
         NotificationManager nm = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
         if (nm == null) return;
 
-        // HIGH importance (heads-up, sound, vibrate)
-        registerChannel(nm, CHANNEL_REEL_LIKES,            "Reel Likes",            "When someone likes your reel",              NotificationManager.IMPORTANCE_HIGH,  0xFFFF3B5C);
-        registerChannel(nm, CHANNEL_REEL_COMMENTS,         "Reel Comments",         "When someone comments on your reel",        NotificationManager.IMPORTANCE_HIGH,  0xFFFF3B5C);
-        registerChannel(nm, CHANNEL_REEL_COMMENT_LIKES,    "Comment Likes",         "When someone likes your comment",           NotificationManager.IMPORTANCE_DEFAULT, 0xFFFF6B6B);
-        registerChannel(nm, CHANNEL_REEL_COMMENT_REPLIES,  "Comment Replies",       "Replies to your reel comments",             NotificationManager.IMPORTANCE_HIGH,  0xFFFF3B5C);
-        registerChannel(nm, CHANNEL_REEL_MENTIONS,         "Reel Mentions",         "When you are @mentioned in a reel",         NotificationManager.IMPORTANCE_HIGH,  0xFFFF3B5C);
-        registerChannel(nm, CHANNEL_REEL_SHARES,           "Reel Shares",           "When someone shares your reel",             NotificationManager.IMPORTANCE_DEFAULT, 0xFFAAAAAA);
-        registerChannel(nm, CHANNEL_REEL_NEW_FOLLOWER,     "New Followers",         "When someone follows you",                  NotificationManager.IMPORTANCE_HIGH,  0xFF34C759);
-        registerChannel(nm, CHANNEL_REEL_FOLLOWING_POSTED, "Following Posted",      "When someone you follow posts a reel",      NotificationManager.IMPORTANCE_DEFAULT, 0xFF5AC8FA);
-        registerChannel(nm, CHANNEL_REEL_DUET,             "Duets",                 "When someone creates a duet with your reel",NotificationManager.IMPORTANCE_HIGH,  0xFFFF9500);
-        registerChannel(nm, CHANNEL_REEL_STITCH,           "Stitches",              "When someone stitches your reel",           NotificationManager.IMPORTANCE_HIGH,  0xFFFF9500);
-        registerChannel(nm, CHANNEL_REEL_VIDEO_REPLY,      "Video Replies",         "When someone replies to your reel with video",NotificationManager.IMPORTANCE_HIGH, 0xFFFF9500);
-        registerChannel(nm, CHANNEL_REEL_COLLAB_REQUEST,   "Collab Requests",       "Collaboration invitations",                 NotificationManager.IMPORTANCE_HIGH,  0xFF5856D6);
-        registerChannel(nm, CHANNEL_REEL_COLLAB_ACCEPTED,  "Collab Accepted",       "When your collab request is accepted",      NotificationManager.IMPORTANCE_HIGH,  0xFF34C759);
-        registerChannel(nm, CHANNEL_REEL_GIFTING,          "Gifts",                 "Gifts received on live or reels",           NotificationManager.IMPORTANCE_HIGH,  0xFFFF2D55);
-        registerChannel(nm, CHANNEL_REEL_LIVE_STARTED,     "Live Started",          "When someone you follow goes live",         NotificationManager.IMPORTANCE_HIGH,  0xFFFF3B5C);
-        registerChannel(nm, CHANNEL_REEL_LIVE_MILESTONE,   "Live Milestones",       "Viewer milestones during your live",        NotificationManager.IMPORTANCE_DEFAULT, 0xFFFFCC00);
-        registerChannel(nm, CHANNEL_REEL_CLOSE_FRIEND_LIVE,"Close Friend Live",     "When a close friend goes live",             NotificationManager.IMPORTANCE_HIGH,  0xFF34C759);
-        registerChannel(nm, CHANNEL_REEL_TRENDING,         "Trending Reels",        "When your reel starts trending",            NotificationManager.IMPORTANCE_HIGH,  0xFFFF3B5C);
-        registerChannel(nm, CHANNEL_REEL_VIRAL,            "Viral Reels",           "When your reel goes viral",                 NotificationManager.IMPORTANCE_HIGH,  0xFFFF3B5C);
-        registerChannel(nm, CHANNEL_REEL_VIEW_MILESTONE,   "View Milestones",       "Reach 1K, 10K, 100K, 1M views",            NotificationManager.IMPORTANCE_HIGH,  0xFFFFD700);
-        registerChannel(nm, CHANNEL_REEL_FOLLOWER_MILESTONE,"Follower Milestones",  "Reach 100, 1K, 10K followers",             NotificationManager.IMPORTANCE_HIGH,  0xFFFFD700);
-        registerChannel(nm, CHANNEL_REEL_UPLOAD_COMPLETE,  "Upload Complete",       "Your reel finished uploading",              NotificationManager.IMPORTANCE_DEFAULT, 0xFF34C759);
-        registerChannel(nm, CHANNEL_REEL_UPLOAD_FAILED,    "Upload Failed",         "Your reel upload encountered an error",     NotificationManager.IMPORTANCE_HIGH,  0xFFFF3B5C);
-        registerChannel(nm, CHANNEL_REEL_SCHEDULED_POST,   "Scheduled Post",        "Your scheduled reel was posted",            NotificationManager.IMPORTANCE_DEFAULT, 0xFF5AC8FA);
-        registerChannel(nm, CHANNEL_REEL_SCHEDULED_REMINDER,"Scheduled Reminder",   "Reminder before your scheduled post",       NotificationManager.IMPORTANCE_HIGH,  0xFFFFCC00);
-        registerChannel(nm, CHANNEL_REEL_PRODUCT_TAG,      "Product Tags",          "Product tag activity on your reels",        NotificationManager.IMPORTANCE_DEFAULT, 0xFF34C759);
-        registerChannel(nm, CHANNEL_REEL_CREATOR_FUND,     "Creator Fund",          "Earnings and payout notifications",         NotificationManager.IMPORTANCE_HIGH,  0xFFFFD700);
-        registerChannel(nm, CHANNEL_REEL_MODERATION,       "Moderation",            "Content moderation decisions",              NotificationManager.IMPORTANCE_HIGH,  0xFFFF3B5C);
-        registerChannel(nm, CHANNEL_REEL_REPORT_RESOLVED,  "Reports",               "Updates on your content reports",           NotificationManager.IMPORTANCE_DEFAULT, 0xFFAAAAAA);
-        registerChannel(nm, CHANNEL_REEL_SOUND_TRENDING,   "Sound Trending",        "When a sound you used starts trending",     NotificationManager.IMPORTANCE_DEFAULT, 0xFF5AC8FA);
-        registerChannel(nm, CHANNEL_REEL_PINNED_COMMENT,   "Pinned Comment",        "When your comment is pinned by creator",    NotificationManager.IMPORTANCE_DEFAULT, 0xFF5856D6);
-        registerChannel(nm, CHANNEL_REEL_CLOSE_FRIEND_POST,"Close Friend Posted",   "When a close friend posts a reel",          NotificationManager.IMPORTANCE_DEFAULT, 0xFF34C759);
-        registerChannel(nm, CHANNEL_REEL_CHALLENGE,        "Challenges",            "Challenge invites and updates",             NotificationManager.IMPORTANCE_DEFAULT, 0xFFFF9500);
-        registerChannel(nm, CHANNEL_REEL_RECOMMENDATION,   "Recommendations",       "Personalised reel recommendations",         NotificationManager.IMPORTANCE_LOW,   0xFFAAAAAA);
-        registerChannel(nm, CHANNEL_REEL_WEEKLY_DIGEST,    "Creator Digest",        "Weekly and monthly creator summaries",      NotificationManager.IMPORTANCE_LOW,   0xFF5AC8FA);
-        registerChannel(nm, CHANNEL_REEL_SAVED,            "Reel Saves",            "When someone saves your reel",             NotificationManager.IMPORTANCE_LOW,   0xFFAAAAAA);
-        registerChannel(nm, CHANNEL_REEL_DOWNLOADED,       "Reel Downloads",        "When someone downloads your reel",          NotificationManager.IMPORTANCE_LOW,   0xFFAAAAAA);
-        registerChannel(nm, CHANNEL_REEL_COLLAB_LIVE,      "Collab Live",           "Multi-creator live session updates",        NotificationManager.IMPORTANCE_HIGH,  0xFF5856D6);
-        registerChannel(nm, CHANNEL_REEL_REPOSTS, "Reel Reposts", "When someone reposts your reel", NotificationManager.IMPORTANCE_HIGH, 0xFF34C759);
-        registerChannel(nm, CHANNEL_COLLAB_REPOST_INVITE, "Collab Repost Invite", "When someone invites you to co-repost a reel", NotificationManager.IMPORTANCE_HIGH,  0xFF5856D6);
-          registerChannel(nm, CHANNEL_COLLAB_REPOST_RESULT, "Collab Repost Update",  "When your collab repost is accepted or declined", NotificationManager.IMPORTANCE_HIGH, 0xFF34C759);
-          registerSilentServiceChannel(nm);
-    }
-
-    private static void registerChannel(NotificationManager nm, String id, String name,
-                                        String desc, int importance, int lightColor) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
-        NotificationChannel ch = new NotificationChannel(id, name, importance);
-        ch.setDescription(desc);
-        ch.enableLights(true);
-        ch.setLightColor(lightColor);
-        ch.enableVibration(importance >= NotificationManager.IMPORTANCE_DEFAULT);
-        if (importance >= NotificationManager.IMPORTANCE_DEFAULT) {
-            ch.setVibrationPattern(new long[]{0, 200, 100, 200});
-        }
-        ch.setShowBadge(true);
-        nm.createNotificationChannel(ch);
-    }
-
-    private static void registerSilentServiceChannel(NotificationManager nm) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
-        NotificationChannel ch = new NotificationChannel(
-            CHANNEL_REEL_FOREGROUND_SERVICE,
-            "Reel Notification Service",
-            NotificationManager.IMPORTANCE_MIN);
-        ch.setDescription("Background service keeping reel notifications alive");
-        ch.setShowBadge(false);
-        ch.enableLights(false);
-        ch.enableVibration(false);
-        nm.createNotificationChannel(ch);
+        NotificationChannelHelper.registerChannel(nm, CHANNEL_REEL_LIKES,            "Reel Likes",            "When someone likes your reel",                    NotificationManager.IMPORTANCE_HIGH,    0xFFFF3B5C);
+        NotificationChannelHelper.registerChannel(nm, CHANNEL_REEL_COMMENTS,         "Reel Comments",         "When someone comments on your reel",              NotificationManager.IMPORTANCE_HIGH,    0xFFFF3B5C);
+        NotificationChannelHelper.registerChannel(nm, CHANNEL_REEL_COMMENT_LIKES,    "Comment Likes",         "When someone likes your comment",                 NotificationManager.IMPORTANCE_DEFAULT, 0xFFFF6B6B);
+        NotificationChannelHelper.registerChannel(nm, CHANNEL_REEL_COMMENT_REPLIES,  "Comment Replies",       "Replies to your reel comments",                   NotificationManager.IMPORTANCE_HIGH,    0xFFFF3B5C);
+        NotificationChannelHelper.registerChannel(nm, CHANNEL_REEL_MENTIONS,         "Reel Mentions",         "When you are @mentioned in a reel",               NotificationManager.IMPORTANCE_HIGH,    0xFFFF3B5C);
+        NotificationChannelHelper.registerChannel(nm, CHANNEL_REEL_SHARES,           "Reel Shares",           "When someone shares your reel",                   NotificationManager.IMPORTANCE_DEFAULT, 0xFFAAAAAA);
+        NotificationChannelHelper.registerChannel(nm, CHANNEL_REEL_NEW_FOLLOWER,     "New Followers",         "When someone follows you",                        NotificationManager.IMPORTANCE_HIGH,    0xFF34C759);
+        NotificationChannelHelper.registerChannel(nm, CHANNEL_REEL_FOLLOWING_POSTED, "Following Posted",      "When someone you follow posts a reel",            NotificationManager.IMPORTANCE_DEFAULT, 0xFF5AC8FA);
+        NotificationChannelHelper.registerChannel(nm, CHANNEL_REEL_DUET,             "Duets",                 "When someone creates a duet with your reel",      NotificationManager.IMPORTANCE_HIGH,    0xFFFF9500);
+        NotificationChannelHelper.registerChannel(nm, CHANNEL_REEL_STITCH,           "Stitches",              "When someone stitches your reel",                 NotificationManager.IMPORTANCE_HIGH,    0xFFFF9500);
+        NotificationChannelHelper.registerChannel(nm, CHANNEL_REEL_VIDEO_REPLY,      "Video Replies",         "When someone replies to your reel with video",    NotificationManager.IMPORTANCE_HIGH,    0xFFFF9500);
+        NotificationChannelHelper.registerChannel(nm, CHANNEL_REEL_COLLAB_REQUEST,   "Collab Requests",       "Collaboration invitations",                       NotificationManager.IMPORTANCE_HIGH,    0xFF5856D6);
+        NotificationChannelHelper.registerChannel(nm, CHANNEL_REEL_COLLAB_ACCEPTED,  "Collab Accepted",       "When your collab request is accepted",            NotificationManager.IMPORTANCE_HIGH,    0xFF34C759);
+        NotificationChannelHelper.registerChannel(nm, CHANNEL_REEL_GIFTING,          "Gifts",                 "Gifts received on live or reels",                 NotificationManager.IMPORTANCE_HIGH,    0xFFFF2D55);
+        NotificationChannelHelper.registerChannel(nm, CHANNEL_REEL_LIVE_STARTED,     "Live Started",          "When someone you follow goes live",               NotificationManager.IMPORTANCE_HIGH,    0xFFFF3B5C);
+        NotificationChannelHelper.registerChannel(nm, CHANNEL_REEL_LIVE_MILESTONE,   "Live Milestones",       "Viewer milestones during your live",              NotificationManager.IMPORTANCE_DEFAULT, 0xFFFFCC00);
+        NotificationChannelHelper.registerChannel(nm, CHANNEL_REEL_CLOSE_FRIEND_LIVE,"Close Friend Live",     "When a close friend goes live",                   NotificationManager.IMPORTANCE_HIGH,    0xFF34C759);
+        NotificationChannelHelper.registerChannel(nm, CHANNEL_REEL_TRENDING,         "Trending Reels",        "When your reel starts trending",                  NotificationManager.IMPORTANCE_HIGH,    0xFFFF3B5C);
+        NotificationChannelHelper.registerChannel(nm, CHANNEL_REEL_VIRAL,            "Viral Reels",           "When your reel goes viral",                       NotificationManager.IMPORTANCE_HIGH,    0xFFFF3B5C);
+        NotificationChannelHelper.registerChannel(nm, CHANNEL_REEL_VIEW_MILESTONE,   "View Milestones",       "Reach 1K, 10K, 100K, 1M views",                  NotificationManager.IMPORTANCE_HIGH,    0xFFFFD700);
+        NotificationChannelHelper.registerChannel(nm, CHANNEL_REEL_FOLLOWER_MILESTONE,"Follower Milestones",  "Reach 100, 1K, 10K followers",                   NotificationManager.IMPORTANCE_HIGH,    0xFFFFD700);
+        NotificationChannelHelper.registerChannel(nm, CHANNEL_REEL_UPLOAD_COMPLETE,  "Upload Complete",       "Your reel finished uploading",                    NotificationManager.IMPORTANCE_DEFAULT, 0xFF34C759);
+        NotificationChannelHelper.registerChannel(nm, CHANNEL_REEL_UPLOAD_FAILED,    "Upload Failed",         "Your reel upload encountered an error",           NotificationManager.IMPORTANCE_HIGH,    0xFFFF3B5C);
+        NotificationChannelHelper.registerChannel(nm, CHANNEL_REEL_SCHEDULED_POST,   "Scheduled Post",        "Your scheduled reel was posted",                  NotificationManager.IMPORTANCE_DEFAULT, 0xFF5AC8FA);
+        NotificationChannelHelper.registerChannel(nm, CHANNEL_REEL_SCHEDULED_REMINDER,"Scheduled Reminder",  "Reminder before your scheduled post",             NotificationManager.IMPORTANCE_HIGH,    0xFFFFCC00);
+        NotificationChannelHelper.registerChannel(nm, CHANNEL_REEL_PRODUCT_TAG,      "Product Tags",          "Product tag activity on your reels",              NotificationManager.IMPORTANCE_DEFAULT, 0xFF34C759);
+        NotificationChannelHelper.registerChannel(nm, CHANNEL_REEL_CREATOR_FUND,     "Creator Fund",          "Earnings and payout notifications",               NotificationManager.IMPORTANCE_HIGH,    0xFFFFD700);
+        NotificationChannelHelper.registerChannel(nm, CHANNEL_REEL_MODERATION,       "Moderation",            "Content moderation decisions",                    NotificationManager.IMPORTANCE_HIGH,    0xFFFF3B5C);
+        NotificationChannelHelper.registerChannel(nm, CHANNEL_REEL_REPORT_RESOLVED,  "Reports",               "Updates on your content reports",                 NotificationManager.IMPORTANCE_DEFAULT, 0xFFAAAAAA);
+        NotificationChannelHelper.registerChannel(nm, CHANNEL_REEL_SOUND_TRENDING,   "Sound Trending",        "When a sound you used starts trending",           NotificationManager.IMPORTANCE_DEFAULT, 0xFF5AC8FA);
+        NotificationChannelHelper.registerChannel(nm, CHANNEL_REEL_PINNED_COMMENT,   "Pinned Comment",        "When your comment is pinned by creator",          NotificationManager.IMPORTANCE_DEFAULT, 0xFF5856D6);
+        NotificationChannelHelper.registerChannel(nm, CHANNEL_REEL_CLOSE_FRIEND_POST,"Close Friend Posted",   "When a close friend posts a reel",                NotificationManager.IMPORTANCE_DEFAULT, 0xFF34C759);
+        NotificationChannelHelper.registerChannel(nm, CHANNEL_REEL_CHALLENGE,        "Challenges",            "Challenge invites and updates",                   NotificationManager.IMPORTANCE_DEFAULT, 0xFFFF9500);
+        NotificationChannelHelper.registerChannel(nm, CHANNEL_REEL_RECOMMENDATION,   "Recommendations",       "Personalised reel recommendations",               NotificationManager.IMPORTANCE_LOW,     0xFFAAAAAA);
+        NotificationChannelHelper.registerChannel(nm, CHANNEL_REEL_WEEKLY_DIGEST,    "Creator Digest",        "Weekly and monthly creator summaries",            NotificationManager.IMPORTANCE_LOW,     0xFF5AC8FA);
+        NotificationChannelHelper.registerChannel(nm, CHANNEL_REEL_SAVED,            "Reel Saves",            "When someone saves your reel",                   NotificationManager.IMPORTANCE_LOW,     0xFFAAAAAA);
+        NotificationChannelHelper.registerChannel(nm, CHANNEL_REEL_DOWNLOADED,       "Reel Downloads",        "When someone downloads your reel",                NotificationManager.IMPORTANCE_LOW,     0xFFAAAAAA);
+        NotificationChannelHelper.registerChannel(nm, CHANNEL_REEL_COLLAB_LIVE,      "Collab Live",           "Multi-creator live session updates",              NotificationManager.IMPORTANCE_HIGH,    0xFF5856D6);
+        NotificationChannelHelper.registerChannel(nm, CHANNEL_REEL_REPOSTS,          "Reel Reposts",          "When someone reposts your reel",                  NotificationManager.IMPORTANCE_HIGH,    0xFF34C759);
+        NotificationChannelHelper.registerChannel(nm, CHANNEL_COLLAB_REPOST_INVITE,  "Collab Repost Invite",  "When someone invites you to co-repost a reel",    NotificationManager.IMPORTANCE_HIGH,    0xFF5856D6);
+        NotificationChannelHelper.registerChannel(nm, CHANNEL_COLLAB_REPOST_RESULT,  "Collab Repost Update",  "When your collab repost is accepted or declined", NotificationManager.IMPORTANCE_HIGH,    0xFF34C759);
+        NotificationChannelHelper.registerSilentChannel(nm, CHANNEL_REEL_FOREGROUND_SERVICE,
+            "Reel Notification Service", "Background service keeping reel notifications alive");
     }
 }
