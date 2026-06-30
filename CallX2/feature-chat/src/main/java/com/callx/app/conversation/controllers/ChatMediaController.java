@@ -1,8 +1,6 @@
 package com.callx.app.conversation.controllers;
 
 import android.Manifest;
-import android.app.Activity;
-import android.content.ClipData;
 import android.content.ContentValues;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -18,6 +16,9 @@ import java.util.List;
 import androidx.activity.result.ActivityResultCaller;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
+import androidx.activity.result.PickVisualMediaRequest;
+import androidx.activity.result.contract.ActivityResultContracts.PickMultipleVisualMedia;
+import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
@@ -52,7 +53,11 @@ public class ChatMediaController {
     private ActivityResultLauncher<String>  filePicker;
     private ActivityResultLauncher<Uri>     cameraCapturer;
     private ActivityResultLauncher<String>  wallpaperPicker;
-    private ActivityResultLauncher<Intent>  multiMediaPicker;
+    private ActivityResultLauncher<PickVisualMediaRequest> multiMediaPicker;
+
+    // Practical cap on a single multi-select grab (PickMultipleVisualMedia itself
+    // has no max on API 34+ photo picker; OEM galleries below that vary).
+    private static final int MAX_MULTI_PICK = 30;
 
     private Uri cameraOutputUri;
 
@@ -104,29 +109,28 @@ public class ChatMediaController {
                 });
 
         multiMediaPicker = activity.registerForActivityResult(
-                new ActivityResultContracts.StartActivityForResult(),
-                result -> {
-                    if (result.getResultCode() != Activity.RESULT_OK || result.getData() == null)
-                        return;
-                    Intent data = result.getData();
-                    List<Uri> uris = new ArrayList<>();
-                    if (data.getClipData() != null) {
-                        ClipData cd = data.getClipData();
-                        for (int i = 0; i < cd.getItemCount(); i++) {
-                            uris.add(cd.getItemAt(i).getUri());
+                new PickMultipleVisualMedia(MAX_MULTI_PICK),
+                uris -> {
+                    if (uris == null || uris.isEmpty()) return;
+                    // Persist read access — photo picker grants a short-lived URI
+                    // permission, but our sequential upload may outlive it.
+                    for (Uri u : uris) {
+                        try {
+                            activity.getContentResolver().takePersistableUriPermission(
+                                    u, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                        } catch (SecurityException ignored) {
+                            // Photo Picker (system) URIs don't always support
+                            // persistable grants — fine, they're valid for this session.
                         }
-                    } else if (data.getData() != null) {
-                        uris.add(data.getData());
                     }
-                    if (!uris.isEmpty()) {
-                        if (uris.size() == 1) {
-                            String m = activity.getContentResolver().getType(uris.get(0));
-                            boolean vid = m != null && m.startsWith("video");
-                            uploadAndSend(uris.get(0), vid ? "video" : "image", vid ? "video" : "image", null);
-                        } else {
-                            MultiMediaPreviewDialog.show(activity, uris,
-                                (selectedUris, caption) -> uploadSequentially(selectedUris, caption, 0));
-                        }
+                    if (uris.size() == 1) {
+                        Uri only = uris.get(0);
+                        String m = activity.getContentResolver().getType(only);
+                        boolean vid = m != null && m.startsWith("video");
+                        uploadAndSend(only, vid ? "video" : "image", vid ? "video" : "image", null);
+                    } else {
+                        MultiMediaPreviewDialog.show(activity, uris,
+                            (selectedUris, caption) -> uploadSequentially(selectedUris, caption, 0));
                     }
                 });
     }
@@ -158,12 +162,9 @@ public class ChatMediaController {
         if (optMulti != null) {
             optMulti.setOnClickListener(x -> {
                 sheet.dismiss();
-                Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
-                intent.setType("*/*");
-                intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"image/*", "video/*"});
-                intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
-                intent.addCategory(Intent.CATEGORY_OPENABLE);
-                multiMediaPicker.launch(intent);
+                multiMediaPicker.launch(new PickVisualMediaRequest.Builder()
+                        .setMediaType(PickVisualMedia.ImageAndVideo.INSTANCE)
+                        .build());
             });
         }
         sheet.setContentView(v);
