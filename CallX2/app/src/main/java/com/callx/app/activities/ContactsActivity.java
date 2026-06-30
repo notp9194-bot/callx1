@@ -89,6 +89,11 @@ public class ContactsActivity extends AppCompatActivity {
     private ArrayList<String> forwardTypes;
     private ArrayList<String> forwardMedias;
     private ArrayList<String> forwardFileNames;
+    // #2 fix — parallel arrays so a multi_media (grouped) message inside a
+    // multi-select forward keeps its full gallery instead of collapsing to
+    // a single fallback image (see ChatActivity/GroupChatActivity#forwardSelectedMessages).
+    private ArrayList<String> forwardMediaItemsJsonList;
+    private ArrayList<String> forwardCaptionsList;
     private boolean isMultiForward = false;
 
     @Override
@@ -151,6 +156,8 @@ public class ContactsActivity extends AppCompatActivity {
         forwardTypes      = getIntent().getStringArrayListExtra("forwardTypes");
         forwardMedias     = getIntent().getStringArrayListExtra("forwardMedias");
         forwardFileNames  = getIntent().getStringArrayListExtra("forwardFileNames");
+        forwardMediaItemsJsonList = getIntent().getStringArrayListExtra("forwardMediaItemsJsonList");
+        forwardCaptionsList       = getIntent().getStringArrayListExtra("forwardCaptionsList");
 
         isMultiForward = (forwardTexts != null && !forwardTexts.isEmpty());
 
@@ -285,6 +292,8 @@ public class ContactsActivity extends AppCompatActivity {
         i.putStringArrayListExtra("forwardTypes",     forwardTypes);
         i.putStringArrayListExtra("forwardMedias",    forwardMedias);
         i.putStringArrayListExtra("forwardFileNames", forwardFileNames);
+        i.putStringArrayListExtra("forwardMediaItemsJsonList", forwardMediaItemsJsonList);
+        i.putStringArrayListExtra("forwardCaptionsList",       forwardCaptionsList);
         i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         startActivity(i);
     }
@@ -319,6 +328,8 @@ public class ContactsActivity extends AppCompatActivity {
         i.putStringArrayListExtra("forwardTypes",     forwardTypes);
         i.putStringArrayListExtra("forwardMedias",    forwardMedias);
         i.putStringArrayListExtra("forwardFileNames", forwardFileNames);
+        i.putStringArrayListExtra("forwardMediaItemsJsonList", forwardMediaItemsJsonList);
+        i.putStringArrayListExtra("forwardCaptionsList",       forwardCaptionsList);
         i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         startActivity(i);
     }

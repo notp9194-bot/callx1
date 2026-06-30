@@ -1102,6 +1102,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         ArrayList<String> fwdTypes     = i.getStringArrayListExtra("forwardTypes");
         ArrayList<String> fwdMedias    = i.getStringArrayListExtra("forwardMedias");
         ArrayList<String> fwdFileNames = i.getStringArrayListExtra("forwardFileNames");
+        ArrayList<String> fwdMediaItemsJsonList = i.getStringArrayListExtra("forwardMediaItemsJsonList");
+        ArrayList<String> fwdCaptionsList       = i.getStringArrayListExtra("forwardCaptionsList");
 
         if (fwdTexts != null && !fwdTexts.isEmpty()) {
             binding.getRoot().post(() -> {
@@ -1111,9 +1113,26 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                         String t  = fwdTexts.get(fi);
                         String tp = fwdTypes.get(fi);
                         String mu = fwdMedias.get(fi);
+                        // #2 fix — a multi_media (grouped) message inside a
+                        // multi-select forward carries its mediaItems here
+                        // instead of just mu (the first item's URL); rebuild
+                        // the full gallery instead of falling through to the
+                        // generic single-media branch below.
+                        String groupJson = fwdMediaItemsJsonList != null && fi < fwdMediaItemsJsonList.size()
+                                ? fwdMediaItemsJsonList.get(fi) : "";
                         Message m2 = buildOutgoing();
                         m2.forwardedFrom = partnerName;
-                        if ("text".equals(tp) || tp == null) {
+                        if ("multi_media".equals(tp) && groupJson != null && !groupJson.isEmpty()) {
+                            m2.type = "multi_media";
+                            m2.mediaItems = com.callx.app.utils.MediaItemsJsonUtil.mediaItemsFromJson(groupJson);
+                            String cap = fwdCaptionsList != null && fi < fwdCaptionsList.size()
+                                    ? fwdCaptionsList.get(fi) : null;
+                            m2.caption = (cap != null && !cap.isEmpty()) ? cap : null;
+                            if (m2.caption != null) m2.text = m2.caption;
+                            Object firstUrl = !m2.mediaItems.isEmpty() ? m2.mediaItems.get(0).get("url") : null;
+                            if (firstUrl instanceof String) m2.mediaUrl = (String) firstUrl;
+                            pushMessage(m2, "\uD83D\uDCF7 Photos (forwarded)");
+                        } else if ("text".equals(tp) || tp == null) {
                             m2.type = "text"; m2.text = t;
                             pushMessage(m2, t != null ? t : "");
                         } else if (mu != null && !mu.isEmpty()) {
@@ -2699,14 +2718,27 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         if (selected.isEmpty()) { Toast.makeText(this, "Koi message select nahi", Toast.LENGTH_SHORT).show(); return; }
         ArrayList<String> texts = new ArrayList<>(), types = new ArrayList<>(),
                 medias = new ArrayList<>(), fileNames = new ArrayList<>();
+        // #2 fix — multi-select forward of a multi_media (grouped) message
+        // was flattening it down to just m.mediaUrl (first item only) and
+        // dropping mediaItems entirely, so the forwarded bubble showed as
+        // a plain "📷 Photos" text fallback instead of the gallery grid.
+        // These two parallel arrays carry the full group + caption through
+        // ContactsActivity so the receiving side can rebuild it properly.
+        ArrayList<String> mediaItemsJsonList = new ArrayList<>(), captions = new ArrayList<>();
         selected.sort((a, b) -> Long.compare(a.timestamp, b.timestamp));
         for (Message m : selected) {
             texts.add(m.text != null ? m.text : ""); types.add(m.type != null ? m.type : "text");
             medias.add(m.mediaUrl != null ? m.mediaUrl : ""); fileNames.add(m.fileName != null ? m.fileName : "");
+            boolean isGroup = "multi_media".equals(m.type) && m.mediaItems != null && !m.mediaItems.isEmpty();
+            mediaItemsJsonList.add(isGroup
+                    ? com.callx.app.utils.MediaItemsJsonUtil.mediaItemsToJson(m.mediaItems) : "");
+            captions.add(isGroup && m.caption != null ? m.caption : "");
         }
         Intent i = new Intent().setClassName(this, "com.callx.app.activities.ContactsActivity");
         i.putStringArrayListExtra("forwardTexts", texts); i.putStringArrayListExtra("forwardTypes", types);
         i.putStringArrayListExtra("forwardMedias", medias); i.putStringArrayListExtra("forwardFileNames", fileNames);
+        i.putStringArrayListExtra("forwardMediaItemsJsonList", mediaItemsJsonList);
+        i.putStringArrayListExtra("forwardCaptionsList", captions);
         startActivity(i);
         pagingAdapter.exitMultiSelectMode();
     }
