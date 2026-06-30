@@ -255,6 +255,100 @@ public class GroupChatActivity extends AppCompatActivity
             FirebaseUtils.db().getReference("groups")
                 .child(groupId).child("unread").child(currentUid).setValue(0);
         }
+
+        handleIncomingForward(getIntent());
+    }
+
+    /**
+     * Forward payload handling — mirrors ChatActivity's forward intent
+     * handling so forwarding INTO a group works the same way it does for
+     * 1:1 chats. Previously this was completely missing here, so forwarding
+     * a multi_media (grouped) message into a group silently dropped the
+     * mediaItems / never sent — the "group media jaisa nahi dikhta" bug.
+     */
+    private void handleIncomingForward(Intent i) {
+        if (i == null) return;
+
+        String fwdText  = i.getStringExtra("forwardText");
+        String fwdType  = i.getStringExtra("forwardType");
+        String fwdMedia = i.getStringExtra("forwardMedia");
+        String fwdFileName = i.getStringExtra("forwardFileName");
+        java.util.ArrayList<String> fwdTexts     = i.getStringArrayListExtra("forwardTexts");
+        java.util.ArrayList<String> fwdTypes     = i.getStringArrayListExtra("forwardTypes");
+        java.util.ArrayList<String> fwdMedias    = i.getStringArrayListExtra("forwardMedias");
+        java.util.ArrayList<String> fwdFileNames = i.getStringArrayListExtra("forwardFileNames");
+        String fwdMediaItemsJson = i.getStringExtra("forwardMediaItemsJson");
+        String fwdCaption        = i.getStringExtra("forwardCaption");
+
+        if (fwdTexts != null && !fwdTexts.isEmpty()) {
+            // Multi-message forward (several separate messages forwarded at once)
+            binding.getRoot().post(() -> {
+                for (int idx = 0; idx < fwdTexts.size(); idx++) {
+                    final int fi = idx;
+                    binding.getRoot().postDelayed(() -> {
+                        String t  = fwdTexts.get(fi);
+                        String tp = fwdTypes != null && fi < fwdTypes.size() ? fwdTypes.get(fi) : "text";
+                        String mu = fwdMedias != null && fi < fwdMedias.size() ? fwdMedias.get(fi) : null;
+                        Message m2 = buildOutgoing();
+                        m2.forwardedFrom = groupName;
+                        if ("text".equals(tp) || tp == null) {
+                            m2.type = "text"; m2.text = t;
+                            pushMessage(m2, t != null ? t : "");
+                        } else if (mu != null && !mu.isEmpty()) {
+                            m2.type = tp; m2.mediaUrl = mu;
+                            m2.imageUrl = "image".equals(tp) ? mu : null;
+                            m2.fileName = fwdFileNames != null && fi < fwdFileNames.size() ? fwdFileNames.get(fi) : null;
+                            String preview = "image".equals(tp) ? "\uD83D\uDCF7 Photo (forwarded)"
+                                           : "video".equals(tp) ? "\uD83C\uDFAC Video (forwarded)"
+                                           : "audio".equals(tp) ? "\uD83C\uDFA4 Voice (forwarded)"
+                                           : "\uD83D\uDCCE File (forwarded)";
+                            pushMessage(m2, preview);
+                        }
+                    }, idx * 150L);
+                }
+            });
+        } else if (fwdText != null && !fwdText.isEmpty() && "text".equals(fwdType)) {
+            if (binding != null && binding.etMessage != null) {
+                binding.etMessage.post(() -> {
+                    binding.etMessage.setText(fwdText);
+                    binding.etMessage.setSelection(fwdText.length());
+                });
+            }
+        } else if ("multi_media".equals(fwdType)
+                && fwdMediaItemsJson != null && !fwdMediaItemsJson.isEmpty()) {
+            // #1 fix — must be checked BEFORE the generic fwdMedia branch
+            // below: a multi_media message also carries m.mediaUrl as a
+            // fallback (first item's url), so if this check ran after the
+            // generic branch it would always win first and silently
+            // downgrade the forward into a single image with no
+            // mediaItems — exactly the "doesn't look like grouped media"
+            // bug reported for group chats.
+            binding.getRoot().post(() -> {
+                Message m = buildOutgoing();
+                m.type = "multi_media";
+                m.mediaItems = com.callx.app.utils.MediaItemsJsonUtil.mediaItemsFromJson(fwdMediaItemsJson);
+                m.caption = fwdCaption;
+                if (fwdCaption != null && !fwdCaption.isEmpty()) m.text = fwdCaption;
+                Object firstUrl = !m.mediaItems.isEmpty() ? m.mediaItems.get(0).get("url") : null;
+                if (firstUrl instanceof String) m.mediaUrl = (String) firstUrl;
+                m.forwardedFrom = groupName;
+                pushMessage(m, "\uD83D\uDCF7 Photos (forwarded)");
+            });
+        } else if (fwdMedia != null && !fwdMedia.isEmpty()) {
+            binding.getRoot().post(() -> {
+                Message m  = buildOutgoing();
+                m.type     = fwdType != null ? fwdType : "image";
+                m.mediaUrl = fwdMedia;
+                m.imageUrl = "image".equals(m.type) ? fwdMedia : null;
+                m.fileName = fwdFileName;
+                m.forwardedFrom = groupName;
+                String preview = "image".equals(m.type) ? "\uD83D\uDCF7 Photo (forwarded)"
+                               : "video".equals(m.type) ? "\uD83C\uDFAC Video (forwarded)"
+                               : "audio".equals(m.type) ? "\uD83C\uDFA4 Voice (forwarded)"
+                               : "\uD83D\uDCCE File (forwarded)";
+                pushMessage(m, preview);
+            });
+        }
     }
 
     @Override

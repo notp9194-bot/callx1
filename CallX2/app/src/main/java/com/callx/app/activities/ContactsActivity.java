@@ -24,6 +24,7 @@ import com.callx.app.R;
 import com.callx.app.db.AppDatabase;
 import com.callx.app.db.entity.UserEntity;
 import com.callx.app.models.User;
+import com.callx.app.models.Group;
 import com.callx.app.utils.FirebaseUtils;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.database.DataSnapshot;
@@ -36,6 +37,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.Executors;
 import com.callx.app.conversation.ChatActivity;
+import com.callx.app.group.GroupChatActivity;
 
 /**
  * ContactsActivity v18 — Forward Message Contact Picker.
@@ -58,9 +60,13 @@ public class ContactsActivity extends AppCompatActivity {
     private TextView     tvSendCount;
     private ContactsAdapter adapter;
 
-    private final List<User>   allContacts      = new ArrayList<>();
-    private final List<User>   filtered         = new ArrayList<>();
+    private final List<Object> allContacts      = new ArrayList<>();
+    private final List<Object> filtered         = new ArrayList<>();
     private final Set<String>  selectedUids     = new HashSet<>();
+    // Backing lists merged into allContacts — kept separate so refreshing
+    // contacts (Firebase) doesn't wipe out the groups list and vice versa.
+    private final List<User>  userList  = new ArrayList<>();
+    private final List<Group> groupList = new ArrayList<>();
 
     // Forward payload — single message
     private String forwardText;
@@ -155,7 +161,7 @@ public class ContactsActivity extends AppCompatActivity {
         tvSendCount = findViewById(R.id.tv_send_count);
 
         rv.setLayoutManager(new LinearLayoutManager(this));
-        adapter = new ContactsAdapter(filtered, selectedUids, this::onContactToggled);
+        adapter = new ContactsAdapter(filtered, selectedUids, this::onTargetToggled);
         rv.setAdapter(adapter);
 
         etSearch.addTextChangedListener(new TextWatcher() {
@@ -173,11 +179,18 @@ public class ContactsActivity extends AppCompatActivity {
         loadFromFirebase();
     }
 
-    private void onContactToggled(User u) {
-        if (selectedUids.contains(u.uid)) {
-            selectedUids.remove(u.uid);
+    private static String keyOf(Object target) {
+        if (target instanceof User)  return "u:" + ((User) target).uid;
+        if (target instanceof Group) return "g:" + ((Group) target).id;
+        return "";
+    }
+
+    private void onTargetToggled(Object target) {
+        String key = keyOf(target);
+        if (selectedUids.contains(key)) {
+            selectedUids.remove(key);
         } else {
-            selectedUids.add(u.uid);
+            selectedUids.add(key);
         }
         adapter.notifyDataSetChanged();
         updateSendButton();
@@ -204,29 +217,32 @@ public class ContactsActivity extends AppCompatActivity {
             return;
         }
 
-        // Sabhi selected contacts ka User object dhundo
-        List<User> selectedUsers = new ArrayList<>();
-        for (User u : allContacts) {
-            if (selectedUids.contains(u.uid)) selectedUsers.add(u);
+        // Sabhi selected targets (users + groups) dhundo
+        List<User>  selectedUsers  = new ArrayList<>();
+        List<Group> selectedGroups = new ArrayList<>();
+        for (Object t : allContacts) {
+            String key = keyOf(t);
+            if (!selectedUids.contains(key)) continue;
+            if (t instanceof User)  selectedUsers.add((User) t);
+            else if (t instanceof Group) selectedGroups.add((Group) t);
         }
 
         if (isMultiForward) {
-            // Multiple messages → multiple contacts
-            for (User u : selectedUsers) {
-                openChatWithMultiForward(u);
-            }
+            // Multiple messages → multiple targets
+            for (User u : selectedUsers)   openChatWithMultiForward(u);
+            for (Group g : selectedGroups) openGroupWithMultiForward(g);
         } else {
-            // Single message → multiple contacts
-            for (User u : selectedUsers) {
-                openChatWithSingleForward(u);
-            }
+            // Single message → multiple targets
+            for (User u : selectedUsers)   openChatWithSingleForward(u);
+            for (Group g : selectedGroups) openGroupWithSingleForward(g);
         }
 
+        int targetCount = selectedUsers.size() + selectedGroups.size();
         int msgCount = isMultiForward ? forwardTexts.size() : 1;
         Toast.makeText(this,
                 msgCount + " message" + (msgCount > 1 ? "s" : "") +
-                " forwarded to " + selectedUsers.size() + " contact" +
-                (selectedUsers.size() > 1 ? "s" : ""),
+                " forwarded to " + targetCount + " chat" +
+                (targetCount > 1 ? "s" : ""),
                 Toast.LENGTH_SHORT).show();
         finish();
     }
@@ -273,6 +289,40 @@ public class ContactsActivity extends AppCompatActivity {
         startActivity(i);
     }
 
+    /** Group counterpart of {@link #openChatWithSingleForward(User)} — same
+     * payload, just routed to GroupChatActivity so multi_media forwards
+     * into a group render as a proper gallery instead of dropping the
+     * grouping (see GroupChatActivity#handleIncomingForward). */
+    private void openGroupWithSingleForward(Group g) {
+        Intent i = new Intent(this, GroupChatActivity.class);
+        i.putExtra("groupId",         g.id);
+        i.putExtra("groupName",       g.name    != null ? g.name    : "");
+        i.putExtra("groupPhoto",      g.iconUrl != null ? g.iconUrl : "");
+        i.putExtra("forwardText",     forwardText);
+        i.putExtra("forwardType",     forwardType);
+        i.putExtra("forwardMedia",    forwardMedia);
+        i.putExtra("forwardFileName", forwardFileName);
+        if (forwardMediaItemsJson != null && !forwardMediaItemsJson.isEmpty()) {
+            i.putExtra("forwardMediaItemsJson", forwardMediaItemsJson);
+            i.putExtra("forwardCaption",        forwardCaption);
+        }
+        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        startActivity(i);
+    }
+
+    private void openGroupWithMultiForward(Group g) {
+        Intent i = new Intent(this, GroupChatActivity.class);
+        i.putExtra("groupId",    g.id);
+        i.putExtra("groupName",  g.name    != null ? g.name    : "");
+        i.putExtra("groupPhoto", g.iconUrl != null ? g.iconUrl : "");
+        i.putStringArrayListExtra("forwardTexts",     forwardTexts);
+        i.putStringArrayListExtra("forwardTypes",     forwardTypes);
+        i.putStringArrayListExtra("forwardMedias",    forwardMedias);
+        i.putStringArrayListExtra("forwardFileNames", forwardFileNames);
+        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        startActivity(i);
+    }
+
     private void loadFromRoom() {
         String myUid = FirebaseAuth.getInstance().getCurrentUser() != null
                 ? FirebaseAuth.getInstance().getCurrentUser().getUid() : "";
@@ -291,11 +341,9 @@ public class ContactsActivity extends AppCompatActivity {
                 roomUsers.add(u);
             }
             runOnUiThread(() -> {
-                if (allContacts.isEmpty()) {
-                    allContacts.addAll(roomUsers);
-                    filtered.addAll(roomUsers);
-                    adapter.notifyDataSetChanged();
-                    updateEmpty();
+                if (userList.isEmpty()) {
+                    userList.addAll(roomUsers);
+                    rebuildAllContacts();
                 }
             });
         });
@@ -316,12 +364,59 @@ public class ContactsActivity extends AppCompatActivity {
                         fbList.add(u);
                     }
                     if (fbList.isEmpty()) return;
-                    allContacts.clear();
-                    allContacts.addAll(fbList);
-                    filterContacts(etSearch.getText().toString().trim());
+                    userList.clear();
+                    userList.addAll(fbList);
+                    rebuildAllContacts();
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) {}
             });
+        loadGroupsFromFirebase(myUid);
+    }
+
+    /** Loads the groups this user is a member of, so they can also be picked
+     * as a forward destination (mirrors GroupsFragment's load pattern). */
+    private void loadGroupsFromFirebase(String myUid) {
+        FirebaseUtils.getUserGroupsRef(myUid)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    if (!snap.hasChildren()) return;
+                    List<Group> fetched = new ArrayList<>();
+                    final int[] pending = {(int) snap.getChildrenCount()};
+                    for (DataSnapshot gSnap : snap.getChildren()) {
+                        String gid = gSnap.getKey();
+                        FirebaseUtils.getGroupsRef().child(gid)
+                            .addListenerForSingleValueEvent(new ValueEventListener() {
+                                @Override public void onDataChange(@NonNull DataSnapshot ds) {
+                                    Group g = ds.getValue(Group.class);
+                                    if (g != null) {
+                                        if (g.id == null) g.id = ds.getKey();
+                                        fetched.add(g);
+                                    }
+                                    if (--pending[0] == 0) {
+                                        groupList.clear();
+                                        groupList.addAll(fetched);
+                                        rebuildAllContacts();
+                                    }
+                                }
+                                @Override public void onCancelled(@NonNull DatabaseError e) {
+                                    if (--pending[0] == 0) {
+                                        groupList.clear();
+                                        groupList.addAll(fetched);
+                                        rebuildAllContacts();
+                                    }
+                                }
+                            });
+                    }
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) {}
+            });
+    }
+
+    private void rebuildAllContacts() {
+        allContacts.clear();
+        allContacts.addAll(userList);
+        allContacts.addAll(groupList);
+        filterContacts(etSearch.getText().toString().trim());
     }
 
     private void filterContacts(String query) {
@@ -330,10 +425,12 @@ public class ContactsActivity extends AppCompatActivity {
             filtered.addAll(allContacts);
         } else {
             String lq = query.toLowerCase(java.util.Locale.getDefault());
-            for (User u : allContacts) {
-                if (u.name != null && u.name.toLowerCase(
+            for (Object t : allContacts) {
+                String name = (t instanceof User) ? ((User) t).name
+                            : (t instanceof Group) ? ((Group) t).name : null;
+                if (name != null && name.toLowerCase(
                         java.util.Locale.getDefault()).contains(lq)) {
-                    filtered.add(u);
+                    filtered.add(t);
                 }
             }
         }
@@ -350,13 +447,13 @@ public class ContactsActivity extends AppCompatActivity {
     private static class ContactsAdapter
             extends RecyclerView.Adapter<ContactsAdapter.VH> {
 
-        interface OnToggle { void on(User u); }
+        interface OnToggle { void on(Object target); }
 
-        private final List<User>  list;
-        private final Set<String> selectedUids;
-        private final OnToggle    cb;
+        private final List<Object> list;
+        private final Set<String>  selectedUids;
+        private final OnToggle     cb;
 
-        ContactsAdapter(List<User> list, Set<String> selectedUids, OnToggle cb) {
+        ContactsAdapter(List<Object> list, Set<String> selectedUids, OnToggle cb) {
             this.list         = list;
             this.selectedUids = selectedUids;
             this.cb           = cb;
@@ -371,10 +468,18 @@ public class ContactsActivity extends AppCompatActivity {
 
         @Override
         public void onBindViewHolder(@NonNull VH h, int pos) {
-            User u = list.get(pos);
-            h.tvName.setText(u.name != null ? u.name : "User");
+            Object t = list.get(pos);
+            boolean isGroup = t instanceof Group;
+            String name      = isGroup ? ((Group) t).name      : ((User) t).name;
+            String avatarUrl = isGroup ? ((Group) t).iconUrl
+                              : (((User) t).thumbUrl != null && !((User) t).thumbUrl.isEmpty()
+                                      ? ((User) t).thumbUrl : ((User) t).photoUrl);
+            String key = keyOf(t);
 
-            boolean selected = selectedUids.contains(u.uid);
+            h.tvName.setText(isGroup ? ("\uD83D\uDC65 " + (name != null ? name : "Group"))
+                                      : (name != null ? name : "User"));
+
+            boolean selected = selectedUids.contains(key);
             h.cbSelect.setChecked(selected);
             // Highlight selected row
             h.itemView.setAlpha(selected ? 1.0f : 0.85f);
@@ -383,20 +488,18 @@ public class ContactsActivity extends AppCompatActivity {
                     : android.R.color.transparent);
 
             // thumbUrl → 100px WebP, fast load in contact list
-            String avatarUrl = (u.thumbUrl != null && !u.thumbUrl.isEmpty())
-                ? u.thumbUrl : u.photoUrl;
             if (avatarUrl != null && !avatarUrl.isEmpty()) {
                 Glide.with(h.ivAvatar.getContext())
                     .load(avatarUrl)
-                    .placeholder(R.drawable.ic_person)
+                    .placeholder(isGroup ? R.drawable.ic_person : R.drawable.ic_person)
                     .circleCrop()
                     .into(h.ivAvatar);
             } else {
                 h.ivAvatar.setImageResource(R.drawable.ic_person);
             }
 
-            h.itemView.setOnClickListener(v -> cb.on(u));
-            h.cbSelect.setOnClickListener(v -> cb.on(u));
+            h.itemView.setOnClickListener(v -> cb.on(t));
+            h.cbSelect.setOnClickListener(v -> cb.on(t));
         }
 
         @Override public int getItemCount() { return list.size(); }

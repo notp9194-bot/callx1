@@ -1060,6 +1060,13 @@ public class MessagePagingAdapter
             }
         }
 
+        // ── Forwarded label ─────────────────────────────────────────────
+        if (h.tvForwarded != null) {
+            boolean fwd = m.forwardedFrom != null && !m.forwardedFrom.isEmpty();
+            h.tvForwarded.setVisibility(fwd ? View.VISIBLE : View.GONE);
+            if (fwd) h.tvForwarded.setText("\u21AA Forwarded from " + m.forwardedFrom);
+        }
+
         // Sender name (group chats)
         if (isGroup && !sent && h.tvSenderName != null) {
             h.tvSenderName.setVisibility(View.VISIBLE);
@@ -2584,6 +2591,8 @@ public class MessagePagingAdapter
         LinearLayout llMediaGroup;
         // ── Quick Forward Button ──
         android.widget.ImageButton btnQuickForward;
+        // ── Forwarded label ("↪ Forwarded from X") ──
+        TextView tvForwarded;
 
         // PERF: the following are for the rarer system-row layouts
         // (status_seen / reel_seen / call_entry). They used to be looked
@@ -2644,6 +2653,7 @@ public class MessagePagingAdapter
             tvListeningBadge  = v.findViewById(R.id.tv_listening_badge);
             llBubble          = v.findViewById(R.id.ll_bubble);
             btnQuickForward   = v.findViewById(R.id.btn_quick_forward);
+            tvForwarded       = v.findViewById(R.id.tv_forwarded);
 
             // System-row layouts (status_seen / reel_seen / call_entry) —
             // these IDs only exist on their respective layouts, so they'll
