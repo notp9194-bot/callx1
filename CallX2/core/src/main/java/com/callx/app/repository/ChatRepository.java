@@ -211,6 +211,8 @@ public class ChatRepository {
         e.forwardedFrom   = m.forwardedFrom;
         e.starred         = m.starred;
         e.pinned          = m.pinned;
+        e.mediaItemsJson  = com.callx.app.utils.MediaItemsJsonUtil.mediaItemsToJson(m.mediaItems);
+        e.caption         = m.caption;
         e.syncedAt        = System.currentTimeMillis();
         return e;
     }

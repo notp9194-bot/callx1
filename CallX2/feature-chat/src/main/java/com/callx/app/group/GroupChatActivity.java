@@ -1070,6 +1070,8 @@ public class GroupChatActivity extends AppCompatActivity
         m.reelShareCaption    = e.reelShareCaption;
         m.reelShareUsername   = e.reelShareUsername;
         m.reelShareOwnerPhoto = e.reelShareOwnerPhoto;
+        m.mediaItems          = com.callx.app.utils.MediaItemsJsonUtil.mediaItemsFromJson(e.mediaItemsJson);
+        m.caption              = e.caption;
         return m;
     }
 
@@ -1113,6 +1115,8 @@ public class GroupChatActivity extends AppCompatActivity
         e.reelShareCaption    = m.reelShareCaption;
         e.reelShareUsername   = m.reelShareUsername;
         e.reelShareOwnerPhoto = m.reelShareOwnerPhoto;
+        e.mediaItemsJson      = com.callx.app.utils.MediaItemsJsonUtil.mediaItemsToJson(m.mediaItems);
+        e.caption              = m.caption;
         return e;
     }
 
