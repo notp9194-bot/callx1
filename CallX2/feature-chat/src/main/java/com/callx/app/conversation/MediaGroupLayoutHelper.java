@@ -90,40 +90,75 @@ public class MediaGroupLayoutHelper {
         container.setClipToOutline(true);
         container.setOutlineProvider(android.view.ViewOutlineProvider.BACKGROUND);
 
+        // The actual grid/rows are built into an inner content holder so the
+        // group caption (if any) can be layered ON TOP of it (WhatsApp-style
+        // gradient overlay at the bottom edge) instead of being stacked as a
+        // separate row underneath — that's why it previously never appeared
+        // to "overlap" the media.
+        LinearLayout content = new LinearLayout(ctx);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setLayoutParams(new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT));
+
         if (total == 1) {
-            buildSingle(ctx, container, items, d, chatId, messageId);
+            buildSingle(ctx, content, items, d, chatId, messageId);
 
         } else if (total == 2) {
-            buildTwoSideBySide(ctx, container, items, d, gapPx, chatId, messageId);
+            buildTwoSideBySide(ctx, content, items, d, gapPx, chatId, messageId);
 
         } else if (total == 3) {
-            buildThree(ctx, container, items, d, gapPx, chatId, messageId);
+            buildThree(ctx, content, items, d, gapPx, chatId, messageId);
 
         } else if (total == 4) {
             // 2×2 grid, fully visible, no overlay needed
-            buildGrid(ctx, container, items, total, d, gapPx, 2, GRID_CELL, chatId, messageId);
+            buildGrid(ctx, content, items, total, d, gapPx, 2, GRID_CELL, chatId, messageId);
 
         } else {
             // 5+ → denser 3×3 grid; last visible cell gets "+N" overlay
             // once there are more than MAX_VISIBLE_3x3 items.
-            buildGrid(ctx, container, items, total, d, gapPx, 3, GRID3_CELL, chatId, messageId);
+            buildGrid(ctx, content, items, total, d, gapPx, 3, GRID3_CELL, chatId, messageId);
         }
 
-        // Optional caption below grid
+        FrameLayout wrapper = new FrameLayout(ctx);
+        wrapper.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
+        wrapper.addView(content);
+
+        // Group caption: gradient scrim + text, pinned to the bottom edge
+        // and OVERLAPPING the media grid (FrameLayout-on-top, not a sibling
+        // row below it).
         if (caption != null && !caption.isEmpty()) {
+            View scrim = new View(ctx);
+            FrameLayout.LayoutParams scrimLp = new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT, dp(40, d));
+            scrimLp.gravity = Gravity.BOTTOM;
+            GradientDrawable grad = new GradientDrawable(
+                    GradientDrawable.Orientation.TOP_BOTTOM,
+                    new int[]{0x00000000, 0xAA000000});
+            scrim.setBackground(grad);
+            scrim.setLayoutParams(scrimLp);
+            wrapper.addView(scrim);
+
             TextView tvCap = new TextView(ctx);
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT);
-            lp.topMargin    = dp(4, d);
-            lp.leftMargin   = dp(6, d);
-            lp.bottomMargin = dp(4, d);
-            tvCap.setLayoutParams(lp);
+            FrameLayout.LayoutParams capLp = new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT);
+            capLp.gravity = Gravity.BOTTOM;
+            capLp.leftMargin   = dp(8, d);
+            capLp.rightMargin  = dp(8, d);
+            capLp.bottomMargin = dp(6, d);
+            tvCap.setLayoutParams(capLp);
             tvCap.setText(caption);
             tvCap.setTextSize(14f);
-            tvCap.setTextColor(0xFFEEEEEE);
-            container.addView(tvCap);
+            tvCap.setTextColor(Color.WHITE);
+            tvCap.setMaxLines(3);
+            tvCap.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            wrapper.addView(tvCap);
         }
+
+        container.addView(wrapper);
     }
 
     // ─── Layout builders ──────────────────────────────────────────────────
@@ -265,6 +300,8 @@ public class MediaGroupLayoutHelper {
         cell.addView(iv);
 
         boolean isVideo = "video".equals(item.get("mediaType"));
+        String itemCaption = safeStr(item.get("caption"));
+        boolean hasItemCaption = !itemCaption.isEmpty() && !showMoreOverlay;
 
         // Video: play-button circle overlay (only when NOT showing +N overlay)
         if (isVideo && !showMoreOverlay) {
@@ -291,16 +328,24 @@ public class MediaGroupLayoutHelper {
             play.setContentDescription("Video, tap to play");
             cell.addView(play);
 
-            // Duration badge (bottom-start)
+            // Duration badge — bottom-start normally, but moved to top-end
+            // when a per-item caption is also showing so the two don't
+            // overlap each other at the bottom of the cell.
             String dur = safeStr(item.get("duration"));
             if (!dur.isEmpty()) {
                 TextView tvDur = new TextView(ctx);
                 FrameLayout.LayoutParams durLp = new FrameLayout.LayoutParams(
                         FrameLayout.LayoutParams.WRAP_CONTENT,
                         FrameLayout.LayoutParams.WRAP_CONTENT);
-                durLp.gravity   = Gravity.BOTTOM | Gravity.START;
-                durLp.leftMargin  = dp(4, d);
-                durLp.bottomMargin = dp(4, d);
+                if (hasItemCaption) {
+                    durLp.gravity    = Gravity.TOP | Gravity.END;
+                    durLp.rightMargin = dp(4, d);
+                    durLp.topMargin   = dp(4, d);
+                } else {
+                    durLp.gravity     = Gravity.BOTTOM | Gravity.START;
+                    durLp.leftMargin  = dp(4, d);
+                    durLp.bottomMargin = dp(4, d);
+                }
                 tvDur.setLayoutParams(durLp);
                 tvDur.setText(dur);
                 tvDur.setTextSize(10f);
@@ -313,6 +358,38 @@ public class MediaGroupLayoutHelper {
                 tvDur.setBackground(durBg);
                 cell.addView(tvDur);
             }
+        }
+
+        // Per-item caption: small gradient strip + text pinned to the
+        // bottom of this individual thumbnail cell (only when not covered
+        // by the "+N" overflow overlay).
+        if (hasItemCaption) {
+            View capScrim = new View(ctx);
+            FrameLayout.LayoutParams capScrimLp = new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT, dp(22, d));
+            capScrimLp.gravity = Gravity.BOTTOM;
+            GradientDrawable capGrad = new GradientDrawable(
+                    GradientDrawable.Orientation.TOP_BOTTOM,
+                    new int[]{0x00000000, 0x99000000});
+            capScrim.setBackground(capGrad);
+            capScrim.setLayoutParams(capScrimLp);
+            cell.addView(capScrim);
+
+            TextView tvItemCap = new TextView(ctx);
+            FrameLayout.LayoutParams capLp = new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT);
+            capLp.gravity = Gravity.BOTTOM;
+            capLp.leftMargin   = dp(4, d);
+            capLp.rightMargin  = dp(4, d);
+            capLp.bottomMargin = dp(2, d);
+            tvItemCap.setLayoutParams(capLp);
+            tvItemCap.setText(itemCaption);
+            tvItemCap.setTextSize(10f);
+            tvItemCap.setTextColor(Color.WHITE);
+            tvItemCap.setMaxLines(1);
+            tvItemCap.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            cell.addView(tvItemCap);
         }
 
         // "+N" overlay (semi-transparent dark + text)
