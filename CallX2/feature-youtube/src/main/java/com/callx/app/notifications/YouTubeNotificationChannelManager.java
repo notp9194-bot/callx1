@@ -1,10 +1,9 @@
 package com.callx.app.notifications;
 
+import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.content.Context;
 import android.os.Build;
-
-import com.callx.app.notifications.NotificationChannelHelper;
 
 /**
  * YouTubeNotificationChannelManager — v3 (Like HUN fix)
@@ -15,9 +14,6 @@ import com.callx.app.notifications.NotificationChannelHelper;
  *
  * Android ek baar registered channel ki importance update nahi karta.
  * Isliye jab bhi importance change karni ho, naya channel ID banana padta hai.
- *
- * Registration logic: NotificationChannelHelper (core) ko delegate karta hai —
- * duplicate channel-creation boilerplate yahan se remove kiya gaya hai.
  */
 public class YouTubeNotificationChannelManager {
 
@@ -34,40 +30,55 @@ public class YouTubeNotificationChannelManager {
             (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
         if (nm == null) return;
 
-        NotificationChannelHelper.registerChannel(nm,
+        // ── Subscriptions ─────────────────────────────────────────────────────
+        NotificationChannel subs = new NotificationChannel(
             CHANNEL_YT_SUBSCRIPTIONS,
             "YouTube — Subscriptions",
-            "New videos from channels you subscribed to",
-            NotificationManager.IMPORTANCE_HIGH,
-            0xFFFF0000);
+            NotificationManager.IMPORTANCE_HIGH);
+        subs.setDescription("New videos from channels you subscribed to");
+        subs.enableVibration(true);
+        subs.setShowBadge(true);
 
-        NotificationChannelHelper.registerChannel(nm,
+        // ── Comments & Replies ────────────────────────────────────────────────
+        NotificationChannel comments = new NotificationChannel(
             CHANNEL_YT_COMMENTS,
             "YouTube — Comments & Replies",
-            "Comments and replies on your videos",
-            NotificationManager.IMPORTANCE_HIGH,
-            0xFFFF0000);
+            NotificationManager.IMPORTANCE_HIGH);
+        comments.setDescription("Comments and replies on your videos");
+        comments.enableVibration(true);
+        comments.setShowBadge(true);
 
-        // v3: IMPORTANCE_HIGH fix (was IMPORTANCE_DEFAULT — HUN nahi ata tha)
-        NotificationChannelHelper.registerChannel(nm,
+        // ── Likes milestone — v3: IMPORTANCE_HIGH ────────────────────────────
+        NotificationChannel likes = new NotificationChannel(
             CHANNEL_YT_LIKES,
             "YouTube — Likes",
-            "Like milestones on your videos",
-            NotificationManager.IMPORTANCE_HIGH,
-            0xFFFF0000);
+            NotificationManager.IMPORTANCE_HIGH);   // was IMPORTANCE_DEFAULT → HUN fix
+        likes.setDescription("Like milestones on your videos");
+        likes.enableVibration(true);
+        likes.setShowBadge(true);
 
-        NotificationChannelHelper.registerChannel(nm,
+        // ── Live streams ──────────────────────────────────────────────────────
+        NotificationChannel live = new NotificationChannel(
             CHANNEL_YT_LIVE,
             "YouTube — Live Streams",
-            "Alerts when channels you follow go live",
-            NotificationManager.IMPORTANCE_HIGH,
-            0xFFFF0000);
+            NotificationManager.IMPORTANCE_HIGH);
+        live.setDescription("Alerts when channels you follow go live");
+        live.enableVibration(true);
+        live.setShowBadge(true);
 
-        NotificationChannelHelper.registerChannel(nm,
+        // ── General ───────────────────────────────────────────────────────────
+        NotificationChannel general = new NotificationChannel(
             CHANNEL_YT_GENERAL,
             "YouTube — General",
-            "Subscriber alerts and general YouTube notifications",
-            NotificationManager.IMPORTANCE_HIGH,
-            0xFFFF0000);
+            NotificationManager.IMPORTANCE_HIGH);
+        general.setDescription("Subscriber alerts and general YouTube notifications");
+        general.enableVibration(true);
+        general.setShowBadge(true);
+
+        nm.createNotificationChannel(subs);
+        nm.createNotificationChannel(comments);
+        nm.createNotificationChannel(likes);
+        nm.createNotificationChannel(live);
+        nm.createNotificationChannel(general);
     }
 }

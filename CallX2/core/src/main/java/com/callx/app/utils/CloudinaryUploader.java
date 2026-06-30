@@ -186,7 +186,7 @@ public class CloudinaryUploader {
                     post(cb, null, null, "Thumbnail compress failed");
                     return;
                 }
-                String thumbUrl = uploadBytes(thumbBytes, "image/webp",
+                String thumbUrl = uploadBytes(ctx, thumbBytes, "image/webp",
                     "thumb.webp", "callx/avatars/thumbs", "image");
                 if (thumbUrl == null) {
                     post(cb, null, null, "Thumbnail upload failed");
@@ -201,7 +201,7 @@ public class CloudinaryUploader {
                     post(cb, null, null, "Full photo compress failed");
                     return;
                 }
-                String photoUrl = uploadBytes(fullBytes, "image/jpeg",
+                String photoUrl = uploadBytes(ctx, fullBytes, "image/jpeg",
                     "photo.jpg", "callx/avatars", "image");
                 if (photoUrl == null) {
                     post(cb, null, null, "Full photo upload failed");
@@ -216,22 +216,10 @@ public class CloudinaryUploader {
         }).start();
     }
 
-    /**
-     * Core byte[] → Cloudinary → secureUrl helper.
-     *
-     * Saare feature modules (reels, x, youtube) is method ko use karein
-     * apna duplicate upload logic remove karke.
-     * Returns null on failure.
-     *
-     * @param bytes        Raw file bytes
-     * @param mime         MIME type (e.g. "image/jpeg", "image/webp", "video/mp4")
-     * @param filename     Filename for multipart field (e.g. "thumb.webp")
-     * @param folder       Cloudinary folder path (e.g. "callx/reels/avatars/thumbs")
-     * @param resourceType "image" | "video" | "raw" | "auto"
-     * @return secureUrl on success, null on failure
-     */
-    public static String uploadBytes(byte[] bytes, String mime, String filename,
-                                     String folder, String resourceType) {
+    /** Internal: byte[] → Cloudinary → secureUrl. Returns null on failure. */
+    private static String uploadBytes(Context ctx, byte[] bytes, String mime,
+                                      String filename, String folder,
+                                      String resourceType) {
         try {
             // Sign
             JSONObject payload = new JSONObject()
