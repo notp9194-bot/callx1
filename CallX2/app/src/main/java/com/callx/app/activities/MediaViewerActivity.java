@@ -23,7 +23,14 @@ import com.callx.app.utils.FirebaseUtils;
 import com.callx.app.utils.MediaCache;
 import com.google.firebase.database.DatabaseReference;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
+
 import java.io.File;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 /**
  * MediaViewerActivity — Full-screen media viewer.
@@ -47,6 +54,11 @@ public class MediaViewerActivity extends AppCompatActivity {
     private boolean uiVisible = true;
     private String sharedUrl;
 
+    // ── Gallery mode (swipeable grouped-media viewer) ────────────────────
+    private GalleryPagerAdapter galleryAdapter;
+    private List<Map<String, Object>> galleryItems;
+    private int galleryActivePos = -1;
+
     // ── Video playback presence (see class doc above) ───────────────────
     private String playbackChatId;
     private String playbackMessageId;
@@ -69,7 +81,6 @@ public class MediaViewerActivity extends AppCompatActivity {
         String url  = getIntent().getStringExtra("url");
         String type = getIntent().getStringExtra("type");
         sharedUrl   = url;
-        if (url == null) { finish(); return; }
 
         // Optional — only present when opened from a chat bubble. Both
         // null is the normal/expected case for other callers (status
@@ -87,6 +98,14 @@ public class MediaViewerActivity extends AppCompatActivity {
         binding.btnMoreOptions.setOnClickListener(v -> {
             // optional: show save/info dialog
         });
+
+        String mediaItemsJson = getIntent().getStringExtra("mediaItemsJson");
+        if (mediaItemsJson != null && !mediaItemsJson.isEmpty()) {
+            setupGalleryMode(mediaItemsJson, getIntent().getIntExtra("startIndex", 0));
+            return;
+        }
+
+        if (url == null) { finish(); return; }
 
         if ("video".equals(type)) {
             binding.player.setVisibility(View.VISIBLE);
@@ -107,6 +126,77 @@ public class MediaViewerActivity extends AppCompatActivity {
             binding.ivFull.setOnViewTapListener((view, x, y) -> toggleUI());
         }
     }
+
+    // ── Gallery mode — swipeable multi-image/video viewer ────────────────
+    private void setupGalleryMode(String json, int startIndex) {
+        galleryItems = parseMediaItems(json);
+        if (galleryItems.isEmpty()) { finish(); return; }
+        int start = Math.max(0, Math.min(startIndex, galleryItems.size() - 1));
+
+        binding.ivFull.setVisibility(View.GONE);
+        binding.player.setVisibility(View.GONE);
+        binding.mediaPager.setVisibility(View.VISIBLE);
+        binding.tvPageCounter.setVisibility(galleryItems.size() > 1 ? View.VISIBLE : View.GONE);
+
+        galleryAdapter = new GalleryPagerAdapter(galleryItems, this::toggleUI);
+        binding.mediaPager.setAdapter(galleryAdapter);
+        binding.mediaPager.setCurrentItem(start, false);
+        updatePageCounter(start);
+        sharedUrl = safeStr(galleryItems.get(start).get("url"));
+
+        binding.mediaPager.registerOnPageChangeCallback(new androidx.viewpager2.widget.ViewPager2.OnPageChangeCallback() {
+            @Override public void onPageSelected(int position) {
+                pauseAllExcept(position);
+                galleryActivePos = position;
+                sharedUrl = safeStr(galleryItems.get(position).get("url"));
+                updatePageCounter(position);
+            }
+        });
+        galleryActivePos = start;
+        // Slight delay so RecyclerView has a bound ViewHolder to play on first open
+        binding.mediaPager.post(() -> pauseAllExcept(start));
+    }
+
+    /** Plays the video on `activePos` (if it's a video page) and pauses every other bound page. */
+    private void pauseAllExcept(int activePos) {
+        androidx.recyclerview.widget.RecyclerView rv =
+                (androidx.recyclerview.widget.RecyclerView) binding.mediaPager.getChildAt(0);
+        if (rv == null) return;
+        for (int i = 0; i < rv.getChildCount(); i++) {
+            android.view.View child = rv.getChildAt(i);
+            androidx.recyclerview.widget.RecyclerView.ViewHolder vh = rv.getChildViewHolder(child);
+            if (vh instanceof GalleryPagerAdapter.PageVH) {
+                GalleryPagerAdapter.PageVH pvh = (GalleryPagerAdapter.PageVH) vh;
+                galleryAdapter.setActive(pvh, pvh.getAdapterPosition() == activePos);
+            }
+        }
+    }
+
+    private void updatePageCounter(int position) {
+        if (galleryItems == null) return;
+        binding.tvPageCounter.setText((position + 1) + " / " + galleryItems.size());
+    }
+
+    private List<Map<String, Object>> parseMediaItems(String json) {
+        List<Map<String, Object>> result = new ArrayList<>();
+        try {
+            JSONArray arr = new JSONArray(json);
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject obj = arr.optJSONObject(i);
+                if (obj == null) continue;
+                Map<String, Object> item = new HashMap<>();
+                java.util.Iterator<String> keys = obj.keys();
+                while (keys.hasNext()) {
+                    String k = keys.next();
+                    item.put(k, obj.opt(k));
+                }
+                result.add(item);
+            }
+        } catch (Exception ignored) {}
+        return result;
+    }
+
+    private static String safeStr(Object o) { return (o instanceof String) ? (String) o : ""; }
 
     // ── Toggle top bar visibility on tap ─────────────────────────
     private void toggleUI() {
@@ -246,6 +336,18 @@ public class MediaViewerActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         if (player != null) { player.release(); player = null; }
+        if (binding != null && binding.mediaPager.getChildCount() > 0
+                && binding.mediaPager.getChildAt(0) instanceof androidx.recyclerview.widget.RecyclerView) {
+            androidx.recyclerview.widget.RecyclerView rv =
+                    (androidx.recyclerview.widget.RecyclerView) binding.mediaPager.getChildAt(0);
+            for (int i = 0; i < rv.getChildCount(); i++) {
+                androidx.recyclerview.widget.RecyclerView.ViewHolder vh =
+                        rv.getChildViewHolder(rv.getChildAt(i));
+                if (vh instanceof GalleryPagerAdapter.PageVH && galleryAdapter != null) {
+                    galleryAdapter.releasePlayer((GalleryPagerAdapter.PageVH) vh);
+                }
+            }
+        }
         // Viewer is closing — clear the "watching…" badge immediately rather
         // than waiting on onDisconnect (that's only the crash/kill safety net).
         publishPlaybackPresence(false);

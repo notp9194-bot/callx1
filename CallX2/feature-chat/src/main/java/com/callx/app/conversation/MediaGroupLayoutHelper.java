@@ -65,7 +65,7 @@ public class MediaGroupLayoutHelper {
         container.setOutlineProvider(android.view.ViewOutlineProvider.BACKGROUND);
 
         if (total == 1) {
-            buildSingle(ctx, container, items.get(0), d);
+            buildSingle(ctx, container, items, d);
 
         } else if (total == 2) {
             buildTwoSideBySide(ctx, container, items, d, gapPx);
@@ -99,8 +99,8 @@ public class MediaGroupLayoutHelper {
 
     /** 1 image: full-width tall card */
     private static void buildSingle(Context ctx, LinearLayout parent,
-                                    Map<String, Object> item, float d) {
-        FrameLayout cell = buildCell(ctx, item, false, 0, d);
+                                    List<Map<String, Object>> items, float d) {
+        FrameLayout cell = buildCell(ctx, items, 0, false, 0, d);
         int w = dp(SINGLE_W, d);
         int h = dp(SINGLE_H, d);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(w, h);
@@ -115,7 +115,7 @@ public class MediaGroupLayoutHelper {
         LinearLayout row = makeHRow(ctx);
         int cell = dp(PAIR_CELL, d);
         for (int i = 0; i < 2; i++) {
-            FrameLayout c = buildCell(ctx, items.get(i), false, 0, d);
+            FrameLayout c = buildCell(ctx, items, i, false, 0, d);
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(cell, cell);
             if (i > 0) lp.leftMargin = gapPx;
             c.setLayoutParams(lp);
@@ -129,7 +129,7 @@ public class MediaGroupLayoutHelper {
                                    List<Map<String, Object>> items,
                                    float d, int gapPx) {
         // Top: single wide image
-        FrameLayout top = buildCell(ctx, items.get(0), false, 0, d);
+        FrameLayout top = buildCell(ctx, items, 0, false, 0, d);
         int tw = dp(THREE_TOP_W, d);
         int th = dp(THREE_TOP_H, d);
         top.setLayoutParams(new LinearLayout.LayoutParams(tw, th));
@@ -145,7 +145,7 @@ public class MediaGroupLayoutHelper {
 
         int bc = dp(THREE_BOT, d);
         for (int i = 1; i <= 2; i++) {
-            FrameLayout c = buildCell(ctx, items.get(i), false, 0, d);
+            FrameLayout c = buildCell(ctx, items, i, false, 0, d);
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(bc, bc);
             if (i > 1) lp.leftMargin = gapPx;
             c.setLayoutParams(lp);
@@ -174,7 +174,7 @@ public class MediaGroupLayoutHelper {
             for (int col = 0; col < 2 && idx < visible; col++, idx++) {
                 boolean isLast     = (idx == visible - 1);
                 boolean showMore   = isLast && remaining > 0;
-                FrameLayout c      = buildCell(ctx, items.get(idx), showMore, remaining, d);
+                FrameLayout c      = buildCell(ctx, items, idx, showMore, remaining, d);
                 LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(gc, gc);
                 if (col > 0) lp.leftMargin = gapPx;
                 c.setLayoutParams(lp);
@@ -186,9 +186,10 @@ public class MediaGroupLayoutHelper {
 
     // ─── Cell builder ─────────────────────────────────────────────────────
 
-    private static FrameLayout buildCell(Context ctx, Map<String, Object> item,
+    private static FrameLayout buildCell(Context ctx, List<Map<String, Object>> allItems, int index,
                                          boolean showMoreOverlay, int remaining,
                                          float d) {
+        Map<String, Object> item = allItems.get(index);
         FrameLayout cell = new FrameLayout(ctx);
         cell.setClipToOutline(true);
         // Rounded corners on each cell (inner clipping)
@@ -290,12 +291,20 @@ public class MediaGroupLayoutHelper {
             cell.addView(tvMore);
         }
 
-        // Click: open MediaViewerActivity
+        // Click → open MediaViewerActivity in swipeable gallery mode,
+        // starting on the tapped image/video, with left/right swipe
+        // across every item in this group (WhatsApp/Instagram-style).
+        final int tapIndex = index;
         cell.setOnClickListener(v -> {
             if (url.isEmpty()) return;
             try {
                 Intent intent = new Intent();
                 intent.setClassName(ctx, "com.callx.app.activities.MediaViewerActivity");
+                intent.putExtra("mediaItemsJson",
+                        com.callx.app.utils.MediaItemsJsonUtil.mediaItemsToJson(allItems));
+                intent.putExtra("startIndex", tapIndex);
+                // Kept for backward compatibility with any code path that
+                // still reads single-item extras before gallery mode kicks in.
                 intent.putExtra("url",      url);
                 intent.putExtra("type",     isVideo ? "video" : "image");
                 intent.putExtra("thumbUrl", !thumbUrl.isEmpty() ? thumbUrl : url);
