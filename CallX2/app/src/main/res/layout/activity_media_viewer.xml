@@ -40,7 +40,8 @@
         android:background="#99000000"
         android:textColor="@color/white"
         android:textSize="13sp"
-        android:visibility="gone"/>
+        android:visibility="gone"
+        android:contentDescription="Page position"/>
 
     <!-- Loading spinner -->
     <ProgressBar
@@ -49,7 +50,8 @@
         android:layout_height="56dp"
         android:layout_gravity="center"
         android:indeterminateTint="@color/white"
-        android:visibility="gone"/>
+        android:visibility="gone"
+        android:contentDescription="Loading"/>
 
     <!-- Top bar — tap image to toggle visibility -->
     <LinearLayout
@@ -78,6 +80,15 @@
             android:layout_weight="1"/>
 
         <ImageButton
+            android:id="@+id/btn_save"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:src="@android:drawable/ic_menu_save"
+            android:tint="@color/white"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Save to gallery"/>
+
+        <ImageButton
             android:id="@+id/btn_share"
             android:layout_width="48dp"
             android:layout_height="48dp"
@@ -93,7 +104,70 @@
             android:src="@drawable/ic_info"
             android:tint="@color/white"
             android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="More"/>
+            android:contentDescription="More options"/>
+    </LinearLayout>
+
+    <!-- #1 fix — selection-mode toolbar: shown instead of ll_top_bar while
+         the user has long-pressed into multi-select mode inside the gallery.
+         Lets them forward/delete/star several images/videos from the group
+         together, instead of only ever acting on one at a time. -->
+    <LinearLayout
+        android:id="@+id/ll_select_toolbar"
+        android:layout_width="match_parent"
+        android:layout_height="64dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp"
+        android:background="#CC000000"
+        android:layout_gravity="top"
+        android:visibility="gone">
+
+        <ImageButton
+            android:id="@+id/btn_select_close"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:src="@drawable/ic_back"
+            android:tint="@color/white"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Cancel selection"/>
+
+        <TextView
+            android:id="@+id/tv_select_count"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:paddingStart="8dp"
+            android:textColor="@color/white"
+            android:textSize="16sp"
+            android:text="1 selected"/>
+
+        <ImageButton
+            android:id="@+id/btn_select_star"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:src="@android:drawable/btn_star_big_off"
+            android:tint="@color/white"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Star selected"/>
+
+        <ImageButton
+            android:id="@+id/btn_select_delete"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:src="@android:drawable/ic_menu_delete"
+            android:tint="@color/white"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Delete selected"/>
+
+        <ImageButton
+            android:id="@+id/btn_select_forward"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:src="@android:drawable/ic_menu_send"
+            android:tint="@color/white"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Forward selected"/>
     </LinearLayout>
 
 </FrameLayout>

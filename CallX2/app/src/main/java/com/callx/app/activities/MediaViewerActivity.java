@@ -109,10 +109,19 @@ public class MediaViewerActivity extends AppCompatActivity {
         // Share button
         binding.btnShare.setOnClickListener(v -> shareMedia(sharedUrl));
 
-        // More options (currently just a placeholder / could open bottom sheet)
-        binding.btnMoreOptions.setOnClickListener(v -> {
-            // optional: show save/info dialog
-        });
+        // #3 fix — Save to gallery (previously only Share was available)
+        binding.btnSave.setOnClickListener(v -> saveCurrentToGallery());
+
+        // #4/#2 fix — More options now opens a real menu (per-item delete/
+        // star/caption-edit for grouped media, or just Save+Share fallback
+        // for single-media mode) instead of being a dead placeholder.
+        binding.btnMoreOptions.setOnClickListener(v -> showMoreOptionsMenu());
+
+        // #1 fix — selection-mode toolbar wiring
+        binding.btnSelectClose.setOnClickListener(v -> exitSelectMode());
+        binding.btnSelectForward.setOnClickListener(v -> forwardSelection());
+        binding.btnSelectDelete.setOnClickListener(v -> deleteSelection());
+        binding.btnSelectStar.setOnClickListener(v -> starSelection());
 
         String mediaItemsJson = getIntent().getStringExtra("mediaItemsJson");
         if (mediaItemsJson != null && !mediaItemsJson.isEmpty()) {
@@ -154,6 +163,8 @@ public class MediaViewerActivity extends AppCompatActivity {
         binding.tvPageCounter.setVisibility(galleryItems.size() > 1 ? View.VISIBLE : View.GONE);
 
         galleryAdapter = new GalleryPagerAdapter(galleryItems, this::toggleUI);
+        galleryAdapter.setLongPressListener(pos -> enterSelectMode(pos));
+        galleryAdapter.setSelectionToggleListener(pos -> updateSelectToolbar());
         binding.mediaPager.setAdapter(galleryAdapter);
         binding.mediaPager.setCurrentItem(start, false);
         updatePageCounter(start);
@@ -222,7 +233,8 @@ public class MediaViewerActivity extends AppCompatActivity {
 
     @Override
     public boolean dispatchTouchEvent(android.view.MotionEvent ev) {
-        if (galleryItems == null || galleryItems.isEmpty()) {
+        if (galleryItems == null || galleryItems.isEmpty()
+                || (galleryAdapter != null && galleryAdapter.isSelectMode())) {
             return super.dispatchTouchEvent(ev);
         }
         switch (ev.getActionMasked()) {
@@ -265,9 +277,11 @@ public class MediaViewerActivity extends AppCompatActivity {
                 vSwipeDragging = false;
                 if (dy <= -thresholdPx) {
                     // Swipe UP → reply, then close.
+                    // #6 fix — quote the SPECIFIC tapped image/video, not
+                    // just the group as a whole.
                     if (replyChatId != null && replyMessageId != null) {
                         com.callx.app.conversation.GalleryReplyBridge
-                                .requestReply(replyChatId, replyMessageId);
+                                .requestReply(replyChatId, replyMessageId, galleryActivePos);
                     }
                     finish();
                     overridePendingTransition(0, 0);
@@ -288,10 +302,232 @@ public class MediaViewerActivity extends AppCompatActivity {
         }
     }
 
+    @Override
+    public void onBackPressed() {
+        if (galleryAdapter != null && galleryAdapter.isSelectMode()) {
+            exitSelectMode();
+            return;
+        }
+        super.onBackPressed();
+    }
+
     private static int dp(android.content.Context ctx, int dp) {
         return Math.round(dp * ctx.getResources().getDisplayMetrics().density);
     }
 
+
+    // ── #1 — Multi-select / forward from gallery ─────────────────────────
+    private void enterSelectMode(int startPos) {
+        if (galleryAdapter == null) return;
+        galleryAdapter.setSelectMode(true);
+        galleryAdapter.toggleSelected(startPos);
+        binding.llTopBar.setVisibility(View.GONE);
+        binding.llSelectToolbar.setVisibility(View.VISIBLE);
+        updateSelectToolbar();
+    }
+
+    private void exitSelectMode() {
+        if (galleryAdapter == null) return;
+        galleryAdapter.setSelectMode(false);
+        binding.llSelectToolbar.setVisibility(View.GONE);
+        binding.llTopBar.setVisibility(View.VISIBLE);
+    }
+
+    private void updateSelectToolbar() {
+        if (galleryAdapter == null) return;
+        int count = galleryAdapter.getSelectedCount();
+        if (count == 0) { exitSelectMode(); return; }
+        binding.tvSelectCount.setText(count + " selected");
+    }
+
+    private void forwardSelection() {
+        if (galleryAdapter == null || replyChatId == null || replyMessageId == null) {
+            android.widget.Toast.makeText(this, "Can't forward — not opened from a chat", android.widget.Toast.LENGTH_SHORT).show();
+            return;
+        }
+        java.util.List<Integer> selected = galleryAdapter.getSelectedPositions();
+        com.callx.app.conversation.GalleryForwardBridge.requestForward(replyChatId, replyMessageId, selected);
+        exitSelectMode();
+        finish();
+        overridePendingTransition(0, 0);
+    }
+
+    private void deleteSelection() {
+        if (galleryAdapter == null || replyChatId == null || replyMessageId == null) return;
+        java.util.List<Integer> selected = new ArrayList<>(galleryAdapter.getSelectedPositions());
+        if (selected.isEmpty()) return;
+        new android.app.AlertDialog.Builder(this)
+                .setTitle(selected.size() == 1 ? "Delete this item?" : "Delete " + selected.size() + " items?")
+                .setMessage("This can't be undone.")
+                .setPositiveButton("Delete", (d, w) -> {
+                    // Highest index first so earlier indices stay valid as
+                    // each delete request is queued (bridge is one-shot, so
+                    // queue them with small delays — same pattern used for
+                    // multi-forward sends elsewhere in this codebase).
+                    java.util.Collections.sort(selected, java.util.Collections.reverseOrder());
+                    for (int idx = 0; idx < selected.size(); idx++) {
+                        final int pos = selected.get(idx);
+                        binding.getRoot().postDelayed(() ->
+                            com.callx.app.conversation.GalleryItemActionBridge.request(
+                                replyChatId, replyMessageId, pos,
+                                com.callx.app.conversation.GalleryItemActionBridge.ACTION_DELETE_ITEM, null),
+                            idx * 50L);
+                    }
+                    exitSelectMode();
+                    finish();
+                    overridePendingTransition(0, 0);
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    private void starSelection() {
+        if (galleryAdapter == null || replyChatId == null || replyMessageId == null) return;
+        java.util.List<Integer> selected = galleryAdapter.getSelectedPositions();
+        for (int idx = 0; idx < selected.size(); idx++) {
+            final int pos = selected.get(idx);
+            binding.getRoot().postDelayed(() ->
+                com.callx.app.conversation.GalleryItemActionBridge.request(
+                    replyChatId, replyMessageId, pos,
+                    com.callx.app.conversation.GalleryItemActionBridge.ACTION_STAR_ITEM, null),
+                idx * 50L);
+        }
+        android.widget.Toast.makeText(this, "Starred", android.widget.Toast.LENGTH_SHORT).show();
+        exitSelectMode();
+    }
+
+    // ── #4/#2 — single-item more-options menu (delete / star / edit caption) ─
+    private void showMoreOptionsMenu() {
+        boolean isGalleryMode = galleryItems != null && !galleryItems.isEmpty();
+        java.util.List<String> labels = new ArrayList<>();
+        labels.add("Save to gallery");
+        labels.add("Share");
+        if (isGalleryMode && replyChatId != null && replyMessageId != null) {
+            labels.add("Select multiple");
+            labels.add("Remove this item from group");
+            labels.add("Star this item");
+            labels.add("Edit caption for this item");
+        }
+        new android.app.AlertDialog.Builder(this)
+                .setItems(labels.toArray(new String[0]), (d, which) -> {
+                    String chosen = labels.get(which);
+                    switch (chosen) {
+                        case "Save to gallery": saveCurrentToGallery(); break;
+                        case "Share": shareMedia(sharedUrl); break;
+                        case "Select multiple": enterSelectMode(galleryActivePos); break;
+                        case "Remove this item from group": deleteSingleActiveItem(); break;
+                        case "Star this item": starSingleActiveItem(); break;
+                        case "Edit caption for this item": editCaptionForActiveItem(); break;
+                        default: break;
+                    }
+                })
+                .show();
+    }
+
+    private void deleteSingleActiveItem() {
+        if (galleryActivePos < 0 || replyChatId == null || replyMessageId == null) return;
+        new android.app.AlertDialog.Builder(this)
+                .setTitle("Delete this item?")
+                .setMessage("This can't be undone.")
+                .setPositiveButton("Delete", (d, w) -> {
+                    com.callx.app.conversation.GalleryItemActionBridge.request(
+                            replyChatId, replyMessageId, galleryActivePos,
+                            com.callx.app.conversation.GalleryItemActionBridge.ACTION_DELETE_ITEM, null);
+                    finish();
+                    overridePendingTransition(0, 0);
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    private void starSingleActiveItem() {
+        if (galleryActivePos < 0 || replyChatId == null || replyMessageId == null) return;
+        com.callx.app.conversation.GalleryItemActionBridge.request(
+                replyChatId, replyMessageId, galleryActivePos,
+                com.callx.app.conversation.GalleryItemActionBridge.ACTION_STAR_ITEM, null);
+        android.widget.Toast.makeText(this, "Starred", android.widget.Toast.LENGTH_SHORT).show();
+    }
+
+    private void editCaptionForActiveItem() {
+        if (galleryActivePos < 0 || replyChatId == null || replyMessageId == null) return;
+        final android.widget.EditText input = new android.widget.EditText(this);
+        Object existing = galleryItems.get(galleryActivePos).get("caption");
+        if (existing instanceof String) input.setText((String) existing);
+        new android.app.AlertDialog.Builder(this)
+                .setTitle("Caption for this photo")
+                .setView(input)
+                .setPositiveButton("Save", (d, w) -> {
+                    String newCaption = input.getText() != null ? input.getText().toString().trim() : "";
+                    com.callx.app.conversation.GalleryItemActionBridge.request(
+                            replyChatId, replyMessageId, galleryActivePos,
+                            com.callx.app.conversation.GalleryItemActionBridge.ACTION_EDIT_CAPTION, newCaption);
+                    // Reflect immediately in this still-open viewer too.
+                    galleryItems.get(galleryActivePos).put("caption", newCaption);
+                    if (galleryAdapter != null) galleryAdapter.notifyItemChanged(galleryActivePos);
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    // ── #3 — Save current media to device gallery ────────────────────────
+    private void saveCurrentToGallery() {
+        if (sharedUrl == null || sharedUrl.isEmpty()) return;
+        boolean isVideo = isGalleryActiveVideo();
+        android.widget.Toast.makeText(this, "Saving…", android.widget.Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            try {
+                File cached = MediaCache.getCached(this, sharedUrl);
+                File source;
+                if (cached != null) {
+                    source = cached;
+                } else {
+                    // Blocking download fallback (off main thread already).
+                    java.io.InputStream in = new java.net.URL(sharedUrl).openStream();
+                    File tmp = File.createTempFile("save_", isVideo ? ".mp4" : ".jpg", getCacheDir());
+                    try (java.io.OutputStream out = new java.io.FileOutputStream(tmp)) {
+                        byte[] buf = new byte[8192];
+                        int n;
+                        while ((n = in.read(buf)) != -1) out.write(buf, 0, n);
+                    }
+                    in.close();
+                    source = tmp;
+                }
+                String displayName = "CallX2_" + System.currentTimeMillis() + (isVideo ? ".mp4" : ".jpg");
+                android.content.ContentValues values = new android.content.ContentValues();
+                values.put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, displayName);
+                values.put(android.provider.MediaStore.MediaColumns.MIME_TYPE, isVideo ? "video/mp4" : "image/jpeg");
+                Uri collection;
+                if (isVideo) {
+                    values.put(android.provider.MediaStore.Video.Media.RELATIVE_PATH, "Movies/CallX2");
+                    collection = android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI;
+                } else {
+                    values.put(android.provider.MediaStore.Images.Media.RELATIVE_PATH, "Pictures/CallX2");
+                    collection = android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI;
+                }
+                Uri dest = getContentResolver().insert(collection, values);
+                if (dest != null) {
+                    try (java.io.InputStream in = new java.io.FileInputStream(source);
+                         java.io.OutputStream out = getContentResolver().openOutputStream(dest)) {
+                        byte[] buf = new byte[8192];
+                        int n;
+                        while ((n = in.read(buf)) != -1) out.write(buf, 0, n);
+                    }
+                    runOnUiThread(() -> android.widget.Toast.makeText(this, "Saved to gallery", android.widget.Toast.LENGTH_SHORT).show());
+                } else {
+                    runOnUiThread(() -> android.widget.Toast.makeText(this, "Save failed", android.widget.Toast.LENGTH_SHORT).show());
+                }
+            } catch (Exception e) {
+                runOnUiThread(() -> android.widget.Toast.makeText(this, "Save failed", android.widget.Toast.LENGTH_SHORT).show());
+            }
+        }).start();
+    }
+
+    private boolean isGalleryActiveVideo() {
+        if (galleryItems != null && galleryActivePos >= 0 && galleryActivePos < galleryItems.size()) {
+            return "video".equals(galleryItems.get(galleryActivePos).get("mediaType"));
+        }
+        return "video".equals(getIntent().getStringExtra("type"));
+    }
 
     private void toggleUI() {
         uiVisible = !uiVisible;

@@ -66,6 +66,8 @@ public class ContactsActivity extends AppCompatActivity {
     private String forwardText;
     private String forwardType;
     private String forwardMedia;
+    private String forwardMediaItemsJson;
+    private String forwardCaption;
     private String forwardFileName;
 
     // ── Reel share forward extras ─────────────────────────────────────────
@@ -101,6 +103,10 @@ public class ContactsActivity extends AppCompatActivity {
         forwardType     = getIntent().getStringExtra("forwardType");
         forwardMedia    = getIntent().getStringExtra("forwardMedia");
         forwardFileName = getIntent().getStringExtra("forwardFileName");
+
+        // ── multi_media group forward (whole group or gallery-selected subset) ──
+        forwardMediaItemsJson = getIntent().getStringExtra("forwardMediaItemsJson");
+        forwardCaption        = getIntent().getStringExtra("forwardCaption");
 
         // ── Reel share card extras ─────────────────────────────────────────
         forwardReelId              = getIntent().getStringExtra("forwardReelId");
@@ -235,6 +241,11 @@ public class ContactsActivity extends AppCompatActivity {
         i.putExtra("forwardType",     forwardType);
         i.putExtra("forwardMedia",    forwardMedia);
         i.putExtra("forwardFileName", forwardFileName);
+        // ── multi_media group forward — whole group or gallery-selected subset ──
+        if (forwardMediaItemsJson != null && !forwardMediaItemsJson.isEmpty()) {
+            i.putExtra("forwardMediaItemsJson", forwardMediaItemsJson);
+            i.putExtra("forwardCaption",        forwardCaption);
+        }
         // ── Reel share card extras — thumbnail + avatar ke liye zaroori ──
         if ("reel_share".equals(forwardType)) {
             if (forwardReelId              != null) i.putExtra("forwardReelId",              forwardReelId);

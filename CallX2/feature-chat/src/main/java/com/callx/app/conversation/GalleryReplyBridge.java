@@ -17,14 +17,26 @@ public final class GalleryReplyBridge {
 
     private static String pendingChatId;
     private static String pendingMessageId;
+    // Which item inside the group was on-screen when the user swiped up to
+    // reply (-1 = unknown/not a grouped-media gallery → reply quotes the
+    // whole message like before).
+    private static int pendingItemIndex = -1;
 
     private GalleryReplyBridge() {}
 
     /** Called by MediaViewerActivity right before finish() on swipe-up. */
     public static synchronized void requestReply(String chatId, String messageId) {
+        requestReply(chatId, messageId, -1);
+    }
+
+    /** Same as above but also records which gallery item was active, so the
+     *  reply preview can quote that specific image/video instead of the
+     *  generic "📷 Photos" group label. */
+    public static synchronized void requestReply(String chatId, String messageId, int itemIndex) {
         if (chatId == null || messageId == null) return;
         pendingChatId = chatId;
         pendingMessageId = messageId;
+        pendingItemIndex = itemIndex;
     }
 
     /**
@@ -40,6 +52,14 @@ public final class GalleryReplyBridge {
         String messageId = pendingMessageId;
         pendingChatId = null;
         pendingMessageId = null;
+        pendingItemIndex = -1;
         return messageId;
+    }
+
+    /** Peeks the item index without clearing anything — call this BEFORE
+     *  consumeIfMatches() if you need both the messageId and the index. */
+    public static synchronized int peekItemIndex(String chatId) {
+        if (chatId == null || pendingChatId == null || !chatId.equals(pendingChatId)) return -1;
+        return pendingItemIndex;
     }
 }

@@ -231,6 +231,12 @@ public class MediaGroupLayoutHelper {
         String url      = safeStr(item.get("url"));
         String thumbUrl = safeStr(item.get("thumbUrl"));
         String loadUrl  = (!thumbUrl.isEmpty()) ? thumbUrl : url;
+        boolean isVideoForDesc = "video".equals(item.get("mediaType"));
+        // #8 fix — accessibility: every cell needs a content description so
+        // TalkBack announces what it is instead of staying silent.
+        cell.setContentDescription((isVideoForDesc ? "Video" : "Photo")
+                + " " + (index + 1) + " of " + allItems.size());
+        iv.setContentDescription(null); // description lives on the cell, not the bare thumbnail
         if (!loadUrl.isEmpty()) {
             Glide.with(ctx)
                     .load(loadUrl)
@@ -265,6 +271,7 @@ public class MediaGroupLayoutHelper {
             play.setLayoutParams(playLp);
             play.setImageResource(android.R.drawable.ic_media_play);
             play.setColorFilter(Color.WHITE);
+            play.setContentDescription("Video, tap to play");
             cell.addView(play);
 
             // Duration badge (bottom-start)
@@ -310,6 +317,7 @@ public class MediaGroupLayoutHelper {
             tvMore.setTextColor(Color.WHITE);
             tvMore.setTextSize(22f);
             tvMore.setTypeface(null, Typeface.BOLD);
+            tvMore.setContentDescription("Plus " + remaining + " more photos and videos");
             cell.addView(tvMore);
         }
 

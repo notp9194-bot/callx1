@@ -241,6 +241,12 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
 
     // ── Reply state ────────────────────────────────────────────────────────
     private Message replyingTo = null;
+    // Set right before startReply() when the reply was triggered by a
+    // swipe-up gesture on a SPECIFIC image/video inside a multi_media
+    // gallery (MediaViewerActivity) — lets the reply-bar preview show that
+    // exact item's thumb/caption instead of the generic group thumb.
+    // -1 = not from gallery / not item-specific.
+    private int pendingReplyItemIndex = -1;
     private ReplyController  replyController;
     private ItemTouchHelper  swipeHelper;
 
@@ -539,10 +545,31 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // handoff — see GalleryReplyBridge for why this can't be a direct
         // call from the viewer.
         if (chatId != null && pagingAdapter != null) {
+            int itemIdx = GalleryReplyBridge.peekItemIndex(chatId);
             String replyMsgId = GalleryReplyBridge.consumeIfMatches(chatId);
             if (replyMsgId != null) {
                 Message rm = pagingAdapter.findMessageById(replyMsgId);
-                if (rm != null) startReply(rm);
+                if (rm != null) startReply(rm, itemIdx);
+            }
+        }
+
+        // Gallery "Forward" (whole group or selected items) handoff.
+        if (chatId != null && pagingAdapter != null) {
+            String[] fwdMsgIdHolder = new String[1];
+            java.util.List<Integer> fwdIndices =
+                    GalleryForwardBridge.consumeIfMatches(chatId, fwdMsgIdHolder);
+            if (fwdIndices != null && fwdMsgIdHolder[0] != null) {
+                Message gm = pagingAdapter.findMessageById(fwdMsgIdHolder[0]);
+                if (gm != null) forwardGalleryMessage(gm, fwdIndices);
+            }
+        }
+
+        // Gallery per-item delete/star/caption-edit handoff.
+        if (chatId != null && pagingAdapter != null) {
+            GalleryItemActionBridge.PendingAction pa = GalleryItemActionBridge.consumeIfMatches(chatId);
+            if (pa != null && pa.messageId != null) {
+                Message gm = pagingAdapter.findMessageById(pa.messageId);
+                if (gm != null) applyGalleryItemAction(gm, pa);
             }
         }
 
@@ -861,7 +888,13 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     }
 
     @Override
-    public void startReply(Message m) {
+    public void startReply(Message m) { startReply(m, -1); }
+
+    /** @param galleryItemIndex which mediaItems[] entry was on-screen when the
+     *  swipe-up happened inside MediaViewerActivity's gallery, or -1 if this
+     *  reply wasn't triggered from there / isn't item-specific. */
+    public void startReply(Message m, int galleryItemIndex) {
+        pendingReplyItemIndex = galleryItemIndex;
         if (replyController != null) {
             replyController.onSwipeReply(m);
         } else {
@@ -874,11 +907,28 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         replyingTo = m;
         if (binding.llReplyBar == null) return;
 
+        // Item-specific gallery reply: if the swipe-up happened on a specific
+        // image/video inside a multi_media group, quote THAT item instead of
+        // the generic group preview. One-shot — consumed and reset here.
+        int itemIndex = pendingReplyItemIndex;
+        pendingReplyItemIndex = -1;
+        java.util.Map<String, Object> galleryItem = null;
+        if (itemIndex >= 0 && "multi_media".equals(m.type)
+                && m.mediaItems != null && itemIndex < m.mediaItems.size()) {
+            galleryItem = m.mediaItems.get(itemIndex);
+        }
+
         String senderName = (currentUid != null && currentUid.equals(m.senderId))
                 ? "You" : (m.senderName != null ? m.senderName : "");
         String preview;
         if (Boolean.TRUE.equals(m.deleted)) {
             preview = "\uD83D\uDEAB  Original message unavailable";
+        } else if (galleryItem != null) {
+            Object itemCaption = galleryItem.get("caption");
+            boolean isVideo = "video".equals(galleryItem.get("mediaType"));
+            preview = (itemCaption instanceof String && !((String) itemCaption).isEmpty())
+                    ? (String) itemCaption
+                    : (isVideo ? "\uD83C\uDFAC Video" : "\uD83D\uDCF7 Photo");
         } else if (m.text != null && !m.text.isEmpty()) {
             preview = m.text;
         } else {
@@ -890,7 +940,12 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
 
         if (binding.ivReplyBarThumb != null) {
             String thumbUrl = null;
-            if ("image".equals(m.type)) thumbUrl = m.mediaUrl;
+            if (galleryItem != null) {
+                Object u  = galleryItem.get("thumbUrl");
+                Object u2 = galleryItem.get("url");
+                thumbUrl = (u instanceof String && !((String) u).isEmpty()) ? (String) u
+                        : (u2 instanceof String ? (String) u2 : null);
+            } else if ("image".equals(m.type)) thumbUrl = m.mediaUrl;
             else if ("video".equals(m.type)) thumbUrl = m.thumbnailUrl;
             if (thumbUrl != null && !thumbUrl.isEmpty()) {
                 binding.ivReplyBarThumb.setVisibility(View.VISIBLE);
@@ -1141,6 +1196,22 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                                : "\uD83D\uDCCE File (forwarded)";
                 pushMessage(m, preview);
             });
+        } else if ("multi_media".equals(fwdType)) {
+            // #1 fix — forwarding a grouped-media message (whole group or a
+            // subset picked in the gallery's select mode) now actually
+            // carries every item across, not just one.
+            String fwdMediaItemsJson = i.getStringExtra("forwardMediaItemsJson");
+            String fwdCaption        = i.getStringExtra("forwardCaption");
+            if (fwdMediaItemsJson != null && !fwdMediaItemsJson.isEmpty()) {
+                binding.getRoot().post(() -> {
+                    Message m = buildOutgoing();
+                    m.type = "multi_media";
+                    m.mediaItems = com.callx.app.utils.MediaItemsJsonUtil.mediaItemsFromJson(fwdMediaItemsJson);
+                    m.caption = fwdCaption;
+                    m.forwardedFrom = partnerName;
+                    pushMessage(m, "\uD83D\uDCF7 Photos (forwarded)");
+                });
+            }
         }
 
         // ── Instagram reel share intent handling ──────────────────────────
@@ -2267,6 +2338,76 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 break;
             }
 
+            case "multi_media": {
+                // #9 fix — grouped/multi-image view-once messages previously
+                // fell through to the generic text/default branch (blank
+                // dialog). Now shown as a simple swipeable ViewPager2 of
+                // every item, same "tap to open, gone on close" contract as
+                // the single image/video cases above.
+                java.util.List<java.util.Map<String, Object>> items = message.mediaItems;
+                if (items != null && !items.isEmpty()) {
+                    int size = (int) (getResources().getDisplayMetrics().widthPixels * 0.75f);
+                    androidx.viewpager2.widget.ViewPager2 pager =
+                            new androidx.viewpager2.widget.ViewPager2(this);
+                    android.widget.LinearLayout.LayoutParams lpPager =
+                            new android.widget.LinearLayout.LayoutParams(size, size);
+                    lpPager.gravity = android.view.Gravity.CENTER;
+                    pager.setLayoutParams(lpPager);
+
+                    pager.setAdapter(new androidx.recyclerview.widget.RecyclerView.Adapter<
+                            androidx.recyclerview.widget.RecyclerView.ViewHolder>() {
+                        @Override public int getItemCount() { return items.size(); }
+                        @androidx.annotation.NonNull @Override
+                        public androidx.recyclerview.widget.RecyclerView.ViewHolder onCreateViewHolder(
+                                @androidx.annotation.NonNull android.view.ViewGroup parent, int viewType) {
+                            android.widget.ImageView iv = new android.widget.ImageView(parent.getContext());
+                            iv.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
+                            iv.setLayoutParams(new android.view.ViewGroup.LayoutParams(
+                                    android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                                    android.view.ViewGroup.LayoutParams.MATCH_PARENT));
+                            return new androidx.recyclerview.widget.RecyclerView.ViewHolder(iv) {};
+                        }
+                        @Override public void onBindViewHolder(
+                                @androidx.annotation.NonNull androidx.recyclerview.widget.RecyclerView.ViewHolder h, int pos) {
+                            Object urlObj = items.get(pos).get("url");
+                            android.widget.ImageView iv = (android.widget.ImageView) h.itemView;
+                            iv.setContentDescription("Photo " + (pos + 1) + " of " + items.size());
+                            if (urlObj instanceof String) {
+                                com.bumptech.glide.Glide.with(iv.getContext())
+                                        .load((String) urlObj)
+                                        .skipMemoryCache(true)
+                                        .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.NONE)
+                                        .into(iv);
+                            }
+                        }
+                    });
+                    container.addView(pager);
+
+                    if (items.size() > 1) {
+                        android.widget.TextView tvCounter = new android.widget.TextView(this);
+                        tvCounter.setTextSize(11f);
+                        tvCounter.setTextColor(0xFF888888);
+                        tvCounter.setGravity(android.view.Gravity.CENTER);
+                        tvCounter.setPadding(0, 6, 0, 0);
+                        tvCounter.setText("1 / " + items.size());
+                        container.addView(tvCounter);
+                        pager.registerOnPageChangeCallback(
+                                new androidx.viewpager2.widget.ViewPager2.OnPageChangeCallback() {
+                                    @Override public void onPageSelected(int position) {
+                                        tvCounter.setText((position + 1) + " / " + items.size());
+                                    }
+                                });
+                    }
+                } else {
+                    android.widget.TextView tvEmpty = new android.widget.TextView(this);
+                    tvEmpty.setText("\uD83D\uDCF7 Photos");
+                    tvEmpty.setTextSize(16f);
+                    tvEmpty.setGravity(android.view.Gravity.CENTER);
+                    container.addView(tvEmpty);
+                }
+                break;
+            }
+
             case "file": {
                 android.widget.TextView tvFile = new android.widget.TextView(this);
                 tvFile.setText("📄  " + (message.fileName != null ? message.fileName : "File"));
@@ -2439,6 +2580,14 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         i.putExtra("forwardType",  m.type != null ? m.type : "text");
         i.putExtra("forwardMedia", m.mediaUrl);
         i.putExtra("forwardFileName", m.fileName);
+        // ── multi_media: pass the full mediaItems group so a tap on
+        // "Forward" (whole group, no quick-forward subset) sends every
+        // image/video together, not just the first one ──
+        if ("multi_media".equals(m.type) && m.mediaItems != null && !m.mediaItems.isEmpty()) {
+            i.putExtra("forwardMediaItemsJson",
+                    com.callx.app.utils.MediaItemsJsonUtil.mediaItemsToJson(m.mediaItems));
+            i.putExtra("forwardCaption", m.caption);
+        }
         // ── reel_share: pass all card fields so forwarded card renders correctly ──
         if ("reel_share".equals(m.type)) {
             i.putExtra("forwardReelId",            m.reelId             != null ? m.reelId             : "");
@@ -2449,6 +2598,93 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             i.putExtra("forwardReelShareOwnerPhoto",m.reelShareOwnerPhoto!= null ? m.reelShareOwnerPhoto: "");
         }
         startActivity(i);
+    }
+
+    /**
+     * Forward called from MediaViewerActivity's gallery selection toolbar
+     * (#1 — select/multi-forward gallery se nahi hota — fixed). If
+     * {@code indices} is empty, the WHOLE group is forwarded (mirrors
+     * forwardMessage()'s multi_media branch); otherwise only the selected
+     * items are bundled into a subset and forwarded.
+     */
+    private void forwardGalleryMessage(Message groupMessage, java.util.List<Integer> indices) {
+        if (groupMessage.mediaItems == null || groupMessage.mediaItems.isEmpty()) return;
+        if (indices == null || indices.isEmpty()) {
+            forwardMessage(groupMessage);
+            return;
+        }
+        java.util.List<java.util.Map<String, Object>> subset = new ArrayList<>();
+        for (Integer idx : indices) {
+            if (idx != null && idx >= 0 && idx < groupMessage.mediaItems.size()) {
+                subset.add(groupMessage.mediaItems.get(idx));
+            }
+        }
+        if (subset.isEmpty()) return;
+        Message subsetMsg = new Message();
+        subsetMsg.type = "multi_media";
+        subsetMsg.mediaItems = subset;
+        subsetMsg.caption = subset.size() == groupMessage.mediaItems.size() ? groupMessage.caption : null;
+        forwardMessage(subsetMsg);
+    }
+
+    /**
+     * Applies a per-item delete/star/caption-edit action requested from the
+     * gallery (#4, #2) by mutating the group's mediaItems list and pushing
+     * the updated array to Firebase. If a delete empties the group entirely,
+     * the whole message is soft-deleted instead of left as an empty bubble.
+     */
+    private void applyGalleryItemAction(Message groupMessage, GalleryItemActionBridge.PendingAction action) {
+        if (groupMessage.mediaItems == null || action.itemIndex < 0
+                || action.itemIndex >= groupMessage.mediaItems.size()) return;
+        String msgId = groupMessage.id != null && !groupMessage.id.isEmpty()
+                ? groupMessage.id : groupMessage.messageId;
+        if (msgId == null || messagesRef == null) return;
+
+        java.util.List<java.util.Map<String, Object>> updated =
+                new ArrayList<>(groupMessage.mediaItems);
+
+        switch (action.action) {
+            case GalleryItemActionBridge.ACTION_DELETE_ITEM: {
+                updated.remove(action.itemIndex);
+                if (updated.isEmpty()) {
+                    // Last item removed — delete the whole message like a
+                    // normal single-media delete (consistent with existing
+                    // confirmDeleteMessage() soft-delete behavior).
+                    messagesRef.child(msgId).child("deleted").setValue(true);
+                    messagesRef.child(msgId).child("text").setValue("");
+                    messagesRef.child(msgId).child("mediaItems").setValue(null);
+                } else {
+                    messagesRef.child(msgId).child("mediaItems").setValue(updated);
+                }
+                Toast.makeText(this, "Photo removed", Toast.LENGTH_SHORT).show();
+                break;
+            }
+            case GalleryItemActionBridge.ACTION_STAR_ITEM:
+            case GalleryItemActionBridge.ACTION_UNSTAR_ITEM: {
+                java.util.Map<String, Object> item =
+                        new java.util.LinkedHashMap<>(updated.get(action.itemIndex));
+                item.put("starred", GalleryItemActionBridge.ACTION_STAR_ITEM.equals(action.action));
+                updated.set(action.itemIndex, item);
+                messagesRef.child(msgId).child("mediaItems").setValue(updated);
+                Toast.makeText(this,
+                        GalleryItemActionBridge.ACTION_STAR_ITEM.equals(action.action) ? "Starred" : "Unstarred",
+                        Toast.LENGTH_SHORT).show();
+                break;
+            }
+            case GalleryItemActionBridge.ACTION_EDIT_CAPTION: {
+                java.util.Map<String, Object> item =
+                        new java.util.LinkedHashMap<>(updated.get(action.itemIndex));
+                if (action.caption == null || action.caption.isEmpty()) {
+                    item.remove("caption");
+                } else {
+                    item.put("caption", action.caption);
+                }
+                updated.set(action.itemIndex, item);
+                messagesRef.child(msgId).child("mediaItems").setValue(updated);
+                break;
+            }
+            default: break;
+        }
     }
 
     private void forwardSelectedMessages() {

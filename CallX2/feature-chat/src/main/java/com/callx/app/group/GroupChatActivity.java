@@ -273,6 +273,27 @@ public class GroupChatActivity extends AppCompatActivity
                 if (rm != null) startReply(rm);
             }
         }
+
+        // #1 fix — gallery "Forward" (whole group or selected items) handoff.
+        if (groupId != null && pagingAdapter != null) {
+            String[] fwdMsgIdHolder = new String[1];
+            java.util.List<Integer> fwdIndices =
+                    com.callx.app.conversation.GalleryForwardBridge.consumeIfMatches(groupId, fwdMsgIdHolder);
+            if (fwdIndices != null && fwdMsgIdHolder[0] != null) {
+                Message gm = pagingAdapter.findMessageById(fwdMsgIdHolder[0]);
+                if (gm != null) forwardGalleryMessage(gm, fwdIndices);
+            }
+        }
+
+        // #4/#2 fix — gallery per-item delete/star/caption-edit handoff.
+        if (groupId != null && pagingAdapter != null) {
+            com.callx.app.conversation.GalleryItemActionBridge.PendingAction pa =
+                    com.callx.app.conversation.GalleryItemActionBridge.consumeIfMatches(groupId);
+            if (pa != null && pa.messageId != null) {
+                Message gm = pagingAdapter.findMessageById(pa.messageId);
+                if (gm != null) applyGalleryItemAction(gm, pa);
+            }
+        }
     }
 
     @Override
@@ -1296,7 +1317,74 @@ public class GroupChatActivity extends AppCompatActivity
         i.putExtra("forwardType",     m.type);
         i.putExtra("forwardMedia",    m.mediaUrl);
         i.putExtra("forwardFileName", m.fileName);
+        if ("multi_media".equals(m.type) && m.mediaItems != null && !m.mediaItems.isEmpty()) {
+            i.putExtra("forwardMediaItemsJson",
+                    com.callx.app.utils.MediaItemsJsonUtil.mediaItemsToJson(m.mediaItems));
+            i.putExtra("forwardCaption", m.caption);
+        }
         startActivity(i);
+    }
+
+    /** #1 fix — forward a whole group or a gallery-selected subset of it. */
+    private void forwardGalleryMessage(Message groupMessage, java.util.List<Integer> indices) {
+        if (groupMessage.mediaItems == null || groupMessage.mediaItems.isEmpty()) return;
+        if (indices == null || indices.isEmpty()) { forwardMessage(groupMessage); return; }
+        java.util.List<java.util.Map<String, Object>> subset = new java.util.ArrayList<>();
+        for (Integer idx : indices) {
+            if (idx != null && idx >= 0 && idx < groupMessage.mediaItems.size()) {
+                subset.add(groupMessage.mediaItems.get(idx));
+            }
+        }
+        if (subset.isEmpty()) return;
+        Message subsetMsg = new Message();
+        subsetMsg.type = "multi_media";
+        subsetMsg.mediaItems = subset;
+        subsetMsg.caption = subset.size() == groupMessage.mediaItems.size() ? groupMessage.caption : null;
+        forwardMessage(subsetMsg);
+    }
+
+    /** #4/#2 fix — apply a per-item delete/star/caption-edit requested from the gallery. */
+    private void applyGalleryItemAction(Message groupMessage, com.callx.app.conversation.GalleryItemActionBridge.PendingAction action) {
+        if (groupMessage.mediaItems == null || action.itemIndex < 0
+                || action.itemIndex >= groupMessage.mediaItems.size()) return;
+        String msgId = groupMessage.id != null && !groupMessage.id.isEmpty()
+                ? groupMessage.id : groupMessage.messageId;
+        if (msgId == null || groupMessagesRef == null) return;
+
+        java.util.List<java.util.Map<String, Object>> updated =
+                new java.util.ArrayList<>(groupMessage.mediaItems);
+
+        switch (action.action) {
+            case com.callx.app.conversation.GalleryItemActionBridge.ACTION_DELETE_ITEM: {
+                updated.remove(action.itemIndex);
+                if (updated.isEmpty()) {
+                    groupMessagesRef.child(msgId).child("deleted").setValue(true);
+                    groupMessagesRef.child(msgId).child("text").setValue("");
+                    groupMessagesRef.child(msgId).child("mediaItems").setValue(null);
+                } else {
+                    groupMessagesRef.child(msgId).child("mediaItems").setValue(updated);
+                }
+                android.widget.Toast.makeText(this, "Photo removed", android.widget.Toast.LENGTH_SHORT).show();
+                break;
+            }
+            case com.callx.app.conversation.GalleryItemActionBridge.ACTION_STAR_ITEM:
+            case com.callx.app.conversation.GalleryItemActionBridge.ACTION_UNSTAR_ITEM: {
+                java.util.Map<String, Object> item = new java.util.LinkedHashMap<>(updated.get(action.itemIndex));
+                item.put("starred", com.callx.app.conversation.GalleryItemActionBridge.ACTION_STAR_ITEM.equals(action.action));
+                updated.set(action.itemIndex, item);
+                groupMessagesRef.child(msgId).child("mediaItems").setValue(updated);
+                break;
+            }
+            case com.callx.app.conversation.GalleryItemActionBridge.ACTION_EDIT_CAPTION: {
+                java.util.Map<String, Object> item = new java.util.LinkedHashMap<>(updated.get(action.itemIndex));
+                if (action.caption == null || action.caption.isEmpty()) item.remove("caption");
+                else item.put("caption", action.caption);
+                updated.set(action.itemIndex, item);
+                groupMessagesRef.child(msgId).child("mediaItems").setValue(updated);
+                break;
+            }
+            default: break;
+        }
     }
 
     private void forwardSelectedMessages() {

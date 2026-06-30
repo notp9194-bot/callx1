@@ -97,6 +97,10 @@ public class ChatViewOnceController {
     public static final String FIELD_MEDIA_URL          = "mediaUrl";
     public static final String FIELD_THUMBNAIL_URL      = "thumbnailUrl";
     public static final String FIELD_VIEW_ONCE_EXPIRES_AT = "viewOnceExpiresAt";
+    // #9 fix — multi_media view-once messages must wipe their mediaItems
+    // array too, otherwise every grouped photo/video stays readable in
+    // Firebase after "deletion" (only mediaUrl/thumbnailUrl were wiped before).
+    public static final String FIELD_MEDIA_ITEMS         = "mediaItems";
 
     // ── Delete delay: give receiver 1 second to register the open visually ─
     private static final long DELETE_DELAY_MS = 1_000L;
@@ -305,6 +309,7 @@ public class ChatViewOnceController {
         updates.put(FIELD_MEDIA_URL,       null);
         updates.put(FIELD_THUMBNAIL_URL,   null);
         updates.put("fileName",            null);
+        updates.put(FIELD_MEDIA_ITEMS,      null);
 
         msgRef.updateChildren(updates, (error, ref) -> {
             if (error != null) {
@@ -344,6 +349,7 @@ public class ChatViewOnceController {
         updates.put(FIELD_MEDIA_URL,       null);
         updates.put(FIELD_THUMBNAIL_URL,   null);
         updates.put("fileName",            null);
+        updates.put(FIELD_MEDIA_ITEMS,      null);
 
         msgRef.updateChildren(updates, (error, ref) -> {
             if (error != null) {
@@ -421,6 +427,7 @@ public class ChatViewOnceController {
         wipe.put(FIELD_MEDIA_URL,     null);        // wipe media
         wipe.put(FIELD_THUMBNAIL_URL, null);        // wipe thumbnail
         wipe.put("fileName",          null);        // wipe file name
+        wipe.put(FIELD_MEDIA_ITEMS,    null);        // wipe grouped media (#9 fix)
 
         msgRef.updateChildren(wipe, (error, ref) -> {
             if (error != null) {

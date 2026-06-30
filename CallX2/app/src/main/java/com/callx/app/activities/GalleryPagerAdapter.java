@@ -35,14 +35,48 @@ import java.util.Map;
 public class GalleryPagerAdapter extends RecyclerView.Adapter<GalleryPagerAdapter.PageVH> {
 
     public interface TapListener { void onTap(); }
+    /** #1 fix — long-press a page to enter multi-select mode (forward/delete/star). */
+    public interface LongPressListener { void onLongPress(int position); }
+    /** Fired when the user taps a page's selection checkbox while already in select mode. */
+    public interface SelectionToggleListener { void onToggle(int position); }
 
     private final List<Map<String, Object>> items;
     private final TapListener tapListener;
+    private LongPressListener longPressListener;
+    private SelectionToggleListener selectionToggleListener;
+
+    private boolean selectMode = false;
+    private final java.util.Set<Integer> selectedPositions = new java.util.HashSet<>();
 
     public GalleryPagerAdapter(List<Map<String, Object>> items, TapListener tapListener) {
         this.items = items;
         this.tapListener = tapListener;
     }
+
+    public void setLongPressListener(LongPressListener l) { this.longPressListener = l; }
+    public void setSelectionToggleListener(SelectionToggleListener l) { this.selectionToggleListener = l; }
+
+    /** #1 — enables/disables the checkbox overlay + tap-to-toggle behavior. */
+    public void setSelectMode(boolean enabled) {
+        if (selectMode == enabled) return;
+        selectMode = enabled;
+        if (!enabled) selectedPositions.clear();
+        notifyDataSetChanged();
+    }
+
+    public boolean isSelectMode() { return selectMode; }
+
+    public void toggleSelected(int position) {
+        if (selectedPositions.contains(position)) selectedPositions.remove(position);
+        else selectedPositions.add(position);
+        notifyItemChanged(position);
+    }
+
+    public java.util.List<Integer> getSelectedPositions() {
+        return new java.util.ArrayList<>(selectedPositions);
+    }
+
+    public int getSelectedCount() { return selectedPositions.size(); }
 
     @NonNull @Override
     public PageVH onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
@@ -73,7 +107,37 @@ public class GalleryPagerAdapter extends RecyclerView.Adapter<GalleryPagerAdapte
         spinner.setVisibility(View.GONE);
         root.addView(spinner);
 
-        return new PageVH(root, photoView, playerView, spinner);
+        // #1 — selection checkbox (top-right), shown only in select mode
+        android.widget.CheckBox checkbox = new android.widget.CheckBox(ctx);
+        FrameLayout.LayoutParams cbLp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        cbLp.gravity = android.view.Gravity.TOP | android.view.Gravity.END;
+        int cbMargin = (int) (12 * ctx.getResources().getDisplayMetrics().density);
+        cbLp.setMargins(0, cbMargin, cbMargin, 0);
+        checkbox.setLayoutParams(cbLp);
+        checkbox.setButtonTintList(android.content.res.ColorStateList.valueOf(0xFFFFFFFF));
+        checkbox.setVisibility(View.GONE);
+        checkbox.setClickable(false); // tap handled by root so the whole page toggles, not just the tiny box
+        root.addView(checkbox);
+
+        // #2 — per-item caption overlay (bottom), shown only when this item
+        // has its own caption distinct from the group-level caption.
+        android.widget.TextView tvCaption = new android.widget.TextView(ctx);
+        FrameLayout.LayoutParams capLp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        capLp.gravity = android.view.Gravity.BOTTOM;
+        capLp.setMargins(0, 0, 0, (int) (64 * ctx.getResources().getDisplayMetrics().density));
+        tvCaption.setLayoutParams(capLp);
+        tvCaption.setTextColor(0xFFFFFFFF);
+        tvCaption.setTextSize(15f);
+        tvCaption.setPadding(
+                (int) (16 * ctx.getResources().getDisplayMetrics().density), (int) (8 * ctx.getResources().getDisplayMetrics().density),
+                (int) (16 * ctx.getResources().getDisplayMetrics().density), (int) (8 * ctx.getResources().getDisplayMetrics().density));
+        tvCaption.setBackgroundColor(0x66000000);
+        tvCaption.setVisibility(View.GONE);
+        root.addView(tvCaption);
+
+        return new PageVH(root, photoView, playerView, spinner, checkbox, tvCaption);
     }
 
     @Override
@@ -83,12 +147,41 @@ public class GalleryPagerAdapter extends RecyclerView.Adapter<GalleryPagerAdapte
         String thumbUrl = safeStr(item.get("thumbUrl"));
         boolean isVideo = "video".equals(item.get("mediaType"));
 
-        h.root.setOnClickListener(v -> { if (tapListener != null) tapListener.onTap(); });
+        // #8 — accessibility content description per page
+        h.root.setContentDescription((isVideo ? "Video" : "Photo") + " " + (position + 1) + " of " + items.size());
+
+        // #1 — selection mode: tap toggles checkbox instead of the normal
+        // tap-to-toggle-toolbar behavior; long-press always enters select mode.
+        h.checkbox.setVisibility(selectMode ? View.VISIBLE : View.GONE);
+        h.checkbox.setChecked(selectedPositions.contains(position));
+
+        h.root.setOnClickListener(v -> {
+            if (selectMode) {
+                toggleSelected(position);
+                if (selectionToggleListener != null) selectionToggleListener.onToggle(position);
+            } else if (tapListener != null) {
+                tapListener.onTap();
+            }
+        });
+        h.root.setOnLongClickListener(v -> {
+            if (longPressListener != null) longPressListener.onLongPress(position);
+            return true;
+        });
+
+        // #2 — per-item caption, falls back to hidden if this item has none
+        Object captionObj = item.get("caption");
+        if (captionObj instanceof String && !((String) captionObj).isEmpty()) {
+            h.tvCaption.setText((String) captionObj);
+            h.tvCaption.setVisibility(View.VISIBLE);
+        } else {
+            h.tvCaption.setVisibility(View.GONE);
+        }
 
         if (isVideo) {
             h.photoView.setVisibility(View.GONE);
             h.playerView.setVisibility(View.VISIBLE);
-            h.playerView.setOnClickListener(v -> { if (tapListener != null) tapListener.onTap(); });
+            h.playerView.setOnClickListener(v -> h.root.callOnClick());
+            h.playerView.setOnLongClickListener(v -> { h.root.performLongClick(); return true; });
             bindVideo(h, url);
         } else {
             h.playerView.setVisibility(View.GONE);
@@ -183,14 +276,19 @@ public class GalleryPagerAdapter extends RecyclerView.Adapter<GalleryPagerAdapte
         final PhotoView photoView;
         final PlayerView playerView;
         final ProgressBar spinner;
+        final android.widget.CheckBox checkbox;
+        final android.widget.TextView tvCaption;
         ExoPlayer player;
 
-        PageVH(FrameLayout root, PhotoView photoView, PlayerView playerView, ProgressBar spinner) {
+        PageVH(FrameLayout root, PhotoView photoView, PlayerView playerView, ProgressBar spinner,
+               android.widget.CheckBox checkbox, android.widget.TextView tvCaption) {
             super(root);
             this.root = root;
             this.photoView = photoView;
             this.playerView = playerView;
             this.spinner = spinner;
+            this.checkbox = checkbox;
+            this.tvCaption = tvCaption;
         }
     }
 }
