@@ -927,14 +927,38 @@ public class MessagePagingAdapter
         }
 
         // ── Theme-aware bubble background ─────────────────────────────────
+        // Instagram/WhatsApp style: image, gif, video, reel_share, and
+        // grouped media (multi_media) are BUBBLELESS — no chat-bubble
+        // background, the media card itself is the visual frame. Mirrors
+        // MessageAdapter's (1:1 chat) existing behavior, which group chat
+        // was missing entirely.
         android.view.View llBubble = h.llBubble;
+        String bMsgType = m.type != null ? m.type : "text";
+        boolean isMediaMsg = "image".equals(bMsgType) || "gif".equals(bMsgType)
+                || "video".equals(bMsgType) || "reel_share".equals(bMsgType)
+                || "multi_media".equals(bMsgType);
         try {
             if (llBubble != null) {
-                boolean hasReply = m.replyToId != null && !m.replyToId.isEmpty();
-                String bType = m.type != null ? m.type : "text";
-                com.callx.app.utils.ChatThemeManager
-                        .get(ctx)
-                        .applyBubble(llBubble, sent, bType, hasReply);
+                if (isMediaMsg) {
+                    llBubble.setBackground(null);
+                    llBubble.setPadding(0, 0, 0, 0);
+                } else {
+                    boolean hasReply = m.replyToId != null && !m.replyToId.isEmpty();
+                    com.callx.app.utils.ChatThemeManager
+                            .get(ctx)
+                            .applyBubble(llBubble, sent, bMsgType, hasReply);
+                }
+            }
+        } catch (Exception ignored) {}
+
+        // Dark scrim pill behind the timestamp/tick footer so it stays
+        // readable when sitting directly on top of a photo/video thumbnail
+        // instead of inside a solid-color bubble.
+        try {
+            android.view.View footer = h.itemView.findViewById(R.id.ll_msg_footer);
+            if (footer != null) {
+                footer.setBackgroundResource(isMediaMsg
+                        ? R.drawable.bg_media_timestamp : 0);
             }
         } catch (Exception ignored) {}
 
