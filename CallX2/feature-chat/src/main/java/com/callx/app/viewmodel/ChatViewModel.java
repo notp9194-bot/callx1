@@ -622,6 +622,8 @@ public class ChatViewModel extends AndroidViewModel {
         e.reelOwnerUid    = m.reelOwnerUid;
         e.isGroup         = m.isGroup;
         e.fontStyle       = m.fontStyle;
+        e.mediaItemsJson  = com.callx.app.utils.MediaItemsJsonUtil.mediaItemsToJson(m.mediaItems);
+        e.caption         = m.caption;
         e.syncedAt        = System.currentTimeMillis();
         return e;
     }

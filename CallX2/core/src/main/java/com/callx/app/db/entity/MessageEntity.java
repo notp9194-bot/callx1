@@ -150,5 +150,12 @@ public class MessageEntity {
      */
     public Long viewOnceExpiresAt;
 
+    // ── Feature: Multi Media (type = "multi_media") ───────────────────────
+    /** JSON array string of mediaItems — see MediaItemsJsonUtil for the
+     *  List<Map<String,Object>> ↔ JSON conversion. Null for non-grouped messages. */
+    public String mediaItemsJson;
+    /** Optional caption attached to a multi_media message. */
+    public String caption;
+
     public MessageEntity() {}
 }

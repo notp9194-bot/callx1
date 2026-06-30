@@ -249,6 +249,8 @@ public class ChatMessageSender {
         e.reelShareCaption    = m.reelShareCaption;
         e.reelShareUsername   = m.reelShareUsername;
         e.reelShareOwnerPhoto = m.reelShareOwnerPhoto;
+        e.mediaItemsJson      = com.callx.app.utils.MediaItemsJsonUtil.mediaItemsToJson(m.mediaItems);
+        e.caption             = m.caption;
         return e;
     }
 }

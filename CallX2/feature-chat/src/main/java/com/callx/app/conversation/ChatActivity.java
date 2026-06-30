@@ -1909,6 +1909,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         m.reelShareCaption    = e.reelShareCaption;
         m.reelShareUsername   = e.reelShareUsername;
         m.reelShareOwnerPhoto = e.reelShareOwnerPhoto;
+        m.mediaItems = com.callx.app.utils.MediaItemsJsonUtil.mediaItemsFromJson(e.mediaItemsJson);
+        m.caption    = e.caption;
         return m;
     }
 
@@ -1940,6 +1942,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         e.reelShareCaption    = m.reelShareCaption;
         e.reelShareUsername   = m.reelShareUsername;
         e.reelShareOwnerPhoto = m.reelShareOwnerPhoto;
+        e.mediaItemsJson = com.callx.app.utils.MediaItemsJsonUtil.mediaItemsToJson(m.mediaItems);
+        e.caption        = m.caption;
         e.syncedAt = System.currentTimeMillis();
         return e;
     }
