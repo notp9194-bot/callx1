@@ -2269,27 +2269,6 @@ public class MessagePagingAdapter
         popup.setElevation(8 * density);
         popupHolder[0] = popup;
 
-        // Position the strip just above the long-pressed bubble, horizontally
-        // centered on it (falls back to just below if there isn't room above).
-        if (anchor != null && anchor.isAttachedToWindow()) {
-            anchor.post(() -> {
-                int[] loc = new int[2];
-                anchor.getLocationOnScreen(loc);
-                strip.measure(
-                        android.view.View.MeasureSpec.makeMeasureSpec(0, android.view.View.MeasureSpec.UNSPECIFIED),
-                        android.view.View.MeasureSpec.makeMeasureSpec(0, android.view.View.MeasureSpec.UNSPECIFIED));
-                int stripW = strip.getMeasuredWidth();
-                int stripH = strip.getMeasuredHeight();
-                int x = loc[0] + (anchor.getWidth() / 2) - (stripW / 2);
-                int gap = (int) (8 * density);
-                int y = loc[1] - stripH - gap;
-                if (y < gap) y = loc[1] + anchor.getHeight() + gap; // not enough room above
-                try {
-                    popup.showAtLocation(anchor, android.view.Gravity.NO_GRAVITY, Math.max(x, 0), y);
-                } catch (Exception ignored) {}
-            });
-        }
-
         // ── Step 2: Action items list (plain AlertDialog, no embedded
         // emoji row — the strip above already covers quick reactions) ──
         boolean isOwnMsg     = currentUid != null && currentUid.equals(m.senderId);
@@ -2340,6 +2319,35 @@ public class MessagePagingAdapter
         // either one (back press, outside tap, item pick) closes both.
         dialog.setOnDismissListener(d -> { if (popup.isShowing()) popup.dismiss(); });
         popup.setOnDismissListener(() -> { if (dialog.isShowing()) dialog.dismiss(); });
+
+        // Position the strip relative to the DIALOG's own box (not the
+        // message bubble) — the dialog is centered by the system and can
+        // land anywhere on screen, so anchoring to the bubble could make
+        // the two overlap. Anchoring to the dialog's decor view guarantees
+        // the strip always sits cleanly above it, both fully usable.
+        dialog.setOnShowListener(d -> {
+            android.view.Window win = dialog.getWindow();
+            if (win == null) return;
+            android.view.View decor = win.getDecorView();
+            decor.post(() -> {
+                try {
+                    int[] loc = new int[2];
+                    decor.getLocationOnScreen(loc);
+                    strip.measure(
+                            android.view.View.MeasureSpec.makeMeasureSpec(0, android.view.View.MeasureSpec.UNSPECIFIED),
+                            android.view.View.MeasureSpec.makeMeasureSpec(0, android.view.View.MeasureSpec.UNSPECIFIED));
+                    int stripW = strip.getMeasuredWidth();
+                    int stripH = strip.getMeasuredHeight();
+                    int screenW = ctx.getResources().getDisplayMetrics().widthPixels;
+                    int gap = (int) (12 * density);
+                    int x = loc[0] + (decor.getWidth() / 2) - (stripW / 2);
+                    x = Math.max(gap, Math.min(x, screenW - stripW - gap));
+                    int y = loc[1] - stripH - gap;
+                    if (y < gap) y = gap; // clamp on-screen if dialog is near the very top
+                    popup.showAtLocation(decor, android.view.Gravity.NO_GRAVITY, x, y);
+                } catch (Exception ignored) {}
+            });
+        });
         dialog.show();
     }
 
