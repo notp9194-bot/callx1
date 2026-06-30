@@ -1182,7 +1182,7 @@ public class MessagePagingAdapter
                         showImageActionSheet(ctx, m, fullUrl, thumbUrl != null ? thumbUrl : fullUrl));
                     // Long-press → normal message action sheet
                     h.ivImage.setOnLongClickListener(v -> {
-                        if (actionListener != null) showActionBottomSheet(ctx, m, v);
+                        if (actionListener != null) showActionBottomSheet(ctx, m);
                         return true;
                     });
                 }
@@ -1195,7 +1195,7 @@ public class MessagePagingAdapter
                     MediaGroupLayoutHelper.populate(ctx, h.llMediaGroup, m.mediaItems, m.caption,
                             chatId, groupMsgId);
                     h.llMediaGroup.setOnLongClickListener(v -> {
-                        if (actionListener != null) showActionBottomSheet(ctx, m, v);
+                        if (actionListener != null) showActionBottomSheet(ctx, m);
                         return true;
                     });
                 } else {
@@ -1740,7 +1740,7 @@ public class MessagePagingAdapter
             if (!multiSelectMode) {
                 enterMultiSelectMode(m);
             } else {
-                if (actionListener != null) showActionBottomSheet(ctx, m, v);
+                if (actionListener != null) showActionBottomSheet(ctx, m);
             }
             return true;
         });
@@ -2195,82 +2195,61 @@ public class MessagePagingAdapter
         return new android.graphics.drawable.RippleDrawable(rippleColor, content, null);
     }
 
-    private void showActionBottomSheet(Context ctx, Message m, android.view.View anchor) {
+    private void showActionBottomSheet(Context ctx, Message m) {
         if (actionListener == null) return;
-        float density = ctx.getResources().getDisplayMetrics().density;
 
-        // ── Step 1: Floating swipeable quick-react strip, positioned ABOVE
-        // the long-pressed bubble (WhatsApp-style) — lives in its own
-        // PopupWindow, not inside the action AlertDialog, so it visually
-        // floats over the message rather than being just a dialog title.
-        final String[] QUICK_EMOJIS = {"\uD83D\uDC4D", "\u2764\uFE0F", "\uD83D\uDE02",
-                                        "\uD83D\uDE2E", "\uD83D\uDE22", "\uD83D\uDE4F", "\uD83D\uDC8B"};
-
-        android.widget.HorizontalScrollView strip = new android.widget.HorizontalScrollView(ctx);
-        strip.setHorizontalScrollBarEnabled(false);
-        android.graphics.drawable.GradientDrawable stripBg = new android.graphics.drawable.GradientDrawable();
-        stripBg.setColor(0xFFFFFFFF);
-        stripBg.setCornerRadius(28 * density);
-        strip.setBackground(stripBg);
-        strip.setElevation(8 * density);
-
+        // ── Step 1: Build emoji reaction row ──────────────────────────
+        String[] QUICK_EMOJIS = {"\u2764\uFE0F", "\uD83D\uDC4D", "\uD83D\uDE02",
+                                  "\uD83D\uDE2E", "\uD83D\uDE22", "\uD83D\uDE21"};
         android.widget.LinearLayout emojiRow = new android.widget.LinearLayout(ctx);
         emojiRow.setOrientation(android.widget.LinearLayout.HORIZONTAL);
-        emojiRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        int hPad = (int) (10 * density), vPad = (int) (8 * density);
+        emojiRow.setGravity(android.view.Gravity.CENTER);
+        int hPad = (int)(8 * ctx.getResources().getDisplayMetrics().density);
+        int vPad = (int)(12 * ctx.getResources().getDisplayMetrics().density);
         emojiRow.setPadding(hPad, vPad, hPad, vPad);
-        strip.addView(emojiRow);
 
-        final android.widget.PopupWindow[] popupHolder = new android.widget.PopupWindow[1];
-        final android.app.AlertDialog[] dialogHolder = new android.app.AlertDialog[1];
+        // Wrap in a container so AlertDialog can host it as a custom title
+        android.widget.LinearLayout wrapper = new android.widget.LinearLayout(ctx);
+        wrapper.setOrientation(android.widget.LinearLayout.VERTICAL);
+        wrapper.addView(emojiRow);
+
+        // Keep a dialog reference so emoji tap can dismiss it
+        final android.app.AlertDialog[] holder = new android.app.AlertDialog[1];
 
         for (String emoji : QUICK_EMOJIS) {
             android.widget.TextView tv = new android.widget.TextView(ctx);
             tv.setText(emoji);
-            tv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 26);
-            int btnPad = (int) (8 * density);
+            tv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 28);
+            int btnPad = (int)(10 * ctx.getResources().getDisplayMetrics().density);
             tv.setPadding(btnPad, btnPad / 2, btnPad, btnPad / 2);
+            // Highlight whichever emoji the current user already reacted with —
+            // tapping it again removes the reaction (see ChatReactionController#toggleReaction).
             boolean already = currentUid != null && m.reactions != null
                     && emoji.equals(m.reactions.get(currentUid));
-            tv.setAlpha(already ? 1.0f : 0.75f);
+            tv.setAlpha(already ? 1.0f : 0.7f);
             tv.setScaleX(already ? 1.25f : 1.0f);
             tv.setScaleY(already ? 1.25f : 1.0f);
             tv.setOnClickListener(v -> {
                 actionListener.onReact(m, emoji);
-                if (popupHolder[0] != null) popupHolder[0].dismiss();
-                if (dialogHolder[0] != null) dialogHolder[0].dismiss();
+                if (holder[0] != null) holder[0].dismiss();
             });
             emojiRow.addView(tv);
         }
 
-        // "+" → full emoji picker (with its own quick strip pinned on top)
+        // FIX [P3-3]: "+" button → full emoji picker dialog (was dead/missing before)
         android.widget.TextView btnMore = new android.widget.TextView(ctx);
         btnMore.setText("+");
-        btnMore.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 20);
+        btnMore.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 22);
         btnMore.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        btnMore.setGravity(android.view.Gravity.CENTER);
-        int morePad = (int) (8 * density);
+        int morePad = (int)(10 * ctx.getResources().getDisplayMetrics().density);
         btnMore.setPadding(morePad, morePad / 2, morePad, morePad / 2);
-        android.graphics.drawable.GradientDrawable plusBg = new android.graphics.drawable.GradientDrawable();
-        plusBg.setShape(android.graphics.drawable.GradientDrawable.OVAL);
-        plusBg.setColor(0xFFEDEDED);
-        btnMore.setBackground(plusBg);
         btnMore.setOnClickListener(v -> {
-            if (popupHolder[0] != null) popupHolder[0].dismiss();
-            if (dialogHolder[0] != null) dialogHolder[0].dismiss();
+            if (holder[0] != null) holder[0].dismiss();
             showFullEmojiPicker(ctx, m);
         });
         emojiRow.addView(btnMore);
 
-        android.widget.PopupWindow popup = new android.widget.PopupWindow(strip,
-                android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
-                android.view.ViewGroup.LayoutParams.WRAP_CONTENT, false);
-        popup.setOutsideTouchable(true);
-        popup.setElevation(8 * density);
-        popupHolder[0] = popup;
-
-        // ── Step 2: Action items list (plain AlertDialog, no embedded
-        // emoji row — the strip above already covers quick reactions) ──
+        // ── Step 2: Build action items list ───────────────────────────
         boolean isOwnMsg     = currentUid != null && currentUid.equals(m.senderId);
         boolean isTextMsg    = m.text != null && !m.text.trim().isEmpty()
                                && (m.type == null || "text".equals(m.type));
@@ -2296,6 +2275,7 @@ public class MessagePagingAdapter
 
         android.app.AlertDialog.Builder builder =
                 new android.app.AlertDialog.Builder(ctx)
+                    .setCustomTitle(wrapper)
                     .setItems(options, (d, which) -> {
                         String choice = options[which];
                         switch (choice) {
@@ -2313,66 +2293,12 @@ public class MessagePagingAdapter
                             case "Delete":  actionListener.onDelete(m);  break;
                         }
                     });
-        android.app.AlertDialog dialog = builder.create();
-        dialogHolder[0] = dialog;
-        // Keep the floating strip and the options list in sync — closing
-        // either one (back press, outside tap, item pick) closes both.
-        dialog.setOnDismissListener(d -> { if (popup.isShowing()) popup.dismiss(); });
-        popup.setOnDismissListener(() -> { if (dialog.isShowing()) dialog.dismiss(); });
-
-        // Position the strip relative to the DIALOG's own box (not the
-        // message bubble) — the dialog is centered by the system and can
-        // land anywhere on screen, so anchoring to the bubble could make
-        // the two overlap. Anchoring to the dialog's decor view guarantees
-        // the strip always sits cleanly above it, both fully usable.
-        dialog.setOnShowListener(d -> {
-            android.view.Window win = dialog.getWindow();
-            if (win == null) return;
-            android.view.View decor = win.getDecorView();
-            decor.post(() -> {
-                try {
-                    int[] loc = new int[2];
-                    decor.getLocationOnScreen(loc);
-                    strip.measure(
-                            android.view.View.MeasureSpec.makeMeasureSpec(0, android.view.View.MeasureSpec.UNSPECIFIED),
-                            android.view.View.MeasureSpec.makeMeasureSpec(0, android.view.View.MeasureSpec.UNSPECIFIED));
-                    int stripW = strip.getMeasuredWidth();
-                    int stripH = strip.getMeasuredHeight();
-                    int screenW = ctx.getResources().getDisplayMetrics().widthPixels;
-                    int gap = (int) (12 * density);
-                    int x = loc[0] + (decor.getWidth() / 2) - (stripW / 2);
-                    x = Math.max(gap, Math.min(x, screenW - stripW - gap));
-                    int y = loc[1] - stripH - gap;
-                    if (y < gap) y = gap; // clamp on-screen if dialog is near the very top
-                    popup.showAtLocation(decor, android.view.Gravity.NO_GRAVITY, x, y);
-                } catch (Exception ignored) {}
-            });
-        });
-        dialog.show();
+        holder[0] = builder.show();
     }
 
-    // FIX [P3-3]: Full emoji picker dialog. Layout is now split into two
-    // clearly separate areas (matches the requested "alert dialog upar,
-    // strip niche" structure):
-    //   1) TOP   — the actual alert-dialog body: 8-column scrollable grid
-    //              of common emojis.
-    //   2) BOTTOM — a separate, fixed footer row holding the swipeable
-    //              quick-react strip (👍❤️😂😮😢🙏💋), visually divided
-    //              from the grid above by a divider line so it doesn't
-    //              feel like part of the same scroll area.
-    // The strip's HorizontalScrollView now calls requestDisallowInterceptTouchEvent
-    // on touch-down so the parent dialog/grid never steals the horizontal
-    // swipe gesture — that was why it felt "not swipable" before.
+    // FIX [P3-3]: Full emoji picker — 8-column scrollable grid of common emojis
     private void showFullEmojiPicker(Context ctx, Message m) {
         if (actionListener == null) return;
-        float density = ctx.getResources().getDisplayMetrics().density;
-
-        android.widget.LinearLayout root = new android.widget.LinearLayout(ctx);
-        root.setOrientation(android.widget.LinearLayout.VERTICAL);
-
-        final android.app.AlertDialog[] holder = new android.app.AlertDialog[1];
-
-        // ── Full grid (this is the "alert dialog" body — stays on top) ─────
         final String[] ALL_EMOJIS = {
             "❤️","👍","😂","😮","😢","😡","🙏","🔥","✅","💯",
             "👏","🤣","😍","😎","🤔","😴","🥳","😅","🤩","🥰",
@@ -2398,64 +2324,10 @@ public class MessagePagingAdapter
             }
         };
         grid.setAdapter(adapter);
-        root.addView(grid);
-
-        // ── Divider — visually separates the dialog's grid body from the
-        // fixed quick-react strip footer below ─────────────────────────────
-        android.view.View divider = new android.view.View(ctx);
-        divider.setBackgroundColor(0xFFE0E0E0);
-        android.widget.LinearLayout.LayoutParams dividerLp = new android.widget.LinearLayout.LayoutParams(
-                android.widget.LinearLayout.LayoutParams.MATCH_PARENT, (int) (1 * density));
-        root.addView(divider, dividerLp);
-
-        // ── Bottom strip — fixed footer, separate from the grid above, with
-        // a genuinely swipeable quick-react row ─────────────────────────────
-        final String[] QUICK_STRIP = {"👍", "❤️", "😂", "😮", "😢", "🙏", "💋"};
-
-        android.widget.HorizontalScrollView quickScroll = new android.widget.HorizontalScrollView(ctx);
-        quickScroll.setHorizontalScrollBarEnabled(false);
-        // FIX: without this, the GridView above (or the dialog's own touch
-        // handling) was stealing the horizontal drag before the strip ever
-        // saw it, so it looked like the strip "couldn't be swiped". Forcing
-        // the parent to back off as soon as a touch lands on the strip fixes it.
-        quickScroll.setOnTouchListener((v, event) -> {
-            v.getParent().requestDisallowInterceptTouchEvent(true);
-            return false;
-        });
-
-        android.widget.LinearLayout quickRow = new android.widget.LinearLayout(ctx);
-        quickRow.setOrientation(android.widget.LinearLayout.HORIZONTAL);
-        quickRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        int rowHPad = (int) (8 * density), rowVPad = (int) (12 * density);
-        quickRow.setPadding(rowHPad, rowVPad, rowHPad, rowVPad);
-
-        for (String emoji : QUICK_STRIP) {
-            android.widget.TextView tv = new android.widget.TextView(ctx);
-            tv.setText(emoji);
-            tv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 28);
-            int btnPad = (int) (10 * density);
-            tv.setPadding(btnPad, btnPad / 2, btnPad, btnPad / 2);
-            boolean already = currentUid != null && m.reactions != null
-                    && emoji.equals(m.reactions.get(currentUid));
-            tv.setAlpha(already ? 1.0f : 0.85f);
-            tv.setScaleX(already ? 1.2f : 1.0f);
-            tv.setScaleY(already ? 1.2f : 1.0f);
-            tv.setOnClickListener(v -> {
-                actionListener.onReact(m, emoji);
-                if (holder[0] != null) holder[0].dismiss();
-            });
-            quickRow.addView(tv);
-        }
-
-        quickScroll.addView(quickRow);
-        root.addView(quickScroll);
-
         android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(ctx)
                 .setTitle("Pick an emoji")
-                .setView(root)
+                .setView(grid)
                 .create();
-        holder[0] = dialog;
-
         grid.setOnItemClickListener((parent, v, pos, id) -> {
             actionListener.onReact(m, ALL_EMOJIS[pos]);
             dialog.dismiss();

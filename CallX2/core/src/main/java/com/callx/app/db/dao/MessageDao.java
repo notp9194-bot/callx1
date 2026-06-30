@@ -63,6 +63,11 @@ public interface MessageDao {
     @Query("SELECT * FROM messages WHERE chatId = :chatId ORDER BY timestamp ASC LIMIT :limit OFFSET :offset")
     List<MessageEntity> getMessagesPaged(String chatId, int limit, int offset);
 
+    /** Export Chat feature: full synchronous fetch of every message in a chat, oldest first. */
+    @WorkerThread
+    @Query("SELECT * FROM messages WHERE chatId = :chatId ORDER BY timestamp ASC")
+    List<MessageEntity> getAllMessagesForExport(String chatId);
+
     /**
      * PERF: used by LastMessagesCache priming — fetches just the most recent
      * `limit` rows but returns them ASC (oldest→newest), matching the order

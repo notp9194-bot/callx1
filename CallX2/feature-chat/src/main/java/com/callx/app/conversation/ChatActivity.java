@@ -75,6 +75,7 @@ import com.callx.app.conversation.controllers.ChatViewOnceController;
 import com.callx.app.conversation.controllers.ChatScreenshotNotifier;
 import com.callx.app.conversation.controllers.ChatSearchController;
 import com.callx.app.conversation.controllers.ChatThemeController;
+import com.callx.app.conversation.controllers.ChatExportController;
 import com.callx.app.db.AppDatabase;
 import com.callx.app.db.entity.MessageEntity;
 import com.callx.app.models.Message;
@@ -293,6 +294,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     private ChatViewOnceController viewOnceController;
     private ChatSearchController   searchController;
     private ChatThemeController    themeController;
+    private ChatExportController   exportController;
     private ChatMediaController    mediaController;
     private ChatMessageSender      messageSender;
     private ChatScreenshotNotifier screenshotNotifier;
@@ -369,6 +371,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
 
         searchController   = new ChatSearchController(this);
         themeController    = new ChatThemeController(this);
+        exportController   = new ChatExportController(this);
         messageSender      = new ChatMessageSender(this);
         screenshotNotifier = new ChatScreenshotNotifier(this);
 
@@ -3151,6 +3154,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         if (id == R.id.action_media_links_docs)      { openAllMediaLinksDocs();                   return true; }
         if (id == R.id.action_security)              { themeController.showChatSecuritySheet();   return true; }
         if (id == R.id.action_chat_privacy)          { themeController.showChatPrivacySheet();    return true; }
+        if (id == R.id.action_export_chat)           { exportController.showExportSheet();        return true; }
         if (id == R.id.action_small_window)          { openSmallWindow();                          return true; }
         return super.onOptionsItemSelected(item);
     }
