@@ -1042,6 +1042,11 @@ public class MainActivity extends AppCompatActivity {
           binding.getRoot().setBackgroundColor(
               visible ? 0xFFF5F6FA : 0xFF000000);
 
+          // Force an explicit relayout so nav_container/appBar visibility
+          // changes are always re-measured immediately (avoids the view
+          // staying visually collapsed after a window inset toggle).
+          binding.getRoot().requestLayout();
+
           // 5. Edge-to-edge immersive mode
           setImmersiveMode(!visible);
       }
@@ -1075,16 +1080,12 @@ public class MainActivity extends AppCompatActivity {
         } else {
             WindowCompat.setDecorFitsSystemWindows(getWindow(), true);
 
-            getWindow().getDecorView().setSystemUiVisibility(
-                    android.view.View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
-
             controller.show(WindowInsetsCompat.Type.statusBars()
                 | WindowInsetsCompat.Type.navigationBars());
             controller.setAppearanceLightStatusBars(true);
             controller.setSystemBarsBehavior(
                 WindowInsetsControllerCompat.BEHAVIOR_DEFAULT);
             getWindow().setStatusBarColor(android.graphics.Color.TRANSPARENT);
-            getWindow().setNavigationBarColor(android.graphics.Color.TRANSPARENT);
         }
     }
 
