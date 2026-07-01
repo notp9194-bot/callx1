@@ -224,6 +224,28 @@
         <activity android:name=".activities.LoginActivityLogActivity" android:exported="false"/>
         <activity android:name=".activities.AppLockActivity" android:exported="false"/>
         <activity android:name=".activities.CacheStatsActivity" android:exported="false"/>
+
+        <!-- ══════════════════════════════════════════════════════════════ -->
+        <!-- ── BROADCAST LIST FEATURE                                     ── -->
+        <!-- ══════════════════════════════════════════════════════════════ -->
+
+        <!-- Main screen — lists all broadcast lists owned by the user -->
+        <activity android:name="com.callx.app.broadcast.BroadcastListsActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
+
+        <!-- Create / edit a broadcast list — pick name + recipients -->
+        <activity android:name="com.callx.app.broadcast.CreateBroadcastActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
+
+        <!-- Send a message to a broadcast list — delivered to all recipients -->
+        <activity android:name="com.callx.app.broadcast.BroadcastChatActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
+
+        <!-- ── END BROADCAST LIST FEATURE ─────────────────────────────── -->
+
         <activity android:name=".activities.ContactsActivity" android:exported="true"
             android:windowSoftInputMode="adjustResize">
             <!-- Handle share intents from other apps (e.g. Instagram reel share) -->

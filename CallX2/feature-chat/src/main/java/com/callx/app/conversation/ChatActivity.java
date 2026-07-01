@@ -162,10 +162,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     /** Feature 1: track active view-once dialog so onPause() can auto-dismiss it. */
     private android.app.AlertDialog activeViewOnceDialog = null;
     private AppDatabase          db;
-    // PERF: 4 threads instead of 2 — chat has concurrent I/O bursts:
-    // DB.getInstance + Room query + Firebase write + image decode can all
-    // land simultaneously on entry. 2 threads caused queuing on older devices.
-    private final Executor       ioExecutor = Executors.newFixedThreadPool(4);
+    private final Executor       ioExecutor = Executors.newFixedThreadPool(2);
 
     // ── Firebase ───────────────────────────────────────────────────────────
     private DatabaseReference  messagesRef;
@@ -595,11 +592,6 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     @Override
     protected void onResume() {
         super.onResume();
-        // TraceSectionMetric("ChatActivity#onResume") — warm-start cost (user
-        // returns from background / another screen). Target: < 50ms.
-        // Unlike onCreate, onResume runs on every foreground transition, so
-        // even a 100ms resume feels janky during app-switch or back-navigation.
-        android.os.Trace.beginSection("ChatActivity#onResume");
         // Re-assert immersive full-screen (system can restore bars after
         // returning from a picker / dialog / app-switch).
         com.callx.app.utils.ImmersiveModeUtils.enterImmersive(this);
@@ -647,7 +639,6 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // the first scroll feels instant — decoded Bitmaps land in Glide's LRU
         // memory cache before the user ever touches the list.
         preloadLastImageMessages();
-        android.os.Trace.endSection(); // ChatActivity#onResume
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -843,49 +834,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         if (scheduledSendController != null) scheduledSendController.release();
         if (viewOnceController != null) viewOnceController.release();
         if (screenshotNotifier != null) screenshotNotifier.release();
-        // PERF: remove all RecyclerView scroll listeners to prevent memory leaks.
-        // Glide preloader + our custom scroll listener both hold a reference to
-        // this Activity — if not removed they keep the Activity alive after destroy.
-        if (binding != null) binding.rvMessages.clearOnScrollListeners();
     }
-
-    // ─────────────────────────────────────────────────────────────────────
-    // MEMORY PRESSURE — production-critical: prevents OOM on budget devices
-    // ─────────────────────────────────────────────────────────────────────
-
-    @Override
-    public void onTrimMemory(int level) {
-        super.onTrimMemory(level);
-        // Android calls this when the system needs RAM. We respond in tiers:
-        //
-        // TRIM_MEMORY_UI_HIDDEN (20): app moved to background — safest place to
-        //   release UI-only caches like PrecomputedText (will be re-computed on
-        //   next resume). Glide clears its own memory cache internally too.
-        //
-        // TRIM_MEMORY_RUNNING_CRITICAL (15) / TRIM_MEMORY_COMPLETE (80):
-        //   System is critically low. Release everything we possibly can.
-        //   Glide's trimMemory() escalates its own release proportionally.
-        //
-        // NOT releasing: Room DB connection — re-creating it costs 200-800ms.
-        // NOT releasing: Firebase listeners — re-registering causes a full reload.
-
-        if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN) {
-            // Release PrecomputedText cache — these are large (~1-4KB each).
-            // They'll be lazily recomputed when the user scrolls again.
-            if (pagingAdapter != null) {
-                pagingAdapter.trimPrecomputedTextCache();
-            }
-        }
-
-        if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL) {
-            // Release Glide memory cache under critical pressure.
-            // Glide re-decodes from disk on next image access (~50ms),
-            // which is acceptable to avoid an OOM crash.
-            com.bumptech.glide.Glide.get(this).trimMemory(level);
-            clearActivePreloadTargets();
-        }
-    }
-
 
     // ─────────────────────────────────────────────────────────────────────
     // ChatActivityDelegate IMPLEMENTATION
@@ -1636,10 +1585,6 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // Default is 2 — increasing to 5 means the next 5 items are inflated
         // during idle time before the user scrolls to them (no stutter).
         llm.setInitialPrefetchItemCount(6);
-        // PERF: when user presses Back, all visible ViewHolders are immediately
-        // returned to the RecycledViewPool instead of being dropped. Re-opening
-        // the same chat re-uses these pooled holders instead of inflating fresh.
-        llm.setRecycleChildrenOnDetach(true);
         binding.rvMessages.setLayoutManager(llm);
         // PERF: setScrollingTouchSlop(TOUCH_SLOP_DEFAULT) — RV defaults to
         // TOUCH_SLOP_PAGING (larger tolerance, designed for ViewPagers).

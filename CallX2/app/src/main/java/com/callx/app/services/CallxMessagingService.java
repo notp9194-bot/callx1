@@ -103,6 +103,17 @@ public class CallxMessagingService extends FirebaseMessagingService {
         }
         // ────────────────────────────────────────────────────────────────────
 
+        // ── Broadcast List notification system ───────────────────────────────
+        // When a broadcast message is delivered to a recipient, they receive a
+        // normal "message" type FCM — handled by showMessage() below.
+        // The "broadcast_message" type is used only for sender-side delivery
+        // confirmations and informational pushes.
+        if ("broadcast_message".equals(data.getOrDefault("type", ""))) {
+            com.callx.app.broadcast.BroadcastFCMHandler.handle(this, data);
+            return;
+        }
+        // ────────────────────────────────────────────────────────────────────
+
         String type = data.getOrDefault("type", "message");
         if ("call".equals(type) || "video_call".equals(type)) {
             showIncomingCall(data, "video_call".equals(type));

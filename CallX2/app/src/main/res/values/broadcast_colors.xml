@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Broadcast feature colors — themed to blend with CallX primary palette -->
+    <color name="broadcast_toolbar">#075E54</color>
+    <color name="broadcast_accent">#25D366</color>
+    <color name="broadcast_bg">#F0F2F5</color>
+    <color name="broadcast_card_bg">#FFFFFF</color>
+    <color name="broadcast_msg_bubble">#DCF8C6</color>
+    <color name="broadcast_input_bg">#FFFFFF</color>
+    <color name="broadcast_text_primary">#111B21</color>
+    <color name="broadcast_text_secondary">#667781</color>
+    <color name="broadcast_icon_tint">#54656F</color>
+    <color name="broadcast_banner_bg">#FFF3CD</color>
+    <color name="broadcast_banner_text">#856404</color>
+    <color name="broadcast_selected_bg">#E8F5E9</color>
+</resources>

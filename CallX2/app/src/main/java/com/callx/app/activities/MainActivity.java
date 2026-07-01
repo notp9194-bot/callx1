@@ -1206,16 +1206,28 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     public boolean onPrepareOptionsMenu(android.view.Menu menu) {
+        int pos = binding.viewPager.getCurrentItem();
         // "Delete All Chats" sirf Chat tab pe visible ho
         android.view.MenuItem deleteAll = menu.findItem(R.id.action_delete_all_chats);
-        if (deleteAll != null)
-            deleteAll.setVisible(binding.viewPager.getCurrentItem() == TAB_CHATS);
+        if (deleteAll != null) deleteAll.setVisible(pos == TAB_CHATS);
+        // "Broadcast List" sirf Chat tab pe visible ho
+        android.view.MenuItem broadcast = menu.findItem(R.id.action_broadcast_list);
+        if (broadcast != null) broadcast.setVisible(pos == TAB_CHATS);
         return super.onPrepareOptionsMenu(menu);
     }
 
     @Override
     public boolean onOptionsItemSelected(android.view.MenuItem item) {
-        if (item.getItemId() == R.id.action_delete_all_chats) {
+        int id = item.getItemId();
+
+        // ── Broadcast List entry point ──────────────────────────────────────
+        if (id == R.id.action_broadcast_list) {
+            startActivity(new Intent(this,
+                com.callx.app.broadcast.BroadcastListsActivity.class));
+            return true;
+        }
+
+        if (id == R.id.action_delete_all_chats) {
             // ChatsFragment ko reflect karo aur confirmDeleteAll() call karo
             try {
                 androidx.fragment.app.Fragment frag =

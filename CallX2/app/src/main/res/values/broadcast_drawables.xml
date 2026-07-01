@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Drawable shape references used by the broadcast feature.
+  These shapes are defined as separate drawable XML files below.
+  This file documents what shapes exist — the actual drawable XML
+  files are in res/drawable/.
+-->
+<resources>
+    <!-- bg_broadcast_avatar : circle background for the 📢 icon in list items -->
+    <!-- bg_send_button      : circular green button background for send -->
+</resources>
