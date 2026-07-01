@@ -14,8 +14,6 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.annotation.NonNull;
 import androidx.core.app.ActivityCompat;
 import androidx.core.view.WindowCompat;
-import androidx.core.view.WindowInsetsCompat;
-import androidx.core.view.WindowInsetsControllerCompat;
 import androidx.viewpager2.widget.ViewPager2;
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.request.RequestOptions;
@@ -118,6 +116,7 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         binding = ActivityMainBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
+        setImmersiveMode();
 
         if (FirebaseAuth.getInstance().getCurrentUser() == null) {
             startActivity(new Intent(this, AuthActivity.class));
@@ -279,6 +278,7 @@ public class MainActivity extends AppCompatActivity {
         boolean isReelsTab = binding.viewPager.getCurrentItem() == TAB_REELS;
         notifyReelsTabVisibility(isReelsTab);
         setMainNavVisible(!isReelsTab);
+        setImmersiveMode();
         // Feature 1: Return to Call Banner
         updateReturnToCallBanner();
     }
@@ -288,10 +288,9 @@ public class MainActivity extends AppCompatActivity {
         super.onWindowFocusChanged(hasFocus);
         // Same fix as chat screens: system bars ka hidden state focus lose
         // hone par (dialog, share sheet, notification shade) reset ho sakta
-        // hai — Reels tab active ho to focus wapas aate hi dobara hide karo.
-        if (hasFocus && binding != null
-                && binding.viewPager.getCurrentItem() == TAB_REELS) {
-            setImmersiveMode(true);
+        // hai — ab har tab pe hi (Reels tak seemit nahi) dobara hide karo.
+        if (hasFocus && binding != null) {
+            setImmersiveMode();
         }
     }
 
@@ -1009,8 +1008,10 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /**
-     * Show or hide the main app header, bottom nav and FAB.
-     * Also toggles full-screen immersive edge-to-edge for the Reels tab.
+     * Show or hide the main app header, bottom nav and FAB (per-tab UI —
+     * Reels hides them, other tabs show them). System status bar / nav bar
+     * stay fully hidden on every tab (see setImmersiveMode(), always called
+     * with true now) — this method no longer toggles that.
      */
     private void setMainNavVisible(boolean visible) {
           int vis = visible ? android.view.View.VISIBLE : android.view.View.GONE;
@@ -1039,46 +1040,19 @@ public class MainActivity extends AppCompatActivity {
           //    behind the video in the status bar area (edge-to-edge fix)
           binding.getRoot().setBackgroundColor(
               visible ? 0xFFF5F6FA : 0xFF000000);
-
-          // 5. Edge-to-edge immersive mode
-          setImmersiveMode(!visible);
       }
 
     /**
-     * Enable or disable full-screen immersive (edge-to-edge) mode.
-     * When enabled (Reels tab) — true full-screen TikTok style:
-     *   - Status bar AND navigation bar are both HIDDEN.
-     *   - User can swipe from top/bottom edge to temporarily reveal them.
-     *   - Content draws behind both bars (edge-to-edge).
-     * When disabled (other tabs), normal system chrome is fully restored.
+     * Full-screen immersive mode — status bar AND nav bar fully HIDDEN,
+     * same clean look as the chat screens, applied on EVERY tab now (not
+     * just Reels). User can still swipe from an edge to reveal a bar
+     * temporarily. Header/bottom-nav visibility (per-tab app UI) is handled
+     * separately by setMainNavVisible().
      */
-    /**
-     * Enable or disable full-screen immersive (edge-to-edge) mode.
-     * When enabled (Reels tab) — true full-screen TikTok style:
-     *   - Status bar AND navigation bar are both fully HIDDEN (same as the
-     *     chat screens now) — no bar, no icons, clean space.
-     *   - User can swipe from top/bottom edge to temporarily reveal them.
-     *   - Content draws behind both bars (edge-to-edge).
-     * When disabled (other tabs), normal system chrome is fully restored.
-     */
-    private void setImmersiveMode(boolean immersive) {
-        if (immersive) {
-            // Same fully-hidden immersive behavior as the chat screens
-            // (ChatActivity / GroupChatActivity) — status bar no longer
-            // stays visible-transparent; it's hidden until the user swipes.
-            com.callx.app.utils.ImmersiveModeUtils.enterImmersive(this);
-        } else {
-            WindowInsetsControllerCompat controller =
-                WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
-            WindowCompat.setDecorFitsSystemWindows(getWindow(), true);
-            controller.show(WindowInsetsCompat.Type.statusBars()
-                | WindowInsetsCompat.Type.navigationBars());
-            controller.setAppearanceLightStatusBars(true);
-            controller.setSystemBarsBehavior(
-                WindowInsetsControllerCompat.BEHAVIOR_DEFAULT);
-            getWindow().setStatusBarColor(android.graphics.Color.TRANSPARENT);
-            getWindow().setNavigationBarColor(android.graphics.Color.TRANSPARENT);
-        }
+    private void setImmersiveMode() {
+        com.callx.app.utils.ImmersiveModeUtils.enterImmersive(this);
+        android.view.View appBar = binding.getRoot().findViewById(R.id.app_bar_layout);
+        com.callx.app.utils.ImmersiveModeUtils.applyTopInsetPadding(appBar);
     }
 
     /**
