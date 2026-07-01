@@ -8,7 +8,7 @@
     android:layout_width="165dp"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:background="@drawable/bg_media_card"
+    
     android:clipToOutline="true"
     android:clickable="true"
     android:focusable="true">

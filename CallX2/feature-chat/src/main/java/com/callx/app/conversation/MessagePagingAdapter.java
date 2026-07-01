@@ -936,8 +936,7 @@ public class MessagePagingAdapter
         String bMsgType = m.type != null ? m.type : "text";
         boolean isMediaMsg = "image".equals(bMsgType) || "gif".equals(bMsgType)
                 || "video".equals(bMsgType) || "reel_share".equals(bMsgType)
-                || "multi_media".equals(bMsgType)
-                || "contact".equals(bMsgType) || "location".equals(bMsgType);
+                || "multi_media".equals(bMsgType);
         try {
             if (llBubble != null) {
                 if (isMediaMsg) {
