@@ -99,7 +99,9 @@ public final class ImmersiveModeUtils {
 
         ViewCompat.setOnApplyWindowInsetsListener(topBar, (v, insets) -> {
             Insets bars = insets.getInsets(WindowInsetsCompat.Type.statusBars());
-            v.setPadding(baseLeft, baseTop + bars.top, baseRight, baseBottom);
+            int maxInsetPx = Math.round(56 * v.getResources().getDisplayMetrics().density);
+            int statusInset = Math.min(bars.top, maxInsetPx);
+            v.setPadding(baseLeft, baseTop + statusInset, baseRight, baseBottom);
             return insets;
         });
         ViewCompat.requestApplyInsets(topBar);
@@ -144,9 +146,16 @@ public final class ImmersiveModeUtils {
 
         ViewCompat.setOnApplyWindowInsetsListener(bottomBar, (v, insets) -> {
             Insets bars = insets.getInsets(WindowInsetsCompat.Type.navigationBars());
+            // SAFETY CLAMP: some OEM ROMs report an abnormally large/buggy
+            // navigationBars() inset under forced edge-to-edge immersive mode
+            // (this is exactly what pushed the bottom nav fully off-screen).
+            // No real device nav bar is taller than ~48dp, so cap at 56dp —
+            // generous, but guarantees the margin can never blow up.
+            int maxInsetPx = Math.round(56 * v.getResources().getDisplayMetrics().density);
+            int navInset = Math.min(bars.bottom, maxInsetPx);
             android.view.ViewGroup.MarginLayoutParams params =
                     (android.view.ViewGroup.MarginLayoutParams) v.getLayoutParams();
-            params.bottomMargin = baseBottomMargin + bars.bottom;
+            params.bottomMargin = baseBottomMargin + navInset;
             v.setLayoutParams(params);
             return insets;
         });
