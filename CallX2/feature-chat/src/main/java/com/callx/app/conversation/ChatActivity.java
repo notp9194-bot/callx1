@@ -317,6 +317,13 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         super.onCreate(savedInstanceState);
         binding = ActivityChatBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
+
+        // Reels-tab jaisa full-screen look: status bar transparent (behind
+        // content) + bottom nav bar hidden the moment chat screen khulti hai.
+        com.callx.app.utils.ImmersiveModeUtils.enterImmersive(this);
+        com.callx.app.utils.ImmersiveModeUtils.applyTopInsetPadding(binding.toolbar);
+        com.callx.app.utils.ImmersiveModeUtils.applyImeBottomPadding(binding.getRoot());
+
         // SKELETON REMOVED (by request): belt-and-suspenders — XML default
         // is now visibility="gone" too, but force it here as well in case
         // any other code path ever flips it back on.
@@ -544,6 +551,9 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     @Override
     protected void onResume() {
         super.onResume();
+        // Re-assert immersive full-screen (system can restore bars after
+        // returning from a picker / dialog / app-switch).
+        com.callx.app.utils.ImmersiveModeUtils.enterImmersive(this);
         // Publish that we currently have THIS chat screen open & foregrounded,
         // so the partner's chat header can show "active in this chat".
         if (presenceController != null) {

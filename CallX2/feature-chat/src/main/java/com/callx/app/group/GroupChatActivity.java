@@ -207,6 +207,13 @@ public class GroupChatActivity extends AppCompatActivity
         super.onCreate(savedInstanceState);
         binding = ActivityChatBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
+
+        // Reels-tab jaisa full-screen look: status bar transparent (behind
+        // content) + bottom nav bar hidden the moment group chat khulti hai.
+        com.callx.app.utils.ImmersiveModeUtils.enterImmersive(this);
+        com.callx.app.utils.ImmersiveModeUtils.applyTopInsetPadding(binding.toolbar);
+        com.callx.app.utils.ImmersiveModeUtils.applyImeBottomPadding(binding.getRoot());
+
         applyScreenTheme();
 
         groupId     = getIntent().getStringExtra("groupId");
@@ -384,6 +391,9 @@ public class GroupChatActivity extends AppCompatActivity
     @Override
     protected void onResume() {
         super.onResume();
+        // Re-assert immersive full-screen (system can restore bars after
+        // returning from a picker / dialog / app-switch).
+        com.callx.app.utils.ImmersiveModeUtils.enterImmersive(this);
         if (watchingController != null) watchingController.setOurInChatScreen(true);
         onTypingStripScreenResumed();
 
