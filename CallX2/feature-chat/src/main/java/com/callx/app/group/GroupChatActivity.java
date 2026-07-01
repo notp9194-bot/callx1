@@ -389,7 +389,6 @@ public class GroupChatActivity extends AppCompatActivity
     }
 
     @Override
-    @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
         if (hasFocus) {

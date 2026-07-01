@@ -549,7 +549,6 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     }
 
     @Override
-    @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
         // System bars ka hide state window focus lose hone par (dialog, share
