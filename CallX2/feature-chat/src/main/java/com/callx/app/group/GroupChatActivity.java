@@ -194,6 +194,9 @@ public class GroupChatActivity extends AppCompatActivity
     private ChatContactShareController  contactShareController;
     private ChatLocationShareController locationShareController;
 
+    // ── Edge-swipe-to-back (left/right screen edge se swipe karke back) ────
+    private com.callx.app.utils.EdgeSwipeBackHelper edgeSwipeBackHelper;
+
     // ── Network monitoring (Task 5) ────────────────────────────────────────
     private ConnectivityManager          connMgr;
     private ConnectivityManager.NetworkCallback netCallback;
@@ -207,6 +210,11 @@ public class GroupChatActivity extends AppCompatActivity
         super.onCreate(savedInstanceState);
         binding = ActivityChatBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
+
+        // Left/right screen-edge se swipe karke back jaane ke liye
+        // (RecyclerView ke andar "swipe to reply" se clash nahi karta —
+        // sirf edge se shuru hone wala swipe hi back trigger karta hai).
+        edgeSwipeBackHelper = new com.callx.app.utils.EdgeSwipeBackHelper(this, binding.getRoot());
 
         // Reels-tab jaisa full-screen look: status bar transparent (behind
         // content) + bottom nav bar hidden the moment group chat khulti hai.
@@ -386,6 +394,17 @@ public class GroupChatActivity extends AppCompatActivity
                 pushMessage(m, preview);
             });
         }
+    }
+
+    @Override
+    public boolean dispatchTouchEvent(android.view.MotionEvent ev) {
+        // Left/right edge se swipe -> back. EdgeSwipeBackHelper sirf edge-zone
+        // se shuru hone wale horizontal swipe ko hi consume karta hai, isliye
+        // normal taps / RecyclerView scroll / swipe-to-reply untouched rehte hain.
+        if (edgeSwipeBackHelper != null && edgeSwipeBackHelper.onDispatchTouchEvent(ev)) {
+            return true;
+        }
+        return super.dispatchTouchEvent(ev);
     }
 
     @Override
