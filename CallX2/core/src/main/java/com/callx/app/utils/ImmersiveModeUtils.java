@@ -77,89 +77,17 @@ public final class ImmersiveModeUtils {
      */
     public static void applyTopInsetPadding(View topBar) {
         if (topBar == null) return;
-        // BUG FIX: setImmersiveMode() runs multiple times per session
-        // (onCreate, onResume, every onWindowFocusChanged regain — dialogs,
-        // notification shade, share sheet all trigger it). Each call used to
-        // re-read the CURRENT padding as "base", which already included the
-        // previous inset — so on devices where the status bar doesn't stay
-        // hidden (MIUI etc.), padding kept stacking higher every focus event.
-        // Fix: capture the true original padding exactly once via a tag.
-        Object baseTag = topBar.getTag();
-        final int baseLeft, baseTop, baseRight, baseBottom;
-        if (baseTag instanceof int[]) {
-            int[] base = (int[]) baseTag;
-            baseLeft = base[0]; baseTop = base[1]; baseRight = base[2]; baseBottom = base[3];
-        } else {
-            baseLeft   = topBar.getPaddingLeft();
-            baseTop    = topBar.getPaddingTop();
-            baseRight  = topBar.getPaddingRight();
-            baseBottom = topBar.getPaddingBottom();
-            topBar.setTag(new int[]{baseLeft, baseTop, baseRight, baseBottom});
-        }
+        final int baseLeft   = topBar.getPaddingLeft();
+        final int baseTop    = topBar.getPaddingTop();
+        final int baseRight  = topBar.getPaddingRight();
+        final int baseBottom = topBar.getPaddingBottom();
 
         ViewCompat.setOnApplyWindowInsetsListener(topBar, (v, insets) -> {
             Insets bars = insets.getInsets(WindowInsetsCompat.Type.statusBars());
-            int maxInsetPx = Math.round(56 * v.getResources().getDisplayMetrics().density);
-            int statusInset = Math.min(bars.top, maxInsetPx);
-            v.setPadding(baseLeft, baseTop + statusInset, baseRight, baseBottom);
+            v.setPadding(baseLeft, baseTop + bars.top, baseRight, baseBottom);
             return insets;
         });
         ViewCompat.requestApplyInsets(topBar);
-    }
-
-    /**
-     * Pushes {@code bottomBar} (e.g. the app's own BottomNavigationView
-     * container) up by the nav-bar inset height using MARGIN (not padding,
-     * since the view has a fixed height and sits flush at the bottom via
-     * gravity). Inset is 0 while our nav bar stays hidden, so this is a
-     * no-op most of the time — but on devices/OEMs where the system nav bar
-     * fails to stay hidden and re-appears, this guarantees our own bottom
-     * nav is pushed up above it instead of being covered/hidden by it.
-     */
-    public static void applyBottomInsetMargin(View bottomBar) {
-        if (bottomBar == null) return;
-        if (!(bottomBar.getLayoutParams() instanceof android.view.ViewGroup.MarginLayoutParams)) return;
-
-        // BUG FIX (root cause of bottom nav disappearing on Chats/Status/
-        // Groups/Calls tabs): setImmersiveMode() is called on onCreate,
-        // onResume AND every onWindowFocusChanged regain (dialogs,
-        // notification shade, share sheet, app switch — all of these).
-        // Previously "baseBottomMargin" was re-read from lp.bottomMargin
-        // EVERY call, which already contained the PREVIOUS inset that was
-        // added last time. On devices where the system nav bar doesn't stay
-        // hidden (MIUI/ColorOS etc. — exactly the OEMs this safety-net was
-        // written for), each focus regain kept stacking the inset on top of
-        // itself: 48 → 96 → 144 → 192... until nav_container was pushed
-        // completely below the visible screen. Fix: capture the TRUE
-        // original XML margin exactly once per view via a tag, so repeated
-        // calls always add the inset on top of the same fixed base.
-        Object baseTag = bottomBar.getTag();
-        final int baseBottomMargin;
-        if (baseTag instanceof Integer) {
-            baseBottomMargin = (Integer) baseTag;
-        } else {
-            android.view.ViewGroup.MarginLayoutParams lp =
-                    (android.view.ViewGroup.MarginLayoutParams) bottomBar.getLayoutParams();
-            baseBottomMargin = lp.bottomMargin;
-            bottomBar.setTag(baseBottomMargin);
-        }
-
-        ViewCompat.setOnApplyWindowInsetsListener(bottomBar, (v, insets) -> {
-            Insets bars = insets.getInsets(WindowInsetsCompat.Type.navigationBars());
-            // SAFETY CLAMP: some OEM ROMs report an abnormally large/buggy
-            // navigationBars() inset under forced edge-to-edge immersive mode
-            // (this is exactly what pushed the bottom nav fully off-screen).
-            // No real device nav bar is taller than ~48dp, so cap at 56dp —
-            // generous, but guarantees the margin can never blow up.
-            int maxInsetPx = Math.round(56 * v.getResources().getDisplayMetrics().density);
-            int navInset = Math.min(bars.bottom, maxInsetPx);
-            android.view.ViewGroup.MarginLayoutParams params =
-                    (android.view.ViewGroup.MarginLayoutParams) v.getLayoutParams();
-            params.bottomMargin = baseBottomMargin + navInset;
-            v.setLayoutParams(params);
-            return insets;
-        });
-        ViewCompat.requestApplyInsets(bottomBar);
     }
 
     /**
