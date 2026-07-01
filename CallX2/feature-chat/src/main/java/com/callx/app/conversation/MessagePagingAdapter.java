@@ -163,12 +163,18 @@ public class MessagePagingAdapter
     // executor threads (write on completion) — all access MUST go through
     // precomputeCacheLock.
     private final Object precomputeCacheLock = new Object();
+    // PERF: 200-entry cache (up from 80) — a production chat has 50-100 visible
+    // messages per page and users fling back-and-forth across 2-3 pages.
+    // 80 entries caused cache thrashing during fast back-scroll: text that just
+    // scrolled off was evicted before the user scrolled back to it.
+    // 200 entries covers ~4 pages with mixed short+long messages.
+    // Each PrecomputedTextCompat entry is ~1-4KB → max ~800KB RAM, acceptable.
     private final java.util.LinkedHashMap<String, PrecomputedTextCompat> precomputedTextCache =
-            new java.util.LinkedHashMap<String, PrecomputedTextCompat>(64, 0.75f, true) {
+            new java.util.LinkedHashMap<String, PrecomputedTextCompat>(128, 0.75f, true) {
                 @Override
                 protected boolean removeEldestEntry(
                         java.util.Map.Entry<String, PrecomputedTextCompat> eldest) {
-                    return size() > 80;
+                    return size() > 200;
                 }
             };
 
@@ -368,6 +374,17 @@ public class MessagePagingAdapter
      * MediaViewerActivity's grouped-media gallery. Returns null if the
      * message has scrolled out of the loaded window or id is null.
      */
+    /**
+     * Called from ChatActivity.onTrimMemory() when Android signals memory pressure.
+     * Clears the PrecomputedText LRU cache so the GC can reclaim ~1-4KB per entry.
+     * Entries are lazily recomputed on the next bind — no visible quality loss.
+     */
+    public void trimPrecomputedTextCache() {
+        synchronized (precomputeCacheLock) {
+            precomputedTextCache.clear();
+        }
+    }
+
     public Message findMessageById(String id) {
         if (id == null || id.isEmpty()) return null;
         androidx.paging.ItemSnapshotList<Message> snapshot = snapshot();
