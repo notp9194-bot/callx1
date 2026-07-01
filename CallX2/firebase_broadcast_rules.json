@@ -1,0 +1,22 @@
+{
+  "rules": {
+    "broadcast_lists": {
+      "$ownerUid": {
+        // Only the owner can read or write their own broadcast lists
+        ".read":  "auth != null && auth.uid === $ownerUid",
+        ".write": "auth != null && auth.uid === $ownerUid"
+      }
+    },
+
+    "broadcast_messages": {
+      "$ownerUid": {
+        // Path: broadcast_messages/{ownerUid}/{listId}/{msgId}
+        // Owner-scoped: auth.uid must equal the node key — no cross-user access possible.
+        // BroadcastDeliveryWorker (on-device, authenticated) writes here for its own UID.
+        // BroadcastChatActivity reads here for the signed-in sender only.
+        ".read":  "auth != null && auth.uid === $ownerUid",
+        ".write": "auth != null && auth.uid === $ownerUid"
+      }
+    }
+  }
+}

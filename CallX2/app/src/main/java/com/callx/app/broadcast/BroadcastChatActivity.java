@@ -32,6 +32,8 @@ import com.google.firebase.database.DataSnapshot;
 import com.google.firebase.database.DatabaseError;
 import com.google.firebase.database.DatabaseReference;
 import com.google.firebase.database.FirebaseDatabase;
+import com.google.firebase.database.MutableData;
+import com.google.firebase.database.Transaction;
 import com.google.firebase.database.ValueEventListener;
 
 import java.text.SimpleDateFormat;
@@ -87,6 +89,7 @@ public class BroadcastChatActivity extends AppCompatActivity {
     private ActivityResultLauncher<String> imagePicker;
     private ActivityResultLauncher<String> videoPicker;
     private ActivityResultLauncher<String> docPicker;
+    private ActivityResultLauncher<String> audioPicker;
     private AlertDialog uploadDialog;
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -126,8 +129,10 @@ public class BroadcastChatActivity extends AppCompatActivity {
         adapter = new BroadcastMsgAdapter(messages, this::onMessageTapped);
         rvMessages.setAdapter(adapter);
 
+        // Path: broadcast_messages/{ownerUid}/{listId} — owner-scoped so Firebase
+        // security rules can enforce auth.uid === ownerUid without ambiguity.
         msgRef  = FirebaseDatabase.getInstance()
-                .getReference("broadcast_messages").child(listId);
+                .getReference("broadcast_messages").child(myUid).child(listId);
         listRef = FirebaseDatabase.getInstance()
                 .getReference("broadcast_lists").child(myUid).child(listId);
 
@@ -157,6 +162,9 @@ public class BroadcastChatActivity extends AppCompatActivity {
         docPicker = registerForActivityResult(
                 new ActivityResultContracts.GetContent(),
                 uri -> { if (uri != null) uploadAndSend(uri, "file", "raw"); });
+        audioPicker = registerForActivityResult(
+                new ActivityResultContracts.GetContent(),
+                uri -> { if (uri != null) uploadAndSend(uri, "audio", "raw"); });
     }
 
     // ── Load recipients list + count subtitle ─────────────────────────────────
@@ -248,14 +256,43 @@ public class BroadcastChatActivity extends AppCompatActivity {
         }
     }
 
+    /**
+     * Atomically marks a recipient as having seen a broadcast message and
+     * increments seenCount. Uses a Firebase Transaction to guarantee:
+     *  - No double-counting if the same recipient triggers the listener twice.
+     *  - No race between parallel seen events from different recipients.
+     */
     private void markSeen(String msgId, String recipientUid) {
-        DatabaseReference m = msgRef.child(msgId);
-        m.child("seenBy").child(recipientUid).setValue(true);
-        m.child("seenBy").addListenerForSingleValueEvent(new ValueEventListener() {
-            @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                m.child("seenCount").setValue((int) snap.getChildrenCount());
+        DatabaseReference msgEntry = msgRef.child(msgId);
+        msgEntry.runTransaction(new Transaction.Handler() {
+            @NonNull
+            @Override
+            public Transaction.Result doTransaction(@NonNull MutableData data) {
+                // Guard: message node must exist before we mutate it.
+                // getValue() == null means the node was deleted or never written.
+                if (data.getValue() == null) {
+                    return Transaction.abort();
+                }
+                // Already recorded — abort to avoid double-counting
+                if (Boolean.TRUE.equals(
+                        data.child("seenBy").child(recipientUid).getValue(Boolean.class))) {
+                    return Transaction.abort();
+                }
+                // Mark recipient seen + increment counter atomically
+                data.child("seenBy").child(recipientUid).setValue(true);
+                Integer current = data.child("seenCount").getValue(Integer.class);
+                data.child("seenCount").setValue(current != null ? current + 1 : 1);
+                return Transaction.success(data);
             }
-            @Override public void onCancelled(@NonNull DatabaseError e) {}
+
+            @Override
+            public void onComplete(DatabaseError error, boolean committed,
+                                   DataSnapshot currentData) {
+                if (error != null) {
+                    android.util.Log.w("BroadcastChat",
+                            "markSeen transaction failed: " + error.getMessage());
+                }
+            }
         });
     }
 
@@ -273,12 +310,13 @@ public class BroadcastChatActivity extends AppCompatActivity {
     private void showAttachOptions() {
         new AlertDialog.Builder(this)
                 .setTitle("Attachment bhejo")
-                .setItems(new CharSequence[]{"📷 Image", "🎥 Video", "📄 Document"},
+                .setItems(new CharSequence[]{"📷 Image", "🎥 Video", "🎤 Audio/Voice", "📄 Document"},
                         (dialog, which) -> {
                             switch (which) {
-                                case 0: imagePicker.launch("image/*"); break;
-                                case 1: videoPicker.launch("video/*"); break;
-                                case 2: docPicker.launch("*/*");       break;
+                                case 0: imagePicker.launch("image/*");  break;
+                                case 1: videoPicker.launch("video/*");  break;
+                                case 2: audioPicker.launch("audio/*");  break;
+                                case 3: docPicker.launch("*/*");        break;
                             }
                         })
                 .show();

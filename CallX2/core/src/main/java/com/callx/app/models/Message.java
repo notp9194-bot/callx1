@@ -104,6 +104,14 @@ public class Message {
     /** True if this message belongs to a group chat */
     public boolean isGroup;
 
+    // ── Broadcast flag ───────────────────────────────────
+    /**
+     * True when this message was delivered to the recipient as part of a
+     * broadcast list (set by BroadcastDeliveryWorker). Recipients see a
+     * 📢 indicator in ChatActivity so they know it is a broadcast.
+     */
+    public Boolean broadcast;
+
     // ── Feature 11: Disappearing Messages ────────────────────────────────
     /**
      * Epoch ms at which this message should auto-delete.

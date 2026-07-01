@@ -111,7 +111,9 @@ public class BroadcastDeliveryWorker extends Worker {
         }
 
         DatabaseReference root    = FirebaseDatabase.getInstance().getReference();
-        DatabaseReference msgRef  = root.child("broadcast_messages").child(listId).child(msgId);
+        // Path: broadcast_messages/{senderId}/{listId}/{msgId} — owner-scoped so
+        // security rules can enforce auth.uid === senderId without listId collision risk.
+        DatabaseReference msgRef  = root.child("broadcast_messages").child(senderId).child(listId).child(msgId);
         DatabaseReference listRef = root.child("broadcast_lists").child(senderId).child(listId);
 
         try {
@@ -221,12 +223,15 @@ public class BroadcastDeliveryWorker extends Worker {
             msgMeta.put("status",         delivered > 0 ? "sent" : "failed");
             msgRef.updateChildren(msgMeta);
 
+            // Merge sentCount increment into the same updateChildren() call so
+            // the counter update is part of one atomic multi-path write, not a
+            // separate setValue() that can be lost on process death.
             Map<String, Object> listUpdate = new HashMap<>();
             listUpdate.put("lastMessage",     "text".equals(type) ? text : getTypeLabel(type));
             listUpdate.put("lastMessageType", type);
             listUpdate.put("lastMessageTime", timestamp);
+            listUpdate.put("sentCount",       ServerValue.increment(1));
             listRef.updateChildren(listUpdate);
-            listRef.child("sentCount").setValue(ServerValue.increment(1));
 
             if (delivered == 0) return Result.failure();
             return Result.success();

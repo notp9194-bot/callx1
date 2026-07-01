@@ -2107,6 +2107,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         m.contactName = e.contactName; m.contactPhone = e.contactPhone;
         m.contactPhone2 = e.contactPhone2; m.contactPhotoUrl = e.contactPhotoUrl;
         m.locationLat = e.locationLat; m.locationLng = e.locationLng; m.locationAddress = e.locationAddress;
+        m.broadcast = e.broadcast;
         return m;
     }
 
@@ -2143,6 +2144,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         e.contactName = m.contactName; e.contactPhone = m.contactPhone;
         e.contactPhone2 = m.contactPhone2; e.contactPhotoUrl = m.contactPhotoUrl;
         e.locationLat = m.locationLat; e.locationLng = m.locationLng; e.locationAddress = m.locationAddress;
+        e.broadcast = m.broadcast;
         e.syncedAt = System.currentTimeMillis();
         return e;
     }

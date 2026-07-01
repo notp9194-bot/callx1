@@ -63,7 +63,8 @@ public class MessagePagingAdapter
                     && a.fontStyle == b.fontStyle
                     && reactionsEqual(a.reactions, b.reactions)  // FIX: reactions change pe rebind trigger
                     && pollVotesEqual(a.pollVotes, b.pollVotes)
-                    && safeEquals(asStr(a.pollClosed), asStr(b.pollClosed));
+                    && safeEquals(asStr(a.pollClosed), asStr(b.pollClosed))
+                    && safeEquals(asStr(a.broadcast), asStr(b.broadcast));  // broadcast badge rebind
             }
 
             private String asStr(Boolean b) { return b == null ? "null" : b.toString(); }
@@ -1102,11 +1103,21 @@ public class MessagePagingAdapter
             if (fwd) h.tvForwarded.setText("\u21AA Forwarded from " + m.forwardedFrom);
         }
 
-        // Sender name (group chats)
-        if (isGroup && !sent && h.tvSenderName != null) {
-            h.tvSenderName.setVisibility(View.VISIBLE);
-            String sn = m.senderName != null ? m.senderName : "Member";
-            h.tvSenderName.setText(sn);
+        // Sender name (group chats) — also show broadcast badge for 1:1 received broadcast messages
+        if (!sent && h.tvSenderName != null) {
+            boolean isBroadcast = Boolean.TRUE.equals(m.broadcast);
+            if (isGroup) {
+                h.tvSenderName.setVisibility(View.VISIBLE);
+                String sn = m.senderName != null ? m.senderName : "Member";
+                // Prepend 📢 if this group message also carries the broadcast flag
+                h.tvSenderName.setText(isBroadcast ? "📢 " + sn : sn);
+            } else if (isBroadcast) {
+                // 1:1 chat — show sender name row solely to display the broadcast badge
+                h.tvSenderName.setVisibility(View.VISIBLE);
+                h.tvSenderName.setText("📢 Broadcast");
+            } else {
+                h.tvSenderName.setVisibility(View.GONE);
+            }
         } else if (h.tvSenderName != null) {
             h.tvSenderName.setVisibility(View.GONE);
         }

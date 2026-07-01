@@ -168,5 +168,13 @@ public class MessageEntity {
     public Double locationLng;
     public String locationAddress;
 
+    // ── Broadcast flag (v24) ──────────────────────────────────────────────
+    /**
+     * True when this message was delivered via a broadcast list.
+     * Persisted so ChatActivity can show a 📢 badge even after a cold start.
+     * Added in Room migration v23 → v24.
+     */
+    public Boolean broadcast;
+
     public MessageEntity() {}
 }
