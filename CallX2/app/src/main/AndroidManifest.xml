@@ -244,6 +244,11 @@
             android:exported="false"
             android:windowSoftInputMode="adjustResize"/>
 
+        <!-- Per-recipient delivery + seen analytics for a broadcast message -->
+        <activity android:name="com.callx.app.broadcast.BroadcastAnalyticsActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
+
         <!-- ── END BROADCAST LIST FEATURE ─────────────────────────────── -->
 
         <activity android:name=".activities.ContactsActivity" android:exported="true"

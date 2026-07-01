@@ -2,12 +2,34 @@
 <menu xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto">
 
+    <!-- Search messages -->
+    <item
+        android:id="@+id/action_broadcast_search"
+        android:title="Search"
+        android:icon="@android:drawable/ic_menu_search"
+        app:showAsAction="ifRoom"
+        app:actionViewClass="androidx.appcompat.widget.SearchView"/>
+
+    <!-- Recipients info -->
     <item
         android:id="@+id/action_broadcast_info"
         android:title="Recipients dekho"
         android:icon="@android:drawable/ic_dialog_info"
         app:showAsAction="ifRoom"/>
 
+    <!-- Scheduled messages -->
+    <item
+        android:id="@+id/action_scheduled_messages"
+        android:title="Scheduled messages"
+        app:showAsAction="never"/>
+
+    <!-- Export CSV -->
+    <item
+        android:id="@+id/action_export_csv"
+        android:title="Export delivery report (CSV)"
+        app:showAsAction="never"/>
+
+    <!-- Edit list -->
     <item
         android:id="@+id/action_broadcast_edit"
         android:title="List edit karo"

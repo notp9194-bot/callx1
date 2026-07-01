@@ -28,23 +28,24 @@ import java.util.concurrent.TimeUnit;
 /**
  * BroadcastDeliveryWorker — background-kill-safe delivery of a single broadcast message.
  *
- * Fixes vs the old executor-thread approach:
- *  ✅ Survives process death / app kill — WorkManager persists the job.
- *  ✅ Atomic delivery — ALL recipient writes (chat message + both contact nodes)
- *     are combined into ONE multi-path updateChildren() call. Firebase applies
- *     multi-location updates atomically, so there's no "half delivered" state.
- *  ✅ Blocked-user check — skips any recipient who has blocked the sender
- *     (blocks/{recipientUid}/{senderUid}) before writing anything to their chat.
- *  ✅ Retries with backoff on transient failure (network, Firebase outage),
- *     capped at 3 attempts, after which the message is marked "failed" so the
- *     user can manually retry from the chat screen.
- *  ✅ Direct PushNotify call (no reflection) — the old signature mismatch meant
- *     FCM pushes silently never fired.
+ * Supports all advanced message types:
+ *  ✅ text, image, video, audio, file  — standard delivery
+ *  ✅ poll                              — delivered as formatted text summary to recipients
+ *  ✅ multi_media                       — first URL delivered; remaining in caption
+ *  ✅ expiresAt                         — propagated to recipient chat message
+ *  ✅ scheduledAt (handled upstream)    — BroadcastScheduleWorker fires this worker
+ *
+ * Guarantees:
+ *  ✅ Survives process death — WorkManager persists the job
+ *  ✅ Atomic fan-out — all writes in ONE multi-path updateChildren()
+ *  ✅ Block check — skips recipients who blocked the sender
+ *  ✅ sentCount merged into listUpdate (atomic, not a separate setValue)
+ *  ✅ Retries with linear backoff, max 3 attempts
  */
 public class BroadcastDeliveryWorker extends Worker {
 
-    private static final String TAG = "BroadcastDelivery";
-    private static final int MAX_ATTEMPTS = 3;
+    private static final String TAG         = "BroadcastDelivery";
+    private static final int    MAX_ATTEMPTS = 3;
 
     public static final String KEY_SENDER_ID  = "senderId";
     public static final String KEY_LIST_ID    = "listId";
@@ -55,6 +56,8 @@ public class BroadcastDeliveryWorker extends Worker {
     public static final String KEY_FILE_NAME  = "fileName";
     public static final String KEY_CAPTION    = "caption";
     public static final String KEY_TIMESTAMP  = "timestamp";
+    public static final String KEY_EXPIRES_AT = "expiresAt";
+    public static final String KEY_POLL_TEXT  = "pollText";   // formatted poll for recipients
 
     public BroadcastDeliveryWorker(@NonNull Context ctx, @NonNull WorkerParameters params) {
         super(ctx, params);
@@ -63,17 +66,19 @@ public class BroadcastDeliveryWorker extends Worker {
     /** Enqueue delivery for a broadcast message. Safe to call repeatedly (KEEP policy dedupes). */
     public static void enqueue(Context ctx, String senderId, String listId, String msgId,
                                String text, String type, String mediaUrl,
-                               String fileName, String caption, long timestamp) {
+                               String fileName, String caption, long timestamp,
+                               long expiresAt) {
         Data input = new Data.Builder()
-                .putString(KEY_SENDER_ID, senderId)
-                .putString(KEY_LIST_ID,   listId)
-                .putString(KEY_MSG_ID,    msgId)
-                .putString(KEY_TEXT,      text)
-                .putString(KEY_TYPE,      type)
-                .putString(KEY_MEDIA_URL, mediaUrl)
-                .putString(KEY_FILE_NAME, fileName)
-                .putString(KEY_CAPTION,   caption)
-                .putLong(KEY_TIMESTAMP,   timestamp)
+                .putString(KEY_SENDER_ID,  senderId)
+                .putString(KEY_LIST_ID,    listId)
+                .putString(KEY_MSG_ID,     msgId)
+                .putString(KEY_TEXT,       text)
+                .putString(KEY_TYPE,       type)
+                .putString(KEY_MEDIA_URL,  mediaUrl)
+                .putString(KEY_FILE_NAME,  fileName)
+                .putString(KEY_CAPTION,    caption)
+                .putLong(KEY_TIMESTAMP,    timestamp)
+                .putLong(KEY_EXPIRES_AT,   expiresAt)
                 .build();
 
         OneTimeWorkRequest req = new OneTimeWorkRequest.Builder(BroadcastDeliveryWorker.class)
@@ -84,11 +89,17 @@ public class BroadcastDeliveryWorker extends Worker {
                 .setBackoffCriteria(BackoffPolicy.LINEAR, 10, TimeUnit.SECONDS)
                 .build();
 
-        // Unique per message — retrying the same message replaces the pending job
-        // instead of stacking duplicate deliveries.
         WorkManager.getInstance(ctx.getApplicationContext())
                 .enqueueUniqueWork("broadcast_delivery_" + msgId,
                         ExistingWorkPolicy.REPLACE, req);
+    }
+
+    /** Overload without expiresAt for backward-compat callers. */
+    public static void enqueue(Context ctx, String senderId, String listId, String msgId,
+                               String text, String type, String mediaUrl,
+                               String fileName, String caption, long timestamp) {
+        enqueue(ctx, senderId, listId, msgId, text, type,
+                mediaUrl, fileName, caption, timestamp, 0);
     }
 
     @NonNull
@@ -96,36 +107,36 @@ public class BroadcastDeliveryWorker extends Worker {
     public Result doWork() {
         Context ctx = getApplicationContext();
         Data in = getInputData();
-        String senderId = in.getString(KEY_SENDER_ID);
-        String listId   = in.getString(KEY_LIST_ID);
-        String msgId    = in.getString(KEY_MSG_ID);
-        String text     = in.getString(KEY_TEXT);
-        String type     = in.getString(KEY_TYPE);
-        String mediaUrl = in.getString(KEY_MEDIA_URL);
-        String fileName = in.getString(KEY_FILE_NAME);
-        String caption  = in.getString(KEY_CAPTION);
-        long timestamp  = in.getLong(KEY_TIMESTAMP, System.currentTimeMillis());
+        String senderId  = in.getString(KEY_SENDER_ID);
+        String listId    = in.getString(KEY_LIST_ID);
+        String msgId     = in.getString(KEY_MSG_ID);
+        String text      = in.getString(KEY_TEXT);
+        String type      = in.getString(KEY_TYPE);
+        String mediaUrl  = in.getString(KEY_MEDIA_URL);
+        String fileName  = in.getString(KEY_FILE_NAME);
+        String caption   = in.getString(KEY_CAPTION);
+        long timestamp   = in.getLong(KEY_TIMESTAMP, System.currentTimeMillis());
+        long expiresAt   = in.getLong(KEY_EXPIRES_AT, 0);
 
         if (senderId == null || listId == null || msgId == null) {
             return Result.failure();
         }
 
         DatabaseReference root    = FirebaseDatabase.getInstance().getReference();
-        // Path: broadcast_messages/{senderId}/{listId}/{msgId} — owner-scoped so
-        // security rules can enforce auth.uid === senderId without listId collision risk.
-        DatabaseReference msgRef  = root.child("broadcast_messages").child(senderId).child(listId).child(msgId);
+        DatabaseReference msgRef  = root.child("broadcast_messages")
+                                        .child(senderId).child(listId).child(msgId);
         DatabaseReference listRef = root.child("broadcast_lists").child(senderId).child(listId);
 
         try {
             // ── 1. Fetch recipients + sender profile ───────────────────────────
-            DataSnapshot recipSnap = Tasks.await(
+            DataSnapshot recipSnap  = Tasks.await(
                     listRef.child("recipients").get(), 10, TimeUnit.SECONDS);
             DataSnapshot senderSnap = Tasks.await(
                     root.child("users").child(senderId).get(), 10, TimeUnit.SECONDS);
 
             String myName  = senderSnap.child("name").getValue(String.class);
             String myPhoto = senderSnap.child("photoUrl").getValue(String.class);
-            if (myName == null)  myName  = "User";
+            if (myName  == null) myName  = "User";
             if (myPhoto == null) myPhoto = "";
 
             int total = (int) recipSnap.getChildrenCount();
@@ -134,7 +145,37 @@ public class BroadcastDeliveryWorker extends Worker {
                 return Result.failure();
             }
 
-            // ── 2. Build ONE atomic multi-path update, skipping blocked recipients ──
+            // ── 2. Build recipient text for polls ──────────────────────────────
+            // Poll messages are delivered as a readable text summary.
+            // Recipients cannot vote back, but they see the question + options.
+            String recipientText = text;
+            String recipientType = type;
+            if ("poll".equals(type)) {
+                // Fetch poll data from the broadcast message node
+                DataSnapshot pollSnap = Tasks.await(msgRef.get(), 10, TimeUnit.SECONDS);
+                String question = pollSnap.child("pollQuestion").getValue(String.class);
+                StringBuilder sb = new StringBuilder("📊 Poll: ");
+                if (question != null) sb.append(question).append("\n\n");
+                int optIdx = 1;
+                for (DataSnapshot opt : pollSnap.child("pollOptions").getChildren()) {
+                    String optText = opt.getValue(String.class);
+                    if (optText != null) sb.append(optIdx++).append(". ").append(optText).append("\n");
+                }
+                sb.append("\n(Reply with your choice number)");
+                recipientText = sb.toString();
+                recipientType = "text"; // delivered as text to keep things simple
+            }
+            // multi_media: deliver first URL, note extra items in caption
+            if ("multi_media".equals(type)) {
+                DataSnapshot mmSnap = Tasks.await(msgRef.get(), 10, TimeUnit.SECONDS);
+                long urlCount = mmSnap.child("mediaUrls").getChildrenCount();
+                if (urlCount > 1 && (caption == null || caption.isEmpty())) {
+                    caption = "+" + (urlCount - 1) + " more";
+                }
+                recipientType = "image"; // first image delivered as image type
+            }
+
+            // ── 3. Build ONE atomic multi-path update ──────────────────────────
             Map<String, Object> bigUpdate = new HashMap<>();
             int delivered = 0;
             int skipped   = 0;
@@ -143,7 +184,7 @@ public class BroadcastDeliveryWorker extends Worker {
                 String uid = r.getKey();
                 if (uid == null) continue;
 
-                // Did the recipient block the sender? If so, skip delivery entirely.
+                // Block check: did this recipient block the sender?
                 DataSnapshot blockSnap = Tasks.await(
                         root.child("blocks").child(uid).child(senderId).get(),
                         5, TimeUnit.SECONDS);
@@ -163,75 +204,70 @@ public class BroadcastDeliveryWorker extends Worker {
                         ? senderId + "_" + uid
                         : uid + "_" + senderId;
 
+                // Build the chat message that lands in the recipient's personal chat
                 Map<String, Object> msg = new HashMap<>();
-                msg.put("messageId", msgId);
-                msg.put("senderId",  senderId);
-                msg.put("text",      text     != null ? text     : "");
-                msg.put("type",      type     != null ? type     : "text");
-                msg.put("mediaUrl",  mediaUrl != null ? mediaUrl : "");
-                msg.put("fileName",  fileName != null ? fileName : "");
-                msg.put("caption",   caption  != null ? caption  : "");
-                msg.put("timestamp", timestamp);
-                msg.put("seen",      false);
-                msg.put("broadcast", true);
+                msg.put("messageId",  msgId);
+                msg.put("senderId",   senderId);
+                msg.put("text",       recipientText   != null ? recipientText   : "");
+                msg.put("type",       recipientType   != null ? recipientType   : "text");
+                msg.put("mediaUrl",   mediaUrl        != null ? mediaUrl        : "");
+                msg.put("fileName",   fileName        != null ? fileName        : "");
+                msg.put("caption",    caption         != null ? caption         : "");
+                msg.put("timestamp",  timestamp);
+                msg.put("seen",       false);
+                msg.put("broadcast",  true);
+                if (expiresAt > 0) msg.put("expiresAt", expiresAt);
 
-                String preview = "text".equals(type) ? text : getTypeLabel(type);
+                String preview = buildPreview(recipientType, recipientText);
 
                 bigUpdate.put("chats/" + chatId + "/messages/" + msgId, msg);
 
-                // Field-level keys (not whole-node keys) so this MERGES into the
-                // existing contact node instead of replacing it wholesale —
-                // Firebase multi-path update() replaces whatever value sits at
-                // each key's path, so nesting a flat map under a node-level key
-                // would wipe out any other existing fields on that contact.
-                String senderContactBase = "contacts/" + senderId + "/" + uid + "/";
-                bigUpdate.put(senderContactBase + "name",            rName);
-                bigUpdate.put(senderContactBase + "photoUrl",        rPhoto != null ? rPhoto : "");
-                bigUpdate.put(senderContactBase + "lastMessage",     preview);
-                bigUpdate.put(senderContactBase + "lastMessageType", type);
-                bigUpdate.put(senderContactBase + "lastMessageTime", timestamp);
+                // Merge into existing contact node (field-level keys, not node replacement)
+                String sBase = "contacts/" + senderId + "/" + uid + "/";
+                bigUpdate.put(sBase + "name",            rName);
+                bigUpdate.put(sBase + "photoUrl",        rPhoto != null ? rPhoto : "");
+                bigUpdate.put(sBase + "lastMessage",     preview);
+                bigUpdate.put(sBase + "lastMessageType", recipientType);
+                bigUpdate.put(sBase + "lastMessageTime", timestamp);
 
-                String recipContactBase = "contacts/" + uid + "/" + senderId + "/";
-                bigUpdate.put(recipContactBase + "name",            myName);
-                bigUpdate.put(recipContactBase + "photoUrl",        myPhoto);
-                bigUpdate.put(recipContactBase + "lastMessage",     preview);
-                bigUpdate.put(recipContactBase + "lastMessageType", type);
-                bigUpdate.put(recipContactBase + "lastMessageTime", timestamp);
-                bigUpdate.put(recipContactBase + "unread",          ServerValue.increment(1));
+                String rBase = "contacts/" + uid + "/" + senderId + "/";
+                bigUpdate.put(rBase + "name",            myName);
+                bigUpdate.put(rBase + "photoUrl",        myPhoto);
+                bigUpdate.put(rBase + "lastMessage",     preview);
+                bigUpdate.put(rBase + "lastMessageType", recipientType);
+                bigUpdate.put(rBase + "lastMessageTime", timestamp);
+                bigUpdate.put(rBase + "unread",          ServerValue.increment(1));
 
                 delivered++;
 
-                // Push notification — fire and forget, doesn't affect atomicity of data writes
+                // Push notification — fire-and-forget
                 if (rToken != null && !rToken.isEmpty()) {
                     try {
                         PushNotify.notifyMessage(uid, senderId, myName, chatId, msgId,
-                                preview, type, mediaUrl);
+                                preview, recipientType, mediaUrl);
                     } catch (Exception pex) {
                         Log.w(TAG, "Push failed for " + uid + ": " + pex.getMessage());
                     }
                 }
             }
 
+            // ── 4. Merge message metadata + list metadata into bigUpdate ──────
+            // All writes (fan-out + meta) are ONE atomic multi-path updateChildren().
+            String lastMsg = "text".equals(type) || "poll".equals(type)
+                    ? (text != null ? text : "") : getTypeLabel(type);
+            String finalStatus = delivered > 0 ? "sent" : "failed";
+
+            bigUpdate.put(msgRef.getPath().toString().substring(1) + "/deliveredCount", delivered);
+            bigUpdate.put(msgRef.getPath().toString().substring(1) + "/skippedCount",   skipped);
+            bigUpdate.put(msgRef.getPath().toString().substring(1) + "/status",         finalStatus);
+            bigUpdate.put(listRef.getPath().toString().substring(1) + "/lastMessage",     lastMsg);
+            bigUpdate.put(listRef.getPath().toString().substring(1) + "/lastMessageType", type != null ? type : "text");
+            bigUpdate.put(listRef.getPath().toString().substring(1) + "/lastMessageTime", timestamp);
+            bigUpdate.put(listRef.getPath().toString().substring(1) + "/sentCount",       ServerValue.increment(1));
+
             if (!bigUpdate.isEmpty()) {
                 Tasks.await(root.updateChildren(bigUpdate), 20, TimeUnit.SECONDS);
             }
-
-            // ── 3. Update message + list metadata ───────────────────────────────
-            Map<String, Object> msgMeta = new HashMap<>();
-            msgMeta.put("deliveredCount", delivered);
-            msgMeta.put("skippedCount",   skipped);
-            msgMeta.put("status",         delivered > 0 ? "sent" : "failed");
-            msgRef.updateChildren(msgMeta);
-
-            // Merge sentCount increment into the same updateChildren() call so
-            // the counter update is part of one atomic multi-path write, not a
-            // separate setValue() that can be lost on process death.
-            Map<String, Object> listUpdate = new HashMap<>();
-            listUpdate.put("lastMessage",     "text".equals(type) ? text : getTypeLabel(type));
-            listUpdate.put("lastMessageType", type);
-            listUpdate.put("lastMessageTime", timestamp);
-            listUpdate.put("sentCount",       ServerValue.increment(1));
-            listRef.updateChildren(listUpdate);
 
             if (delivered == 0) return Result.failure();
             return Result.success();
@@ -246,14 +282,26 @@ public class BroadcastDeliveryWorker extends Worker {
         }
     }
 
+    private String buildPreview(String type, String text) {
+        if (("text".equals(type) || "poll".equals(type))
+                && text != null && !text.isEmpty()) {
+            return text.length() > 100 ? text.substring(0, 100) + "…" : text;
+        }
+        // Never return null — Firebase updateChildren rejects null values
+        String label = getTypeLabel(type);
+        return label != null ? label : "Message";
+    }
+
     private String getTypeLabel(String type) {
         if (type == null) return "Message";
         switch (type) {
-            case "image": return "📷 Photo";
-            case "video": return "🎥 Video";
-            case "audio": return "🎤 Voice Message";
-            case "file":  return "📄 Document";
-            default:      return "Message";
+            case "image":       return "📷 Photo";
+            case "video":       return "🎥 Video";
+            case "audio":       return "🎤 Voice Message";
+            case "file":        return "📄 Document";
+            case "poll":        return "📊 Poll";
+            case "multi_media": return "🖼️ Photos";
+            default:            return "Message";
         }
     }
 }
