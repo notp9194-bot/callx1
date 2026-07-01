@@ -91,6 +91,33 @@ public final class ImmersiveModeUtils {
     }
 
     /**
+     * Pushes {@code bottomBar} (e.g. the app's own BottomNavigationView
+     * container) up by the nav-bar inset height using MARGIN (not padding,
+     * since the view has a fixed height and sits flush at the bottom via
+     * gravity). Inset is 0 while our nav bar stays hidden, so this is a
+     * no-op most of the time — but on devices/OEMs where the system nav bar
+     * fails to stay hidden and re-appears, this guarantees our own bottom
+     * nav is pushed up above it instead of being covered/hidden by it.
+     */
+    public static void applyBottomInsetMargin(View bottomBar) {
+        if (bottomBar == null) return;
+        if (!(bottomBar.getLayoutParams() instanceof android.view.ViewGroup.MarginLayoutParams)) return;
+        android.view.ViewGroup.MarginLayoutParams lp =
+                (android.view.ViewGroup.MarginLayoutParams) bottomBar.getLayoutParams();
+        final int baseBottomMargin = lp.bottomMargin;
+
+        ViewCompat.setOnApplyWindowInsetsListener(bottomBar, (v, insets) -> {
+            Insets bars = insets.getInsets(WindowInsetsCompat.Type.navigationBars());
+            android.view.ViewGroup.MarginLayoutParams params =
+                    (android.view.ViewGroup.MarginLayoutParams) v.getLayoutParams();
+            params.bottomMargin = baseBottomMargin + bars.bottom;
+            v.setLayoutParams(params);
+            return insets;
+        });
+        ViewCompat.requestApplyInsets(bottomBar);
+    }
+
+    /**
      * Manually replicates windowSoftInputMode="adjustResize" for a screen
      * that has gone edge-to-edge (setDecorFitsSystemWindows(false) stops the
      * system from auto-resizing the window for the keyboard, so the message
