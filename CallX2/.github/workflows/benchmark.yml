@@ -1,0 +1,84 @@
+name: Macrobenchmark CI
+
+on:
+  schedule:
+    - cron: '0 21 * * 0'
+  workflow_dispatch:
+    inputs:
+      test_class:
+        description: 'Specific benchmark class (blank = all)'
+        required: false
+        default: ''
+
+env:
+  JAVA_VERSION: '17'
+  GRADLE_OPTS: '-Dorg.gradle.daemon=false -Dorg.gradle.parallel=true'
+
+jobs:
+  benchmark:
+    name: Run Benchmarks on Firebase Test Lab
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: temurin
+
+      - name: Gradle cache
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Assemble benchmark APKs
+        run: ./gradlew :app:assembleBenchmark :macrobenchmark:assembleBenchmark --no-daemon
+
+      - name: Auth Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Run on Firebase Test Lab
+        run: |
+          CLASS_ARG=""
+          if [ -n "${{ inputs.test_class }}" ]; then
+            CLASS_ARG="--test-targets class ${{ inputs.test_class }}"
+          fi
+          gcloud firebase test android run \
+            --type instrumentation \
+            --app app/build/outputs/apk/benchmark/app-benchmark.apk \
+            --test macrobenchmark/build/outputs/apk/benchmark/macrobenchmark-benchmark.apk \
+            --device model=oriole,version=33,locale=en,orientation=portrait \
+            --environment-variables clearPackageData=true,additionalTestOutputDir=/sdcard/Download/bm \
+            --directories-to-pull /sdcard/Download/bm \
+            --results-bucket ${{ secrets.GCS_BUCKET }} \
+            --results-dir bm-${{ github.run_id }} \
+            --timeout 60m $CLASS_ARG
+
+      - name: Download results
+        run: |
+          mkdir -p benchmark-results
+          gsutil -m cp -r gs://${{ secrets.GCS_BUCKET }}/bm-${{ github.run_id }}/**/*.json benchmark-results/ || true
+
+      - name: Parse and compare results
+        run: node macrobenchmark/scripts/compare_results.js benchmark-results/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: benchmark-results-${{ github.run_id }}
+          path: benchmark-results/
+          retention-days: 30
+
+      - name: Slack notification
+        if: ${{ secrets.SLACK_WEBHOOK != '' }}
+        run: |
+          MSG=$(cat benchmark-results/summary.txt 2>/dev/null || echo "See artifacts tab")
+          curl -s -X POST "${{ secrets.SLACK_WEBHOOK }}" \
+            -H 'Content-type: application/json' \
+            --data "{\"text\":\"*CallX Benchmark #${{ github.run_id }}*\n\`\`\`${MSG}\`\`\`\"}"

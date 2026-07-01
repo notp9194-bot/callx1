@@ -1,30 +1,20 @@
 # ══════════════════════════════════════════════════════════════════════
-#  Dex Layout Optimization — Primary Dex Keep Rules
+#  Dex Layout — Primary Dex Keep Rules  (v2 — All Feature Modules)
 #  ─────────────────────────────────────────────────────────────────────
-#  Ye file multiDexKeepProguard ke through primary dex (.dex shard 0)
-#  mein hot classes ko FORCE karta hai.
+#  Hot classes primary dex (.dex shard 0) mein lock hoti hain.
+#  Class loader inhe secondary dex I/O bina load karta hai — cold start
+#  aur chat open pe 30-80ms measurable gain.
 #
-#  WHY: Android class loader primary dex se pehle load karta hai.
-#  Agar startup + chat critical path ke classes secondary dex mein
-#  chale gaye, toh class loading pe extra I/O hit padta hai.
-#  Isse cold start + chat open time mein 50-150ms fark padta hai.
-#
-#  HOW: AGP 8.x mein `dexLayoutOptimization { enabled = true }` ke saath
-#  ye file milake kaam karta hai. Baseline profile (baseline-prof.txt) se
-#  AGP khud bhi dex reordering karta hai, lekin ye file explicit guarantee
-#  deta hai ki in classes ka primary dex class loader path fast hoga.
-#
-#  MAINTENANCE: Naye hot classes sirf tab add karo jab profiler mein
-#  clearly startup ya chat-open hot path mein dikh rahi hoon.
+#  Coverage: App + Chat + Calls + Status + DB + Crypto + Framework
 # ══════════════════════════════════════════════════════════════════════
 
-# ── App entry points (always in primary dex) ──────────────────────────
+# ── App entry points ──────────────────────────────────────────────────
 -keep class com.callx.app.CallxApp { *; }
 -keep class com.callx.app.activities.MainActivity { *; }
 -keep class com.callx.app.activities.SplashActivity { *; }
 -keep class com.callx.app.activities.LoginActivity { *; }
 
-# ── Chat core — most-launched path in the app ─────────────────────────
+# ── Chat core ─────────────────────────────────────────────────────────
 -keep class com.callx.app.conversation.ChatActivity { *; }
 -keep class com.callx.app.conversation.MessageAdapter { *; }
 -keep class com.callx.app.conversation.MessageAdapter$VH { *; }
@@ -34,29 +24,12 @@
 -keep class com.callx.app.chatlist.ChatListAdapter$VH { *; }
 -keep class com.callx.app.chatlist.ChatsFragment { *; }
 
-# ── Chat controllers (loaded in ChatActivity.onCreate) ────────────────
--keep class com.callx.app.conversation.controllers.ChatMessageSender { *; }
--keep class com.callx.app.conversation.controllers.ChatActivityDelegate { *; }
--keep class com.callx.app.conversation.controllers.ChatPresenceController { *; }
--keep class com.callx.app.conversation.controllers.ChatLiveTypingController { *; }
--keep class com.callx.app.conversation.controllers.ChatMediaController { *; }
--keep class com.callx.app.conversation.controllers.ChatReactionController { *; }
--keep class com.callx.app.conversation.controllers.ChatThemeController { *; }
--keep class com.callx.app.conversation.controllers.ChatPinController { *; }
--keep class com.callx.app.conversation.controllers.ChatStarredController { *; }
--keep class com.callx.app.conversation.controllers.ChatSearchController { *; }
--keep class com.callx.app.conversation.controllers.ChatScheduledSendController { *; }
--keep class com.callx.app.conversation.controllers.ChatBlockController { *; }
--keep class com.callx.app.conversation.controllers.ChatViewOnceController { *; }
--keep class com.callx.app.conversation.controllers.ChatPlaybackPresenceController { *; }
--keep class com.callx.app.conversation.controllers.ChatEmojiBurstController { *; }
--keep class com.callx.app.conversation.controllers.ChatPollController { *; }
--keep class com.callx.app.conversation.controllers.ChatContactShareController { *; }
--keep class com.callx.app.conversation.controllers.ChatLocationShareController { *; }
--keep class com.callx.app.conversation.controllers.ChatExportController { *; }
--keep class com.callx.app.conversation.controllers.MessageEditHistoryController { *; }
+# ── Chat controllers ──────────────────────────────────────────────────
+-keep class com.callx.app.conversation.controllers.** { *; }
+-keep class com.callx.app.viewmodel.ChatViewModel { *; }
+-keep class com.callx.app.viewmodel.ChatViewModelFactory { *; }
 
-# ── Chat UI components (inflate + bind during first frame) ────────────
+# ── Chat UI components ────────────────────────────────────────────────
 -keep class com.callx.app.chat.ui.ReplyBarView { *; }
 -keep class com.callx.app.chat.ui.TypingDotsAnimator { *; }
 -keep class com.callx.app.chat.ui.MessageHighlightAnimator { *; }
@@ -64,25 +37,14 @@
 -keep class com.callx.app.chat.ui.GifAwareEditText { *; }
 -keep class com.callx.app.chat.ui.BannerPriorityCoordinator { *; }
 
-# ── Reply system (swipe path, loaded on first swipe) ─────────────────
+# ── Reply + swipe gesture ─────────────────────────────────────────────
+-keep class com.callx.app.chat.gesture.SwipeReplyHandler { *; }
 -keep class com.callx.app.chat.reply.ReplyController { *; }
 -keep class com.callx.app.chat.reply.ReplyStateManager { *; }
 -keep class com.callx.app.chat.reply.ReplyDataMapper { *; }
--keep class com.callx.app.chat.gesture.SwipeReplyHandler { *; }
 -keep class com.callx.app.chat.performance.SwipeOptimizer { *; }
 
-# ── ViewModel (created in ChatActivity.onCreate → blocks UI thread) ───
--keep class com.callx.app.viewmodel.ChatViewModel { *; }
--keep class com.callx.app.viewmodel.ChatViewModelFactory { *; }
-
-# ── DB + crypto (3-sec chat-open bottleneck fix) ──────────────────────
--keep class com.callx.app.db.AppDatabase { *; }
--keep class com.callx.app.utils.SecurityManager { *; }
-
-# ── Theme cache (GradientDrawable inflation) ──────────────────────────
--keep class com.callx.app.utils.ChatThemeManager { *; }
-
-# ── Group chat (frequently accessed, keep together with 1:1 chat) ─────
+# ── Group chat ────────────────────────────────────────────────────────
 -keep class com.callx.app.group.GroupChatActivity { *; }
 -keep class com.callx.app.group.GroupAdapter { *; }
 -keep class com.callx.app.group.GroupAdapter$** { *; }
@@ -91,22 +53,61 @@
 -keep class com.callx.app.group.GroupStarredController { *; }
 -keep class com.callx.app.group.GroupWatchingController { *; }
 
-# ── Glide (image loading during first RecyclerView scroll) ────────────
--keep class com.bumptech.glide.Glide { *; }
--keep class com.bumptech.glide.RequestManager { *; }
--keep class com.bumptech.glide.load.engine.** { *; }
+# ── feature-calls (latency-critical — IncomingCallActivity first) ─────
+-keep class com.callx.app.incoming.IncomingCallActivity { *; }
+-keep class com.callx.app.incoming.IncomingGroupCallActivity { *; }
+-keep class com.callx.app.call.CallActivity { *; }
+-keep class com.callx.app.group.GroupCallActivity { *; }
+-keep class com.callx.app.group.GroupCallParticipantAdapter { *; }
+-keep class com.callx.app.history.CallsFragment { *; }
+-keep class com.callx.app.history.CallHistoryAdapter { *; }
+-keep class com.callx.app.services.CallForegroundService { *; }
+-keep class com.callx.app.services.IncomingRingService { *; }
 
-# ── RecyclerView core (layout pass during first frame) ────────────────
--keep class androidx.recyclerview.widget.RecyclerView { *; }
--keep class androidx.recyclerview.widget.RecyclerView$Recycler { *; }
--keep class androidx.recyclerview.widget.LinearLayoutManager { *; }
+# ── feature-status (first tab many users open) ────────────────────────
+-keep class com.callx.app.feed.StatusFragment { *; }
+-keep class com.callx.app.feed.StatusListAdapter { *; }
+-keep class com.callx.app.cache.StatusMediaPreloader { *; }
+-keep class com.callx.app.cache.StatusVideoCacheManager { *; }
+-keep class com.callx.app.compose.NewStatusActivity { *; }
+-keep class com.callx.app.interactions.StatusReactionBottomSheet { *; }
+-keep class com.callx.app.interactions.StatusReplyBottomSheet { *; }
 
-# ── Firebase (needed for auth check on startup) ───────────────────────
--keep class com.google.firebase.auth.FirebaseAuth { *; }
--keep class com.google.firebase.database.FirebaseDatabase { *; }
+# ── DB + crypto (3-sec chat-open fix) ────────────────────────────────
+-keep class com.callx.app.db.AppDatabase { *; }
+-keep class com.callx.app.utils.SecurityManager { *; }
+-keep class com.callx.app.utils.ChatThemeManager { *; }
 
-# ── Conversation gallery helpers (opened frequently from chat) ────────
+# ── SQLCipher (encryption hot path — called on every DB open) ─────────
+-keep class net.sqlcipher.database.SQLiteDatabase { *; }
+-keep class net.sqlcipher.database.SQLiteOpenHelper { *; }
+-keep class net.sqlcipher.database.SQLiteCursor { *; }
+-keep class net.sqlcipher.Cursor { *; }
+
+# ── Media helpers ─────────────────────────────────────────────────────
 -keep class com.callx.app.conversation.MediaGroupLayoutHelper { *; }
 -keep class com.callx.app.media.MediaThumbAdapter { *; }
 -keep class com.callx.app.conversation.GalleryForwardBridge { *; }
 -keep class com.callx.app.conversation.GalleryReplyBridge { *; }
+
+# ── Glide (first-scroll image load) ──────────────────────────────────
+-keep class com.bumptech.glide.Glide { *; }
+-keep class com.bumptech.glide.RequestManager { *; }
+-keep class com.bumptech.glide.load.engine.** { *; }
+
+# ── RecyclerView framework ────────────────────────────────────────────
+-keep class androidx.recyclerview.widget.RecyclerView { *; }
+-keep class androidx.recyclerview.widget.RecyclerView$Recycler { *; }
+-keep class androidx.recyclerview.widget.LinearLayoutManager { *; }
+
+# ── Firebase auth (checked on every screen open) ─────────────────────
+-keep class com.google.firebase.auth.FirebaseAuth { *; }
+-keep class com.google.firebase.database.FirebaseDatabase { *; }
+
+# ── Spring animation (SwipeReply DynamicAnimation) ───────────────────
+-keep class androidx.dynamicanimation.animation.SpringAnimation { *; }
+-keep class androidx.dynamicanimation.animation.SpringForce { *; }
+
+# ── WorkManager (scheduled messages, view-once expiry) ───────────────
+-keep class androidx.work.WorkManager { *; }
+-keep class com.callx.app.conversation.workers.** { *; }
