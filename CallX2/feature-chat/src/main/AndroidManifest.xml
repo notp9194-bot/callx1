@@ -30,5 +30,13 @@
             android:excludeFromRecents="true"
             android:noHistory="true"/>
 
+        <!-- Contact share picker — launched via startActivityForResult from ChatActivity / GroupChatActivity -->
+        <activity android:name="com.callx.app.chat.ContactSharePickerActivity"
+            android:exported="false"/>
+
+        <!-- Location share picker — launched via startActivityForResult from ChatActivity / GroupChatActivity -->
+        <activity android:name="com.callx.app.chat.LocationSharePickerActivity"
+            android:exported="false"/>
+
     </application>
 </manifest>

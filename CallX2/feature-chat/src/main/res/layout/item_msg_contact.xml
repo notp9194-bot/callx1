@@ -30,15 +30,13 @@
             android:gravity="center_vertical">
 
             <!-- Circular avatar -->
-            <ImageView
+            <de.hdodenhof.circleimageview.CircleImageView
                 android:id="@+id/ivContactPhoto"
                 android:layout_width="38dp"
                 android:layout_height="38dp"
                 android:scaleType="centerCrop"
                 android:src="@drawable/ic_person"
-                android:background="@drawable/bg_circle_avatar_placeholder"
-                android:clipToOutline="true"
-                android:outlineProvider="bounds"/>
+                android:background="@drawable/bg_circle_avatar_placeholder"/>
 
             <LinearLayout
                 android:layout_width="0dp"
