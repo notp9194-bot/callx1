@@ -157,5 +157,16 @@ public class MessageEntity {
     /** Optional caption attached to a multi_media message. */
     public String caption;
 
+    // ── Feature: Contact Card Share (type = "contact") ─────────────────────
+    public String contactName;
+    public String contactPhone;
+    public String contactPhone2;
+    public String contactPhotoUrl;
+
+    // ── Feature: Location Share (type = "location") ────────────────────────
+    public Double locationLat;
+    public Double locationLng;
+    public String locationAddress;
+
     public MessageEntity() {}
 }

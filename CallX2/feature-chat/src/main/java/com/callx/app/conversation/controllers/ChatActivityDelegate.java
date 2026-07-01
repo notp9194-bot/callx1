@@ -91,6 +91,10 @@ public interface ChatActivityDelegate {
     // ── Poll creation ─────────────────────────────────────────────────────
     void launchPollCreator();
 
+    // ── Contact / Location share ──────────────────────────────────────────
+    void launchContactSharePicker();
+    void launchLocationSharePicker();
+
     /**
      * PERF FIX: queues a Room "mark read" write instead of writing it
      * immediately. Coalesced with other buffered Firebase events into a

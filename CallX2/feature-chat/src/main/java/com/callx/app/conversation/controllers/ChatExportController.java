@@ -115,6 +115,15 @@ public class ChatExportController {
                 return "[poll] " + (m.pollQuestion != null ? m.pollQuestion : "");
             case "multi_media":
                 return "[media] " + (m.caption != null ? m.caption : "");
+            case "contact":
+                return "[contact] " + (m.contactName != null ? m.contactName : "")
+                        + (m.contactPhone != null ? " " + m.contactPhone : "");
+            case "location":
+                return "[location] " + (m.locationAddress != null && !m.locationAddress.isEmpty()
+                        ? m.locationAddress
+                        : (m.locationLat != null
+                                ? String.format(java.util.Locale.US, "%.5f,%.5f", m.locationLat, m.locationLng)
+                                : ""));
             default:
                 String text = m.text != null ? m.text : "";
                 return Boolean.TRUE.equals(m.edited) ? text + " (edited)" : text;

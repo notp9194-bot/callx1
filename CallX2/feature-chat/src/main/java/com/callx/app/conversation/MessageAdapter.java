@@ -292,6 +292,8 @@ public class MessageAdapter extends ListAdapter<Message, MessageAdapter.VH> {
         if (h.llReelShare   != null) h.llReelShare.setVisibility(View.GONE);
         if (h.tvEdited      != null) h.tvEdited.setVisibility(View.GONE);
         if (h.llMediaGroup  != null) h.llMediaGroup.setVisibility(View.GONE);
+        if (h.llContact     != null) h.llContact.setVisibility(View.GONE);
+        if (h.llLocation    != null) h.llLocation.setVisibility(View.GONE);
 
         // Pinned label
         if (h.tvPinnedLabel != null)
@@ -666,6 +668,26 @@ public class MessageAdapter extends ListAdapter<Message, MessageAdapter.VH> {
                 break;
             }
 
+            // ── CONTACT SHARE ─────────────────────────────────────────────────
+            case "contact": {
+                ensureContactInflated(h);
+                h.llContact.setVisibility(View.VISIBLE);
+                com.callx.app.conversation.controllers.ChatContactShareController
+                        .bindBubble(h.llContact, m);
+                h.llContact.setOnLongClickListener(v -> { openActionSheet(ctx, m); return true; });
+                break;
+            }
+
+            // ── LOCATION SHARE ────────────────────────────────────────────────
+            case "location": {
+                ensureLocationInflated(h);
+                h.llLocation.setVisibility(View.VISIBLE);
+                com.callx.app.conversation.controllers.ChatLocationShareController
+                        .bindBubble(h.llLocation, m);
+                h.llLocation.setOnLongClickListener(v -> { openActionSheet(ctx, m); return true; });
+                break;
+            }
+
             // ── TEXT (default) ───────────────────────────────────────────────
             default: {
                 h.tvMessage.setVisibility(View.VISIBLE);
@@ -884,6 +906,18 @@ public class MessageAdapter extends ListAdapter<Message, MessageAdapter.VH> {
                 }
             });
         }
+    }
+
+    private void ensureContactInflated(@NonNull VH h) {
+        if (h.llContact != null) return;
+        if (h.stubContact == null) return;
+        h.llContact = h.stubContact.inflate();
+    }
+
+    private void ensureLocationInflated(@NonNull VH h) {
+        if (h.llLocation != null) return;
+        if (h.stubLocation == null) return;
+        h.llLocation = h.stubLocation.inflate();
     }
 
     /** Fills the reel share card views from a (possibly partially populated) Message. */
@@ -1612,6 +1646,8 @@ public class MessageAdapter extends ListAdapter<Message, MessageAdapter.VH> {
         ViewStub stubPoll;
         ViewStub stubLinkPreview;
         ViewStub stubReelShare;
+        ViewStub stubContact;
+        ViewStub stubLocation;
 
         // ── Heavy view refs — null until the stub is inflated ──
         // Video
@@ -1638,6 +1674,10 @@ public class MessageAdapter extends ListAdapter<Message, MessageAdapter.VH> {
         ImageView    ivReelShareThumb;
         ImageView    ivReelShareAvatar;
         TextView     tvReelShareUsername, tvReelShareCaption;
+        // Contact share
+        View llContact;
+        // Location share
+        View llLocation;
 
         VH(View v) {
             super(v);
@@ -1669,6 +1709,8 @@ public class MessageAdapter extends ListAdapter<Message, MessageAdapter.VH> {
             stubPoll        = v.findViewById(R.id.stub_poll);
             stubLinkPreview = v.findViewById(R.id.stub_link_preview);
             stubReelShare   = v.findViewById(R.id.stub_reel_share);
+            stubContact     = v.findViewById(R.id.stub_contact);
+            stubLocation    = v.findViewById(R.id.stub_location);
 
             // Heavy view refs start null — populated lazily by ensureXxxInflated()
             flVideo         = null;

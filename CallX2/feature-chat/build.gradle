@@ -62,4 +62,7 @@ dependencies {
     // ListenableFuture on Worker's supertype chain (same fix already
     // applied in :app and :feature-reels for the same error).
     implementation 'com.google.guava:guava:31.1-android'
+
+    // Location share — FusedLocationProviderClient + Geocoder
+    implementation 'com.google.android.gms:play-services-location:21.2.0'
 }

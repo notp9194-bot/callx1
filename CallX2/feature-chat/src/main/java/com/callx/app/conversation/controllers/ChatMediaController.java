@@ -168,6 +168,20 @@ public class ChatMediaController {
                         .build());
             });
         }
+        View optContact = v.findViewById(R.id.opt_contact);
+        if (optContact != null) {
+            optContact.setOnClickListener(x -> {
+                sheet.dismiss();
+                delegate.launchContactSharePicker();
+            });
+        }
+        View optLocation = v.findViewById(R.id.opt_location);
+        if (optLocation != null) {
+            optLocation.setOnClickListener(x -> {
+                sheet.dismiss();
+                delegate.launchLocationSharePicker();
+            });
+        }
         sheet.setContentView(v);
         sheet.show();
     }

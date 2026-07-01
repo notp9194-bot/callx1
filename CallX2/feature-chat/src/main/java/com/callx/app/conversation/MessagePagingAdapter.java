@@ -982,6 +982,8 @@ public class MessagePagingAdapter
         if (h.llPoll     != null) h.llPoll.setVisibility(View.GONE);
         if (h.llReelShare!= null) h.llReelShare.setVisibility(View.GONE);
         if (h.llMediaGroup != null) h.llMediaGroup.setVisibility(View.GONE);
+        if (h.llContact  != null) h.llContact.setVisibility(View.GONE);
+        if (h.llLocation != null) h.llLocation.setVisibility(View.GONE);
         if (h.tvTime     != null) h.tvTime.setVisibility(View.VISIBLE);
 
         // ── Quick Forward Button — media/link messages pe dikhao ──────────
@@ -1503,6 +1505,46 @@ public class MessagePagingAdapter
                             ctx.startActivity(ri);
                         } catch (Exception ignored) {}
                     }
+                });
+                break;
+            }
+            case "contact": {
+                // Inflate stub on first use
+                if (h.stubContact != null) {
+                    h.llContact = h.stubContact.inflate();
+                    h.stubContact = null;
+                }
+                if (h.llContact == null) {
+                    h.tvMessage.setVisibility(View.VISIBLE);
+                    h.tvMessage.setText(m.contactName != null ? "📇 " + m.contactName : "📇 Contact");
+                    break;
+                }
+                h.llContact.setVisibility(View.VISIBLE);
+                com.callx.app.conversation.controllers.ChatContactShareController
+                        .bindBubble(h.llContact, m);
+                h.llContact.setOnLongClickListener(v -> {
+                    if (actionListener != null) showActionBottomSheet(ctx, m);
+                    return true;
+                });
+                break;
+            }
+            case "location": {
+                // Inflate stub on first use
+                if (h.stubLocation != null) {
+                    h.llLocation = h.stubLocation.inflate();
+                    h.stubLocation = null;
+                }
+                if (h.llLocation == null) {
+                    h.tvMessage.setVisibility(View.VISIBLE);
+                    h.tvMessage.setText(m.locationAddress != null ? "📍 " + m.locationAddress : "📍 Location");
+                    break;
+                }
+                h.llLocation.setVisibility(View.VISIBLE);
+                com.callx.app.conversation.controllers.ChatLocationShareController
+                        .bindBubble(h.llLocation, m);
+                h.llLocation.setOnLongClickListener(v -> {
+                    if (actionListener != null) showActionBottomSheet(ctx, m);
+                    return true;
                 });
                 break;
             }
@@ -2567,6 +2609,8 @@ public class MessagePagingAdapter
         android.view.ViewStub stubPoll;
         android.view.ViewStub stubLinkPreview;
         android.view.ViewStub stubReelShare;
+        android.view.ViewStub stubContact;
+        android.view.ViewStub stubLocation;
 
         // ── Heavy view refs — null until their stub is inflated ──────────────
         LinearLayout llAudio, llFile;
@@ -2595,6 +2639,10 @@ public class MessagePagingAdapter
         ImageView    ivReelShareThumb;
         ImageView    ivReelShareAvatar;
         TextView     tvReelShareUsername, tvReelShareCaption;
+        // ── Contact share card ──
+        android.view.View llContact;
+        // ── Location share card ──
+        android.view.View llLocation;
         // ── Disappearing messages ──
         TextView                  tvExpiry;
         // ── Polls ──
@@ -2653,6 +2701,8 @@ public class MessagePagingAdapter
             stubPoll        = v.findViewById(R.id.stub_poll);
             stubLinkPreview = v.findViewById(R.id.stub_link_preview);
             stubReelShare   = v.findViewById(R.id.stub_reel_share);
+            stubContact     = v.findViewById(R.id.stub_contact);
+            stubLocation    = v.findViewById(R.id.stub_location);
             // Heavy child refs start null; populated by ensure*Inflated() below
             llAudio = null; btnPlayPause = null; seekAudio = null; tvAudioDur = null;
             llFile  = null; tvFileName   = null; btnDownload = null;
@@ -2837,6 +2887,8 @@ public class MessagePagingAdapter
             case "video": return "🎬  Video · Tap to open";
             case "audio": return "🎵  Audio · Tap to open";
             case "file":  return "📄  File · Tap to open";
+            case "contact":  return "📇  Contact · Tap to view";
+            case "location": return "📍  Location · Tap to open";
             default:      return "Tap to open";
         }
     }

@@ -251,6 +251,13 @@ public class ChatMessageSender {
         e.reelShareOwnerPhoto = m.reelShareOwnerPhoto;
         e.mediaItemsJson      = com.callx.app.utils.MediaItemsJsonUtil.mediaItemsToJson(m.mediaItems);
         e.caption             = m.caption;
+        e.contactName         = m.contactName;
+        e.contactPhone        = m.contactPhone;
+        e.contactPhone2       = m.contactPhone2;
+        e.contactPhotoUrl     = m.contactPhotoUrl;
+        e.locationLat         = m.locationLat;
+        e.locationLng         = m.locationLng;
+        e.locationAddress     = m.locationAddress;
         return e;
     }
 }

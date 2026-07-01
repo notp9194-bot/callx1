@@ -55,6 +55,8 @@ import java.util.*;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import com.callx.app.conversation.ChatActivity;
+import com.callx.app.conversation.controllers.ChatContactShareController;
+import com.callx.app.conversation.controllers.ChatLocationShareController;
 import com.callx.app.chat.ui.GifAwareEditText;
 import androidx.core.view.inputmethod.InputContentInfoCompat;
 import com.callx.app.conversation.MessageAdapter;
@@ -188,6 +190,10 @@ public class GroupChatActivity extends AppCompatActivity
     private static final int MAX_MULTI_PICK = 30;
     private final AudioRecorderHelper recorder = new AudioRecorderHelper();
 
+    // ── Contact / Location share ───────────────────────────────────────────
+    private ChatContactShareController  contactShareController;
+    private ChatLocationShareController locationShareController;
+
     // ── Network monitoring (Task 5) ────────────────────────────────────────
     private ConnectivityManager          connMgr;
     private ConnectivityManager.NetworkCallback netCallback;
@@ -219,6 +225,10 @@ public class GroupChatActivity extends AppCompatActivity
 
         setupToolbar();
         setupPickers();
+        contactShareController  = new ChatContactShareController(
+                this, this::buildOutgoing, this::pushMessage);
+        locationShareController = new ChatLocationShareController(
+                this, this::buildOutgoing, this::pushMessage);
         setupPagingRecyclerView();   // RecyclerView + adapter ready (Room query baad mein)
         setupInputBar();
         setupPinnedBanner();
@@ -1074,6 +1084,9 @@ public class GroupChatActivity extends AppCompatActivity
         m.reelShareOwnerPhoto = e.reelShareOwnerPhoto;
         m.mediaItems          = com.callx.app.utils.MediaItemsJsonUtil.mediaItemsFromJson(e.mediaItemsJson);
         m.caption              = e.caption;
+        m.contactName = e.contactName; m.contactPhone = e.contactPhone;
+        m.contactPhone2 = e.contactPhone2; m.contactPhotoUrl = e.contactPhotoUrl;
+        m.locationLat = e.locationLat; m.locationLng = e.locationLng; m.locationAddress = e.locationAddress;
         return m;
     }
 
@@ -1119,6 +1132,9 @@ public class GroupChatActivity extends AppCompatActivity
         e.reelShareOwnerPhoto = m.reelShareOwnerPhoto;
         e.mediaItemsJson      = com.callx.app.utils.MediaItemsJsonUtil.mediaItemsToJson(m.mediaItems);
         e.caption              = m.caption;
+        e.contactName = m.contactName; e.contactPhone = m.contactPhone;
+        e.contactPhone2 = m.contactPhone2; e.contactPhotoUrl = m.contactPhotoUrl;
+        e.locationLat = m.locationLat; e.locationLng = m.locationLng; e.locationAddress = m.locationAddress;
         return e;
     }
 
@@ -2218,6 +2234,14 @@ public class GroupChatActivity extends AppCompatActivity
                         .build());
             });
         }
+        View optContact = v.findViewById(R.id.opt_contact);
+        if (optContact != null) {
+            optContact.setOnClickListener(x -> { sheet.dismiss(); contactShareController.launch(); });
+        }
+        View optLocation = v.findViewById(R.id.opt_location);
+        if (optLocation != null) {
+            optLocation.setOnClickListener(x -> { sheet.dismiss(); locationShareController.launch(); });
+        }
         sheet.setContentView(v); sheet.show();
     }
 
@@ -2477,6 +2501,13 @@ public class GroupChatActivity extends AppCompatActivity
         super.onRequestPermissionsResult(req, perms, res);
         if (req == REQ_AUDIO && res.length > 0 && res[0] == PackageManager.PERMISSION_GRANTED)
             toggleRecording();
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, @android.annotation.Nullable android.content.Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (contactShareController  != null && contactShareController.handleResult(requestCode, resultCode, data))  return;
+        if (locationShareController != null && locationShareController.handleResult(requestCode, resultCode, data)) return;
     }
 
     // ─────────────────────────────────────────────────────────────────────

@@ -76,6 +76,8 @@ import com.callx.app.conversation.controllers.ChatScreenshotNotifier;
 import com.callx.app.conversation.controllers.ChatSearchController;
 import com.callx.app.conversation.controllers.ChatThemeController;
 import com.callx.app.conversation.controllers.ChatExportController;
+import com.callx.app.conversation.controllers.ChatContactShareController;
+import com.callx.app.conversation.controllers.ChatLocationShareController;
 import com.callx.app.db.AppDatabase;
 import com.callx.app.db.entity.MessageEntity;
 import com.callx.app.models.Message;
@@ -289,6 +291,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     private ChatReactionController reactionController;
     private ChatPollController     pollController;
     private ChatStarredController  starredController;
+    private ChatContactShareController contactShareController;
+    private ChatLocationShareController locationShareController;
     private ChatScheduledSendController scheduledSendController;
     /** Feature 13: View Once / Secret Message controller. */
     private ChatViewOnceController viewOnceController;
@@ -361,6 +365,10 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         reactionController = new ChatReactionController(this);
         pollController     = new ChatPollController(this);
         starredController  = new ChatStarredController(this);
+        contactShareController  = new ChatContactShareController(
+                this, this::buildOutgoing, this::pushMessage);
+        locationShareController = new ChatLocationShareController(
+                this, this::buildOutgoing, this::pushMessage);
         scheduledSendController = new ChatScheduledSendController(this);
         viewOnceController = new ChatViewOnceController(this);
         // NOTE: pagingAdapter.setViewOnceOpenListener(...) is wired in
@@ -814,6 +822,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     @Override public void refreshWallpaper()                 { themeController.applyWallpaper(); }
     @Override public void launchWallpaperPicker()            { mediaController.launchWallpaperPicker(); }
     @Override public void launchPollCreator()                { pollController.showCreatePollDialog(); }
+    @Override public void launchContactSharePicker()         { contactShareController.launch(); }
+    @Override public void launchLocationSharePicker()        { locationShareController.launch(); }
     @Override public void navigateToOriginal(String messageId) { navigateToOriginalMsg(messageId); }
     @Override public String getCurrentReplyTargetId() {
         if (replyingTo == null) return null;
@@ -2022,6 +2032,9 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         m.reelShareOwnerPhoto = e.reelShareOwnerPhoto;
         m.mediaItems = com.callx.app.utils.MediaItemsJsonUtil.mediaItemsFromJson(e.mediaItemsJson);
         m.caption    = e.caption;
+        m.contactName = e.contactName; m.contactPhone = e.contactPhone;
+        m.contactPhone2 = e.contactPhone2; m.contactPhotoUrl = e.contactPhotoUrl;
+        m.locationLat = e.locationLat; m.locationLng = e.locationLng; m.locationAddress = e.locationAddress;
         return m;
     }
 
@@ -2055,6 +2068,9 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         e.reelShareOwnerPhoto = m.reelShareOwnerPhoto;
         e.mediaItemsJson = com.callx.app.utils.MediaItemsJsonUtil.mediaItemsToJson(m.mediaItems);
         e.caption        = m.caption;
+        e.contactName = m.contactName; e.contactPhone = m.contactPhone;
+        e.contactPhone2 = m.contactPhone2; e.contactPhotoUrl = m.contactPhotoUrl;
+        e.locationLat = m.locationLat; e.locationLng = m.locationLng; e.locationAddress = m.locationAddress;
         e.syncedAt = System.currentTimeMillis();
         return e;
     }
@@ -3192,6 +3208,13 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
             mediaController.toggleRecording();
         }
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, @Nullable android.content.Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (contactShareController.handleResult(requestCode, resultCode, data)) return;
+        if (locationShareController.handleResult(requestCode, resultCode, data)) return;
     }
 
     // ─────────────────────────────────────────────────────────────────────

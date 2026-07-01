@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Location share message bubble — shows a static map thumbnail (via Maps Static API or a
+  placeholder), the address, and a "Open in Maps" button.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="260dp"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@drawable/bg_bubble_received"
+    android:padding="0dp">
+
+    <!-- Static map thumbnail (loaded with Glide from a URL or placeholder) -->
+    <ImageView
+        android:id="@+id/ivMapThumb"
+        android:layout_width="match_parent"
+        android:layout_height="130dp"
+        android:scaleType="centerCrop"
+        android:background="#E0E0E0"
+        android:src="@drawable/ic_location_pin"/>
+
+    <!-- Pin icon overlay centered on the image -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:padding="10dp"
+        android:gravity="center_vertical">
+
+        <ImageView
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:src="@drawable/ic_location_pin"
+            android:colorFilter="?colorPrimary"/>
+
+        <TextView
+            android:id="@+id/tvLocationAddress"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="6dp"
+            android:textColor="?android:attr/textColorPrimary"
+            android:textSize="13sp"
+            android:maxLines="2"
+            android:ellipsize="end"
+            android:text="Loading address…"/>
+
+    </LinearLayout>
+
+    <!-- Divider -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="?android:attr/listDivider"/>
+
+    <!-- "Open in Maps" action -->
+    <TextView
+        android:id="@+id/btnOpenMaps"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Open in Maps"
+        android:textColor="?colorPrimary"
+        android:textSize="14sp"
+        android:gravity="center"
+        android:paddingTop="10dp"
+        android:paddingBottom="10dp"
+        android:background="?attr/selectableItemBackground"/>
+
+    <!-- Timestamp + status row -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="end|center_vertical"
+        android:paddingEnd="8dp"
+        android:paddingBottom="4dp">
+
+        <TextView
+            android:id="@+id/tvTimestamp"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="10sp"
+            android:textColor="?android:attr/textColorSecondary"/>
+
+        <ImageView
+            android:id="@+id/ivStatus"
+            android:layout_width="16dp"
+            android:layout_height="16dp"
+            android:layout_marginStart="3dp"
+            android:visibility="gone"/>
+
+    </LinearLayout>
+</LinearLayout>

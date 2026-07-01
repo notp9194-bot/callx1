@@ -84,5 +84,27 @@
                 android:text="Multi" android:textSize="12sp"
                 android:textColor="?android:attr/textColorPrimary" android:layout_marginTop="6dp"/>
         </LinearLayout>
+        <LinearLayout android:id="@+id/opt_contact" android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_columnWeight="1" android:orientation="vertical" android:gravity="center"
+            android:padding="12dp" android:background="?attr/selectableItemBackground">
+            <FrameLayout android:layout_width="56dp" android:layout_height="56dp" android:background="@drawable/circle_primary">
+                <ImageView android:layout_width="28dp" android:layout_height="28dp"
+                    android:layout_gravity="center" android:src="@drawable/ic_person"/>
+            </FrameLayout>
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="Contact" android:textSize="12sp"
+                android:textColor="?android:attr/textColorPrimary" android:layout_marginTop="6dp"/>
+        </LinearLayout>
+        <LinearLayout android:id="@+id/opt_location" android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_columnWeight="1" android:orientation="vertical" android:gravity="center"
+            android:padding="12dp" android:background="?attr/selectableItemBackground">
+            <FrameLayout android:layout_width="56dp" android:layout_height="56dp" android:background="@drawable/circle_primary">
+                <ImageView android:layout_width="28dp" android:layout_height="28dp"
+                    android:layout_gravity="center" android:src="@drawable/ic_location_pin"/>
+            </FrameLayout>
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="Location" android:textSize="12sp"
+                android:textColor="?android:attr/textColorPrimary" android:layout_marginTop="6dp"/>
+        </LinearLayout>
     </GridLayout>
 </LinearLayout>

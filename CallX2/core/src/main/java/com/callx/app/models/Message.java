@@ -175,6 +175,25 @@ public class Message {
     /** Optional caption attached to a multi_media message. */
     public String caption;
 
+    // ── Feature: Contact Card Share ───────────────────────────────────────
+    /** Set when type = "contact". Display name of the shared contact. */
+    public String contactName;
+    /** Phone number of the shared contact (E.164 or raw, as picked from device). */
+    public String contactPhone;
+    /** Optional secondary phone number, if the contact has more than one. */
+    public String contactPhone2;
+    /** Optional photo URI/URL of the shared contact (device content:// URI is NOT
+     *  portable across devices, so this is best-effort — may be null). */
+    public String contactPhotoUrl;
+
+    // ── Feature: Location Share (pin-drop) ──────────────────────────────────
+    /** Set when type = "location". Latitude of the shared point. */
+    public Double locationLat;
+    /** Longitude of the shared point. */
+    public Double locationLng;
+    /** Reverse-geocoded human readable address — may be null if geocoding failed. */
+    public String locationAddress;
+
     public Message() {}
 
     /**
