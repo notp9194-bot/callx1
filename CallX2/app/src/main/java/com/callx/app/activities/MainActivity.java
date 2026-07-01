@@ -283,6 +283,18 @@ public class MainActivity extends AppCompatActivity {
         updateReturnToCallBanner();
     }
 
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        // Same fix as chat screens: system bars ka hidden state focus lose
+        // hone par (dialog, share sheet, notification shade) reset ho sakta
+        // hai — Reels tab active ho to focus wapas aate hi dobara hide karo.
+        if (hasFocus && binding != null
+                && binding.viewPager.getCurrentItem() == TAB_REELS) {
+            setImmersiveMode(true);
+        }
+    }
+
     // ── Feature 1: Return to Call Banner ─────────────────────────────────
     // WhatsApp-style green strip — tab dikhata hai jab user call mein ho aur
     // alag screen pe chala jaye. Tap karne par CallActivity wapas khul jaati hai.
@@ -1040,22 +1052,24 @@ public class MainActivity extends AppCompatActivity {
      *   - Content draws behind both bars (edge-to-edge).
      * When disabled (other tabs), normal system chrome is fully restored.
      */
+    /**
+     * Enable or disable full-screen immersive (edge-to-edge) mode.
+     * When enabled (Reels tab) — true full-screen TikTok style:
+     *   - Status bar AND navigation bar are both fully HIDDEN (same as the
+     *     chat screens now) — no bar, no icons, clean space.
+     *   - User can swipe from top/bottom edge to temporarily reveal them.
+     *   - Content draws behind both bars (edge-to-edge).
+     * When disabled (other tabs), normal system chrome is fully restored.
+     */
     private void setImmersiveMode(boolean immersive) {
-        WindowInsetsControllerCompat controller =
-            WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
         if (immersive) {
-            // Content draws behind status bar + nav bar (edge-to-edge)
-            WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
-            // Status bar: VISIBLE but fully transparent — video draws behind it (Instagram style)
-            controller.show(WindowInsetsCompat.Type.statusBars());
-            // White icons on status bar so they are readable over dark video
-            controller.setAppearanceLightStatusBars(false);
-            // Navigation bar: hide so video extends to bottom
-            controller.hide(WindowInsetsCompat.Type.navigationBars());
-            controller.setSystemBarsBehavior(
-                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
-            getWindow().setStatusBarColor(android.graphics.Color.TRANSPARENT);
+            // Same fully-hidden immersive behavior as the chat screens
+            // (ChatActivity / GroupChatActivity) — status bar no longer
+            // stays visible-transparent; it's hidden until the user swipes.
+            com.callx.app.utils.ImmersiveModeUtils.enterImmersive(this);
         } else {
+            WindowInsetsControllerCompat controller =
+                WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
             WindowCompat.setDecorFitsSystemWindows(getWindow(), true);
             controller.show(WindowInsetsCompat.Type.statusBars()
                 | WindowInsetsCompat.Type.navigationBars());
@@ -1063,6 +1077,7 @@ public class MainActivity extends AppCompatActivity {
             controller.setSystemBarsBehavior(
                 WindowInsetsControllerCompat.BEHAVIOR_DEFAULT);
             getWindow().setStatusBarColor(android.graphics.Color.TRANSPARENT);
+            getWindow().setNavigationBarColor(android.graphics.Color.TRANSPARENT);
         }
     }
 
