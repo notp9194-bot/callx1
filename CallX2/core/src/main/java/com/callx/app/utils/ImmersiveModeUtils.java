@@ -24,12 +24,6 @@ public final class ImmersiveModeUtils {
 
     private ImmersiveModeUtils() {}
 
-    // Unique keyed-tag ids for View.setTag(int, Object) — used to remember
-    // each view's TRUE original (XML-defined) padding/margin exactly once,
-    // so repeated setImmersiveMode() calls never stack insets on themselves.
-    private static final int TAG_KEY_BASE_TOP_PADDING    = android.view.View.generateViewId();
-    private static final int TAG_KEY_BASE_BOTTOM_MARGIN  = android.view.View.generateViewId();
-
     /** Fully hides status bar + nav bar for this activity's window. */
     public static void enterImmersive(Activity activity) {
         if (activity == null || activity.getWindow() == null) return;
@@ -90,7 +84,7 @@ public final class ImmersiveModeUtils {
         // previous inset — so on devices where the status bar doesn't stay
         // hidden (MIUI etc.), padding kept stacking higher every focus event.
         // Fix: capture the true original padding exactly once via a tag.
-        Object baseTag = topBar.getTag(TAG_KEY_BASE_TOP_PADDING);
+        Object baseTag = topBar.getTag();
         final int baseLeft, baseTop, baseRight, baseBottom;
         if (baseTag instanceof int[]) {
             int[] base = (int[]) baseTag;
@@ -100,7 +94,7 @@ public final class ImmersiveModeUtils {
             baseTop    = topBar.getPaddingTop();
             baseRight  = topBar.getPaddingRight();
             baseBottom = topBar.getPaddingBottom();
-            topBar.setTag(TAG_KEY_BASE_TOP_PADDING, new int[]{baseLeft, baseTop, baseRight, baseBottom});
+            topBar.setTag(new int[]{baseLeft, baseTop, baseRight, baseBottom});
         }
 
         ViewCompat.setOnApplyWindowInsetsListener(topBar, (v, insets) -> {
@@ -137,7 +131,7 @@ public final class ImmersiveModeUtils {
         // completely below the visible screen. Fix: capture the TRUE
         // original XML margin exactly once per view via a tag, so repeated
         // calls always add the inset on top of the same fixed base.
-        Object baseTag = bottomBar.getTag(TAG_KEY_BASE_BOTTOM_MARGIN);
+        Object baseTag = bottomBar.getTag();
         final int baseBottomMargin;
         if (baseTag instanceof Integer) {
             baseBottomMargin = (Integer) baseTag;
@@ -145,7 +139,7 @@ public final class ImmersiveModeUtils {
             android.view.ViewGroup.MarginLayoutParams lp =
                     (android.view.ViewGroup.MarginLayoutParams) bottomBar.getLayoutParams();
             baseBottomMargin = lp.bottomMargin;
-            bottomBar.setTag(TAG_KEY_BASE_BOTTOM_MARGIN, baseBottomMargin);
+            bottomBar.setTag(baseBottomMargin);
         }
 
         ViewCompat.setOnApplyWindowInsetsListener(bottomBar, (v, insets) -> {
