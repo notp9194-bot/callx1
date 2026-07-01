@@ -549,6 +549,18 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     }
 
     @Override
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        // System bars ka hide state window focus lose hone par (dialog, share
+        // sheet, notification shade) reset ho sakta hai — focus wapas aate hi
+        // dobara hide karo taaki status bar ki jagah gap na dikhe.
+        if (hasFocus) {
+            com.callx.app.utils.ImmersiveModeUtils.enterImmersive(this);
+        }
+    }
+
+    @Override
     protected void onResume() {
         super.onResume();
         // Re-assert immersive full-screen (system can restore bars after

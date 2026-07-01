@@ -389,6 +389,15 @@ public class GroupChatActivity extends AppCompatActivity
     }
 
     @Override
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus) {
+            com.callx.app.utils.ImmersiveModeUtils.enterImmersive(this);
+        }
+    }
+
+    @Override
     protected void onResume() {
         super.onResume();
         // Re-assert immersive full-screen (system can restore bars after
