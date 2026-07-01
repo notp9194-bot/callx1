@@ -1,18 +1,19 @@
 // ══════════════════════════════════════════════════════════════════════
 //  :macrobenchmark — Real Device Measured Baseline Profile Generator
 //
-//  Ye module REAL device pe actual user flows run karta hai aur ART ko
-//  batata hai exactly kaunse methods AOT-compile karne hain.
-//  Hand-written baseline-prof.txt se MUCH better accuracy milti hai.
-//
 //  SETUP (ek baar karna hai):
-//    1. Real device ya API 31+ emulator connect karo (USB debugging ON)
+//    1. Real device ya API 28+ emulator connect karo (USB debugging ON)
 //    2. ./gradlew :macrobenchmark:generateBaselineProfile
 //    3. Generated profile app/src/main/baseline-prof.txt me automatically
 //       copy ho jaata hai.
 //
 //  BENCHMARK ONLY (profile generate kiye bina perf numbers dekhne ke liye):
 //    ./gradlew :macrobenchmark:connectedBenchmarkAndroidTest
+//
+//  NOTE: baselineProfile{} block is intentionally absent.
+//  Producer extension (BaselineProfileProducerExtension v1.2.3) has NO
+//  configurable properties — all options (saveInSrc, dexLayoutOptimization,
+//  filter, automaticGenerationDuringBuild) belong in the consumer: app/build.gradle.
 // ══════════════════════════════════════════════════════════════════════
 
 plugins {
@@ -26,16 +27,14 @@ android {
     compileSdk 34
 
     defaultConfig {
-        minSdk 28          // Macrobenchmark requires API 28+
+        minSdk 28
         targetSdk 34
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
     }
 
-    // The benchmark build type in :app is what we test against.
-    // It must be profileable (not debuggable) for accurate measurements.
     buildTypes {
         benchmark {
-            debuggable true           // Keep debuggable for instrumentation runner
+            debuggable true
             signingConfig signingConfigs.debug
             matchingFallbacks = ['release']
         }
@@ -50,16 +49,6 @@ android {
 
     targetProjectPath ':app'
     experimentalProperties['android.experimental.self-instrumenting'] = true
-}
-
-// Producer module: only 'filter' is valid here.
-// saveInSrc / dexLayoutOptimization / automaticGenerationDuringBuild
-// are consumer-side properties — they live in app/build.gradle.
-baselineProfile {
-    filter {
-        include 'com.callx.app.**'
-        exclude 'com.callx.app.test.**'
-    }
 }
 
 dependencies {
