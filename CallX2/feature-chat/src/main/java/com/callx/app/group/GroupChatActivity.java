@@ -2504,7 +2504,7 @@ public class GroupChatActivity extends AppCompatActivity
     }
 
     @Override
-    protected void onActivityResult(int requestCode, int resultCode, @android.annotation.Nullable android.content.Intent data) {
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         if (contactShareController  != null && contactShareController.handleResult(requestCode, resultCode, data))  return;
         if (locationShareController != null && locationShareController.handleResult(requestCode, resultCode, data)) return;
