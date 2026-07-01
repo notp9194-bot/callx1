@@ -312,6 +312,15 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        // TraceSectionMetric("ChatActivity#onCreate") — full cold-start cost from
+        // Activity creation to end of onCreate. This is the top-level benchmark
+        // section. Target: < 300ms. If > 300ms, drill into sub-sections:
+        //   DB#getInstance    → SQLCipher init slow
+        //   SecurityManager#init → EncryptedSharedPreferences slow
+        //   ChatRepo#syncDelta   → Firebase query taking too long
+        // Trace.endSection() is called at the very end of this method.
+        android.os.Trace.beginSection("ChatActivity#onCreate");
+
         // Controllers that register ActivityResultLaunchers MUST be created
         // before super.onCreate() or at least before onStart.
         mediaController = new ChatMediaController(this, this);
@@ -479,6 +488,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 runOnUiThread(this::onDbReady);
             });
         }
+        // Closes TraceSectionMetric("ChatActivity#onCreate") opened at top of method.
+        android.os.Trace.endSection();
     }
 
     private void onDbReady() {
