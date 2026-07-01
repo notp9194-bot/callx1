@@ -549,6 +549,10 @@ public class MessagePagingAdapter
 
     @Override
     public void onBindViewHolder(@NonNull VH h, int position) {
+        // TraceSectionMetric("Msg#bind") -- full bind cost per message row.
+        // Target: median < 2ms, P99 < 8ms.
+        android.os.Trace.beginSection("Msg#bind");
+        try {
         Message m = getItem(position);
         if (m == null) {
             // Placeholder — show shimmer or empty
@@ -591,6 +595,9 @@ public class MessagePagingAdapter
             return;
         }
         bindMessage(h, m, position);
+        } finally {
+            android.os.Trace.endSection();
+        }
     }
 
     // ──────────────────────────────────────────────────────────────

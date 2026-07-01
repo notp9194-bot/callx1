@@ -88,6 +88,10 @@ public class SecurityManager {
     }
 
     public SecurityManager(@NonNull Context ctx) {
+        // TraceSectionMetric("SecurityManager#init") — EncryptedSharedPreferences
+        // performs AES256 key derivation here. Consistently > 100ms = singleton
+        // not being used (constructor called more than once per process).
+        android.os.Trace.beginSection("SecurityManager#init");
         SharedPreferences sp;
         try {
             MasterKey masterKey = new MasterKey.Builder(ctx)
@@ -99,6 +103,8 @@ public class SecurityManager {
                 EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM);
         } catch (Exception e) {
             sp = ctx.getSharedPreferences("callx_security_v2_plain", Context.MODE_PRIVATE);
+        } finally {
+            android.os.Trace.endSection();
         }
         this.prefs = sp;
     }

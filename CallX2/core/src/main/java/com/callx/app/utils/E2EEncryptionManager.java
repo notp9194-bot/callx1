@@ -220,15 +220,23 @@ public class E2EEncryptionManager {
      * and arrive at the same shared secret — no key transport needed.
      */
     private SecretKey deriveSharedKey(PublicKey partnerPublicKey) throws Exception {
-        KeyAgreement ka = KeyAgreement.getInstance("ECDH");
-        ka.init(ourPrivateKey);
-        ka.doPhase(partnerPublicKey, true);
-        byte[] sharedSecret = ka.generateSecret();
+        // TraceSectionMetric("E2E#keyDerivation") — ECDH P-256 key agreement +
+        // SHA-256 hash. Target: < 15ms. If > 30ms, consider caching derived
+        // keys more aggressively (they are already cached in sharedKeyCache).
+        android.os.Trace.beginSection("E2E#keyDerivation");
+        try {
+            KeyAgreement ka = KeyAgreement.getInstance("ECDH");
+            ka.init(ourPrivateKey);
+            ka.doPhase(partnerPublicKey, true);
+            byte[] sharedSecret = ka.generateSecret();
 
-        // Hash with SHA-256 to get a uniform 256-bit key
-        MessageDigest sha256 = MessageDigest.getInstance("SHA-256");
-        byte[] keyBytes = sha256.digest(sharedSecret);
-        return new SecretKeySpec(keyBytes, "AES");
+            // Hash with SHA-256 to get a uniform 256-bit key
+            MessageDigest sha256 = MessageDigest.getInstance("SHA-256");
+            byte[] keyBytes = sha256.digest(sharedSecret);
+            return new SecretKeySpec(keyBytes, "AES");
+        } finally {
+            android.os.Trace.endSection();
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -248,22 +256,31 @@ public class E2EEncryptionManager {
                     + ". Call ensureKeysExist() first.");
         }
 
-        // Generate a fresh random 12-byte IV for every message
-        byte[] iv = new byte[GCM_IV_LEN];
-        new java.security.SecureRandom().nextBytes(iv);
+        // TraceSectionMetric("E2E#encrypt") — AES-256-GCM encryption per message.
+        // Target: < 5ms. If consistently > 10ms on mid-range devices, consider
+        // moving encrypt() off the main thread (it is already called from executor
+        // in ChatActivity's send path, but verify with this trace).
+        android.os.Trace.beginSection("E2E#encrypt");
+        try {
+            // Generate a fresh random 12-byte IV for every message
+            byte[] iv = new byte[GCM_IV_LEN];
+            new java.security.SecureRandom().nextBytes(iv);
 
-        Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
-        cipher.init(Cipher.ENCRYPT_MODE, key, new GCMParameterSpec(GCM_TAG_LEN, iv));
+            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+            cipher.init(Cipher.ENCRYPT_MODE, key, new GCMParameterSpec(GCM_TAG_LEN, iv));
 
-        byte[] plaintextBytes  = plaintext.getBytes(StandardCharsets.UTF_8);
-        byte[] ciphertextBytes = cipher.doFinal(plaintextBytes); // includes GCM tag
+            byte[] plaintextBytes  = plaintext.getBytes(StandardCharsets.UTF_8);
+            byte[] ciphertextBytes = cipher.doFinal(plaintextBytes); // includes GCM tag
 
-        // Concatenate IV + ciphertext → base64
-        byte[] combined = new byte[iv.length + ciphertextBytes.length];
-        System.arraycopy(iv, 0, combined, 0, iv.length);
-        System.arraycopy(ciphertextBytes, 0, combined, iv.length, ciphertextBytes.length);
+            // Concatenate IV + ciphertext → base64
+            byte[] combined = new byte[iv.length + ciphertextBytes.length];
+            System.arraycopy(iv, 0, combined, 0, iv.length);
+            System.arraycopy(ciphertextBytes, 0, combined, iv.length, ciphertextBytes.length);
 
-        return ENC_PREFIX + Base64.encodeToString(combined, Base64.NO_WRAP);
+            return ENC_PREFIX + Base64.encodeToString(combined, Base64.NO_WRAP);
+        } finally {
+            android.os.Trace.endSection();
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -286,24 +303,33 @@ public class E2EEncryptionManager {
                     + ". Fetch partner's public key first.");
         }
 
-        String b64    = encryptedText.substring(ENC_PREFIX.length());
-        byte[] combined = Base64.decode(b64, Base64.NO_WRAP);
+        // TraceSectionMetric("Msg#decrypt") — AES-256-GCM decryption called once
+        // per encrypted message during bind/display. Target: < 4ms per call.
+        // If P99 > 4ms in the benchmark → decrypt is happening on the UI thread
+        // and MUST be moved to a background thread with a placeholder shown first.
+        android.os.Trace.beginSection("Msg#decrypt");
+        try {
+            String b64    = encryptedText.substring(ENC_PREFIX.length());
+            byte[] combined = Base64.decode(b64, Base64.NO_WRAP);
 
-        if (combined.length < GCM_IV_LEN + 16) {
-            throw new IllegalArgumentException("Ciphertext too short");
+            if (combined.length < GCM_IV_LEN + 16) {
+                throw new IllegalArgumentException("Ciphertext too short");
+            }
+
+            // Split IV and ciphertext
+            byte[] iv         = new byte[GCM_IV_LEN];
+            byte[] ciphertext = new byte[combined.length - GCM_IV_LEN];
+            System.arraycopy(combined, 0,         iv,         0, GCM_IV_LEN);
+            System.arraycopy(combined, GCM_IV_LEN, ciphertext, 0, ciphertext.length);
+
+            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+            cipher.init(Cipher.DECRYPT_MODE, key, new GCMParameterSpec(GCM_TAG_LEN, iv));
+
+            byte[] plaintext = cipher.doFinal(ciphertext);
+            return new String(plaintext, StandardCharsets.UTF_8);
+        } finally {
+            android.os.Trace.endSection();
         }
-
-        // Split IV and ciphertext
-        byte[] iv         = new byte[GCM_IV_LEN];
-        byte[] ciphertext = new byte[combined.length - GCM_IV_LEN];
-        System.arraycopy(combined, 0,         iv,         0, GCM_IV_LEN);
-        System.arraycopy(combined, GCM_IV_LEN, ciphertext, 0, ciphertext.length);
-
-        Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
-        cipher.init(Cipher.DECRYPT_MODE, key, new GCMParameterSpec(GCM_TAG_LEN, iv));
-
-        byte[] plaintext = cipher.doFinal(ciphertext);
-        return new String(plaintext, StandardCharsets.UTF_8);
     }
 
     // ─────────────────────────────────────────────────────────────────────

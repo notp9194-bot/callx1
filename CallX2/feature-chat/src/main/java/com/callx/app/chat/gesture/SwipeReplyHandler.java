@@ -256,11 +256,19 @@ public class SwipeReplyHandler extends ItemTouchHelper.Callback {
         if (isCurrentlyActive && absDx >= trigger && !triggered) {
             long now = System.currentTimeMillis();
             if (now - lastTriggerTime >= DEBOUNCE_MS) {
-                triggered       = true;
-                lastTriggerTime = now;
-                fireHaptic(itemView, true);
-                if (listener != null)
-                    listener.onSwipeReply(m, vh.getBindingAdapterPosition());
+                // TraceSectionMetric("SwipeReply#start") — time from threshold cross
+                // to listener callback. Target: < 2ms for smooth 60fps swipe feedback.
+                // If > 2ms, profile fireHaptic() and listener callback overhead.
+                android.os.Trace.beginSection("SwipeReply#start");
+                try {
+                    triggered       = true;
+                    lastTriggerTime = now;
+                    fireHaptic(itemView, true);
+                    if (listener != null)
+                        listener.onSwipeReply(m, vh.getBindingAdapterPosition());
+                } finally {
+                    android.os.Trace.endSection();
+                }
             }
         }
     }
@@ -271,8 +279,12 @@ public class SwipeReplyHandler extends ItemTouchHelper.Callback {
         // PERF: remove hardware layer — bubble is no longer moving, no need
         // to keep it as a GPU texture (wastes VRAM and blocks invalidation).
         SwipeOptimizer.clearHardwareLayer(vh.itemView);
-        // Spring-back: animate translation to 0
+        // TraceSectionMetric("SwipeReply#spring") — spring-back animation init cost.
+        // Target: < 1ms. SpringForce setup should be instantaneous; if not,
+        // SpringAnimation is being created fresh on each swipe instead of reused.
+        android.os.Trace.beginSection("SwipeReply#spring");
         SwipeOptimizer.springBack(vh.itemView);
+        android.os.Trace.endSection();
         triggered      = false;
         hapticFired    = false;
         currentSwipeDx = 0f;

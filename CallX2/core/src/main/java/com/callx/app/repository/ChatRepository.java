@@ -77,6 +77,10 @@ public class ChatRepository {
      */
     public void syncMessagesDelta(String chatId) {
         mExecutor.execute(() -> {
+            // TraceSectionMetric("ChatRepo#syncDelta") — full Firebase delta sync
+            // wall time per chat open (background thread). Measures network +
+            // Room insert. If > 2s consistently → consider WebSocket or push-triggered
+            // sync instead of open-triggered pull.
             long lastTs = mCache.getLastSyncTimestamp(chatId);
             Log.d(TAG, "Delta sync chatId=" + chatId + " since=" + lastTs);
 
@@ -87,17 +91,26 @@ public class ChatRepository {
             // PERF FIX v8: Firebase path was WRONG ("chats/{id}/messages").
             // Correct path matches ChatActivity: "messages/{chatId}"
             // Old wrong path = Room always empty = 3-4s load on every open.
-            if (lastTs == 0) {
-                query = mFirebase.getReference("messages")
-                    .child(chatId)
-                    .orderByChild("timestamp")
-                    .limitToLast(PAGE_SIZE);
-            } else {
-                query = mFirebase.getReference("messages")
-                    .child(chatId)
-                    .orderByChild("timestamp")
-                    .startAfter((double) lastTs)
-                    .limitToLast(PAGE_SIZE);
+            // TraceSectionMetric("ChatRepo#syncDelta") — synchronous query-build cost
+            // on the executor thread (Trace sections are thread-local; we only wrap
+            // the synchronous portion here; the async Firebase round-trip is tracked
+            // separately via DB#insertMessages in the onDataChange callback).
+            android.os.Trace.beginSection("ChatRepo#syncDelta");
+            try {
+                if (lastTs == 0) {
+                    query = mFirebase.getReference("messages")
+                        .child(chatId)
+                        .orderByChild("timestamp")
+                        .limitToLast(PAGE_SIZE);
+                } else {
+                    query = mFirebase.getReference("messages")
+                        .child(chatId)
+                        .orderByChild("timestamp")
+                        .startAfter((double) lastTs)
+                        .limitToLast(PAGE_SIZE);
+                }
+            } finally {
+                android.os.Trace.endSection();
             }
 
             query.addListenerForSingleValueEvent(new ValueEventListener() {
@@ -112,8 +125,17 @@ public class ChatRepository {
                     }
                     if (!newMessages.isEmpty()) {
                         mExecutor.execute(() -> {
-                            mDb.messageDao().insertMessages(newMessages);
-                            mCache.invalidateMessages(chatId); // invalidate RAM cache so next read gets fresh DB data
+                            // TraceSectionMetric("DB#insertMessages") — Room bulk insert
+                            // cost per delta sync batch. Target: < 50ms for PAGE_SIZE=50
+                            // rows. If > 100ms, chatId+timestamp index likely missing —
+                            // verify MIGRATION_17_18 ran on this device.
+                            android.os.Trace.beginSection("DB#insertMessages");
+                            try {
+                                mDb.messageDao().insertMessages(newMessages);
+                            } finally {
+                                android.os.Trace.endSection();
+                            }
+                            mCache.invalidateMessages(chatId);
                             Log.d(TAG, "Delta sync: inserted " + newMessages.size() + " new messages for " + chatId);
                         });
                     }

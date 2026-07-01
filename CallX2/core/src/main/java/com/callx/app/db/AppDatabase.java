@@ -455,7 +455,15 @@ public abstract class AppDatabase extends RoomDatabase {
         if (sInstance == null) {
             synchronized (AppDatabase.class) {
                 if (sInstance == null) {
-                    sInstance = buildDatabase(ctx.getApplicationContext());
+                    // TraceSectionMetric("DB#getInstance") — measures cold Room+SQLCipher
+                    // init time. If this is consistently > 200ms, move the call off the
+                    // main thread and show a loading state instead.
+                    android.os.Trace.beginSection("DB#getInstance");
+                    try {
+                        sInstance = buildDatabase(ctx.getApplicationContext());
+                    } finally {
+                        android.os.Trace.endSection();
+                    }
                 }
             }
         }
@@ -467,11 +475,20 @@ public abstract class AppDatabase extends RoomDatabase {
         // A crash is intentional: losing encryption silently is unacceptable
         // in a production messaging app.
 
+        // TraceSectionMetric("DB#sqlcipherLoad") — SQLiteDatabase.loadLibs() unpacks
+        // the native .so on first install; should be < 50ms after first run.
+        android.os.Trace.beginSection("DB#sqlcipherLoad");
         SQLiteDatabase.loadLibs(ctx);
+        android.os.Trace.endSection();
 
+        // TraceSectionMetric("DB#keyFetch") — EncryptedSharedPreferences AES256 key
+        // derivation. First call triggers key generation (~80-150ms), subsequent
+        // calls should be < 10ms (key already stored).
+        android.os.Trace.beginSection("DB#keyFetch");
         byte[] passphrase = EncryptedDbKeyStore
                 .getInstance(ctx)
                 .getDbKeyBytes();
+        android.os.Trace.endSection();
 
         if (passphrase == null || passphrase.length == 0) {
             // FIX #1: Key generation failed → explicit crash, not silent fallback
