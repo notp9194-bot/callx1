@@ -9,7 +9,6 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.ListPreloader;
 import com.bumptech.glide.RequestBuilder;
-import com.bumptech.glide.integration.recyclerview.FixedPreloadSizeProvider;
 import com.bumptech.glide.integration.recyclerview.RecyclerViewPreloader;
 import com.bumptech.glide.load.engine.DiskCacheStrategy;
 
@@ -89,8 +88,14 @@ public final class ChatMediaPreloader {
             int preloadHeight,
             @NonNull UrlProvider urlProvider) {
 
-        FixedPreloadSizeProvider<String> sizeProvider =
-                new FixedPreloadSizeProvider<>(preloadWidth, preloadHeight);
+        // NOTE: Glide's recyclerview-integration artifact does NOT ship a
+        // ready-made "FixedPreloadSizeProvider" class — only ViewPreloadSizeProvider
+        // (which measures an actual target view). Since we always want a fixed
+        // thumbnail size, we implement PreloadSizeProvider ourselves — it's a
+        // one-method interface, trivial to satisfy.
+        final int[] fixedSize = new int[]{preloadWidth, preloadHeight};
+        ListPreloader.PreloadSizeProvider<String> sizeProvider =
+                (item, adapterPosition, perItemPosition) -> fixedSize;
 
         ListPreloader.PreloadModelProvider<String> modelProvider =
                 new ListPreloader.PreloadModelProvider<String>() {
