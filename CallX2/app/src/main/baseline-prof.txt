@@ -1,0 +1,63 @@
+# Baseline Profile — CallX2
+# Manually authored hot-path profile. Covers app cold start + first chat
+# screen open + first RecyclerView scroll (the paths users feel most).
+#
+# NOTE: This is a hand-written starter profile (safe, low-risk — ART simply
+# ignores any rule it can't resolve at install time). For a fully accurate,
+# device-measured profile, run the Macrobenchmark "baselineprofile" Gradle
+# module + `./gradlew :baselineprofile:pixel6Api31BenchmarkAOT` from Android
+# Studio (Run > Generate Baseline Profile) and it will replace/extend this
+# file automatically. See notes at bottom of this file.
+
+# ── App startup ──────────────────────────────────────────────────────
+HSPLcom/callx/app/CallxApp;->onCreate()V
+HSPLcom/callx/app/CallxApp;->createChannels()V
+HSPLcom/callx/app/CallxApp;->registerForegroundTracking()V
+HSPLcom/callx/app/CallxApp;-><clinit>()V
+
+# ── MainActivity / ChatActivity (first screens hit) ──────────────────
+HSPLcom/callx/app/activities/MainActivity;->onCreate(Landroid/os/Bundle;)V
+HSPLcom/callx/app/activities/MainActivity;->on*(**)V
+HSPLcom/callx/app/activities/ChatActivity;->onCreate(Landroid/os/Bundle;)V
+HSPLcom/callx/app/activities/ChatActivity;->on*(**)V
+
+# ── DB / crypto warm-up (previously the "3 sec chat open" bottleneck) ─
+HSPLcom/callx/app/db/AppDatabase;->getInstance(Landroid/content/Context;)Lcom/callx/app/db/AppDatabase;
+HSPLcom/callx/app/db/AppDatabase;-><clinit>()V
+HSPLcom/callx/app/utils/SecurityManager;->getInstance(Landroid/content/Context;)Lcom/callx/app/utils/SecurityManager;
+HSPLcom/callx/app/utils/SecurityManager;-><init>(Landroid/content/Context;)V
+
+# ── Chat theme (GradientDrawable cache) ───────────────────────────────
+HSPLcom/callx/app/utils/ChatThemeManager;->*(**)V
+HSPLcom/callx/app/utils/ChatThemeManager;-><clinit>()V
+
+# ── Chat list + conversation adapters (first scroll jank) ─────────────
+HSPLcom/callx/app/chatlist/ChatListAdapter;->onCreateViewHolder(Landroid/view/ViewGroup;I)Landroidx/recyclerview/widget/RecyclerView$ViewHolder;
+HSPLcom/callx/app/chatlist/ChatListAdapter;->onBindViewHolder(Landroidx/recyclerview/widget/RecyclerView$ViewHolder;I)V
+HSPLcom/callx/app/chatlist/ChatListAdapter;->onBindViewHolder(Landroidx/recyclerview/widget/RecyclerView$ViewHolder;ILjava/util/List;)V
+HSPLcom/callx/app/chatlist/ChatListAdapter$VH;-><init>(**)V
+
+HSPLcom/callx/app/conversation/MessageAdapter;->onCreateViewHolder(Landroid/view/ViewGroup;I)Landroidx/recyclerview/widget/RecyclerView$ViewHolder;
+HSPLcom/callx/app/conversation/MessageAdapter;->onBindViewHolder(Landroidx/recyclerview/widget/RecyclerView$ViewHolder;I)V
+HSPLcom/callx/app/conversation/MessageAdapter;->onBindViewHolder(Landroidx/recyclerview/widget/RecyclerView$ViewHolder;ILjava/util/List;)V
+HSPLcom/callx/app/conversation/MessageAdapter$VH;-><init>(**)V
+
+HSPLcom/callx/app/conversation/MessagePagingAdapter;->onCreateViewHolder(Landroid/view/ViewGroup;I)Landroidx/recyclerview/widget/RecyclerView$ViewHolder;
+HSPLcom/callx/app/conversation/MessagePagingAdapter;->onBindViewHolder(Landroidx/recyclerview/widget/RecyclerView$ViewHolder;I)V
+HSPLcom/callx/app/conversation/MessagePagingAdapter;->onBindViewHolder(Landroidx/recyclerview/widget/RecyclerView$ViewHolder;ILjava/util/List;)V
+HSPLcom/callx/app/conversation/MessagePagingAdapter$VH;-><init>(**)V
+
+# ── RecyclerView / Glide core (framework hot path, safe to include) ───
+HSPLandroidx/recyclerview/widget/RecyclerView;->onLayout(ZIIII)V
+HSPLandroidx/recyclerview/widget/RecyclerView;->dispatchLayout()V
+HSPLandroidx/recyclerview/widget/RecyclerView$Recycler;->tryGetViewHolderForPositionByDeadline(IZJ)Landroidx/recyclerview/widget/RecyclerView$ViewHolder;
+HSPLcom/bumptech/glide/Glide;->with(Landroid/content/Context;)Lcom/bumptech/glide/RequestManager;
+
+# ── HOW TO REGENERATE A REAL (measured) PROFILE ────────────────────────
+# 1. Create a `:baselineprofile` module using AGP's Macrobenchmark template
+#    (Android Studio → File → New → Module → Baseline Profile Generator).
+# 2. Point it at :app, target the MainActivity → open a chat → scroll flow.
+# 3. Run `./gradlew :baselineprofile:generateBaselineProfile` on a real/
+#    virtual device (needs `androidx.benchmark.macro` + `androidx.test.uiautomator`).
+# 4. It writes the measured profile into app/src/main/baseline-prof.txt,
+#    replacing this hand-written one — keep this file as a fallback until then.
