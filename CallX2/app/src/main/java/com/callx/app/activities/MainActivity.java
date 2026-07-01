@@ -115,6 +115,20 @@ public class MainActivity extends AppCompatActivity {
         // MUST be called before super.onCreate / setContentView so the window
         // is configured for edge-to-edge before any layout pass happens.
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+
+        // Cutout mode set ONCE here (not toggled per tab-switch) — repeatedly
+        // calling getWindow().setAttributes() on every Reels<->tab switch was
+        // forcing a window relayout race that intermittently left nav_container
+        // mismeasured/invisible after returning from Reels.
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+            android.view.WindowManager.LayoutParams attrs = getWindow().getAttributes();
+            attrs.layoutInDisplayCutoutMode =
+                    android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R
+                            ? android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+                            : android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+            getWindow().setAttributes(attrs);
+        }
+
         super.onCreate(savedInstanceState);
         binding = ActivityMainBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
@@ -1047,18 +1061,6 @@ public class MainActivity extends AppCompatActivity {
             // Content draws behind status bar + nav bar (edge-to-edge)
             WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
 
-            // Same as ChatActivity/ImmersiveModeUtils — without this, MIUI/Xiaomi
-            // (notch/camera-cutout) devices keep reserving the cutout-safe area
-            // and paint it solid black even after the status bar is "hidden".
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
-                android.view.WindowManager.LayoutParams attrs = getWindow().getAttributes();
-                attrs.layoutInDisplayCutoutMode =
-                        android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R
-                                ? android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
-                                : android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
-                getWindow().setAttributes(attrs);
-            }
-
             // Status bar: HIDDEN (same as ChatActivity) — swipe from top to reveal temporarily
             controller.hide(WindowInsetsCompat.Type.statusBars());
             // White icons on status bar so they are readable over dark video (on swipe-reveal)
@@ -1068,28 +1070,10 @@ public class MainActivity extends AppCompatActivity {
             controller.setSystemBarsBehavior(
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
 
-            // Legacy flags too — belt-and-suspenders for OEM skins (MIUI, ColorOS)
-            // that don't reliably honor WindowInsetsController alone, same as ChatActivity.
-            getWindow().getDecorView().setSystemUiVisibility(
-                    android.view.View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                    | android.view.View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-                    | android.view.View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-                    | android.view.View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                    | android.view.View.SYSTEM_UI_FLAG_FULLSCREEN
-                    | android.view.View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
-
             getWindow().setStatusBarColor(android.graphics.Color.TRANSPARENT);
             getWindow().setNavigationBarColor(android.graphics.Color.TRANSPARENT);
         } else {
             WindowCompat.setDecorFitsSystemWindows(getWindow(), true);
-
-            // Restore default cutout mode for normal tabs
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
-                android.view.WindowManager.LayoutParams attrs = getWindow().getAttributes();
-                attrs.layoutInDisplayCutoutMode =
-                        android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_DEFAULT;
-                getWindow().setAttributes(attrs);
-            }
 
             getWindow().getDecorView().setSystemUiVisibility(
                     android.view.View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
