@@ -1604,6 +1604,27 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         pool.setMaxRecycledViews(4 /* TYPE_REEL_SEEN */,    3);
         pool.setMaxRecycledViews(5 /* TYPE_CALL_ENTRY */,   3);
         binding.rvMessages.setRecycledViewPool(pool);
+        // PERF: scroll-ahead image preloading — fast fling ke dauran agli
+        // ~8 items ki thumbnail Glide cache mein pehle se fetch ho jaati
+        // hai, taaki late-load blank image na dikhe. Size (200,200) wahi
+        // hai jo bind() mein image/video thumbnail ke liye sabse pehle
+        // load hoti hai — isliye preload aur actual load same cache-key
+        // use karte hain (dobara download nahi hota).
+        com.callx.app.utils.ChatMediaPreloader.attach(this, binding.rvMessages, 200, 200,
+                position -> {
+                    Message m = pagingAdapter.peek(position);
+                    if (m == null || m.type == null) return null;
+                    switch (m.type) {
+                        case "image":
+                        case "gif":
+                        case "video":
+                            return (m.thumbnailUrl != null && !m.thumbnailUrl.isEmpty())
+                                    ? m.thumbnailUrl
+                                    : m.mediaUrl;
+                        default:
+                            return null;
+                    }
+                });
         SwipeOptimizer.disableChangeAnimations(binding.rvMessages);
         // WHATSAPP-STYLE FIX: kill the default ItemAnimator entirely.
         // DefaultItemAnimator fades/translates every inserted row in from

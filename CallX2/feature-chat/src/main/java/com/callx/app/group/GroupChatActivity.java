@@ -727,6 +727,23 @@ public class GroupChatActivity extends AppCompatActivity
         groupPool.setMaxRecycledViews(4,  3);
         groupPool.setMaxRecycledViews(5,  3);
         binding.rvMessages.setRecycledViewPool(groupPool);
+        // PERF: scroll-ahead image preloading — same helper/size as 1:1
+        // ChatActivity, keeps cache-key size consistent with bind().
+        com.callx.app.utils.ChatMediaPreloader.attach(this, binding.rvMessages, 200, 200,
+                position -> {
+                    Message m = pagingAdapter.peek(position);
+                    if (m == null || m.type == null) return null;
+                    switch (m.type) {
+                        case "image":
+                        case "gif":
+                        case "video":
+                            return (m.thumbnailUrl != null && !m.thumbnailUrl.isEmpty())
+                                    ? m.thumbnailUrl
+                                    : m.mediaUrl;
+                        default:
+                            return null;
+                    }
+                });
         com.callx.app.chat.performance.SwipeOptimizer.disableChangeAnimations(binding.rvMessages);
         binding.rvMessages.setItemAnimator(null);
         binding.rvMessages.setNestedScrollingEnabled(false);
