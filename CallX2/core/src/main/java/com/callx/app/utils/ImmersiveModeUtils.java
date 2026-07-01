@@ -24,6 +24,12 @@ public final class ImmersiveModeUtils {
 
     private ImmersiveModeUtils() {}
 
+    // Unique keyed-tag ids for View.setTag(int, Object) — used to remember
+    // each view's TRUE original (XML-defined) padding/margin exactly once,
+    // so repeated setImmersiveMode() calls never stack insets on themselves.
+    private static final int TAG_KEY_BASE_TOP_PADDING    = android.view.View.generateViewId();
+    private static final int TAG_KEY_BASE_BOTTOM_MARGIN  = android.view.View.generateViewId();
+
     /** Fully hides status bar + nav bar for this activity's window. */
     public static void enterImmersive(Activity activity) {
         if (activity == null || activity.getWindow() == null) return;
@@ -77,10 +83,25 @@ public final class ImmersiveModeUtils {
      */
     public static void applyTopInsetPadding(View topBar) {
         if (topBar == null) return;
-        final int baseLeft   = topBar.getPaddingLeft();
-        final int baseTop    = topBar.getPaddingTop();
-        final int baseRight  = topBar.getPaddingRight();
-        final int baseBottom = topBar.getPaddingBottom();
+        // BUG FIX: setImmersiveMode() runs multiple times per session
+        // (onCreate, onResume, every onWindowFocusChanged regain — dialogs,
+        // notification shade, share sheet all trigger it). Each call used to
+        // re-read the CURRENT padding as "base", which already included the
+        // previous inset — so on devices where the status bar doesn't stay
+        // hidden (MIUI etc.), padding kept stacking higher every focus event.
+        // Fix: capture the true original padding exactly once via a tag.
+        Object baseTag = topBar.getTag(TAG_KEY_BASE_TOP_PADDING);
+        final int baseLeft, baseTop, baseRight, baseBottom;
+        if (baseTag instanceof int[]) {
+            int[] base = (int[]) baseTag;
+            baseLeft = base[0]; baseTop = base[1]; baseRight = base[2]; baseBottom = base[3];
+        } else {
+            baseLeft   = topBar.getPaddingLeft();
+            baseTop    = topBar.getPaddingTop();
+            baseRight  = topBar.getPaddingRight();
+            baseBottom = topBar.getPaddingBottom();
+            topBar.setTag(TAG_KEY_BASE_TOP_PADDING, new int[]{baseLeft, baseTop, baseRight, baseBottom});
+        }
 
         ViewCompat.setOnApplyWindowInsetsListener(topBar, (v, insets) -> {
             Insets bars = insets.getInsets(WindowInsetsCompat.Type.statusBars());
@@ -102,9 +123,30 @@ public final class ImmersiveModeUtils {
     public static void applyBottomInsetMargin(View bottomBar) {
         if (bottomBar == null) return;
         if (!(bottomBar.getLayoutParams() instanceof android.view.ViewGroup.MarginLayoutParams)) return;
-        android.view.ViewGroup.MarginLayoutParams lp =
-                (android.view.ViewGroup.MarginLayoutParams) bottomBar.getLayoutParams();
-        final int baseBottomMargin = lp.bottomMargin;
+
+        // BUG FIX (root cause of bottom nav disappearing on Chats/Status/
+        // Groups/Calls tabs): setImmersiveMode() is called on onCreate,
+        // onResume AND every onWindowFocusChanged regain (dialogs,
+        // notification shade, share sheet, app switch — all of these).
+        // Previously "baseBottomMargin" was re-read from lp.bottomMargin
+        // EVERY call, which already contained the PREVIOUS inset that was
+        // added last time. On devices where the system nav bar doesn't stay
+        // hidden (MIUI/ColorOS etc. — exactly the OEMs this safety-net was
+        // written for), each focus regain kept stacking the inset on top of
+        // itself: 48 → 96 → 144 → 192... until nav_container was pushed
+        // completely below the visible screen. Fix: capture the TRUE
+        // original XML margin exactly once per view via a tag, so repeated
+        // calls always add the inset on top of the same fixed base.
+        Object baseTag = bottomBar.getTag(TAG_KEY_BASE_BOTTOM_MARGIN);
+        final int baseBottomMargin;
+        if (baseTag instanceof Integer) {
+            baseBottomMargin = (Integer) baseTag;
+        } else {
+            android.view.ViewGroup.MarginLayoutParams lp =
+                    (android.view.ViewGroup.MarginLayoutParams) bottomBar.getLayoutParams();
+            baseBottomMargin = lp.bottomMargin;
+            bottomBar.setTag(TAG_KEY_BASE_BOTTOM_MARGIN, baseBottomMargin);
+        }
 
         ViewCompat.setOnApplyWindowInsetsListener(bottomBar, (v, insets) -> {
             Insets bars = insets.getInsets(WindowInsetsCompat.Type.navigationBars());
