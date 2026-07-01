@@ -136,13 +136,31 @@ public class CreateBroadcastActivity extends AppCompatActivity {
 
     // ── Load contacts from Firebase ───────────────────────────────────────────
     private void loadContacts() {
+        // Contacts jo maine block kiye hain unhe broadcast recipient list se hata do
+        FirebaseUtils.getBlocksRef(myUid).addListenerForSingleValueEvent(
+                new ValueEventListener() {
+                    @Override public void onDataChange(@NonNull DataSnapshot blockSnap) {
+                        java.util.Set<String> blockedByMe = new HashSet<>();
+                        for (DataSnapshot b : blockSnap.getChildren()) {
+                            if (Boolean.TRUE.equals(b.getValue(Boolean.class)) && b.getKey() != null)
+                                blockedByMe.add(b.getKey());
+                        }
+                        loadContactsFiltered(blockedByMe);
+                    }
+                    @Override public void onCancelled(@NonNull DatabaseError e) {
+                        loadContactsFiltered(new HashSet<>());
+                    }
+                });
+    }
+
+    private void loadContactsFiltered(java.util.Set<String> blockedByMe) {
         FirebaseUtils.getContactsRef(myUid)
                 .addListenerForSingleValueEvent(new ValueEventListener() {
                     @Override public void onDataChange(@NonNull DataSnapshot snap) {
                         allContacts.clear();
                         for (DataSnapshot c : snap.getChildren()) {
-                            String uid  = c.getKey();
-                            if (myUid.equals(uid)) continue;
+                            String uid = c.getKey();
+                            if (myUid.equals(uid) || blockedByMe.contains(uid)) continue;
                             String name  = c.child("name").getValue(String.class);
                             String photo = c.child("thumbUrl").getValue(String.class);
                             if (photo == null || photo.isEmpty())

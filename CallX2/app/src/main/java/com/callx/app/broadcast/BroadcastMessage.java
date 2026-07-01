@@ -1,5 +1,8 @@
 package com.callx.app.broadcast;
 
+import java.util.HashMap;
+import java.util.Map;
+
 /**
  * BroadcastMessage — Firebase data model for messages sent through a broadcast list.
  *
@@ -16,7 +19,13 @@ public class BroadcastMessage {
     public String senderId;
     public long   timestamp;
     public int    deliveredCount;   // how many recipients received it
+    public int    skippedCount;     // recipients skipped (blocked sender)
     public int    totalRecipients;
+    public int    seenCount;        // how many recipients have seen it
+    public Map<String, Boolean> seenBy;  // uid → true once seen (dedupe guard)
+
+    /** sending | sent | failed */
+    public String status;
 
     public BroadcastMessage() {}
 
@@ -33,6 +42,10 @@ public class BroadcastMessage {
         this.senderId         = senderId;
         this.timestamp        = timestamp;
         this.deliveredCount   = 0;
+        this.skippedCount     = 0;
         this.totalRecipients  = totalRecipients;
+        this.seenCount        = 0;
+        this.seenBy           = new HashMap<>();
+        this.status           = "sending";
     }
 }

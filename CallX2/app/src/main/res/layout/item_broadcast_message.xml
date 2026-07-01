@@ -16,6 +16,7 @@
         android:layout_marginStart="48dp"
         app:cardCornerRadius="12dp"
         app:cardElevation="1dp"
+        android:foreground="?attr/selectableItemBackground"
         app:cardBackgroundColor="@color/broadcast_msg_bubble">
 
         <LinearLayout

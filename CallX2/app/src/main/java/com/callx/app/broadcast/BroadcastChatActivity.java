@@ -1,7 +1,5 @@
 package com.callx.app.broadcast;
 
-import android.content.Context;
-import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
 import android.text.Editable;
@@ -11,9 +9,10 @@ import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
+import android.webkit.MimeTypeMap;
 import android.widget.EditText;
 import android.widget.ImageButton;
-import android.widget.ImageView;
+import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -26,13 +25,13 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.callx.app.R;
+import com.callx.app.utils.CloudinaryUploader;
 import com.callx.app.utils.FirebaseUtils;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.database.DataSnapshot;
 import com.google.firebase.database.DatabaseError;
 import com.google.firebase.database.DatabaseReference;
 import com.google.firebase.database.FirebaseDatabase;
-import com.google.firebase.database.ServerValue;
 import com.google.firebase.database.ValueEventListener;
 
 import java.text.SimpleDateFormat;
@@ -42,22 +41,24 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 /**
  * BroadcastChatActivity — Message composer for a broadcast list.
  *
  * When a message is sent here:
- *   1. Saved to broadcast_messages/{listId}/{msgId}
- *   2. Delivered to each recipient's personal chat (chats/{chatId}/messages)
- *   3. Recipient's contact node updated (lastMessage, unread++)
- *   4. FCM push notification sent to each recipient via PushNotify
+ *   1. Saved to broadcast_messages/{listId}/{msgId} with status="sending"
+ *   2. BroadcastDeliveryWorker (WorkManager) does the actual fan-out —
+ *      survives app kill, retries with backoff, delivers atomically, and
+ *      skips recipients who have blocked the sender.
+ *   3. This screen watches each recipient's copy of the message for the
+ *      "seen" flag and rolls that up into seenCount on the broadcast record.
  *
  * Recipients receive the message as a normal 1-on-1 message from the sender —
  * they cannot see who else got it (same as WhatsApp Broadcast).
  */
 public class BroadcastChatActivity extends AppCompatActivity {
+
+    private static final int MAX_SEEN_LISTENERS = 20; // bound resource usage
 
     private RecyclerView         rvMessages;
     private EditText             etMessage;
@@ -71,17 +72,22 @@ public class BroadcastChatActivity extends AppCompatActivity {
     private String listId;
     private String listName;
     private String myUid;
-    private String myName;
-    private String myPhoto;
 
-    // Recipient cache
+    // Recipient cache (uid → RecipientInfo)
     private final Map<String, RecipientInfo> recipients = new HashMap<>();
 
     private DatabaseReference msgRef;
     private DatabaseReference listRef;
     private ValueEventListener msgListener;
 
-    private final ExecutorService executor = Executors.newSingleThreadExecutor();
+    // Seen-tracking: msgId+recipientUid → listener, so we can detach cleanly
+    private final Map<String, ValueEventListener> seenListeners = new HashMap<>();
+
+    // ── Media pickers ────────────────────────────────────────────────────────
+    private ActivityResultLauncher<String> imagePicker;
+    private ActivityResultLauncher<String> videoPicker;
+    private ActivityResultLauncher<String> docPicker;
+    private AlertDialog uploadDialog;
 
     // ─────────────────────────────────────────────────────────────────────────
     @Override
@@ -97,6 +103,8 @@ public class BroadcastChatActivity extends AppCompatActivity {
         myUid = FirebaseAuth.getInstance().getCurrentUser() != null
                 ? FirebaseAuth.getInstance().getCurrentUser().getUid() : null;
         if (myUid == null) { finish(); return; }
+
+        registerPickers();
 
         // Toolbar
         androidx.appcompat.widget.Toolbar tb = findViewById(R.id.toolbar);
@@ -115,7 +123,7 @@ public class BroadcastChatActivity extends AppCompatActivity {
         btnAttach  = findViewById(R.id.btn_broadcast_attach);
 
         rvMessages.setLayoutManager(new LinearLayoutManager(this));
-        adapter = new BroadcastMsgAdapter(messages);
+        adapter = new BroadcastMsgAdapter(messages, this::onMessageTapped);
         rvMessages.setAdapter(adapter);
 
         msgRef  = FirebaseDatabase.getInstance()
@@ -134,21 +142,21 @@ public class BroadcastChatActivity extends AppCompatActivity {
         btnSend.setOnClickListener(v -> sendTextMessage());
         btnAttach.setOnClickListener(v -> showAttachOptions());
 
-        loadMyProfile();
         loadRecipients();
         attachMessageListener();
     }
 
-    // ── Load sender profile ───────────────────────────────────────────────────
-    private void loadMyProfile() {
-        FirebaseUtils.getUserRef(myUid).addListenerForSingleValueEvent(
-                new ValueEventListener() {
-                    @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                        myName  = snap.child("name").getValue(String.class);
-                        myPhoto = snap.child("photoUrl").getValue(String.class);
-                    }
-                    @Override public void onCancelled(@NonNull DatabaseError e) {}
-                });
+    // ── Register media pickers ──────────────────────────────────────────────
+    private void registerPickers() {
+        imagePicker = registerForActivityResult(
+                new ActivityResultContracts.GetContent(),
+                uri -> { if (uri != null) uploadAndSend(uri, "image", "image"); });
+        videoPicker = registerForActivityResult(
+                new ActivityResultContracts.GetContent(),
+                uri -> { if (uri != null) uploadAndSend(uri, "video", "video"); });
+        docPicker = registerForActivityResult(
+                new ActivityResultContracts.GetContent(),
+                uri -> { if (uri != null) uploadAndSend(uri, "file", "raw"); });
     }
 
     // ── Load recipients list + count subtitle ─────────────────────────────────
@@ -160,20 +168,15 @@ public class BroadcastChatActivity extends AppCompatActivity {
                         long count = snap.getChildrenCount();
                         tvSubtitle.setText("📢 " + count + " recipients");
 
-                        // Fetch each recipient's name & FCM token for delivery
                         for (DataSnapshot r : snap.getChildren()) {
                             String uid = r.getKey();
                             if (uid == null) continue;
                             FirebaseUtils.getUserRef(uid).addListenerForSingleValueEvent(
                                     new ValueEventListener() {
                                         @Override public void onDataChange(@NonNull DataSnapshot us) {
-                                            String name  = us.child("name").getValue(String.class);
-                                            String photo = us.child("photoUrl").getValue(String.class);
-                                            String token = us.child("fcmToken").getValue(String.class);
+                                            String name = us.child("name").getValue(String.class);
                                             recipients.put(uid, new RecipientInfo(uid,
-                                                    name  != null ? name  : "User",
-                                                    photo != null ? photo : "",
-                                                    token != null ? token : ""));
+                                                    name != null ? name : "User"));
                                         }
                                         @Override public void onCancelled(@NonNull DatabaseError e) {}
                                     });
@@ -183,7 +186,7 @@ public class BroadcastChatActivity extends AppCompatActivity {
                 });
     }
 
-    // ── Listen to broadcast message history ───────────────────────────────────
+    // ── Listen to broadcast message history + attach seen-tracking ────────────
     private void attachMessageListener() {
         msgListener = new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
@@ -198,10 +201,62 @@ public class BroadcastChatActivity extends AppCompatActivity {
                 adapter.notifyDataSetChanged();
                 if (!messages.isEmpty())
                     rvMessages.scrollToPosition(messages.size() - 1);
+
+                attachSeenTracking();
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         };
         msgRef.orderByChild("timestamp").addValueEventListener(msgListener);
+    }
+
+    /**
+     * For the most recent messages, watch each recipient's personal chat copy
+     * for the "seen" flag flipping true, and roll it up into seenCount on the
+     * broadcast_messages record. Bounded to MAX_SEEN_LISTENERS most recent
+     * messages so this stays cheap even for large broadcast lists / history.
+     */
+    private void attachSeenTracking() {
+        int from = Math.max(0, messages.size() - MAX_SEEN_LISTENERS);
+        for (int i = from; i < messages.size(); i++) {
+            BroadcastMessage m = messages.get(i);
+            if (m.id == null || !"sent".equals(m.status)) continue;
+            if (m.seenCount >= m.deliveredCount) continue; // already fully seen
+
+            for (RecipientInfo r : recipients.values()) {
+                String key = m.id + ":" + r.uid;
+                if (seenListeners.containsKey(key)) continue; // already watching
+
+                String chatId = myUid.compareTo(r.uid) < 0
+                        ? myUid + "_" + r.uid : r.uid + "_" + myUid;
+                DatabaseReference seenRef = FirebaseDatabase.getInstance()
+                        .getReference("chats").child(chatId)
+                        .child("messages").child(m.id).child("seen");
+
+                ValueEventListener l = new ValueEventListener() {
+                    @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                        if (Boolean.TRUE.equals(snap.getValue(Boolean.class))) {
+                            markSeen(m.id, r.uid);
+                            seenRef.removeEventListener(this);
+                            seenListeners.remove(key);
+                        }
+                    }
+                    @Override public void onCancelled(@NonNull DatabaseError e) {}
+                };
+                seenRef.addValueEventListener(l);
+                seenListeners.put(key, l);
+            }
+        }
+    }
+
+    private void markSeen(String msgId, String recipientUid) {
+        DatabaseReference m = msgRef.child(msgId);
+        m.child("seenBy").child(recipientUid).setValue(true);
+        m.child("seenBy").addListenerForSingleValueEvent(new ValueEventListener() {
+            @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                m.child("seenCount").setValue((int) snap.getChildrenCount());
+            }
+            @Override public void onCancelled(@NonNull DatabaseError e) {}
+        });
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -220,33 +275,90 @@ public class BroadcastChatActivity extends AppCompatActivity {
                 .setTitle("Attachment bhejo")
                 .setItems(new CharSequence[]{"📷 Image", "🎥 Video", "📄 Document"},
                         (dialog, which) -> {
-                            // In a full build, each opens a picker.
-                            // Here we show a placeholder toast — ChatActivity ke
-                            // actual pickers yahan wire karo apni codebase se.
-                            Toast.makeText(this,
-                                    "ChatActivity ke media picker se integrate karo",
-                                    Toast.LENGTH_SHORT).show();
+                            switch (which) {
+                                case 0: imagePicker.launch("image/*"); break;
+                                case 1: videoPicker.launch("video/*"); break;
+                                case 2: docPicker.launch("*/*");       break;
+                            }
                         })
                 .show();
     }
 
+    private void uploadAndSend(Uri uri, String type, String cloudinaryResourceType) {
+        if (recipients.isEmpty()) {
+            Toast.makeText(this, "Recipients load ho rahe hain, thoda intezaar karo",
+                    Toast.LENGTH_SHORT).show();
+            return;
+        }
+        showUploadDialog();
+        String fileName = queryFileName(uri, type);
+
+        CloudinaryUploader.upload(this, uri, "broadcast", cloudinaryResourceType,
+                new CloudinaryUploader.UploadCallback() {
+                    @Override public void onSuccess(CloudinaryUploader.Result result) {
+                        runOnUiThread(() -> {
+                            dismissUploadDialog();
+                            dispatchBroadcast(null, type, result.secureUrl, fileName, null);
+                        });
+                    }
+                    @Override public void onError(String message) {
+                        runOnUiThread(() -> {
+                            dismissUploadDialog();
+                            Toast.makeText(BroadcastChatActivity.this,
+                                    "Upload fail: " + message, Toast.LENGTH_SHORT).show();
+                        });
+                    }
+                });
+    }
+
+    private String queryFileName(Uri uri, String type) {
+        String name = null;
+        try (android.database.Cursor cursor = getContentResolver()
+                .query(uri, null, null, null, null)) {
+            if (cursor != null && cursor.moveToFirst()) {
+                int idx = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME);
+                if (idx >= 0) name = cursor.getString(idx);
+            }
+        } catch (Exception ignored) {}
+        if (name == null || name.isEmpty()) {
+            String mime = getContentResolver().getType(uri);
+            String ext  = mime != null
+                    ? MimeTypeMap.getSingleton().getExtensionFromMimeType(mime) : null;
+            name = type + "." + (ext != null ? ext : "bin");
+        }
+        return name;
+    }
+
+    private void showUploadDialog() {
+        ProgressBar pb = new ProgressBar(this);
+        int pad = (int) (24 * getResources().getDisplayMetrics().density);
+        pb.setPadding(pad, pad, pad, pad);
+        uploadDialog = new AlertDialog.Builder(this)
+                .setTitle("Upload ho raha hai…")
+                .setView(pb)
+                .setCancelable(false)
+                .show();
+    }
+
+    private void dismissUploadDialog() {
+        if (uploadDialog != null && uploadDialog.isShowing()) uploadDialog.dismiss();
+    }
+
     /**
      * Core broadcast dispatch:
-     *   1. Save to broadcast_messages/{listId}
-     *   2. For every recipient → write to their personal chat + update unread
-     *   3. Send FCM push to each recipient
-     *   4. Update broadcast list metadata (lastMessage, sentCount)
+     *   1. Save placeholder record to broadcast_messages/{listId} (status="sending")
+     *   2. Hand off actual fan-out to BroadcastDeliveryWorker (WorkManager) —
+     *      atomic, retryable, blocked-user-aware, survives process death.
      */
     private void dispatchBroadcast(String text, String type,
                                    String mediaUrl, String fileName, String caption) {
         if (recipients.isEmpty()) {
-            Toast.makeText(this,
-                    "Recipients load ho rahe hain, thoda intezaar karo",
+            Toast.makeText(this, "Recipients load ho rahe hain, thoda intezaar karo",
                     Toast.LENGTH_SHORT).show();
             return;
         }
 
-        long now    = System.currentTimeMillis();
+        long now = System.currentTimeMillis();
         String msgId = msgRef.push().getKey();
         if (msgId == null) return;
 
@@ -254,142 +366,23 @@ public class BroadcastChatActivity extends AppCompatActivity {
                 msgId, text, type, mediaUrl, fileName, caption,
                 myUid, now, recipients.size());
 
-        // 1. Save broadcast message record
         msgRef.child(msgId).setValue(bm);
 
-        // 2. Deliver to each recipient's personal chat
-        executor.execute(() -> {
-            int delivered = 0;
-            for (RecipientInfo r : recipients.values()) {
-                try {
-                    deliverToRecipient(r, text, type, mediaUrl, fileName, caption, now, msgId);
-                    delivered++;
-                } catch (Exception e) {
-                    android.util.Log.w("BroadcastChat",
-                            "Delivery failed to " + r.uid, e);
-                }
-            }
-            final int finalDelivered = delivered;
-
-            // 3. Update delivered count in broadcast message
-            msgRef.child(msgId).child("deliveredCount").setValue(finalDelivered);
-
-            // 4. Update list metadata
-            Map<String, Object> listUpdate = new HashMap<>();
-            listUpdate.put("lastMessage",     "text".equals(type) ? text : getTypeLabel(type));
-            listUpdate.put("lastMessageType", type);
-            listUpdate.put("lastMessageTime", now);
-            listRef.updateChildren(listUpdate);
-            listRef.child("sentCount").setValue(ServerValue.increment(1));
-
-            runOnUiThread(() ->
-                    Toast.makeText(this,
-                            "✓ " + finalDelivered + "/" + recipients.size() + " recipients ko deliver hua",
-                            Toast.LENGTH_SHORT).show());
-        });
+        BroadcastDeliveryWorker.enqueue(this, myUid, listId, msgId,
+                text, type, mediaUrl, fileName, caption, now);
     }
 
-    /**
-     * Deliver one message to one recipient's personal chat.
-     *
-     * Uses the same Firebase schema as ChatActivity:
-     *   chats/{chatId}/messages/{msgId}
-     *   contacts/{recipientUid}/{myUid}/lastMessage …
-     *   contacts/{myUid}/{recipientUid}/lastMessage …
-     */
-    private void deliverToRecipient(RecipientInfo r, String text, String type,
-                                    String mediaUrl, String fileName, String caption,
-                                    long timestamp, String broadcastMsgId) {
-
-        // chatId = sorted concat of the two UIDs (same as ChatActivity)
-        String chatId = myUid.compareTo(r.uid) < 0
-                ? myUid + "_" + r.uid
-                : r.uid + "_" + myUid;
-
-        DatabaseReference db = FirebaseDatabase.getInstance().getReference();
-
-        // ── Build message payload (matches ChatActivity schema) ──────────────
-        Map<String, Object> msg = new HashMap<>();
-        msg.put("messageId",        broadcastMsgId);
-        msg.put("senderId",         myUid);
-        msg.put("text",             text   != null ? text   : "");
-        msg.put("type",             type   != null ? type   : "text");
-        msg.put("mediaUrl",         mediaUrl != null ? mediaUrl : "");
-        msg.put("fileName",         fileName != null ? fileName : "");
-        msg.put("caption",          caption != null ? caption : "");
-        msg.put("timestamp",        timestamp);
-        msg.put("seen",             false);
-        msg.put("broadcast",        true);   // flag so recipient can see 📢 icon
-
-        // ── Write message into chat ──────────────────────────────────────────
-        db.child("chats").child(chatId).child("messages")
-                .child(broadcastMsgId).setValue(msg);
-
-        // ── Update sender's contact node for recipient ───────────────────────
-        String lastPreview = "text".equals(type) ? text : getTypeLabel(type);
-        db.child("contacts").child(myUid).child(r.uid).updateChildren(
-                buildLastMsgUpdate(r.name, r.photoUrl, lastPreview, type, timestamp));
-
-        // ── Update recipient's contact node for sender ───────────────────────
-        Map<String, Object> recipientNode = buildLastMsgUpdate(
-                myName  != null ? myName  : "User",
-                myPhoto != null ? myPhoto : "",
-                lastPreview, type, timestamp);
-        recipientNode.put("unread", ServerValue.increment(1));
-        db.child("contacts").child(r.uid).child(myUid).updateChildren(recipientNode);
-
-        // ── Send FCM push to recipient ───────────────────────────────────────
-        if (!r.fcmToken.isEmpty()) {
-            sendFcmPush(r, text, type, chatId);
-        }
+    /** Retry a failed broadcast message. */
+    private void retryMessage(BroadcastMessage m) {
+        if (m.id == null) return;
+        msgRef.child(m.id).child("status").setValue("sending");
+        BroadcastDeliveryWorker.enqueue(this, myUid, listId, m.id,
+                m.text, m.type, m.mediaUrl, m.fileName, m.caption, m.timestamp);
+        Toast.makeText(this, "Retry ho raha hai…", Toast.LENGTH_SHORT).show();
     }
 
-    private Map<String, Object> buildLastMsgUpdate(String name, String photo,
-                                                   String lastMsg, String type, long ts) {
-        Map<String, Object> m = new HashMap<>();
-        m.put("name",           name);
-        m.put("photoUrl",       photo);
-        m.put("lastMessage",    lastMsg);
-        m.put("lastMessageType", type);
-        m.put("lastMessageTime", ts);
-        return m;
-    }
-
-    /**
-     * Send FCM notification via PushNotify (same as ChatActivity uses).
-     * We call the static helper via reflection so the broadcast module
-     * doesn't create a hard compile-time dependency on the chat module.
-     */
-    private void sendFcmPush(RecipientInfo r, String text, String type, String chatId) {
-        try {
-            Class<?> cls = Class.forName("com.callx.app.utils.PushNotify");
-            java.lang.reflect.Method method = cls.getMethod(
-                    "notifyMessage",
-                    Context.class, String.class, String.class,
-                    String.class, String.class, String.class);
-            String preview = "text".equals(type) ? text : "📢 " + getTypeLabel(type);
-            method.invoke(null, getApplicationContext(),
-                    r.fcmToken,
-                    myName  != null ? myName  : "User",
-                    preview,
-                    myUid,
-                    chatId);
-        } catch (Exception ex) {
-            // PushNotify signature differs — log and continue; message is already delivered
-            android.util.Log.w("BroadcastChat",
-                    "FCM push skipped for " + r.uid + ": " + ex.getMessage());
-        }
-    }
-
-    private String getTypeLabel(String type) {
-        if (type == null) return "Message";
-        switch (type) {
-            case "image":  return "📷 Photo";
-            case "video":  return "🎥 Video";
-            case "audio":  return "🎤 Voice Message";
-            case "file":   return "📄 Document";
-            default:       return "Message";
-        }
+    private void onMessageTapped(BroadcastMessage m) {
+        if ("failed".equals(m.status)) retryMessage(m);
     }
 
     // ── Options menu ──────────────────────────────────────────────────────────
@@ -401,7 +394,7 @@ public class BroadcastChatActivity extends AppCompatActivity {
     @Override public boolean onOptionsItemSelected(MenuItem item) {
         int id = item.getItemId();
         if (id == R.id.action_broadcast_edit) {
-            Intent i = new Intent(this, CreateBroadcastActivity.class);
+            android.content.Intent i = new android.content.Intent(this, CreateBroadcastActivity.class);
             i.putExtra(BroadcastListsActivity.EXTRA_LIST_ID,   listId);
             i.putExtra(BroadcastListsActivity.EXTRA_LIST_NAME, listName);
             startActivity(i);
@@ -427,32 +420,45 @@ public class BroadcastChatActivity extends AppCompatActivity {
 
     @Override protected void onDestroy() {
         super.onDestroy();
-        executor.shutdownNow();
         if (msgRef != null && msgListener != null)
             msgRef.removeEventListener(msgListener);
+        for (Map.Entry<String, ValueEventListener> e : seenListeners.entrySet()) {
+            String[] parts = e.getKey().split(":");
+            if (parts.length != 2) continue;
+            String chatId = myUid.compareTo(parts[1]) < 0
+                    ? myUid + "_" + parts[1] : parts[1] + "_" + myUid;
+            FirebaseDatabase.getInstance().getReference("chats").child(chatId)
+                    .child("messages").child(parts[0]).child("seen")
+                    .removeEventListener(e.getValue());
+        }
+        seenListeners.clear();
     }
 
     // ─────────────────────────────────────────────────────────────────────────
     // RecipientInfo helper
     // ─────────────────────────────────────────────────────────────────────────
     static class RecipientInfo {
-        String uid, name, photoUrl, fcmToken;
-        RecipientInfo(String uid, String name, String photoUrl, String fcmToken) {
-            this.uid      = uid;
-            this.name     = name;
-            this.photoUrl = photoUrl;
-            this.fcmToken = fcmToken;
+        String uid, name;
+        RecipientInfo(String uid, String name) {
+            this.uid  = uid;
+            this.name = name;
         }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
     // Message Adapter (sent messages log)
     // ─────────────────────────────────────────────────────────────────────────
+    interface OnMsgTap { void tap(BroadcastMessage m); }
+
     static class BroadcastMsgAdapter
             extends RecyclerView.Adapter<BroadcastMsgAdapter.VH> {
 
         private final List<BroadcastMessage> data;
-        BroadcastMsgAdapter(List<BroadcastMessage> data) { this.data = data; }
+        private final OnMsgTap onTap;
+        BroadcastMsgAdapter(List<BroadcastMessage> data, OnMsgTap onTap) {
+            this.data = data;
+            this.onTap = onTap;
+        }
 
         @NonNull @Override
         public VH onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
@@ -465,7 +471,6 @@ public class BroadcastChatActivity extends AppCompatActivity {
         public void onBindViewHolder(@NonNull VH h, int pos) {
             BroadcastMessage m = data.get(pos);
 
-            // Message preview text
             String preview;
             if ("text".equals(m.type) || m.type == null) {
                 preview = m.text != null ? m.text : "";
@@ -475,12 +480,21 @@ public class BroadcastChatActivity extends AppCompatActivity {
             }
             h.tvText.setText(preview);
 
-            // Delivery status
-            h.tvDelivery.setText("📢 " + m.deliveredCount + "/" + m.totalRecipients);
+            if ("failed".equals(m.status)) {
+                h.tvDelivery.setText("⚠️ Failed — tap to retry");
+            } else if ("sending".equals(m.status)) {
+                h.tvDelivery.setText("⏳ Sending…");
+            } else {
+                String d = "📢 " + m.deliveredCount + "/" + m.totalRecipients;
+                if (m.seenCount > 0) d += " • 👁 " + m.seenCount + " seen";
+                if (m.skippedCount > 0) d += " • " + m.skippedCount + " skipped";
+                h.tvDelivery.setText(d);
+            }
 
-            // Time
             h.tvTime.setText(new SimpleDateFormat("h:mm a", Locale.getDefault())
                     .format(new Date(m.timestamp)));
+
+            h.itemView.setOnClickListener(v -> onTap.tap(m));
         }
 
         private String typeIcon(String type) {
