@@ -1,104 +1,102 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Contact card message bubble.
-  Reuse the same outer shell pattern as file / audio bubbles:
-  timestamps + status are set by the parent adapter via the holder's
-  tvTimestamp / ivStatus views defined here.
+  Contact card bubble — bubbleless, 165dp wide, rounded 12dp corners.
+  Matches reel share card style. No bubble background.
+  Avatar + name/phone on a dark scrim, "View Contact" action row below.
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="260dp"
+    android:id="@+id/ll_contact_card"
+    android:layout_width="165dp"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:background="@drawable/bubble_received"
-    android:padding="0dp">
+    android:background="@drawable/bg_media_card"
+    android:clipToOutline="true"
+    android:clickable="true"
+    android:focusable="true">
 
-    <!-- Avatar + name + phone row -->
-    <LinearLayout
+    <!-- Top section: dark background with avatar + name/phone -->
+    <FrameLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:padding="12dp"
-        android:gravity="center_vertical">
-
-        <de.hdodenhof.circleimageview.CircleImageView
-            android:id="@+id/ivContactPhoto"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
-            android:src="@drawable/ic_person"/>
+        android:layout_height="88dp"
+        android:background="#1C1C1E">
 
         <LinearLayout
-            android:layout_width="0dp"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:orientation="vertical"
-            android:layout_marginStart="10dp">
+            android:layout_gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:gravity="center_vertical">
 
-            <TextView
-                android:id="@+id/tvContactName"
-                android:layout_width="wrap_content"
+            <!-- Circular avatar -->
+            <ImageView
+                android:id="@+id/ivContactPhoto"
+                android:layout_width="38dp"
+                android:layout_height="38dp"
+                android:scaleType="centerCrop"
+                android:src="@drawable/ic_person"
+                android:background="@drawable/bg_circle_avatar_placeholder"
+                android:clipToOutline="true"
+                android:outlineProvider="bounds"/>
+
+            <LinearLayout
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:textColor="?android:attr/textColorPrimary"
-                android:textSize="15sp"
-                android:textStyle="bold"
-                android:maxLines="1"
-                android:ellipsize="end"
-                android:text="Contact Name"/>
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:layout_marginStart="8dp">
 
-            <TextView
-                android:id="@+id/tvContactPhone"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:textColor="?android:attr/textColorSecondary"
-                android:textSize="13sp"
-                android:layout_marginTop="2dp"
-                android:maxLines="1"
-                android:ellipsize="end"
-                android:text="+91 00000 00000"/>
+                <TextView
+                    android:id="@+id/tvContactName"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textColor="#FFFFFF"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:maxLines="1"
+                    android:ellipsize="end"
+                    android:shadowColor="#AA000000"
+                    android:shadowDx="0"
+                    android:shadowDy="1"
+                    android:shadowRadius="3"
+                    android:text="Contact Name"/>
 
+                <TextView
+                    android:id="@+id/tvContactPhone"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textColor="#CCFFFFFF"
+                    android:textSize="10sp"
+                    android:maxLines="1"
+                    android:ellipsize="end"
+                    android:layout_marginTop="2dp"
+                    android:shadowColor="#AA000000"
+                    android:shadowDx="0"
+                    android:shadowDy="1"
+                    android:shadowRadius="3"
+                    android:text="+91 00000 00000"/>
+
+            </LinearLayout>
         </LinearLayout>
-    </LinearLayout>
+    </FrameLayout>
 
-    <!-- Divider -->
+    <!-- Thin divider -->
     <View
         android:layout_width="match_parent"
-        android:layout_height="1dp"
-        android:background="?android:attr/listDivider"/>
+        android:layout_height="0.5dp"
+        android:background="#33FFFFFF"/>
 
-    <!-- "View Contact" action row -->
+    <!-- "View Contact" action -->
     <TextView
         android:id="@+id/btnViewContact"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="View Contact"
-        android:textColor="?colorPrimary"
-        android:textSize="14sp"
+        android:layout_height="32dp"
         android:gravity="center"
-        android:paddingTop="10dp"
-        android:paddingBottom="10dp"
-        android:background="?attr/selectableItemBackground"/>
+        android:text="View Contact"
+        android:textColor="#4FC3F7"
+        android:textSize="11sp"
+        android:textStyle="bold"
+        android:background="#1C1C1E"/>
 
-    <!-- Timestamp + status row -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="end|center_vertical"
-        android:paddingEnd="8dp"
-        android:paddingBottom="4dp">
-
-        <TextView
-            android:id="@+id/tvTimestamp"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:textSize="10sp"
-            android:textColor="?android:attr/textColorSecondary"/>
-
-        <ImageView
-            android:id="@+id/ivStatus"
-            android:layout_width="16dp"
-            android:layout_height="16dp"
-            android:layout_marginStart="3dp"
-            android:visibility="gone"/>
-
-    </LinearLayout>
 </LinearLayout>

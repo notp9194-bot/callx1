@@ -246,7 +246,7 @@
                         <ViewStub
                             android:id="@+id/stub_contact"
                             android:layout="@layout/item_msg_contact"
-                            android:layout_width="wrap_content"
+                            android:layout_width="165dp"
                             android:layout_height="wrap_content"
                             android:layout_gravity="start"
                             android:visibility="gone"/>
@@ -255,7 +255,7 @@
                         <ViewStub
                             android:id="@+id/stub_location"
                             android:layout="@layout/item_msg_location"
-                            android:layout_width="wrap_content"
+                            android:layout_width="165dp"
                             android:layout_height="wrap_content"
                             android:layout_gravity="start"
                             android:visibility="gone"/>

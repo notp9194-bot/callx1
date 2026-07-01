@@ -387,7 +387,8 @@ public class MessageAdapter extends ListAdapter<Message, MessageAdapter.VH> {
         // Text, audio, file, poll, link_preview keep the standard bubble.
         boolean isMediaMsg = "image".equals(type) || "gif".equals(type)
                 || "video".equals(type) || "reel_share".equals(type)
-                || "multi_media".equals(type);
+                || "multi_media".equals(type)
+                || "contact".equals(type) || "location".equals(type);
         if (h.llBubble != null) {
             if (isMediaMsg) {
                 h.llBubble.setBackground(null);
