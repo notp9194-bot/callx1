@@ -1051,12 +1051,16 @@ public class MainActivity extends AppCompatActivity {
      */
     private void setImmersiveMode() {
         com.callx.app.utils.ImmersiveModeUtils.enterImmersive(this);
-        // REMOVED: applyTopInsetPadding()/applyBottomInsetMargin() safety-net.
-        // That dynamic inset-based margin/padding logic was the cause of the
-        // bottom nav (Chats/Status/Groups/Calls tabs) disappearing/crashing.
-        // Bottom nav container is now a plain static view — always pinned to
-        // the bottom via layout_gravity="bottom" in activity_main.xml, no
-        // runtime margin math involved. Nothing left here to break it.
+        // Safety net: on devices/orientations where the system nav bar
+        // doesn't stay fully hidden (portrait especially on some OEMs),
+        // push our own bottom nav bar up above it instead of letting it
+        // get covered. Fixed version — captures base margin/padding ONCE
+        // via view tag, so repeated calls (onResume, focus regain) never
+        // stack the inset on top of itself.
+        android.view.View appBar = binding.getRoot().findViewById(R.id.app_bar_layout);
+        com.callx.app.utils.ImmersiveModeUtils.applyTopInsetPadding(appBar);
+        android.view.View navContainer = binding.getRoot().findViewById(R.id.nav_container);
+        com.callx.app.utils.ImmersiveModeUtils.applyBottomInsetMargin(navContainer);
     }
 
     /**
