@@ -122,7 +122,7 @@ public class BroadcastChatActivity extends AppCompatActivity {
     private ActivityResultLauncher<String>   videoPicker;
     private ActivityResultLauncher<String>   docPicker;
     private ActivityResultLauncher<String>   audioPicker;
-    private ActivityResultLauncher<String[]> multiImagePicker;
+    private ActivityResultLauncher<String> multiImagePicker;
 
     private AlertDialog uploadDialog;
 
