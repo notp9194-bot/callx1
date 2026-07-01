@@ -1,63 +1,215 @@
-# Baseline Profile — CallX2
-# Manually authored hot-path profile. Covers app cold start + first chat
-# screen open + first RecyclerView scroll (the paths users feel most).
+# ══════════════════════════════════════════════════════════════════════
+#  Baseline Profile — CallX2  (v2 — Comprehensive Chat Performance)
+#  ─────────────────────────────────────────────────────────────────────
+#  HOW THIS FILE WORKS:
+#  ART reads ye file at APK install time (Android 9+, via profileinstaller
+#  library). Listed methods ko AOT compile karta hai — matlab first launch
+#  pe JIT warm-up nahi karna padta, methods already native code mein hain.
 #
-# NOTE: This is a hand-written starter profile (safe, low-risk — ART simply
-# ignores any rule it can't resolve at install time). For a fully accurate,
-# device-measured profile, run the Macrobenchmark "baselineprofile" Gradle
-# module + `./gradlew :baselineprofile:pixel6Api31BenchmarkAOT` from Android
-# Studio (Run > Generate Baseline Profile) and it will replace/extend this
-# file automatically. See notes at bottom of this file.
+#  FLAGS (HRF format):
+#    H  = Hot      — frequently called, worth compiling to native
+#    S  = Startup  — app startup path pe call hota hai
+#    P  = Post-startup — startup ke baad, lekin pehle user interaction tak
+#    L  = Partial (method inline candidate)
+#
+#  HOW TO REGENERATE (RECOMMENDED — real device data):
+#  ─────────────────────────────────────────────────────────────────────
+#  1. Real device connect karo (API 28+, USB debugging ON)
+#  2. ./gradlew :macrobenchmark:generateBaselineProfile
+#  3. Ye file automatically replace ho jaayegi device-measured data se.
+#     Hand-written rules se FAR more accurate hoti hai generated profile.
+# ══════════════════════════════════════════════════════════════════════
 
-# ── App startup ──────────────────────────────────────────────────────
+# ── App startup ───────────────────────────────────────────────────────
 HSPLcom/callx/app/CallxApp;->onCreate()V
 HSPLcom/callx/app/CallxApp;->createChannels()V
 HSPLcom/callx/app/CallxApp;->registerForegroundTracking()V
 HSPLcom/callx/app/CallxApp;-><clinit>()V
+HSPLcom/callx/app/CallxApp;-><init>()V
 
-# ── MainActivity / ChatActivity (first screens hit) ──────────────────
+# ── Splash / Login / Main entry screens ───────────────────────────────
+HSPLcom/callx/app/activities/SplashActivity;->onCreate(Landroid/os/Bundle;)V
+HSPLcom/callx/app/activities/SplashActivity;->checkAuth()V
+HSPLcom/callx/app/activities/LoginActivity;->onCreate(Landroid/os/Bundle;)V
+HSPLcom/callx/app/activities/LoginActivity;->on*(**)V
 HSPLcom/callx/app/activities/MainActivity;->onCreate(Landroid/os/Bundle;)V
 HSPLcom/callx/app/activities/MainActivity;->on*(**)V
-HSPLcom/callx/app/activities/ChatActivity;->onCreate(Landroid/os/Bundle;)V
-HSPLcom/callx/app/activities/ChatActivity;->on*(**)V
+HSPLcom/callx/app/activities/MainActivity;->setupBottomNav()V
+HSPLcom/callx/app/activities/MainActivity;->setupFragments()V
 
-# ── DB / crypto warm-up (previously the "3 sec chat open" bottleneck) ─
-HSPLcom/callx/app/db/AppDatabase;->getInstance(Landroid/content/Context;)Lcom/callx/app/db/AppDatabase;
-HSPLcom/callx/app/db/AppDatabase;-><clinit>()V
-HSPLcom/callx/app/utils/SecurityManager;->getInstance(Landroid/content/Context;)Lcom/callx/app/utils/SecurityManager;
-HSPLcom/callx/app/utils/SecurityManager;-><init>(Landroid/content/Context;)V
+# ── ChatActivity (most critical — was 3-sec open bottleneck) ──────────
+HSPLcom/callx/app/conversation/ChatActivity;->onCreate(Landroid/os/Bundle;)V
+HSPLcom/callx/app/conversation/ChatActivity;->on*(**)V
+HSPLcom/callx/app/conversation/ChatActivity;->initViews()V
+HSPLcom/callx/app/conversation/ChatActivity;->initListeners()V
+HSPLcom/callx/app/conversation/ChatActivity;->setupRecyclerView()V
+HSPLcom/callx/app/conversation/ChatActivity;->observeMessages()V
+HSPLcom/callx/app/conversation/ChatActivity;->scrollToBottom()V
 
-# ── Chat theme (GradientDrawable cache) ───────────────────────────────
-HSPLcom/callx/app/utils/ChatThemeManager;->*(**)V
-HSPLcom/callx/app/utils/ChatThemeManager;-><clinit>()V
+# ── Chat controllers (all loaded in ChatActivity.onCreate) ────────────
+HSPLcom/callx/app/conversation/controllers/ChatActivityDelegate;->*(**)V
+HSPLcom/callx/app/conversation/controllers/ChatMessageSender;->*(**)V
+HSPLcom/callx/app/conversation/controllers/ChatPresenceController;->*(**)V
+HSPLcom/callx/app/conversation/controllers/ChatLiveTypingController;->*(**)V
+HSPLcom/callx/app/conversation/controllers/ChatMediaController;->*(**)V
+HSPLcom/callx/app/conversation/controllers/ChatReactionController;->*(**)V
+HSPLcom/callx/app/conversation/controllers/ChatThemeController;->*(**)V
+HSPLcom/callx/app/conversation/controllers/ChatPinController;->*(**)V
+HSPLcom/callx/app/conversation/controllers/ChatStarredController;->*(**)V
+HSPLcom/callx/app/conversation/controllers/ChatSearchController;->*(**)V
+HSPLcom/callx/app/conversation/controllers/ChatScheduledSendController;->*(**)V
+HSPLcom/callx/app/conversation/controllers/ChatBlockController;->*(**)V
+HSPLcom/callx/app/conversation/controllers/ChatViewOnceController;->*(**)V
+HSPLcom/callx/app/conversation/controllers/ChatPlaybackPresenceController;->*(**)V
+HSPLcom/callx/app/conversation/controllers/ChatEmojiBurstController;->*(**)V
+HSPLcom/callx/app/conversation/controllers/ChatPollController;->*(**)V
+HSPLcom/callx/app/conversation/controllers/ChatContactShareController;->*(**)V
+HSPLcom/callx/app/conversation/controllers/ChatLocationShareController;->*(**)V
+HSPLcom/callx/app/conversation/controllers/ChatExportController;->*(**)V
+HSPLcom/callx/app/conversation/controllers/MessageEditHistoryController;->*(**)V
+HSPLcom/callx/app/conversation/controllers/ChatScreenshotNotifier;->*(**)V
 
-# ── Chat list + conversation adapters (first scroll jank) ─────────────
+# ── Chat list (first screen user sees after login) ────────────────────
+HSPLcom/callx/app/chatlist/ChatsFragment;->onCreateView(**)Landroid/view/View;
+HSPLcom/callx/app/chatlist/ChatsFragment;->onViewCreated(**)V
+HSPLcom/callx/app/chatlist/ChatsFragment;->setupAdapter()V
+HSPLcom/callx/app/chatlist/ChatsFragment;->observeChatList()V
 HSPLcom/callx/app/chatlist/ChatListAdapter;->onCreateViewHolder(Landroid/view/ViewGroup;I)Landroidx/recyclerview/widget/RecyclerView$ViewHolder;
 HSPLcom/callx/app/chatlist/ChatListAdapter;->onBindViewHolder(Landroidx/recyclerview/widget/RecyclerView$ViewHolder;I)V
 HSPLcom/callx/app/chatlist/ChatListAdapter;->onBindViewHolder(Landroidx/recyclerview/widget/RecyclerView$ViewHolder;ILjava/util/List;)V
 HSPLcom/callx/app/chatlist/ChatListAdapter$VH;-><init>(**)V
+HSPLcom/callx/app/chatlist/ChatListAdapter$VH;->bind(**)V
 
+# ── MessageAdapter + PagingAdapter (scroll jank critical path) ────────
 HSPLcom/callx/app/conversation/MessageAdapter;->onCreateViewHolder(Landroid/view/ViewGroup;I)Landroidx/recyclerview/widget/RecyclerView$ViewHolder;
 HSPLcom/callx/app/conversation/MessageAdapter;->onBindViewHolder(Landroidx/recyclerview/widget/RecyclerView$ViewHolder;I)V
 HSPLcom/callx/app/conversation/MessageAdapter;->onBindViewHolder(Landroidx/recyclerview/widget/RecyclerView$ViewHolder;ILjava/util/List;)V
 HSPLcom/callx/app/conversation/MessageAdapter$VH;-><init>(**)V
-
+HSPLcom/callx/app/conversation/MessageAdapter$VH;->bind(**)V
+HSPLcom/callx/app/conversation/MessageAdapter;->getItemCount()I
+HSPLcom/callx/app/conversation/MessageAdapter;->getItemViewType(I)I
 HSPLcom/callx/app/conversation/MessagePagingAdapter;->onCreateViewHolder(Landroid/view/ViewGroup;I)Landroidx/recyclerview/widget/RecyclerView$ViewHolder;
 HSPLcom/callx/app/conversation/MessagePagingAdapter;->onBindViewHolder(Landroidx/recyclerview/widget/RecyclerView$ViewHolder;I)V
 HSPLcom/callx/app/conversation/MessagePagingAdapter;->onBindViewHolder(Landroidx/recyclerview/widget/RecyclerView$ViewHolder;ILjava/util/List;)V
 HSPLcom/callx/app/conversation/MessagePagingAdapter$VH;-><init>(**)V
+HSPLcom/callx/app/conversation/MessagePagingAdapter;->getItemViewType(I)I
 
-# ── RecyclerView / Glide core (framework hot path, safe to include) ───
+# ── Chat UI components ─────────────────────────────────────────────────
+HSPLcom/callx/app/chat/ui/ReplyBarView;->*(**)V
+HSPLcom/callx/app/chat/ui/ReplyBarView;-><init>(**)V
+HSPLcom/callx/app/chat/ui/TypingDotsAnimator;->*(**)V
+HSPLcom/callx/app/chat/ui/TypingDotsAnimator;-><init>(**)V
+HSPLcom/callx/app/chat/ui/MessageHighlightAnimator;->*(**)V
+HSPLcom/callx/app/chat/ui/AudioWaveformView;->*(**)V
+HSPLcom/callx/app/chat/ui/AudioWaveformView;-><init>(**)V
+HSPLcom/callx/app/chat/ui/AudioWaveformView;->onDraw(Landroid/graphics/Canvas;)V
+HSPLcom/callx/app/chat/ui/GifAwareEditText;->*(**)V
+HSPLcom/callx/app/chat/ui/GifAwareEditText;-><init>(**)V
+HSPLcom/callx/app/chat/ui/BannerPriorityCoordinator;->*(**)V
+
+# ── Swipe-to-reply (gesture pipeline) ─────────────────────────────────
+HSPLcom/callx/app/chat/gesture/SwipeReplyHandler;->*(**)V
+HSPLcom/callx/app/chat/gesture/SwipeReplyHandler;-><init>(**)V
+HSPLcom/callx/app/chat/reply/ReplyController;->*(**)V
+HSPLcom/callx/app/chat/reply/ReplyController;-><init>(**)V
+HSPLcom/callx/app/chat/reply/ReplyStateManager;->*(**)V
+HSPLcom/callx/app/chat/reply/ReplyDataMapper;->*(**)V
+HSPLcom/callx/app/chat/performance/SwipeOptimizer;->*(**)V
+
+# ── ViewModel (created synchronously in onCreate) ─────────────────────
+HSPLcom/callx/app/viewmodel/ChatViewModel;->*(**)V
+HSPLcom/callx/app/viewmodel/ChatViewModel;-><init>(**)V
+HSPLcom/callx/app/viewmodel/ChatViewModelFactory;->*(**)V
+HSPLcom/callx/app/viewmodel/ChatViewModelFactory;->create(**)Landroidx/lifecycle/ViewModel;
+
+# ── DB + crypto (3-sec chat-open bottleneck fix) ──────────────────────
+HSPLcom/callx/app/db/AppDatabase;->getInstance(Landroid/content/Context;)Lcom/callx/app/db/AppDatabase;
+HSPLcom/callx/app/db/AppDatabase;-><clinit>()V
+HSPLcom/callx/app/db/AppDatabase;->getMessageDao()Lcom/callx/app/db/MessageDao;
+HSPLcom/callx/app/db/AppDatabase;->getChatDao()Lcom/callx/app/db/ChatDao;
+HSPLcom/callx/app/utils/SecurityManager;->getInstance(Landroid/content/Context;)Lcom/callx/app/utils/SecurityManager;
+HSPLcom/callx/app/utils/SecurityManager;-><init>(Landroid/content/Context;)V
+HSPLcom/callx/app/utils/SecurityManager;->getEncryptionKey()Ljava/lang/String;
+
+# ── Chat theme (GradientDrawable cache) ───────────────────────────────
+HSPLcom/callx/app/utils/ChatThemeManager;->*(**)V
+HSPLcom/callx/app/utils/ChatThemeManager;-><clinit>()V
+HSPLcom/callx/app/utils/ChatThemeManager;->getInstance()Lcom/callx/app/utils/ChatThemeManager;
+HSPLcom/callx/app/utils/ChatThemeManager;->applyTheme(**)V
+
+# ── Group chat ─────────────────────────────────────────────────────────
+HSPLcom/callx/app/group/GroupChatActivity;->onCreate(Landroid/os/Bundle;)V
+HSPLcom/callx/app/group/GroupChatActivity;->on*(**)V
+HSPLcom/callx/app/group/GroupAdapter;->onCreateViewHolder(Landroid/view/ViewGroup;I)Landroidx/recyclerview/widget/RecyclerView$ViewHolder;
+HSPLcom/callx/app/group/GroupAdapter;->onBindViewHolder(Landroidx/recyclerview/widget/RecyclerView$ViewHolder;I)V
+HSPLcom/callx/app/group/GroupAdapter$**;->*(**)V
+HSPLcom/callx/app/group/GroupsFragment;->onCreateView(**)Landroid/view/View;
+HSPLcom/callx/app/group/GroupsFragment;->onViewCreated(**)V
+HSPLcom/callx/app/group/GroupMemberAdapter;->onCreateViewHolder(**)Landroidx/recyclerview/widget/RecyclerView$ViewHolder;
+HSPLcom/callx/app/group/GroupMemberAdapter;->onBindViewHolder(**)V
+HSPLcom/callx/app/group/GroupStarredController;->*(**)V
+HSPLcom/callx/app/group/GroupWatchingController;->*(**)V
+
+# ── Media + gallery helpers ────────────────────────────────────────────
+HSPLcom/callx/app/conversation/MediaGroupLayoutHelper;->*(**)V
+HSPLcom/callx/app/media/MediaThumbAdapter;->onCreateViewHolder(**)Landroidx/recyclerview/widget/RecyclerView$ViewHolder;
+HSPLcom/callx/app/media/MediaThumbAdapter;->onBindViewHolder(**)V
+HSPLcom/callx/app/conversation/GalleryForwardBridge;->*(**)V
+HSPLcom/callx/app/conversation/GalleryReplyBridge;->*(**)V
+
+# ── Background workers (post-startup) ─────────────────────────────────
+PLcom/callx/app/conversation/workers/ChatScheduledMessageWorker;->doWork()Lcom/google/common/util/concurrent/ListenableFuture;
+PLcom/callx/app/conversation/workers/ViewOnceExpiryWorker;->doWork()Lcom/google/common/util/concurrent/ListenableFuture;
+
+# ── Reply analytics (non-blocking, post-startup) ──────────────────────
+PLcom/callx/app/chat/analytics/ReplyAnalyticsTracker;->*(**)V
+
+# ── RecyclerView framework hot path ───────────────────────────────────
 HSPLandroidx/recyclerview/widget/RecyclerView;->onLayout(ZIIII)V
 HSPLandroidx/recyclerview/widget/RecyclerView;->dispatchLayout()V
+HSPLandroidx/recyclerview/widget/RecyclerView;->scrollBy(II)V
+HSPLandroidx/recyclerview/widget/RecyclerView;->onTouchEvent(Landroid/view/MotionEvent;)Z
 HSPLandroidx/recyclerview/widget/RecyclerView$Recycler;->tryGetViewHolderForPositionByDeadline(IZJ)Landroidx/recyclerview/widget/RecyclerView$ViewHolder;
-HSPLcom/bumptech/glide/Glide;->with(Landroid/content/Context;)Lcom/bumptech/glide/RequestManager;
+HSPLandroidx/recyclerview/widget/RecyclerView$RecycledViewPool;->getRecycledView(I)Landroidx/recyclerview/widget/RecyclerView$ViewHolder;
+HSPLandroidx/recyclerview/widget/LinearLayoutManager;->onLayoutChildren(**)V
+HSPLandroidx/recyclerview/widget/LinearLayoutManager;->scrollVerticallyBy(ILandroidx/recyclerview/widget/RecyclerView$Recycler;Landroidx/recyclerview/widget/RecyclerView$State;)I
 
-# ── HOW TO REGENERATE A REAL (measured) PROFILE ────────────────────────
-# 1. Create a `:baselineprofile` module using AGP's Macrobenchmark template
-#    (Android Studio → File → New → Module → Baseline Profile Generator).
-# 2. Point it at :app, target the MainActivity → open a chat → scroll flow.
-# 3. Run `./gradlew :baselineprofile:generateBaselineProfile` on a real/
-#    virtual device (needs `androidx.benchmark.macro` + `androidx.test.uiautomator`).
-# 4. It writes the measured profile into app/src/main/baseline-prof.txt,
-#    replacing this hand-written one — keep this file as a fallback until then.
+# ── Glide (first-scroll avatar/media load) ────────────────────────────
+HSPLcom/bumptech/glide/Glide;->with(Landroid/content/Context;)Lcom/bumptech/glide/RequestManager;
+HSPLcom/bumptech/glide/Glide;->with(Landroid/app/Activity;)Lcom/bumptech/glide/RequestManager;
+HSPLcom/bumptech/glide/RequestManager;->load(Ljava/lang/String;)Lcom/bumptech/glide/RequestBuilder;
+HSPLcom/bumptech/glide/RequestManager;->load(Landroid/net/Uri;)Lcom/bumptech/glide/RequestBuilder;
+HSPLcom/bumptech/glide/RequestBuilder;->into(Landroid/widget/ImageView;)Lcom/bumptech/glide/request/target/ViewTarget;
+HSPLcom/bumptech/glide/load/engine/Engine;->load(**)Lcom/bumptech/glide/load/engine/Engine$LoadStatus;
+
+# ── Firebase (auth + real-time DB listeners) ──────────────────────────
+HSPLcom/google/firebase/auth/FirebaseAuth;->getInstance()Lcom/google/firebase/auth/FirebaseAuth;
+HSPLcom/google/firebase/auth/FirebaseAuth;->getCurrentUser()Lcom/google/firebase/auth/FirebaseUser;
+HSPLcom/google/firebase/database/FirebaseDatabase;->getInstance()Lcom/google/firebase/database/FirebaseDatabase;
+HSPLcom/google/firebase/database/DatabaseReference;->addValueEventListener(**)Lcom/google/firebase/database/ValueEventListener;
+HSPLcom/google/firebase/database/DatabaseReference;->addChildEventListener(**)Lcom/google/firebase/database/ChildEventListener;
+
+# ── Paging (MessagePagingAdapter data source) ─────────────────────────
+HSPLandroidx/paging/PagingDataAdapter;->*(**)V
+PLandroidx/paging/PagingSource;->*(**)V
+
+# ── Contact / location share (chat toolbar action) ────────────────────
+PLcom/callx/app/contacts/ContactShareAdapter;->onCreateViewHolder(**)Landroidx/recyclerview/widget/RecyclerView$ViewHolder;
+PLcom/callx/app/contacts/ContactShareAdapter;->onBindViewHolder(**)V
+PLcom/callx/app/chat/ContactSharePickerActivity;->onCreate(Landroid/os/Bundle;)V
+PLcom/callx/app/chat/LocationSharePickerActivity;->onCreate(Landroid/os/Bundle;)V
+
+# ── Starred / muted chats (overflow menu action) ──────────────────────
+PLcom/callx/app/starred/StarredMessagesActivity;->onCreate(Landroid/os/Bundle;)V
+PLcom/callx/app/settings/MutedChatsActivity;->onCreate(Landroid/os/Bundle;)V
+
+# ── Hashtag suggestions (compose input path) ──────────────────────────
+PLcom/callx/app/compose/HashtagSuggestAdapter;->onCreateViewHolder(**)Landroidx/recyclerview/widget/RecyclerView$ViewHolder;
+PLcom/callx/app/compose/HashtagSuggestAdapter;->onBindViewHolder(**)V
+
+# ── View-once + expiry (message load path) ────────────────────────────
+PLcom/callx/app/utils/ExpiryTickManager;->*(**)V
+PLcom/callx/app/conversation/ViewOnceViewerActivity;->onCreate(Landroid/os/Bundle;)V
+
+# ── OkHttp (link preview fetch, non-blocking) ────────────────────────
+PLcom/callx/app/utils/LinkPreviewFetcher;->*(**)V

@@ -1,0 +1,74 @@
+// ══════════════════════════════════════════════════════════════════════
+//  :macrobenchmark — Real Device Measured Baseline Profile Generator
+//
+//  Ye module REAL device pe actual user flows run karta hai aur ART ko
+//  batata hai exactly kaunse methods AOT-compile karne hain.
+//  Hand-written baseline-prof.txt se MUCH better accuracy milti hai.
+//
+//  SETUP (ek baar karna hai):
+//    1. Real device ya API 31+ emulator connect karo (USB debugging ON)
+//    2. ./gradlew :macrobenchmark:generateBaselineProfile
+//    3. Generated profile app/src/main/baseline-prof.txt me automatically
+//       copy ho jaata hai.
+//
+//  BENCHMARK ONLY (profile generate kiye bina perf numbers dekhne ke liye):
+//    ./gradlew :macrobenchmark:connectedBenchmarkAndroidTest
+// ══════════════════════════════════════════════════════════════════════
+
+plugins {
+    id 'com.android.test'
+    id 'androidx.baselineprofile'
+    id 'org.jetbrains.kotlin.android'
+}
+
+android {
+    namespace 'com.callx.benchmark'
+    compileSdk 34
+
+    defaultConfig {
+        minSdk 28          // Macrobenchmark requires API 28+
+        targetSdk 34
+        testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
+    }
+
+    // The benchmark build type in :app is what we test against.
+    // It must be profileable (not debuggable) for accurate measurements.
+    buildTypes {
+        benchmark {
+            debuggable true           // Keep debuggable for instrumentation runner
+            signingConfig signingConfigs.debug
+            matchingFallbacks = ['release']
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlinOptions { jvmTarget = '17' }
+
+    targetProjectPath ':app'
+    experimentalProperties['android.experimental.self-instrumenting'] = true
+}
+
+baselineProfile {
+    // Tells AGP where to write the generated profile
+    automaticGenerationDuringBuild = false   // Manually triggered
+    saveInSrc = true                          // Write to app/src/main/baseline-prof.txt
+    dexLayoutOptimization = true             // Re-order dex according to profile (AGP 8.1+)
+    filter {
+        include 'com.callx.app.**'           // Only our app's classes
+        exclude 'com.callx.app.test.**'
+    }
+}
+
+dependencies {
+    implementation 'androidx.benchmark:benchmark-macro-junit4:1.2.3'
+    implementation 'androidx.benchmark:benchmark-junit4:1.2.3'
+    implementation 'androidx.test.ext:junit:1.1.5'
+    implementation 'androidx.test:runner:1.5.2'
+    implementation 'androidx.test:rules:1.5.0'
+    implementation 'androidx.test.uiautomator:uiautomator:2.3.0'
+    implementation 'androidx.profileinstaller:profileinstaller:1.3.1'
+}

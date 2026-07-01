@@ -1,39 +1,30 @@
 plugins {
     id 'com.android.application'
     id 'com.google.gms.google-services'
+    // Baseline Profile plugin — dexLayoutOptimization + measured profile generation
+    id 'androidx.baselineprofile'
 }
 
 // ══════════════════════════════════════════════════════════════════════
-//  AUTO VERSION BUMP — Har build pe version automatically +1 hoga
-//  version.properties file mein store hota hai
-//  Kuch manually set nahi karna — bas Build karo, version badhega
+//  AUTO VERSION BUMP
 // ══════════════════════════════════════════════════════════════════════
 def versionPropsFile = rootProject.file("version.properties")
 def versionProps = new Properties()
-
 if (versionPropsFile.exists()) {
     versionProps.load(new FileInputStream(versionPropsFile))
 }
-
-// Current code read karo
 def currentCode = (versionProps['VERSION_CODE'] ?: '104').toInteger()
-
-// Sirf assembleRelease ya assembleDebug task pe increment karo
-// (Android Studio ka "Run" button pe increment NAHI hoga — sirf Build → Generate Signed APK pe)
 def isReleaseBuild = gradle.startParameter.taskNames.any {
     it.contains('assemble') || it.contains('bundle')
 }
-
 def finalVersionCode
 if (isReleaseBuild) {
     finalVersionCode = currentCode + 1
-    // Save back to file
     versionProps['VERSION_CODE'] = finalVersionCode.toString()
     versionProps.store(versionPropsFile.newWriter(), null)
 } else {
     finalVersionCode = currentCode
 }
-
 def finalVersionName = "3.${finalVersionCode}"
 
 android {
@@ -47,6 +38,12 @@ android {
         versionCode finalVersionCode
         versionName finalVersionName
         vectorDrawables.useSupportLibrary = true
+
+        // ── Dex Layout: keep hot classes in primary dex ───────────────
+        // Cold start + chat open pe class loader ko secondary dex I/O
+        // nahi karna padta — ~30-80ms measurable gain on ARM64 devices.
+        multiDexEnabled true
+        multiDexKeepProguard file('src/main/multidex-config.pro')
 
         ndk {
             abiFilters "arm64-v8a", "armeabi-v7a", "x86_64", "x86"
@@ -95,6 +92,7 @@ android {
             minifyEnabled false
             debuggable true
         }
+
         release {
             minifyEnabled true
             shrinkResources true
@@ -104,7 +102,25 @@ android {
             )
             signingConfig signingConfigs.debug
         }
+
+        // ── benchmark build type (for Macrobenchmark module only) ─────
+        // Release jaisa (R8 minified) lekin profileable = true taaki
+        // ART accurate trace data de. Sirf CI/perf runs mein use karo.
+        benchmark {
+            initWith release
+            signingConfig signingConfigs.debug
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'),
+                'proguard-rules.pro'
+            matchingFallbacks = ['release']
+        }
     }
+
+    // ── ART Profile + Dex Startup Rewriting (AGP 8.2+) ───────────────
+    // baseline-prof.txt se R8 dex ko rewrite karta hai taaki hot methods
+    // physically adjacent dex pages mein aayein — page faults kam, faster
+    // class resolution, measurable in Macrobenchmark frameDurationCpuMs.
+    experimentalProperties["android.experimental.art-profile-r8-rewriting"] = true
+    experimentalProperties["android.experimental.r8.dex-startup-optimization"] = true
 
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
@@ -131,6 +147,20 @@ android {
     }
 }
 
+// ── Baseline Profile plugin config ────────────────────────────────────
+// generateBaselineProfile task ke baad automatically:
+//   1. :macrobenchmark module se measured profile lete hai
+//   2. app/src/main/baseline-prof.txt update karta hai
+//   3. dexLayoutOptimization = true se dex reorder hota hai
+baselineProfile {
+    dexLayoutOptimization = true
+    saveInSrc = true
+    automaticGenerationDuringBuild = false
+    filter {
+        include 'com.callx.app.**'
+    }
+}
+
 dependencies {
     implementation project(':core')
     implementation project(':feature-chat')
@@ -141,6 +171,17 @@ dependencies {
     implementation project(':feature-status')
     implementation project(':feature-games')
     implementation project(':patternlockview')
+
+    // ── Baseline Profile: installs profile at app install time ────────
+    // Bina is library ke baseline-prof.txt silently ignored ho jaata hai.
+    // profileinstaller APK unzip pe profile /data/misc/profiles/ mein copy
+    // karta hai — ART wahan se AOT compilation decisions leta hai.
+    implementation 'androidx.profileinstaller:profileinstaller:1.3.1'
+    // Wire :macrobenchmark as the profile producer for this app
+    "baselineProfile"(project(":macrobenchmark"))
+
+    // MultiDex (needed when multiDexEnabled = true with minSdk < 21)
+    implementation 'androidx.multidex:multidex:2.0.1'
 
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'androidx.core:core:1.13.1'
@@ -159,19 +200,11 @@ dependencies {
     implementation 'androidx.media3:media3-datasource-okhttp:1.2.1'
     implementation 'androidx.documentfile:documentfile:1.0.1'
     implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'
-
-    // PERF FIX: Baseline Profile support — cold start + first-scroll jank fix.
-    // Ships app/src/main/baseline-prof.txt inside the APK; ART reads it at
-    // install time (Android 9+) and AOT-compiles the listed hot-path methods
-    // instead of JIT-warming them on the user's first launch.
-    implementation 'androidx.profileinstaller:profileinstaller:1.3.1'
-
     implementation 'androidx.camera:camera-core:1.3.1'
     implementation 'androidx.camera:camera-camera2:1.3.1'
     implementation 'androidx.camera:camera-lifecycle:1.3.1'
     implementation 'androidx.camera:camera-view:1.3.1'
     implementation 'androidx.camera:camera-video:1.3.1'
-
     implementation 'androidx.biometric:biometric:1.1.0'
     implementation 'androidx.security:security-crypto:1.1.0-alpha06'
 

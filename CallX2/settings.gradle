@@ -15,7 +15,7 @@ dependencyResolutionManagement {
 }
 rootProject.name = "CallX"
 
-// ── Existing ──
+// ── Existing modules ──
 include ':app'
 include ':patternlockview'
 
@@ -25,7 +25,11 @@ include ':feature-chat'
 include ':feature-reels'
 include ':feature-calls'
 include ':feature-status'
-
 include ':feature-x'
 include ':feature-youtube'
 include ':feature-games'
+
+// ── Performance: Macrobenchmark module ───────────────────────────────
+// Real device pe measured baseline profile generate karta hai.
+// Run: ./gradlew :macrobenchmark:generateBaselineProfile
+include ':macrobenchmark'

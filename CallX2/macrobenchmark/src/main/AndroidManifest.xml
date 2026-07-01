@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Macrobenchmark module manifest.
+  targetPackage must match the app's applicationId exactly.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Required for Macrobenchmark to control the target app process -->
+    <uses-permission android:name="android.permission.INTERACT_ACROSS_USERS" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+
+    <application
+        android:debuggable="true"
+        android:label="CallX Benchmark">
+        <!--
+          Instrumentation runner targeting the :app package.
+          Do NOT add any activity here — this is a test-only module.
+        -->
+    </application>
+</manifest>
