@@ -52,13 +52,12 @@ android {
     experimentalProperties['android.experimental.self-instrumenting'] = true
 }
 
+// Producer module: only 'filter' is valid here.
+// saveInSrc / dexLayoutOptimization / automaticGenerationDuringBuild
+// are consumer-side properties — they live in app/build.gradle.
 baselineProfile {
-    // Tells AGP where to write the generated profile
-    automaticGenerationDuringBuild = false   // Manually triggered
-    saveInSrc = true                          // Write to app/src/main/baseline-prof.txt
-    dexLayoutOptimization = true             // Re-order dex according to profile (AGP 8.1+)
     filter {
-        include 'com.callx.app.**'           // Only our app's classes
+        include 'com.callx.app.**'
         exclude 'com.callx.app.test.**'
     }
 }
