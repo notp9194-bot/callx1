@@ -262,6 +262,8 @@ public class MessagePagingAdapter
          *  different bubble) — lets ChatPlaybackPresenceController publish
          *  a real-time "listening…/watching…" badge to the partner. */
         default void onPlaybackStateChanged(Message m, boolean playing) {}
+        /** Called when user taps "Info" on a message to see delivery/read receipts. */
+        default void onInfo(Message m) {}
     }
 
     // ── Multi-select interface ────────────────────────────────────

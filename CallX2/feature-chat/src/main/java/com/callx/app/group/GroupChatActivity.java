@@ -59,7 +59,6 @@ import com.callx.app.conversation.controllers.ChatContactShareController;
 import com.callx.app.conversation.controllers.ChatLocationShareController;
 import com.callx.app.chat.ui.GifAwareEditText;
 import androidx.core.view.inputmethod.InputContentInfoCompat;
-import com.callx.app.conversation.MessageAdapter;
 import com.callx.app.chat.ui.MessageHighlightAnimator;
 
 /**

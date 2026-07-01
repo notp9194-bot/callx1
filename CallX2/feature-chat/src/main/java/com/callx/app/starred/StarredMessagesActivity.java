@@ -7,10 +7,11 @@ import android.view.View;
 import android.widget.TextView;
 import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.paging.PagingData;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import com.callx.app.chat.R;
-import com.callx.app.conversation.MessageAdapter;
+import com.callx.app.conversation.MessagePagingAdapter;
 import com.callx.app.db.AppDatabase;
 import com.callx.app.db.entity.MessageEntity;
 import com.callx.app.models.Message;
@@ -27,18 +28,21 @@ import java.util.concurrent.Executors;
  * Shows all messages where starred == true from the given chat or group.
  *
  * OFFLINE FIX: Room se pehle load karo, Firebase secondary source hai.
- * DIFFUTIL: Uses ListAdapter.submitList() — no notifyDataSetChanged().
+ * Uses MessagePagingAdapter (PagingData.from list) for consistent rendering.
  */
 public class StarredMessagesActivity extends AppCompatActivity
-        implements MessageAdapter.ActionListener {
+        implements MessagePagingAdapter.ActionListener {
 
     private RecyclerView rv;
     private TextView     tvEmpty;
-    private MessageAdapter adapter;
+    private MessagePagingAdapter adapter;
 
     private String  chatId;
     private boolean isGroup;
     private String  currentUid;
+
+    // Local snapshot of the current list — PagingDataAdapter has no getCurrentList()
+    private final List<Message> currentList = new ArrayList<>();
 
     // Last submitted list — guarded so Room doesn't clobber a fresh Firebase result
     private volatile boolean firebaseLoaded = false;
@@ -69,10 +73,9 @@ public class StarredMessagesActivity extends AppCompatActivity
         rv      = findViewById(R.id.rv_starred);
         tvEmpty = findViewById(R.id.tv_empty);
 
-        // ── ListAdapter (DiffUtil-backed) — no raw list held here ────────────
         LinearLayoutManager lm = new LinearLayoutManager(this);
         rv.setLayoutManager(lm);
-        adapter = new MessageAdapter(currentUid, isGroup);
+        adapter = new MessagePagingAdapter(currentUid, isGroup);
         adapter.setActionListener(this);
         rv.setAdapter(adapter);
 
@@ -83,6 +86,13 @@ public class StarredMessagesActivity extends AppCompatActivity
         if (isOnline()) {
             loadFromFirebase();
         }
+    }
+
+    // ── Submit helpers ────────────────────────────────────────────────────────
+    private void submitList(List<Message> list) {
+        currentList.clear();
+        currentList.addAll(list);
+        adapter.submitData(getLifecycle(), PagingData.from(new ArrayList<>(list)));
     }
 
     // ── OFFLINE FIX: Room se starred messages load karo ──────────────────────
@@ -122,8 +132,7 @@ public class StarredMessagesActivity extends AppCompatActivity
 
             runOnUiThread(() -> {
                 if (!firebaseLoaded) {
-                    // DiffUtil-backed submit — no notifyDataSetChanged()
-                    adapter.submitList(new ArrayList<>(roomStarred));
+                    submitList(roomStarred);
                     updateEmptyState(roomStarred.isEmpty());
                 }
             });
@@ -152,12 +161,11 @@ public class StarredMessagesActivity extends AppCompatActivity
                             return Long.compare(ta, tb2);
                         });
                         firebaseLoaded = true;
-                        // submitList hands a copy to AsyncListDiffer — safe to pass fresh directly
-                        adapter.submitList(fresh);
+                        submitList(fresh);
                         updateEmptyState(fresh.isEmpty());
                     }
                     @Override public void onCancelled(DatabaseError e) {
-                        if (adapter.getCurrentList().isEmpty()) {
+                        if (currentList.isEmpty()) {
                             Toast.makeText(StarredMessagesActivity.this,
                                     "Offline — cached starred messages dikh rahe hain",
                                     Toast.LENGTH_SHORT).show();
@@ -182,15 +190,12 @@ public class StarredMessagesActivity extends AppCompatActivity
 
     // ── ActionListener stubs (read-only starred list) ─────────────────────────
     @Override public void onReply(Message m)                  {}
-    @Override public void onEdit(Message m)                   {}
+    @Override public void onNavigateToOriginal(String msgId)  {}
     @Override public void onForward(Message m)                {}
     @Override public void onReact(Message m, String emoji)    {}
-    @Override public void onReactionTap(Message m)            {}
-    @Override public void onPin(Message m)                    {}
     @Override public void onCopy(Message m)                   {}
-    @Override public void onInfo(Message m)                   {}
 
-    /** Tap delete → unstar (removes from this list via DiffUtil on next submitList). */
+    /** Tap delete → unstar (removes from this list via DiffUtil on next submit). */
     @Override public void onDelete(Message m) { onStar(m); }
 
     @Override public void onStar(Message m) {
@@ -204,11 +209,10 @@ public class StarredMessagesActivity extends AppCompatActivity
             AppDatabase.getInstance(getApplicationContext())
                 .messageDao().updateStarred(m.id, false));
 
-        // Remove from current list and re-submit — DiffUtil handles the animation
-        List<Message> updated = new ArrayList<>(adapter.getCurrentList());
-        updated.removeIf(msg -> m.id != null && m.id.equals(msg.id));
-        adapter.submitList(updated);
-        updateEmptyState(updated.isEmpty());
+        // Remove from local snapshot and re-submit — DiffUtil handles the animation
+        currentList.removeIf(msg -> m.id != null && m.id.equals(msg.id));
+        adapter.submitData(getLifecycle(), PagingData.from(new ArrayList<>(currentList)));
+        updateEmptyState(currentList.isEmpty());
 
         Toast.makeText(this, "Message unstarred", Toast.LENGTH_SHORT).show();
     }
