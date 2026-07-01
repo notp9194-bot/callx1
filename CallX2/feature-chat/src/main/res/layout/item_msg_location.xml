@@ -7,7 +7,7 @@
     android:layout_width="260dp"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:background="@drawable/bg_bubble_received"
+    android:background="@drawable/bubble_received"
     android:padding="0dp">
 
     <!-- Static map thumbnail (loaded with Glide from a URL or placeholder) -->
@@ -31,7 +31,7 @@
             android:layout_width="20dp"
             android:layout_height="20dp"
             android:src="@drawable/ic_location_pin"
-            android:colorFilter="?colorPrimary"/>
+            android:tint="?colorPrimary"/>
 
         <TextView
             android:id="@+id/tvLocationAddress"
