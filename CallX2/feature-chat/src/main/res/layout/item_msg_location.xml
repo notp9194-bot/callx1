@@ -1,47 +1,44 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Location share bubble — bubbleless, 165dp wide, rounded 12dp corners.
-  Matches reel share card style. Map thumbnail on top, address + action row below.
+  Location share bubble — purple themed.
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/ll_location_card"
     android:layout_width="165dp"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    
     android:clipToOutline="true"
     android:clickable="true"
     android:focusable="true">
 
-    <!-- Map thumbnail area -->
+    <!-- Map thumbnail area — deep purple header -->
     <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="110dp"
-        android:background="#2A2A2E">
+        android:background="#4A148C">
 
-        <!-- Static map image (loaded by Glide) or placeholder -->
         <ImageView
             android:id="@+id/ivMapThumb"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:scaleType="centerCrop"
-            android:background="#2A2A2E"/>
+            android:background="#4A148C"/>
 
-        <!-- Pin icon centered overlay -->
+        <!-- Pin icon centered -->
         <ImageView
             android:layout_width="28dp"
             android:layout_height="28dp"
             android:layout_gravity="center"
             android:src="@drawable/ic_location_pin"
-            android:tint="#E53935"/>
+            android:tint="#EF9A9A"/>
 
     </FrameLayout>
 
-    <!-- Thin divider -->
+    <!-- Divider -->
     <View
         android:layout_width="match_parent"
         android:layout_height="0.5dp"
-        android:background="#33FFFFFF"/>
+        android:background="#7B1FA2"/>
 
     <!-- Address row -->
     <TextView
@@ -52,18 +49,18 @@
         android:paddingEnd="10dp"
         android:paddingTop="6dp"
         android:paddingBottom="4dp"
-        android:textColor="#CCFFFFFF"
+        android:textColor="#F3E5F5"
         android:textSize="10sp"
         android:maxLines="2"
         android:ellipsize="end"
-        android:background="#1C1C1E"
+        android:background="#6A1B9A"
         android:text="Loading address…"/>
 
-    <!-- Thin divider -->
+    <!-- Divider -->
     <View
         android:layout_width="match_parent"
         android:layout_height="0.5dp"
-        android:background="#33FFFFFF"/>
+        android:background="#7B1FA2"/>
 
     <!-- "Open in Maps" action -->
     <TextView
@@ -72,9 +69,9 @@
         android:layout_height="32dp"
         android:gravity="center"
         android:text="Open in Maps"
-        android:textColor="#4FC3F7"
+        android:textColor="#CE93D8"
         android:textSize="11sp"
         android:textStyle="bold"
-        android:background="#1C1C1E"/>
+        android:background="#6A1B9A"/>
 
 </LinearLayout>
