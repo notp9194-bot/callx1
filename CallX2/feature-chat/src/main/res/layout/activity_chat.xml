@@ -749,9 +749,137 @@
                         android:visibility="gone"
                         android:contentDescription="Send"/>
                 </LinearLayout>
+
+                <!-- ═══════════════════════════════════════════════════════
+                     RECORDING BAR — replaces ll_input_row while a voice
+                     message is being held/locked. WhatsApp-style: red dot +
+                     timer + live waveform on the left, "‹ Slide to cancel"
+                     on the right that tracks the finger while dragging.
+                     Delete/Send buttons appear only once locked (Feature:
+                     voice waveform + swipe-to-cancel/lock).
+                     ═══════════════════════════════════════════════════════ -->
+                <LinearLayout
+                    android:id="@+id/ll_recording_bar"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:paddingStart="14dp"
+                    android:paddingEnd="10dp"
+                    android:paddingTop="4dp"
+                    android:paddingBottom="4dp"
+                    android:gravity="center_vertical"
+                    android:visibility="gone">
+
+                    <ImageView
+                        android:id="@+id/iv_record_dot"
+                        android:layout_width="10dp"
+                        android:layout_height="10dp"
+                        android:background="@drawable/circle_reject"
+                        android:contentDescription="Recording"/>
+
+                    <TextView
+                        android:id="@+id/tv_record_timer"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="8dp"
+                        android:text="00:00"
+                        android:textColor="@color/chat_input_text"
+                        android:textSize="13sp"
+                        android:fontFamily="monospace"/>
+
+                    <com.callx.app.chat.ui.RecordingWaveformView
+                        android:id="@+id/waveform_recording"
+                        android:layout_width="0dp"
+                        android:layout_height="28dp"
+                        android:layout_weight="1"
+                        android:layout_marginStart="10dp"
+                        android:layout_marginEnd="6dp"/>
+
+                    <LinearLayout
+                        android:id="@+id/ll_slide_cancel"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
+
+                        <ImageView
+                            android:id="@+id/iv_slide_chevron"
+                            android:layout_width="14dp"
+                            android:layout_height="14dp"
+                            android:src="@drawable/ic_chevron_left"
+                            app:tint="@color/text_muted"
+                            android:contentDescription="Slide to cancel"/>
+
+                        <TextView
+                            android:id="@+id/tv_slide_cancel"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="4dp"
+                            android:text="@string/slide_to_cancel"
+                            android:textColor="@color/text_muted"
+                            android:textSize="12sp"/>
+                    </LinearLayout>
+
+                    <ImageButton
+                        android:id="@+id/btn_record_delete"
+                        android:layout_width="34dp"
+                        android:layout_height="34dp"
+                        android:padding="7dp"
+                        android:src="@drawable/ic_record_delete"
+                        android:tint="@color/text_secondary"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:visibility="gone"
+                        android:contentDescription="Delete recording"/>
+
+                    <ImageButton
+                        android:id="@+id/btn_record_send"
+                        android:layout_width="36dp"
+                        android:layout_height="36dp"
+                        android:padding="8dp"
+                        android:src="@drawable/ic_send"
+                        android:tint="@color/white"
+                        android:background="@drawable/circle_primary"
+                        android:layout_marginStart="6dp"
+                        android:visibility="gone"
+                        android:contentDescription="Send recording"/>
+                </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
         </LinearLayout>
+
+        <!-- ═══════════════════════════════════════════════════════════════
+             SLIDE-TO-LOCK bubble — sibling of the floating bottom stack (NOT
+             inside it) so it can float freely ABOVE the capsule, overlapping
+             the mic button, instead of stacking below it. Positioned via
+             gravity like fab_scroll_down above. Hidden until recording
+             starts; drag finger up past the threshold to lock hands-free
+             (icon flips open → closed padlock).
+             ═══════════════════════════════════════════════════════════════ -->
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/cv_record_lock"
+            android:layout_width="40dp"
+            android:layout_height="112dp"
+            android:layout_gravity="bottom|end"
+            android:layout_marginEnd="16dp"
+            android:layout_marginBottom="72dp"
+            app:cardCornerRadius="20dp"
+            app:cardElevation="4dp"
+            app:cardBackgroundColor="@color/surface_input"
+            app:strokeColor="@color/divider"
+            app:strokeWidth="0.5dp"
+            android:visibility="gone"
+            android:alpha="0">
+
+            <ImageView
+                android:id="@+id/iv_record_lock_icon"
+                android:layout_width="20dp"
+                android:layout_height="20dp"
+                android:layout_gravity="top|center_horizontal"
+                android:layout_marginTop="12dp"
+                android:src="@drawable/ic_record_lock_open"
+                app:tint="@color/brand_primary"
+                android:contentDescription="Slide up to lock"/>
+        </com.google.android.material.card.MaterialCardView>
 
     </FrameLayout>
 

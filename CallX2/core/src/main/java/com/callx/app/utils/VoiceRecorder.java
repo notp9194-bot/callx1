@@ -84,6 +84,22 @@ public class VoiceRecorder {
         return System.currentTimeMillis() - startedAt;
     }
 
+    /**
+     * Current peak amplitude (0..32767) since the last call, straight from
+     * MediaRecorder — used to drive the live waveform bars while recording.
+     * Safe to call at any time; returns 0 if nothing is recording or the
+     * platform call fails (some OEM MediaRecorder implementations throw
+     * IllegalStateException in edge cases around start/stop).
+     */
+    public int getMaxAmplitudeSafe() {
+        if (mediaRecorder == null) return 0;
+        try {
+            return mediaRecorder.getMaxAmplitude();
+        } catch (IllegalStateException e) {
+            return 0;
+        }
+    }
+
     /** Cancel and discard the current recording without saving. */
     public void cancel() {
         cleanup();

@@ -346,7 +346,12 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // content) + bottom nav bar hidden the moment chat screen khulti hai.
         com.callx.app.utils.ImmersiveModeUtils.enterImmersive(this);
         com.callx.app.utils.ImmersiveModeUtils.applyTopInsetPadding(binding.toolbar);
-        com.callx.app.utils.ImmersiveModeUtils.applyImeBottomPadding(binding.getRoot());
+        com.callx.app.utils.ImmersiveModeUtils.applyImeBottomPaddingAnimated(binding.getRoot());
+
+        // Press-and-hold mic gesture (waveform + swipe-to-cancel/lock) —
+        // binding must exist first; presenceController hookup happens once
+        // that controller is constructed below.
+        mediaController.attachMicGesture();
 
         // SKELETON REMOVED (by request): belt-and-suspenders — XML default
         // is now visibility="gone" too, but force it here as well in case
@@ -388,6 +393,11 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // Yeh sab DB-independent hain
         blockController    = new ChatBlockController(this);
         presenceController = new ChatPresenceController(this);
+        mediaController.setRecordingListener(recording -> {
+            // Publish voice-note recording state to Firebase so the partner
+            // sees "Rahul is recording a voice message" on their screen.
+            if (presenceController != null) presenceController.publishOurRecordingState(recording);
+        });
         playbackPresenceController = new ChatPlaybackPresenceController(this);
         liveTypingController = new ChatLiveTypingController(this);
         emojiBurstController = new ChatEmojiBurstController(this);
@@ -2211,15 +2221,6 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             });
             return true;
         });
-        binding.btnMic.setOnClickListener(v -> {
-            boolean wasRecording = isRecording;
-            mediaController.toggleRecording();
-            // Publish voice-note recording state to Firebase so the partner
-            // sees "Rahul is recording a voice message D83CDF99FE0F" on their screen.
-            if (presenceController != null) {
-                presenceController.publishOurRecordingState(isRecording);
-            }
-        });
         binding.btnAttach.setOnClickListener(v -> mediaController.showAttachSheet());
         binding.btnViewOnce.setOnClickListener(v -> showViewOnceExpiryPicker());
         binding.btnCamera.setOnClickListener(v -> mediaController.launchCamera());
@@ -3477,7 +3478,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         if (requestCode == ChatMediaController.REQ_AUDIO
                 && grantResults.length > 0
                 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-            mediaController.toggleRecording();
+            mediaController.onAudioPermissionGranted();
         }
     }
 

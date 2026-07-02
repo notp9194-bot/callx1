@@ -1,15 +1,21 @@
 package com.callx.app.utils;
 
+import android.animation.ValueAnimator;
 import android.app.Activity;
 import android.graphics.Color;
 import android.view.View;
 import android.view.Window;
+import android.view.animation.OvershootInterpolator;
 
+import androidx.annotation.NonNull;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsAnimationCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
+
+import java.util.List;
 
 /**
  * Small reusable helper that gives a chat screen a clean, fully edge-to-edge
@@ -110,6 +116,80 @@ public final class ImmersiveModeUtils {
             v.setPadding(baseLeft, baseTop, baseRight, baseBottom + imeBottom);
             return insets;
         });
+        ViewCompat.requestApplyInsets(root);
+    }
+
+    /**
+     * Same job as {@link #applyImeBottomPadding(View)} — pads {@code root}
+     * by the keyboard height so the floating input capsule never sits
+     * underneath the IME — but with a spring/overshoot bounce instead of
+     * an instant jump (Feature: capsule bottom-margin spring animation on
+     * keyboard open/close).
+     *
+     * We deliberately DON'T track the real per-frame WindowInsetsAnimation
+     * curve here: on API 30+ the system already delivers a smooth (but
+     * plain, non-bouncy) animation, which is what {@link #applyImeBottomPadding}
+     * gives you. Instead, {@link WindowInsetsAnimationCompat.Callback#onStart}
+     * is used purely as a trigger — it fires exactly once per show/hide
+     * gesture and hands us the final target inset via its bounds — and we
+     * drive the padding ourselves with a single {@link ValueAnimator} using
+     * {@link OvershootInterpolator} for the bounce. This also works on
+     * pre-R devices, where the compat shim still calls onStart once (with
+     * no real per-frame animation to fight over).
+     */
+    public static void applyImeBottomPaddingAnimated(View root) {
+        if (root == null) return;
+        final int baseLeft   = root.getPaddingLeft();
+        final int baseTop    = root.getPaddingTop();
+        final int baseRight  = root.getPaddingRight();
+        final int baseBottom = root.getPaddingBottom();
+        final long SPRING_DURATION_MS = 380L;
+
+        final ValueAnimator[] activeAnim = new ValueAnimator[1];
+
+        ViewCompat.setWindowInsetsAnimationCallback(root,
+                new WindowInsetsAnimationCompat.Callback(WindowInsetsAnimationCompat.Callback.DISPATCH_MODE_STOP) {
+
+                    @NonNull
+                    @Override
+                    public WindowInsetsAnimationCompat.BoundsCompat onStart(
+                            @NonNull WindowInsetsAnimationCompat animation,
+                            @NonNull WindowInsetsAnimationCompat.BoundsCompat bounds) {
+
+                        if ((animation.getTypeMask() & WindowInsetsCompat.Type.ime()) == 0) {
+                            return bounds;
+                        }
+
+                        int startPadding  = root.getPaddingBottom();
+                        int targetImeBottom = bounds.getUpperBound().bottom;
+                        int endPadding    = baseBottom + targetImeBottom;
+
+                        if (activeAnim[0] != null && activeAnim[0].isRunning()) activeAnim[0].cancel();
+
+                        ValueAnimator anim = ValueAnimator.ofInt(startPadding, endPadding);
+                        anim.setDuration(SPRING_DURATION_MS);
+                        anim.setInterpolator(new OvershootInterpolator(1.1f));
+                        anim.addUpdateListener(a ->
+                                root.setPadding(baseLeft, baseTop, baseRight, (int) a.getAnimatedValue()));
+                        anim.start();
+                        activeAnim[0] = anim;
+
+                        return bounds;
+                    }
+
+                    @NonNull
+                    @Override
+                    public WindowInsetsCompat onProgress(
+                            @NonNull WindowInsetsCompat insets,
+                            @NonNull List<WindowInsetsAnimationCompat> runningAnimations) {
+                        // Real IME progress is intentionally ignored — our own
+                        // ValueAnimator (started in onStart) owns the padding
+                        // for the whole gesture so it can bounce/overshoot
+                        // instead of following the system's plain curve.
+                        return insets;
+                    }
+                });
+
         ViewCompat.requestApplyInsets(root);
     }
 }

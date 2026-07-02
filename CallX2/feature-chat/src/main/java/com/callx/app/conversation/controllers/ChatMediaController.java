@@ -1,17 +1,24 @@
 package com.callx.app.conversation.controllers;
 
 import android.Manifest;
+import android.animation.ObjectAnimator;
 import android.content.ContentValues;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.net.Uri;
+import android.os.Handler;
+import android.os.Looper;
 import android.provider.MediaStore;
+import android.view.HapticFeedbackConstants;
 import android.view.LayoutInflater;
+import android.view.MotionEvent;
 import android.view.View;
+import android.view.animation.OvershootInterpolator;
 import android.widget.Toast;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 import androidx.activity.result.ActivityResultCaller;
 import androidx.activity.result.ActivityResultLauncher;
@@ -62,6 +69,27 @@ public class ChatMediaController {
     private Uri cameraOutputUri;
 
     private final VoiceRecorder recorder = new VoiceRecorder();
+
+    // ── Voice recording gesture state (WhatsApp-style press/hold) ──────────
+    public interface RecordingStateListener {
+        void onRecordingStateChanged(boolean recording);
+    }
+    private RecordingStateListener recordingListener;
+
+    private static final long  AMPLITUDE_POLL_MS  = 100L;
+    private static final float CANCEL_THRESHOLD_DP = 110f;
+    private static final float LOCK_THRESHOLD_DP   = 90f;
+    private static final float MAX_CANCEL_DRAG_DP  = 140f;
+    private static final float MAX_LOCK_DRAG_DP    = 96f;
+
+    private final Handler recordHandler = new Handler(Looper.getMainLooper());
+    private Runnable   recordTickRunnable;
+    private ObjectAnimator dotBlinkAnim;
+
+    private float micDownX, micDownY;
+    private boolean recordCancelled;
+    private boolean recordLocked;
+    private float cancelThresholdPx, lockThresholdPx, maxCancelDragPx, maxLockDragPx;
 
     public ChatMediaController(AppCompatActivity activity, ChatActivityDelegate delegate) {
         this.activity = activity;
@@ -627,28 +655,246 @@ public class ChatMediaController {
         }
     }
 
-    // ── Voice recording ───────────────────────────────────────────────────
+    // ── Voice recording — press & hold, WhatsApp style ──────────────────────
+    //
+    // ACTION_DOWN on the mic starts recording immediately (permission
+    // permitting). While the finger is down:
+    //   • dragging LEFT past CANCEL_THRESHOLD_DP discards the recording
+    //     (auto-triggers mid-drag, same as WhatsApp — no need to release).
+    //   • dragging UP past LOCK_THRESHOLD_DP locks it hands-free; the mic
+    //     can be released and Delete/Send buttons take over.
+    // Releasing with neither triggered sends the recording, same as the
+    // old tap-to-toggle behaviour used to on the second tap.
 
-    public void toggleRecording() {
-        if (ContextCompat.checkSelfPermission(activity, Manifest.permission.RECORD_AUDIO)
-                != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(activity,
-                    new String[]{Manifest.permission.RECORD_AUDIO}, REQ_AUDIO);
+    public void setRecordingListener(RecordingStateListener listener) {
+        this.recordingListener = listener;
+    }
+
+    /** Wires the press-hold gesture onto the mic button. Call once, after
+     *  the activity's binding is inflated (registerPickers() time is fine). */
+    public void attachMicGesture() {
+        ActivityChatBinding binding = delegate.getBinding();
+        float density = activity.getResources().getDisplayMetrics().density;
+        cancelThresholdPx = CANCEL_THRESHOLD_DP * density;
+        lockThresholdPx   = LOCK_THRESHOLD_DP   * density;
+        maxCancelDragPx   = MAX_CANCEL_DRAG_DP  * density;
+        maxLockDragPx     = MAX_LOCK_DRAG_DP    * density;
+
+        binding.btnMic.setOnTouchListener((v, event) -> {
+            switch (event.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN: {
+                    if (ContextCompat.checkSelfPermission(activity, Manifest.permission.RECORD_AUDIO)
+                            != PackageManager.PERMISSION_GRANTED) {
+                        ActivityCompat.requestPermissions(activity,
+                                new String[]{Manifest.permission.RECORD_AUDIO}, REQ_AUDIO);
+                        return true;
+                    }
+                    micDownX = event.getRawX();
+                    micDownY = event.getRawY();
+                    beginRecording();
+                    return true;
+                }
+                case MotionEvent.ACTION_MOVE: {
+                    if (!delegate.isRecording() || recordLocked) return true;
+                    updateDragUi(event.getRawX() - micDownX, event.getRawY() - micDownY);
+                    return true;
+                }
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_CANCEL: {
+                    if (!delegate.isRecording() || recordLocked) return true;
+                    if (recordCancelled) finishCancel(); else finishAndSend();
+                    return true;
+                }
+            }
+            return false;
+        });
+
+        binding.btnRecordDelete.setOnClickListener(v -> finishCancel());
+        binding.btnRecordSend.setOnClickListener(v -> finishAndSend());
+    }
+
+    /** Called after the user grants RECORD_AUDIO from the permission dialog
+     *  — the original press gesture is gone by then, so start straight away
+     *  as the closest equivalent (tap mic again for the full hold gesture). */
+    public void onAudioPermissionGranted() {
+        beginRecording();
+    }
+
+    private void beginRecording() {
+        ActivityChatBinding binding = delegate.getBinding();
+        if (!recorder.start(activity)) {
+            Toast.makeText(activity, "Couldn't start recording", Toast.LENGTH_SHORT).show();
             return;
         }
+        delegate.setRecording(true);
+        recordCancelled = false;
+        recordLocked = false;
+
+        binding.llInputRow.setVisibility(View.GONE);
+        binding.llRecordingBar.setAlpha(0f);
+        binding.llRecordingBar.setVisibility(View.VISIBLE);
+        binding.llRecordingBar.animate().alpha(1f).setDuration(120).start();
+
+        binding.llSlideCancel.setVisibility(View.VISIBLE);
+        binding.llSlideCancel.setTranslationX(0f);
+        binding.llSlideCancel.setAlpha(1f);
+        binding.btnRecordDelete.setVisibility(View.GONE);
+        binding.btnRecordSend.setVisibility(View.GONE);
+        binding.tvRecordTimer.setText("00:00");
+        binding.waveformRecording.reset();
+        startDotBlink(binding.ivRecordDot);
+
+        binding.cvRecordLock.setTranslationY(0f);
+        binding.cvRecordLock.setAlpha(0f);
+        binding.cvRecordLock.setVisibility(View.VISIBLE);
+        binding.cvRecordLock.animate().alpha(1f).setDuration(120).start();
+        binding.ivRecordLockIcon.setImageResource(R.drawable.ic_record_lock_open);
+
+        binding.btnMic.animate().scaleX(1.15f).scaleY(1.15f).setDuration(150)
+                .setInterpolator(new OvershootInterpolator()).start();
+        binding.btnMic.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+
+        if (recordingListener != null) recordingListener.onRecordingStateChanged(true);
+
+        recordTickRunnable = () -> {
+            if (!delegate.isRecording()) return;
+            binding.tvRecordTimer.setText(formatTimer(recorder.getDuration()));
+            binding.waveformRecording.pushLevel(normalizeAmplitude(recorder.getMaxAmplitudeSafe()));
+            recordHandler.postDelayed(recordTickRunnable, AMPLITUDE_POLL_MS);
+        };
+        recordHandler.postDelayed(recordTickRunnable, AMPLITUDE_POLL_MS);
+    }
+
+    private void updateDragUi(float dx, float dy) {
         ActivityChatBinding binding = delegate.getBinding();
-        if (!delegate.isRecording()) {
-            if (recorder.start(activity)) {
-                delegate.setRecording(true);
-                binding.btnMic.setBackgroundResource(R.drawable.circle_reject);
-                Toast.makeText(activity, "Recording\u2026 tap again to stop", Toast.LENGTH_SHORT).show();
-            }
-        } else {
-            delegate.setRecording(false);
-            binding.btnMic.setBackgroundResource(R.drawable.circle_primary);
-            Uri uri = recorder.stop(activity);
-            if (uri != null) uploadAndSend(uri, "audio", "raw", null);
-            else Toast.makeText(activity, "Recording was empty", Toast.LENGTH_SHORT).show();
+
+        // ── Slide-to-cancel (leftwards) ─────────────────────────────────
+        float clampedDx = Math.max(-maxCancelDragPx, Math.min(0f, dx));
+        binding.llSlideCancel.setTranslationX(clampedDx * 0.6f);
+        float cancelProgress = Math.min(1f, Math.abs(clampedDx) / cancelThresholdPx);
+        binding.llSlideCancel.setAlpha(1f - cancelProgress * 0.85f);
+        float micShrink = 1.15f - cancelProgress * 0.15f;
+        binding.btnMic.setScaleX(micShrink);
+        binding.btnMic.setScaleY(micShrink);
+
+        if (Math.abs(dx) >= cancelThresholdPx && dy > -lockThresholdPx) {
+            recordCancelled = true;
+            binding.btnMic.performHapticFeedback(HapticFeedbackConstants.REJECT);
+            finishCancel();
+            return;
         }
+
+        // ── Slide-to-lock (upwards) — ignore once mostly dragging to cancel
+        if (dx > -cancelThresholdPx * 0.4f) {
+            float clampedDy = Math.max(-maxLockDragPx, Math.min(0f, dy));
+            binding.cvRecordLock.setTranslationY(clampedDy);
+            if (Math.abs(dy) >= lockThresholdPx) lockRecording();
+        }
+    }
+
+    private void lockRecording() {
+        if (recordLocked) return;
+        recordLocked = true;
+        ActivityChatBinding binding = delegate.getBinding();
+        binding.btnMic.performHapticFeedback(HapticFeedbackConstants.CONFIRM);
+        binding.ivRecordLockIcon.setImageResource(R.drawable.ic_record_lock_closed);
+
+        binding.cvRecordLock.animate()
+                .alpha(0f)
+                .translationY(-maxLockDragPx - (24f * activity.getResources().getDisplayMetrics().density))
+                .setDuration(180)
+                .withEndAction(() -> binding.cvRecordLock.setVisibility(View.GONE))
+                .start();
+
+        binding.btnMic.animate().scaleX(1f).scaleY(1f).setDuration(150)
+                .setInterpolator(new OvershootInterpolator()).start();
+
+        binding.llSlideCancel.animate().alpha(0f).setDuration(150)
+                .withEndAction(() -> binding.llSlideCancel.setVisibility(View.INVISIBLE)).start();
+
+        binding.btnRecordDelete.setAlpha(0f);
+        binding.btnRecordDelete.setVisibility(View.VISIBLE);
+        binding.btnRecordDelete.animate().alpha(1f).setDuration(150).start();
+
+        binding.btnRecordSend.setAlpha(0f);
+        binding.btnRecordSend.setVisibility(View.VISIBLE);
+        binding.btnRecordSend.animate().alpha(1f).setDuration(150).start();
+    }
+
+    private void finishAndSend() {
+        ActivityChatBinding binding = delegate.getBinding();
+        delegate.setRecording(false);
+        stopDotBlink();
+        recordHandler.removeCallbacksAndMessages(null);
+        Uri uri = recorder.stop(activity);
+        resetRecordingUi();
+        if (uri != null) uploadAndSend(uri, "audio", "raw", null);
+        else Toast.makeText(activity, "Recording was empty", Toast.LENGTH_SHORT).show();
+        if (recordingListener != null) recordingListener.onRecordingStateChanged(false);
+    }
+
+    private void finishCancel() {
+        delegate.setRecording(false);
+        stopDotBlink();
+        recordHandler.removeCallbacksAndMessages(null);
+        recorder.cancel();
+        resetRecordingUi();
+        Toast.makeText(activity, "Recording cancelled", Toast.LENGTH_SHORT).show();
+        if (recordingListener != null) recordingListener.onRecordingStateChanged(false);
+    }
+
+    private void resetRecordingUi() {
+        ActivityChatBinding binding = delegate.getBinding();
+        recordLocked = false;
+        recordCancelled = false;
+
+        binding.btnMic.animate().scaleX(1f).scaleY(1f).setDuration(150)
+                .setInterpolator(new OvershootInterpolator()).start();
+
+        binding.llRecordingBar.animate().alpha(0f).setDuration(120).withEndAction(() -> {
+            binding.llRecordingBar.setVisibility(View.GONE);
+            binding.llRecordingBar.setAlpha(1f);
+            binding.llInputRow.setVisibility(View.VISIBLE);
+        }).start();
+
+        binding.cvRecordLock.animate().cancel();
+        binding.cvRecordLock.setVisibility(View.GONE);
+        binding.cvRecordLock.setTranslationY(0f);
+        binding.cvRecordLock.setAlpha(0f);
+
+        binding.llSlideCancel.setVisibility(View.VISIBLE);
+        binding.llSlideCancel.setTranslationX(0f);
+        binding.llSlideCancel.setAlpha(1f);
+
+        binding.btnRecordDelete.setVisibility(View.GONE);
+        binding.btnRecordSend.setVisibility(View.GONE);
+
+        binding.waveformRecording.reset();
+    }
+
+    private void startDotBlink(View dot) {
+        stopDotBlink();
+        dotBlinkAnim = ObjectAnimator.ofFloat(dot, View.ALPHA, 1f, 0.25f);
+        dotBlinkAnim.setDuration(600);
+        dotBlinkAnim.setRepeatMode(ObjectAnimator.REVERSE);
+        dotBlinkAnim.setRepeatCount(ObjectAnimator.INFINITE);
+        dotBlinkAnim.start();
+    }
+
+    private void stopDotBlink() {
+        if (dotBlinkAnim != null) { dotBlinkAnim.cancel(); dotBlinkAnim = null; }
+    }
+
+    private static String formatTimer(long ms) {
+        long totalSec = ms / 1000;
+        return String.format(Locale.US, "%02d:%02d", totalSec / 60, totalSec % 60);
+    }
+
+    /** MediaRecorder.getMaxAmplitude() is linear 0..32767 — a log curve
+     *  reads much closer to how loudness actually looks on a waveform. */
+    private static float normalizeAmplitude(int amp) {
+        if (amp <= 0) return 0.06f;
+        double norm = Math.log10(1 + amp) / Math.log10(32767);
+        return (float) Math.max(0.06, Math.min(1.0, norm));
     }
 }
