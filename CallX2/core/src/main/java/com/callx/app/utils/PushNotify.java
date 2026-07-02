@@ -38,6 +38,23 @@ public class PushNotify {
     public static void notifyMessage(String toUid, String fromUid, String fromName,
                                      String chatId, String messageId, String text,
                                      String type, String mediaUrl) {
+        notifyMessage(toUid, fromUid, fromName, chatId, messageId, text, type, mediaUrl, false);
+    }
+
+    /**
+     * @param isBroadcast  true when this message was delivered via a Broadcast
+     *                     List (see BroadcastDeliveryWorker). The recipient
+     *                     still can't see who else got it — only that THIS
+     *                     message came from a broadcast, same as WhatsApp
+     *                     showing a "Broadcast" tag on the notification/bubble.
+     *                     Server: passed through as data.broadcast ("1"/"0")
+     *                     in the FCM payload. Android: CallxMessagingService
+     *                     .showMessage() reads it and prefixes the
+     *                     notification subtext with "📢 Broadcast".
+     */
+    public static void notifyMessage(String toUid, String fromUid, String fromName,
+                                     String chatId, String messageId, String text,
+                                     String type, String mediaUrl, boolean isBroadcast) {
         try {
             JSONObject body = new JSONObject()
                 .put("toUid",     toUid)
@@ -47,7 +64,8 @@ public class PushNotify {
                 .put("text",      text      == null ? "" : text)
                 .put("chatId",    chatId    == null ? "" : chatId)
                 .put("messageId", messageId == null ? "" : messageId)
-                .put("mediaUrl",  mediaUrl  == null ? "" : mediaUrl);
+                .put("mediaUrl",  mediaUrl  == null ? "" : mediaUrl)
+                .put("broadcast", isBroadcast);
             postAsync(Constants.SERVER_URL + "/notify", body);
         } catch (Exception e) {
             Log.w("PushNotify", "notifyMessage err: " + e.getMessage());

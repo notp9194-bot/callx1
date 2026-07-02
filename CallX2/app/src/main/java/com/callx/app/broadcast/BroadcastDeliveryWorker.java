@@ -220,7 +220,7 @@ public class BroadcastDeliveryWorker extends Worker {
                 if (rToken != null && !rToken.isEmpty()) {
                     try {
                         PushNotify.notifyMessage(uid, senderId, myName, chatId, msgId,
-                                preview, type, mediaUrl);
+                                preview, type, mediaUrl, true);
                     } catch (Exception pex) {
                         Log.w(TAG, "Push failed for " + uid + ": " + pex.getMessage());
                     }

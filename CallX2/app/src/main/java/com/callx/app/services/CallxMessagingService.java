@@ -765,7 +765,14 @@ public class CallxMessagingService extends FirebaseMessagingService {
         final boolean online = (System.currentTimeMillis() - lastSeen)
                                 < Constants.ONLINE_WINDOW_MS && lastSeen > 0;
         final String status  = online ? "Online" : "Offline";
-        final String subText = (fromMobile.isEmpty() ? "" : ("+" + fromMobile + " • ")) + status;
+        // Broadcast List: server sets data.broadcast="1" when this message was
+        // delivered via a broadcast list (BroadcastDeliveryWorker → PushNotify
+        // .notifyMessage(..., true)). Recipient still can't see who else got
+        // it — this only flags THIS message as broadcast-origin, same as the
+        // "Broadcast" tag WhatsApp shows on such notifications/bubbles.
+        final boolean isBroadcastMsg = "1".equals(data.getOrDefault("broadcast", "0"));
+        final String subText = (isBroadcastMsg ? "📢 Broadcast • " : "")
+                + (fromMobile.isEmpty() ? "" : ("+" + fromMobile + " • ")) + status;
         final int notifId = ("chat_" + (fromUid == null ? "" : fromUid)).hashCode();
         if ("typing".equals(type)) {
             showTypingNotification(fromUid, fromName, chatId, notifId, subText);
