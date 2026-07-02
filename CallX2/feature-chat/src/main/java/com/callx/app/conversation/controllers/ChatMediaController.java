@@ -81,15 +81,28 @@ public class ChatMediaController {
     private static final float LOCK_THRESHOLD_DP   = 90f;
     private static final float MAX_CANCEL_DRAG_DP  = 140f;
     private static final float MAX_LOCK_DRAG_DP    = 96f;
+    private static final float AXIS_DEADZONE_DP    = 12f;
 
     private final Handler recordHandler = new Handler(Looper.getMainLooper());
     private Runnable   recordTickRunnable;
     private ObjectAnimator dotBlinkAnim;
 
+    /** Gesture lifecycle for the mic button. IDLE = finger not down /
+     *  nothing recording. DRAGGING = finger down, recording, still free to
+     *  slide left (cancel) or up (lock). LOCKED = hands-free, finger has
+     *  been released; Delete/Send buttons drive it from here. */
+    private enum RecordState { IDLE, DRAGGING, LOCKED }
+    private RecordState recordState = RecordState.IDLE;
+
+    /** Once the drag clears a small deadzone it commits to ONE axis
+     *  (horizontal = cancel, vertical = lock) for the rest of the gesture,
+     *  same as WhatsApp — stops a slightly-diagonal swipe from fighting
+     *  between both animations at once. Null = not yet decided. */
+    private enum DragAxis { HORIZONTAL, VERTICAL }
+    private DragAxis dragAxis;
+
     private float micDownX, micDownY;
-    private boolean recordCancelled;
-    private boolean recordLocked;
-    private float cancelThresholdPx, lockThresholdPx, maxCancelDragPx, maxLockDragPx;
+    private float cancelThresholdPx, lockThresholdPx, maxCancelDragPx, maxLockDragPx, axisDeadzonePx;
 
     public ChatMediaController(AppCompatActivity activity, ChatActivityDelegate delegate) {
         this.activity = activity;
@@ -658,13 +671,14 @@ public class ChatMediaController {
     // ── Voice recording — press & hold, WhatsApp style ──────────────────────
     //
     // ACTION_DOWN on the mic starts recording immediately (permission
-    // permitting). While the finger is down:
-    //   • dragging LEFT past CANCEL_THRESHOLD_DP discards the recording
-    //     (auto-triggers mid-drag, same as WhatsApp — no need to release).
-    //   • dragging UP past LOCK_THRESHOLD_DP locks it hands-free; the mic
+    // permitting). While the finger is down, the first ~12dp of movement is
+    // a deadzone; past that the drag commits to ONE axis for the rest of
+    // the gesture:
+    //   • LEFT (horizontal) past CANCEL_THRESHOLD_DP discards the recording
+    //     mid-drag, no need to release.
+    //   • UP (vertical) past LOCK_THRESHOLD_DP locks it hands-free; the mic
     //     can be released and Delete/Send buttons take over.
-    // Releasing with neither triggered sends the recording, same as the
-    // old tap-to-toggle behaviour used to on the second tap.
+    // Releasing with neither triggered sends the recording.
 
     public void setRecordingListener(RecordingStateListener listener) {
         this.recordingListener = listener;
@@ -679,36 +693,9 @@ public class ChatMediaController {
         lockThresholdPx   = LOCK_THRESHOLD_DP   * density;
         maxCancelDragPx   = MAX_CANCEL_DRAG_DP  * density;
         maxLockDragPx     = MAX_LOCK_DRAG_DP    * density;
+        axisDeadzonePx    = AXIS_DEADZONE_DP    * density;
 
-        binding.btnMic.setOnTouchListener((v, event) -> {
-            switch (event.getActionMasked()) {
-                case MotionEvent.ACTION_DOWN: {
-                    if (ContextCompat.checkSelfPermission(activity, Manifest.permission.RECORD_AUDIO)
-                            != PackageManager.PERMISSION_GRANTED) {
-                        ActivityCompat.requestPermissions(activity,
-                                new String[]{Manifest.permission.RECORD_AUDIO}, REQ_AUDIO);
-                        return true;
-                    }
-                    micDownX = event.getRawX();
-                    micDownY = event.getRawY();
-                    beginRecording();
-                    return true;
-                }
-                case MotionEvent.ACTION_MOVE: {
-                    if (!delegate.isRecording() || recordLocked) return true;
-                    updateDragUi(event.getRawX() - micDownX, event.getRawY() - micDownY);
-                    return true;
-                }
-                case MotionEvent.ACTION_UP:
-                case MotionEvent.ACTION_CANCEL: {
-                    if (!delegate.isRecording() || recordLocked) return true;
-                    if (recordCancelled) finishCancel(); else finishAndSend();
-                    return true;
-                }
-            }
-            return false;
-        });
-
+        binding.btnMic.setOnTouchListener(this::onMicTouch);
         binding.btnRecordDelete.setOnClickListener(v -> finishCancel());
         binding.btnRecordSend.setOnClickListener(v -> finishAndSend());
     }
@@ -720,15 +707,63 @@ public class ChatMediaController {
         beginRecording();
     }
 
+    private boolean onMicTouch(View v, MotionEvent event) {
+        switch (event.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN:
+                return onMicDown(v, event);
+            case MotionEvent.ACTION_MOVE:
+                if (recordState != RecordState.DRAGGING) return true;
+                onMicDrag(event.getRawX() - micDownX, event.getRawY() - micDownY);
+                return true;
+            case MotionEvent.ACTION_UP:
+            case MotionEvent.ACTION_CANCEL:
+                if (recordState != RecordState.DRAGGING) return true;
+                releaseDragParent(v);
+                finishAndSend();
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private boolean onMicDown(View v, MotionEvent event) {
+        if (ContextCompat.checkSelfPermission(activity, Manifest.permission.RECORD_AUDIO)
+                != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(activity,
+                    new String[]{Manifest.permission.RECORD_AUDIO}, REQ_AUDIO);
+            return true;
+        }
+        // Guard against a stray second DOWN arriving while a gesture from a
+        // previous pointer is still winding down (e.g. quick re-tap).
+        if (recordState != RecordState.IDLE) return true;
+
+        micDownX = event.getRawX();
+        micDownY = event.getRawY();
+        dragAxis = null;
+
+        // Stop any scrolling ancestor (or a nested gesture-detecting
+        // container) from intercepting the drag partway through — without
+        // this, a slightly-vertical finger movement can get stolen before
+        // it ever reaches CANCEL/LOCK threshold.
+        if (v.getParent() != null) v.getParent().requestDisallowInterceptTouchEvent(true);
+
+        beginRecording();
+        return true;
+    }
+
+    private void releaseDragParent(View v) {
+        if (v.getParent() != null) v.getParent().requestDisallowInterceptTouchEvent(false);
+    }
+
     private void beginRecording() {
         ActivityChatBinding binding = delegate.getBinding();
         if (!recorder.start(activity)) {
             Toast.makeText(activity, "Couldn't start recording", Toast.LENGTH_SHORT).show();
             return;
         }
+        recordState = RecordState.DRAGGING;
+        dragAxis = null;
         delegate.setRecording(true);
-        recordCancelled = false;
-        recordLocked = false;
 
         binding.llInputRow.setVisibility(View.GONE);
         binding.llRecordingBar.setAlpha(0f);
@@ -754,10 +789,12 @@ public class ChatMediaController {
                 .setInterpolator(new OvershootInterpolator()).start();
         binding.btnMic.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
 
+        excludeDragZoneFromSystemGestures(binding);
+
         if (recordingListener != null) recordingListener.onRecordingStateChanged(true);
 
         recordTickRunnable = () -> {
-            if (!delegate.isRecording()) return;
+            if (recordState == RecordState.IDLE) return;
             binding.tvRecordTimer.setText(formatTimer(recorder.getDuration()));
             binding.waveformRecording.pushLevel(normalizeAmplitude(recorder.getMaxAmplitudeSafe()));
             recordHandler.postDelayed(recordTickRunnable, AMPLITUDE_POLL_MS);
@@ -765,36 +802,51 @@ public class ChatMediaController {
         recordHandler.postDelayed(recordTickRunnable, AMPLITUDE_POLL_MS);
     }
 
-    private void updateDragUi(float dx, float dy) {
-        ActivityChatBinding binding = delegate.getBinding();
+    /** Handles one ACTION_MOVE sample. dx/dy are raw-screen deltas from the
+     *  original ACTION_DOWN point (dx negative = left, dy negative = up). */
+    private void onMicDrag(float dx, float dy) {
+        if (dragAxis == null) {
+            if (Math.max(Math.abs(dx), Math.abs(dy)) < axisDeadzonePx) return; // still inside deadzone
+            dragAxis = (-dy > Math.abs(dx)) ? DragAxis.VERTICAL : DragAxis.HORIZONTAL;
+        }
 
-        // ── Slide-to-cancel (leftwards) ─────────────────────────────────
-        float clampedDx = Math.max(-maxCancelDragPx, Math.min(0f, dx));
+        if (dragAxis == DragAxis.VERTICAL) {
+            updateLockDrag(dy);
+        } else {
+            updateCancelDrag(dx);
+        }
+    }
+
+    private void updateLockDrag(float dy) {
+        ActivityChatBinding binding = delegate.getBinding();
+        float clampedDy = clamp(dy, -maxLockDragPx, 0f);
+        binding.cvRecordLock.setTranslationY(clampedDy);
+        if (-dy >= lockThresholdPx) lockRecording();
+    }
+
+    private void updateCancelDrag(float dx) {
+        ActivityChatBinding binding = delegate.getBinding();
+        float clampedDx = clamp(dx, -maxCancelDragPx, 0f);
         binding.llSlideCancel.setTranslationX(clampedDx * 0.6f);
-        float cancelProgress = Math.min(1f, Math.abs(clampedDx) / cancelThresholdPx);
+        float cancelProgress = Math.min(1f, -clampedDx / cancelThresholdPx);
         binding.llSlideCancel.setAlpha(1f - cancelProgress * 0.85f);
         float micShrink = 1.15f - cancelProgress * 0.15f;
         binding.btnMic.setScaleX(micShrink);
         binding.btnMic.setScaleY(micShrink);
 
-        if (Math.abs(dx) >= cancelThresholdPx && dy > -lockThresholdPx) {
-            recordCancelled = true;
+        if (-dx >= cancelThresholdPx) {
             binding.btnMic.performHapticFeedback(HapticFeedbackConstants.REJECT);
             finishCancel();
-            return;
-        }
-
-        // ── Slide-to-lock (upwards) — ignore once mostly dragging to cancel
-        if (dx > -cancelThresholdPx * 0.4f) {
-            float clampedDy = Math.max(-maxLockDragPx, Math.min(0f, dy));
-            binding.cvRecordLock.setTranslationY(clampedDy);
-            if (Math.abs(dy) >= lockThresholdPx) lockRecording();
         }
     }
 
+    private static float clamp(float value, float min, float max) {
+        return Math.max(min, Math.min(max, value));
+    }
+
     private void lockRecording() {
-        if (recordLocked) return;
-        recordLocked = true;
+        if (recordState == RecordState.LOCKED) return;
+        recordState = RecordState.LOCKED;
         ActivityChatBinding binding = delegate.getBinding();
         binding.btnMic.performHapticFeedback(HapticFeedbackConstants.CONFIRM);
         binding.ivRecordLockIcon.setImageResource(R.drawable.ic_record_lock_closed);
@@ -823,30 +875,31 @@ public class ChatMediaController {
 
     private void finishAndSend() {
         ActivityChatBinding binding = delegate.getBinding();
+        recordState = RecordState.IDLE;
         delegate.setRecording(false);
         stopDotBlink();
         recordHandler.removeCallbacksAndMessages(null);
         Uri uri = recorder.stop(activity);
-        resetRecordingUi();
+        resetRecordingUi(binding);
         if (uri != null) uploadAndSend(uri, "audio", "raw", null);
         else Toast.makeText(activity, "Recording was empty", Toast.LENGTH_SHORT).show();
         if (recordingListener != null) recordingListener.onRecordingStateChanged(false);
     }
 
     private void finishCancel() {
+        ActivityChatBinding binding = delegate.getBinding();
+        recordState = RecordState.IDLE;
         delegate.setRecording(false);
         stopDotBlink();
         recordHandler.removeCallbacksAndMessages(null);
         recorder.cancel();
-        resetRecordingUi();
+        resetRecordingUi(binding);
         Toast.makeText(activity, "Recording cancelled", Toast.LENGTH_SHORT).show();
         if (recordingListener != null) recordingListener.onRecordingStateChanged(false);
     }
 
-    private void resetRecordingUi() {
-        ActivityChatBinding binding = delegate.getBinding();
-        recordLocked = false;
-        recordCancelled = false;
+    private void resetRecordingUi(ActivityChatBinding binding) {
+        dragAxis = null;
 
         binding.btnMic.animate().scaleX(1f).scaleY(1f).setDuration(150)
                 .setInterpolator(new OvershootInterpolator()).start();
@@ -870,6 +923,37 @@ public class ChatMediaController {
         binding.btnRecordSend.setVisibility(View.GONE);
 
         binding.waveformRecording.reset();
+
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            binding.getRoot().setSystemGestureExclusionRects(java.util.Collections.emptyList());
+        }
+    }
+
+    /** Reserves the mic's drag path (up for lock, left for cancel) so
+     *  Android's edge/back gesture-nav can't intercept the swipe out from
+     *  under the app — the lock gesture in particular is an upward swipe
+     *  that starts very close to the bottom edge, right where system
+     *  gesture nav also listens. No-op before API 29 (no such API). */
+    private void excludeDragZoneFromSystemGestures(ActivityChatBinding binding) {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.Q) return;
+        View root = binding.getRoot();
+        View mic  = binding.btnMic;
+        if (mic.getWidth() == 0 || root.getWidth() == 0) return;
+
+        int[] micLoc  = new int[2];
+        int[] rootLoc = new int[2];
+        mic.getLocationInWindow(micLoc);
+        root.getLocationInWindow(rootLoc);
+
+        int pad = (int) (16f * activity.getResources().getDisplayMetrics().density);
+        int left   = micLoc[0] - rootLoc[0] - (int) maxCancelDragPx - pad;
+        int top    = micLoc[1] - rootLoc[1] - (int) maxLockDragPx - pad;
+        int right  = micLoc[0] - rootLoc[0] + mic.getWidth() + pad;
+        int bottom = micLoc[1] - rootLoc[1] + mic.getHeight() + pad;
+
+        android.graphics.Rect rect = new android.graphics.Rect(
+                Math.max(0, left), Math.max(0, top), right, bottom);
+        root.setSystemGestureExclusionRects(java.util.Collections.singletonList(rect));
     }
 
     private void startDotBlink(View dot) {
