@@ -74,6 +74,17 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         View banner = v.findViewById(R.id.banner_requests);
         if (banner != null) banner.setVisibility(View.GONE);
 
+        // New broadcast entry point — proper, always-visible row (WhatsApp-style)
+        View rowNewBroadcast = v.findViewById(R.id.row_new_broadcast);
+        if (rowNewBroadcast != null) {
+            rowNewBroadcast.setOnClickListener(x -> {
+                if (getContext() == null) return;
+                Intent i = new Intent().setClassName(getContext().getPackageName(),
+                        "com.callx.app.broadcast.BroadcastListsActivity");
+                startActivity(i);
+            });
+        }
+
         rv.setLayoutManager(new LinearLayoutManager(getContext()));
         adapter = new ChatListAdapter(contacts, this);
         rv.setAdapter(adapter);

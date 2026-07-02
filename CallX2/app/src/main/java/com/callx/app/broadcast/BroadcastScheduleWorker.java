@@ -15,7 +15,6 @@ import androidx.work.Worker;
 import androidx.work.WorkerParameters;
 
 import com.callx.app.utils.FirebaseUtils;
-import com.google.firebase.database.FirebaseDatabase;
 
 import java.util.concurrent.TimeUnit;
 

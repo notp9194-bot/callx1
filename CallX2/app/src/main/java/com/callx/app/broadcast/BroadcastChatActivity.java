@@ -40,7 +40,6 @@ import com.google.firebase.database.ChildEventListener;
 import com.google.firebase.database.DataSnapshot;
 import com.google.firebase.database.DatabaseError;
 import com.google.firebase.database.DatabaseReference;
-import com.google.firebase.database.FirebaseDatabase;
 import com.google.firebase.database.MutableData;
 import com.google.firebase.database.ServerValue;
 import com.google.firebase.database.Transaction;
@@ -105,6 +104,9 @@ public class BroadcastChatActivity extends AppCompatActivity {
 
     // Recipient cache
     private final Map<String, RecipientInfo> recipients   = new HashMap<>();
+    // True once loadRecipients() has completed at least one full pass (even if 0 recipients).
+    // Used so the send gate can tell "still loading" apart from "genuinely empty list".
+    private boolean recipientsLoaded = false;
     // Seen listeners: msgId+recipientUid → listener
     private final Map<String, ValueEventListener> seenListeners = new HashMap<>();
     // Reply listeners: chatId → listener
@@ -284,21 +286,40 @@ public class BroadcastChatActivity extends AppCompatActivity {
                         recipients.clear();
                         long count = snap.getChildrenCount();
                         tvSubtitle.setText("📢 " + count + " recipients");
+
+                        if (count == 0) {
+                            recipientsLoaded = true;
+                            return;
+                        }
+
+                        // Track how many of the per-uid profile fetches have completed so we
+                        // only flip recipientsLoaded=true once ALL of them are done, instead of
+                        // right after the (async) recipient-id list comes back.
+                        final int[] remaining = {(int) count};
                         for (DataSnapshot r : snap.getChildren()) {
                             String uid = r.getKey();
-                            if (uid == null) continue;
+                            if (uid == null) { remaining[0]--; continue; }
                             FirebaseUtils.getUserRef(uid).addListenerForSingleValueEvent(
                                     new ValueEventListener() {
                                         @Override public void onDataChange(@NonNull DataSnapshot us) {
                                             String name = us.child("name").getValue(String.class);
                                             recipients.put(uid, new RecipientInfo(uid,
                                                     name != null ? name : "User"));
+                                            remaining[0]--;
+                                            if (remaining[0] <= 0) recipientsLoaded = true;
                                         }
-                                        @Override public void onCancelled(@NonNull DatabaseError e) {}
+                                        @Override public void onCancelled(@NonNull DatabaseError e) {
+                                            // Still count as "checked" even on failure, so the UI
+                                            // doesn't get stuck thinking recipients are loading forever.
+                                            remaining[0]--;
+                                            if (remaining[0] <= 0) recipientsLoaded = true;
+                                        }
                                     });
                         }
                     }
-                    @Override public void onCancelled(@NonNull DatabaseError e) {}
+                    @Override public void onCancelled(@NonNull DatabaseError e) {
+                        recipientsLoaded = true;
+                    }
                 });
     }
 
@@ -581,7 +602,13 @@ public class BroadcastChatActivity extends AppCompatActivity {
 
     private void dispatchPoll(String question, List<String> options) {
         if (recipients.isEmpty()) {
-            Toast.makeText(this, "Recipients load ho rahe hain", Toast.LENGTH_SHORT).show();
+            if (!recipientsLoaded) {
+                Toast.makeText(this, "Recipients load ho rahe hain, ek pal ruko…",
+                        Toast.LENGTH_SHORT).show();
+            } else {
+                Toast.makeText(this, "Is list mein koi recipient nahi hai — Edit se add karo",
+                        Toast.LENGTH_LONG).show();
+            }
             return;
         }
         long now = System.currentTimeMillis();
@@ -605,7 +632,7 @@ public class BroadcastChatActivity extends AppCompatActivity {
         if (scheduledSendAt > 0 && scheduledSendAt > now) {
             bm.status      = "scheduled";
             bm.scheduledAt = scheduledSendAt;
-            msgRef.child(msgId).setValue(bm);
+            writeMessage(msgId, bm);
             scheduleDelivery(msgId, sb.toString(), "poll", null, null, null, now, 0);
             Toast.makeText(this, "📅 Poll scheduled for " + dtFmt.format(new Date(scheduledSendAt)),
                     Toast.LENGTH_LONG).show();
@@ -613,7 +640,7 @@ public class BroadcastChatActivity extends AppCompatActivity {
             return;
         }
 
-        msgRef.child(msgId).setValue(bm);
+        writeMessage(msgId, bm);
         BroadcastDeliveryWorker.enqueue(this, myUid, listId, msgId,
                 sb.toString(), "poll", null, null, null, now, 0);
 
@@ -628,7 +655,13 @@ public class BroadcastChatActivity extends AppCompatActivity {
     private void uploadMultipleImages(List<Uri> uris) {
         if (uris.isEmpty()) return;
         if (recipients.isEmpty()) {
-            Toast.makeText(this, "Recipients load ho rahe hain", Toast.LENGTH_SHORT).show();
+            if (!recipientsLoaded) {
+                Toast.makeText(this, "Recipients load ho rahe hain, ek pal ruko…",
+                        Toast.LENGTH_SHORT).show();
+            } else {
+                Toast.makeText(this, "Is list mein koi recipient nahi hai — Edit se add karo",
+                        Toast.LENGTH_LONG).show();
+            }
             return;
         }
         if (uris.size() > 10) {
@@ -688,7 +721,7 @@ public class BroadcastChatActivity extends AppCompatActivity {
         if (scheduledSendAt > 0 && scheduledSendAt > now) {
             bm.status      = "scheduled";
             bm.scheduledAt = scheduledSendAt;
-            msgRef.child(msgId).setValue(bm);
+            writeMessage(msgId, bm);
             scheduleDelivery(msgId, null, "multi_media", urls.get(0),
                     null, "+" + (urls.size() - 1) + " more", now, 0);
             Toast.makeText(this, "📅 Photos scheduled for " + dtFmt.format(new Date(scheduledSendAt)),
@@ -697,7 +730,7 @@ public class BroadcastChatActivity extends AppCompatActivity {
             return;
         }
 
-        msgRef.child(msgId).setValue(bm);
+        writeMessage(msgId, bm);
         BroadcastDeliveryWorker.enqueue(this, myUid, listId, msgId,
                 null, "multi_media", urls.get(0),
                 null, "+" + (urls.size() - 1) + " more", now, 0);
@@ -795,13 +828,36 @@ public class BroadcastChatActivity extends AppCompatActivity {
 
     private String getLastMsgId() { return lastDispatchedMsgId; }
 
+    /**
+     * Writes a broadcast message node with visible failure feedback.
+     * Previously these were fire-and-forget setValue() calls — if the write
+     * was rejected (e.g. Firebase security rules not deployed for
+     * broadcast_messages/broadcast_lists, or a network error), the message
+     * silently vanished with zero feedback, which looked like "broadcast
+     * completely not working". Now any failure shows a Toast + Logcat entry.
+     */
+    private void writeMessage(String msgId, BroadcastMessage bm) {
+        msgRef.child(msgId).setValue(bm)
+                .addOnFailureListener(e -> {
+                    android.util.Log.e("BroadcastChat", "Failed to save broadcast message", e);
+                    Toast.makeText(BroadcastChatActivity.this,
+                            "Message save nahi hui: " + e.getMessage(), Toast.LENGTH_LONG).show();
+                });
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // Core dispatch
     // ─────────────────────────────────────────────────────────────────────────
     private void dispatchBroadcast(String text, String type,
                                    String mediaUrl, String fileName, String caption) {
         if (recipients.isEmpty()) {
-            Toast.makeText(this, "Recipients load ho rahe hain", Toast.LENGTH_SHORT).show();
+            if (!recipientsLoaded) {
+                Toast.makeText(this, "Recipients load ho rahe hain, ek pal ruko…",
+                        Toast.LENGTH_SHORT).show();
+            } else {
+                Toast.makeText(this, "Is list mein koi recipient nahi hai — Edit se add karo",
+                        Toast.LENGTH_LONG).show();
+            }
             return;
         }
         long now = System.currentTimeMillis();
@@ -816,7 +872,7 @@ public class BroadcastChatActivity extends AppCompatActivity {
         if (scheduledSendAt > 0 && scheduledSendAt > now) {
             bm.status      = "scheduled";
             bm.scheduledAt = scheduledSendAt;
-            msgRef.child(msgId).setValue(bm);
+            writeMessage(msgId, bm);
             long delay = scheduledSendAt - now;
             scheduleDelivery(msgId, text, type, mediaUrl, fileName, caption, now, 0);
             Toast.makeText(this, "📅 Scheduled for " + dtFmt.format(new Date(scheduledSendAt)),
@@ -825,7 +881,7 @@ public class BroadcastChatActivity extends AppCompatActivity {
             return;
         }
 
-        msgRef.child(msgId).setValue(bm);
+        writeMessage(msgId, bm);
         BroadcastDeliveryWorker.enqueue(this, myUid, listId, msgId,
                 text, type, mediaUrl, fileName, caption, now, 0);
     }
@@ -915,7 +971,13 @@ public class BroadcastChatActivity extends AppCompatActivity {
     private void uploadAndSend(Uri uri, String type, String cloudinaryResourceType,
                                String caption) {
         if (recipients.isEmpty()) {
-            Toast.makeText(this, "Recipients load ho rahe hain", Toast.LENGTH_SHORT).show();
+            if (!recipientsLoaded) {
+                Toast.makeText(this, "Recipients load ho rahe hain, ek pal ruko…",
+                        Toast.LENGTH_SHORT).show();
+            } else {
+                Toast.makeText(this, "Is list mein koi recipient nahi hai — Edit se add karo",
+                        Toast.LENGTH_LONG).show();
+            }
             return;
         }
         showUploadDialog("Upload ho raha hai…");
