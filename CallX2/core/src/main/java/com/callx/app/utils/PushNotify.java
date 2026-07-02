@@ -783,5 +783,46 @@ public class PushNotify {
 
       private static String safe(String s) { return s != null ? s : ""; }
 
-  
+    // ── Broadcast List: delivery-complete confirmation ─────────────────────
+    /**
+     * Sent by BroadcastDeliveryWorker after a broadcast list fan-out finishes
+     * (success OR failure). Covers the case where the sender's OTHER signed-in
+     * devices (not the one running the WorkManager job) need to know delivery
+     * finished — the primary device already got a local notification directly
+     * from the worker with zero network dependency.
+     *
+     * Server: POST /notify/broadcast
+     * Android receiver: CallxMessagingService → type="broadcast_message" →
+     *                    BroadcastFCMHandler.handle()
+     * Background/killed-safe — FCM data-only, high priority.
+     *
+     * @param senderUid    UID of the broadcast sender (receives this push)
+     * @param listId       broadcast_lists/{senderUid}/{listId}
+     * @param listName     display name of the broadcast list
+     * @param delivered    number of recipients successfully delivered to
+     * @param total        total recipient count for this list
+     * @param skipped      number of recipients skipped (e.g. blocked sender)
+     * @param status       "sent" | "failed"
+     * @param msgType      "text" | "image" | "video" | "audio" | "file"
+     * @param lastMessage  preview text of the message that was broadcast
+     */
+    public static void notifyBroadcastComplete(String senderUid, String listId, String listName,
+                                                int delivered, int total, int skipped,
+                                                String status, String msgType, String lastMessage) {
+        try {
+            JSONObject body = new JSONObject()
+                .put("toUid",       safe(senderUid))
+                .put("listId",      safe(listId))
+                .put("listName",    listName    != null ? listName    : "Broadcast")
+                .put("delivered",   delivered)
+                .put("total",       total)
+                .put("skipped",     skipped)
+                .put("status",      status      != null ? status      : "sent")
+                .put("msgType",     msgType     != null ? msgType     : "text")
+                .put("lastMessage", lastMessage != null ? lastMessage : "");
+            postAsync(Constants.SERVER_URL + "/notify/broadcast", body);
+        } catch (Exception e) {
+            Log.w("PushNotify", "notifyBroadcastComplete err: " + e.getMessage());
+        }
+    }
 }

@@ -1,9 +1,13 @@
 package com.callx.app.broadcast;
 
+import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.content.Context;
+import android.content.Intent;
 import android.util.Log;
 
 import androidx.annotation.NonNull;
+import androidx.core.app.NotificationCompat;
 import androidx.work.BackoffPolicy;
 import androidx.work.Constraints;
 import androidx.work.Data;
@@ -14,6 +18,7 @@ import androidx.work.WorkManager;
 import androidx.work.Worker;
 import androidx.work.WorkerParameters;
 
+import com.callx.app.R;
 import com.callx.app.utils.PushNotify;
 import com.google.android.gms.tasks.Tasks;
 import com.google.firebase.database.DataSnapshot;
@@ -131,6 +136,10 @@ public class BroadcastDeliveryWorker extends Worker {
             int total = (int) recipSnap.getChildrenCount();
             if (total == 0) {
                 msgRef.child("status").setValue("failed");
+                String listNameForNotifEmpty = getListName(listRef);
+                showLocalCompletionNotification(ctx, listId, listNameForNotifEmpty, 0, 0, 0, false);
+                PushNotify.notifyBroadcastComplete(senderId, listId, listNameForNotifEmpty,
+                        0, 0, 0, "failed", type, text);
                 return Result.failure();
             }
 
@@ -239,6 +248,21 @@ public class BroadcastDeliveryWorker extends Worker {
             listUpdate.put("sentCount",       ServerValue.increment(1));
             listRef.updateChildren(listUpdate);
 
+            // ── 4. Background/killed-safe delivery confirmation ─────────────────
+            // Fires the instant the worker finishes, regardless of whether the
+            // app/UI is foregrounded, backgrounded, or fully killed — WorkManager
+            // already guarantees doWork() runs, and this call needs no extra
+            // network round-trip (it's a direct local notification on this
+            // device). A second, FCM-based confirmation is also sent so the
+            // sender's other signed-in devices learn delivery finished too.
+            String listNameForNotif = getListName(listRef);
+            String previewForNotif  = "text".equals(type) ? text : getTypeLabel(type);
+            showLocalCompletionNotification(ctx, listId, listNameForNotif,
+                    delivered, total, skipped, delivered > 0);
+            PushNotify.notifyBroadcastComplete(senderId, listId, listNameForNotif,
+                    delivered, total, skipped,
+                    delivered > 0 ? "sent" : "failed", type, previewForNotif);
+
             if (delivered == 0) return Result.failure();
             return Result.success();
 
@@ -246,9 +270,76 @@ public class BroadcastDeliveryWorker extends Worker {
             Log.w(TAG, "Delivery attempt " + getRunAttemptCount() + " failed: " + e.getMessage());
             if (getRunAttemptCount() + 1 >= MAX_ATTEMPTS) {
                 msgRef.child("status").setValue("failed");
+                // Final attempt exhausted — let the sender know delivery
+                // failed even if the app is backgrounded/killed right now.
+                String listNameForNotif = getListName(listRef);
+                showLocalCompletionNotification(ctx, listId, listNameForNotif, 0, 0, 0, false);
+                PushNotify.notifyBroadcastComplete(senderId, listId, listNameForNotif,
+                        0, 0, 0, "failed", type, text);
                 return Result.failure();
             }
             return Result.retry();
+        }
+    }
+
+    /**
+     * Best-effort synchronous fetch of the broadcast list's display name, for
+     * use in the completion notification. Falls back to "Broadcast" if the
+     * lookup fails or times out — never blocks delivery on this.
+     */
+    private String getListName(DatabaseReference listRef) {
+        try {
+            DataSnapshot snap = Tasks.await(listRef.child("name").get(), 5, TimeUnit.SECONDS);
+            String name = snap.getValue(String.class);
+            return name != null && !name.isEmpty() ? name : "Broadcast";
+        } catch (Exception e) {
+            return "Broadcast";
+        }
+    }
+
+    /**
+     * Posts a local system notification directly from the worker, the instant
+     * delivery finishes — works identically whether the app is foregrounded,
+     * backgrounded, or fully killed, since WorkManager runs doWork() in its
+     * own process context and needs no Activity/UI to be alive. Reuses the
+     * "callx_broadcast" channel shared with BroadcastFCMHandler.
+     */
+    private void showLocalCompletionNotification(Context ctx, String listId, String listName,
+                                                  int delivered, int total, int skipped,
+                                                  boolean success) {
+        BroadcastFCMHandler.ensureChannel(ctx);
+
+        String title = success ? "📢 Broadcast Sent" : "⚠️ Broadcast Failed";
+        String body;
+        if (success) {
+            body = listName + " — " + delivered + "/" + total + " ko delivered";
+            if (skipped > 0) body += " • " + skipped + " skipped";
+        } else {
+            body = "\"" + listName + "\" ko message bhejna fail ho gaya. Retry karne ke liye tap karo.";
+        }
+
+        Intent tapIntent = new Intent(ctx, BroadcastChatActivity.class);
+        tapIntent.putExtra(BroadcastListsActivity.EXTRA_LIST_ID,   listId);
+        tapIntent.putExtra(BroadcastListsActivity.EXTRA_LIST_NAME, listName);
+        tapIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+
+        PendingIntent pi = PendingIntent.getActivity(
+                ctx, listId.hashCode(), tapIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(ctx, "callx_broadcast")
+                .setSmallIcon(R.drawable.ic_message_notification)
+                .setContentTitle(title)
+                .setContentText(body)
+                .setStyle(new NotificationCompat.BigTextStyle().bigText(body))
+                .setAutoCancel(true)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setContentIntent(pi);
+
+        NotificationManager nm = (NotificationManager)
+                ctx.getSystemService(Context.NOTIFICATION_SERVICE);
+        if (nm != null) {
+            nm.notify(90000 + Math.abs(listId.hashCode() % 1000), builder.build());
         }
     }
 

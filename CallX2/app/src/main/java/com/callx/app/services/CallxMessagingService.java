@@ -105,9 +105,12 @@ public class CallxMessagingService extends FirebaseMessagingService {
 
         // ── Broadcast List notification system ───────────────────────────────
         // When a broadcast message is delivered to a recipient, they receive a
-        // normal "message" type FCM — handled by showMessage() below.
-        // The "broadcast_message" type is used only for sender-side delivery
-        // confirmations and informational pushes.
+        // normal "message" type FCM — handled by showMessage() below (same
+        // background/killed-safe pipeline as any 1-on-1 chat message).
+        // The "broadcast_message" type is the SENDER-side delivery-confirmation
+        // push, sent by PushNotify.notifyBroadcastComplete() (server:
+        // POST /notify/broadcast) after BroadcastDeliveryWorker finishes a
+        // fan-out. Background/killed-safe — high-priority FCM data message.
         if ("broadcast_message".equals(data.getOrDefault("type", ""))) {
             com.callx.app.broadcast.BroadcastFCMHandler.handle(this, data);
             return;
