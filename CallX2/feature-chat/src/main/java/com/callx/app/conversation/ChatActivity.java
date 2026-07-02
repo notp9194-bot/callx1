@@ -3,7 +3,6 @@ package com.callx.app.conversation;
 import android.Manifest;
 import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
-import android.animation.LayoutTransition;
 import android.animation.ValueAnimator;
 import android.app.AlertDialog;
 import android.content.ClipData;
@@ -28,6 +27,7 @@ import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.animation.DecelerateInterpolator;
+import android.view.animation.OvershootInterpolator;
 import android.widget.EditText;
 import android.widget.ImageButton;
 import android.widget.LinearLayout;
@@ -38,6 +38,10 @@ import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
+import androidx.dynamicanimation.animation.DynamicAnimation;
+import androidx.dynamicanimation.animation.FloatValueHolder;
+import androidx.dynamicanimation.animation.SpringAnimation;
+import androidx.dynamicanimation.animation.SpringForce;
 import androidx.lifecycle.LiveData;
 import androidx.lifecycle.MediatorLiveData;
 import androidx.lifecycle.Transformations;
@@ -2175,6 +2179,12 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // so we don't restart the same animation redundantly on every keystroke.
     private Boolean inputIconsExpanded = null;
 
+    // Drives the capsule's own height with real spring physics whenever the
+    // EditText grows/shrinks between 1-4 lines. Re-entrancy guard prevents
+    // our own frame-by-frame LayoutParams writes from re-triggering themselves.
+    private SpringAnimation capsuleHeightSpring;
+    private boolean isCapsuleHeightAnimating = false;
+
     private void setupInputBar() {
         setupInputCapsuleAnimations();
 
@@ -2246,21 +2256,67 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     }
 
     /**
-     * Makes the capsule (and the row inside it) smoothly animate its own
-     * height whenever the EditText grows/shrinks between 1 and 4 lines,
-     * instead of the height snapping instantly. CHANGING must be enabled
-     * explicitly since it's off by default even with animateLayoutChanges.
+     * Makes the capsule smoothly animate its own height whenever the
+     * EditText grows/shrinks between 1 and 4 lines, instead of the height
+     * snapping instantly on every layout pass.
+     *
+     * A plain LayoutTransition uses a fixed-duration ObjectAnimator, which
+     * looks mechanical and can visibly "jump" mid-animation if a new line
+     * change interrupts it. Instead we watch the capsule's own bounds via
+     * addOnLayoutChangeListener: the instant Android lays it out at the new
+     * (already-final) height, we snap it back to the old height and let a
+     * SpringAnimation carry it over to the new height. Because it is a real
+     * spring it naturally carries current velocity if interrupted mid-flight
+     * (e.g. user pastes a big block of text while a shrink is still
+     * settling), so it never jumps -- it just smoothly redirects.
      */
     private void setupInputCapsuleAnimations() {
-        // NOTE: deliberately NOT set on ll_input_row itself — that would fight
-        // with the manual per-icon width/alpha animator below (both trying to
-        // animate the same child bounds). The row reflows naturally as the
-        // icon animator updates layout params frame by frame.
-        LayoutTransition capsuleTransition = new LayoutTransition();
-        capsuleTransition.enableTransitionType(LayoutTransition.CHANGING);
-        capsuleTransition.setDuration(180);
-        capsuleTransition.setInterpolator(LayoutTransition.CHANGING, new DecelerateInterpolator());
-        binding.cvInputCapsule.setLayoutTransition(capsuleTransition);
+        binding.cvInputCapsule.addOnLayoutChangeListener((v, left, top, right, bottom,
+                                                            oldLeft, oldTop, oldRight, oldBottom) -> {
+            if (isCapsuleHeightAnimating) return; // our own frame writes -- ignore
+
+            int newHeight = bottom - top;
+            int oldHeight = oldBottom - oldTop;
+            if (oldHeight <= 0 || newHeight <= 0 || oldHeight == newHeight) return;
+
+            animateCapsuleHeightTo(oldHeight, newHeight);
+        });
+    }
+
+    /**
+     * Springs the capsule's height from fromHeight to toHeight in real px,
+     * then releases it back to wrap_content so future organic layout passes
+     * (rotation, font-scale changes, etc.) aren't fighting a stale fixed
+     * height.
+     */
+    private void animateCapsuleHeightTo(int fromHeight, int toHeight) {
+        final View capsule = binding.cvInputCapsule;
+
+        if (capsuleHeightSpring != null) capsuleHeightSpring.cancel();
+
+        isCapsuleHeightAnimating = true;
+        ViewGroup.LayoutParams startLp = capsule.getLayoutParams();
+        startLp.height = fromHeight;
+        capsule.setLayoutParams(startLp);
+
+        FloatValueHolder heightHolder = new FloatValueHolder(fromHeight);
+        capsuleHeightSpring = new SpringAnimation(heightHolder);
+        capsuleHeightSpring.setSpring(new SpringForce(toHeight)
+                .setStiffness(SpringForce.STIFFNESS_MEDIUM)
+                .setDampingRatio(SpringForce.DAMPING_RATIO_NO_BOUNCY));
+        capsuleHeightSpring.setMinimumVisibleChange(DynamicAnimation.MIN_VISIBLE_CHANGE_PIXELS);
+        capsuleHeightSpring.addUpdateListener((animation, value, velocity) -> {
+            ViewGroup.LayoutParams lp = capsule.getLayoutParams();
+            lp.height = Math.round(value);
+            capsule.setLayoutParams(lp);
+        });
+        capsuleHeightSpring.addEndListener((animation, canceled, value, velocity) -> {
+            isCapsuleHeightAnimating = false;
+            ViewGroup.LayoutParams lp = capsule.getLayoutParams();
+            lp.height = ViewGroup.LayoutParams.WRAP_CONTENT;
+            capsule.setLayoutParams(lp);
+        });
+        capsuleHeightSpring.start();
     }
 
     /**
@@ -2284,10 +2340,19 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         animateIconTo(binding.btnCamera, expand);
     }
 
+    // Shared overshoot interpolator for the icon "pop back in" bounce.
+    // Tension 2.2 gives a lively but tasteful overshoot -- noticeably springy
+    // without wobbling past a natural finger-tap target size.
+    private static final OvershootInterpolator ICON_EXPAND_OVERSHOOT = new OvershootInterpolator(2.2f);
+
     /**
      * Animates a single icon button between fully shown (original width,
-     * alpha 1, scale 1) and fully collapsed (width 0, alpha 0, scale 0.6),
-     * so the icon shrinks+fades rather than just disappearing.
+     * alpha 1, scale 1) and fully collapsed (width 0, alpha 0, scale 0.6).
+     *
+     * Collapsing (text typed in) stays a clean shrink+fade -- no bounce --
+     * since that motion is about ceding space quickly and a bounce there
+     * reads as jittery. Expanding (text cleared) overshoots slightly past
+     * full size before settling, which reads as a lively "pop" back in.
      */
     private void animateIconTo(final ImageButton icon, boolean expand) {
         if (icon == null) return;
@@ -2313,22 +2378,36 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         float endFraction = expand ? 1f : 0f;
 
         ValueAnimator animator = ValueAnimator.ofFloat(startFraction, endFraction);
-        animator.setDuration(200);
-        animator.setInterpolator(new DecelerateInterpolator());
+        animator.setDuration(expand ? 320 : 200);
+        animator.setInterpolator(expand ? ICON_EXPAND_OVERSHOOT : new DecelerateInterpolator());
         icon.setTag(animator);
         if (expand) icon.setVisibility(View.VISIBLE);
         animator.addUpdateListener(a -> {
+            // f can briefly exceed 1 during the overshoot portion of the
+            // expand curve -- that's intentional, it's what drives the bounce.
             float f = (float) a.getAnimatedValue();
-            icon.setAlpha(f);
+            float alphaClamped = Math.max(0f, Math.min(1f, f));
+            icon.setAlpha(alphaClamped);
             icon.setScaleX(0.6f + 0.4f * f);
             icon.setScaleY(0.6f + 0.4f * f);
             ViewGroup.LayoutParams lp = icon.getLayoutParams();
-            lp.width = Math.max(1, (int) (targetWidth * f));
+            lp.width = Math.max(1, Math.round(targetWidth * Math.max(0f, f)));
             icon.setLayoutParams(lp);
         });
         animator.addListener(new AnimatorListenerAdapter() {
             @Override public void onAnimationEnd(Animator animation) {
-                if (!expand) icon.setVisibility(View.GONE);
+                if (!expand) {
+                    icon.setVisibility(View.GONE);
+                } else {
+                    // Land exactly on the resting values in case the overshoot
+                    // curve's last emitted frame wasn't precisely 1.0.
+                    icon.setScaleX(1f);
+                    icon.setScaleY(1f);
+                    icon.setAlpha(1f);
+                    ViewGroup.LayoutParams lp = icon.getLayoutParams();
+                    lp.width = targetWidth;
+                    icon.setLayoutParams(lp);
+                }
             }
         });
         animator.start();
