@@ -67,6 +67,37 @@ public class CallxApp extends Application {
     public void onCreate() {
         super.onCreate();
 
+        // ── PERF FIX v33: Firebase Realtime Database disk persistence ─────
+        // Root cause of "chat khulne ke 2 sec baad messages load hote hain":
+        // setPersistenceEnabled(false) tha (see old comment: "we use our own
+        // 3-tier cache") — lekin woh 3-tier cache (Room/LastMessagesCache)
+        // sirf PURANE messages turant dikhata hai. Naye/latest messages ke
+        // liye ChatActivity ka ChildEventListener HAMESHA Firebase server se
+        // fresh network round-trip karta tha har single chat open pe — wahi
+        // asli 2 second wait hai, aur slow network pe aur zyada.
+        // Fix: persistence ENABLE karo. Firebase SDK apna khud ka on-disk
+        // cache maintain karega — listener attach hote hi cached data turant
+        // (same-frame, disk se) mil jaata hai, aur background mein silently
+        // server se sync ho jaata hai. Isi wajah se WhatsApp/Telegram jaisa
+        // "instant" feel aata hai.
+        // MUST be the very first FirebaseDatabase call in the process — call
+        // it synchronously here, before the db-warmup thread below and
+        // before any other code path can touch FirebaseDatabase.getInstance().
+        try {
+            FirebaseDatabase.getInstance(Constants.DB_URL)
+                    .setPersistenceEnabled(true);
+            // Default persistence cache is 10MB — bump it a bit since chat
+            // history + presence + typing nodes all share this cache.
+            FirebaseDatabase.getInstance(Constants.DB_URL)
+                    .setPersistenceCacheSizeBytes(20L * 1024 * 1024); // 20MB
+        } catch (Exception e) {
+            // Can throw if some other code already touched FirebaseDatabase
+            // before this line ran (e.g. process re-used after config
+            // change) — safe to ignore, DB just runs without local disk
+            // cache for this process lifetime.
+            Log.w(TAG, "Firebase persistence enable failed: " + e.getMessage());
+        }
+
         // ── PERF FIX: dedicated AppDatabase (SQLCipher) warm-up thread ────
         // Root cause of "chat khulta hai aur 3 sec baad messages aate hain":
         // AppDatabase.getInstance() does SQLCipher loadLibs() + Android
@@ -122,13 +153,8 @@ public class CallxApp extends Application {
 
         // ── BACKGROUND THREAD: heavy init ─────────────────────────────
         new Thread(() -> {
-            // Firebase persistence config
-            try {
-                FirebaseDatabase.getInstance(Constants.DB_URL)
-                    .setPersistenceEnabled(false); // disabled: we use our own 3-tier cache
-            } catch (Exception e) {
-                Log.w(TAG, "Firebase persistence set: " + e.getMessage());
-            }
+            // Firebase persistence already enabled synchronously above
+            // (must run before any FirebaseDatabase.getInstance() call).
 
             // User photo URL Firebase listener
             cacheMyPhotoUrl();
