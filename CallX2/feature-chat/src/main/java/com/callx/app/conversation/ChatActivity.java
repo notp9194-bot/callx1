@@ -1,6 +1,10 @@
 package com.callx.app.conversation;
 
 import android.Manifest;
+import android.animation.Animator;
+import android.animation.AnimatorListenerAdapter;
+import android.animation.LayoutTransition;
+import android.animation.ValueAnimator;
 import android.app.AlertDialog;
 import android.content.ClipData;
 import android.content.ClipboardManager;
@@ -22,7 +26,10 @@ import android.text.TextWatcher;
 import android.view.LayoutInflater;
 import android.view.MenuItem;
 import android.view.View;
+import android.view.ViewGroup;
+import android.view.animation.DecelerateInterpolator;
 import android.widget.EditText;
+import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.Toast;
 
@@ -2154,14 +2161,20 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // INPUT BAR
     // ─────────────────────────────────────────────────────────────────────
 
+    // Tracks whether the attach/camera icons are currently expanded (shown),
+    // so we don't restart the same animation redundantly on every keystroke.
+    private Boolean inputIconsExpanded = null;
+
     private void setupInputBar() {
+        setupInputCapsuleAnimations();
+
         binding.etMessage.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int st, int c, int a) {}
             @Override public void afterTextChanged(Editable s) {}
             @Override public void onTextChanged(CharSequence s, int st, int b, int c) {
                 boolean hasText = s.toString().trim().length() > 0;
-                binding.btnSend.setVisibility(hasText ? View.VISIBLE : View.GONE);
-                binding.btnMic.setVisibility(hasText ? View.GONE : View.VISIBLE);
+                animateSendMicSwap(hasText);
+                animateAttachCameraIcons(!hasText);
 
                 int remaining = MAX_MESSAGE_LENGTH - s.length();
                 if (remaining <= 200) {
@@ -2220,6 +2233,104 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 mediaController.sendGifMessage(contentInfo.getContentUri(), contentInfo);
             });
         }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // INPUT CAPSULE ANIMATIONS — smooth multi-line grow + Telegram/Instagram
+    // style icon fade-out as the user types.
+    // ─────────────────────────────────────────────────────────────────────
+
+    private float dpToPxInput(float dp) {
+        return dp * getResources().getDisplayMetrics().density;
+    }
+
+    /**
+     * Makes the capsule (and the row inside it) smoothly animate its own
+     * height whenever the EditText grows/shrinks between 1 and 4 lines,
+     * instead of the height snapping instantly. CHANGING must be enabled
+     * explicitly since it's off by default even with animateLayoutChanges.
+     */
+    private void setupInputCapsuleAnimations() {
+        // NOTE: deliberately NOT set on ll_input_row itself — that would fight
+        // with the manual per-icon width/alpha animator below (both trying to
+        // animate the same child bounds). The row reflows naturally as the
+        // icon animator updates layout params frame by frame.
+        LayoutTransition capsuleTransition = new LayoutTransition();
+        capsuleTransition.enableTransitionType(LayoutTransition.CHANGING);
+        capsuleTransition.setDuration(180);
+        capsuleTransition.setInterpolator(LayoutTransition.CHANGING, new DecelerateInterpolator());
+        binding.cvInputCapsule.setLayoutTransition(capsuleTransition);
+    }
+
+    /**
+     * Crossfades the mic <-> send buttons instead of an instant GONE/VISIBLE
+     * jump-cut.
+     */
+    private void animateSendMicSwap(boolean hasText) {
+        animateIconTo(binding.btnSend, hasText);
+        animateIconTo(binding.btnMic, !hasText);
+    }
+
+    /**
+     * Telegram/Instagram-style: attach + camera icons shrink & fade away as
+     * soon as text is typed, freeing up room for the multi-line input, and
+     * smoothly grow back in when the text is cleared.
+     */
+    private void animateAttachCameraIcons(boolean expand) {
+        if (inputIconsExpanded != null && inputIconsExpanded == expand) return;
+        inputIconsExpanded = expand;
+        animateIconTo(binding.btnAttach, expand);
+        animateIconTo(binding.btnCamera, expand);
+    }
+
+    /**
+     * Animates a single icon button between fully shown (original width,
+     * alpha 1, scale 1) and fully collapsed (width 0, alpha 0, scale 0.6),
+     * so the icon shrinks+fades rather than just disappearing.
+     */
+    private void animateIconTo(final ImageButton icon, boolean expand) {
+        if (icon == null) return;
+
+        Integer fullWidth = (Integer) icon.getTag(icon.getId());
+        if (fullWidth == null) {
+            ViewGroup.LayoutParams initialLp = icon.getLayoutParams();
+            fullWidth = initialLp.width > 0 ? initialLp.width : (int) dpToPxInput(34);
+            icon.setTag(icon.getId(), fullWidth);
+        }
+        final int targetWidth = fullWidth;
+
+        boolean currentlyVisible = icon.getVisibility() == View.VISIBLE && icon.getAlpha() > 0.4f;
+        if (currentlyVisible == expand) return;
+
+        Object runningTag = icon.getTag();
+        if (runningTag instanceof ValueAnimator) {
+            ((ValueAnimator) runningTag).cancel();
+        }
+
+        float startFraction = icon.getVisibility() == View.VISIBLE
+                ? Math.max(0f, Math.min(1f, icon.getAlpha())) : 0f;
+        float endFraction = expand ? 1f : 0f;
+
+        ValueAnimator animator = ValueAnimator.ofFloat(startFraction, endFraction);
+        animator.setDuration(200);
+        animator.setInterpolator(new DecelerateInterpolator());
+        icon.setTag(animator);
+        if (expand) icon.setVisibility(View.VISIBLE);
+        animator.addUpdateListener(a -> {
+            float f = (float) a.getAnimatedValue();
+            icon.setAlpha(f);
+            icon.setScaleX(0.6f + 0.4f * f);
+            icon.setScaleY(0.6f + 0.4f * f);
+            ViewGroup.LayoutParams lp = icon.getLayoutParams();
+            lp.width = Math.max(1, (int) (targetWidth * f));
+            icon.setLayoutParams(lp);
+        });
+        animator.addListener(new AnimatorListenerAdapter() {
+            @Override public void onAnimationEnd(Animator animation) {
+                if (!expand) icon.setVisibility(View.GONE);
+            }
+        });
+        animator.start();
     }
 
     // ─────────────────────────────────────────────────────────────────────
