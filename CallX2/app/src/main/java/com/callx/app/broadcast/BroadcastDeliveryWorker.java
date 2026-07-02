@@ -177,7 +177,13 @@ public class BroadcastDeliveryWorker extends Worker {
 
                 String preview = "text".equals(type) ? text : getTypeLabel(type);
 
-                bigUpdate.put("chats/" + chatId + "/messages/" + msgId, msg);
+                // FIX: personal-chat messages live at "messages/{chatId}/{msgId}"
+                // (see ChatRepository / FirebaseUtils.getMessagesRef — this is the
+                // path ChatActivity's messagesRef listener actually reads from).
+                // The old "chats/{chatId}/messages/{msgId}" path was never read by
+                // any chat screen, so broadcast messages were written to Firebase
+                // but never rendered in the recipient's personal chat.
+                bigUpdate.put("messages/" + chatId + "/" + msgId, msg);
 
                 // Field-level keys (not whole-node keys) so this MERGES into the
                 // existing contact node instead of replacing it wholesale —

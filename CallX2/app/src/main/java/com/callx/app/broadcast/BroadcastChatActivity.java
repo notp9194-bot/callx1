@@ -236,9 +236,13 @@ public class BroadcastChatActivity extends AppCompatActivity {
 
                 String chatId = myUid.compareTo(r.uid) < 0
                         ? myUid + "_" + r.uid : r.uid + "_" + myUid;
+                // FIX: personal-chat messages live at "messages/{chatId}/{msgId}",
+                // not "chats/{chatId}/messages/{msgId}" (see BroadcastDeliveryWorker
+                // / FirebaseUtils.getMessagesRef). Watching the wrong path meant
+                // this listener never fired.
                 DatabaseReference seenRef = FirebaseDatabase.getInstance()
-                        .getReference("chats").child(chatId)
-                        .child("messages").child(m.id).child("seen");
+                        .getReference("messages").child(chatId)
+                        .child(m.id).child("seen");
 
                 ValueEventListener l = new ValueEventListener() {
                     @Override public void onDataChange(@NonNull DataSnapshot snap) {
@@ -465,8 +469,10 @@ public class BroadcastChatActivity extends AppCompatActivity {
             if (parts.length != 2) continue;
             String chatId = myUid.compareTo(parts[1]) < 0
                     ? myUid + "_" + parts[1] : parts[1] + "_" + myUid;
-            FirebaseDatabase.getInstance().getReference("chats").child(chatId)
-                    .child("messages").child(parts[0]).child("seen")
+            // Must match the ref used in attachSeenTracking() above, or this
+            // removeEventListener() is a silent no-op and the listener leaks.
+            FirebaseDatabase.getInstance().getReference("messages").child(chatId)
+                    .child(parts[0]).child("seen")
                     .removeEventListener(e.getValue());
         }
         seenListeners.clear();
