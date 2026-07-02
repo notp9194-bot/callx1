@@ -157,8 +157,15 @@ public class ChatMessageSender {
         if (binding == null) return;
         binding.btnSend.setEnabled(online);
         binding.btnSend.setAlpha(online ? 1.0f : 0.4f);
-        binding.btnMic.setEnabled(online);
-        binding.btnMic.setAlpha(online ? 1.0f : 0.4f);
+        // NOTE: btnMic is deliberately NOT disabled when offline. Recording
+        // itself is 100% local (MediaRecorder, no network needed) — only the
+        // final upload+send needs connectivity, and that already queues via
+        // the offline outbox. Disabling the view here used to silently kill
+        // the mic's OnTouchListener too: Android's View#dispatchTouchEvent
+        // only invokes OnTouchListener when the view is ENABLED, so the
+        // whole press-hold/waveform/slide-to-cancel/lock gesture would stop
+        // firing the instant the network blipped, which is exactly what
+        // looked like "the feature doesn't work".
     }
 
     // ── Retry pending on reconnect ─────────────────────────────────────────

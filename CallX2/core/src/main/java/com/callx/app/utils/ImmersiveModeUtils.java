@@ -161,7 +161,19 @@ public final class ImmersiveModeUtils {
                         }
 
                         int startPadding  = root.getPaddingBottom();
-                        int targetImeBottom = bounds.getUpperBound().bottom;
+                        // bounds.getUpperBound() is NOT "the end state" — it's
+                        // always the larger (keyboard-open) inset regardless of
+                        // whether the keyboard is opening or closing. Using it
+                        // directly meant a CLOSING keyboard would spring the
+                        // capsule's padding back up to the open height instead
+                        // of down to baseline. By the time onStart fires, the
+                        // window has already recalculated insets for the real
+                        // target state, so read the actual target from the
+                        // view's current window insets instead.
+                        WindowInsetsCompat current = ViewCompat.getRootWindowInsets(root);
+                        int targetImeBottom = current != null
+                                ? current.getInsets(WindowInsetsCompat.Type.ime()).bottom
+                                : bounds.getUpperBound().bottom;
                         int endPadding    = baseBottom + targetImeBottom;
 
                         if (activeAnim[0] != null && activeAnim[0].isRunning()) activeAnim[0].cancel();
