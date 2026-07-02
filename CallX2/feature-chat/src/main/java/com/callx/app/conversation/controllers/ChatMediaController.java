@@ -77,6 +77,11 @@ public class ChatMediaController {
     private RecordingStateListener recordingListener;
 
     private static final long  AMPLITUDE_POLL_MS  = 100L;
+    /** Below this hold duration, a release is treated as an accidental tap
+     *  (finger never really settled into "recording" mode) — same as
+     *  WhatsApp: it discards the clip and hints to hold instead of sending
+     *  a near-zero-length voice note. */
+    private static final long  MIN_RECORD_DURATION_MS = 1000L;
     private static final float CANCEL_THRESHOLD_DP = 110f;
     private static final float LOCK_THRESHOLD_DP   = 90f;
     private static final float MAX_CANCEL_DRAG_DP  = 140f;
@@ -719,7 +724,11 @@ public class ChatMediaController {
             case MotionEvent.ACTION_CANCEL:
                 if (recordState != RecordState.DRAGGING) return true;
                 releaseDragParent(v);
-                finishAndSend();
+                if (recorder.getDuration() < MIN_RECORD_DURATION_MS) {
+                    finishTooShort();
+                } else {
+                    finishAndSend();
+                }
                 return true;
             default:
                 return false;
@@ -883,6 +892,22 @@ public class ChatMediaController {
         resetRecordingUi(binding);
         if (uri != null) uploadAndSend(uri, "audio", "raw", null);
         else Toast.makeText(activity, "Recording was empty", Toast.LENGTH_SHORT).show();
+        if (recordingListener != null) recordingListener.onRecordingStateChanged(false);
+    }
+
+    /** Release happened before MIN_RECORD_DURATION_MS — treat like a
+     *  cancel (discard the clip) but with a distinct hint, since the user
+     *  likely tapped instead of holding rather than deliberately cancelling. */
+    private void finishTooShort() {
+        ActivityChatBinding binding = delegate.getBinding();
+        recordState = RecordState.IDLE;
+        delegate.setRecording(false);
+        stopDotBlink();
+        recordHandler.removeCallbacksAndMessages(null);
+        recorder.cancel();
+        resetRecordingUi(binding);
+        binding.btnMic.performHapticFeedback(HapticFeedbackConstants.REJECT);
+        Toast.makeText(activity, "Hold the mic to record a voice message", Toast.LENGTH_SHORT).show();
         if (recordingListener != null) recordingListener.onRecordingStateChanged(false);
     }
 
