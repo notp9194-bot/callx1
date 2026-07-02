@@ -92,7 +92,7 @@ public class CreateBroadcastActivity extends AppCompatActivity {
 
         if (myUid == null) { finish(); return; }
 
-        listsRef = FirebaseDatabase.getInstance()
+        listsRef = FirebaseUtils.db()
                 .getReference("broadcast_lists").child(myUid);
 
         etListName     = findViewById(R.id.et_broadcast_name);

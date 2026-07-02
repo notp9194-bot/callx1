@@ -14,6 +14,7 @@ import androidx.work.WorkManager;
 import androidx.work.Worker;
 import androidx.work.WorkerParameters;
 
+import com.callx.app.utils.FirebaseUtils;
 import com.callx.app.utils.PushNotify;
 import com.google.android.gms.tasks.Tasks;
 import com.google.firebase.database.DataSnapshot;
@@ -122,7 +123,7 @@ public class BroadcastDeliveryWorker extends Worker {
             return Result.failure();
         }
 
-        DatabaseReference root    = FirebaseDatabase.getInstance().getReference();
+        DatabaseReference root    = FirebaseUtils.db().getReference();
         DatabaseReference msgRef  = root.child("broadcast_messages")
                                         .child(senderId).child(listId).child(msgId);
         DatabaseReference listRef = root.child("broadcast_lists").child(senderId).child(listId);

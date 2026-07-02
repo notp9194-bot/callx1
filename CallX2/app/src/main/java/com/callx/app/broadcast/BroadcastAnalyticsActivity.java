@@ -111,7 +111,7 @@ public class BroadcastAnalyticsActivity extends AppCompatActivity {
     // ── Load message + recipients from Firebase ───────────────────────────────
     private void loadAnalytics() {
         // 1. Fetch message metadata (seenByTs, deliveredCount, skippedCount, replyCount)
-        FirebaseDatabase.getInstance()
+        FirebaseUtils.db()
                 .getReference("broadcast_messages").child(myUid).child(listId).child(msgId)
                 .addListenerForSingleValueEvent(new ValueEventListener() {
                     @Override public void onDataChange(@NonNull DataSnapshot msgSnap) {
@@ -134,7 +134,7 @@ public class BroadcastAnalyticsActivity extends AppCompatActivity {
                                 ? msgSnap.child("replyCount").getValue(Integer.class) : 0;
 
                         // 2. Fetch recipients list
-                        FirebaseDatabase.getInstance()
+                        FirebaseUtils.db()
                                 .getReference("broadcast_lists").child(myUid).child(listId)
                                 .child("recipients")
                                 .addListenerForSingleValueEvent(new ValueEventListener() {

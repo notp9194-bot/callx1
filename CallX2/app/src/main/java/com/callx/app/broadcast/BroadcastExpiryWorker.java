@@ -13,6 +13,7 @@ import androidx.work.Worker;
 import androidx.work.WorkerParameters;
 
 import com.google.android.gms.tasks.Tasks;
+import com.callx.app.utils.FirebaseUtils;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.database.DataSnapshot;
 import com.google.firebase.database.FirebaseDatabase;
@@ -63,7 +64,7 @@ public class BroadcastExpiryWorker extends Worker {
         try {
             // Scan all lists owned by this user
             DataSnapshot listsSnap = Tasks.await(
-                    FirebaseDatabase.getInstance()
+                    FirebaseUtils.db()
                             .getReference("broadcast_messages").child(myUid)
                             .get(), 30, TimeUnit.SECONDS);
 

@@ -14,6 +14,7 @@ import androidx.work.WorkManager;
 import androidx.work.Worker;
 import androidx.work.WorkerParameters;
 
+import com.callx.app.utils.FirebaseUtils;
 import com.google.firebase.database.FirebaseDatabase;
 
 import java.util.concurrent.TimeUnit;
@@ -118,7 +119,7 @@ public class BroadcastScheduleWorker extends Worker {
         }
 
         // Update status to "sending" so the UI reflects the change
-        FirebaseDatabase.getInstance()
+        FirebaseUtils.db()
                 .getReference("broadcast_messages")
                 .child(senderId).child(listId).child(msgId)
                 .child("status").setValue("sending");

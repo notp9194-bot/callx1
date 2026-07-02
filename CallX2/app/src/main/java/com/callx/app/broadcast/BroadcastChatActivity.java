@@ -168,9 +168,9 @@ public class BroadcastChatActivity extends AppCompatActivity {
                 this::onMessageTapped, this::onMessageLongPressed);
         rvMessages.setAdapter(adapter);
 
-        msgRef  = FirebaseDatabase.getInstance()
+        msgRef  = FirebaseUtils.db()
                 .getReference("broadcast_messages").child(myUid).child(listId);
-        listRef = FirebaseDatabase.getInstance()
+        listRef = FirebaseUtils.db()
                 .getReference("broadcast_lists").child(myUid).child(listId);
 
         etMessage.addTextChangedListener(new TextWatcher() {
@@ -361,7 +361,7 @@ public class BroadcastChatActivity extends AppCompatActivity {
 
                 String chatId = myUid.compareTo(r.uid) < 0
                         ? myUid + "_" + r.uid : r.uid + "_" + myUid;
-                DatabaseReference seenRef = FirebaseDatabase.getInstance()
+                DatabaseReference seenRef = FirebaseUtils.db()
                         .getReference("chats").child(chatId)
                         .child("messages").child(m.id).child("seen");
 
@@ -429,7 +429,7 @@ public class BroadcastChatActivity extends AppCompatActivity {
                 String listenerKey = m.id + ":reply:" + r.uid;
                 if (replyListeners.containsKey(listenerKey)) continue;
 
-                DatabaseReference chatMsgsRef = FirebaseDatabase.getInstance()
+                DatabaseReference chatMsgsRef = FirebaseUtils.db()
                         .getReference("chats").child(chatId).child("messages");
 
                 ChildEventListener cl = new ChildEventListener() {
@@ -1027,7 +1027,7 @@ public class BroadcastChatActivity extends AppCompatActivity {
     /** Feature 12: Forward to another broadcast list */
     private void forwardToList(BroadcastMessage original) {
         // Load all other lists owned by the user
-        FirebaseDatabase.getInstance()
+        FirebaseUtils.db()
                 .getReference("broadcast_lists").child(myUid)
                 .addListenerForSingleValueEvent(new ValueEventListener() {
                     @Override public void onDataChange(@NonNull DataSnapshot snap) {
@@ -1062,9 +1062,9 @@ public class BroadcastChatActivity extends AppCompatActivity {
 
     private void forwardMessageToList(BroadcastMessage original,
                                       String targetListId, String targetListName) {
-        DatabaseReference targetMsgRef = FirebaseDatabase.getInstance()
+        DatabaseReference targetMsgRef = FirebaseUtils.db()
                 .getReference("broadcast_messages").child(myUid).child(targetListId);
-        DatabaseReference targetListRef = FirebaseDatabase.getInstance()
+        DatabaseReference targetListRef = FirebaseUtils.db()
                 .getReference("broadcast_lists").child(myUid).child(targetListId);
 
         // Count recipients in target list first
@@ -1258,7 +1258,7 @@ public class BroadcastChatActivity extends AppCompatActivity {
             String recipientUid = parts[1];
             String cid = myUid.compareTo(recipientUid) < 0
                     ? myUid + "_" + recipientUid : recipientUid + "_" + myUid;
-            FirebaseDatabase.getInstance().getReference("chats").child(cid)
+            FirebaseUtils.db().getReference("chats").child(cid)
                     .child("messages").child(parts[0]).child("seen")
                     .removeEventListener(e.getValue());
         }
@@ -1271,7 +1271,7 @@ public class BroadcastChatActivity extends AppCompatActivity {
             String recipientUid = e.getKey().substring(sep + 7);
             String cid = myUid.compareTo(recipientUid) < 0
                     ? myUid + "_" + recipientUid : recipientUid + "_" + myUid;
-            FirebaseDatabase.getInstance().getReference("chats").child(cid)
+            FirebaseUtils.db().getReference("chats").child(cid)
                     .child("messages").removeEventListener(e.getValue());
         }
         replyListeners.clear();

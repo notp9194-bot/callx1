@@ -19,6 +19,7 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import com.bumptech.glide.Glide;
 import com.callx.app.R;
+import com.callx.app.utils.FirebaseUtils;
 import com.google.android.material.floatingactionbutton.FloatingActionButton;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.database.DataSnapshot;
@@ -77,7 +78,7 @@ public class BroadcastListsActivity extends AppCompatActivity {
 
         if (myUid == null) { finish(); return; }
 
-        listsRef = FirebaseDatabase.getInstance()
+        listsRef = FirebaseUtils.db()
                 .getReference("broadcast_lists").child(myUid);
 
         rvLists = findViewById(R.id.rv_broadcast_lists);
