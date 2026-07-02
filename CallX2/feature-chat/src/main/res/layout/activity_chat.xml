@@ -682,6 +682,7 @@
                         android:layout_height="34dp"
                         android:padding="6dp"
                         android:src="@drawable/ic_attach"
+                        android:tint="@color/brand_primary"
                         android:background="?attr/selectableItemBackgroundBorderless"
                         android:contentDescription="Attach"/>
                     <ImageButton
@@ -690,6 +691,7 @@
                         android:layout_height="34dp"
                         android:padding="6dp"
                         android:src="@drawable/ic_camera"
+                        android:tint="@color/brand_primary"
                         android:background="?attr/selectableItemBackgroundBorderless"
                         android:contentDescription="Camera"/>
                     <ImageButton
@@ -698,6 +700,7 @@
                         android:layout_height="34dp"
                         android:padding="6dp"
                         android:src="@drawable/ic_view_once"
+                        android:tint="@color/text_muted"
                         android:background="?attr/selectableItemBackgroundBorderless"
                         android:contentDescription="View Once"/>
                     <FrameLayout
@@ -731,6 +734,7 @@
                         android:layout_height="36dp"
                         android:padding="8dp"
                         android:src="@drawable/ic_mic"
+                        android:tint="@color/white"
                         android:background="@drawable/circle_primary"
                         android:contentDescription="Voice message"/>
                     <ImageButton
@@ -739,6 +743,7 @@
                         android:layout_height="36dp"
                         android:padding="8dp"
                         android:src="@drawable/ic_send"
+                        android:tint="@color/white"
                         android:background="@drawable/circle_primary"
                         android:layout_marginStart="6dp"
                         android:visibility="gone"
