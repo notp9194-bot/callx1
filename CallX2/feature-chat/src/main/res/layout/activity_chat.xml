@@ -1,435 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/surface_chat_bg"
-    android:orientation="vertical">
-
-    <!-- WhatsApp-style Chat Header -->
-    <LinearLayout
-        android:id="@+id/toolbar"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:background="@color/bar_background"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:paddingTop="2dp"
-        android:paddingBottom="2dp"
-        android:paddingStart="4dp"
-        android:paddingEnd="4dp">
-
-        <!-- Back button -->
-        <ImageButton
-            android:id="@+id/btn_back"
-            android:layout_width="32dp"
-            android:layout_height="32dp"
-            android:src="@drawable/ic_back"
-            android:tint="@color/white"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Back"/>
-
-        <!-- Avatar (clickable to open profile) -->
-        <de.hdodenhof.circleimageview.CircleImageView
-            android:id="@+id/iv_partner_avatar"
-            android:layout_width="32dp"
-            android:layout_height="32dp"
-            android:src="@drawable/ic_person"
-            android:layout_marginStart="2dp"
-            android:clickable="true"
-            android:focusable="true"
-            app:civ_border_width="1.5dp"
-            app:civ_border_color="#80FFFFFF"/>
-
-        <!-- Name + status/typing (fills remaining space) -->
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:orientation="vertical"
-            android:layout_marginStart="8dp"
-            android:layout_marginEnd="4dp"
-            android:clickable="true"
-            android:focusable="true">
-
-            <TextView
-                android:id="@+id/tv_partner_name"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Contact Name"
-                android:textColor="@color/white"
-                android:textSize="14sp"
-                android:textStyle="bold"
-                android:maxLines="1"
-                android:ellipsize="end"/>
-
-            <!-- Online / last-seen status only — typing no longer shown here,
-                 see ll_typing_strip floating banner over the message list. -->
-            <TextView
-                android:id="@+id/tv_status"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:textColor="#C7D2FE"
-                android:textSize="10sp"
-                android:visibility="gone"/>
-        </LinearLayout>
-
-        <!-- Reel button — patli rassi se latakta hua, hawa mein jhulta -->
-        <!-- Pura container: rassi + button ek saath upar se neeche -->
-        <LinearLayout
-            android:id="@+id/ll_reel_hanging"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:gravity="center_horizontal"
-            android:layout_marginEnd="3dp"
-            android:translationY="-4dp">
-
-            <!-- Patli rassi (thin string from top of header) -->
-            <View
-                android:id="@+id/view_reel_thread"
-                android:layout_width="1.5dp"
-                android:layout_height="8dp"
-                android:background="@drawable/ic_reel_thread"
-                android:layout_gravity="center_horizontal"/>
-
-            <!-- Reel button itself — jhulta hua -->
-            <ImageButton
-                android:id="@+id/btn_toolbar_reel"
-                android:layout_width="30dp"
-                android:layout_height="30dp"
-                android:src="@drawable/ic_reels"
-                android:tint="@color/white"
-                android:background="@drawable/bg_social_reel_btn"
-                android:padding="6dp"
-                android:contentDescription="View Reels Profile"/>
-
-        </LinearLayout>
-
-        <!-- X button -->
-        <ImageButton
-            android:id="@+id/btn_toolbar_x"
-            android:layout_width="30dp"
-            android:layout_height="30dp"
-            android:src="@drawable/ic_x_logo"
-            android:tint="@color/white"
-            android:background="@drawable/bg_social_x_btn"
-            android:padding="6dp"
-            android:layout_marginEnd="3dp"
-            android:contentDescription="View X Profile"/>
-
-        <!-- YouTube button -->
-        <ImageButton
-            android:id="@+id/btn_toolbar_youtube"
-            android:layout_width="30dp"
-            android:layout_height="30dp"
-            android:src="@drawable/ic_youtube"
-            android:tint="@color/white"
-            android:background="@drawable/bg_social_youtube_btn"
-            android:padding="6dp"
-            android:layout_marginEnd="1dp"
-            android:contentDescription="View YouTube Channel"/>
-
-        <!-- Video call button -->
-        <ImageButton
-            android:id="@+id/btn_toolbar_video_call"
-            android:layout_width="32dp"
-            android:layout_height="32dp"
-            android:src="@drawable/ic_video_call"
-            android:tint="@color/white"
-            android:background="@null"
-            android:padding="6dp"
-            android:contentDescription="Video call"/>
-
-        <!-- Voice call button -->
-        <ImageButton
-            android:id="@+id/btn_toolbar_voice_call"
-            android:layout_width="32dp"
-            android:layout_height="32dp"
-            android:src="@drawable/ic_phone"
-            android:tint="@color/white"
-            android:background="@null"
-            android:padding="7dp"
-            android:contentDescription="Voice call"/>
-
-        <!-- More options (3-dot menu) -->
-        <ImageButton
-            android:id="@+id/btn_more_options"
-            android:layout_width="32dp"
-            android:layout_height="32dp"
-            android:src="@drawable/ic_more_vert"
-            android:tint="@color/white"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="More options"/>
-
-    </LinearLayout>
-
-    <!-- ══════════════════════════════════════════════════════════════
-         MULTI-SELECT TOOLBAR (WhatsApp style) — visibility=gone by default
-         Shows on top replacing normal toolbar feel when messages selected
-         ══════════════════════════════════════════════════════════════ -->
-    <LinearLayout
-        android:id="@+id/ll_selection_toolbar"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:background="@color/bar_background"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:paddingTop="8dp"
-        android:paddingBottom="8dp"
-        android:paddingStart="4dp"
-        android:paddingEnd="4dp"
-        android:visibility="gone">
-
-        <!-- Cancel / Close selection -->
-        <ImageButton
-            android:id="@+id/btn_selection_close"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:src="@drawable/ic_back"
-            android:tint="@color/white"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Cancel selection"/>
-
-        <!-- Selected count -->
-        <TextView
-            android:id="@+id/tv_selection_count"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="1"
-            android:textColor="@color/white"
-            android:textSize="18sp"
-            android:textStyle="bold"
-            android:layout_marginStart="8dp"/>
-
-        <!-- Reply -->
-        <ImageButton
-            android:id="@+id/btn_selection_reply"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:src="@drawable/ic_reply"
-            android:tint="@color/white"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:padding="8dp"
-            android:contentDescription="Reply"/>
-
-        <!-- Star -->
-        <ImageButton
-            android:id="@+id/btn_selection_star"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:src="@drawable/ic_star_outline"
-            android:tint="@color/white"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:padding="8dp"
-            android:contentDescription="Star"/>
-
-        <!-- Info — single select only -->
-        <ImageButton
-            android:id="@+id/btn_selection_info"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:src="@drawable/ic_info"
-            android:tint="@color/white"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:padding="8dp"
-            android:contentDescription="Info"/>
-
-        <!-- Delete -->
-        <ImageButton
-            android:id="@+id/btn_selection_delete"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:src="@drawable/ic_delete"
-            android:tint="@color/white"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:padding="8dp"
-            android:contentDescription="Delete"/>
-
-        <!-- Forward -->
-        <ImageButton
-            android:id="@+id/btn_selection_forward"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:src="@drawable/ic_forward"
-            android:tint="@color/white"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:padding="8dp"
-            android:contentDescription="Forward"/>
-
-    </LinearLayout>
-
-    <!-- Offline banner -->
-    <TextView
-        android:id="@+id/tv_offline_banner"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="No internet — showing cached messages"
-        android:textColor="#FFFFFF"
-        android:textSize="12sp"
-        android:gravity="center"
-        android:paddingTop="4dp"
-        android:paddingBottom="4dp"
-        android:background="#CC5500"
-        android:visibility="gone"/>
-
-    <!-- Search bar -->
-    <LinearLayout
-        android:id="@+id/ll_search_bar"
-        android:layout_width="match_parent"
-        android:layout_height="52dp"
-        android:orientation="horizontal"
-        android:background="@color/bar_background"
-        android:paddingStart="8dp"
-        android:paddingEnd="4dp"
-        android:gravity="center_vertical"
-        android:visibility="gone">
-        <ImageView
-            android:layout_width="20dp"
-            android:layout_height="20dp"
-            android:src="@drawable/ic_search"
-            android:layout_marginEnd="8dp"/>
-        <EditText
-            android:id="@+id/et_search"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:hint="Search messages…"
-            android:textColorHint="@color/text_muted"
-            android:textColor="@color/text_primary"
-            android:textSize="14sp"
-            android:background="@android:color/transparent"
-            android:singleLine="true"
-            android:imeOptions="actionSearch"
-            android:inputType="text"/>
-        <TextView
-            android:id="@+id/tv_search_count"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:textSize="12sp"
-            android:textColor="@color/text_muted"
-            android:paddingStart="4dp"
-            android:paddingEnd="4dp"
-            android:visibility="gone"/>
-        <ImageButton
-            android:id="@+id/btn_search_prev"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
-            android:src="@drawable/ic_arrow_back"
-            android:rotation="90"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Previous result"
-            android:visibility="gone"/>
-        <ImageButton
-            android:id="@+id/btn_search_next"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
-            android:src="@drawable/ic_arrow_back"
-            android:rotation="270"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Next result"
-            android:visibility="gone"/>
-        <ImageButton
-            android:id="@+id/btn_close_search"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
-            android:src="@drawable/ic_back"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Close search"/>
-    </LinearLayout>
-
-    <!-- Pinned message banner -->
-    <LinearLayout
-        android:id="@+id/ll_pinned_banner"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:background="@color/bar_background"
-        android:paddingStart="12dp"
-        android:paddingEnd="8dp"
-        android:paddingTop="6dp"
-        android:paddingBottom="6dp"
-        android:gravity="center_vertical"
-        android:visibility="gone">
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:orientation="vertical">
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="📌 Pinned Message"
-                android:textColor="#E65100"
-                android:textSize="11sp"
-                android:textStyle="bold"/>
-            <TextView
-                android:id="@+id/tv_pinned_preview"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:textColor="#555555"
-                android:textSize="12sp"
-                android:maxLines="1"
-                android:ellipsize="end"/>
-        </LinearLayout>
-        <ImageButton
-            android:id="@+id/btn_unpin"
-            android:layout_width="32dp"
-            android:layout_height="32dp"
-            android:src="@drawable/ic_back"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Unpin"/>
-    </LinearLayout>
-
-    <!-- Scheduled messages banner — shows count of pending scheduled sends -->
-    <LinearLayout
-        android:id="@+id/ll_scheduled_banner"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:background="@color/bar_background"
-        android:paddingStart="12dp"
-        android:paddingEnd="8dp"
-        android:paddingTop="6dp"
-        android:paddingBottom="6dp"
-        android:gravity="center_vertical"
-        android:clickable="true"
-        android:focusable="true"
-        android:visibility="gone">
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:orientation="vertical">
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="⏱ Scheduled"
-                android:textColor="#1565C0"
-                android:textSize="11sp"
-                android:textStyle="bold"/>
-            <TextView
-                android:id="@+id/tv_scheduled_preview"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:textColor="#555555"
-                android:textSize="12sp"
-                android:maxLines="1"
-                android:ellipsize="end"/>
-        </LinearLayout>
-        <ImageView
-            android:layout_width="20dp"
-            android:layout_height="20dp"
-            android:src="@drawable/ic_timer"
-            app:tint="#1565C0"/>
-    </LinearLayout>
-
-    <!-- FrameLayout wraps shimmer + RecyclerView + FAB "back to latest" -->
+    android:background="@color/surface_chat_bg">
+    <!-- FrameLayout wraps wallpaper + shimmer + RecyclerView + floating bars + FAB -->
     <FrameLayout
         android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1">
+        android:layout_height="match_parent">
 
         <!-- Chat Wallpaper Background Image -->
         <ImageView
@@ -456,7 +34,7 @@
             android:layout_height="match_parent"
             android:paddingStart="4dp"
             android:paddingEnd="4dp"
-            android:paddingTop="4dp"
+            android:paddingTop="68dp"
             android:paddingBottom="76dp"
             android:clipToPadding="false"
             android:visibility="gone"/>
@@ -1171,4 +749,456 @@
 
     </FrameLayout>
 
-</LinearLayout>
+    <!-- ═══════════════════════════════════════════════════════════════
+         FLOATING TOP STACK — sits ABOVE the message FrameLayout as an
+         overlay so the header floats over the chat area (same pattern
+         as the bottom floating input stack).
+         ═══════════════════════════════════════════════════════════════ -->
+    <LinearLayout
+        android:id="@+id/ll_floating_top_stack"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top"
+        android:orientation="vertical">
+
+        <!-- ═══════════════════════════════════════════════════════════
+             FLOATING CAPSULE HEADER — rounded card, subtle elevation,
+             floats above the chat area at the top safe-area.
+             ═══════════════════════════════════════════════════════════ -->
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/cv_header_capsule"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="10dp"
+            android:layout_marginEnd="10dp"
+            android:layout_marginTop="10dp"
+            android:layout_marginBottom="6dp"
+            app:cardCornerRadius="24dp"
+            app:cardElevation="6dp"
+            app:cardBackgroundColor="@color/bar_background"
+            app:cardPreventCornerOverlap="false"
+            app:cardUseCompatPadding="true">
+
+            <!-- WhatsApp-style Chat Header -->
+            <LinearLayout
+                android:id="@+id/toolbar"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@android:color/transparent"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingTop="4dp"
+                android:paddingBottom="4dp"
+                android:paddingStart="4dp"
+                android:paddingEnd="4dp">
+
+                <!-- Back button -->
+                <ImageButton
+                    android:id="@+id/btn_back"
+                    android:layout_width="32dp"
+                    android:layout_height="32dp"
+                    android:src="@drawable/ic_back"
+                    android:tint="@color/white"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="Back"/>
+
+                <!-- Avatar (clickable to open profile) -->
+                <de.hdodenhof.circleimageview.CircleImageView
+                    android:id="@+id/iv_partner_avatar"
+                    android:layout_width="32dp"
+                    android:layout_height="32dp"
+                    android:src="@drawable/ic_person"
+                    android:layout_marginStart="2dp"
+                    android:clickable="true"
+                    android:focusable="true"
+                    app:civ_border_width="1.5dp"
+                    app:civ_border_color="#80FFFFFF"/>
+
+                <!-- Name + status/typing (fills remaining space) -->
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:layout_marginStart="8dp"
+                    android:layout_marginEnd="4dp"
+                    android:clickable="true"
+                    android:focusable="true">
+
+                    <TextView
+                        android:id="@+id/tv_partner_name"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Contact Name"
+                        android:textColor="@color/white"
+                        android:textSize="14sp"
+                        android:textStyle="bold"
+                        android:maxLines="1"
+                        android:ellipsize="end"/>
+
+                    <!-- Online / last-seen status only — typing no longer shown here,
+                         see ll_typing_strip floating banner over the message list. -->
+                    <TextView
+                        android:id="@+id/tv_status"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textColor="#C7D2FE"
+                        android:textSize="10sp"
+                        android:visibility="gone"/>
+                </LinearLayout>
+
+                <!-- Reel button — patli rassi se latakta hua, hawa mein jhulta -->
+                <!-- Pura container: rassi + button ek saath upar se neeche -->
+                <LinearLayout
+                    android:id="@+id/ll_reel_hanging"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:gravity="center_horizontal"
+                    android:layout_marginEnd="3dp"
+                    android:translationY="-4dp">
+
+                    <!-- Patli rassi (thin string from top of header) -->
+                    <View
+                        android:id="@+id/view_reel_thread"
+                        android:layout_width="1.5dp"
+                        android:layout_height="8dp"
+                        android:background="@drawable/ic_reel_thread"
+                        android:layout_gravity="center_horizontal"/>
+
+                    <!-- Reel button itself — jhulta hua -->
+                    <ImageButton
+                        android:id="@+id/btn_toolbar_reel"
+                        android:layout_width="30dp"
+                        android:layout_height="30dp"
+                        android:src="@drawable/ic_reels"
+                        android:tint="@color/white"
+                        android:background="@drawable/bg_social_reel_btn"
+                        android:padding="6dp"
+                        android:contentDescription="View Reels Profile"/>
+
+                </LinearLayout>
+
+                <!-- X button -->
+                <ImageButton
+                    android:id="@+id/btn_toolbar_x"
+                    android:layout_width="30dp"
+                    android:layout_height="30dp"
+                    android:src="@drawable/ic_x_logo"
+                    android:tint="@color/white"
+                    android:background="@drawable/bg_social_x_btn"
+                    android:padding="6dp"
+                    android:layout_marginEnd="3dp"
+                    android:contentDescription="View X Profile"/>
+
+                <!-- YouTube button -->
+                <ImageButton
+                    android:id="@+id/btn_toolbar_youtube"
+                    android:layout_width="30dp"
+                    android:layout_height="30dp"
+                    android:src="@drawable/ic_youtube"
+                    android:tint="@color/white"
+                    android:background="@drawable/bg_social_youtube_btn"
+                    android:padding="6dp"
+                    android:layout_marginEnd="1dp"
+                    android:contentDescription="View YouTube Channel"/>
+
+                <!-- Video call button -->
+                <ImageButton
+                    android:id="@+id/btn_toolbar_video_call"
+                    android:layout_width="32dp"
+                    android:layout_height="32dp"
+                    android:src="@drawable/ic_video_call"
+                    android:tint="@color/white"
+                    android:background="@null"
+                    android:padding="6dp"
+                    android:contentDescription="Video call"/>
+
+                <!-- Voice call button -->
+                <ImageButton
+                    android:id="@+id/btn_toolbar_voice_call"
+                    android:layout_width="32dp"
+                    android:layout_height="32dp"
+                    android:src="@drawable/ic_phone"
+                    android:tint="@color/white"
+                    android:background="@null"
+                    android:padding="7dp"
+                    android:contentDescription="Voice call"/>
+
+                <!-- More options (3-dot menu) -->
+                <ImageButton
+                    android:id="@+id/btn_more_options"
+                    android:layout_width="32dp"
+                    android:layout_height="32dp"
+                    android:src="@drawable/ic_more_vert"
+                    android:tint="@color/white"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="More options"/>
+
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- ══════════════════════════════════════════════════════════════
+             MULTI-SELECT TOOLBAR (WhatsApp style) — visibility=gone by default
+             Shows on top replacing normal toolbar feel when messages selected
+             ══════════════════════════════════════════════════════════════ -->
+        <LinearLayout
+            android:id="@+id/ll_selection_toolbar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@color/bar_background"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingTop="8dp"
+            android:paddingBottom="8dp"
+            android:paddingStart="4dp"
+            android:paddingEnd="4dp"
+            android:visibility="gone">
+
+            <!-- Cancel / Close selection -->
+            <ImageButton
+                android:id="@+id/btn_selection_close"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:src="@drawable/ic_back"
+                android:tint="@color/white"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Cancel selection"/>
+
+            <!-- Selected count -->
+            <TextView
+                android:id="@+id/tv_selection_count"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="1"
+                android:textColor="@color/white"
+                android:textSize="18sp"
+                android:textStyle="bold"
+                android:layout_marginStart="8dp"/>
+
+            <!-- Reply -->
+            <ImageButton
+                android:id="@+id/btn_selection_reply"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:src="@drawable/ic_reply"
+                android:tint="@color/white"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:padding="8dp"
+                android:contentDescription="Reply"/>
+
+            <!-- Star -->
+            <ImageButton
+                android:id="@+id/btn_selection_star"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:src="@drawable/ic_star_outline"
+                android:tint="@color/white"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:padding="8dp"
+                android:contentDescription="Star"/>
+
+            <!-- Info — single select only -->
+            <ImageButton
+                android:id="@+id/btn_selection_info"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:src="@drawable/ic_info"
+                android:tint="@color/white"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:padding="8dp"
+                android:contentDescription="Info"/>
+
+            <!-- Delete -->
+            <ImageButton
+                android:id="@+id/btn_selection_delete"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:src="@drawable/ic_delete"
+                android:tint="@color/white"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:padding="8dp"
+                android:contentDescription="Delete"/>
+
+            <!-- Forward -->
+            <ImageButton
+                android:id="@+id/btn_selection_forward"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:src="@drawable/ic_forward"
+                android:tint="@color/white"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:padding="8dp"
+                android:contentDescription="Forward"/>
+
+        </LinearLayout>
+
+        <!-- Offline banner -->
+        <TextView
+            android:id="@+id/tv_offline_banner"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="No internet — showing cached messages"
+            android:textColor="#FFFFFF"
+            android:textSize="12sp"
+            android:gravity="center"
+            android:paddingTop="4dp"
+            android:paddingBottom="4dp"
+            android:background="#CC5500"
+            android:visibility="gone"/>
+
+        <!-- Search bar -->
+        <LinearLayout
+            android:id="@+id/ll_search_bar"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:orientation="horizontal"
+            android:background="@color/bar_background"
+            android:paddingStart="8dp"
+            android:paddingEnd="4dp"
+            android:gravity="center_vertical"
+            android:visibility="gone">
+            <ImageView
+                android:layout_width="20dp"
+                android:layout_height="20dp"
+                android:src="@drawable/ic_search"
+                android:layout_marginEnd="8dp"/>
+            <EditText
+                android:id="@+id/et_search"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:hint="Search messages…"
+                android:textColorHint="@color/text_muted"
+                android:textColor="@color/text_primary"
+                android:textSize="14sp"
+                android:background="@android:color/transparent"
+                android:singleLine="true"
+                android:imeOptions="actionSearch"
+                android:inputType="text"/>
+            <TextView
+                android:id="@+id/tv_search_count"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textSize="12sp"
+                android:textColor="@color/text_muted"
+                android:paddingStart="4dp"
+                android:paddingEnd="4dp"
+                android:visibility="gone"/>
+            <ImageButton
+                android:id="@+id/btn_search_prev"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:src="@drawable/ic_arrow_back"
+                android:rotation="90"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Previous result"
+                android:visibility="gone"/>
+            <ImageButton
+                android:id="@+id/btn_search_next"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:src="@drawable/ic_arrow_back"
+                android:rotation="270"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Next result"
+                android:visibility="gone"/>
+            <ImageButton
+                android:id="@+id/btn_close_search"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:src="@drawable/ic_back"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Close search"/>
+        </LinearLayout>
+
+        <!-- Pinned message banner -->
+        <LinearLayout
+            android:id="@+id/ll_pinned_banner"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:background="@color/bar_background"
+            android:paddingStart="12dp"
+            android:paddingEnd="8dp"
+            android:paddingTop="6dp"
+            android:paddingBottom="6dp"
+            android:gravity="center_vertical"
+            android:visibility="gone">
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="📌 Pinned Message"
+                    android:textColor="#E65100"
+                    android:textSize="11sp"
+                    android:textStyle="bold"/>
+                <TextView
+                    android:id="@+id/tv_pinned_preview"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="#555555"
+                    android:textSize="12sp"
+                    android:maxLines="1"
+                    android:ellipsize="end"/>
+            </LinearLayout>
+            <ImageButton
+                android:id="@+id/btn_unpin"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:src="@drawable/ic_back"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Unpin"/>
+        </LinearLayout>
+
+        <!-- Scheduled messages banner — shows count of pending scheduled sends -->
+        <LinearLayout
+            android:id="@+id/ll_scheduled_banner"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:background="@color/bar_background"
+            android:paddingStart="12dp"
+            android:paddingEnd="8dp"
+            android:paddingTop="6dp"
+            android:paddingBottom="6dp"
+            android:gravity="center_vertical"
+            android:clickable="true"
+            android:focusable="true"
+            android:visibility="gone">
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="⏱ Scheduled"
+                    android:textColor="#1565C0"
+                    android:textSize="11sp"
+                    android:textStyle="bold"/>
+                <TextView
+                    android:id="@+id/tv_scheduled_preview"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="#555555"
+                    android:textSize="12sp"
+                    android:maxLines="1"
+                    android:ellipsize="end"/>
+            </LinearLayout>
+            <ImageView
+                android:layout_width="20dp"
+                android:layout_height="20dp"
+                android:src="@drawable/ic_timer"
+                app:tint="#1565C0"/>
+        </LinearLayout>
+
+    </LinearLayout>
+
+</FrameLayout>
