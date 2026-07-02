@@ -440,6 +440,23 @@ public class BroadcastChatActivity extends AppCompatActivity {
                         if (r.uid.equals(senderId) && ts != null && ts > m.timestamp) {
                             msgRef.child(m.id).child("replyCount")
                                   .setValue(ServerValue.increment(1));
+
+                            // Feature 8: if this broadcast was a poll, parse the reply as a vote
+                            if (m.isPoll() && m.pollOptions != null) {
+                                String replyText = snap.child("text").getValue(String.class);
+                                if (replyText != null) {
+                                    try {
+                                        int choice = Integer.parseInt(replyText.trim()) - 1;
+                                        if (choice >= 0 && choice < m.pollOptions.size()) {
+                                            msgRef.child(m.id).child("pollVotes")
+                                                  .child(r.uid).setValue(choice);
+                                        }
+                                    } catch (NumberFormatException ignored) {
+                                        // Not a numeric reply — not a vote, just a normal reply
+                                    }
+                                }
+                            }
+
                             // Only track first reply per recipient
                             chatMsgsRef.removeEventListener(this);
                             replyListeners.remove(listenerKey);
@@ -576,9 +593,7 @@ public class BroadcastChatActivity extends AppCompatActivity {
         bm.pollQuestion = question;
         bm.pollOptions  = options;
         bm.pollVotes    = new HashMap<>();
-        bm.expiresAt    = scheduledSendAt > 0 ? 0 : 0; // no auto-expire for polls by default
-
-        msgRef.child(msgId).setValue(bm);
+        bm.expiresAt    = 0; // no auto-expire for polls by default
 
         // Build formatted text for delivery
         StringBuilder sb = new StringBuilder("📊 Poll: ").append(question).append("\n\n");
@@ -586,12 +601,26 @@ public class BroadcastChatActivity extends AppCompatActivity {
             sb.append(i + 1).append(". ").append(options.get(i)).append("\n");
         sb.append("\n(Reply with your choice number)");
 
+        // Feature 1: honor scheduled send for polls too
+        if (scheduledSendAt > 0 && scheduledSendAt > now) {
+            bm.status      = "scheduled";
+            bm.scheduledAt = scheduledSendAt;
+            msgRef.child(msgId).setValue(bm);
+            scheduleDelivery(msgId, sb.toString(), "poll", null, null, null, now, 0);
+            Toast.makeText(this, "📅 Poll scheduled for " + dtFmt.format(new Date(scheduledSendAt)),
+                    Toast.LENGTH_LONG).show();
+            resetSchedule();
+            return;
+        }
+
+        msgRef.child(msgId).setValue(bm);
         BroadcastDeliveryWorker.enqueue(this, myUid, listId, msgId,
                 sb.toString(), "poll", null, null, null, now, 0);
 
         resetSchedule();
         Toast.makeText(this, "📊 Poll bheja ja raha hai…", Toast.LENGTH_SHORT).show();
     }
+
 
     // ─────────────────────────────────────────────────────────────────────────
     // Feature 9: Multi-image upload
@@ -655,19 +684,26 @@ public class BroadcastChatActivity extends AppCompatActivity {
         bm.mediaUrls = new ArrayList<>(urls);
         bm.expiresAt = 0;
 
-        msgRef.child(msgId).setValue(bm);
-
-        long expiresAt = scheduledSendAt > 0 ? 0 : 0;
-        if (scheduledSendAt > 0) {
+        // Feature 1: honor scheduled send for multi-media too
+        if (scheduledSendAt > 0 && scheduledSendAt > now) {
+            bm.status      = "scheduled";
+            bm.scheduledAt = scheduledSendAt;
+            msgRef.child(msgId).setValue(bm);
             scheduleDelivery(msgId, null, "multi_media", urls.get(0),
-                    null, "+" + (urls.size() - 1) + " more", now, expiresAt);
-        } else {
-            BroadcastDeliveryWorker.enqueue(this, myUid, listId, msgId,
-                    null, "multi_media", urls.get(0),
-                    null, "+" + (urls.size() - 1) + " more", now, expiresAt);
+                    null, "+" + (urls.size() - 1) + " more", now, 0);
+            Toast.makeText(this, "📅 Photos scheduled for " + dtFmt.format(new Date(scheduledSendAt)),
+                    Toast.LENGTH_LONG).show();
+            resetSchedule();
+            return;
         }
+
+        msgRef.child(msgId).setValue(bm);
+        BroadcastDeliveryWorker.enqueue(this, myUid, listId, msgId,
+                null, "multi_media", urls.get(0),
+                null, "+" + (urls.size() - 1) + " more", now, 0);
         resetSchedule();
     }
+
 
     // ─────────────────────────────────────────────────────────────────────────
     // Feature 5: Link preview fetch (background)
@@ -1147,7 +1183,7 @@ public class BroadcastChatActivity extends AppCompatActivity {
             fw.close();
 
             Uri uri = androidx.core.content.FileProvider.getUriForFile(
-                    this, getPackageName() + ".provider", csv);
+                    this, getPackageName() + ".fileprovider", csv);
             Intent share = new Intent(Intent.ACTION_SEND);
             share.setType("text/csv");
             share.putExtra(Intent.EXTRA_STREAM, uri);

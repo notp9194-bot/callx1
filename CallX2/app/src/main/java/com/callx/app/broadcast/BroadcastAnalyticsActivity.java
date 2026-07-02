@@ -241,7 +241,7 @@ public class BroadcastAnalyticsActivity extends AppCompatActivity {
             fw.close();
 
             Uri uri = androidx.core.content.FileProvider.getUriForFile(
-                    this, getPackageName() + ".provider", csv);
+                    this, getPackageName() + ".fileprovider", csv);
             Intent share = new Intent(Intent.ACTION_SEND);
             share.setType("text/csv");
             share.putExtra(Intent.EXTRA_STREAM, uri);
