@@ -413,6 +413,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         setupInputBar();
         setupSwipeToReply();
         setupFabBackToLatest();
+        setupHeaderAutoHide();
         setupNetworkMonitor();
 
         // ─────────────────────────────────────────────────────────────────
@@ -3067,6 +3068,91 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             @Override public void onNavigateToOriginal(String messageId) { navigateToOriginalMsg(messageId); }
             @Override public void onUndoConfirmed() {}
         });
+    }
+
+    // ═════════════════════════════════════════════════════════════════
+    // HEADER AUTO-HIDE ON SCROLL — the floating header capsule slides up
+    // + fades out when the user scrolls down (towards newer messages) and
+    // slides back down + fades in when they scroll up, giving the message
+    // list more screen space while actively reading. Skipped while the
+    // selection toolbar or search bar is showing since those replace/need
+    // the header area.
+    // ═════════════════════════════════════════════════════════════════
+    private boolean isHeaderCapsuleHidden = false;
+    private float headerScrollAccum = 0f;
+
+    private void setupHeaderAutoHide() {
+        if (binding.cvHeaderCapsule == null || binding.rvMessages == null) return;
+
+        final float hideThresholdPx = 24f * getResources().getDisplayMetrics().density;
+
+        binding.rvMessages.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            @Override public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
+                if (Math.abs(dy) < 2) return;
+
+                // Don't fight with selection/search modes — keep header visible there.
+                boolean selectionActive = binding.llSelectionToolbar != null
+                        && binding.llSelectionToolbar.getVisibility() == View.VISIBLE;
+                boolean searchActive = binding.llSearchBar != null
+                        && binding.llSearchBar.getVisibility() == View.VISIBLE;
+                if (selectionActive || searchActive) {
+                    if (isHeaderCapsuleHidden) showHeaderCapsule();
+                    return;
+                }
+
+                // Reset the accumulator on a direction flip so a quick reversal
+                // feels immediately responsive instead of fighting stale momentum.
+                if ((dy > 0 && headerScrollAccum < 0) || (dy < 0 && headerScrollAccum > 0)) {
+                    headerScrollAccum = 0f;
+                }
+                headerScrollAccum += dy;
+
+                if (headerScrollAccum > hideThresholdPx && !isHeaderCapsuleHidden) {
+                    hideHeaderCapsule();
+                    headerScrollAccum = 0f;
+                } else if (headerScrollAccum < -hideThresholdPx && isHeaderCapsuleHidden) {
+                    showHeaderCapsule();
+                    headerScrollAccum = 0f;
+                }
+            }
+
+            @Override public void onScrollStateChanged(@NonNull RecyclerView rv, int newState) {
+                // Always reveal the header once the list comes to rest at the very
+                // top of the loaded page — avoids it staying hidden with nothing
+                // left to scroll.
+                if (newState == RecyclerView.SCROLL_STATE_IDLE) {
+                    LinearLayoutManager lm = (LinearLayoutManager) rv.getLayoutManager();
+                    if (lm != null && lm.findFirstVisibleItemPosition() == 0 && isHeaderCapsuleHidden) {
+                        showHeaderCapsule();
+                    }
+                }
+            }
+        });
+    }
+
+    private void hideHeaderCapsule() {
+        if (binding.cvHeaderCapsule == null || isHeaderCapsuleHidden) return;
+        isHeaderCapsuleHidden = true;
+        float distance = binding.cvHeaderCapsule.getHeight()
+                + binding.cvHeaderCapsule.getTop()
+                + (16f * getResources().getDisplayMetrics().density);
+        binding.cvHeaderCapsule.animate()
+                .translationY(-distance)
+                .alpha(0f)
+                .setDuration(220)
+                .setInterpolator(new android.view.animation.AccelerateInterpolator())
+                .start();
+    }
+
+    private void showHeaderCapsule() {
+        if (binding.cvHeaderCapsule == null || !isHeaderCapsuleHidden) return;
+        isHeaderCapsuleHidden = false;
+        binding.cvHeaderCapsule.animate()
+                .translationY(0f)
+                .alpha(1f)
+                .setDuration(220)
+                .setInterpolator(new android.view.animation.DecelerateInterpolator())
+                .start();
     }
 
     private void setupFabBackToLatest() {
