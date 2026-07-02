@@ -12,6 +12,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
+import android.graphics.Rect;
 import android.graphics.drawable.ColorDrawable;
 import android.net.ConnectivityManager;
 import android.net.Network;
@@ -2260,44 +2261,52 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
      * EditText grows/shrinks between 1 and 4 lines, instead of the height
      * snapping instantly on every layout pass.
      *
-     * A plain LayoutTransition uses a fixed-duration ObjectAnimator, which
-     * looks mechanical and can visibly "jump" mid-animation if a new line
-     * change interrupts it. Instead we watch the capsule's own bounds via
-     * addOnLayoutChangeListener: the instant Android lays it out at the new
-     * (already-final) height, we snap it back to the old height and let a
-     * SpringAnimation carry it over to the new height. Because it is a real
-     * spring it naturally carries current velocity if interrupted mid-flight
-     * (e.g. user pastes a big block of text while a shrink is still
-     * settling), so it never jumps -- it just smoothly redirects.
+     * PERF FIX: the previous version drove this with LayoutParams.height on
+     * every spring frame, i.e. a setLayoutParams() -> requestLayout() call
+     * ~60x/sec. requestLayout() forces a full measure+layout traversal of
+     * the whole window (every ViewGroup.onLayout() in the tree runs again,
+     * including rv_messages), which is real jank while messages are on
+     * screen. Real height/position never needs to be touched frame-by-frame
+     * here: Android already lays the capsule out at its true final size in
+     * a single pass (that's what fires this listener). All the animation
+     * has to do is *reveal* that already-correct layout gradually.
+     *
+     * So instead we let the real layout stand untouched, and only clip the
+     * capsule's drawn region from the old height up to the new height via
+     * View.setClipBounds(). clipBounds only invalidates + redraws that one
+     * view (RenderNode property, GPU-composited) -- it never calls
+     * requestLayout, so rv_messages and everything else is untouched during
+     * the whole animation.
      */
     private void setupInputCapsuleAnimations() {
         binding.cvInputCapsule.addOnLayoutChangeListener((v, left, top, right, bottom,
                                                             oldLeft, oldTop, oldRight, oldBottom) -> {
-            if (isCapsuleHeightAnimating) return; // our own frame writes -- ignore
+            if (isCapsuleHeightAnimating) return; // avoid re-entrancy from our own clip updates
 
             int newHeight = bottom - top;
             int oldHeight = oldBottom - oldTop;
             if (oldHeight <= 0 || newHeight <= 0 || oldHeight == newHeight) return;
 
-            animateCapsuleHeightTo(oldHeight, newHeight);
+            animateCapsuleRevealTo(oldHeight, newHeight);
         });
     }
 
     /**
-     * Springs the capsule's height from fromHeight to toHeight in real px,
-     * then releases it back to wrap_content so future organic layout passes
-     * (rotation, font-scale changes, etc.) aren't fighting a stale fixed
-     * height.
+     * Springs the *visible* (clipped) region of the capsule from fromHeight
+     * up to its already-final toHeight, bottom-anchored (matches the old
+     * behaviour: the pill grows upward as lines are added, bottom edge
+     * stays put). No LayoutParams / requestLayout involved at any point.
      */
-    private void animateCapsuleHeightTo(int fromHeight, int toHeight) {
+    private void animateCapsuleRevealTo(int fromHeight, int toHeight) {
         final View capsule = binding.cvInputCapsule;
+        final int width = capsule.getWidth();
+        if (width <= 0) return;
 
         if (capsuleHeightSpring != null) capsuleHeightSpring.cancel();
-
         isCapsuleHeightAnimating = true;
-        ViewGroup.LayoutParams startLp = capsule.getLayoutParams();
-        startLp.height = fromHeight;
-        capsule.setLayoutParams(startLp);
+
+        final Rect clip = new Rect(0, Math.max(0, toHeight - fromHeight), width, toHeight);
+        capsule.setClipBounds(clip);
 
         FloatValueHolder heightHolder = new FloatValueHolder(fromHeight);
         capsuleHeightSpring = new SpringAnimation(heightHolder);
@@ -2306,15 +2315,13 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 .setDampingRatio(SpringForce.DAMPING_RATIO_NO_BOUNCY));
         capsuleHeightSpring.setMinimumVisibleChange(DynamicAnimation.MIN_VISIBLE_CHANGE_PIXELS);
         capsuleHeightSpring.addUpdateListener((animation, value, velocity) -> {
-            ViewGroup.LayoutParams lp = capsule.getLayoutParams();
-            lp.height = Math.round(value);
-            capsule.setLayoutParams(lp);
+            int h = Math.round(value);
+            clip.set(0, Math.max(0, toHeight - h), width, toHeight);
+            capsule.setClipBounds(clip); // draw-only, no layout pass
         });
         capsuleHeightSpring.addEndListener((animation, canceled, value, velocity) -> {
             isCapsuleHeightAnimating = false;
-            ViewGroup.LayoutParams lp = capsule.getLayoutParams();
-            lp.height = ViewGroup.LayoutParams.WRAP_CONTENT;
-            capsule.setLayoutParams(lp);
+            capsule.setClipBounds(null); // release clip so future real layouts aren't cropped
         });
         capsuleHeightSpring.start();
     }
