@@ -1164,8 +1164,8 @@ public class MessagePagingAdapter
                             .load(thumbUrl)
                             .apply(THUMB_RGB565)
                             .override(200, 200)
-                            .placeholder(R.drawable.ic_file)
-                            .error(R.drawable.ic_file)
+                            .placeholder(R.drawable.bg_skeleton_rect)
+                            .error(R.drawable.bg_skeleton_rect)
                             .into(h.ivImage);
                     } else if (!isGifMsg) {
                         // PERF FIX: this used to be the real remaining leak —
@@ -1190,8 +1190,8 @@ public class MessagePagingAdapter
                             .load(derivedThumb)
                             .apply(THUMB_RGB565)
                             .override(200, 200)
-                            .placeholder(R.drawable.ic_file)
-                            .error(R.drawable.ic_file)
+                            .placeholder(R.drawable.bg_skeleton_rect)
+                            .error(R.drawable.bg_skeleton_rect)
                             .into(h.ivImage);
                     } else {
                         // GIF: asGif() se URL directly load karo — MediaCache file use
@@ -1202,8 +1202,8 @@ public class MessagePagingAdapter
                             .load(fullUrl)
                             .apply(THUMB_RGB565)
                             .override(480, 480) // PERF: GIFs are heavy to decode/animate at full res
-                            .placeholder(R.drawable.ic_file)
-                            .error(R.drawable.ic_file)
+                            .placeholder(R.drawable.bg_skeleton_rect)
+                            .error(R.drawable.bg_skeleton_rect)
                             .into(h.ivImage);
                     }
 
@@ -1265,7 +1265,7 @@ public class MessagePagingAdapter
                         .diskCacheStrategy(DiskCacheStrategy.ALL)
                         .thumbnail(0.1f) // PERF: render 10% low-res frame instantly, then upgrade
                         .override(480, 480)
-                        .placeholder(R.drawable.ic_file)
+                        .placeholder(R.drawable.bg_skeleton_rect)
                         .centerCrop()
                         .into(h.ivVideoThumb);
                     // Duration overlay
@@ -1296,7 +1296,7 @@ public class MessagePagingAdapter
                     Glide.with(ctx).load(thumbUrl)
                         .apply(THUMB_RGB565)
                         .override(480, 480)
-                        .placeholder(R.drawable.ic_file)
+                        .placeholder(R.drawable.bg_skeleton_rect)
                         .into(h.ivImage);
                     h.ivImage.setOnClickListener(v -> {
                         Intent i = new Intent().setClassName(ctx.getPackageName(),
