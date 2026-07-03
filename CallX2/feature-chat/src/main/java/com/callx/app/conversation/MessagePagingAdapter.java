@@ -449,13 +449,23 @@ public class MessagePagingAdapter
             h.itemView.setAlpha(selected ? 1.0f : 0.55f);
             Boolean was = (Boolean) h.itemView.getTag(TAG_KEY_SELECTED);
             if (was == null || was != selected) {
-                h.itemView.setBackgroundColor(selected ? 0x336200EE : android.graphics.Color.TRANSPARENT);
+                // PERF/OVERDRAW: setBackground(null) instead of a TRANSPARENT
+                // ColorDrawable — a transparent color still queues a full-row
+                // draw/blend pass (shows up as +1 layer in GPU overdraw debug),
+                // whereas null background is skipped by View#draw() entirely.
+                // Every row is "not selected" almost all the time, so this was
+                // a wasted paint pass on nearly every bind during scroll.
+                if (selected) {
+                    h.itemView.setBackgroundColor(0x336200EE);
+                } else {
+                    h.itemView.setBackground(null);
+                }
                 h.itemView.setTag(TAG_KEY_SELECTED, selected);
             }
         } else {
             if (h.itemView.isActivated() || h.itemView.getTag(TAG_KEY_SELECTED) != null) {
                 h.itemView.setAlpha(1.0f);
-                h.itemView.setBackgroundColor(android.graphics.Color.TRANSPARENT);
+                h.itemView.setBackground(null);
                 h.itemView.setTag(TAG_KEY_SELECTED, null);
             }
         }
