@@ -61,7 +61,14 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         Long last = sLastPreloadAt.get(chatId);
         if (last != null && (now - last) < PRELOAD_COOLDOWN_MS) return;
         sLastPreloadAt.put(chatId, now);
-        ChatRepository.getInstance(ctx.getApplicationContext()).syncMessagesDelta(chatId);
+        ChatRepository repo = ChatRepository.getInstance(ctx.getApplicationContext());
+        // Local disk read (Room persists across app-kills) — warms the
+        // in-memory render cache with ZERO network wait. This is what makes
+        // ChatActivity's warmCacheHit fast path fire on the very FIRST tap,
+        // not just on a chat's 2nd+ open.
+        repo.warmLastMessagesCache(chatId);
+        // Network delta sync — keeps Room itself up to date in the background.
+        repo.syncMessagesDelta(chatId);
     }
 
     public interface SelectionListener {

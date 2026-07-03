@@ -75,6 +75,35 @@ public class ChatRepository {
      * Delta sync: only fetch messages newer than the last cached timestamp.
      * Reduces Firebase reads by 90%+ on repeat opens.
      */
+    /**
+     * PERF FIX: warms the in-memory LastMessagesCache straight from Room —
+     * pure local disk read, no network wait — so that by the time the user
+     * actually taps this chat, ChatActivity.onCreate()'s warmCacheHit fast
+     * path has real data ready and renders on the very first frame.
+     *
+     * This closes the gap where preload only wrote into Room (via
+     * syncMessagesDelta) but never touched LastMessagesCache, so the
+     * "instant render" path only ever fired on a chat's 2nd+ open within
+     * the same ChatActivity lifecycle — never on the very first tap, which
+     * is what the user actually experiences as "1 sec delay every time."
+     *
+     * Safe to call as often as needed — cheap indexed query, background
+     * thread only, never touches the UI thread.
+     */
+    public void warmLastMessagesCache(String chatId) {
+        mExecutor.execute(() -> {
+            java.util.List<MessageEntity> entities = mDb.messageDao().getLastMessagesAsc(chatId, 20);
+            java.util.List<Message> models = new ArrayList<>(entities.size());
+            for (MessageEntity e : entities) {
+                Message m = com.callx.app.utils.MessageEntityMapper.toModel(e);
+                if (m != null) models.add(m);
+            }
+            if (!models.isEmpty()) {
+                com.callx.app.cache.LastMessagesCache.getInstance().seed(chatId, models);
+            }
+        });
+    }
+
     public void syncMessagesDelta(String chatId) {
         mExecutor.execute(() -> {
             // TraceSectionMetric("ChatRepo#syncDelta") — full Firebase delta sync
