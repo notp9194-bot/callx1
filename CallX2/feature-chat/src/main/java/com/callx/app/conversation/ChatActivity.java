@@ -756,17 +756,18 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     /**
      * Reads the last ≤10 image/gif/video messages from the in-memory
      * {@link LastMessagesCache} (zero I/O — already populated on previous
-     * open or from onDbReady's seed) and fires a Glide preload for each
-     * media URL via a strongly-held {@link WarmCacheTarget}.
+     * open or from onDbReady's seed) and fires a Glide preload of each
+     * message's THUMBNAIL (never full-res) via a strongly-held
+     * {@link WarmCacheTarget}.
      *
      * Debounced: consecutive onResume() calls within {@link #PRELOAD_DEBOUNCE_MS}
      * (e.g. returning from a system permission dialog) are ignored.
      *
-     * Pixel sizes match what MessagePagingAdapter requests at runtime so
-     * every preloaded Bitmap is reused directly from Glide's LRU memory
-     * cache without a re-decode:
-     *   • image / gif  → 720 px wide  (full-width bubble thumbnail)
-     *   • video thumb  → 480 px wide  (video preview card, slightly narrower)
+     * Pixel size (200x200) matches what MessagePagingAdapter's bubble
+     * thumbnail requests at runtime so every preloaded Bitmap is reused
+     * directly from Glide's LRU memory cache without a re-decode. Full
+     * resolution is intentionally never preloaded here — it only loads
+     * when the user taps a bubble (WhatsApp-style lazy media).
      */
     private void preloadLastImageMessages() {
         if (chatId == null || isFinishing() || isDestroyed()) return;
@@ -787,21 +788,30 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             if (m == null || Boolean.TRUE.equals(m.deleted)) continue;
 
             String url     = null;
-            int    widthPx = 720;   // default: full-width image bubble
-            int    htPx    = 720;
+            int    widthPx = 200;   // thumbnail size, not bubble/full size
+            int    htPx    = 200;
 
             if ("image".equals(m.type) || "gif".equals(m.type)) {
-                // Prefer mediaUrl; fall back to legacy imageUrl field.
-                url = (m.mediaUrl != null && !m.mediaUrl.isEmpty()) ? m.mediaUrl : m.imageUrl;
-                // image/gif bubbles render at full recycler width — 720 px covers
-                // xxhdpi (3×) at ~240 dp, matching the typical bubble max-width.
-                widthPx = 720; htPx = 720;
+                // PERF FIX (WhatsApp-style lazy media): preload the THUMBNAIL
+                // only, not the full-resolution mediaUrl. This used to load
+                // m.mediaUrl at 720x720 for up to 10 images EVERY time the
+                // chat screen opened (onResume) — a real full-quality
+                // download per image, even for media the user never tapped.
+                // That's why opening the chat looked like it was
+                // "downloading everything," and tapping an image afterward
+                // looked like "nothing downloads" — it was already fetched.
+                // Full resolution now only ever loads on demand, when the
+                // user actually taps a bubble (see MessagePagingAdapter's
+                // image click → showImageActionSheet/MediaViewerActivity).
+                url = (m.thumbnailUrl != null && !m.thumbnailUrl.isEmpty())
+                        ? m.thumbnailUrl
+                        : ((m.mediaUrl != null && !m.mediaUrl.isEmpty()) ? m.mediaUrl : m.imageUrl);
+                widthPx = 200; htPx = 200;
             } else if ("video".equals(m.type)) {
                 // For video we only preload the thumbnail — full assets are
                 // streamed on demand and far too large to cache eagerly.
                 url = m.thumbnailUrl;
-                // Video cards are slightly narrower than full-width image bubbles.
-                widthPx = 480; htPx = 480;
+                widthPx = 200; htPx = 200;
             }
 
             if (url == null || url.isEmpty()) continue;
