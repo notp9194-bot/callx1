@@ -351,14 +351,23 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // startPostponedContentTransition() (below) resumes the slide once
         // content is genuinely ready — warm-cache hit resumes almost
         // immediately; a cold load resumes as soon as Paging3's first
-        // LoadState.NotLoading arrives. transitionResumeSafety is a hard
-        // ceiling so a stuck/empty chat never leaves the screen frozen.
+        // LoadState.NotLoading arrives.
+        //
+        // NOTE: the old version of this fired an *unconditional* 500ms
+        // Handler.postDelayed as well, racing the real "data ready" signal.
+        // Firebase/Paging loads routinely take longer than 500ms, so that
+        // timer almost always won the race and played the slide against an
+        // empty RecyclerView — messages then popped in after the animation
+        // had already finished, instead of sliding in together like
+        // WhatsApp. That unconditional timer is gone. The only remaining
+        // fallback is a genuine safety ceiling (SAFETY_TRANSITION_TIMEOUT_MS)
+        // so a chat whose load truly hangs doesn't freeze the screen forever.
         getWindow().requestFeature(android.view.Window.FEATURE_ACTIVITY_TRANSITIONS);
         getWindow().setEnterTransition(new android.transition.Slide(android.view.Gravity.END));
         getWindow().setExitTransition(new android.transition.Slide(android.view.Gravity.END));
         postponeEnterTransition();
         new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
-                this::startPostponedContentTransition, 500L);
+                this::startPostponedContentTransition, SAFETY_TRANSITION_TIMEOUT_MS);
 
         binding = ActivityChatBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
@@ -1785,8 +1794,15 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // PERF FIX: guards startPostponedContentTransition() so it only ever
     // actually resumes the transition once, no matter how many of the
     // trigger points below fire (warm-cache hit, first real Paging load,
-    // or the 500ms safety timeout).
+    // or the safety timeout).
     private boolean contentTransitionStarted = false;
+
+    // Genuine ceiling only — a normal load is expected to resolve via the
+    // real "data ready" triggers (warm-cache hit at line ~488, or Paging's
+    // LoadState.NotLoading at line ~1771) well before this fires. This
+    // exists purely so a chat whose load hangs/fails doesn't leave the
+    // screen frozen mid-transition forever.
+    private static final long SAFETY_TRANSITION_TIMEOUT_MS = 3000L;
 
     private void startPostponedContentTransition() {
         if (contentTransitionStarted) return;
