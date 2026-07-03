@@ -106,6 +106,11 @@ public class MessagePagingAdapter
         };
 
     // ── View types ────────────────────────────────────────────────
+    // WhatsApp-style manual image download — URLs currently being fetched
+    // via the download pill, so a rebind mid-download (scroll away/back)
+    // doesn't kick off a second parallel download for the same message.
+    private final java.util.Set<String> downloadingMediaUrls = java.util.Collections.synchronizedSet(new java.util.HashSet<>());
+
     private static final int TYPE_SENT        = 1;
     private static final int TYPE_RECEIVED    = 2;
     private static final int TYPE_STATUS_SEEN = 3;
@@ -1210,6 +1215,17 @@ public class MessagePagingAdapter
                         if (actionListener != null) showActionBottomSheet(ctx, m);
                         return true;
                     });
+
+                    // ── MANUAL DOWNLOAD OVERLAY (WhatsApp-style) ─────────────
+                    // Received images only — bubble keeps showing the blurred
+                    // low-res thumbnail underneath until the user taps the
+                    // pill; only then is fullUrl actually fetched. Sent
+                    // messages (sender's own upload) and GIFs skip this.
+                    if (h.fl_download_overlay != null && !sent && !isGifMsg) {
+                        bindDownloadOverlay(ctx, h, fullUrl);
+                    } else if (h.fl_download_overlay != null) {
+                        h.fl_download_overlay.setVisibility(View.GONE);
+                    }
                 }
                 break;
             // ── MULTI MEDIA (WhatsApp-style grid, multi-image send) ──────
@@ -2138,6 +2154,92 @@ public class MessagePagingAdapter
         }
     }
 
+    /**
+     * WhatsApp-style manual download pill for a received image bubble.
+     * - Already cached locally → hide overlay, swap the bubble to the
+     *   full-res local file (sharper than the 200x200 thumb).
+     * - Not cached → show the pill with the remote file size, wired to
+     *   start the download (with live % progress) on tap.
+     */
+    private void bindDownloadOverlay(Context ctx, VH h, String fullUrl) {
+        if (fullUrl == null || fullUrl.isEmpty()) {
+            h.fl_download_overlay.setVisibility(View.GONE);
+            return;
+        }
+        // Guards async callbacks below against the holder having been
+        // recycled onto a different message by the time they fire.
+        h.fl_download_overlay.setTag(fullUrl);
+
+        java.io.File cachedFile = com.callx.app.utils.MediaCache.getCached(ctx, fullUrl);
+        if (cachedFile != null) {
+            h.fl_download_overlay.setVisibility(View.GONE);
+            Glide.with(ctx).load(cachedFile).centerCrop().into(h.ivImage);
+            return;
+        }
+
+        h.fl_download_overlay.setVisibility(View.VISIBLE);
+        boolean isDownloading = downloadingMediaUrls.contains(fullUrl);
+        setDownloadPillState(h, isDownloading, isDownloading ? -1 : Integer.MIN_VALUE, "Photo");
+
+        if (!isDownloading) {
+            // Fetch just the size for the label — doesn't download the file.
+            com.callx.app.utils.MediaCache.getRemoteSize(ctx, fullUrl, new com.callx.app.utils.MediaCache.SizeCallback() {
+                @Override public void onSize(long bytes) {
+                    if (!fullUrl.equals(h.fl_download_overlay.getTag())) return; // recycled
+                    if (!downloadingMediaUrls.contains(fullUrl)) {
+                        h.tv_download_size.setText(formatFileSize(bytes));
+                    }
+                }
+                @Override public void onError(String reason) { /* keep "Photo" label */ }
+            });
+        }
+
+        h.ll_download_pill.setOnClickListener(v -> {
+            if (downloadingMediaUrls.contains(fullUrl)) return; // already in flight
+            downloadingMediaUrls.add(fullUrl);
+            setDownloadPillState(h, true, 0, null);
+
+            com.callx.app.utils.MediaCache.getWithProgress(ctx, fullUrl,
+                    new com.callx.app.utils.MediaCache.ProgressCallback() {
+                @Override public void onProgress(int percent) {
+                    if (!fullUrl.equals(h.fl_download_overlay.getTag())) return;
+                    setDownloadPillState(h, true, percent, null);
+                }
+                @Override public void onReady(java.io.File file) {
+                    downloadingMediaUrls.remove(fullUrl);
+                    if (!fullUrl.equals(h.fl_download_overlay.getTag())) return;
+                    h.fl_download_overlay.setVisibility(View.GONE);
+                    Glide.with(ctx).load(file).centerCrop().into(h.ivImage);
+                }
+                @Override public void onError(String reason) {
+                    downloadingMediaUrls.remove(fullUrl);
+                    if (!fullUrl.equals(h.fl_download_overlay.getTag())) return;
+                    setDownloadPillState(h, false, Integer.MIN_VALUE, "Tap to retry");
+                }
+            });
+        });
+    }
+
+    /** downloading=true + percent>=0 → spinner + "NN%". downloading=false → icon + label. */
+    private void setDownloadPillState(VH h, boolean downloading, int percent, String idleLabel) {
+        if (downloading) {
+            h.iv_download_icon.setVisibility(View.GONE);
+            h.pb_download_spinner.setVisibility(View.VISIBLE);
+            h.tv_download_size.setText(percent >= 0 ? (percent + "%") : "0%");
+        } else {
+            h.iv_download_icon.setVisibility(View.VISIBLE);
+            h.pb_download_spinner.setVisibility(View.GONE);
+            if (idleLabel != null) h.tv_download_size.setText(idleLabel);
+        }
+    }
+
+    private static String formatFileSize(long bytes) {
+        if (bytes <= 0) return "Photo";
+        if (bytes < 1024) return bytes + " B";
+        if (bytes < 1024 * 1024) return Math.round(bytes / 1024.0) + " kB";
+        return String.format(java.util.Locale.getDefault(), "%.1f MB", bytes / (1024.0 * 1024.0));
+    }
+
     /** Funnels a local audio play/pause/finish/error event out through
      *  ActionListener#onPlaybackStateChanged so ChatPlaybackPresenceController
      *  can publish (or clear) the chatPlayback/{chatId}/{uid} node. */
@@ -2471,6 +2573,10 @@ public class MessagePagingAdapter
         if (holder.ivVideoThumb      != null) Glide.with(ctx).clear(holder.ivVideoThumb);
         if (holder.ivStatusSeenThumb != null) Glide.with(ctx).clear(holder.ivStatusSeenThumb);
         if (holder.ivReelSeenThumb   != null) Glide.with(ctx).clear(holder.ivReelSeenThumb);
+        // Invalidate the download-overlay binding guard so an in-flight
+        // getRemoteSize/getWithProgress callback for the old message
+        // can't touch this holder after it's been recycled for a new one.
+        if (holder.fl_download_overlay != null) holder.fl_download_overlay.setTag(null);
         // Stop any pending tick updates from the shared manager to prevent leaks on recycled views
         com.callx.app.utils.ExpiryTickManager.get().unregister(holder);
         // Invalidate any in-flight async PrecomputedText work for this
@@ -2616,6 +2722,13 @@ public class MessagePagingAdapter
         TextView     tvDateHeader;   // date separator chip (Today / Yesterday / MMM d)
         ImageView    ivImage;
         TextView     tvStatus;   // tv_status in both item layouts
+        // Manual media download overlay (WhatsApp-style) — received images only.
+        // Null in item_message_sent.xml (sender already has the local file).
+        android.widget.FrameLayout fl_download_overlay;
+        LinearLayout ll_download_pill;
+        ImageView    iv_download_icon;
+        ProgressBar  pb_download_spinner;
+        TextView     tv_download_size;
 
         // ASYNC PrecomputedTextCompat staleness guard — bumped on every
         // full text-bind AND on recycle (see onViewRecycled). A pending
@@ -2715,6 +2828,11 @@ public class MessagePagingAdapter
             tvSenderName   = v.findViewById(R.id.tv_sender_name);
             tvDateHeader   = null; // removed from item layouts — date chip is now a separate ViewHolder type
             ivImage        = v.findViewById(R.id.iv_image);
+            fl_download_overlay = v.findViewById(R.id.fl_download_overlay);
+            ll_download_pill    = v.findViewById(R.id.ll_download_pill);
+            iv_download_icon    = v.findViewById(R.id.iv_download_icon);
+            pb_download_spinner = v.findViewById(R.id.pb_download_spinner);
+            tv_download_size    = v.findViewById(R.id.tv_download_size);
             llMediaGroup   = v.findViewById(R.id.ll_media_group);
             tvStatus       = v.findViewById(R.id.tv_status);
             // ── ViewStub bindings — heavy child layouts inflate only on demand ──

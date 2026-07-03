@@ -40,6 +40,99 @@ public class MediaCache {
         void onError(String reason);
     }
 
+    /** Used by the WhatsApp-style manual-download pill (image bubbles). */
+    public interface ProgressCallback {
+        void onProgress(int percent);
+        void onReady(File file);
+        void onError(String reason);
+    }
+
+    public interface SizeCallback {
+        void onSize(long bytes);
+        void onError(String reason);
+    }
+
+    // In-memory only — avoids a HEAD request every time a bubble rebinds
+    // during scroll. Cleared naturally on process death.
+    private static final java.util.concurrent.ConcurrentHashMap<String, Long> sRemoteSizeCache =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    /**
+     * Fetches the remote file size (Content-Length) for the "139 kB"-style
+     * label shown on the un-downloaded media pill, without downloading the
+     * file itself. Cached in memory per URL.
+     */
+    public static void getRemoteSize(Context ctx, String url, SizeCallback cb) {
+        if (url == null || url.isEmpty()) {
+            if (cb != null) cb.onError("Invalid URL");
+            return;
+        }
+        Long cached = sRemoteSizeCache.get(url);
+        if (cached != null) {
+            if (cb != null) cb.onSize(cached);
+            return;
+        }
+        File already = getCached(ctx, url);
+        if (already != null) {
+            long len = already.length();
+            sRemoteSizeCache.put(url, len);
+            if (cb != null) cb.onSize(len);
+            return;
+        }
+        sPool.execute(() -> {
+            HttpURLConnection conn = null;
+            try {
+                conn = (HttpURLConnection) new URL(url).openConnection();
+                conn.setRequestMethod("HEAD");
+                conn.setConnectTimeout(10_000);
+                conn.setReadTimeout(10_000);
+                conn.setInstanceFollowRedirects(true);
+                conn.connect();
+                long len = conn.getContentLengthLong();
+                if (len > 0) sRemoteSizeCache.put(url, len);
+                final long finalLen = len;
+                sMain.post(() -> {
+                    if (cb == null) return;
+                    if (finalLen > 0) cb.onSize(finalLen);
+                    else cb.onError("Unknown size");
+                });
+            } catch (Exception e) {
+                sMain.post(() -> { if (cb != null) cb.onError(e.getMessage()); });
+            } finally {
+                if (conn != null) conn.disconnect();
+            }
+        });
+    }
+
+    /**
+     * Same as {@link #get} but reports live percentage while downloading —
+     * powers the manual-download pill on received image bubbles. If already
+     * cached, jumps straight to onReady (no progress callbacks).
+     */
+    public static void getWithProgress(Context ctx, String url, ProgressCallback cb) {
+        if (ctx == null || url == null || url.isEmpty()) {
+            if (cb != null) cb.onError("Invalid URL");
+            return;
+        }
+        File cached = cacheFileFor(ctx, url);
+        if (cached != null && cached.exists() && cached.length() > 0) {
+            if (cb != null) cb.onReady(cached);
+            return;
+        }
+        sPool.execute(() -> {
+            File result = downloadWithProgress(ctx, url, percent -> {
+                if (cb != null) sMain.post(() -> cb.onProgress(percent));
+            });
+            if (result != null && result.exists()) {
+                sMain.post(() -> { if (cb != null) cb.onReady(result); });
+            } else {
+                sMain.post(() -> { if (cb != null) cb.onError("Download failed or storage issue"); });
+            }
+        });
+    }
+
+    private interface ProgressTick { void onTick(int percent); }
+
     /**
      * Sabse pehle local cache check karta hai.
      * Agar file exist karti hai — turant callback (zero network).
@@ -184,6 +277,78 @@ public class MediaCache {
 
         } catch (Exception e) {
             Log.e(TAG, "Download error: " + e.getMessage());
+            return null;
+        } finally {
+            if (conn != null) conn.disconnect();
+        }
+    }
+
+    private static File downloadWithProgress(Context ctx, String urlStr, ProgressTick tick) {
+        HttpURLConnection conn = null;
+        try {
+            evictIfNeeded(ctx);
+
+            URL url = new URL(urlStr);
+            conn = (HttpURLConnection) url.openConnection();
+            conn.setConnectTimeout(15_000);
+            conn.setReadTimeout(60_000);
+            conn.setInstanceFollowRedirects(true);
+            conn.connect();
+
+            int code = conn.getResponseCode();
+            if (code != HttpURLConnection.HTTP_OK) {
+                Log.w(TAG, "HTTP " + code + " for " + urlStr);
+                return null;
+            }
+
+            long total = conn.getContentLengthLong(); // -1 if unknown
+            if (total > 0) sRemoteSizeCache.put(urlStr, total);
+
+            File out = cacheFileFor(ctx, urlStr);
+            if (out == null) return null;
+            if (out.exists()) out.delete();
+
+            File tmpDir = out.getParentFile();
+            if (tmpDir == null || !tmpDir.exists()) return null;
+
+            File tmp = new File(tmpDir, out.getName() + ".tmp");
+            if (tmp.exists()) tmp.delete();
+
+            long downloaded = 0;
+            int lastPercent = -1;
+            try (InputStream in  = conn.getInputStream();
+                 FileOutputStream fos = new FileOutputStream(tmp)) {
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = in.read(buf)) != -1) {
+                    fos.write(buf, 0, n);
+                    downloaded += n;
+                    if (total > 0 && tick != null) {
+                        int percent = (int) Math.min(100, (downloaded * 100) / total);
+                        if (percent != lastPercent) {
+                            lastPercent = percent;
+                            tick.onTick(percent);
+                        }
+                    }
+                }
+                fos.flush();
+                try { fos.getFD().sync(); } catch (Exception ignored) {}
+            }
+
+            if (tmp.exists() && tmp.length() > 0) {
+                if (tmp.renameTo(out)) {
+                    if (tick != null) tick.onTick(100);
+                    return out;
+                } else {
+                    if (tmp.exists()) tmp.delete();
+                    return null;
+                }
+            }
+            if (tmp.exists()) tmp.delete();
+            return null;
+
+        } catch (Exception e) {
+            Log.e(TAG, "Download (progress) error: " + e.getMessage());
             return null;
         } finally {
             if (conn != null) conn.disconnect();

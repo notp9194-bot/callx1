@@ -277,7 +277,12 @@ public class MediaGroupLayoutHelper {
 
         String url      = safeStr(item.get("url"));
         String thumbUrl = safeStr(item.get("thumbUrl"));
-        String loadUrl  = (!thumbUrl.isEmpty()) ? thumbUrl : url;
+        // WhatsApp-style: grid cells are lightweight thumbnails ONLY — never
+        // fall back to the raw full-res url. If a real thumbUrl is missing
+        // (thumb upload failed / legacy item without one), show a plain
+        // placeholder icon instead of pulling the full file through Glide;
+        // the full-res file is only ever fetched when the user opens the
+        // item (gallery viewer / manual download), never for the grid.
         String mediaType = safeStr(item.get("mediaType"));
         boolean isVideo   = "video".equals(mediaType);
         boolean isAudio   = "audio".equals(mediaType);
@@ -322,23 +327,37 @@ public class MediaGroupLayoutHelper {
             tvLabel.setPadding(dp(2, d), 0, dp(2, d), 0);
             cell.addView(tvLabel);
 
-        } else {
-            // Thumbnail ImageView (image / video)
+        } else if (!thumbUrl.isEmpty()) {
+            // Thumbnail ImageView (image / video) — thumbUrl only, never
+            // the raw full-res `url`.
             ImageView iv = new ImageView(ctx);
             iv.setLayoutParams(new FrameLayout.LayoutParams(
                     FrameLayout.LayoutParams.MATCH_PARENT,
                     FrameLayout.LayoutParams.MATCH_PARENT));
             iv.setScaleType(ImageView.ScaleType.CENTER_CROP);
             iv.setContentDescription(null); // description lives on the cell, not the bare thumbnail
-            if (!loadUrl.isEmpty()) {
-                Glide.with(ctx)
-                        .load(loadUrl)
-                        .diskCacheStrategy(DiskCacheStrategy.ALL)
-                        .centerCrop()
-                        .placeholder(android.R.color.darker_gray)
-                        .into(iv);
-            }
+            Glide.with(ctx)
+                    .load(thumbUrl)
+                    .diskCacheStrategy(DiskCacheStrategy.ALL)
+                    .centerCrop()
+                    .placeholder(android.R.color.darker_gray)
+                    .into(iv);
             cell.addView(iv);
+        } else {
+            // No thumbUrl at all — placeholder icon, same treatment as
+            // audio/file cells above. Full-res `url` is intentionally
+            // never touched here.
+            cell.setBackgroundColor(0xFF2C2C2C);
+            ImageView icon = new ImageView(ctx);
+            int iconSz = dp(28, d);
+            FrameLayout.LayoutParams iconLp = new FrameLayout.LayoutParams(iconSz, iconSz);
+            iconLp.gravity = Gravity.CENTER;
+            icon.setLayoutParams(iconLp);
+            icon.setImageResource(isVideo
+                    ? android.R.drawable.ic_media_play
+                    : android.R.drawable.ic_menu_gallery);
+            icon.setColorFilter(Color.WHITE);
+            cell.addView(icon);
         }
 
         String itemCaption = safeStr(item.get("caption"));
