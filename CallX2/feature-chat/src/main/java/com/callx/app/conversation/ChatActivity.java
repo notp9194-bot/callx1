@@ -128,7 +128,7 @@ import java.util.concurrent.Executors;
  *
  * Architecture:
  *   Firebase RT DB ──ChildEventListener──► Room DB (auto-invalidates PagingSource)
- *   Pager<Integer, MessageEntity> ──LiveData──► PagingAdapter ──► RecyclerView
+ *   Pager<Long, MessageEntity> (keyset) ──LiveData──► PagingAdapter ──► RecyclerView
  */
 public class ChatActivity extends AppCompatActivity implements ChatActivityDelegate {
 
@@ -1811,36 +1811,22 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     }
 
     /**
-     * PERF FIX: static per-chatId cache of the last known row count. Reopening
-     * a chat you've already opened this app-session (by far the common case —
-     * back-and-forth between chat list and a chat) no longer needs a
-     * background→main thread hop before the Pager attaches: we attach
-     * immediately using the last known count as the anchor, then silently
-     * verify/correct in the background. Only the very first open of a chat
-     * this session pays the real DB round-trip.
+     * PERF FIX (root cause of "few messages instant, many messages slow"):
+     * this used to look up the row COUNT and anchor a position-keyed Pager
+     * at (count - 1). Room's generated PagingSource for that query is
+     * OFFSET-based, so anchoring near the end of a LARGE chat meant SQLite
+     * had to walk past thousands of rows before returning a page — cost
+     * scaled with chat history size. See MessageKeysetPagingSource for the
+     * full explanation.
+     *
+     * With keyset pagination, REFRESH always means "the most recent page"
+     * regardless of key (see MessageKeysetPagingSource.loadSingle), so
+     * there's no count to look up at all — no thread hop, no OFFSET scan,
+     * no per-chat-size cost. This is strictly simpler AND faster than the
+     * in-memory count-cache from the previous fix, which is now removed.
      */
-    private static final java.util.Map<String, Integer> sLastKnownCount =
-            new java.util.concurrent.ConcurrentHashMap<>();
-
-    /** Looks up the current row count and attaches a Pager anchored at the true end. */
     private void attachFreshBottomAnchoredPager() {
-        Integer cached = sLastKnownCount.get(chatId);
-        if (cached != null) {
-            // Instant path — no thread hop, adapter gets data on this frame.
-            attachPagerWithKey(cached > 0 ? cached - 1 : null);
-        }
-        // Always re-verify the true count in the background. If it changed
-        // since last time (new messages arrived while chat was closed) we
-        // silently re-attach with the corrected anchor; attachPagerWithKey()
-        // is safe to call twice, it just swaps the LiveData source.
-        ioExecutor.execute(() -> {
-            int count = db.messageDao().getMessageCount(chatId);
-            sLastKnownCount.put(chatId, count);
-            if (cached == null || cached.intValue() != count) {
-                Integer initialKey = (count > 0) ? Integer.valueOf(count - 1) : null;
-                runOnUiThread(() -> attachPagerWithKey(initialKey));
-            }
-        });
+        attachPagerWithKey(null);
     }
 
     /**
@@ -1851,13 +1837,13 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
      * "jumps to top / lands in some old batch" bug on every send/receive)
      * can never push another update into the adapter once replaced.
      */
-    private void attachPagerWithKey(Integer initialKey) {
+    private void attachPagerWithKey(Long initialKey) {
         if (isFinishing() || isDestroyed() || binding == null || pagingMediator == null) return;
         if (currentPagingLiveSource != null) pagingMediator.removeSource(currentPagingLiveSource);
-        Pager<Integer, MessageEntity> pager = new Pager<>(
+        Pager<Long, MessageEntity> pager = new Pager<>(
                 new PagingConfig(PAGE_SIZE, PREFETCH_DIST, false, INITIAL_LOAD),
                 initialKey,
-                () -> db.messageDao().getMessagesPagingSource(chatId)
+                () -> new com.callx.app.db.paging.MessageKeysetPagingSource(db.messageDao(), chatId, PAGE_SIZE)
         );
         currentPagingLiveSource = Transformations.map(
                 PagingLiveData.getLiveData(pager),
@@ -1912,16 +1898,15 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
 
     /**
      * Call from ANY thread, AFTER a live write commits, when
-     * severPagingIfAtBottom() returned true for that same write. Looks up
-     * the fresh row count and attaches a new Pager anchored at the true
-     * end (count - 1) on the main thread.
+     * severPagingIfAtBottom() returned true for that same write. With
+     * keyset pagination, REFRESH always means "the most recent page" (see
+     * MessageKeysetPagingSource) — no count lookup needed anymore, just
+     * attach fresh on the main thread.
      */
     @Override
     public void reanchorPagingToBottom() {
         if (db == null || chatId == null) return;
-        int count = db.messageDao().getMessageCount(chatId);
-        Integer initialKey = (count > 0) ? Integer.valueOf(count - 1) : null;
-        runOnUiThread(() -> attachPagerWithKey(initialKey));
+        runOnUiThread(() -> attachPagerWithKey(null));
     }
 
     private void startRealtimeListenerEarly() {

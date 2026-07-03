@@ -64,6 +64,10 @@ dependencies {
 
     // Paging 3
     implementation 'androidx.paging:paging-runtime:3.2.1'
+    // PERF FIX: RxPagingSource gives a Java-friendly (Single-based) base
+    // class for MessageKeysetPagingSource — the plain Kotlin PagingSource
+    // API's load() is a suspend fun, painful to implement from Java by hand.
+    implementation 'androidx.paging:paging-rxjava3:3.2.1'
     implementation 'io.reactivex.rxjava3:rxjava:3.1.8'
     implementation 'io.reactivex.rxjava3:rxandroid:3.0.2'
 

@@ -80,6 +80,47 @@ public interface MessageDao {
     List<MessageEntity> getLastMessagesAsc(String chatId, int limit);
 
     // ─────────────────────────────────────────────────────────────
+    // KEYSET PAGINATION (see MessageKeysetPagingSource)
+    //
+    // PERF FIX: getMessagesPagingSource() above is Room's auto-generated
+    // OFFSET-based PagingSource. Anchoring it near the END of a large chat
+    // (initialKey = rowCount - 1, needed to open the chat scrolled to the
+    // bottom) forces SQLite to walk/skip `OFFSET` rows before it can return
+    // a page — cost grows with total message count in that chat. A chat
+    // with a few messages loads instantly; a chat with thousands of
+    // messages can visibly stall for a second or more, purely from the
+    // OFFSET walk, even though the (chatId, timestamp) index is used.
+    //
+    // These two queries back MessageKeysetPagingSource instead: pages are
+    // fetched by comparing against a `timestamp` key (WHERE timestamp <
+    // :before / > :after), which the (chatId, timestamp) index answers in
+    // effectively constant time regardless of how many messages exist
+    // before/after that point. No OFFSET, no scan proportional to history
+    // size — this is the same technique Telegram/Signal-style chat apps
+    // use for large conversations.
+    // ─────────────────────────────────────────────────────────────
+
+    /** Most recent `limit` messages, newest-first (used for REFRESH / initial bottom-anchor). */
+    @WorkerThread
+    @Query("SELECT * FROM messages WHERE chatId = :chatId ORDER BY timestamp DESC LIMIT :limit")
+    List<MessageEntity> getMessagesLatestDesc(String chatId, int limit);
+
+    /** Older page: strictly before `beforeTimestamp`, newest-first (caller reverses to ASC). */
+    @WorkerThread
+    @Query("SELECT * FROM messages WHERE chatId = :chatId AND timestamp < :beforeTimestamp ORDER BY timestamp DESC LIMIT :limit")
+    List<MessageEntity> getMessagesBeforeDesc(String chatId, long beforeTimestamp, int limit);
+
+    /** Newer page: strictly after `afterTimestamp`, oldest-first (already display order). */
+    @WorkerThread
+    @Query("SELECT * FROM messages WHERE chatId = :chatId AND timestamp > :afterTimestamp ORDER BY timestamp ASC LIMIT :limit")
+    List<MessageEntity> getMessagesAfterAsc(String chatId, long afterTimestamp, int limit);
+
+    /** Position of a message within its chat's ASC ordering — used to seed a correct refresh key. */
+    @WorkerThread
+    @Query("SELECT COUNT(*) FROM messages WHERE chatId = :chatId AND timestamp <= :timestamp")
+    int getRankAsc(String chatId, long timestamp);
+
+    // ─────────────────────────────────────────────────────────────
     // DELTA SYNC
     // ─────────────────────────────────────────────────────────────
 
