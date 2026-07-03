@@ -91,6 +91,38 @@ public class ChatRepository {
      * thread only, never touches the UI thread.
      */
     public void warmLastMessagesCache(String chatId) {
+        primeChatFromRoom(chatId, null);
+    }
+
+    /**
+     * Same Room read as warmLastMessagesCache(), but with a completion
+     * callback delivered on the main thread — used by chat-list tap
+     * handlers to navigate into ChatActivity only once local data is
+     * actually ready (WhatsApp-style: local disk read completes, THEN
+     * the screen opens with content already in it), instead of opening a
+     * blank screen and racing Paging/Firebase to fill it in afterward.
+     *
+     * `callback` fires exactly once, always on the main thread:
+     *   - as soon as the Room read completes (typically a few ms — it's an
+     *     indexed, LIMIT-20 query against local disk, no network involved), or
+     *   - immediately if this chat's cache is already warm (skips the read).
+     *
+     * There is deliberately no artificial delay here (no Thread.sleep, no
+     * postDelayed) — the callback fires the moment real data is available,
+     * never before and never "padded" to feel slower. Callers should still
+     * apply their own short safety cap (see ChatListAdapter.openChat) in
+     * case a device's disk I/O is unusually slow, so a tap never feels stuck.
+     */
+    public void primeChatFromRoom(String chatId, @androidx.annotation.Nullable Runnable callback) {
+        if (chatId == null) {
+            if (callback != null) callback.run();
+            return;
+        }
+        if (com.callx.app.cache.LastMessagesCache.getInstance().has(chatId)) {
+            // Already warm from a previous open this session — nothing to wait for.
+            if (callback != null) callback.run();
+            return;
+        }
         mExecutor.execute(() -> {
             java.util.List<MessageEntity> entities = mDb.messageDao().getLastMessagesAsc(chatId, 20);
             java.util.List<Message> models = new ArrayList<>(entities.size());
@@ -100,6 +132,9 @@ public class ChatRepository {
             }
             if (!models.isEmpty()) {
                 com.callx.app.cache.LastMessagesCache.getInstance().seed(chatId, models);
+            }
+            if (callback != null) {
+                new android.os.Handler(android.os.Looper.getMainLooper()).post(callback);
             }
         });
     }

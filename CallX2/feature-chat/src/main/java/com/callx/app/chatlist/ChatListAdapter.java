@@ -295,13 +295,46 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         }
     }
 
+    // Safety cap only — normal Room reads finish in a few ms (indexed,
+    // LIMIT-20, local disk). This just stops a tap from ever feeling stuck
+    // on an unusually slow device or a brand-new/never-synced chat.
+    private static final long OPEN_CHAT_SAFETY_CAP_MS = 150L;
+
     private void openChat(Context ctx, User u) {
-        Intent i = new Intent(ctx, ChatActivity.class);
-        i.putExtra("partnerUid",   u.uid);
-        i.putExtra("partnerName",  u.name);
-        i.putExtra("partnerPhoto", u.photoUrl != null ? u.photoUrl : "");
-        i.putExtra("partnerThumb", u.thumbUrl != null ? u.thumbUrl : "");
-        ctx.startActivity(i);
+        String myUid = FirebaseAuth.getInstance().getUid();
+        String chatId = (myUid != null && u.uid != null) ? FirebaseUtils.getChatId(myUid, u.uid) : null;
+
+        Runnable navigate = () -> {
+            Intent i = new Intent(ctx, ChatActivity.class);
+            i.putExtra("partnerUid",   u.uid);
+            i.putExtra("partnerName",  u.name);
+            i.putExtra("partnerPhoto", u.photoUrl != null ? u.photoUrl : "");
+            i.putExtra("partnerThumb", u.thumbUrl != null ? u.thumbUrl : "");
+            ctx.startActivity(i);
+        };
+
+        if (chatId == null) {
+            navigate.run(); // can't resolve a chatId — nothing to prime, just open
+            return;
+        }
+
+        // WhatsApp-style open: read this chat's recent messages from Room
+        // (local disk, no network) and only THEN start ChatActivity, so the
+        // screen arrives with content already in it instead of arriving
+        // blank and having messages pop in afterward. If this chat is
+        // already warm from earlier this session, the callback fires
+        // synchronously-ish (posted immediately) with no real wait.
+        final boolean[] navigated = {false};
+        android.os.Handler safetyHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+        Runnable safetyFallback = () -> {
+            if (!navigated[0]) { navigated[0] = true; navigate.run(); }
+        };
+        safetyHandler.postDelayed(safetyFallback, OPEN_CHAT_SAFETY_CAP_MS);
+
+        ChatRepository.getInstance(ctx.getApplicationContext()).primeChatFromRoom(chatId, () -> {
+            safetyHandler.removeCallbacks(safetyFallback);
+            if (!navigated[0]) { navigated[0] = true; navigate.run(); }
+        });
     }
 
     private void openStatusOrChat(Context ctx, User u) {

@@ -560,13 +560,34 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
             btnMessage.setOnClickListener(x -> {
                 sheet.dismiss();
                 if (user.uid == null || getContext() == null) return;
-                Intent i = new Intent().setClassName(getContext().getPackageName(),
-                    "com.callx.app.conversation.ChatActivity");
-                i.putExtra("partnerUid",   user.uid);
-                i.putExtra("partnerName",  user.name != null ? user.name : "");
-                i.putExtra("partnerPhoto", user.photoUrl != null ? user.photoUrl : "");
-                i.putExtra("partnerThumb", user.thumbUrl != null ? user.thumbUrl : "");
-                startActivity(i);
+                final Context appCtx = getContext().getApplicationContext();
+                String myUid = FirebaseAuth.getInstance().getUid();
+                String chatId = myUid != null ? FirebaseUtils.getChatId(myUid, user.uid) : null;
+
+                Runnable navigate = () -> {
+                    if (getContext() == null) return;
+                    Intent i = new Intent().setClassName(getContext().getPackageName(),
+                        "com.callx.app.conversation.ChatActivity");
+                    i.putExtra("partnerUid",   user.uid);
+                    i.putExtra("partnerName",  user.name != null ? user.name : "");
+                    i.putExtra("partnerPhoto", user.photoUrl != null ? user.photoUrl : "");
+                    i.putExtra("partnerThumb", user.thumbUrl != null ? user.thumbUrl : "");
+                    startActivity(i);
+                };
+
+                if (chatId == null) { navigate.run(); return; }
+
+                // Same WhatsApp-style priming as the chat-list tap: read local
+                // Room data first, then open — with a short safety cap so a
+                // brand-new chat never feels stuck.
+                final boolean[] navigated = {false};
+                android.os.Handler safetyHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+                Runnable safetyFallback = () -> { if (!navigated[0]) { navigated[0] = true; navigate.run(); } };
+                safetyHandler.postDelayed(safetyFallback, 150L);
+                com.callx.app.repository.ChatRepository.getInstance(appCtx).primeChatFromRoom(chatId, () -> {
+                    safetyHandler.removeCallbacks(safetyFallback);
+                    if (!navigated[0]) { navigated[0] = true; navigate.run(); }
+                });
             });
         }
 
