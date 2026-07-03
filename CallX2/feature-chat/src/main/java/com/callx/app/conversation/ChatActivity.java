@@ -492,7 +492,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         boolean warmCacheHit = AppDatabase.isWarm() && LastMessagesCache.getInstance().has(chatId);
         if (warmCacheHit) {
             java.util.List<Message> cached = LastMessagesCache.getInstance().get(chatId);
-            pagingAdapter.submitData(getLifecycle(), PagingData.from(cached));
+            pagingAdapter.submitData(getLifecycle(), PagingData.from(withDateSeparators(cached)));
             firstPageRendered = true; // already showing content — no stackFromEnd double-anchor needed
             startPostponedContentTransition(); // content ready — let the slide play now, not blank
         }
@@ -2150,6 +2150,45 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // ── Date separator helpers — used by insertSeparators() in the paging pipeline ──
     private static boolean isSamePagingDay(long ts1, long ts2) {
         return (ts1 / 86_400_000L) == (ts2 / 86_400_000L);
+    }
+
+    /**
+     * PERF FIX: mirrors the date-separator logic from attachPagerWithKey()'s
+     * insertSeparators() transform, but runs synchronously over an in-memory
+     * List<Message> — used ONLY for the warm-cache seed path.
+     *
+     * Root cause of the residual "pop" after screen open: the warm-cache
+     * path (LastMessagesCache → PagingData.from(cached)) submitted raw
+     * messages with NO date-separator chips, while the real Paging3
+     * pipeline a moment later DOES insert them. DiffUtil then saw the
+     * separator rows as brand-new items and inserted them live into an
+     * already-visible RecyclerView — bubbles visibly shifting to make room,
+     * which read as a "pop" even though the actual messages hadn't changed.
+     *
+     * Building the cached seed with the exact same separators up front means
+     * the cached submission and the real submission are structurally
+     * identical, so DiffUtil finds no changes at all when real data lands —
+     * no insert, no shift, no pop.
+     */
+    private static java.util.List<Message> withDateSeparators(java.util.List<Message> ascMessages) {
+        java.util.List<Message> out = new java.util.ArrayList<>(ascMessages.size() + 4);
+        Message prev = null;
+        for (Message m : ascMessages) {
+            boolean differentDay = prev == null
+                    || prev.timestamp == null
+                    || m.timestamp == null
+                    || !isSamePagingDay(prev.timestamp, m.timestamp);
+            if (differentDay) {
+                Message sep = new Message();
+                sep.type = "date_separator";
+                sep.messageId = "sep_" + (m.timestamp != null ? m.timestamp : 0);
+                sep.text = formatPagingDateLabel(m.timestamp != null ? m.timestamp : 0);
+                out.add(sep);
+            }
+            out.add(m);
+            prev = m;
+        }
+        return out;
     }
 
     private static String formatPagingDateLabel(long timestamp) {
