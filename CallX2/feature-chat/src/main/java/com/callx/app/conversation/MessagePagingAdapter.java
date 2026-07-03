@@ -222,6 +222,29 @@ public class MessagePagingAdapter
     private final java.util.HashMap<Long, Boolean> sameDayCache =
             new java.util.HashMap<>(32);
 
+    // ── PERF FIX #3: reel-share avatar/thumb in-memory cache ─────────────────
+    // Root cause: bindReelShareBubble fired a fresh Firebase "users" query
+    // (by username) on EVERY bind where m.reelShareOwnerPhoto was empty —
+    // and Room-loaded Message objects don't carry the previous fetch result
+    // forward, so scrolling past the same reel-share message (or several
+    // messages sharing the same reel owner) re-triggered the network query
+    // each time it came back on screen. Static (process-wide) LruCache keyed
+    // by username/reelId means the query fires at most once per key for the
+    // lifetime of the app process; every other bind is a cache hit with zero
+    // network calls. Static (not instance) so the cache survives adapter
+    // recreation (e.g. chat re-opened) and is shared across chats.
+    private static final android.util.LruCache<String, String> reelOwnerAvatarCache =
+            new android.util.LruCache<>(128);
+    private static final android.util.LruCache<String, String> reelThumbCache =
+            new android.util.LruCache<>(128);
+    // In-flight guards: prevent duplicate concurrent Firebase queries for the
+    // same key when multiple rows for the same username/reelId bind in the
+    // same fling before the first query returns.
+    private static final java.util.Set<String> reelAvatarFetchInFlight =
+            java.util.Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap<>());
+    private static final java.util.Set<String> reelThumbFetchInFlight =
+            java.util.Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap<>());
+
     // ── PERF: static Typeface — Typeface.create() is measured at ~0.5–2ms ────
     private static final android.graphics.Typeface TF_NORMAL =
             android.graphics.Typeface.create(
@@ -1416,9 +1439,19 @@ public class MessagePagingAdapter
                             ? "@" + m.reelShareUsername : "@callx_reel";
                     h.tvReelShareUsername.setText(uname);
                 }
-                // Avatar — load from reelShareOwnerPhoto; Firebase fallback reads profileImage/photoUrl
+                // Avatar — load from reelShareOwnerPhoto; else in-memory cache;
+                // else Firebase fallback (profileImage/photoUrl), ONCE per
+                // username for the app's lifetime (PERF FIX #3).
                 if (h.ivReelShareAvatar != null) {
                     String avatarUrl = m.reelShareOwnerPhoto != null ? m.reelShareOwnerPhoto : "";
+                    String uKey = m.reelShareUsername != null ? m.reelShareUsername : "";
+                    if (avatarUrl.isEmpty() && !uKey.isEmpty()) {
+                        String cached = reelOwnerAvatarCache.get(uKey);
+                        if (cached != null) {
+                            avatarUrl = cached;
+                            m.reelShareOwnerPhoto = cached;
+                        }
+                    }
                     if (!avatarUrl.isEmpty()) {
                         com.bumptech.glide.Glide.with(ctx)
                                 .load(avatarUrl)
@@ -1426,39 +1459,52 @@ public class MessagePagingAdapter
                                 .circleCrop()
                                 .placeholder(android.R.drawable.ic_menu_camera)
                                 .into(h.ivReelShareAvatar);
-                    } else if (m.reelShareUsername != null && !m.reelShareUsername.isEmpty()) {
-                        // Try to fetch avatar from Firebase users node by username
-                        final VH fhA = h;
-                        final Message fmA = m;
-                        final android.content.Context fCtxA = ctx;
-                        com.google.firebase.database.FirebaseDatabase.getInstance()
-                            .getReference("users").orderByChild("username")
-                            .equalTo(m.reelShareUsername)
-                            .limitToFirst(1)
-                            .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
-                                @Override public void onDataChange(@androidx.annotation.NonNull com.google.firebase.database.DataSnapshot snap) {
-                                    if (!snap.exists()) return;
-                                    String photo = null;
-                                    for (com.google.firebase.database.DataSnapshot child : snap.getChildren()) {
-                                        photo = child.child("profileImage").getValue(String.class);
-                                        if (photo == null || photo.isEmpty())
-                                            photo = child.child("photoUrl").getValue(String.class);
-                                        if (photo == null || photo.isEmpty())
-                                            photo = child.child("profilePhoto").getValue(String.class);
-                                        break;
+                    } else if (!uKey.isEmpty()) {
+                        h.ivReelShareAvatar.setImageResource(android.R.drawable.ic_menu_camera);
+                        if (reelAvatarFetchInFlight.add(uKey)) {
+                            final String fUKey = uKey;
+                            final VH fhA = h;
+                            final android.content.Context fCtxA = ctx.getApplicationContext();
+                            com.google.firebase.database.FirebaseDatabase.getInstance()
+                                .getReference("users").orderByChild("username")
+                                .equalTo(uKey)
+                                .limitToFirst(1)
+                                .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
+                                    @Override public void onDataChange(@androidx.annotation.NonNull com.google.firebase.database.DataSnapshot snap) {
+                                        reelAvatarFetchInFlight.remove(fUKey);
+                                        if (!snap.exists()) return;
+                                        String photo = null;
+                                        for (com.google.firebase.database.DataSnapshot child : snap.getChildren()) {
+                                            photo = child.child("profileImage").getValue(String.class);
+                                            if (photo == null || photo.isEmpty())
+                                                photo = child.child("photoUrl").getValue(String.class);
+                                            if (photo == null || photo.isEmpty())
+                                                photo = child.child("profilePhoto").getValue(String.class);
+                                            break;
+                                        }
+                                        if (photo == null || photo.isEmpty()) return;
+                                        reelOwnerAvatarCache.put(fUKey, photo);
+                                        // Guard: only push into the ImageView if this row is
+                                        // still showing the same username (it may have been
+                                        // recycled to a different message by the time this
+                                        // async Firebase callback returns).
+                                        CharSequence curName = fhA.tvReelShareUsername != null
+                                                ? fhA.tvReelShareUsername.getText() : null;
+                                        if (fhA.ivReelShareAvatar != null && curName != null
+                                                && curName.toString().equals("@" + fUKey)) {
+                                            com.bumptech.glide.Glide.with(fCtxA)
+                                                    .load(photo)
+                                                    .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
+                                                    .circleCrop()
+                                                    .placeholder(android.R.drawable.ic_menu_camera)
+                                                    .into(fhA.ivReelShareAvatar);
+                                        }
                                     }
-                                    if (photo != null && !photo.isEmpty() && fhA.ivReelShareAvatar != null) {
-                                        fmA.reelShareOwnerPhoto = photo; // cache for next bind
-                                        com.bumptech.glide.Glide.with(fCtxA)
-                                                .load(photo)
-                                                .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
-                                                .circleCrop()
-                                                .placeholder(android.R.drawable.ic_menu_camera)
-                                                .into(fhA.ivReelShareAvatar);
+                                    @Override public void onCancelled(@androidx.annotation.NonNull com.google.firebase.database.DatabaseError e) {
+                                        reelAvatarFetchInFlight.remove(fUKey);
                                     }
-                                }
-                                @Override public void onCancelled(@androidx.annotation.NonNull com.google.firebase.database.DatabaseError e) {}
-                            });
+                                });
+                        }
                     }
                 }
                 // Caption
@@ -1470,9 +1516,26 @@ public class MessagePagingAdapter
                         h.tvReelShareCaption.setVisibility(View.GONE);
                     }
                 }
-                // Thumbnail
+                // Thumbnail — same PERF FIX #3 pattern: in-memory cache keyed by
+                // reelId, plus an in-flight guard so N rows sharing one reelId
+                // (e.g. same reel forwarded/reshared multiple times in a chat)
+                // only ever trigger ONE Firebase "reels/{id}" read for the
+                // lifetime of the app process instead of one per bind.
                 if (h.ivReelShareThumb != null) {
                     String thumb = m.reelShareThumb != null ? m.reelShareThumb : "";
+                    String rKey = m.reelId != null ? m.reelId : "";
+                    // Tag the row with the reelId it's currently bound to, so an
+                    // async Firebase callback returning after this row got
+                    // recycled to a different message can detect the mismatch
+                    // and skip touching views that no longer belong to it.
+                    h.itemView.setTag(R.id.iv_reel_share_thumb, rKey);
+                    if (thumb.isEmpty() && !rKey.isEmpty()) {
+                        String cachedThumb = reelThumbCache.get(rKey);
+                        if (cachedThumb != null) {
+                            thumb = cachedThumb;
+                            m.reelShareThumb = cachedThumb;
+                        }
+                    }
                     if (!thumb.isEmpty()) {
                         com.bumptech.glide.Glide.with(ctx)
                                 .load(thumb)
@@ -1480,42 +1543,49 @@ public class MessagePagingAdapter
                                 .centerCrop()
                                 .placeholder(android.R.color.darker_gray)
                                 .into(h.ivReelShareThumb);
-                    } else if (m.reelId != null && !m.reelId.isEmpty()) {
-                        // Thumb missing — fetch from Firebase
+                    } else if (!rKey.isEmpty() && reelThumbFetchInFlight.add(rKey)) {
                         final VH fh = h;
-                        final Message fm = m;
+                        final String fRKey = rKey;
+                        final android.content.Context fCtxT = ctx.getApplicationContext();
                         com.google.firebase.database.FirebaseDatabase.getInstance()
-                            .getReference("reels").child(m.reelId)
+                            .getReference("reels").child(rKey)
                             .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
                                 @Override public void onDataChange(@androidx.annotation.NonNull com.google.firebase.database.DataSnapshot snap) {
+                                    reelThumbFetchInFlight.remove(fRKey);
                                     if (!snap.exists()) return;
                                     String t = snap.child("thumbUrl").getValue(String.class);
                                     if (t == null || t.isEmpty())
                                         t = snap.child("thumbnailUrl").getValue(String.class);
-                                    if (t != null && !t.isEmpty() && fh.ivReelShareThumb != null) {
-                                        fm.reelShareThumb = t;
-                                        com.bumptech.glide.Glide.with(ctx).load(t)
-                                            .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
-                                            .centerCrop()
-                                            .into(fh.ivReelShareThumb);
+                                    boolean rowStillMatches = fRKey.equals(fh.itemView.getTag(R.id.iv_reel_share_thumb));
+                                    if (t != null && !t.isEmpty()) {
+                                        reelThumbCache.put(fRKey, t);
+                                        if (fh.ivReelShareThumb != null && rowStillMatches) {
+                                            com.bumptech.glide.Glide.with(fCtxT).load(t)
+                                                .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
+                                                .centerCrop()
+                                                .into(fh.ivReelShareThumb);
+                                        }
                                     }
+                                    if (!rowStillMatches) return;
                                     String u = snap.child("ownerName").getValue(String.class);
                                     if (u == null || u.isEmpty())
                                         u = snap.child("username").getValue(String.class);
                                     if (u != null && !u.isEmpty() && fh.tvReelShareUsername != null)
                                         fh.tvReelShareUsername.setText("@" + u);
-                                    // Also load avatar if not yet loaded
+                                    // Also load avatar if not yet loaded, and warm the avatar cache.
                                     String ap = snap.child("ownerPhoto").getValue(String.class);
                                     if (ap == null || ap.isEmpty())
                                         ap = snap.child("profileImage").getValue(String.class);
-                                    if (ap != null && !ap.isEmpty() && fh.ivReelShareAvatar != null) {
-                                        fm.reelShareOwnerPhoto = ap;
-                                        com.bumptech.glide.Glide.with(ctx)
-                                                .load(ap)
-                                                .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
-                                                .circleCrop()
-                                                .placeholder(android.R.drawable.ic_menu_camera)
-                                                .into(fh.ivReelShareAvatar);
+                                    if (ap != null && !ap.isEmpty()) {
+                                        if (u != null && !u.isEmpty()) reelOwnerAvatarCache.put(u, ap);
+                                        if (fh.ivReelShareAvatar != null) {
+                                            com.bumptech.glide.Glide.with(fCtxT)
+                                                    .load(ap)
+                                                    .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
+                                                    .circleCrop()
+                                                    .placeholder(android.R.drawable.ic_menu_camera)
+                                                    .into(fh.ivReelShareAvatar);
+                                        }
                                     }
                                     String c = snap.child("caption").getValue(String.class);
                                     if (c != null && !c.isEmpty() && fh.tvReelShareCaption != null) {
@@ -1523,7 +1593,9 @@ public class MessagePagingAdapter
                                         fh.tvReelShareCaption.setVisibility(View.VISIBLE);
                                     }
                                 }
-                                @Override public void onCancelled(@androidx.annotation.NonNull com.google.firebase.database.DatabaseError e) {}
+                                @Override public void onCancelled(@androidx.annotation.NonNull com.google.firebase.database.DatabaseError e) {
+                                    reelThumbFetchInFlight.remove(fRKey);
+                                }
                             });
                     }
                 }
