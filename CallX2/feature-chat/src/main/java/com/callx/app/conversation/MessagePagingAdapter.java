@@ -1162,40 +1162,44 @@ public class MessagePagingAdapter
                             .placeholder(R.drawable.ic_file)
                             .error(R.drawable.ic_file)
                             .into(h.ivImage);
+                    } else if (!isGifMsg) {
+                        // PERF FIX: this used to be the real remaining leak —
+                        // any message missing a real thumbnailUrl (thumb
+                        // upload failed, or an older client sent it without
+                        // one) fell straight through to an EAGER full-res
+                        // (720x720) download + a background MediaCache.get()
+                        // full-file fetch, for every such bubble, on chat
+                        // open/scroll. That's why full images kept
+                        // downloading immediately even after the main
+                        // thumbnail path was fixed.
+                        //
+                        // Fix: derive a lightweight Cloudinary transform URL
+                        // from fullUrl (no thumbnailUrl needed, no extra
+                        // upload — see CloudinaryUploader.deriveThumbUrl) and
+                        // use that for the bubble instead. Full resolution
+                        // still only loads on tap, via showImageActionSheet
+                        // below, which is already passed the real fullUrl.
+                        String derivedThumb = com.callx.app.utils.CloudinaryUploader
+                                .deriveThumbUrl(fullUrl, 200);
+                        Glide.with(ctx)
+                            .load(derivedThumb)
+                            .apply(THUMB_RGB565)
+                            .override(200, 200)
+                            .placeholder(R.drawable.ic_file)
+                            .error(R.drawable.ic_file)
+                            .into(h.ivImage);
                     } else {
-                        // GIF ya no thumbnail — direct load with animation support
-                        java.io.File cachedImg = isGifMsg ? null : MediaCache.getCached(ctx, fullUrl);
-                        if (isGifMsg) {
-                            // GIF: asGif() se URL directly load karo — MediaCache file use
-                            // mat karo kyunki file mein .gif extension nahi hogi, Glide
-                            // decode fail karta hai. Glide DiskCache GIF cache kar lega.
-                            Glide.with(ctx)
-                                .asGif()
-                                .load(fullUrl)
-                                .apply(THUMB_RGB565)
-                                .override(480, 480) // PERF: GIFs are heavy to decode/animate at full res
-                                .placeholder(R.drawable.ic_file)
-                                .error(R.drawable.ic_file)
-                                .into(h.ivImage);
-                        } else if (cachedImg != null) {
-                            Glide.with(ctx).load(cachedImg)
-                                .diskCacheStrategy(DiskCacheStrategy.ALL)
-                                .override(720, 720)
-                                .placeholder(R.drawable.ic_file)
-                                .into(h.ivImage);
-                        } else {
-                            Glide.with(ctx).load(fullUrl)
-                                .diskCacheStrategy(DiskCacheStrategy.ALL)
-                                .override(720, 720)
-                                .placeholder(R.drawable.ic_file)
-                                .error(R.drawable.ic_file)
-                                .into(h.ivImage);
-                            // Cache in background for next time
-                            MediaCache.get(ctx, fullUrl, new MediaCache.Callback() {
-                                @Override public void onReady(java.io.File file) {}
-                                @Override public void onError(String reason) {}
-                            });
-                        }
+                        // GIF: asGif() se URL directly load karo — MediaCache file use
+                        // mat karo kyunki file mein .gif extension nahi hogi, Glide
+                        // decode fail karta hai. Glide DiskCache GIF cache kar lega.
+                        Glide.with(ctx)
+                            .asGif()
+                            .load(fullUrl)
+                            .apply(THUMB_RGB565)
+                            .override(480, 480) // PERF: GIFs are heavy to decode/animate at full res
+                            .placeholder(R.drawable.ic_file)
+                            .error(R.drawable.ic_file)
+                            .into(h.ivImage);
                     }
 
                     // Click → WhatsApp-style image action bottom sheet

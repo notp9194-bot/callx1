@@ -13,6 +13,39 @@ import java.io.InputStream;
 import java.util.concurrent.TimeUnit;
 public class CloudinaryUploader {
     private static final String TAG = "Cloudinary";
+
+    /**
+     * PERF FIX (WhatsApp-style lazy media, missing-thumbnail case): derives
+     * a lightweight preview URL from any Cloudinary secure_url WITHOUT any
+     * extra upload or network round trip — Cloudinary supports on-the-fly
+     * transformations by inserting a segment right after "/upload/" in the
+     * URL path (e.g. "w_200,h_200,c_fill,q_auto"). Cloudinary generates and
+     * CDN-caches that resized variant the first time it's requested.
+     *
+     * Root cause this fixes: messages where thumbnailUrl never got set
+     * (thumb upload step failed, or an older client sent the message
+     * without a dual-upload) were falling back to loading the RAW full-
+     * resolution mediaUrl for the chat bubble — a full-size download for
+     * every such bubble, on chat open / scroll, not just on tap. Deriving
+     * a small transformed URL here instead means the bubble NEVER needs to
+     * pull full-res bytes just to render a thumbnail, even when the real
+     * pre-generated thumbnailUrl is missing.
+     *
+     * No-op (returns the original URL unchanged) for any non-Cloudinary
+     * URL, or a URL that doesn't contain "/upload/" — callers always get
+     * back a usable URL either way.
+     */
+    public static String deriveThumbUrl(String secureUrl, int size) {
+        if (secureUrl == null || secureUrl.isEmpty()) return secureUrl;
+        String marker = "/upload/";
+        int idx = secureUrl.indexOf(marker);
+        if (idx < 0) return secureUrl; // not a Cloudinary delivery URL we recognize — use as-is
+        String transform = "w_" + size + ",h_" + size + ",c_fill,q_auto,f_auto/";
+        return secureUrl.substring(0, idx + marker.length())
+                + transform
+                + secureUrl.substring(idx + marker.length());
+    }
+
     public interface UploadCallback {
         void onSuccess(Result result);
         void onError(String message);

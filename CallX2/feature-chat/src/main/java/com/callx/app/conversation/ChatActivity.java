@@ -803,9 +803,13 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 // Full resolution now only ever loads on demand, when the
                 // user actually taps a bubble (see MessagePagingAdapter's
                 // image click → showImageActionSheet/MediaViewerActivity).
+                String rawFallback = (m.mediaUrl != null && !m.mediaUrl.isEmpty()) ? m.mediaUrl : m.imageUrl;
                 url = (m.thumbnailUrl != null && !m.thumbnailUrl.isEmpty())
                         ? m.thumbnailUrl
-                        : ((m.mediaUrl != null && !m.mediaUrl.isEmpty()) ? m.mediaUrl : m.imageUrl);
+                        // No real thumbnailUrl — derive a lightweight Cloudinary
+                        // transform URL instead of preloading the raw full-res
+                        // asset (see CloudinaryUploader.deriveThumbUrl).
+                        : com.callx.app.utils.CloudinaryUploader.deriveThumbUrl(rawFallback, 200);
                 widthPx = 200; htPx = 200;
             } else if ("video".equals(m.type)) {
                 // For video we only preload the thumbnail — full assets are
