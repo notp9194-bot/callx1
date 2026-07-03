@@ -44,6 +44,15 @@ public class ReplyBarView extends LinearLayout {
         setVisibility(GONE);
     }
 
+    // PERF: matches THUMB_RGB565 used everywhere else in the chat module —
+    // explicit disk cache (persists across chat re-opens) + RGB565 (no
+    // wasted alpha byte on thumbnails that have none) instead of relying on
+    // Glide's implicit defaults.
+    private static final com.bumptech.glide.request.RequestOptions REPLY_THUMB_OPTS =
+            new com.bumptech.glide.request.RequestOptions()
+                    .format(com.bumptech.glide.load.DecodeFormat.PREFER_RGB_565)
+                    .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL);
+
     public void bind(Message message, ReplyStateManager stateManager, String currentUid) {
         if (message == null) { hide(); return; }
         if (tvSenderName != null) tvSenderName.setText(stateManager.getDisplaySenderName(currentUid));
@@ -52,7 +61,7 @@ public class ReplyBarView extends LinearLayout {
             String thumbUrl = stateManager.getReplyThumbnailUrl();
             if (thumbUrl != null && !thumbUrl.isEmpty()) {
                 ivThumbnail.setVisibility(VISIBLE);
-                Glide.with(getContext()).load(thumbUrl).centerCrop().into(ivThumbnail);
+                Glide.with(getContext()).load(thumbUrl).apply(REPLY_THUMB_OPTS).centerCrop().into(ivThumbnail);
             } else {
                 ivThumbnail.setVisibility(GONE);
             }
@@ -66,7 +75,7 @@ public class ReplyBarView extends LinearLayout {
         if (ivThumbnail  != null) {
             if (thumbUrl != null && !thumbUrl.isEmpty()) {
                 ivThumbnail.setVisibility(VISIBLE);
-                Glide.with(getContext()).load(thumbUrl).centerCrop().into(ivThumbnail);
+                Glide.with(getContext()).load(thumbUrl).apply(REPLY_THUMB_OPTS).centerCrop().into(ivThumbnail);
             } else {
                 ivThumbnail.setVisibility(GONE);
             }

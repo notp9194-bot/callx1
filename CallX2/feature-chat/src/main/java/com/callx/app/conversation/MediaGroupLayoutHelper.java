@@ -10,6 +10,7 @@ import android.view.View;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.ProgressBar;
 import android.widget.TextView;
 
 import com.bumptech.glide.Glide;
@@ -101,23 +102,28 @@ public class MediaGroupLayoutHelper {
                 FrameLayout.LayoutParams.WRAP_CONTENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT));
 
+        // Collects a start-download Runnable for every image cell that isn't
+        // cached yet — used to wire the master "Download N photos" pill so
+        // one tap kicks off every uncached item's own per-cell download.
+        List<Runnable> pendingDownloads = new java.util.ArrayList<>();
+
         if (total == 1) {
-            buildSingle(ctx, content, items, d, chatId, messageId);
+            buildSingle(ctx, content, items, d, chatId, messageId, pendingDownloads);
 
         } else if (total == 2) {
-            buildTwoSideBySide(ctx, content, items, d, gapPx, chatId, messageId);
+            buildTwoSideBySide(ctx, content, items, d, gapPx, chatId, messageId, pendingDownloads);
 
         } else if (total == 3) {
-            buildThree(ctx, content, items, d, gapPx, chatId, messageId);
+            buildThree(ctx, content, items, d, gapPx, chatId, messageId, pendingDownloads);
 
         } else if (total == 4) {
             // 2×2 grid, fully visible, no overlay needed
-            buildGrid(ctx, content, items, total, d, gapPx, 2, GRID_CELL, chatId, messageId);
+            buildGrid(ctx, content, items, total, d, gapPx, 2, GRID_CELL, chatId, messageId, pendingDownloads);
 
         } else {
             // 5+ → denser 3×3 grid; last visible cell gets "+N" overlay
             // once there are more than MAX_VISIBLE_3x3 items.
-            buildGrid(ctx, content, items, total, d, gapPx, 3, GRID3_CELL, chatId, messageId);
+            buildGrid(ctx, content, items, total, d, gapPx, 3, GRID3_CELL, chatId, messageId, pendingDownloads);
         }
 
         FrameLayout wrapper = new FrameLayout(ctx);
@@ -158,7 +164,70 @@ public class MediaGroupLayoutHelper {
             wrapper.addView(tvCap);
         }
 
+        // ── MASTER "Download N photos" PILL (WhatsApp-style) ────────────
+        // Shown only while at least one image in the group hasn't been
+        // downloaded yet. One tap fires every individual cell's own
+        // download (each shows its own icon→spinner overlay), matching
+        // the per-cell system used by the single-image bubble.
+        if (!pendingDownloads.isEmpty()) {
+            addMasterDownloadOverlay(ctx, wrapper, pendingDownloads.size(), d, pendingDownloads);
+        }
+
         container.addView(wrapper);
+    }
+
+    /** Builds + attaches the grid-wide "Download N photos" pill described above. */
+    private static void addMasterDownloadOverlay(Context ctx, FrameLayout wrapper, int count,
+                                                  float d, List<Runnable> pendingDownloads) {
+        FrameLayout masterOverlay = new FrameLayout(ctx);
+        masterOverlay.setLayoutParams(new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT));
+        masterOverlay.setBackgroundColor(0x2E000000);
+
+        LinearLayout pill = new LinearLayout(ctx);
+        pill.setOrientation(LinearLayout.HORIZONTAL);
+        pill.setGravity(Gravity.CENTER_VERTICAL);
+        FrameLayout.LayoutParams pillLp = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT);
+        pillLp.gravity = Gravity.CENTER;
+        pill.setLayoutParams(pillLp);
+        GradientDrawable pillBg = new GradientDrawable();
+        pillBg.setColor(0x8A000000);
+        pillBg.setCornerRadius(dp(24, d));
+        pill.setBackground(pillBg);
+        int padH = dp(14, d), padV = dp(8, d);
+        pill.setPadding(padH, padV, padH, padV);
+        pill.setClickable(true);
+        pill.setFocusable(true);
+
+        ImageView icon = new ImageView(ctx);
+        int iconSz = dp(18, d);
+        icon.setLayoutParams(new LinearLayout.LayoutParams(iconSz, iconSz));
+        icon.setImageResource(com.callx.app.core.R.drawable.ic_download_reel);
+        pill.addView(icon);
+
+        TextView label = new TextView(ctx);
+        LinearLayout.LayoutParams lblLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        lblLp.leftMargin = dp(8, d);
+        label.setLayoutParams(lblLp);
+        label.setText("Download " + count + (count == 1 ? " photo" : " photos"));
+        label.setTextColor(Color.WHITE);
+        label.setTextSize(13f);
+        label.setTypeface(null, Typeface.BOLD);
+        pill.addView(label);
+
+        masterOverlay.addView(pill);
+
+        masterOverlay.setOnClickListener(v -> {
+            // Snapshot + run — starting a download removes nothing from
+            // pendingDownloads itself, just kicks off each cell's own flow.
+            for (Runnable r : pendingDownloads) r.run();
+            wrapper.removeView(masterOverlay);
+        });
+
+        wrapper.addView(masterOverlay);
     }
 
     // ─── Layout builders ──────────────────────────────────────────────────
@@ -166,8 +235,8 @@ public class MediaGroupLayoutHelper {
     /** 1 image: full-width tall card */
     private static void buildSingle(Context ctx, LinearLayout parent,
                                     List<Map<String, Object>> items, float d,
-                                    String chatId, String messageId) {
-        FrameLayout cell = buildCell(ctx, items, 0, false, 0, d, chatId, messageId);
+                                    String chatId, String messageId, List<Runnable> pendingDownloads) {
+        FrameLayout cell = buildCell(ctx, items, 0, false, 0, d, chatId, messageId, pendingDownloads);
         int w = dp(SINGLE_W, d);
         int h = dp(SINGLE_H, d);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(w, h);
@@ -179,11 +248,11 @@ public class MediaGroupLayoutHelper {
     private static void buildTwoSideBySide(Context ctx, LinearLayout parent,
                                            List<Map<String, Object>> items,
                                            float d, int gapPx,
-                                           String chatId, String messageId) {
+                                           String chatId, String messageId, List<Runnable> pendingDownloads) {
         LinearLayout row = makeHRow(ctx);
         int cell = dp(PAIR_CELL, d);
         for (int i = 0; i < 2; i++) {
-            FrameLayout c = buildCell(ctx, items, i, false, 0, d, chatId, messageId);
+            FrameLayout c = buildCell(ctx, items, i, false, 0, d, chatId, messageId, pendingDownloads);
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(cell, cell);
             if (i > 0) lp.leftMargin = gapPx;
             c.setLayoutParams(lp);
@@ -196,9 +265,9 @@ public class MediaGroupLayoutHelper {
     private static void buildThree(Context ctx, LinearLayout parent,
                                    List<Map<String, Object>> items,
                                    float d, int gapPx,
-                                   String chatId, String messageId) {
+                                   String chatId, String messageId, List<Runnable> pendingDownloads) {
         // Top: single wide image
-        FrameLayout top = buildCell(ctx, items, 0, false, 0, d, chatId, messageId);
+        FrameLayout top = buildCell(ctx, items, 0, false, 0, d, chatId, messageId, pendingDownloads);
         int tw = dp(THREE_TOP_W, d);
         int th = dp(THREE_TOP_H, d);
         top.setLayoutParams(new LinearLayout.LayoutParams(tw, th));
@@ -214,7 +283,7 @@ public class MediaGroupLayoutHelper {
 
         int bc = dp(THREE_BOT, d);
         for (int i = 1; i <= 2; i++) {
-            FrameLayout c = buildCell(ctx, items, i, false, 0, d, chatId, messageId);
+            FrameLayout c = buildCell(ctx, items, i, false, 0, d, chatId, messageId, pendingDownloads);
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(bc, bc);
             if (i > 1) lp.leftMargin = gapPx;
             c.setLayoutParams(lp);
@@ -232,7 +301,7 @@ public class MediaGroupLayoutHelper {
                                   List<Map<String, Object>> items,
                                   int total, float d, int gapPx,
                                   int columns, int cellDp,
-                                  String chatId, String messageId) {
+                                  String chatId, String messageId, List<Runnable> pendingDownloads) {
         int maxVisible = columns * columns;
         int visible    = Math.min(total, maxVisible);
         int remaining  = total - maxVisible; // negative is fine, only used when > 0
@@ -250,7 +319,7 @@ public class MediaGroupLayoutHelper {
             for (int col = 0; col < columns && idx < visible; col++, idx++) {
                 boolean isLast   = (idx == visible - 1);
                 boolean showMore = isLast && remaining > 0;
-                FrameLayout c    = buildCell(ctx, items, idx, showMore, remaining, d, chatId, messageId);
+                FrameLayout c    = buildCell(ctx, items, idx, showMore, remaining, d, chatId, messageId, pendingDownloads);
                 LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(gc, gc);
                 if (col > 0) lp.leftMargin = gapPx;
                 c.setLayoutParams(lp);
@@ -264,7 +333,8 @@ public class MediaGroupLayoutHelper {
 
     private static FrameLayout buildCell(Context ctx, List<Map<String, Object>> allItems, int index,
                                          boolean showMoreOverlay, int remaining,
-                                         float d, String chatId, String messageId) {
+                                         float d, String chatId, String messageId,
+                                         List<Runnable> pendingDownloads) {
         Map<String, Object> item = allItems.get(index);
         FrameLayout cell = new FrameLayout(ctx);
         cell.setClipToOutline(true);
@@ -327,37 +397,71 @@ public class MediaGroupLayoutHelper {
             tvLabel.setPadding(dp(2, d), 0, dp(2, d), 0);
             cell.addView(tvLabel);
 
-        } else if (!thumbUrl.isEmpty()) {
-            // Thumbnail ImageView (image / video) — thumbUrl only, never
-            // the raw full-res `url`.
+        } else if (isVideo) {
+            // Video cells stream from `url` directly (existing player), so
+            // no manual-download gate here — just the thumbnail/placeholder.
+            if (!thumbUrl.isEmpty()) {
+                ImageView iv = new ImageView(ctx);
+                iv.setLayoutParams(new FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+                iv.setScaleType(ImageView.ScaleType.CENTER_CROP);
+                iv.setContentDescription(null);
+                Glide.with(ctx).load(thumbUrl).diskCacheStrategy(DiskCacheStrategy.ALL)
+                        .centerCrop().placeholder(android.R.color.darker_gray).into(iv);
+                cell.addView(iv);
+            } else {
+                cell.setBackgroundColor(0xFF2C2C2C);
+                ImageView icon = new ImageView(ctx);
+                int iconSz = dp(28, d);
+                FrameLayout.LayoutParams iconLp = new FrameLayout.LayoutParams(iconSz, iconSz);
+                iconLp.gravity = Gravity.CENTER;
+                icon.setLayoutParams(iconLp);
+                icon.setImageResource(android.R.drawable.ic_media_play);
+                icon.setColorFilter(Color.WHITE);
+                cell.addView(icon);
+            }
+        } else {
+            // IMAGE cell — WhatsApp-style manual download, same idea as the
+            // single-image bubble: grid always shows a lightweight blurred
+            // thumbnail (real thumbUrl, or a derived low-res Cloudinary
+            // transform if thumbUrl is missing — never the raw full url).
+            // The full-res file is only fetched when the user taps this
+            // cell (or the master "Download N photos" pill), and once
+            // MediaCache has it locally, later rebinds load it straight
+            // from disk instead of showing the gate again.
+            String loadThumb = !thumbUrl.isEmpty()
+                    ? thumbUrl
+                    : (!url.isEmpty() ? com.callx.app.utils.CloudinaryUploader.deriveThumbUrl(url, 200) : "");
+
             ImageView iv = new ImageView(ctx);
             iv.setLayoutParams(new FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.MATCH_PARENT,
-                    FrameLayout.LayoutParams.MATCH_PARENT));
+                    FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
             iv.setScaleType(ImageView.ScaleType.CENTER_CROP);
-            iv.setContentDescription(null); // description lives on the cell, not the bare thumbnail
-            Glide.with(ctx)
-                    .load(thumbUrl)
-                    .diskCacheStrategy(DiskCacheStrategy.ALL)
-                    .centerCrop()
-                    .placeholder(android.R.color.darker_gray)
-                    .into(iv);
+            iv.setContentDescription(null);
             cell.addView(iv);
-        } else {
-            // No thumbUrl at all — placeholder icon, same treatment as
-            // audio/file cells above. Full-res `url` is intentionally
-            // never touched here.
-            cell.setBackgroundColor(0xFF2C2C2C);
-            ImageView icon = new ImageView(ctx);
-            int iconSz = dp(28, d);
-            FrameLayout.LayoutParams iconLp = new FrameLayout.LayoutParams(iconSz, iconSz);
-            iconLp.gravity = Gravity.CENTER;
-            icon.setLayoutParams(iconLp);
-            icon.setImageResource(isVideo
-                    ? android.R.drawable.ic_media_play
-                    : android.R.drawable.ic_menu_gallery);
-            icon.setColorFilter(Color.WHITE);
-            cell.addView(icon);
+
+            java.io.File cachedFile = !url.isEmpty()
+                    ? com.callx.app.utils.MediaCache.getCached(ctx, url) : null;
+
+            if (cachedFile != null) {
+                // Already downloaded — show the sharp local copy directly.
+                Glide.with(ctx).load(cachedFile).centerCrop().into(iv);
+            } else {
+                if (!loadThumb.isEmpty()) {
+                    Glide.with(ctx).load(loadThumb).diskCacheStrategy(DiskCacheStrategy.ALL)
+                            .centerCrop().placeholder(android.R.color.darker_gray).into(iv);
+                } else {
+                    cell.setBackgroundColor(0xFF2C2C2C);
+                }
+                if (!url.isEmpty()) {
+                    FrameLayout overlay = buildCellDownloadOverlay(ctx, d);
+                    cell.addView(overlay);
+                    final String cellUrl = url;
+                    Runnable starter = () -> startCellDownload(ctx, cellUrl, iv, overlay);
+                    overlay.setOnClickListener(v -> starter.run());
+                    if (pendingDownloads != null) pendingDownloads.add(starter);
+                }
+            }
         }
 
         String itemCaption = safeStr(item.get("caption"));
@@ -509,6 +613,89 @@ public class MediaGroupLayoutHelper {
         });
 
         return cell;
+    }
+
+    // ─── Manual download (WhatsApp-style, images in a grid) ─────────────────
+
+    // Dedupe across rebinds — populate() rebuilds the whole grid from
+    // scratch on every RecyclerView bind, so without this a quick
+    // scroll-away-and-back while a download is still running would kick
+    // off a second parallel download for the same url.
+    private static final java.util.Set<String> sDownloadingUrls =
+            java.util.Collections.synchronizedSet(new java.util.HashSet<>());
+
+    /** Small centered icon/spinner badge — the grid-cell equivalent of the
+     *  single-image bubble's download pill, sized down to fit small cells. */
+    private static FrameLayout buildCellDownloadOverlay(Context ctx, float d) {
+        FrameLayout overlay = new FrameLayout(ctx);
+        overlay.setLayoutParams(new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        overlay.setBackgroundColor(0x40000000);
+        overlay.setClickable(true);
+        overlay.setFocusable(true);
+
+        int badgeSz = dp(26, d);
+        FrameLayout badge = new FrameLayout(ctx);
+        FrameLayout.LayoutParams badgeLp = new FrameLayout.LayoutParams(badgeSz, badgeSz);
+        badgeLp.gravity = Gravity.CENTER;
+        badge.setLayoutParams(badgeLp);
+        GradientDrawable badgeBg = new GradientDrawable();
+        badgeBg.setShape(GradientDrawable.OVAL);
+        badgeBg.setColor(0x99000000);
+        badge.setBackground(badgeBg);
+
+        ImageView icon = new ImageView(ctx);
+        int iconSz = dp(14, d);
+        FrameLayout.LayoutParams iconLp = new FrameLayout.LayoutParams(iconSz, iconSz);
+        iconLp.gravity = Gravity.CENTER;
+        icon.setLayoutParams(iconLp);
+        icon.setId(android.view.View.generateViewId());
+        icon.setTag("dl_icon");
+        icon.setImageResource(com.callx.app.core.R.drawable.ic_download_reel);
+        badge.addView(icon);
+
+        ProgressBar spinner = new ProgressBar(ctx);
+        FrameLayout.LayoutParams spinLp = new FrameLayout.LayoutParams(iconSz, iconSz);
+        spinLp.gravity = Gravity.CENTER;
+        spinner.setLayoutParams(spinLp);
+        spinner.setTag("dl_spinner");
+        spinner.setIndeterminateTintList(android.content.res.ColorStateList.valueOf(Color.WHITE));
+        spinner.setVisibility(View.GONE);
+        badge.addView(spinner);
+
+        overlay.addView(badge);
+        return overlay;
+    }
+
+    /** Kicks off (or no-ops if already running) the manual download for one
+     *  grid cell. Swaps the icon for a spinner, then on success hides the
+     *  overlay and loads the full-res local file into `iv`. */
+    private static void startCellDownload(Context ctx, String url, ImageView iv, FrameLayout overlay) {
+        if (url == null || url.isEmpty() || sDownloadingUrls.contains(url)) return;
+        sDownloadingUrls.add(url);
+
+        ImageView icon = overlay.findViewWithTag("dl_icon");
+        ProgressBar spinner = overlay.findViewWithTag("dl_spinner");
+        if (icon != null) icon.setVisibility(View.GONE);
+        if (spinner != null) spinner.setVisibility(View.VISIBLE);
+        overlay.setOnClickListener(null); // ignore taps while downloading
+
+        com.callx.app.utils.MediaCache.getWithProgress(ctx, url,
+                new com.callx.app.utils.MediaCache.ProgressCallback() {
+            @Override public void onProgress(int percent) { /* grid cells are too small for a % label */ }
+            @Override public void onReady(java.io.File file) {
+                sDownloadingUrls.remove(url);
+                if (overlay.getParent() == null) return; // cell recycled/removed
+                ((android.view.ViewGroup) overlay.getParent()).removeView(overlay);
+                Glide.with(ctx).load(file).centerCrop().into(iv);
+            }
+            @Override public void onError(String reason) {
+                sDownloadingUrls.remove(url);
+                if (icon != null) icon.setVisibility(View.VISIBLE);
+                if (spinner != null) spinner.setVisibility(View.GONE);
+                overlay.setOnClickListener(v -> startCellDownload(ctx, url, iv, overlay));
+            }
+        });
     }
 
     // ─── Helpers ──────────────────────────────────────────────────────────
