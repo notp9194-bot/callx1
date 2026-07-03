@@ -2043,25 +2043,21 @@ public class CallxMessagingService extends FirebaseMessagingService {
                 AppDatabase.getInstance(getApplicationContext())
                     .messageDao().insertMessage(entity);
 
-                // OFFLINE FIX: Media pre-cache — image/audio FCM se aaye to
-                // background mein download karo taaki offline mein bhi dikhe
-                if (mediaUrl != null && !mediaUrl.isEmpty()) {
-                    String t = normalizeType(type);
-                    if ("image".equals(t) || "audio".equals(t)) {
-                        com.callx.app.utils.MediaCache.get(
-                            getApplicationContext(), mediaUrl,
-                            new com.callx.app.utils.MediaCache.Callback() {
-                                @Override public void onReady(java.io.File f) {
-                                    android.util.Log.d("FCM_CACHE",
-                                        "Media pre-cached: " + f.getName());
-                                }
-                                @Override public void onError(String reason) {
-                                    android.util.Log.w("FCM_CACHE",
-                                        "Pre-cache failed: " + reason);
-                                }
-                            });
-                    }
-                }
+                // FIX: Ab yaha se auto-download NAHI hoga.
+                // Pehle image/audio FCM aate hi MediaCache.get() call ho raha
+                // tha — jo turant background/killed state mein bhi silently
+                // download kar deta tha (WhatsApp jaisa manual-tap behavior
+                // tha hi nahi). Ab sirf DB row insert hoti hai with mediaUrl;
+                // bubble download-icon dikhayega aur asli download tabhi
+                // hoga jab user manually tap karega — MessagePagingAdapter /
+                // MediaGroupLayoutHelper ke MediaCache.getWithProgress() call
+                // se (existing manual-download pill flow, ab isi ka istemal
+                // hoga har jagah).
+                //
+                // Server bhi ab "autoDownload":"0" flag bhejta hai data
+                // payload mein (index.js /notify, /notify/group) — future
+                // safety ke liye agar kabhi koi aur code path se auto-fetch
+                // trigger ho, ye flag explicit signal deta hai ke mat karo.
 
             } catch (Exception e) {
                 android.util.Log.w("FCM_DB", "saveMessageToDb failed: " + e.getMessage());
