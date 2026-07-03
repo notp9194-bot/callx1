@@ -493,8 +493,18 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         if (warmCacheHit) {
             java.util.List<Message> cached = LastMessagesCache.getInstance().get(chatId);
             pagingAdapter.submitData(getLifecycle(), PagingData.from(withDateSeparators(cached)));
-            firstPageRendered = true; // already showing content — no stackFromEnd double-anchor needed
-            startPostponedContentTransition(); // content ready — let the slide play now, not blank
+            // NOTE: do NOT call startPostponedContentTransition() here.
+            // submitData() is async — AsyncPagingDataDiffer computes the
+            // diff on a background dispatcher and only applies it to the
+            // RecyclerView (notifyItemRangeInserted) a frame or two later.
+            // Calling the preDraw-wait immediately after this line was
+            // racing that diff: the very next preDraw often fired while
+            // the RecyclerView was STILL EMPTY, so the slide-in resumed
+            // against a blank list and messages then blinked/popped in a
+            // frame later. The real trigger now lives in
+            // onItemRangeInserted() below, which only fires once the diff
+            // has actually landed and the RecyclerView truly has laid-out
+            // content — see there for the corresponding call.
         }
 
         // PERF FIX: don't flash shimmer for fast/cached loads — schedule it
@@ -1733,6 +1743,14 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                     initialScrollDone = true;
                     firstPageRendered = true;
                     binding.rvMessages.post(() -> restoreScrollOrGoToUnread());
+                    // Content has actually landed in the RecyclerView now —
+                    // safe to begin the preDraw-wait for the slide-in. Doing
+                    // it here (instead of right after submitData()) avoids
+                    // racing AsyncPagingDataDiffer's background diff, which
+                    // used to let the preDraw fire against a still-empty
+                    // list and made messages blink in a frame after the
+                    // slide had already resumed.
+                    startPostponedContentTransition();
                     return;
                 }
                 int total = pagingAdapter.getItemCount();
@@ -1775,9 +1793,17 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 boolean isEmpty = pagingAdapter.getItemCount() == 0;
                 binding.rvMessages.setVisibility(isEmpty ? View.GONE : View.VISIBLE);
                 binding.llEmptyChat.setVisibility(isEmpty ? View.VISIBLE : View.GONE);
-                // Real data (or a confirmed-empty chat) resolved — reveal the
-                // slide-in now. No-op if warm-cache path already triggered it.
-                startPostponedContentTransition();
+                // Confirmed-empty chat (genuinely zero messages, ever) —
+                // onItemRangeInserted() will never fire since nothing is
+                // being inserted, so this is the only signal we'll get.
+                // Safe to reveal immediately: there's no content to wait
+                // for a layout pass on. Non-empty chats are deliberately
+                // NOT handled here — onItemRangeInserted() above triggers
+                // the reveal once real items are actually laid out, which
+                // is what removed the blink/pop.
+                if (isEmpty) {
+                    startPostponedContentTransition();
+                }
             }
             return null;
         });
