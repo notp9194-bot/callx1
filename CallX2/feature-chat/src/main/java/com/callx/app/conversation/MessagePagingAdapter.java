@@ -1456,6 +1456,7 @@ public class MessagePagingAdapter
                         com.bumptech.glide.Glide.with(ctx)
                                 .load(avatarUrl)
                                 .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
+                                .override(48, 48)
                                 .circleCrop()
                                 .placeholder(android.R.drawable.ic_menu_camera)
                                 .into(h.ivReelShareAvatar);
@@ -1495,6 +1496,7 @@ public class MessagePagingAdapter
                                             com.bumptech.glide.Glide.with(fCtxA)
                                                     .load(photo)
                                                     .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
+                                                    .override(48, 48)
                                                     .circleCrop()
                                                     .placeholder(android.R.drawable.ic_menu_camera)
                                                     .into(fhA.ivReelShareAvatar);
@@ -1540,6 +1542,7 @@ public class MessagePagingAdapter
                         com.bumptech.glide.Glide.with(ctx)
                                 .load(thumb)
                                 .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
+                                .override(330, 474) // PERF: match ~165x237dp bubble, avoid full-res decode
                                 .centerCrop()
                                 .placeholder(android.R.color.darker_gray)
                                 .into(h.ivReelShareThumb);
@@ -1562,6 +1565,7 @@ public class MessagePagingAdapter
                                         if (fh.ivReelShareThumb != null && rowStillMatches) {
                                             com.bumptech.glide.Glide.with(fCtxT).load(t)
                                                 .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
+                                                .override(330, 474)
                                                 .centerCrop()
                                                 .into(fh.ivReelShareThumb);
                                         }
@@ -1582,6 +1586,7 @@ public class MessagePagingAdapter
                                             com.bumptech.glide.Glide.with(fCtxT)
                                                     .load(ap)
                                                     .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
+                                                    .override(48, 48)
                                                     .circleCrop()
                                                     .placeholder(android.R.drawable.ic_menu_camera)
                                                     .into(fh.ivReelShareAvatar);
