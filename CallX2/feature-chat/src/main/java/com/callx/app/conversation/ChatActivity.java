@@ -342,6 +342,24 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         mediaController.registerPickers();   // Must happen early
 
         super.onCreate(savedInstanceState);
+
+        // PERF FIX: WhatsApp-style reveal — postpone the slide-in transition
+        // until the first page of messages is actually laid out. Without
+        // this, the window animation (right→left slide) starts the instant
+        // the Activity is created, racing against message load; the user
+        // sees an empty screen slide in and messages "pop" in afterward.
+        // startPostponedContentTransition() (below) resumes the slide once
+        // content is genuinely ready — warm-cache hit resumes almost
+        // immediately; a cold load resumes as soon as Paging3's first
+        // LoadState.NotLoading arrives. transitionResumeSafety is a hard
+        // ceiling so a stuck/empty chat never leaves the screen frozen.
+        getWindow().requestFeature(android.view.Window.FEATURE_ACTIVITY_TRANSITIONS);
+        getWindow().setEnterTransition(new android.transition.Slide(android.view.Gravity.END));
+        getWindow().setExitTransition(new android.transition.Slide(android.view.Gravity.END));
+        postponeEnterTransition();
+        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
+                this::startPostponedContentTransition, 500L);
+
         binding = ActivityChatBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
 
@@ -467,6 +485,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             java.util.List<Message> cached = LastMessagesCache.getInstance().get(chatId);
             pagingAdapter.submitData(getLifecycle(), PagingData.from(cached));
             firstPageRendered = true; // already showing content — no stackFromEnd double-anchor needed
+            startPostponedContentTransition(); // content ready — let the slide play now, not blank
         }
 
         // PERF FIX: don't flash shimmer for fast/cached loads — schedule it
@@ -1747,6 +1766,9 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 boolean isEmpty = pagingAdapter.getItemCount() == 0;
                 binding.rvMessages.setVisibility(isEmpty ? View.GONE : View.VISIBLE);
                 binding.llEmptyChat.setVisibility(isEmpty ? View.VISIBLE : View.GONE);
+                // Real data (or a confirmed-empty chat) resolved — reveal the
+                // slide-in now. No-op if warm-cache path already triggered it.
+                startPostponedContentTransition();
             }
             return null;
         });
@@ -1759,6 +1781,28 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // path decides to center on.
     private MediatorLiveData<PagingData<Message>> pagingMediator;
     private LiveData<PagingData<Message>> currentPagingLiveSource;
+
+    // PERF FIX: guards startPostponedContentTransition() so it only ever
+    // actually resumes the transition once, no matter how many of the
+    // trigger points below fire (warm-cache hit, first real Paging load,
+    // or the 500ms safety timeout).
+    private boolean contentTransitionStarted = false;
+
+    private void startPostponedContentTransition() {
+        if (contentTransitionStarted) return;
+        contentTransitionStarted = true;
+        // Wait one layout pass so the just-submitted RecyclerView content
+        // is actually measured/laid out before the slide plays — otherwise
+        // the transition can still start a frame too early.
+        binding.getRoot().getViewTreeObserver().addOnPreDrawListener(
+                new android.view.ViewTreeObserver.OnPreDrawListener() {
+                    @Override public boolean onPreDraw() {
+                        binding.getRoot().getViewTreeObserver().removeOnPreDrawListener(this);
+                        startPostponedEnterTransition();
+                        return true;
+                    }
+                });
+    }
 
     private void observePagedMessages() {
         pagingMediator = new MediatorLiveData<>();
