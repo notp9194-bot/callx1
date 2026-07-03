@@ -1788,6 +1788,10 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 pagesReadyForReveal[0] = true;
                 startPostponedContentTransition();
             }
+            // addOnPagesUpdatedListener() takes a Kotlin Function0<Unit>, not a
+            // java.lang.Runnable — from Java that lambda must explicitly hand
+            // back Unit.INSTANCE or javac rejects it as "missing return value".
+            return kotlin.Unit.INSTANCE;
         });
 
         pagingAdapter.addLoadStateListener(states -> {
