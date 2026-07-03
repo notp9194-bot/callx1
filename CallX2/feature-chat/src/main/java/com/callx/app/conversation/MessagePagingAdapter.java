@@ -1141,25 +1141,24 @@ public class MessagePagingAdapter
                     String thumbUrl = m.thumbnailUrl;
                     boolean isGifMsg = "gif".equals(m.type);
 
-                    // ── Progressive loading: thumb instantly → full replaces ──
+                    // PERF FIX (WhatsApp-style lazy media): bubble shows ONLY
+                    // the thumbnail — no eager full-res load/crossfade here.
+                    // Scrolling through a chat with many image bubbles used
+                    // to fire a full-res Glide request (720x720, disk-cached)
+                    // for EVERY bound bubble, on top of the thumb — extra
+                    // network + decode work competing with scroll, causing
+                    // jank on fast flings through media-heavy chats.
+                    // Full resolution now only loads on demand: when the
+                    // user actually taps the bubble, MediaViewerActivity
+                    // (opened via showImageActionSheet below) loads fullUrl
+                    // itself. This matches WhatsApp: the chat thread only
+                    // ever shows the lightweight thumbnail; full quality is
+                    // fetched on open, not upfront.
                     if (thumbUrl != null && !thumbUrl.isEmpty() && !isGifMsg) {
-                        // Step 1: Show thumbnail instantly (tiny, ~30KB)
                         Glide.with(ctx)
                             .load(thumbUrl)
                             .apply(THUMB_RGB565)
                             .override(200, 200)
-                            .into(h.ivImage);
-
-                        // Step 2: Load full in background — replaces thumb with crossfade
-                        Glide.with(ctx)
-                            .load(fullUrl)
-                            .diskCacheStrategy(DiskCacheStrategy.ALL)
-                            .override(720, 720) // PERF: cap decode size to bubble size, not native res
-                            .thumbnail(Glide.with(ctx)
-                                .load(thumbUrl)
-                                .diskCacheStrategy(DiskCacheStrategy.ALL))
-                            .transition(com.bumptech.glide.load.resource.drawable
-                                .DrawableTransitionOptions.withCrossFade(400))
                             .placeholder(R.drawable.ic_file)
                             .error(R.drawable.ic_file)
                             .into(h.ivImage);
