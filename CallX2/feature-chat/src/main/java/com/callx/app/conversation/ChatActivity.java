@@ -174,7 +174,10 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     /** Feature 1: track active view-once dialog so onPause() can auto-dismiss it. */
     private android.app.AlertDialog activeViewOnceDialog = null;
     private AppDatabase          db;
-    private final Executor       ioExecutor = Executors.newFixedThreadPool(2);
+    // PERF FIX: 2 → 4. On chat open, getMessageCount / getLastSyncTimestamp /
+    // LastMessagesCache-seeding all queue on this pool; 2 threads was enough
+    // to serialize them on low-end devices and add visible delay.
+    private final Executor       ioExecutor = Executors.newFixedThreadPool(4);
 
     // ── Firebase ───────────────────────────────────────────────────────────
     private DatabaseReference  messagesRef;
@@ -1763,12 +1766,36 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         attachFreshBottomAnchoredPager();
     }
 
+    /**
+     * PERF FIX: static per-chatId cache of the last known row count. Reopening
+     * a chat you've already opened this app-session (by far the common case —
+     * back-and-forth between chat list and a chat) no longer needs a
+     * background→main thread hop before the Pager attaches: we attach
+     * immediately using the last known count as the anchor, then silently
+     * verify/correct in the background. Only the very first open of a chat
+     * this session pays the real DB round-trip.
+     */
+    private static final java.util.Map<String, Integer> sLastKnownCount =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
     /** Looks up the current row count and attaches a Pager anchored at the true end. */
     private void attachFreshBottomAnchoredPager() {
+        Integer cached = sLastKnownCount.get(chatId);
+        if (cached != null) {
+            // Instant path — no thread hop, adapter gets data on this frame.
+            attachPagerWithKey(cached > 0 ? cached - 1 : null);
+        }
+        // Always re-verify the true count in the background. If it changed
+        // since last time (new messages arrived while chat was closed) we
+        // silently re-attach with the corrected anchor; attachPagerWithKey()
+        // is safe to call twice, it just swaps the LiveData source.
         ioExecutor.execute(() -> {
             int count = db.messageDao().getMessageCount(chatId);
-            Integer initialKey = (count > 0) ? Integer.valueOf(count - 1) : null;
-            runOnUiThread(() -> attachPagerWithKey(initialKey));
+            sLastKnownCount.put(chatId, count);
+            if (cached == null || cached.intValue() != count) {
+                Integer initialKey = (count > 0) ? Integer.valueOf(count - 1) : null;
+                runOnUiThread(() -> attachPagerWithKey(initialKey));
+            }
         });
     }
 

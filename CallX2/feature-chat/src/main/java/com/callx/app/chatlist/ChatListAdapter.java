@@ -15,9 +15,13 @@ import com.callx.app.conversation.ChatActivity;
 import com.callx.app.models.User;
 import de.hdodenhof.circleimageview.CircleImageView;
 import com.callx.app.cache.StatusCacheManager;
+import com.callx.app.repository.ChatRepository;
+import com.callx.app.utils.FirebaseUtils;
+import com.google.firebase.auth.FirebaseAuth;
 
 import java.text.SimpleDateFormat;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * ChatListAdapter v21
@@ -34,6 +38,31 @@ import java.util.*;
  *     PrivacyDirectDialog ab selection bar ke 3-dot menu se accessible hai.
  */
 public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
+
+    // PERF FIX: preload trigger moved here from ChatActivity. Earlier,
+    // ChatRepository.preloadRecentChats() only ran 3s AFTER a chat was
+    // already open — so the NEXT chat you tapped had zero preload benefit.
+    // Now, the moment a row is actually visible in the list (onBindViewHolder
+    // fires only for visible/soon-visible items), we kick off its delta sync
+    // in the background. By the time the user taps it, Room already has the
+    // latest messages and ChatActivity's Pager attaches instantly — no
+    // Firebase round-trip wait on the chat screen itself.
+    // Cooldown map avoids re-triggering a Firebase sync on every scroll-driven
+    // rebind of the same row (RecyclerView rebinds recycled views often).
+    private static final ConcurrentHashMap<String, Long> sLastPreloadAt = new ConcurrentHashMap<>();
+    private static final long PRELOAD_COOLDOWN_MS = 30_000L;
+
+    private void preloadChatIfDue(Context ctx, User u) {
+        if (u == null || u.uid == null) return;
+        String myUid = FirebaseAuth.getInstance().getUid();
+        if (myUid == null) return;
+        String chatId = FirebaseUtils.getChatId(myUid, u.uid);
+        long now = System.currentTimeMillis();
+        Long last = sLastPreloadAt.get(chatId);
+        if (last != null && (now - last) < PRELOAD_COOLDOWN_MS) return;
+        sLastPreloadAt.put(chatId, now);
+        ChatRepository.getInstance(ctx.getApplicationContext()).syncMessagesDelta(chatId);
+    }
 
     public interface SelectionListener {
         void onSelectionStarted();
@@ -104,6 +133,10 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
     @Override public void onBindViewHolder(@NonNull VH h, int pos) {
         User u = contacts.get(pos);
         Context ctx = h.itemView.getContext();
+
+        // PERF FIX: preload this chat's messages the moment its row becomes
+        // visible, well before the user taps it. See preloadChatIfDue() above.
+        preloadChatIfDue(ctx, u);
 
         h.tvName.setText(u.name == null ? "User" : u.name);
 
