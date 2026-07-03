@@ -1743,14 +1743,6 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                     initialScrollDone = true;
                     firstPageRendered = true;
                     binding.rvMessages.post(() -> restoreScrollOrGoToUnread());
-                    // Content has actually landed in the RecyclerView now —
-                    // safe to begin the preDraw-wait for the slide-in. Doing
-                    // it here (instead of right after submitData()) avoids
-                    // racing AsyncPagingDataDiffer's background diff, which
-                    // used to let the preDraw fire against a still-empty
-                    // list and made messages blink in a frame after the
-                    // slide had already resumed.
-                    startPostponedContentTransition();
                     return;
                 }
                 int total = pagingAdapter.getItemCount();
@@ -1771,6 +1763,30 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                     pendingNewMsgCount += othersCount;
                     updateNewMessagesIndicator(pendingNewMsgCount);
                 }
+            }
+        });
+
+        // WHATSAPP-STYLE REVEAL — the definitive fix.
+        //
+        // Everything tried before this (submitData()-adjacent calls,
+        // onItemRangeInserted-based heuristics) was an approximation of
+        // "content is really on screen now." AndroidX Paging ships an
+        // exact, purpose-built signal for this: addOnPagesUpdatedListener().
+        // Per Paging3's own docs, it fires once a new generation of
+        // PagingData has been fully diffed AND applied to the RecyclerView
+        // — i.e. the adapter's presented list == what's about to be drawn.
+        // This is the officially recommended hook for coordinating Paging
+        // with postponed activity transitions / shared elements.
+        //
+        // Guard flag: only the first firing with real items matters — the
+        // reveal only needs to happen once. Later generations (new
+        // messages arriving, etc.) just update in place with no transition
+        // replay, same as before.
+        final boolean[] pagesReadyForReveal = {false};
+        pagingAdapter.addOnPagesUpdatedListener(() -> {
+            if (!pagesReadyForReveal[0] && pagingAdapter.getItemCount() > 0) {
+                pagesReadyForReveal[0] = true;
+                startPostponedContentTransition();
             }
         });
 
