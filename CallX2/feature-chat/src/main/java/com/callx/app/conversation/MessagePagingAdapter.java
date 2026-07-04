@@ -1017,11 +1017,25 @@ public class MessagePagingAdapter
                 if (isMediaMsg) {
                     llBubble.setBackground(null);
                     llBubble.setPadding(0, 0, 0, 0);
+                    // Force a real re-apply next time this holder shows a
+                    // text bubble — background is null right now, not the
+                    // GradientDrawable the cache key would imply.
+                    h.lastBubbleReplyState = -1;
                 } else {
                     boolean hasReply = m.replyToId != null && !m.replyToId.isEmpty();
-                    com.callx.app.utils.ChatThemeManager
-                            .get(ctx)
-                            .applyBubble(llBubble, sent, bMsgType, hasReply);
+                    int replyState = hasReply ? 1 : 0;
+                    // PERF/RAM: skip mutate()+setBackground() entirely when
+                    // this holder already has the right bubble drawable from
+                    // its previous bind — avoids an allocation + an
+                    // invalidate/draw pass on nearly every scroll-triggered
+                    // rebind, since hasReply flips far less often than the
+                    // row itself gets recycled.
+                    if (h.lastBubbleReplyState != replyState) {
+                        com.callx.app.utils.ChatThemeManager
+                                .get(ctx)
+                                .applyBubble(llBubble, sent, bMsgType, hasReply);
+                        h.lastBubbleReplyState = replyState;
+                    }
                 }
             }
         } catch (Exception ignored) {}
@@ -1690,9 +1704,15 @@ public class MessagePagingAdapter
                         || txt.contains("www.")
                         || txt.contains("@")
                         || (txt.length() >= 7 && txt.contains("+"));
-                android.text.SpannableString spanned = new android.text.SpannableString(txt);
+                // PERF/RAM: SpannableString always carries an internal span
+                // array even with zero spans attached — for the common
+                // plain-text message (no link) that's a pure-waste
+                // allocation on every single bind. Only pay for it when
+                // Linkify actually has something to attach.
+                CharSequence spanned;
                 if (mightHaveLink) {
-                    android.text.util.Linkify.addLinks(spanned,
+                    android.text.SpannableString linkSpanned = new android.text.SpannableString(txt);
+                    android.text.util.Linkify.addLinks(linkSpanned,
                         android.text.util.Linkify.WEB_URLS |
                         android.text.util.Linkify.PHONE_NUMBERS |
                         android.text.util.Linkify.EMAIL_ADDRESSES);
@@ -1702,9 +1722,11 @@ public class MessagePagingAdapter
                     h.tvMessage.setLinkTextColor(linkColor);
                     h.tvMessage.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
                     h.tvMessage.setHighlightColor(0x33FFFFFF);
+                    spanned = linkSpanned;
                 } else {
                     // Plain text — remove MovementMethod so RecyclerView keeps scroll events
                     h.tvMessage.setMovementMethod(null);
+                    spanned = txt;
                 }
                 boolean isSentMsg = currentUid.equals(m.senderId);
                 h.tvMessage.setAlpha(1f);
@@ -1751,7 +1773,7 @@ public class MessagePagingAdapter
                         TextViewCompat.setPrecomputedText(h.tvMessage, cachedPct);
                     } else {
                         final VH holderRef = h;
-                        final android.text.SpannableString finalSpanned = spanned;
+                        final CharSequence finalSpanned = spanned;
                         // Cheap — must run on UI thread since it reads the
                         // TextView's current paint/typeface/width.
                         final PrecomputedTextCompat.Params params =
@@ -2858,6 +2880,15 @@ public class MessagePagingAdapter
         // background precompute result is only applied if this still
         // matches the token it captured at dispatch time.
         volatile int textBindToken = 0;
+
+        // PERF: last bubble-background state actually applied to llBubble —
+        // -1 means "unknown / force re-apply" (fresh holder, or last bind
+        // was a bubbleless media message). Lets bindMessage() skip
+        // GradientDrawable.mutate() + setBackground() entirely when this
+        // holder's hasReply state hasn't changed since its last bind
+        // (the common case while scrolling — sent/received view type never
+        // changes for a given recycled holder, only hasReply can flip).
+        int lastBubbleReplyState = -1;
 
         // ── ViewStub refs — each replaced in-place on first inflate ──────────
         // After inflate() the stub removes itself from the view tree;
