@@ -1,4 +1,5 @@
 package com.callx.app.services;
+import android.app.Notification;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.Context;
@@ -12,6 +13,7 @@ import android.graphics.PorterDuffXfermode;
 import android.graphics.Rect;
 import android.graphics.RectF;
 import android.os.Build;
+import android.service.notification.StatusBarNotification;
 import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.Person;
@@ -46,6 +48,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.Executors;
@@ -738,6 +741,23 @@ public class CallxMessagingService extends FirebaseMessagingService {
 
     // ----- Background-killed WhatsApp-style message notification -----
     private final ExecutorService bg = Executors.newCachedThreadPool();
+
+    // HUN-FIX: avatars were re-downloaded over network on EVERY single
+    // reaction event, even for the same contact reacting multiple times in a
+    // row — that's the "extra call" (extra network hit + delay) per
+    // notification. Simple process-lifetime cache keyed by URL; cleared
+    // automatically when the service process dies, refreshed next cold start.
+    private static final java.util.Map<String, Bitmap> avatarCache = new ConcurrentHashMap<>();
+
+    @Nullable
+    private Bitmap cachedCircleAvatar(@Nullable String url) {
+        if (url == null || url.isEmpty()) return null;
+        Bitmap cached = avatarCache.get(url);
+        if (cached != null) return cached;
+        Bitmap fresh = circle(downloadBitmap(url, 100, 100));
+        if (fresh != null) avatarCache.put(url, fresh);
+        return fresh;
+    }
     // ══════════════════════════════════════════════════════════════════════
     //  showMessage — v18 ZERO-FIREBASE (10ms notification)
     //
@@ -2281,23 +2301,28 @@ public class CallxMessagingService extends FirebaseMessagingService {
           chatIntent.putExtra("partnerName", finalReactorName);
           chatIntent.putExtra("partnerPhoto", reactorPhoto != null ? reactorPhoto : "");
           chatIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-          final int notifId = ("msg_react_" + chatId + "_" + messageId).hashCode();
+          // HUN-FIX: SAME notifId formula as regular 1:1 chat messages
+          // (see buildAndShow: ("chat_" + fromUid).hashCode()) — a reaction
+          // is just another event in the SAME conversation, so it should
+          // update that one notification, not stack a brand-new separate
+          // notification for every single reaction.
+          final int notifId = ("chat_" + (reactorUid == null ? "" : reactorUid)).hashCode();
           PendingIntent pi = PendingIntent.getActivity(this, notifId, chatIntent,
                   PendingIntent.FLAG_UPDATE_CURRENT |
                   (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? PendingIntent.FLAG_IMMUTABLE : 0));
 
-          // HUN-FIX (proper): avatar download + circular crop happens off-thread
-          // using the SAME downloadBitmap()/circle() helpers the normal chat
-          // notifications use (see buildAndShow/postRichNotification above),
-          // and the notification uses Person + MessagingStyle so the system
-          // renders a real round avatar + bold name + timestamp — this is far
-          // more reliable across OEMs (Xiaomi/Samsung/etc.) than a manually
-          // set largeIcon on a plain Builder, which several launchers ignore.
+          // HUN-FIX (proper): avatar comes from a small process-lifetime cache
+          // (cachedCircleAvatar) instead of hitting the network again on
+          // every reaction — that was the "extra call". Also, instead of
+          // building a brand-new MessagingStyle from scratch, we try to pull
+          // the ALREADY-POSTED conversation notification for this contact
+          // (same notifId) and just append the reaction as one more message
+          // line, so it merges into the existing chat notification.
           bg.execute(() -> {
               Bitmap avatarBm = null;
-              try { avatarBm = circle(downloadBitmap(avatarUrl, 100, 100)); }
+              try { avatarBm = cachedCircleAvatar(avatarUrl); }
               catch (Exception e) {
-                  android.util.Log.w("CallxFCM", "handleMessageReaction: avatar download failed: " + e.getMessage());
+                  android.util.Log.w("CallxFCM", "handleMessageReaction: avatar fetch failed: " + e.getMessage());
               }
 
               Person.Builder pb = new Person.Builder().setName(finalReactorName);
@@ -2305,31 +2330,48 @@ public class CallxMessagingService extends FirebaseMessagingService {
               if (avatarBm != null) pb.setIcon(IconCompat.createWithBitmap(avatarBm));
               Person sender = pb.build();
 
-              Person me = new Person.Builder().setName("You").setKey("me").build();
-              NotificationCompat.MessagingStyle style =
-                      new NotificationCompat.MessagingStyle(me);
+              NotificationManager nm =
+                      (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+
+              NotificationCompat.MessagingStyle style = null;
+              if (nm != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                  try {
+                      for (StatusBarNotification sbn : nm.getActiveNotifications()) {
+                          if (sbn.getId() == notifId) {
+                              style = NotificationCompat.MessagingStyle
+                                      .extractMessagingStyleFromNotification(sbn.getNotification());
+                              break;
+                          }
+                      }
+                  } catch (Exception e) {
+                      android.util.Log.w("CallxFCM", "handleMessageReaction: extract style failed: " + e.getMessage());
+                  }
+              }
+              if (style == null) {
+                  Person me = new Person.Builder().setName("You").setKey("me").build();
+                  style = new NotificationCompat.MessagingStyle(me);
+              }
+              style.setConversationTitle(finalReactorName);
               style.addMessage(body, when, sender);
 
+              // Same channel as the regular 1:1 chat message notification —
+              // that way reactions respect the same mute setting and share
+              // the same IMPORTANCE_HIGH heads-up behavior, instead of a
+              // separate CHANNEL_REACTIONS the user never asked to control.
               NotificationCompat.Builder b = new NotificationCompat.Builder(
-                      this, com.callx.app.utils.Constants.CHANNEL_REACTIONS)
+                      this, com.callx.app.utils.Constants.CHANNEL_MESSAGES)
                   .setSmallIcon(R.drawable.ic_message_notification)
                   .setContentTitle(title)
                   .setContentText(body)
                   .setStyle(style)
                   .setAutoCancel(true)
-                  // HUN-FIX: PRIORITY_HIGH — on pre-O devices (no channel concept)
-                  // this is what drives heads-up; on O+ the channel importance
-                  // (now IMPORTANCE_HIGH, see CallxApp#createChannels) is what
-                  // actually matters, but keep priority consistent with it.
                   .setPriority(NotificationCompat.PRIORITY_HIGH)
                   .setCategory(NotificationCompat.CATEGORY_SOCIAL)
                   .setWhen(when)
                   .setShowWhen(true)
                   .setContentIntent(pi);
-              if (avatarBm != null) b.setLargeIcon(avatarBm); // fallback for pre-N / launchers that ignore MessagingStyle icon
+              if (avatarBm != null) b.setLargeIcon(avatarBm);
 
-              NotificationManager nm =
-                      (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
               if (nm != null) nm.notify(notifId, b.build());
           });
 
@@ -2392,20 +2434,22 @@ public class CallxMessagingService extends FirebaseMessagingService {
           groupIntent.putExtra("groupId", groupId);
           groupIntent.putExtra("groupName", groupName);
           groupIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-          final int notifId = ("grp_react_" + groupId + "_" + messageId).hashCode();
+          // HUN-FIX: SAME notifId as regular group messages ("group_"+groupId,
+          // see the group message handler) so a reaction updates that one
+          // ongoing notification instead of stacking a separate one.
+          final int notifId = ("group_" + (groupId == null ? "" : groupId)).hashCode();
           PendingIntent pi = PendingIntent.getActivity(this, notifId, groupIntent,
                   PendingIntent.FLAG_UPDATE_CURRENT |
                   (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? PendingIntent.FLAG_IMMUTABLE : 0));
 
-          // HUN-FIX (proper): same avatar+Person+MessagingStyle pattern as the
-          // 1:1 reaction notification and as the app's normal group chat
-          // notifications (see postGroupRichNotification) — reliable round
-          // avatar, bold sender name, and system-rendered timestamp.
+          // HUN-FIX (proper): cached avatar (no repeat network call) +
+          // append reaction into the EXISTING group conversation notification
+          // when one is already posted, same approach as the 1:1 handler.
           bg.execute(() -> {
               Bitmap avatarBm = null;
-              try { avatarBm = circle(downloadBitmap(avatarUrl, 100, 100)); }
+              try { avatarBm = cachedCircleAvatar(avatarUrl); }
               catch (Exception e) {
-                  android.util.Log.w("CallxFCM", "handleGroupMessageReaction: avatar download failed: " + e.getMessage());
+                  android.util.Log.w("CallxFCM", "handleGroupMessageReaction: avatar fetch failed: " + e.getMessage());
               }
 
               Person.Builder pb = new Person.Builder().setName(finalReactorName);
@@ -2413,15 +2457,35 @@ public class CallxMessagingService extends FirebaseMessagingService {
               if (avatarBm != null) pb.setIcon(IconCompat.createWithBitmap(avatarBm));
               Person sender = pb.build();
 
-              Person me = new Person.Builder().setName("You").setKey("me").build();
-              NotificationCompat.MessagingStyle style =
-                      new NotificationCompat.MessagingStyle(me)
-                          .setConversationTitle(finalGroupName.isEmpty() ? null : finalGroupName)
+              NotificationManager nm =
+                      (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+
+              NotificationCompat.MessagingStyle style = null;
+              if (nm != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                  try {
+                      for (StatusBarNotification sbn : nm.getActiveNotifications()) {
+                          if (sbn.getId() == notifId) {
+                              style = NotificationCompat.MessagingStyle
+                                      .extractMessagingStyleFromNotification(sbn.getNotification());
+                              break;
+                          }
+                      }
+                  } catch (Exception e) {
+                      android.util.Log.w("CallxFCM", "handleGroupMessageReaction: extract style failed: " + e.getMessage());
+                  }
+              }
+              if (style == null) {
+                  Person me = new Person.Builder().setName("You").setKey("me").build();
+                  style = new NotificationCompat.MessagingStyle(me)
                           .setGroupConversation(true);
+              }
+              style.setConversationTitle(finalGroupName.isEmpty() ? null : finalGroupName);
               style.addMessage(body, when, sender);
 
+              // Same channel as regular group messages — respects mute +
+              // shares the IMPORTANCE_HIGH heads-up behavior already set there.
               NotificationCompat.Builder b = new NotificationCompat.Builder(
-                      this, com.callx.app.utils.Constants.CHANNEL_REACTIONS)
+                      this, com.callx.app.utils.Constants.CHANNEL_GROUPS)
                   .setSmallIcon(R.drawable.ic_message_notification)
                   .setContentTitle(title)
                   .setContentText(body)
@@ -2434,8 +2498,6 @@ public class CallxMessagingService extends FirebaseMessagingService {
                   .setContentIntent(pi);
               if (avatarBm != null) b.setLargeIcon(avatarBm);
 
-              NotificationManager nm =
-                      (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
               if (nm != null) nm.notify(notifId, b.build());
           });
 

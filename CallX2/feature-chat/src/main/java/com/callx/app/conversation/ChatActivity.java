@@ -1244,6 +1244,22 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         partnerThumb= i.getStringExtra("partnerThumb");
         currentName = i.getStringExtra("currentName");
 
+        // HUN-FIX: currentName is only ever set via this intent extra, but
+        // notification taps (message notif, reaction notif, etc.) never pass
+        // it — so if the user reacts to a message right after opening chat
+        // from a notification, PushNotify.notifyMessageReaction() sends an
+        // empty fromName, and the OTHER person's reaction notification shows
+        // "Someone" instead of this user's real name. Fall back to the
+        // FirebaseAuth display name (set at signup/profile update) so
+        // currentName is never silently empty.
+        if (currentName == null || currentName.trim().isEmpty()) {
+            com.google.firebase.auth.FirebaseUser selfUser =
+                    FirebaseAuth.getInstance().getCurrentUser();
+            if (selfUser != null && selfUser.getDisplayName() != null) {
+                currentName = selfUser.getDisplayName();
+            }
+        }
+
         // Feature 5: notification tap passes notif_msg_id so we can scroll to the
         // message. We intentionally do NOT auto-open view-once content from here —
         // the user must manually tap the bubble to open view-once messages.
