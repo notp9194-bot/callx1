@@ -1,13 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  item_message_received.xml – ConstraintLayout Flattened (v33 perf pass)
+  item_message_received.xml – Flattened outer row + deterministic bubble (v39)
 
-  PERF: was 7 levels of nested LinearLayout (root > avatarRow > nameStack >
-  bubbleRow > ll_bubble > contentFrame > footer/reply-column) — each level
-  is its own measure+layout pass, repeated for every visible row on every
-  scroll frame. Flattened to 2 ConstraintLayouts (root, ll_bubble) + the
-  content FrameLayout (kept as-is on purpose — see note below). All IDs,
-  visibilities, margins, colors unchanged from the original.
+  PERF: outer row was root > avatarRow > nameStack > bubbleRow > ll_bubble
+  (4 LinearLayout levels) — flattened to a single root ConstraintLayout
+  that positions avatar/name/bubble/quick-forward directly.
+
+  ll_bubble itself is a plain vertical LinearLayout (wrap_content), NOT
+  ConstraintLayout — an earlier version made it ConstraintLayout with
+  0dp/MATCH_CONSTRAINT children, which caused a real bug: ConstraintLayout
+  resolves that combination in two measure passes, and the wrongly-sized
+  first-pass render could stay visible alongside the corrected one
+  (cold-open oversized bubbles, "double bubble" ghosting, bubbles
+  shrinking on any forced rebind). Plain LinearLayout wrap_content has
+  exactly one deterministic measure pass — this is also how WhatsApp
+  itself builds the bubble container. All IDs, visibilities, margins,
+  colors unchanged from the original.
 -->
 <androidx.constraintlayout.widget.ConstraintLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
@@ -61,11 +69,25 @@
         app:layout_constraintStart_toEndOf="@id/iv_sender_avatar"
         app:layout_goneMarginStart="8dp"/>
 
-    <!-- Bubble container — was a nested vertical LinearLayout, now flat -->
-    <androidx.constraintlayout.widget.ConstraintLayout
+    <!--
+        Bubble container — WhatsApp-style: plain vertical LinearLayout,
+        wrap_content. Deterministic single-pass sizing — no
+        MATCH_CONSTRAINT/0dp children, so there is no "first pass
+        estimates wrong, second pass corrects it" ambiguity. That
+        ambiguity (previously here as a ConstraintLayout) was the actual
+        cause of both the cold-open-oversized-bubble bug AND the
+        double-bubble ghosting: a stale, wrongly-sized first-pass render
+        was staying on screen alongside the corrected second-pass one.
+        The OUTER row (avatar/name/bubble placement) stays flattened as
+        ConstraintLayout — that part never had this ambiguity, since
+        none of ITS children are MATCH_CONSTRAINT inside a WRAP_CONTENT
+        parent.
+    -->
+    <LinearLayout
         android:id="@+id/ll_bubble"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
+        android:orientation="vertical"
         android:background="@drawable/bubble_received"
         android:minWidth="60dp"
         app:layout_constraintTop_toBottomOf="@id/tv_forwarded"
@@ -76,7 +98,7 @@
         <!-- Reply Preview -->
         <LinearLayout
             android:id="@+id/ll_reply_preview"
-            android:layout_width="0dp"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:background="@drawable/bg_reply_preview_received"
@@ -84,10 +106,7 @@
             android:minWidth="120dp"
             android:clickable="true"
             android:focusable="true"
-            android:visibility="gone"
-            app:layout_constraintTop_toTopOf="parent"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintEnd_toEndOf="@id/content_frame">
+            android:visibility="gone">
 
             <View
                 android:layout_width="3dp"
@@ -147,10 +166,8 @@
         -->
         <FrameLayout
             android:id="@+id/content_frame"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            app:layout_constraintTop_toBottomOf="@id/ll_reply_preview"
-            app:layout_constraintStart_toStartOf="parent">
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
 
             <!--
                 TEXT MESSAGE
@@ -426,10 +443,7 @@
             android:paddingTop="2dp"
             android:paddingBottom="2dp"
             android:layout_margin="3dp"
-            android:visibility="gone"
-            app:layout_constraintTop_toBottomOf="@id/content_frame"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintBottom_toBottomOf="parent">
+            android:visibility="gone">
 
             <TextView
                 android:id="@+id/tv_reactions"
@@ -439,7 +453,7 @@
 
         </LinearLayout>
 
-    </androidx.constraintlayout.widget.ConstraintLayout>
+    </LinearLayout>
 
     <!-- Quick Forward Button -->
     <ImageButton
