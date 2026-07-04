@@ -8,6 +8,6 @@
     Standard Android "forward/share" icon path
   -->
   <path
-      android:fillColor="#FFC107"
+      android:fillColor="@color/forward_icon_tint"
       android:pathData="M14,6L20,12L14,18V14.1C9.9,14.55 7.1,16.05 5,19C6,14 9,9 14,8V6Z"/>
 </vector>

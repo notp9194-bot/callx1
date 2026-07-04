@@ -8,8 +8,6 @@ import android.widget.*;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.core.content.ContextCompat;
-import androidx.core.text.PrecomputedTextCompat;
-import androidx.core.widget.TextViewCompat;
 import androidx.paging.PagingDataAdapter;
 import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.RecyclerView;
@@ -167,36 +165,6 @@ public class MessagePagingAdapter
     //    bindPresenceOnly() and the payload check in onBindViewHolder().
     static final String PAYLOAD_PRESENCE = "presence";
 
-    // ── ASYNC PrecomputedTextCompat ─────────────────────────────────
-    // Small background pool so long-message text layout (line-breaking,
-    // measuring) happens off the UI thread instead of inline during
-    // onBindViewHolder. Low priority so it never competes with the main
-    // thread for CPU during a fling.
-    private static final java.util.concurrent.ExecutorService TEXT_PRECOMPUTE_EXECUTOR =
-            java.util.concurrent.Executors.newFixedThreadPool(2, r -> {
-                Thread t = new Thread(r, "msg-text-precompute");
-                t.setPriority(Thread.NORM_PRIORITY - 1);
-                return t;
-            });
-
-    // LRU cache (messageId + text-hash → PrecomputedTextCompat) so scrolling
-    // back to an already-seen long message reuses the previous result
-    // instantly instead of recomputing. Capped at 140 entries — the
-    // precompute threshold was lowered (80→40 chars, see bind code) so more
-    // messages now qualify; the cap grew to match without letting it grow
-    // unbounded. Accessed from both the UI thread (read on bind) and the
-    // background executor threads (write on completion) — all access MUST
-    // go through precomputeCacheLock.
-    private final Object precomputeCacheLock = new Object();
-    private final java.util.LinkedHashMap<String, PrecomputedTextCompat> precomputedTextCache =
-            new java.util.LinkedHashMap<String, PrecomputedTextCompat>(96, 0.75f, true) {
-                @Override
-                protected boolean removeEldestEntry(
-                        java.util.Map.Entry<String, PrecomputedTextCompat> eldest) {
-                    return size() > 140;
-                }
-            };
-
     // PERF: Linkify.addLinks() runs several regex passes (URL/phone/email)
     // over the full message text — a real cost on every onBindViewHolder,
     // paid again and again for the very common "scroll away, scroll back"
@@ -204,9 +172,8 @@ public class MessagePagingAdapter
     // repeatedly. Cache the finished CharSequence (SpannableString with
     // link spans, or the plain String when there's no link) keyed by
     // messageId+text-hash, so a repeat bind is a HashMap lookup instead
-    // of a fresh regex scan + allocation. Shares the same lock as
-    // precomputedTextCache since both are read on the UI thread only
-    // here (no background writers for this one).
+    // of a fresh regex scan + allocation.
+    private final Object precomputeCacheLock = new Object();
     private final java.util.LinkedHashMap<String, CharSequence> linkifiedTextCache =
             new java.util.LinkedHashMap<String, CharSequence>(64, 0.75f, true) {
                 @Override
@@ -216,25 +183,20 @@ public class MessagePagingAdapter
                 }
             };
 
-    // BUG FIX (cold-open "bubble sometimes full, sometimes partial"):
-    // On a cache MISS, the >40-char path used to ALWAYS hop to
-    // TEXT_PRECOMPUTE_EXECUTOR and apply the result later via
-    // holderRef.itemView.post(). Fine for a message already on screen and
-    // settled — but for a message seen for the very FIRST time (every long
-    // message during cold open, since nothing is cached yet), applying the
-    // precomputed text AFTER the initial layout/scroll-to-bottom already
-    // happened could change that bubble's measured height a frame or two
-    // late. With stackFromEnd + itemAnimator(null), that late height
-    // change doesn't always trigger a re-anchor of the bottom edge — so
-    // the bubble could end up only partially inside the viewport. Race
-    // won → bubble looked fully wrong ("thoda sa dikhta tha").
-    //
-    // Fix: keep this flag OFF (synchronous PrecomputedTextCompat.create()
-    // right on the bind call — a small one-time cost only for the handful
-    // of long messages visible on cold open) until ChatActivity /
-    // GroupChatActivity flips it ON a short beat after the initial page
-    // has actually settled on screen. From then on the original
-    // async-off-thread behaviour resumes for fling performance.
+    // BUG FIX (v45-4): PrecomputedTextCompat (sync AND async) removed
+    // entirely — it was the root cause of the "cold-open bubble sometimes
+    // full, sometimes partial" bug. It worked by setting the plain text
+    // first, then silently swapping tv_message's content a second time
+    // with a separately-built layout. Any time that second layout
+    // resolved a different line count than the first plain setText() did
+    // — which could happen whenever the swap ran before the TextView's
+    // width was 100% final, not only in the old async-after-400ms branch
+    // — the bubble's measured height and its actually-drawn content
+    // disagreed, and with stackFromEnd + itemAnimator(null) that
+    // disagreement doesn't always trigger a re-anchor, so the bubble can
+    // end up only partially inside the viewport ("thoda sa dikhta tha").
+    // Now there is exactly ONE setText() call per bind — no swap, so no
+    // possible mismatch, ever.
     public volatile boolean asyncTextEnabled = false;
 
     // WHATSAPP-STYLE FOOTER RESERVE — invisible trailing span appended to
@@ -1871,103 +1833,40 @@ public class MessagePagingAdapter
                 h.tvMessage.setTextColor(
                     com.callx.app.utils.ChatThemeManager.get(ctx).getTextColor(ctx, isSentMsg));
 
-                // ── PrecomputedTextCompat — now genuinely async ──────────────
-                // 1) setText(spanned) immediately, always — nothing is ever
-                //    blank, and this costs the same as before.
-                // 2) Bump h.textBindToken on EVERY full text-bind (even for
-                //    short messages) — this is the staleness guard. It
-                //    invalidates any in-flight background result left over
-                //    from whatever message this recycled holder showed
-                //    previously, regardless of how long the new text is.
-                // 3) For long messages, check a small LRU cache keyed by
-                //    messageId+text-hash first — scrolling back to an
-                //    already-seen long message reuses the prior result
-                //    instantly, no background hop needed.
-                // 4) On a cache miss, only the cheap Params extraction
-                //    (current font/size/width — already configured on
-                //    h.tvMessage above) stays on the UI thread. The actual
-                //    expensive work, PrecomputedTextCompat.create() (line
-                //    breaking + measuring), runs on TEXT_PRECOMPUTE_EXECUTOR.
-                //    The result is applied on the main thread ONLY if
-                //    h.textBindToken still matches what was captured before
-                //    dispatch — otherwise the holder has since been rebound
-                //    (or recycled) and the stale result is dropped silently.
-                // BUG FIX (time/tick sitting ON TOP of short messages):
-                // wrap the text with an invisible trailing span that
-                // reserves exactly as much room as the footer (time+tick)
-                // actually needs — see FooterReserveSpan / appendFooterReserve
-                // above. Long/wrapped messages already had enough natural
-                // slack on their last line so this is a no-op look-wise for
-                // them; short single-line messages now correctly leave a
-                // gap for the footer instead of being drawn under it.
-                String footerTimeStr = (h.tvTime != null && h.tvTime.getText() != null)
-                        ? h.tvTime.getText().toString() : null;
+                // ── BUG FIX (v45-4): PrecomputedTextCompat REMOVED entirely ──
+                // The previous "perf" path replaced the just-set plain text
+                // with a PrecomputedTextCompat result (sync or async) after
+                // the fact. Even the "synchronous" branch swapped the
+                // TextView's text a second time via
+                // TextViewCompat.setPrecomputedText() with a layout built
+                // from Params captured off a TextView whose width isn't
+                // guaranteed final yet on a freshly-inflated/cold-open
+                // holder — occasionally resolving to a different line count
+                // than plain setText() would, so the bubble's measured
+                // height (first pass) and its actually-drawn content
+                // (second, silently-swapped pass) disagreed. That mismatch
+                // is exactly the "kabhi pura bubble dikhta hai, kabhi thoda
+                // sa dikhta hai" bug — and it could recur any time the swap
+                // and the real layout width disagreed, not only in the old
+                // async branch. Root-caused for good by removing the second
+                // pass entirely: a single plain setText() call is the only
+                // thing that ever sets tv_message's content, so there is
+                // only ever ONE measurement of it, period. No swap, no
+                // possible mismatch, no "thoda sa dikhta hai" — guaranteed,
+                // not just in the common case.
+                //
+                // BUG FIX: footerReservePx used to be computed from
+                // h.tvTime's CURRENT (possibly stale, recycled-from-a-
+                // previous-message) text, read before this message's own
+                // time was ever set on it. Now computed straight from this
+                // message's own timestamp so the reserved gap always
+                // matches the footer that will actually be drawn.
+                String footerTimeStr = m.timestamp > 0 ? formatTime(m.timestamp) : null;
                 int footerReservePx = computeFooterReservePx(h, m, isSentMsg, footerTimeStr);
                 CharSequence displaySpanned = appendFooterReserve(spanned, footerReservePx);
 
                 h.tvMessage.setText(displaySpanned);
-                final int myTextBindToken = ++h.textBindToken;
-                // PERF: threshold lowered from 80 → 40. With breakStrategy=simple
-                // now set on tv_message (see item_message_sent/received.xml),
-                // StaticLayout construction is cheap enough that more messages
-                // can afford the (small) thread-hop cost, moving line-breaking/
-                // measuring for typical medium-length chat messages off the UI
-                // thread too — not just long ones — which matters most during
-                // a fast fling when many bubbles bind in the same frame budget.
-                if (txt.length() > 40) {
-                    final String mid = m.messageId != null ? m.messageId : m.id;
-                    // Reserve width is folded into the cache key — a message
-                    // whose footer needs differ (edited flag flips, expiry
-                    // countdown starts, etc.) simply misses the cache and
-                    // recomputes rather than reusing a wrongly-sized layout.
-                    final String cacheKey = (mid != null ? mid : "") + "#" + txt.hashCode()
-                            + "#" + footerReservePx;
-
-                    PrecomputedTextCompat cachedPct;
-                    synchronized (precomputeCacheLock) {
-                        cachedPct = precomputedTextCache.get(cacheKey);
-                    }
-                    if (cachedPct != null) {
-                        // Fast path: already computed on a previous bind.
-                        // Must go through TextViewCompat.setPrecomputedText()
-                        // (not plain setText) so the existing measured
-                        // layout is actually reused instead of being
-                        // remeasured from scratch.
-                        TextViewCompat.setPrecomputedText(h.tvMessage, cachedPct);
-                    } else {
-                        // BUG FIX (v45-3): the old code branched on
-                        // asyncTextEnabled and, once true (400ms after chat
-                        // open), computed PrecomputedTextCompat on a
-                        // background thread and applied it later via
-                        // itemView.post(). That post() lands AFTER
-                        // RecyclerView has already measured/positioned the
-                        // item using the plain setText() height from above.
-                        // If the precomputed layout resolves to a different
-                        // height (common — the async Params snapshot can be
-                        // taken before the bubble's final width settles),
-                        // the bubble silently resizes after the scroll
-                        // position is already locked in — this is exactly
-                        // the "kabhi pura bubble dikhta hai, kabhi thoda sa
-                        // dikhta hai" bug. So the async branch is removed
-                        // entirely: ALWAYS compute synchronously, right
-                        // here, so the bubble's FIRST and ONLY measured
-                        // height is final before layout/scroll anchoring
-                        // happens. No post(), no race, no "bubble thoda sa
-                        // dikhta hai" — cold-open or not.
-                        try {
-                            PrecomputedTextCompat.Params params =
-                                    TextViewCompat.getTextMetricsParams(h.tvMessage);
-                            PrecomputedTextCompat pct =
-                                    PrecomputedTextCompat.create(displaySpanned, params);
-                            synchronized (precomputeCacheLock) {
-                                precomputedTextCache.put(cacheKey, pct);
-                            }
-                            TextViewCompat.setPrecomputedText(h.tvMessage, pct);
-                        } catch (Exception ignored) {
-                            // Plain text already on screen from setText() above — fine.
-                        }
-                    }
-                }
+                h.textBindToken++;
 
                 // ── Link preview (ViewStub lazy inflate) ─────────────────────
                 // BUG FIX (cold-open big bubble / "shrinks on selection"):

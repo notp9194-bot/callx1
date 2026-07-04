@@ -9,7 +9,7 @@
     <color name="surface_card">#000000</color>
     <color name="surface_chat_bg">#0B141A</color>
     <color name="surface_input">#1A1A1A</color>
-    <color name="bar_background">#1B5E20</color>
+    <color name="bar_background">#4CAF50</color>
     <color name="bar_on_background">#FFFFFF</color>
     <color name="text_primary">#E8E8E8</color>
     <color name="chat_input_text">#FFFFFF</color>
@@ -23,6 +23,7 @@
     <color name="bubble_received">#14487A</color>
     <color name="bubble_received_end">#1B5A94</color>
     <color name="bubble_received_text">#FFFFFF</color>
+    <color name="forward_icon_tint">#FFC107</color>
     <color name="status_online">#4CAF50</color>
     <color name="status_typing">#4CAF50</color>
     <color name="action_call_accept">#4CAF50</color>
