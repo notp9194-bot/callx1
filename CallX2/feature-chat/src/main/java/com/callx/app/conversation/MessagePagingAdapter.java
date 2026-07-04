@@ -616,12 +616,6 @@ public class MessagePagingAdapter
     public void onDetachedFromRecyclerView(@NonNull RecyclerView recyclerView) {
         super.onDetachedFromRecyclerView(recyclerView);
         glideRequestManager = null;
-        // NOTE: intentionally NOT shutting down textPrecomputeExecutor here —
-        // ChatActivity/GroupChatActivity keep this same adapter instance
-        // alive across config changes in some paths, and a shutdown executor
-        // would silently drop all future setTextFuture() calls afterwards.
-        // It's a single background thread for this adapter's lifetime and is
-        // released when the adapter itself is GC'd with the Activity.
     }
 
     /** Cached RequestManager if attached; falls back to glide(ctx) so callers never null-check. */
@@ -629,38 +623,6 @@ public class MessagePagingAdapter
         return glideRequestManager != null ? glideRequestManager : com.bumptech.glide.Glide.with(ctx);
     }
 
-    // PERF: PrecomputedTextCompat for message bodies via TextViewCompat#setTextFuture.
-    //
-    // IMPORTANT — read the v45-4 bug-fix comment further down (search
-    // "BUG FIX (v45-4)") before touching this again. That fix removed an
-    // earlier attempt that called plain setText() first and then swapped in
-    // a precomputed layout afterwards — TWO setText-equivalent calls per
-    // bind, the second one sized off a TextView width that wasn't settled
-    // yet, causing bubbles to intermittently render at the wrong height.
-    //
-    // setTextFuture() is different in a way that avoids that exact failure
-    // mode: it is the ONLY text-setting call for this bind (no separate
-    // plain setText before it), and per its documented contract the
-    // TextView will block on the future if it's needed for measure/draw
-    // before it resolves — so there's still only ever one measurement,
-    // it just happens on a background thread when the future is already
-    // (or becomes) ready in time. Heavy paragraphs (long text, lots of
-    // emoji/links) get their line-breaking/hyphenation/bidi analysis off
-    // the main thread instead of stalling scroll on bind().
-    private final java.util.concurrent.ExecutorService textPrecomputeExecutor =
-            java.util.concurrent.Executors.newSingleThreadExecutor();
-    private androidx.core.text.PrecomputedTextCompat.Params cachedTextParams;
-
-    private androidx.core.text.PrecomputedTextCompat.Params getTextParams(android.widget.TextView tv) {
-        if (cachedTextParams == null) {
-            // Font/typeface/breakStrategy are the same for every message row
-            // (set once per-holder in onCreateViewHolder), so these Params
-            // are valid to build once and reuse for every bind — nothing
-            // per-instance-varying goes into a PrecomputedTextCompat.Params.
-            cachedTextParams = new androidx.core.text.PrecomputedTextCompat.Params.Builder(tv).build();
-        }
-        return cachedTextParams;
-    }
 
     public void setActionListener(ActionListener l) {
         this.actionListener = l;
@@ -1944,24 +1906,14 @@ public class MessagePagingAdapter
                 int footerReservePx = computeFooterReservePx(h, m, isSentMsg, footerTimeStr);
                 CharSequence displaySpanned = appendFooterReserve(spanned, footerReservePx);
 
-                // PERF: only worth precomputing for text long enough that
-                // background line-breaking/hyphenation actually saves
-                // main-thread time — short messages (most chat bubbles)
-                // measure in well under a millisecond either way, so skip
-                // the Params/Future overhead for them and setText directly.
-                if (displaySpanned.length() > 60) {
-                    androidx.core.widget.TextViewCompat.setTextFuture(
-                            h.tvMessage,
-                            androidx.core.text.PrecomputedTextCompat.getTextFuture(
-                                    displaySpanned, getTextParams(h.tvMessage), textPrecomputeExecutor));
-                } else {
-                    // Cancel any in-flight future left over from this
-                    // recycled holder's previous (possibly long) message —
-                    // setTextFuture leaves TextView.getTextFuture non-null
-                    // otherwise, and a plain setText alone doesn't clear it.
-                    androidx.core.widget.TextViewCompat.setTextFuture(h.tvMessage, null);
-                    h.tvMessage.setText(displaySpanned);
-                }
+                // Set message text directly. (An earlier "precompute"
+                // path here called TextViewCompat.setTextFuture(), which
+                // does not exist on TextViewCompat and never compiled as
+                // written — removed. See v45-4 bug-fix note above: a single
+                // plain setText() call is the only thing that should ever
+                // set tv_message's content, so there is only ever ONE
+                // measurement of it.)
+                h.tvMessage.setText(displaySpanned);
                 h.textBindToken++;
 
                 // ── Link preview (ViewStub lazy inflate) ─────────────────────
@@ -2868,13 +2820,6 @@ public class MessagePagingAdapter
         // Missing clears on ivReplyThumb/ivLinkThumb/ivVideoThumb/ivStatusSeenThumb/ivReelSeenThumb
         // caused Glide memory leaks and stale image flicker on fast scrolling.
         Context ctx = holder.itemView.getContext();
-        // PERF/SAFETY: cancel any in-flight setTextFuture() so a late-
-        // resolving background text layout from the message this holder
-        // used to show can never land on whatever new message it gets
-        // rebound to next.
-        if (holder.tvMessage != null) {
-            androidx.core.widget.TextViewCompat.setTextFuture(holder.tvMessage, null);
-        }
         if (holder.ivImage           != null) glide(ctx).clear(holder.ivImage);
         if (holder.ivReplyThumb      != null) glide(ctx).clear(holder.ivReplyThumb);
         if (holder.ivLinkThumb       != null) glide(ctx).clear(holder.ivLinkThumb);
