@@ -180,21 +180,23 @@ public class ChatBlockController {
         boolean isBlocked = delegate.isBlocked();
         String partnerName = delegate.getPartnerName();
         String label = isBlocked ? "Unblock" : "Block";
-        new AlertDialog.Builder(delegate.getActivity())
+        com.callx.app.utils.AlertDialogStyler.showRounded(
+            new AlertDialog.Builder(delegate.getActivity())
                 .setTitle(label + " " + partnerName + "?")
                 .setPositiveButton(label, (d, w) ->
                     FirebaseUtils.getBlocksRef(delegate.getCurrentUid())
                             .child(delegate.getPartnerUid())
                             .setValue(!isBlocked))
                 .setNegativeButton("Cancel", null)
-                .show();
+        .create());
     }
 
     // ── Confirm permanent block ───────────────────────────────────────────
 
     public void confirmPermanentBlock() {
         String partnerName = delegate.getPartnerName();
-        new AlertDialog.Builder(delegate.getActivity())
+        com.callx.app.utils.AlertDialogStyler.showRounded(
+            new AlertDialog.Builder(delegate.getActivity())
                 .setTitle("⛔ Permanently Block " + partnerName + "?")
                 .setMessage(partnerName + " will be permanently blocked. They will NOT be able to "
                         + "send you any requests or contact you ever again.\n\nThis action cannot be undone.")
@@ -210,7 +212,7 @@ public class ChatBlockController {
                     delegate.getBinding().llBlockBanner.setVisibility(View.GONE);
                 })
                 .setNegativeButton("Cancel", null)
-                .show();
+        .create());
     }
 
     // ── Unblock joy sheet ─────────────────────────────────────────────────

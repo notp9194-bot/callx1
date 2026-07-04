@@ -280,7 +280,8 @@ public class MultiMediaPreviewDialog {
         int padPx = (int) (16 * ctx.getResources().getDisplayMetrics().density);
         et.setPadding(padPx, padPx / 2, padPx, padPx / 2);
 
-        new AlertDialog.Builder(ctx)
+        com.callx.app.utils.AlertDialogStyler.showRounded(
+            new AlertDialog.Builder(ctx)
                 .setTitle("Photo " + (pos + 1) + " caption")
                 .setView(et)
                 .setPositiveButton("Save", (d, w) -> {
@@ -289,6 +290,6 @@ public class MultiMediaPreviewDialog {
                     refresh.run();
                 })
                 .setNegativeButton("Cancel", null)
-                .show();
+        .create());
     }
 }

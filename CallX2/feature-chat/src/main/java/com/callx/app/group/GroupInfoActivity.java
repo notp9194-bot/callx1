@@ -541,7 +541,8 @@ public class GroupInfoActivity extends AppCompatActivity {
         for (GroupMemberAdapter.MemberItem m : members)
             if (uid.equals(m.uid)) { name = m.name; break; }
         final String finalName = name;
-        new AlertDialog.Builder(this)
+        com.callx.app.utils.AlertDialogStyler.showRounded(
+            new AlertDialog.Builder(this)
                 .setTitle("Remove " + name + "?")
                 .setMessage(name + " will be removed from this group.")
                 .setPositiveButton("Remove", (d, w) -> {
@@ -560,7 +561,7 @@ public class GroupInfoActivity extends AppCompatActivity {
                     Toast.makeText(this, finalName + " removed", Toast.LENGTH_SHORT).show();
                 })
                 .setNegativeButton("Cancel", null)
-                .show();
+        .create());
     }
 
     // ── Admin: Rename group ───────────────────────────────────────────────
@@ -569,7 +570,8 @@ public class GroupInfoActivity extends AppCompatActivity {
         et.setText(groupName);
         et.setSelection(et.getText().length());
         int p = dp(16); et.setPadding(p, p, p, p);
-        new AlertDialog.Builder(this)
+        com.callx.app.utils.AlertDialogStyler.showRounded(
+            new AlertDialog.Builder(this)
                 .setTitle("Rename Group")
                 .setView(et)
                 .setPositiveButton("Save", (d, w) -> {
@@ -582,7 +584,7 @@ public class GroupInfoActivity extends AppCompatActivity {
                     Toast.makeText(this, "Group renamed", Toast.LENGTH_SHORT).show();
                 })
                 .setNegativeButton("Cancel", null)
-                .show();
+        .create());
     }
 
     // ── Admin: Save description ───────────────────────────────────────────
@@ -624,7 +626,8 @@ public class GroupInfoActivity extends AppCompatActivity {
         EditText et = new EditText(this);
         et.setHint("Enter CallX ID or UID");
         int p = dp(16); et.setPadding(p, p, p, p);
-        new AlertDialog.Builder(this)
+        com.callx.app.utils.AlertDialogStyler.showRounded(
+            new AlertDialog.Builder(this)
                 .setTitle("Add Member")
                 .setView(et)
                 .setPositiveButton("Add", (d, w) -> {
@@ -633,7 +636,7 @@ public class GroupInfoActivity extends AppCompatActivity {
                     addMemberByUid(uid);
                 })
                 .setNegativeButton("Cancel", null)
-                .show();
+        .create());
     }
 
     private void addMemberByUid(String uid) {
@@ -683,7 +686,8 @@ public class GroupInfoActivity extends AppCompatActivity {
     }
 
     private void showResetLinkConfirm() {
-        new AlertDialog.Builder(this)
+        com.callx.app.utils.AlertDialogStyler.showRounded(
+            new AlertDialog.Builder(this)
                 .setTitle("Reset Invite Link?")
                 .setMessage("The old link will stop working. Anyone with the old link won't be able to join.")
                 .setPositiveButton("Reset", (d, w) -> {
@@ -695,14 +699,15 @@ public class GroupInfoActivity extends AppCompatActivity {
                     Toast.makeText(this, "Invite link reset", Toast.LENGTH_SHORT).show();
                 })
                 .setNegativeButton("Cancel", null)
-                .show();
+        .create());
     }
 
     // ── Report group ──────────────────────────────────────────────────────
     private void showReportDialog() {
         String[] reasons = {"Spam or scam", "Inappropriate content",
                 "Harassment", "Misinformation", "Other"};
-        new AlertDialog.Builder(this)
+        com.callx.app.utils.AlertDialogStyler.showRounded(
+            new AlertDialog.Builder(this)
                 .setTitle("Report Group")
                 .setItems(reasons, (d, which) -> {
                     FirebaseUtils.db().getReference("reports").push().setValue(
@@ -715,17 +720,18 @@ public class GroupInfoActivity extends AppCompatActivity {
                             }});
                     Toast.makeText(this, "Group reported. Thank you.", Toast.LENGTH_LONG).show();
                 })
-                .show();
+        .create());
     }
 
     // ── Leave group ───────────────────────────────────────────────────────
     private void confirmLeaveGroup() {
-        new AlertDialog.Builder(this)
+        com.callx.app.utils.AlertDialogStyler.showRounded(
+            new AlertDialog.Builder(this)
                 .setTitle("Leave Group?")
                 .setMessage("You will no longer receive messages from this group.")
                 .setPositiveButton("Leave", (d, w) -> doLeaveGroup())
                 .setNegativeButton("Cancel", null)
-                .show();
+        .create());
     }
 
     private void doLeaveGroup() {
@@ -743,12 +749,13 @@ public class GroupInfoActivity extends AppCompatActivity {
 
     // ── Delete group (admin only) ─────────────────────────────────────────
     private void confirmDeleteGroup() {
-        new AlertDialog.Builder(this)
+        com.callx.app.utils.AlertDialogStyler.showRounded(
+            new AlertDialog.Builder(this)
                 .setTitle("Delete Group?")
                 .setMessage("All messages and members will be permanently removed. This cannot be undone.")
                 .setPositiveButton("Delete", (d, w) -> doDeleteGroup())
                 .setNegativeButton("Cancel", null)
-                .show();
+        .create());
     }
 
     private void doDeleteGroup() {

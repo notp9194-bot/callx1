@@ -211,7 +211,8 @@ public class ChatSecurityBottomSheet extends BottomSheetDialogFragment {
                 if (values[i] == current) { checkedIdx = i; break; }
             }
             final int[] sel = {checkedIdx};
-            new AlertDialog.Builder(requireContext())
+            com.callx.app.utils.AlertDialogStyler.showRounded(
+                new AlertDialog.Builder(requireContext())
                 .setTitle("⏳ Disappearing Messages")
                 .setSingleChoiceItems(labels, checkedIdx, (d, which) -> sel[0] = which)
                 .setPositiveButton("Set", (d, w) -> {
@@ -220,7 +221,7 @@ public class ChatSecurityBottomSheet extends BottomSheetDialogFragment {
                     toast("Disappearing messages: " + labels[sel[0]]);
                 })
                 .setNegativeButton("Cancel", null)
-                .show();
+            .create());
         });
     }
 
@@ -251,12 +252,13 @@ public class ChatSecurityBottomSheet extends BottomSheetDialogFragment {
             if (options[i].equals(current)) { checked = i; break; }
         }
         final int[] sel = {checked};
-        new AlertDialog.Builder(requireContext())
+        com.callx.app.utils.AlertDialogStyler.showRounded(
+            new AlertDialog.Builder(requireContext())
             .setTitle(title)
             .setSingleChoiceItems(options, checked, (d, which) -> sel[0] = which)
             .setPositiveButton("OK", (d, w) -> cb.onSelected(options[sel[0]]))
             .setNegativeButton("Cancel", null)
-            .show();
+        .create());
     }
 
     private void toast(String msg) {

@@ -140,11 +140,12 @@ public class GroupMemberAdapter extends RecyclerView.Adapter<GroupMemberAdapter.
             labels.add("Remove from Group"); actions.add("remove");
         }
 
-        new AlertDialog.Builder(ctx)
+        com.callx.app.utils.AlertDialogStyler.showRounded(
+            new AlertDialog.Builder(ctx)
                 .setTitle(m.name)
                 .setItems(labels.toArray(new String[0]), (d, which) ->
                         listener.onAction(m.uid, actions.get(which)))
-                .show();
+                .create());
     }
 
     @Override public int getItemCount() { return items.size(); }

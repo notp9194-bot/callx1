@@ -2663,7 +2663,9 @@ public class MessagePagingAdapter
                             case "Delete":  actionListener.onDelete(m);  break;
                         }
                     });
-        holder[0] = builder.show();
+        android.app.AlertDialog dlgLongPress = builder.create();
+        com.callx.app.utils.AlertDialogStyler.showRounded(dlgLongPress);
+        holder[0] = dlgLongPress;
     }
 
     // FIX [P3-3]: Full emoji picker — 8-column scrollable grid of common emojis
@@ -2702,7 +2704,7 @@ public class MessagePagingAdapter
             actionListener.onReact(m, ALL_EMOJIS[pos]);
             dialog.dismiss();
         });
-        dialog.show();
+        com.callx.app.utils.AlertDialogStyler.showRounded(dialog);
     }
 
     // ══════════════════════════════════════════════════════════════════════════

@@ -1505,14 +1505,15 @@ public class GroupChatActivity extends AppCompatActivity
     // ─────────────────────────────────────────────────────────────────────
 
     private void confirmDelete(Message m) {
-        new AlertDialog.Builder(this)
+        com.callx.app.utils.AlertDialogStyler.showRounded(
+            new AlertDialog.Builder(this)
                 .setTitle("Delete message?")
                 .setPositiveButton("Delete", (d, w) -> {
                     groupMessagesRef.child(m.id).child("deleted").setValue(true);
                     groupMessagesRef.child(m.id).child("text").setValue("");
                     ioExecutor.execute(() -> db.messageDao().softDelete(m.id));
                 })
-                .setNegativeButton("Cancel", null).show();
+                .setNegativeButton("Cancel", null).create());
     }
 
     /** GROUP REACTION FLOW — previously this only ever called .setValue(emoji),
@@ -1617,11 +1618,12 @@ public class GroupChatActivity extends AppCompatActivity
             container.addView(row);
         }
 
-        new AlertDialog.Builder(this)
+        com.callx.app.utils.AlertDialogStyler.showRounded(
+            new AlertDialog.Builder(this)
                 .setTitle("Reactions")
                 .setView(scroll)
                 .setPositiveButton("Close", null)
-                .show();
+        .create());
     }
 
     // toggleStar() moved to GroupStarredController#toggleStar — same
@@ -2291,34 +2293,37 @@ public class GroupChatActivity extends AppCompatActivity
         if (display.isEmpty()) {
             Toast.makeText(this, "No other members", Toast.LENGTH_SHORT).show(); return;
         }
-        new AlertDialog.Builder(this)
+        com.callx.app.utils.AlertDialogStyler.showRounded(
+            new AlertDialog.Builder(this)
                 .setTitle("Group Members")
                 .setItems(display.toArray(new String[0]),
                         (d, i) -> showMemberOptions(uids.get(i)))
-                .show();
+        .create());
     }
 
     private void showMemberOptions(String uid) {
         String name   = memberNames.getOrDefault(uid, "Member");
         boolean isAdm = "admin".equals(memberRoles.getOrDefault(uid, "member"));
         String[] opts = { "Remove from group", isAdm ? "Revoke admin" : "Make admin" };
-        new AlertDialog.Builder(this)
+        com.callx.app.utils.AlertDialogStyler.showRounded(
+            new AlertDialog.Builder(this)
                 .setTitle(name)
                 .setItems(opts, (d, which) -> {
                     if (which == 0) confirmRemoveMember(uid, name);
                     else            toggleMemberAdmin(uid, name, isAdm);
-                }).show();
+                }).create());
     }
 
     private void confirmRemoveMember(String uid, String name) {
-        new AlertDialog.Builder(this)
+        com.callx.app.utils.AlertDialogStyler.showRounded(
+            new AlertDialog.Builder(this)
                 .setTitle("Remove " + name + "?")
                 .setPositiveButton("Remove", (d, w) -> {
                     FirebaseUtils.getGroupMembersRef(groupId).child(uid).removeValue();
                     FirebaseUtils.db().getReference("users")
                             .child(uid).child("groups").child(groupId).removeValue();
                 })
-                .setNegativeButton("Cancel", null).show();
+                .setNegativeButton("Cancel", null).create());
     }
 
     private void toggleMemberAdmin(String uid, String name, boolean wasAdmin) {
@@ -2334,7 +2339,8 @@ public class GroupChatActivity extends AppCompatActivity
         et.setText(groupName);
         et.setSelection(et.getText().length());
         int p = dp(16); et.setPadding(p, p, p, p);
-        new AlertDialog.Builder(this)
+        com.callx.app.utils.AlertDialogStyler.showRounded(
+            new AlertDialog.Builder(this)
                 .setTitle("Rename Group")
                 .setView(et)
                 .setPositiveButton("Save", (d, w) -> {
@@ -2344,7 +2350,7 @@ public class GroupChatActivity extends AppCompatActivity
                     FirebaseUtils.getGroupsRef().child(groupId).child("name").setValue(newName);
                     if (getSupportActionBar() != null) getSupportActionBar().setTitle(newName);
                 })
-                .setNegativeButton("Cancel", null).show();
+                .setNegativeButton("Cancel", null).create());
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -3061,7 +3067,8 @@ public class GroupChatActivity extends AppCompatActivity
         com.callx.app.utils.ChatWallpaperManager wm =
                 com.callx.app.utils.ChatWallpaperManager.get(this);
         String[] options = {"🙋 This group only", "🌐 All chats (Global)", "❌ Remove wallpaper"};
-        new android.app.AlertDialog.Builder(this)
+        com.callx.app.utils.AlertDialogStyler.showRounded(
+            new android.app.AlertDialog.Builder(this)
             .setTitle("🖼️ Set Wallpaper")
             .setItems(options, (d, which) -> {
                 if (which == 0) {
@@ -3077,7 +3084,7 @@ public class GroupChatActivity extends AppCompatActivity
                 }
             })
             .setNegativeButton("Cancel", null)
-            .show();
+        .create());
     }
 
 

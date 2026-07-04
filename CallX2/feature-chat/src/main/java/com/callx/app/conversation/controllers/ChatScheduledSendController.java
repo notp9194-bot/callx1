@@ -233,11 +233,12 @@ public class ChatScheduledSendController {
             container.addView(buildManageRow(ctx, sm, fmt));
         }
 
-        new AlertDialog.Builder(ctx)
+        com.callx.app.utils.AlertDialogStyler.showRounded(
+            new AlertDialog.Builder(ctx)
                 .setTitle("Scheduled messages")
                 .setView(scroll)
                 .setPositiveButton("Close", null)
-                .show();
+        .create());
     }
 
     private View buildManageRow(Context ctx, ScheduledMessage sm, SimpleDateFormat fmt) {

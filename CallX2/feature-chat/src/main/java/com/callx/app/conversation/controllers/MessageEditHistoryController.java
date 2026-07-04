@@ -62,7 +62,8 @@ public class MessageEditHistoryController {
                 | InputType.TYPE_TEXT_FLAG_MULTI_LINE
                 | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
 
-        new AlertDialog.Builder(ctx)
+        com.callx.app.utils.AlertDialogStyler.showRounded(
+            new AlertDialog.Builder(ctx)
                 .setTitle("Edit message")
                 .setView(input)
                 .setPositiveButton("Save", (d, w) -> {
@@ -75,7 +76,7 @@ public class MessageEditHistoryController {
                     saveEdit(m, newText);
                 })
                 .setNegativeButton("Cancel", null)
-                .show();
+        .create());
     }
 
     private void saveEdit(Message m, String newText) {
@@ -152,11 +153,12 @@ public class MessageEditHistoryController {
         long currentAt = m.editedAt != null ? m.editedAt : 0L;
         addVersionRow(ctx, container, "Current", m.text != null ? m.text : "", currentAt, fmt);
 
-        new AlertDialog.Builder(ctx)
+        com.callx.app.utils.AlertDialogStyler.showRounded(
+            new AlertDialog.Builder(ctx)
                 .setTitle("Edit history")
                 .setView(scroll)
                 .setPositiveButton("Close", null)
-                .show();
+        .create());
     }
 
     private void addVersionRow(android.content.Context ctx, LinearLayout container,

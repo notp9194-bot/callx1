@@ -1633,18 +1633,19 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // Feature 3: long-press on sender's lock bubble → revoke confirm dialog
         pagingAdapter.setViewOnceRevokeListener(message -> {
             String msgId = message.messageId != null ? message.messageId : message.id;
-            new android.app.AlertDialog.Builder(this)
-                .setTitle("Remove message?")
-                .setMessage("This will permanently delete the message before your partner opens it. They will see \"Removed\".")
-                .setPositiveButton("Remove", (d, w) -> {
-                    if (viewOnceController != null && msgId != null) {
-                        viewOnceController.revokeViewOnce(msgId,
-                            () -> Toast.makeText(this, "Message removed", Toast.LENGTH_SHORT).show(),
-                            () -> Toast.makeText(this, "Failed to remove, try again", Toast.LENGTH_SHORT).show());
-                    }
-                })
-                .setNegativeButton("Cancel", null)
-                .show();
+            com.callx.app.utils.AlertDialogStyler.showRounded(
+                new android.app.AlertDialog.Builder(this)
+                    .setTitle("Remove message?")
+                    .setMessage("This will permanently delete the message before your partner opens it. They will see \"Removed\".")
+                    .setPositiveButton("Remove", (d, w) -> {
+                        if (viewOnceController != null && msgId != null) {
+                            viewOnceController.revokeViewOnce(msgId,
+                                () -> Toast.makeText(this, "Message removed", Toast.LENGTH_SHORT).show(),
+                                () -> Toast.makeText(this, "Failed to remove, try again", Toast.LENGTH_SHORT).show());
+                        }
+                    })
+                    .setNegativeButton("Cancel", null)
+                    .create());
         });
 
         pagingAdapter.setActionListener(new MessagePagingAdapter.ActionListener() {
@@ -2741,19 +2742,20 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // -1 = "expire on view" (no timer). >0 = timer duration in ms.
         long[] durations = {-1L, 3_600_000L, 21_600_000L, 86_400_000L, 259_200_000L, 604_800_000L};
 
-        new android.app.AlertDialog.Builder(this)
-            .setTitle("View Once — Expiry")
-            .setItems(options, (d, which) -> {
-                selectedViewOnceExpiryMs = durations[which];
-                setViewOnceMode(true);
-            })
-            .setNegativeButton("Cancel", (d, w) -> {
-                if (isViewOnceModeOn) {
-                    setViewOnceMode(false);
-                    selectedViewOnceExpiryMs = 0L;
-                }
-            })
-            .show();
+        com.callx.app.utils.AlertDialogStyler.showRounded(
+            new android.app.AlertDialog.Builder(this)
+                .setTitle("View Once — Expiry")
+                .setItems(options, (d, which) -> {
+                    selectedViewOnceExpiryMs = durations[which];
+                    setViewOnceMode(true);
+                })
+                .setNegativeButton("Cancel", (d, w) -> {
+                    if (isViewOnceModeOn) {
+                        setViewOnceMode(false);
+                        selectedViewOnceExpiryMs = 0L;
+                    }
+                })
+                .create());
     }
 
     /**
@@ -3175,7 +3177,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                         LastMessagesCache.getInstance().removeMessage(chatId, m.id);
                     });
         }
-        builder.show();
+        com.callx.app.utils.AlertDialogStyler.showRounded(builder.create());
     }
 
     private void forwardMessage(Message m) {
@@ -3338,7 +3340,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             List<Message> sel = pagingAdapter.getSelectedMessages();
             if (sel.isEmpty()) return;
             String msg = sel.size() == 1 ? "Delete this message?" : "Delete " + sel.size() + " messages?";
-            new AlertDialog.Builder(this).setTitle("Delete messages").setMessage(msg)
+            com.callx.app.utils.AlertDialogStyler.showRounded(
+                new AlertDialog.Builder(this).setTitle("Delete messages").setMessage(msg)
                     .setPositiveButton("Delete for everyone", (d, w) -> {
                         for (Message m : sel) {
                             messagesRef.child(m.id).child("deleted").setValue(true);
@@ -3357,7 +3360,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                         }
                         pagingAdapter.exitMultiSelectMode(); hideMultiSelectBar();
                     })
-                    .setNegativeButton("Cancel", null).show();
+                    .setNegativeButton("Cancel", null).create());
         });
         View btnStar = binding.getRoot().findViewById(com.callx.app.chat.R.id.btn_selection_star);
         if (btnStar != null) btnStar.setOnClickListener(v -> {
@@ -3403,8 +3406,9 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         String typeLabel   = m.type   != null ? m.type   : "text";
         String info = "Sent:  " + sentTime + "\nStatus:  " + statusLabel
                 + "\nType:  " + typeLabel + "\nTo:  " + (partnerName != null ? partnerName : partnerUid);
-        new AlertDialog.Builder(this).setTitle("\u2139 Message Info").setMessage(info)
-                .setPositiveButton("OK", null).show();
+        com.callx.app.utils.AlertDialogStyler.showRounded(
+            new AlertDialog.Builder(this).setTitle("\u2139 Message Info").setMessage(info)
+                .setPositiveButton("OK", null).create());
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -3843,14 +3847,15 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // ─────────────────────────────────────────────────────────────────────
 
     private void confirmClearChat() {
-        new AlertDialog.Builder(this)
+        com.callx.app.utils.AlertDialogStyler.showRounded(
+            new AlertDialog.Builder(this)
                 .setTitle("Clear chat?").setMessage("All messages will be deleted locally.")
                 .setPositiveButton("Clear", (d, w) -> {
                     ioExecutor.execute(() -> db.messageDao().deleteAllForChat(chatId));
                     CacheManager.getInstance(this).invalidateMessages(chatId);
                     Toast.makeText(this, "Chat cleared", Toast.LENGTH_SHORT).show();
                 })
-                .setNegativeButton("Cancel", null).show();
+                .setNegativeButton("Cancel", null).create());
     }
 
     // ─────────────────────────────────────────────────────────────────────

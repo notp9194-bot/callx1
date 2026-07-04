@@ -286,7 +286,8 @@ public class GroupSettingsActivity extends AppCompatActivity {
             else currentSel = 1;
         }
 
-        new AlertDialog.Builder(this)
+        com.callx.app.utils.AlertDialogStyler.showRounded(
+            new AlertDialog.Builder(this)
                 .setTitle("Mute Notifications")
                 .setSingleChoiceItems(options, currentSel, null)
                 .setPositiveButton("OK", (d, w) -> {
@@ -315,7 +316,7 @@ public class GroupSettingsActivity extends AppCompatActivity {
                             Toast.LENGTH_SHORT).show();
                 })
                 .setNegativeButton("Cancel", null)
-                .show();
+        .create());
     }
 
     private void updateMuteStatusView(long muteUntil) {
@@ -368,7 +369,8 @@ public class GroupSettingsActivity extends AppCompatActivity {
     // ── DND Schedule Dialog ───────────────────────────────────────────────
     private void showDNDDialog() {
         String[] opts = {"Off", "10pm – 7am", "11pm – 8am", "Custom…"};
-        new AlertDialog.Builder(this)
+        com.callx.app.utils.AlertDialogStyler.showRounded(
+            new AlertDialog.Builder(this)
                 .setTitle("DND Schedule (this group)")
                 .setItems(opts, (d, which) -> {
                     switch (which) {
@@ -389,7 +391,7 @@ public class GroupSettingsActivity extends AppCompatActivity {
                             break;
                     }
                 })
-                .show();
+        .create());
     }
 
     private void setDND(String from, String to) {
@@ -428,7 +430,8 @@ public class GroupSettingsActivity extends AppCompatActivity {
         for (int i = 0; i < msOpts.length; i++)
             if (msOpts[i] == currentMs) { currentSel = i; break; }
 
-        new AlertDialog.Builder(this)
+        com.callx.app.utils.AlertDialogStyler.showRounded(
+            new AlertDialog.Builder(this)
                 .setTitle("Disappearing Messages")
                 .setSingleChoiceItems(opts, currentSel, null)
                 .setPositiveButton("Set", (d, w) -> {
@@ -449,7 +452,7 @@ public class GroupSettingsActivity extends AppCompatActivity {
                             Toast.LENGTH_SHORT).show();
                 })
                 .setNegativeButton("Cancel", null)
-                .show();
+        .create());
     }
 
     // ── Encryption Info ───────────────────────────────────────────────────
@@ -461,7 +464,8 @@ public class GroupSettingsActivity extends AppCompatActivity {
         int checkedIdx = 0;
         for (int i = 0; i < values.length; i++) { if (values[i] == current) { checkedIdx = i; break; } }
         final int[] sel = {checkedIdx};
-        new AlertDialog.Builder(this)
+        com.callx.app.utils.AlertDialogStyler.showRounded(
+            new AlertDialog.Builder(this)
             .setTitle("⏱ Message Timer")
             .setMessage("Messages in this group will auto-delete after this time once seen.")
             .setSingleChoiceItems(labels, checkedIdx, (d, which) -> sel[0] = which)
@@ -472,7 +476,7 @@ public class GroupSettingsActivity extends AppCompatActivity {
                 Toast.makeText(this, "Message timer: " + labels[sel[0]], Toast.LENGTH_SHORT).show();
             })
             .setNegativeButton("Cancel", null)
-            .show();
+        .create());
     }
 
     // ── Auto-Delete Old Messages Dialog ───────────────────────────────────
@@ -483,7 +487,8 @@ public class GroupSettingsActivity extends AppCompatActivity {
         int checkedIdx = 0;
         for (int i = 0; i < days.length; i++) { if (days[i] == current) { checkedIdx = i; break; } }
         final int[] sel = {checkedIdx};
-        new AlertDialog.Builder(this)
+        com.callx.app.utils.AlertDialogStyler.showRounded(
+            new AlertDialog.Builder(this)
             .setTitle("🗑 Auto-Delete Old Messages")
             .setMessage("Messages older than the selected period will be removed from this group on your device.")
             .setSingleChoiceItems(labels, checkedIdx, (d, which) -> sel[0] = which)
@@ -494,18 +499,19 @@ public class GroupSettingsActivity extends AppCompatActivity {
                 Toast.makeText(this, "Auto-delete: " + labels[sel[0]], Toast.LENGTH_SHORT).show();
             })
             .setNegativeButton("Cancel", null)
-            .show();
+        .create());
     }
 
     private void showEncryptionInfo() {
-        new AlertDialog.Builder(this)
+        com.callx.app.utils.AlertDialogStyler.showRounded(
+            new AlertDialog.Builder(this)
                 .setTitle("End-to-End Encryption")
                 .setMessage("Messages and calls in this group are secured with end-to-end encryption. "
                         + "Only members of this group can read or hear them. "
                         + "Not even CallX can access your messages.\n\n"
                         + "Group ID: " + groupId)
                 .setPositiveButton("OK", null)
-                .show();
+        .create());
     }
 
     // ── Permission dialogs (admin) ─────────────────────────────────────────
@@ -517,7 +523,8 @@ public class GroupSettingsActivity extends AppCompatActivity {
         String[] opts = {"All Members", "Admins Only"};
         String current = tvSendPerm.getText().toString();
         int sel = "Admins Only".equals(current) ? 1 : 0;
-        new AlertDialog.Builder(this)
+        com.callx.app.utils.AlertDialogStyler.showRounded(
+            new AlertDialog.Builder(this)
                 .setTitle("Who Can Send Messages")
                 .setSingleChoiceItems(opts, sel, null)
                 .setPositiveButton("OK", (d, w) -> {
@@ -528,7 +535,7 @@ public class GroupSettingsActivity extends AppCompatActivity {
                     Toast.makeText(this, "Permission updated", Toast.LENGTH_SHORT).show();
                 })
                 .setNegativeButton("Cancel", null)
-                .show();
+        .create());
     }
 
     private void showEditPermDialog() {
@@ -539,7 +546,8 @@ public class GroupSettingsActivity extends AppCompatActivity {
         String[] opts = {"All Members", "Admins Only"};
         String current = tvEditPerm.getText().toString();
         int sel = "All Members".equals(current) ? 0 : 1;
-        new AlertDialog.Builder(this)
+        com.callx.app.utils.AlertDialogStyler.showRounded(
+            new AlertDialog.Builder(this)
                 .setTitle("Who Can Edit Group Info")
                 .setSingleChoiceItems(opts, sel, null)
                 .setPositiveButton("OK", (d, w) -> {
@@ -550,7 +558,7 @@ public class GroupSettingsActivity extends AppCompatActivity {
                     Toast.makeText(this, "Permission updated", Toast.LENGTH_SHORT).show();
                 })
                 .setNegativeButton("Cancel", null)
-                .show();
+        .create());
     }
 
     // ── Firebase helpers ──────────────────────────────────────────────────

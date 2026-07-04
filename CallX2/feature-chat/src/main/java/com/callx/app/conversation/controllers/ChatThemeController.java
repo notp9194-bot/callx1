@@ -77,7 +77,8 @@ public class ChatThemeController {
     public void showWallpaperScopeDialog(Uri uri) {
         ChatWallpaperManager wm = ChatWallpaperManager.get(delegate.getActivity());
         String[] options = {"🙋 This chat only", "🌐 All chats (Global)", "❌ Remove wallpaper"};
-        new AlertDialog.Builder(delegate.getActivity())
+        com.callx.app.utils.AlertDialogStyler.showRounded(
+            new AlertDialog.Builder(delegate.getActivity())
                 .setTitle("🖼️ Set Wallpaper")
                 .setItems(options, (d, which) -> {
                     if (which == 0) {
@@ -93,7 +94,7 @@ public class ChatThemeController {
                     }
                 })
                 .setNegativeButton("Cancel", null)
-                .show();
+        .create());
     }
 
     // ── Customization menu (wallpaper only) ───────────────────────────────
@@ -124,7 +125,8 @@ public class ChatThemeController {
                 "⏱ Message Timer  [" + pm.getMsgTimerLabel() + "]",
                 "🗑 Auto-Delete Old Messages  [" + pm.getAutoDeleteLabel() + "]"
         };
-        new AlertDialog.Builder(delegate.getActivity())
+        com.callx.app.utils.AlertDialogStyler.showRounded(
+            new AlertDialog.Builder(delegate.getActivity())
                 .setTitle("🛡 Chat Privacy — " + displayName)
                 .setItems(options, (d, which) -> {
                     if (which == 0) showDisappearingDialog(pm);
@@ -132,7 +134,7 @@ public class ChatThemeController {
                     else showAutoDeleteDialog(pm);
                 })
                 .setNegativeButton("Close", null)
-                .show();
+        .create());
     }
 
     public void showDisappearingDialog(ChatPrivacyManager pm) {
@@ -147,7 +149,8 @@ public class ChatThemeController {
         int checked = 0;
         for (int i = 0; i < values.length; i++) if (values[i] == cur) { checked = i; break; }
         final int[] sel = {checked};
-        new AlertDialog.Builder(delegate.getActivity())
+        com.callx.app.utils.AlertDialogStyler.showRounded(
+            new AlertDialog.Builder(delegate.getActivity())
                 .setTitle("⏳ Disappearing Messages")
                 .setSingleChoiceItems(labels, checked, (d, w) -> sel[0] = w)
                 .setPositiveButton("Set", (d, w) -> {
@@ -156,7 +159,7 @@ public class ChatThemeController {
                             "Disappearing: " + labels[sel[0]], Toast.LENGTH_SHORT).show();
                 })
                 .setNegativeButton("Cancel", null)
-                .show();
+        .create());
     }
 
     public void showMsgTimerDialog(ChatPrivacyManager pm) {
@@ -173,7 +176,8 @@ public class ChatThemeController {
         int checked = 0;
         for (int i = 0; i < values.length; i++) if (values[i] == cur) { checked = i; break; }
         final int[] sel = {checked};
-        new AlertDialog.Builder(delegate.getActivity())
+        com.callx.app.utils.AlertDialogStyler.showRounded(
+            new AlertDialog.Builder(delegate.getActivity())
                 .setTitle("⏱ Message Timer")
                 .setSingleChoiceItems(labels, checked, (d, w) -> sel[0] = w)
                 .setPositiveButton("Set", (d, w) -> {
@@ -182,7 +186,7 @@ public class ChatThemeController {
                             "Timer: " + labels[sel[0]], Toast.LENGTH_SHORT).show();
                 })
                 .setNegativeButton("Cancel", null)
-                .show();
+        .create());
     }
 
     public void showAutoDeleteDialog(ChatPrivacyManager pm) {
@@ -198,7 +202,8 @@ public class ChatThemeController {
         int checked = 0;
         for (int i = 0; i < values.length; i++) if (values[i] == cur) { checked = i; break; }
         final int[] sel = {checked};
-        new AlertDialog.Builder(delegate.getActivity())
+        com.callx.app.utils.AlertDialogStyler.showRounded(
+            new AlertDialog.Builder(delegate.getActivity())
                 .setTitle("🗑 Auto-Delete Old Messages")
                 .setSingleChoiceItems(labels, checked, (d, w) -> sel[0] = w)
                 .setPositiveButton("Set", (d, w) -> {
@@ -207,6 +212,6 @@ public class ChatThemeController {
                             "Auto-delete: " + labels[sel[0]], Toast.LENGTH_SHORT).show();
                 })
                 .setNegativeButton("Cancel", null)
-                .show();
+        .create());
     }
 }

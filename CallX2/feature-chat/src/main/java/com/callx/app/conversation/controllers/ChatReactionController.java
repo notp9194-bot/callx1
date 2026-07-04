@@ -147,11 +147,12 @@ public class ChatReactionController {
             container.addView(buildReactorRow(ctx, emoji, names.get(uid)));
         }
 
-        new AlertDialog.Builder(ctx)
+        com.callx.app.utils.AlertDialogStyler.showRounded(
+            new AlertDialog.Builder(ctx)
                 .setTitle("Reactions")
                 .setView(scroll)
                 .setPositiveButton("Close", null)
-                .show();
+        .create());
     }
 
     private android.view.View buildReactorRow(Context ctx, String emoji, String name) {
