@@ -9,6 +9,7 @@ import android.widget.TextView;
 
 import com.callx.app.conversation.MessagePagingAdapter;
 import com.callx.app.models.Message;
+import com.callx.app.utils.PushNotify;
 import com.callx.app.utils.ReactionJsonUtil;
 import com.google.firebase.database.DatabaseReference;
 
@@ -94,6 +95,17 @@ public class ChatReactionController {
             delegate.getDb().messageDao()
                     .updateReactions(m.id, ReactionJsonUtil.reactionsToJson(current));
         });
+
+        // ── Background/killed notification ──────────────────────────────
+        // Only ping the message's original author, and only when ADDING or
+        // CHANGING a reaction — un-reacting stays silent, same as WhatsApp.
+        // Fires even if the recipient's app is backgrounded or fully killed
+        // (FCM data push → CallxMessagingService.handleMessageReaction()).
+        if (!removing && m.senderId != null && !m.senderId.equals(uid)) {
+            PushNotify.notifyMessageReaction(
+                    m.senderId, uid, delegate.getCurrentName(),
+                    delegate.getChatId(), m.id, emoji, m.text);
+        }
     }
 
     // ── "Who reacted" dialog ──────────────────────────────────────────────

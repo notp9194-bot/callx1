@@ -444,6 +444,13 @@ public class CallxApp extends Application {
             NotificationManager.IMPORTANCE_LOW, false, false, null,
             android.app.Notification.VISIBILITY_PRIVATE, false);
 
+        // Emoji reaction notifications — background/killed-state safe (see
+        // PushNotify.notifyMessageReaction / notifyGroupMessageReaction and
+        // CallxMessagingService#handleMessageReaction).
+        makeChannel(nm, Constants.CHANNEL_REACTIONS, "Message Reactions",
+            NotificationManager.IMPORTANCE_DEFAULT, true, false, null,
+            android.app.Notification.VISIBILITY_PRIVATE, false);
+
         // Group call channels
         NotificationChannel gcallIn = new NotificationChannel(
             Constants.CHANNEL_GROUP_CALLS_INCOMING, "Incoming Group Calls",

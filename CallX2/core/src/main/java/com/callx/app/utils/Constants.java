@@ -23,6 +23,9 @@ public class Constants {
     public static final String CHANNEL_REQUESTS       = "callx_requests";
     public static final String CHANNEL_BLOCK          = "callx_block";
     public static final String CHANNEL_MUTED          = "callx_muted";
+    // Emoji reaction notifications (1:1 + group) — background/killed-state safe,
+    // separate from CHANNEL_MESSAGES so users can control reaction alerts independently.
+    public static final String CHANNEL_REACTIONS      = "callx_message_reactions";
 
     public static final String CHANNEL_GROUP_CALLS_INCOMING = "callx_group_calls_incoming";
     public static final String CHANNEL_GROUP_CALLS_ONGOING  = "callx_group_calls_ongoing";

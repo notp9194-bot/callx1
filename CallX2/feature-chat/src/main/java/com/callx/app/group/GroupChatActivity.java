@@ -1555,6 +1555,18 @@ public class GroupChatActivity extends AppCompatActivity
             db.messageDao().updateReactions(m.id,
                     com.callx.app.utils.ReactionJsonUtil.reactionsToJson(current));
         });
+
+        // ── Background/killed notification ──────────────────────────────
+        // Only the message's original author gets pinged (not the whole
+        // group), and only on ADD/CHANGE — un-reacting stays silent, same
+        // as ChatReactionController's 1:1 behavior. Works even if the
+        // author's app is backgrounded or fully killed (FCM data push →
+        // CallxMessagingService.handleGroupMessageReaction()).
+        if (!removing && m.senderId != null && !m.senderId.equals(currentUid)) {
+            PushNotify.notifyGroupMessageReaction(
+                    m.senderId, currentUid, currentName,
+                    groupId, groupName, m.id, emoji, m.text);
+        }
     }
 
     /** "Who reacted" dialog for group chat — a group can have any number of

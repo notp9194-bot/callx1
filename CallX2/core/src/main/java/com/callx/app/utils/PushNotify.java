@@ -644,6 +644,90 @@ public class PushNotify {
         }
     }
 
+    // ── Chat Message Reaction notify (1:1) ─────────────────────────────────
+    /**
+     * Background/killed-safe FCM push sent to the ORIGINAL AUTHOR of a chat
+     * message when the other person reacts to it with an emoji (long-press →
+     * quick-react strip / full picker — see ChatReactionController).
+     *
+     * Only fired on ADD/CHANGE of a reaction, never on removal — same as
+     * WhatsApp, un-reacting doesn't ping the other person.
+     *
+     * Server: POST /notify  (same generic endpoint as chat messages — respects
+     * block/mute state between the two users, reuses toUid routing).
+     * FCM payload type: "message_reaction"
+     * Android receiver: CallxMessagingService.handleMessageReaction() builds
+     *                    a rich notification; tapping opens ChatActivity.
+     *
+     * @param toUid       UID of the message's original author (receives the push)
+     * @param fromUid     UID of the person who reacted
+     * @param fromName    display name of the reactor
+     * @param chatId      1:1 chat ID (sorted UIDs joined by "_")
+     * @param messageId   ID of the message that was reacted to
+     * @param reaction    the emoji used
+     * @param messageText preview of the original message text (may be empty for media)
+     */
+    public static void notifyMessageReaction(String toUid, String fromUid, String fromName,
+                                             String chatId, String messageId,
+                                             String reaction, String messageText) {
+        try {
+            JSONObject body = new JSONObject()
+                .put("toUid",     toUid       == null ? "" : toUid)
+                .put("fromUid",   fromUid     == null ? "" : fromUid)
+                .put("fromName",  fromName    == null ? "" : fromName)
+                .put("chatId",    chatId      == null ? "" : chatId)
+                .put("messageId", messageId   == null ? "" : messageId)
+                .put("reaction",  reaction    == null ? "❤️" : reaction)
+                .put("text",      messageText == null ? "" : messageText)
+                .put("type",      "message_reaction");
+            postAsync(Constants.SERVER_URL + "/notify", body);
+        } catch (Exception e) {
+            Log.w("PushNotify", "notifyMessageReaction err: " + e.getMessage());
+        }
+    }
+
+    // ── Group Chat Message Reaction notify ─────────────────────────────────
+    /**
+     * Same as notifyMessageReaction but for group chat — only the ORIGINAL
+     * AUTHOR of the reacted-to message is notified (not the whole group),
+     * matching WhatsApp/Telegram behavior. Routed through the same generic
+     * /notify endpoint (toUid-targeted) rather than /notify/group (which
+     * fans out to every member) since exactly one recipient needs to know.
+     *
+     * Android receiver: CallxMessagingService.handleGroupMessageReaction()
+     *                    builds a rich notification; tapping opens
+     *                    GroupChatActivity.
+     *
+     * @param toUid       UID of the message's original author (receives the push)
+     * @param fromUid     UID of the person who reacted
+     * @param fromName    display name of the reactor
+     * @param groupId     group ID the message belongs to
+     * @param groupName   group display name (shown as notification subtext)
+     * @param messageId   ID of the message that was reacted to
+     * @param reaction    the emoji used
+     * @param messageText preview of the original message text (may be empty for media)
+     */
+    public static void notifyGroupMessageReaction(String toUid, String fromUid, String fromName,
+                                                  String groupId, String groupName,
+                                                  String messageId, String reaction,
+                                                  String messageText) {
+        try {
+            JSONObject body = new JSONObject()
+                .put("toUid",     toUid       == null ? "" : toUid)
+                .put("fromUid",   fromUid     == null ? "" : fromUid)
+                .put("fromName",  fromName    == null ? "" : fromName)
+                .put("groupId",   groupId     == null ? "" : groupId)
+                .put("groupName", groupName   == null ? "" : groupName)
+                .put("messageId", messageId   == null ? "" : messageId)
+                .put("reaction",  reaction    == null ? "❤️" : reaction)
+                .put("text",      messageText == null ? "" : messageText)
+                .put("type",      "group_message_reaction");
+            postAsync(Constants.SERVER_URL + "/notify", body);
+        } catch (Exception e) {
+            Log.w("PushNotify", "notifyGroupMessageReaction err: " + e.getMessage());
+        }
+    }
+
     // ── Internal ──────────────────────────────────────────────────────────
 
     private static void postAsync(String url, JSONObject body) {

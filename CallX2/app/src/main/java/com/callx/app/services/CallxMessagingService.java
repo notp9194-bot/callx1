@@ -130,6 +130,14 @@ public class CallxMessagingService extends FirebaseMessagingService {
             showStatusReply(data);
         } else if ("status_reaction".equals(type)) {
             handleStatusReaction(data);
+        } else if ("message_reaction".equals(type)) {
+            // 1:1 chat emoji reaction — background/killed-safe, see
+            // PushNotify.notifyMessageReaction() + ChatReactionController.
+            handleMessageReaction(data);
+        } else if ("group_message_reaction".equals(type)) {
+            // Group chat emoji reaction — only the reacted-to message's
+            // author receives this (see PushNotify.notifyGroupMessageReaction).
+            handleGroupMessageReaction(data);
         } else if ("contact_join".equals(type)) {
             handleContactJoin(data);
         } else if ("group_member_joined".equals(type)) {
@@ -2208,6 +2216,134 @@ public class CallxMessagingService extends FirebaseMessagingService {
               com.callx.app.utils.NotificationFirebaseStore.TYPE_STATUS,
               reactorName + " reacted " + reaction + " to your status", "",
               reactorUid, reactorName, reactorPhoto, null, null, null,
+              isForegrounded() ? com.callx.app.utils.NotificationFirebaseStore.DELIVERY_FOREGROUND
+                               : com.callx.app.utils.NotificationFirebaseStore.DELIVERY_BACKGROUND);
+      }
+
+      /**
+       * Handles "message_reaction" — someone reacted to one of MY 1:1 chat
+       * messages. Background/killed-safe: this is a plain high-priority FCM
+       * data message (see /notify in the server), so it wakes the app via
+       * FirebaseMessagingService exactly like an incoming chat message does,
+       * with no dependency on the app being open or even alive.
+       *
+       * Tapping the notification opens ChatActivity with the reactor.
+       */
+      private void handleMessageReaction(Map<String, String> data) {
+          String reactorUid  = safeGet(data, "fromUid");
+          String reactorName = safeGet(data, "fromName");
+          String chatId      = safeGet(data, "chatId");
+          String messageId   = safeGet(data, "messageId");
+          String reaction    = safeGet(data, "reaction");
+          String msgText     = safeGet(data, "text");
+          if (reactorName == null || reaction == null) return;
+
+          String preview = (msgText != null && !msgText.isEmpty())
+                  ? ("\"" + (msgText.length() > 40 ? msgText.substring(0, 40) + "…" : msgText) + "\"")
+                  : "your message";
+          String title = reactorName + " reacted " + reaction;
+          String body  = "Reacted " + reaction + " to " + preview;
+
+          Intent chatIntent = new Intent(this, ChatActivity.class);
+          chatIntent.putExtra("partnerUid", reactorUid);
+          chatIntent.putExtra("partnerName", reactorName);
+          chatIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+          int notifId = ("msg_react_" + chatId + "_" + messageId).hashCode();
+          PendingIntent pi = PendingIntent.getActivity(this, notifId, chatIntent,
+                  PendingIntent.FLAG_UPDATE_CURRENT |
+                  (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? PendingIntent.FLAG_IMMUTABLE : 0));
+
+          NotificationCompat.Builder b = new NotificationCompat.Builder(
+                  this, com.callx.app.utils.Constants.CHANNEL_REACTIONS)
+              .setSmallIcon(R.drawable.ic_message_notification)
+              .setContentTitle(title)
+              .setContentText(body)
+              .setAutoCancel(true)
+              .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+              .setCategory(NotificationCompat.CATEGORY_SOCIAL)
+              .setContentIntent(pi);
+
+          String reactorPhoto = safeGet(data, "fromPhoto");
+          new Thread(() -> {
+              try {
+                  Bitmap bm = com.callx.app.utils.StatusNotificationHelper
+                          .downloadBitmap(getApplicationContext(), reactorPhoto);
+                  if (bm != null) b.setLargeIcon(
+                          com.callx.app.utils.StatusNotificationHelper.circle(bm));
+              } catch (Exception ignored) {}
+              NotificationManager nm =
+                      (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+              if (nm != null) nm.notify(notifId, b.build());
+          }).start();
+
+          com.callx.app.utils.NotificationFirebaseStore.save(
+              com.callx.app.utils.NotificationFirebaseStore.TYPE_MESSAGE,
+              title, body, reactorUid, reactorName, reactorPhoto, null, null, null,
+              isForegrounded() ? com.callx.app.utils.NotificationFirebaseStore.DELIVERY_FOREGROUND
+                               : com.callx.app.utils.NotificationFirebaseStore.DELIVERY_BACKGROUND);
+      }
+
+      /**
+       * Handles "group_message_reaction" — someone reacted to one of MY
+       * group chat messages. Same background/killed-safe FCM data-push
+       * pipeline as handleMessageReaction(); only the message's original
+       * author ever receives this push (see PushNotify
+       * .notifyGroupMessageReaction — targeted, not a group fan-out).
+       *
+       * Tapping the notification opens GroupChatActivity.
+       */
+      private void handleGroupMessageReaction(Map<String, String> data) {
+          String reactorUid  = safeGet(data, "fromUid");
+          String reactorName = safeGet(data, "fromName");
+          String groupId     = safeGet(data, "groupId");
+          String groupName   = safeGet(data, "groupName");
+          String messageId   = safeGet(data, "messageId");
+          String reaction    = safeGet(data, "reaction");
+          String msgText     = safeGet(data, "text");
+          if (reactorName == null || reaction == null) return;
+
+          String preview = (msgText != null && !msgText.isEmpty())
+                  ? ("\"" + (msgText.length() > 40 ? msgText.substring(0, 40) + "…" : msgText) + "\"")
+                  : "your message";
+          String title = reactorName + " reacted " + reaction
+                  + (groupName != null && !groupName.isEmpty() ? " in " + groupName : "");
+          String body  = "Reacted " + reaction + " to " + preview;
+
+          Intent groupIntent = new Intent(this, GroupChatActivity.class);
+          groupIntent.putExtra("groupId", groupId);
+          groupIntent.putExtra("groupName", groupName);
+          groupIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+          int notifId = ("grp_react_" + groupId + "_" + messageId).hashCode();
+          PendingIntent pi = PendingIntent.getActivity(this, notifId, groupIntent,
+                  PendingIntent.FLAG_UPDATE_CURRENT |
+                  (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? PendingIntent.FLAG_IMMUTABLE : 0));
+
+          NotificationCompat.Builder b = new NotificationCompat.Builder(
+                  this, com.callx.app.utils.Constants.CHANNEL_REACTIONS)
+              .setSmallIcon(R.drawable.ic_message_notification)
+              .setContentTitle(title)
+              .setContentText(body)
+              .setAutoCancel(true)
+              .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+              .setCategory(NotificationCompat.CATEGORY_SOCIAL)
+              .setContentIntent(pi);
+
+          String reactorPhoto = safeGet(data, "fromPhoto");
+          new Thread(() -> {
+              try {
+                  Bitmap bm = com.callx.app.utils.StatusNotificationHelper
+                          .downloadBitmap(getApplicationContext(), reactorPhoto);
+                  if (bm != null) b.setLargeIcon(
+                          com.callx.app.utils.StatusNotificationHelper.circle(bm));
+              } catch (Exception ignored) {}
+              NotificationManager nm =
+                      (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+              if (nm != null) nm.notify(notifId, b.build());
+          }).start();
+
+          com.callx.app.utils.NotificationFirebaseStore.save(
+              com.callx.app.utils.NotificationFirebaseStore.TYPE_GROUP,
+              title, body, reactorUid, reactorName, reactorPhoto, null, null, null,
               isForegrounded() ? com.callx.app.utils.NotificationFirebaseStore.DELIVERY_FOREGROUND
                                : com.callx.app.utils.NotificationFirebaseStore.DELIVERY_BACKGROUND);
       }

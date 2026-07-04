@@ -652,7 +652,17 @@ app.post("/notify", async (req, res) => {
     callerPhoto = "", callerUid = "", callerName = "",
     isVideo = false, callId = "",
     // Feature-3: missed call count (Android locally tracked — server just passes through to FCM)
-    missedCount = "1"
+    missedCount = "1",
+    // Broadcast List: true when this message was fanned out via a broadcast
+    // list (BroadcastDeliveryWorker) — passed through so the recipient's
+    // notification can show a "📢 Broadcast" indicator, same as WhatsApp.
+    broadcast = false,
+    // Emoji Reaction (1:1 + group, background/killed-safe) — sent by
+    // PushNotify.notifyMessageReaction() / notifyGroupMessageReaction().
+    // groupId/groupName only present for group_message_reaction; this push
+    // still targets a single toUid (the reacted-to message's author), not
+    // a group fan-out — see /notify/group for the fan-out pattern.
+    reaction = "", groupId = "", groupName = ""
   } = req.body || {};
   if (!toUid) return res.status(400).json({ error: "toUid required" });
 
@@ -660,8 +670,9 @@ app.post("/notify", async (req, res) => {
   const isSpecialRequest  = (type === "special_request");
   const isUnblockNotify  = (type === "unblock_notify");
   const isStatusReply = (type === "status_reply");
-  const isMissedCall  = (type === "call_missed" || type === "missed_call");
-  const isViewOnceViewed = (type === "view_once_viewed"); // silent push — sender gets this
+  const isMissedCall  = (type === "call_missed" || type === "missed_call"); // FIX-A: PushNotify sends "missed_call", legacy was "call_missed"
+  const isViewOnceViewed = (type === "view_once_viewed"); // View Once: silent push to sender when receiver opens
+  const isMessageReaction = (type === "message_reaction" || type === "group_message_reaction");
   const skipBlockChecks   = isStatusReply || isMissedCall || isSpecialRequest || isUnblockNotify || isViewOnceViewed;
 
   try {
@@ -775,6 +786,15 @@ app.post("/notify", async (req, res) => {
         muted:        isMuted   ? "1" : "0",
         history:      history,
         myThumb:      myThumb,
+        broadcast:    (broadcast === true || broadcast === "true") ? "1" : "0",
+        // Emoji Reaction passthrough — see PushNotify.notifyMessageReaction()
+        // / notifyGroupMessageReaction(). groupId/groupName are only set for
+        // group_message_reaction (message_reaction leaves them "").
+        ...(isMessageReaction ? {
+          reaction:  String(reaction  || "❤️"),
+          groupId:   String(groupId   || ""),
+          groupName: String(groupName || "")
+        } : {}),
         ...(isCall && text ? { callId: String(text) } : {}),
         // FIX-B: missed_call fields — client reads callerPhoto/callerUid/callerName/isVideo
         ...(isMissedCall ? {
@@ -797,8 +817,8 @@ app.post("/notify", async (req, res) => {
                 : isViewOnceViewed ? "normal"   // silent — no wake lock needed
                 : "high",
         ...(isCall ? { ttl: 30000 } : {}),
-        ...(isMissedCall ? { ttl: 86400000 } : {}),
-        ...(isViewOnceViewed ? { ttl: 3600000 } : {})  // 1h TTL for viewed push
+        ...(isMissedCall ? { ttl: 86400000 } : {}),  // FIX-B: missed call 24h TTL
+        ...(isViewOnceViewed ? { ttl: 3600000 } : {})  // view_once_viewed: 1h TTL
       }
     };
 
@@ -844,7 +864,9 @@ app.post("/notify/reel", async (req, res) => {
   const {
     toUid, fromUid, fromName, fromPhoto,
     reelId, reelThumb, type, commentText, commentId,
-    sessionId   // multi_duet_invite ke liye extra field
+    sessionId,      // multi_duet_invite ke liye extra field
+    collabRepostId, // Collab Repost: invite/accepted/declined ke liye (CollabRepostNotificationHelper isi key se padhta h)
+    newReelId       // Collab Repost: accepted ke baad ka naya reel id
   } = req.body || {};
 
   if (!toUid)  return res.status(400).json({ error: "toUid required" });
@@ -885,7 +907,14 @@ app.post("/notify/reel", async (req, res) => {
         reel_thumb:      String(reelThumb   || ""),
         comment_text:    String(commentText || ""),
         comment_id:      String(commentId   || ""),
-        session_id:      String(sessionId   || "")   // multi_duet_invite
+        session_id:      String(sessionId   || ""),  // multi_duet_invite
+        // Collab Repost — keys camelCase rakhi h kyunki ReelFCMNotificationHandler
+        // exactly "collabRepostId" / "newReelId" string se hi padhta h (get(data, "collabRepostId")).
+        // Pehle ye fields yaha forward nahi ho rahe the, isliye collab repost push
+        // aa to jaati thi but collabId/newReelId empty aate the (notif id clash +
+        // "highlight_collab_id" deep-link kabhi kaam nahi karta tha).
+        collabRepostId:  String(collabRepostId || ""),
+        newReelId:       String(newReelId      || "")
       },
       android: { priority: "high", ttl: 86400000 }
     });
@@ -1429,6 +1458,69 @@ app.post("/notify/status_reaction", async (req, res) => {
     res.json({ ok: true, id: r });
   } catch (e) {
     console.error("status_reaction notify err:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Notify broadcast delivery — POST /notify/broadcast
+// Called by PushNotify.notifyBroadcastComplete() from BroadcastDeliveryWorker
+// after a broadcast list fan-out finishes (success OR failure).
+//
+// Purpose: sender-side, background/killed-safe confirmation push.
+//   • BroadcastDeliveryWorker runs via WorkManager and already shows a LOCAL
+//     notification directly on the sending device the instant it finishes —
+//     that covers the common case with zero network round-trip.
+//   • This endpoint additionally pushes an FCM "broadcast_message" data
+//     message to the sender's account so that ANY other signed-in device
+//     (tablet, secondary phone) also gets the delivery summary even if that
+//     device was in the background or fully killed — same high-priority
+//     data-only pattern already used for reel/x/youtube/status notifications.
+//
+// Payload: toUid (sender uid), listId, listName, delivered, total, skipped,
+//          status ("sent"|"failed"), msgType, lastMessage
+// Android: type="broadcast_message" → CallxMessagingService →
+//          BroadcastFCMHandler.handle() → opens BroadcastChatActivity
+// ══════════════════════════════════════════════════════════════════════════════
+app.post("/notify/broadcast", async (req, res) => {
+  if (!firebaseReady)
+    return res.status(503).json({ error: "Firebase not configured" });
+
+  const {
+    toUid, listId, listName = "Broadcast",
+    delivered = 0, total = 0, skipped = 0,
+    status = "sent", msgType = "text", lastMessage = ""
+  } = req.body || {};
+  if (!toUid)  return res.status(400).json({ error: "toUid required" });
+  if (!listId) return res.status(400).json({ error: "listId required" });
+
+  try {
+    const db   = admin.database();
+    const snap = await db.ref("users/" + toUid).once("value");
+    const user = snap.val() || {};
+    if (!user.fcmToken) return res.status(404).json({ error: "no token" });
+
+    const r = await admin.messaging().send({
+      token: user.fcmToken,
+      data: {
+        type:        "broadcast_message",
+        list_id:     String(listId),
+        list_name:   String(listName),
+        delivered:   String(delivered),
+        total:       String(total),
+        skipped:     String(skipped),
+        status:      String(status),
+        msg_type:    String(msgType),
+        last_message:String(lastMessage || "")
+      },
+      // Self-notify, background/killed-safe: high priority so FCM wakes the
+      // app to post the notification even if the process was killed, with a
+      // generous TTL since it's an informational summary, not time-critical.
+      android: { priority: "high", ttl: 24 * 60 * 60 * 1000 }
+    });
+    res.json({ ok: true, id: r });
+  } catch (e) {
+    console.error("notify/broadcast err:", e.message);
     res.status(500).json({ error: e.message });
   }
 });
