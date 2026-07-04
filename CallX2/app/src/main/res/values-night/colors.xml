@@ -19,8 +19,8 @@
     <color name="bubble_sent">#2E7D32</color>
     <color name="bubble_sent_end">#388E3C</color>
     <color name="bubble_sent_text">#FFFFFF</color>
-    <color name="bubble_received">#1B5E20</color>
-    <color name="bubble_received_end">#2E7D32</color>
+    <color name="bubble_received">#14487A</color>
+    <color name="bubble_received_end">#1B5A94</color>
     <color name="bubble_received_text">#FFFFFF</color>
     <color name="status_online">#4CAF50</color>
     <color name="status_typing">#4CAF50</color>

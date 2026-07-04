@@ -1869,7 +1869,7 @@ public class MessagePagingAdapter
                 }
                 h.tvMessage.setAlpha(1f);
                 h.tvMessage.setTextColor(
-                    com.callx.app.utils.ChatThemeManager.get(ctx).getTextColor(isSentMsg));
+                    com.callx.app.utils.ChatThemeManager.get(ctx).getTextColor(ctx, isSentMsg));
 
                 // ── PrecomputedTextCompat — now genuinely async ──────────────
                 // 1) setText(spanned) immediately, always — nothing is ever
@@ -1934,36 +1934,26 @@ public class MessagePagingAdapter
                         // layout is actually reused instead of being
                         // remeasured from scratch.
                         TextViewCompat.setPrecomputedText(h.tvMessage, cachedPct);
-                    } else if (asyncTextEnabled) {
-                        final VH holderRef = h;
-                        final CharSequence finalSpanned = displaySpanned;
-                        // Cheap — must run on UI thread since it reads the
-                        // TextView's current paint/typeface/width.
-                        final PrecomputedTextCompat.Params params =
-                                TextViewCompat.getTextMetricsParams(h.tvMessage);
-                        TEXT_PRECOMPUTE_EXECUTOR.execute(() -> {
-                            PrecomputedTextCompat pct;
-                            try {
-                                pct = PrecomputedTextCompat.create(finalSpanned, params);
-                            } catch (Exception e) {
-                                return; // plain text already on screen — nothing to upgrade
-                            }
-                            synchronized (precomputeCacheLock) {
-                                precomputedTextCache.put(cacheKey, pct);
-                            }
-                            holderRef.itemView.post(() -> {
-                                // Staleness guard — discard if holder moved on.
-                                if (holderRef.textBindToken != myTextBindToken) return;
-                                TextViewCompat.setPrecomputedText(holderRef.tvMessage, pct);
-                            });
-                        });
                     } else {
-                        // BUG FIX: cold-open path. asyncTextEnabled is still
-                        // false (initial page hasn't settled yet) — compute
-                        // synchronously, right here, right now, so the
-                        // bubble's FIRST and ONLY measured height is already
-                        // final before stackFromEnd anchors the viewport.
-                        // No post(), no race, no "bubble thoda sa dikhta hai".
+                        // BUG FIX (v45-3): the old code branched on
+                        // asyncTextEnabled and, once true (400ms after chat
+                        // open), computed PrecomputedTextCompat on a
+                        // background thread and applied it later via
+                        // itemView.post(). That post() lands AFTER
+                        // RecyclerView has already measured/positioned the
+                        // item using the plain setText() height from above.
+                        // If the precomputed layout resolves to a different
+                        // height (common — the async Params snapshot can be
+                        // taken before the bubble's final width settles),
+                        // the bubble silently resizes after the scroll
+                        // position is already locked in — this is exactly
+                        // the "kabhi pura bubble dikhta hai, kabhi thoda sa
+                        // dikhta hai" bug. So the async branch is removed
+                        // entirely: ALWAYS compute synchronously, right
+                        // here, so the bubble's FIRST and ONLY measured
+                        // height is final before layout/scroll anchoring
+                        // happens. No post(), no race, no "bubble thoda sa
+                        // dikhta hai" — cold-open or not.
                         try {
                             PrecomputedTextCompat.Params params =
                                     TextViewCompat.getTextMetricsParams(h.tvMessage);

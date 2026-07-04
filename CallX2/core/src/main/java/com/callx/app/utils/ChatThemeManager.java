@@ -90,11 +90,20 @@ public class ChatThemeManager {
         bubbleView.setBackground(gd.mutate());
     }
 
-    /** Text color for bubble content — from color resources. */
-    public int getTextColor(boolean sent) {
-        // Return 0 = use XML layout colors (this method is now only a fallback)
-        // Callers should prefer @color/bubble_sent_text / bubble_received_text in XML
-        return sent ? 0xFF111B21 : 0xFF111B21;
+    /**
+     * Text color for bubble content — from color resources.
+     * BUG FIX: this used to ignore the Context entirely and always return a
+     * hardcoded dark color, regardless of light/dark mode — so setText color
+     * calls in the adapter silently overrode the correct
+     * @color/bubble_sent_text / bubble_received_text values from XML with a
+     * constant dark navy, making text nearly invisible in dark mode. Now it
+     * resolves the actual theme-aware color resource (light mode → black,
+     * dark mode → white, via values-night).
+     */
+    public int getTextColor(Context ctx, boolean sent) {
+        return resolveColor(ctx, sent
+                ? com.callx.app.core.R.color.bubble_sent_text
+                : com.callx.app.core.R.color.bubble_received_text);
     }
 
     public int getPrimaryColor() {
