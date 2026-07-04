@@ -16,12 +16,12 @@
     <color name="text_muted">#94A3B8</color>
     <color name="chat_time_color">#FFFFFF</color>
     <color name="text_on_primary">#FFFFFF</color>
-    <color name="bubble_sent">#DCF8C6</color>
+    <color name="bubble_sent">#00000000</color>
     <color name="bubble_sent_end">#C5E8B0</color>
-    <color name="bubble_sent_text">#1A1A1A</color>
-    <color name="bubble_received">#BBDEFB</color>
+    <color name="bubble_sent_text">#FFFFFF</color>
+    <color name="bubble_received">#00000000</color>
     <color name="bubble_received_end">#A6D3FA</color>
-    <color name="bubble_received_text">#1A1A1A</color>
+    <color name="bubble_received_text">#FFFFFF</color>
     <color name="forward_icon_tint">#000000</color>
     <color name="theme_ocean_sent_s">#0EA5E9</color>
     <color name="theme_ocean_sent_e">#6366F1</color>
