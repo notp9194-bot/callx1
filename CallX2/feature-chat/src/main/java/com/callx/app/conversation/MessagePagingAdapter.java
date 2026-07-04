@@ -1798,25 +1798,46 @@ public class MessagePagingAdapter
                 }
 
                 // ── Link preview (ViewStub lazy inflate) ─────────────────────
-                // Hide stale link preview before checking for URL
-                if (h.llLinkPreview != null) h.llLinkPreview.setVisibility(View.GONE);
-                if (m.text != null) {
-                    ensureLinkPreviewInflated(h, isSentMsg); // inflate once on demand
+                // BUG FIX (cold-open big bubble / "shrinks on selection"):
+                // ensureLinkPreviewInflated() used to run for EVERY text
+                // message (any m.text != null), not just ones with a URL.
+                // layout_msg_link_preview.xml's root has no
+                // android:visibility="gone", so the moment the ViewStub
+                // inflated, an EMPTY-but-VISIBLE match_parent-width preview
+                // card appeared inside content_frame — stretching that
+                // fresh bubble to full row width on first bind. The old
+                // GONE-guard above only worked once h.llLinkPreview was
+                // already non-null, i.e. AFTER a stub had already been
+                // inflated once — which is exactly why entering selection
+                // mode (forcing a rebind of the already-inflated holder)
+                // made the bubble "shrink" to its correct size instead of
+                // the underlying bug being fixed.
+                //
+                // Fix: detect the URL FIRST, and only inflate the stub
+                // (and touch h.llLinkPreview) when a URL genuinely exists.
+                // For plain text (the overwhelming majority of messages)
+                // the stub is never inflated at all, and any leftover
+                // preview card on a *recycled* holder is explicitly hidden.
+                String cachedText = (String) h.tvMessage.getTag(R.id.tv_message);
+                String previewUrl;
+                if (m.text != null && m.text.equals(cachedText)) {
+                    previewUrl = h.llLinkPreview != null ? (String) h.llLinkPreview.getTag() : null;
+                    if (previewUrl == null) previewUrl = com.callx.app.utils.LinkPreviewFetcher.extractFirstUrl(m.text);
+                } else {
+                    if (m.text != null) h.tvMessage.setTag(R.id.tv_message, m.text);
+                    previewUrl = m.text != null ? com.callx.app.utils.LinkPreviewFetcher.extractFirstUrl(m.text) : null;
                 }
-                // POLISH: Link preview — detect URL, fetch OG data async, bind card
-                if (h.llLinkPreview != null && m.text != null) {
-                    // PERF: cache extracted URL in tvMessage tag — regex won't run again
-                    // if same text is re-bound (e.g. after reaction/status update)
-                    String cachedText = (String) h.tvMessage.getTag(R.id.tv_message);
-                    String previewUrl;
-                    if (m.text.equals(cachedText)) {
-                        previewUrl = (String) h.llLinkPreview.getTag();
-                        if (previewUrl == null) previewUrl = com.callx.app.utils.LinkPreviewFetcher.extractFirstUrl(m.text);
+
+                if (previewUrl != null) {
+                    ensureLinkPreviewInflated(h, isSentMsg); // inflate only when actually needed
+                }
+
+                if (h.llLinkPreview != null) {
+                    if (previewUrl == null) {
+                        // Recycled holder previously showed a link preview
+                        // but this message has none — hide the leftover card.
+                        h.llLinkPreview.setVisibility(View.GONE);
                     } else {
-                        h.tvMessage.setTag(R.id.tv_message, m.text);
-                        previewUrl = com.callx.app.utils.LinkPreviewFetcher.extractFirstUrl(m.text);
-                    }
-                    if (previewUrl != null) {
                         // Tag itemView with URL so we detect stale VH on recycle
                         h.llLinkPreview.setTag(previewUrl);
                         h.llLinkPreview.setVisibility(View.INVISIBLE); // reserve space while loading
