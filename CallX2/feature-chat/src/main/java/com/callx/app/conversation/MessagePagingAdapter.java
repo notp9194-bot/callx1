@@ -2904,6 +2904,36 @@ public class MessagePagingAdapter
         }
     }
 
+    /** WhatsApp-style INSTANT reaction feedback. Previously a tapped emoji
+     *  only became visible after the full round trip: Firebase write → Room
+     *  mirror write (background thread) → Paging3 PagingSource invalidation
+     *  → new page diffed → PAYLOAD_REACTIONS detected → rebind. That chain
+     *  is correct for persistence/sync but is never instant — on a slow
+     *  connection or a busy IO executor it could take a very visible beat.
+     *  This mutates the already-bound Message object directly and rebinds
+     *  right away, so the emoji appears the moment the user taps it. The
+     *  Firebase + Room writes still happen (see ChatReactionController) to
+     *  keep the reaction persisted and synced to the other device; when
+     *  that round trip completes it diffs against what's already showing
+     *  and is a no-op. */
+    public void applyLocalReaction(String messageId, String uid, String emoji, boolean removing) {
+        if (messageId == null || uid == null) return;
+        for (int i = 0; i < getItemCount(); i++) {
+            Message m = getItem(i);
+            if (m == null) continue;
+            String id = m.messageId != null ? m.messageId : m.id;
+            if (!messageId.equals(id)) continue;
+            if (m.reactions == null) m.reactions = new java.util.LinkedHashMap<>();
+            if (removing) {
+                m.reactions.remove(uid);
+            } else {
+                m.reactions.put(uid, emoji);
+            }
+            notifyItemChanged(i, PAYLOAD_REACTIONS);
+            break;
+        }
+    }
+
     /** Fast-path: rebind ONLY the reactions row. Called both from the full
      *  bindMessage() path AND from the payload-aware onBind for
      *  PAYLOAD_REACTIONS (someone tapped/removed an emoji), so a reactions

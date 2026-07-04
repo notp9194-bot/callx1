@@ -7,6 +7,7 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
+import com.callx.app.conversation.MessagePagingAdapter;
 import com.callx.app.models.Message;
 import com.callx.app.utils.ReactionJsonUtil;
 import com.google.firebase.database.DatabaseReference;
@@ -60,6 +61,15 @@ public class ChatReactionController {
 
         String existing = m.reactions != null ? m.reactions.get(uid) : null;
         boolean removing = emoji.equals(existing);
+
+        // INSTANT feedback — update the visible bubble right now, don't
+        // wait for the Firebase/Room round trip (see
+        // MessagePagingAdapter#applyLocalReaction for why that round trip
+        // alone was never fast enough to feel like WhatsApp).
+        MessagePagingAdapter adapter = delegate.getPagingAdapter();
+        if (adapter != null) {
+            adapter.applyLocalReaction(m.id, uid, emoji, removing);
+        }
 
         DatabaseReference reactionRef =
                 delegate.getMessagesRef().child(m.id).child("reactions").child(uid);
