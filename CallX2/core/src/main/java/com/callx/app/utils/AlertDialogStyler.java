@@ -1,9 +1,11 @@
 package com.callx.app.utils;
 
 import android.app.Dialog;
+import android.content.Context;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
+import android.util.SparseArray;
 import android.view.Window;
 
 import androidx.annotation.DrawableRes;
@@ -28,6 +30,38 @@ public final class AlertDialogStyler {
 
     private AlertDialogStyler() {}
 
+    // PERF: cache the parsed shape (ConstantState) per drawable-res id instead
+    // of re-parsing bg_rounded_alert_dialog.xml on every single dialog show.
+    // newDrawable() below is a cheap call that shares the parsed constant
+    // state but still returns an independent Drawable instance per dialog —
+    // safe even if two dialogs are visible at once.
+    private static final SparseArray<Drawable.ConstantState> BG_CACHE = new SparseArray<>();
+
+    private static Drawable getCachedDrawable(Context context, @DrawableRes int backgroundRes) {
+        // Key includes the current day/night bit — our shape resolves
+        // @color/dialog_surface (white in values/, dark in values-night/) at
+        // parse time, so a cache keyed on resId alone would keep showing
+        // whichever mode it was first parsed in even after the user switches
+        // theme (activity recreate reuses this same static cache).
+        boolean isNight = (context.getResources().getConfiguration().uiMode
+                & android.content.res.Configuration.UI_MODE_NIGHT_MASK)
+                == android.content.res.Configuration.UI_MODE_NIGHT_YES;
+        int key = backgroundRes * 2 + (isNight ? 1 : 0);
+
+        Drawable.ConstantState state = BG_CACHE.get(key);
+        if (state != null) {
+            return state.newDrawable(context.getResources(), context.getTheme());
+        }
+        Drawable bg = ContextCompat.getDrawable(context, backgroundRes);
+        if (bg != null) {
+            Drawable.ConstantState newState = bg.getConstantState();
+            if (newState != null) {
+                BG_CACHE.put(key, newState);
+            }
+        }
+        return bg;
+    }
+
     /** Show the dialog with the default shared rounded background. */
     public static void showRounded(Dialog dialog) {
         showRounded(dialog, com.callx.app.core.R.drawable.bg_rounded_alert_dialog);
@@ -50,7 +84,7 @@ public final class AlertDialogStyler {
         // real rounded background is applied post-show — same approach used
         // by the original View Once dialog.
         if (window != null) {
-            Drawable bg = ContextCompat.getDrawable(dialog.getContext(), backgroundRes);
+            Drawable bg = getCachedDrawable(dialog.getContext(), backgroundRes);
             window.getDecorView().setBackground(bg);
         }
     }
@@ -65,7 +99,7 @@ public final class AlertDialogStyler {
 
     public static void applyToShownDialog(Dialog dialog, @DrawableRes int backgroundRes) {
         if (dialog == null || dialog.getWindow() == null) return;
-        Drawable bg = ContextCompat.getDrawable(dialog.getContext(), backgroundRes);
+        Drawable bg = getCachedDrawable(dialog.getContext(), backgroundRes);
         dialog.getWindow().getDecorView().setBackground(bg);
     }
 }

@@ -39,4 +39,8 @@
     <color name="white">#FFFFFF</color>
     <color name="black">#000000</color>
     <color name="transparent">#00000000</color>
+
+    <!-- Shared AlertDialog panel background — dark mode (unchanged, this was
+         the original hardcoded value in bg_rounded_alert_dialog.xml). -->
+    <color name="dialog_surface">#1E1E1E</color>
 </resources>

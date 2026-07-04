@@ -1,10 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Shared rounded dark background for all AlertDialogs across the chat system.
+<!-- Shared rounded background for all AlertDialogs across the chat system.
      Same style used originally for the View Once warning dialog
      (see feature-chat bg_view_once_dialog.xml) — kept in core so every
-     module can reuse it via AlertDialogStyler. -->
+     module can reuse it via AlertDialogStyler.
+
+     FIX: color now points to @color/dialog_surface (white in values/,
+     #1E1E1E in values-night/) instead of a hardcoded dark hex — dialog
+     now matches light/dark theme instead of always forcing a dark panel
+     (which made text unreadable in light mode).
+
+     FIX: added padding so title/message/buttons don't sit flush against
+     the rounded corners and get visually clipped. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
-    <solid android:color="#1E1E1E"/>
+    <solid android:color="@color/dialog_surface"/>
     <corners android:radius="20dp"/>
+    <padding
+        android:left="4dp"
+        android:top="4dp"
+        android:right="4dp"
+        android:bottom="4dp"/>
 </shape>

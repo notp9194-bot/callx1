@@ -63,4 +63,9 @@
     <color name="white">#FFFFFF</color>
     <color name="black">#000000</color>
     <color name="transparent">#00000000</color>
+
+    <!-- Shared AlertDialog panel background — light mode.
+         Was hardcoded #1E1E1E (dark) before, so dialogs looked broken
+         in light mode (dark panel + dark platform text = unreadable). -->
+    <color name="dialog_surface">#FFFFFF</color>
 </resources>
