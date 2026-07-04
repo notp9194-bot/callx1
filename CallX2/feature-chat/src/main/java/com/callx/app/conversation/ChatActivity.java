@@ -2017,9 +2017,16 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     private void attachPagerWithKey(Long initialKey) {
         if (isFinishing() || isDestroyed() || binding == null || pagingMediator == null) return;
         if (currentPagingLiveSource != null) pagingMediator.removeSource(currentPagingLiveSource);
+        // FIX: RemoteMediator added — previously the Pager only ever read
+        // from Room, so scrolling up past whatever the one-shot delta sync
+        // had fetched simply dead-ended (see MessageRemoteMediator's class
+        // doc). This lets PREPEND reach further back into Firebase on demand.
+        com.callx.app.repository.ChatRepository chatRepository =
+                com.callx.app.repository.ChatRepository.getInstance(this);
         Pager<Long, MessageEntity> pager = new Pager<>(
                 new PagingConfig(PAGE_SIZE, PREFETCH_DIST, false, INITIAL_LOAD),
                 initialKey,
+                new com.callx.app.db.paging.MessageRemoteMediator(chatRepository, chatId, PAGE_SIZE),
                 () -> new com.callx.app.db.paging.MessageKeysetPagingSource(db.messageDao(), chatId, PAGE_SIZE)
         );
         currentPagingLiveSource = Transformations.map(

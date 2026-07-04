@@ -40,6 +40,14 @@ import com.callx.app.utils.LinkPreviewFetcher;
 public class MessagePagingAdapter
         extends PagingDataAdapter<Message, MessagePagingAdapter.VH> {
 
+    // CONFIRMED (user asked to verify): PagingDataAdapter(DiffUtil.ItemCallback)
+    // below is called with no explicit dispatcher args, which means it uses
+    // Paging3's defaults — Dispatchers.Main.immediate for applying the diff
+    // to the adapter, and Dispatchers.Default (a background thread pool) for
+    // COMPUTING the diff itself. DiffUtil.calculateDiff() never runs on the
+    // main thread here; only the final notifyItem*() calls do, which is the
+    // correct/required behavior. No change needed.
+
     // ── DiffUtil — required by PagingDataAdapter ──────────────────
     private static final DiffUtil.ItemCallback<Message> DIFF =
         new DiffUtil.ItemCallback<Message>() {
@@ -583,6 +591,77 @@ public class MessagePagingAdapter
         // warm-cache-list → real-Paging-list transition.
     }
 
+    // PERF: one cached RequestManager for the RecyclerView's whole attached
+    // lifetime instead of calling glide(ctx) on every single bind().
+    // Glide.with() isn't free — it walks up to the right Activity/Fragment,
+    // finds-or-creates a lifecycle-aware RequestManager, and registers a
+    // support-fragment observer the first time. With ~24 call sites across
+    // onBindViewHolder for a chat screen that rebinds constantly during
+    // scroll, that lookup was repeating on every bind of every media bubble.
+    // Grabbing it once here (same Activity context either way — the
+    // RecyclerView and every itemView in it share the same Activity) and
+    // reusing it is the standard Glide "attach a manager, don't re-fetch it"
+    // pattern, and still fully respects Activity lifecycle (pause/resume/
+    // clear on destroy) since it's the same underlying RequestManager Glide
+    // would have handed back anyway.
+    private com.bumptech.glide.RequestManager glideRequestManager;
+
+    @Override
+    public void onAttachedToRecyclerView(@NonNull RecyclerView recyclerView) {
+        super.onAttachedToRecyclerView(recyclerView);
+        glideRequestManager = com.bumptech.glide.Glide.with(recyclerView.getContext());
+    }
+
+    @Override
+    public void onDetachedFromRecyclerView(@NonNull RecyclerView recyclerView) {
+        super.onDetachedFromRecyclerView(recyclerView);
+        glideRequestManager = null;
+        // NOTE: intentionally NOT shutting down textPrecomputeExecutor here —
+        // ChatActivity/GroupChatActivity keep this same adapter instance
+        // alive across config changes in some paths, and a shutdown executor
+        // would silently drop all future setTextFuture() calls afterwards.
+        // It's a single background thread for this adapter's lifetime and is
+        // released when the adapter itself is GC'd with the Activity.
+    }
+
+    /** Cached RequestManager if attached; falls back to glide(ctx) so callers never null-check. */
+    private com.bumptech.glide.RequestManager glide(Context ctx) {
+        return glideRequestManager != null ? glideRequestManager : com.bumptech.glide.Glide.with(ctx);
+    }
+
+    // PERF: PrecomputedTextCompat for message bodies via TextViewCompat#setTextFuture.
+    //
+    // IMPORTANT — read the v45-4 bug-fix comment further down (search
+    // "BUG FIX (v45-4)") before touching this again. That fix removed an
+    // earlier attempt that called plain setText() first and then swapped in
+    // a precomputed layout afterwards — TWO setText-equivalent calls per
+    // bind, the second one sized off a TextView width that wasn't settled
+    // yet, causing bubbles to intermittently render at the wrong height.
+    //
+    // setTextFuture() is different in a way that avoids that exact failure
+    // mode: it is the ONLY text-setting call for this bind (no separate
+    // plain setText before it), and per its documented contract the
+    // TextView will block on the future if it's needed for measure/draw
+    // before it resolves — so there's still only ever one measurement,
+    // it just happens on a background thread when the future is already
+    // (or becomes) ready in time. Heavy paragraphs (long text, lots of
+    // emoji/links) get their line-breaking/hyphenation/bidi analysis off
+    // the main thread instead of stalling scroll on bind().
+    private final java.util.concurrent.ExecutorService textPrecomputeExecutor =
+            java.util.concurrent.Executors.newSingleThreadExecutor();
+    private androidx.core.text.PrecomputedTextCompat.Params cachedTextParams;
+
+    private androidx.core.text.PrecomputedTextCompat.Params getTextParams(android.widget.TextView tv) {
+        if (cachedTextParams == null) {
+            // Font/typeface/breakStrategy are the same for every message row
+            // (set once per-holder in onCreateViewHolder), so these Params
+            // are valid to build once and reuse for every bind — nothing
+            // per-instance-varying goes into a PrecomputedTextCompat.Params.
+            cachedTextParams = new androidx.core.text.PrecomputedTextCompat.Params.Builder(tv).build();
+        }
+        return cachedTextParams;
+    }
+
     public void setActionListener(ActionListener l) {
         this.actionListener = l;
     }
@@ -832,7 +911,7 @@ public class MessagePagingAdapter
         if (ivAvatar != null) {
             String photo = m.senderPhoto != null ? m.senderPhoto : "";
             if (!photo.isEmpty()) {
-                com.bumptech.glide.Glide.with(ctx)
+                glide(ctx)
                     .load(photo)
                     .apply(THUMB_RGB565)
                     .override(96, 96)
@@ -854,7 +933,7 @@ public class MessagePagingAdapter
             if (!thumb.isEmpty()) {
                 flThumb.setVisibility(View.VISIBLE);
                 if (ivEye != null) ivEye.setVisibility(View.VISIBLE);
-                com.bumptech.glide.Glide.with(ctx)
+                glide(ctx)
                     .load(thumb)
                     .apply(THUMB_RGB565)
                     .override(240, 240)
@@ -926,7 +1005,7 @@ public class MessagePagingAdapter
         if (ivAvatar != null) {
             String photo = m.senderPhoto != null ? m.senderPhoto : "";
             if (!photo.isEmpty()) {
-                com.bumptech.glide.Glide.with(ctx)
+                glide(ctx)
                     .load(photo)
                     .apply(THUMB_RGB565)
                     .override(96, 96)
@@ -959,7 +1038,7 @@ public class MessagePagingAdapter
             if (!thumb.isEmpty()) {
                 ivThumb.setVisibility(android.view.View.VISIBLE);
                 if (ivPlay != null) ivPlay.setVisibility(android.view.View.VISIBLE);
-                com.bumptech.glide.Glide.with(ctx)
+                glide(ctx)
                     .load(thumb)
                     .apply(THUMB_RGB565)
                     .override(240, 240)
@@ -1206,7 +1285,7 @@ public class MessagePagingAdapter
                     String thumbUrl = m.replyToMediaUrl;
                     if (thumbUrl != null && !thumbUrl.isEmpty()) {
                         h.ivReplyThumb.setVisibility(View.VISIBLE);
-                        com.bumptech.glide.Glide.with(ctx)
+                        glide(ctx)
                                 .load(thumbUrl)
                                 .apply(THUMB_RGB565)
                                 .override(120, 120)
@@ -1290,7 +1369,7 @@ public class MessagePagingAdapter
                     // ever shows the lightweight thumbnail; full quality is
                     // fetched on open, not upfront.
                     if (thumbUrl != null && !thumbUrl.isEmpty() && !isGifMsg) {
-                        Glide.with(ctx)
+                        glide(ctx)
                             .load(thumbUrl)
                             .apply(THUMB_RGB565)
                             .override(200, 200)
@@ -1316,7 +1395,7 @@ public class MessagePagingAdapter
                         // below, which is already passed the real fullUrl.
                         String derivedThumb = com.callx.app.utils.CloudinaryUploader
                                 .deriveThumbUrl(fullUrl, 200);
-                        Glide.with(ctx)
+                        glide(ctx)
                             .load(derivedThumb)
                             .apply(THUMB_RGB565)
                             .override(200, 200)
@@ -1327,7 +1406,7 @@ public class MessagePagingAdapter
                         // GIF: asGif() se URL directly load karo — MediaCache file use
                         // mat karo kyunki file mein .gif extension nahi hogi, Glide
                         // decode fail karta hai. Glide DiskCache GIF cache kar lega.
-                        Glide.with(ctx)
+                        glide(ctx)
                             .asGif()
                             .load(fullUrl)
                             .apply(THUMB_RGB565)
@@ -1390,7 +1469,7 @@ public class MessagePagingAdapter
                     // POLISH FIX: use Cloudinary thumbnail for preview image, not the raw video URL
                     String thumbUrl = (m.thumbnailUrl != null && !m.thumbnailUrl.isEmpty())
                             ? m.thumbnailUrl : vUrl;
-                    Glide.with(ctx)
+                    glide(ctx)
                         .load(thumbUrl)
                         .diskCacheStrategy(DiskCacheStrategy.ALL)
                         .thumbnail(0.1f) // PERF: render 10% low-res frame instantly, then upgrade
@@ -1423,7 +1502,7 @@ public class MessagePagingAdapter
                     String vUrl     = m.mediaUrl != null ? m.mediaUrl : m.text;
                     String thumbUrl = (m.thumbnailUrl != null && !m.thumbnailUrl.isEmpty())
                             ? m.thumbnailUrl : vUrl;
-                    Glide.with(ctx).load(thumbUrl)
+                    glide(ctx).load(thumbUrl)
                         .apply(THUMB_RGB565)
                         .override(480, 480)
                         .placeholder(R.drawable.bg_skeleton_rect)
@@ -1560,7 +1639,7 @@ public class MessagePagingAdapter
                         }
                     }
                     if (!avatarUrl.isEmpty()) {
-                        com.bumptech.glide.Glide.with(ctx)
+                        glide(ctx)
                                 .load(avatarUrl)
                                 .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
                                 .override(48, 48)
@@ -1600,7 +1679,7 @@ public class MessagePagingAdapter
                                                 ? fhA.tvReelShareUsername.getText() : null;
                                         if (fhA.ivReelShareAvatar != null && curName != null
                                                 && curName.toString().equals("@" + fUKey)) {
-                                            com.bumptech.glide.Glide.with(fCtxA)
+                                            glide(fCtxA)
                                                     .load(photo)
                                                     .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
                                                     .override(48, 48)
@@ -1646,7 +1725,7 @@ public class MessagePagingAdapter
                         }
                     }
                     if (!thumb.isEmpty()) {
-                        com.bumptech.glide.Glide.with(ctx)
+                        glide(ctx)
                                 .load(thumb)
                                 .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
                                 .override(330, 474) // PERF: match ~165x237dp bubble, avoid full-res decode
@@ -1670,7 +1749,7 @@ public class MessagePagingAdapter
                                     if (t != null && !t.isEmpty()) {
                                         reelThumbCache.put(fRKey, t);
                                         if (fh.ivReelShareThumb != null && rowStillMatches) {
-                                            com.bumptech.glide.Glide.with(fCtxT).load(t)
+                                            glide(fCtxT).load(t)
                                                 .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
                                                 .override(330, 474)
                                                 .centerCrop()
@@ -1690,7 +1769,7 @@ public class MessagePagingAdapter
                                     if (ap != null && !ap.isEmpty()) {
                                         if (u != null && !u.isEmpty()) reelOwnerAvatarCache.put(u, ap);
                                         if (fh.ivReelShareAvatar != null) {
-                                            com.bumptech.glide.Glide.with(fCtxT)
+                                            glide(fCtxT)
                                                     .load(ap)
                                                     .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
                                                     .override(48, 48)
@@ -1865,7 +1944,24 @@ public class MessagePagingAdapter
                 int footerReservePx = computeFooterReservePx(h, m, isSentMsg, footerTimeStr);
                 CharSequence displaySpanned = appendFooterReserve(spanned, footerReservePx);
 
-                h.tvMessage.setText(displaySpanned);
+                // PERF: only worth precomputing for text long enough that
+                // background line-breaking/hyphenation actually saves
+                // main-thread time — short messages (most chat bubbles)
+                // measure in well under a millisecond either way, so skip
+                // the Params/Future overhead for them and setText directly.
+                if (displaySpanned.length() > 60) {
+                    androidx.core.widget.TextViewCompat.setTextFuture(
+                            h.tvMessage,
+                            androidx.core.text.PrecomputedTextCompat.getTextFuture(
+                                    displaySpanned, getTextParams(h.tvMessage), textPrecomputeExecutor));
+                } else {
+                    // Cancel any in-flight future left over from this
+                    // recycled holder's previous (possibly long) message —
+                    // setTextFuture leaves TextView.getTextFuture non-null
+                    // otherwise, and a plain setText alone doesn't clear it.
+                    androidx.core.widget.TextViewCompat.setTextFuture(h.tvMessage, null);
+                    h.tvMessage.setText(displaySpanned);
+                }
                 h.textBindToken++;
 
                 // ── Link preview (ViewStub lazy inflate) ─────────────────────
@@ -1925,7 +2021,7 @@ public class MessagePagingAdapter
                                 if (h.ivLinkThumb  != null) {
                                     if (r.imageUrl != null && !r.imageUrl.isEmpty()) {
                                         h.ivLinkThumb.setVisibility(View.VISIBLE);
-                                        com.bumptech.glide.Glide.with(ctx)
+                                        glide(ctx)
                                             .load(r.imageUrl)
                                             .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
                                             .override(300, 300)
@@ -2376,7 +2472,7 @@ public class MessagePagingAdapter
         java.io.File cachedFile = com.callx.app.utils.MediaCache.getCached(ctx, fullUrl);
         if (cachedFile != null) {
             h.fl_download_overlay.setVisibility(View.GONE);
-            Glide.with(ctx).load(cachedFile).centerCrop().into(h.ivImage);
+            glide(ctx).load(cachedFile).centerCrop().into(h.ivImage);
             return;
         }
 
@@ -2412,7 +2508,7 @@ public class MessagePagingAdapter
                     downloadingMediaUrls.remove(fullUrl);
                     if (!fullUrl.equals(h.fl_download_overlay.getTag())) return;
                     h.fl_download_overlay.setVisibility(View.GONE);
-                    Glide.with(ctx).load(file).centerCrop().into(h.ivImage);
+                    glide(ctx).load(file).centerCrop().into(h.ivImage);
                 }
                 @Override public void onError(String reason) {
                     downloadingMediaUrls.remove(fullUrl);
@@ -2772,12 +2868,19 @@ public class MessagePagingAdapter
         // Missing clears on ivReplyThumb/ivLinkThumb/ivVideoThumb/ivStatusSeenThumb/ivReelSeenThumb
         // caused Glide memory leaks and stale image flicker on fast scrolling.
         Context ctx = holder.itemView.getContext();
-        if (holder.ivImage           != null) Glide.with(ctx).clear(holder.ivImage);
-        if (holder.ivReplyThumb      != null) Glide.with(ctx).clear(holder.ivReplyThumb);
-        if (holder.ivLinkThumb       != null) Glide.with(ctx).clear(holder.ivLinkThumb);
-        if (holder.ivVideoThumb      != null) Glide.with(ctx).clear(holder.ivVideoThumb);
-        if (holder.ivStatusSeenThumb != null) Glide.with(ctx).clear(holder.ivStatusSeenThumb);
-        if (holder.ivReelSeenThumb   != null) Glide.with(ctx).clear(holder.ivReelSeenThumb);
+        // PERF/SAFETY: cancel any in-flight setTextFuture() so a late-
+        // resolving background text layout from the message this holder
+        // used to show can never land on whatever new message it gets
+        // rebound to next.
+        if (holder.tvMessage != null) {
+            androidx.core.widget.TextViewCompat.setTextFuture(holder.tvMessage, null);
+        }
+        if (holder.ivImage           != null) glide(ctx).clear(holder.ivImage);
+        if (holder.ivReplyThumb      != null) glide(ctx).clear(holder.ivReplyThumb);
+        if (holder.ivLinkThumb       != null) glide(ctx).clear(holder.ivLinkThumb);
+        if (holder.ivVideoThumb      != null) glide(ctx).clear(holder.ivVideoThumb);
+        if (holder.ivStatusSeenThumb != null) glide(ctx).clear(holder.ivStatusSeenThumb);
+        if (holder.ivReelSeenThumb   != null) glide(ctx).clear(holder.ivReelSeenThumb);
         // Invalidate the download-overlay binding guard so an in-flight
         // getRemoteSize/getWithProgress callback for the old message
         // can't touch this holder after it's been recycled for a new one.

@@ -67,6 +67,36 @@ public class CallxApp extends Application {
     public void onCreate() {
         super.onCreate();
 
+        // ── PERF: StrictMode (DEBUG builds only) ──────────────────────────
+        // Catches exactly the class of bug the user asked to check for:
+        // accidental disk/DB/network calls hiding inside RecyclerView
+        // bind() paths, which show up as scroll jank/frame drops rather
+        // than a crash, and are otherwise easy to miss. Logs a stack trace
+        // to Logcat (StrictMode.ThreadPolicy default penalty) instead of
+        // crashing — safe to leave on for regular dev testing, and this
+        // block is entirely compiled out of release builds since
+        // BuildConfig.DEBUG is a compile-time constant.
+        //
+        // If this starts logging violations, check for: SharedPreferences
+        // .commit()/apply() reads, Room DAO calls, File I/O, or Firebase
+        // synchronous calls made directly from onBindViewHolder() or from
+        // a main-thread listener callback instead of a background executor.
+        if (BuildConfig.DEBUG) {
+            android.os.StrictMode.setThreadPolicy(
+                    new android.os.StrictMode.ThreadPolicy.Builder()
+                            .detectDiskReads()
+                            .detectDiskWrites()
+                            .detectNetwork()
+                            .penaltyLog()
+                            .build());
+            android.os.StrictMode.setVmPolicy(
+                    new android.os.StrictMode.VmPolicy.Builder()
+                            .detectLeakedSqlLiteObjects()
+                            .detectLeakedClosableObjects()
+                            .penaltyLog()
+                            .build());
+        }
+
         // ── PERF FIX v33: Firebase Realtime Database disk persistence ─────
         // Root cause of "chat khulne ke 2 sec baad messages load hote hain":
         // setPersistenceEnabled(false) tha (see old comment: "we use our own

@@ -1,5 +1,6 @@
 package com.callx.app;
 
+import android.app.ActivityManager;
 import android.content.Context;
 
 import androidx.annotation.NonNull;
@@ -30,6 +31,14 @@ import com.bumptech.glide.request.RequestOptions;
  *     for every image decode. Cuts GC pressure during fast scrolling.
  *   • PREFER_ARGB_8888    — higher quality than RGB_565; worth it on modern AMOLED screens.
  *
+ * FIX: all three budgets above were fixed constants regardless of device RAM.
+ * On a low-end device (ActivityManager.getMemoryClass() ~ 96-128MB app heap),
+ * a flat 40MB memory cache + 20MB bitmap pool is a big chunk of the whole
+ * process heap — during a fast fling through a media-heavy chat, Glide's own
+ * caches could crowd out headroom needed elsewhere and increase OOM risk
+ * instead of preventing it. Budgets now scale with getMemoryClass(): full
+ * size on normal/high-RAM devices, roughly halved below a 128MB heap class.
+ *
  * @GlideModule triggers annotation-processor code-gen (GeneratedAppGlideModuleImpl).
  * No AndroidManifest.xml meta-data is needed (that was Glide 3 only).
  * isManifestParsingEnabled() = false speeds up init by skipping manifest scanning.
@@ -43,33 +52,52 @@ public final class CallxGlideModule extends AppGlideModule {
     // reopening a chat (or even scrolling back up) re-hit the network for
     // thumbnails that had *just* been downloaded. Bigger budgets mean a
     // re-opened chat loads its media thumbnails from disk, not the network.
-    private static final long MEMORY_CACHE_BYTES = 40L * 1024 * 1024;  // 40 MB
-    private static final long DISK_CACHE_BYTES   = 200L * 1024 * 1024; // 200 MB
-    private static final long BITMAP_POOL_BYTES  = 20L * 1024 * 1024;  // 20 MB
+    private static final long MEMORY_CACHE_BYTES = 40L * 1024 * 1024;  // 40 MB — normal/high-RAM devices
+    private static final long DISK_CACHE_BYTES   = 200L * 1024 * 1024; // 200 MB — unaffected by RAM (disk, not heap)
+    private static final long BITMAP_POOL_BYTES  = 20L * 1024 * 1024;  // 20 MB — normal/high-RAM devices
+
+    // Devices reporting less than this app-heap class are treated as low-RAM.
+    private static final int LOW_RAM_MEMORY_CLASS_MB = 128;
+    private static final float LOW_RAM_SCALE = 0.5f;
 
     @Override
     public void applyOptions(@NonNull Context context, @NonNull GlideBuilder builder) {
+        boolean lowRam = isLowRamDevice(context);
+        long memoryCacheBytes = lowRam ? (long) (MEMORY_CACHE_BYTES * LOW_RAM_SCALE) : MEMORY_CACHE_BYTES;
+        long bitmapPoolBytes  = lowRam ? (long) (BITMAP_POOL_BYTES * LOW_RAM_SCALE) : BITMAP_POOL_BYTES;
+
         builder
             // ── In-memory LRU cache ────────────────────────────────────────
             // Holds decoded, ready-to-draw Bitmap objects.
             // Images served from here appear instantly (no disk I/O, no decode).
-            .setMemoryCache(new LruResourceCache(MEMORY_CACHE_BYTES))
+            .setMemoryCache(new LruResourceCache(memoryCacheBytes))
 
             // ── On-disk LRU cache ──────────────────────────────────────────
             // Persists compressed image data across app sessions.
             // Chat images re-opened tomorrow load from disk, not the network.
+            // (Disk budget is left unscaled — it costs storage, not heap, so
+            // it isn't part of the OOM risk this scaling addresses.)
             .setDiskCache(new InternalCacheDiskCacheFactory(context, DISK_CACHE_BYTES))
 
             // ── Bitmap pool ────────────────────────────────────────────────
             // Recycles Bitmap allocations during scrolling instead of GC-ing them.
-            // Critical for smooth 60fps in media-heavy chat lists.
-            .setBitmapPool(new LruBitmapPool(BITMAP_POOL_BYTES))
+            // Critical for smooth 60fps in media-heavy chat lists — but on a
+            // low-RAM device an oversized pool eats into the same tiny heap
+            // it's trying to protect, so it's scaled down there too.
+            .setBitmapPool(new LruBitmapPool(bitmapPoolBytes))
 
             // ── Decode format ──────────────────────────────────────────────
             // PREFER_ARGB_8888: full colour depth. Better than RGB_565 on AMOLED
             // screens (no colour banding on gradients / profile photos).
             .setDefaultRequestOptions(
                 new RequestOptions().format(DecodeFormat.PREFER_ARGB_8888));
+    }
+
+    private boolean isLowRamDevice(@NonNull Context context) {
+        ActivityManager am = (ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
+        if (am == null) return false;
+        if (am.isLowRamDevice()) return true;
+        return am.getMemoryClass() < LOW_RAM_MEMORY_CLASS_MB;
     }
 
     @Override

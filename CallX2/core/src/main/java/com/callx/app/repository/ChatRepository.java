@@ -214,6 +214,57 @@ public class ChatRepository {
     }
 
     // ─────────────────────────────────────────────────────────────
+    // REMOTE MEDIATOR SUPPORT — on-demand older-history fetch
+    // ─────────────────────────────────────────────────────────────
+
+    /**
+     * Fetches one page of messages OLDER than `beforeTimestamp` directly from
+     * Firebase and inserts them into Room. Used by {@link com.callx.app.db.paging.MessageRemoteMediator}
+     * on PREPEND, when the local Room table has run out of older messages for
+     * this chat and infinite-scroll needs to reach further back than the
+     * initial delta sync ever fetched (delta sync only ever pulls the most
+     * recent PAGE_SIZE messages — see syncMessagesDelta above).
+     *
+     * Returns the number of NEW rows actually inserted — the caller uses
+     * `inserted < pageSize` to decide endOfPaginationReached (fewer rows than
+     * requested means Firebase has no more history above this point).
+     */
+    public io.reactivex.rxjava3.core.Single<Integer> fetchOlderMessagesFromFirebase(
+            String chatId, long beforeTimestamp, int pageSize) {
+        return io.reactivex.rxjava3.core.Single.<Integer>create(emitter -> {
+            Query query = mFirebase.getReference("messages")
+                    .child(chatId)
+                    .orderByChild("timestamp")
+                    .endBefore((double) beforeTimestamp)
+                    .limitToLast(pageSize);
+
+            query.addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override
+                public void onDataChange(DataSnapshot snapshot) {
+                    List<MessageEntity> older = new ArrayList<>();
+                    for (DataSnapshot child : snapshot.getChildren()) {
+                        Message m = child.getValue(Message.class);
+                        if (m == null) continue;
+                        if (m.id == null) m.id = child.getKey();
+                        older.add(toEntity(m, chatId));
+                    }
+                    mExecutor.execute(() -> {
+                        if (!older.isEmpty()) {
+                            mDb.messageDao().insertMessages(older);
+                        }
+                        if (!emitter.isDisposed()) emitter.onSuccess(older.size());
+                    });
+                }
+
+                @Override
+                public void onCancelled(DatabaseError error) {
+                    if (!emitter.isDisposed()) emitter.onError(error.toException());
+                }
+            });
+        }).subscribeOn(io.reactivex.rxjava3.schedulers.Schedulers.io());
+    }
+
+    // ─────────────────────────────────────────────────────────────
     // USER PROFILE — offline-first
     // ─────────────────────────────────────────────────────────────
 
