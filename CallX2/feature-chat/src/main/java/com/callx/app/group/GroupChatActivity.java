@@ -684,6 +684,7 @@ public class GroupChatActivity extends AppCompatActivity
             @Override public void onReply(Message m)               { startReply(m); }
             @Override public void onDelete(Message m)              { confirmDelete(m); }
             @Override public void onReact(Message m, String emoji) { sendReaction(m, emoji); }
+            @Override public void onReactionTap(Message m)         { showGroupReactedUsers(m); }
             @Override public void onStar(Message m)                { starredController.toggleStar(m); }
             @Override public void onCopy(Message m)                { copyText(m); }
             @Override public void onForward(Message m)             { forwardMessage(m); }
@@ -1514,9 +1515,96 @@ public class GroupChatActivity extends AppCompatActivity
                 .setNegativeButton("Cancel", null).show();
     }
 
+    /** GROUP REACTION FLOW — previously this only ever called .setValue(emoji),
+     *  which meant: (1) tapping the same emoji again didn't remove it like
+     *  1:1 chat does, (2) there was no Room mirror write so the reaction
+     *  vanished the moment the paging adapter re-read from the local DB
+     *  (same class of bug ChatReactionController's javadoc documents fixing
+     *  for 1:1 — it just never got ported here), and (3) there was no
+     *  instant local UI update, so group reactions suffered the same
+     *  non-instant round-trip that 1:1 chat had before. This brings group
+     *  chat reactions up to full parity with 1:1. */
     private void sendReaction(Message m, String emoji) {
         if (m.id == null) return;
-        groupMessagesRef.child(m.id).child("reactions").child(currentUid).setValue(emoji);
+        String existing = m.reactions != null ? m.reactions.get(currentUid) : null;
+        boolean removing = emoji.equals(existing);
+
+        // Instant feedback — see MessagePagingAdapter#applyLocalReaction.
+        if (pagingAdapter != null) {
+            pagingAdapter.applyLocalReaction(m.id, currentUid, emoji, removing);
+        }
+
+        DatabaseReference reactionRef =
+                groupMessagesRef.child(m.id).child("reactions").child(currentUid);
+        if (removing) {
+            reactionRef.removeValue();
+        } else {
+            reactionRef.setValue(emoji);
+        }
+
+        // Mirror into Room right away, same as 1:1 chat.
+        ioExecutor.execute(() -> {
+            String json = db.messageDao().getReactionsJson(m.id);
+            Map<String, String> current =
+                    com.callx.app.utils.ReactionJsonUtil.reactionsFromJson(json);
+            if (removing) {
+                current.remove(currentUid);
+            } else {
+                current.put(currentUid, emoji);
+            }
+            db.messageDao().updateReactions(m.id,
+                    com.callx.app.utils.ReactionJsonUtil.reactionsToJson(current));
+        });
+    }
+
+    /** "Who reacted" dialog for group chat — a group can have any number of
+     *  reactors, unlike 1:1 chat's fixed self+partner pair, so this resolves
+     *  every uid against the live memberNames map instead of assuming there
+     *  are only two possible people. Previously this was never wired up at
+     *  all in group chat — tapping the reaction badge under a group message
+     *  did nothing. */
+    private void showGroupReactedUsers(Message m) {
+        if (m == null || m.reactions == null || m.reactions.isEmpty()) return;
+
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        android.widget.LinearLayout container = new android.widget.LinearLayout(this);
+        container.setOrientation(android.widget.LinearLayout.VERTICAL);
+        int pad = (int) (20 * getResources().getDisplayMetrics().density);
+        container.setPadding(pad, (int) (8 * getResources().getDisplayMetrics().density),
+                pad, (int) (8 * getResources().getDisplayMetrics().density));
+        scroll.addView(container);
+
+        for (Map.Entry<String, String> e : m.reactions.entrySet()) {
+            String uid = e.getKey();
+            String emoji = e.getValue();
+            if (uid == null || emoji == null) continue;
+            String name = currentUid.equals(uid) ? "You" : memberNames.getOrDefault(uid, "Member");
+
+            android.widget.LinearLayout row = new android.widget.LinearLayout(this);
+            row.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+            row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            int vPad = (int) (10 * getResources().getDisplayMetrics().density);
+            row.setPadding(0, vPad, 0, vPad);
+
+            android.widget.TextView tvEmoji = new android.widget.TextView(this);
+            tvEmoji.setText(emoji);
+            tvEmoji.setTextSize(22);
+            tvEmoji.setPadding(0, 0, (int) (16 * getResources().getDisplayMetrics().density), 0);
+            row.addView(tvEmoji);
+
+            android.widget.TextView tvName = new android.widget.TextView(this);
+            tvName.setText(name);
+            tvName.setTextSize(15);
+            row.addView(tvName);
+
+            container.addView(row);
+        }
+
+        new AlertDialog.Builder(this)
+                .setTitle("Reactions")
+                .setView(scroll)
+                .setPositiveButton("Close", null)
+                .show();
     }
 
     // toggleStar() moved to GroupStarredController#toggleStar — same
