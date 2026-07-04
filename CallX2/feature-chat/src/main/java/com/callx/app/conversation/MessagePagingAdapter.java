@@ -1433,7 +1433,7 @@ public class MessagePagingAdapter
                             ? m.thumbnailUrl : vUrl;
                     glide(ctx)
                         .load(thumbUrl)
-                        .diskCacheStrategy(DiskCacheStrategy.ALL)
+                        .apply(THUMB_RGB565)
                         .thumbnail(0.1f) // PERF: render 10% low-res frame instantly, then upgrade
                         .override(480, 480)
                         .placeholder(R.drawable.bg_skeleton_rect)
@@ -1603,7 +1603,7 @@ public class MessagePagingAdapter
                     if (!avatarUrl.isEmpty()) {
                         glide(ctx)
                                 .load(avatarUrl)
-                                .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
+                                .apply(THUMB_RGB565)
                                 .override(48, 48)
                                 .circleCrop()
                                 .placeholder(android.R.drawable.ic_menu_camera)
@@ -1643,7 +1643,7 @@ public class MessagePagingAdapter
                                                 && curName.toString().equals("@" + fUKey)) {
                                             glide(fCtxA)
                                                     .load(photo)
-                                                    .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
+                                                    .apply(THUMB_RGB565)
                                                     .override(48, 48)
                                                     .circleCrop()
                                                     .placeholder(android.R.drawable.ic_menu_camera)
@@ -1689,7 +1689,7 @@ public class MessagePagingAdapter
                     if (!thumb.isEmpty()) {
                         glide(ctx)
                                 .load(thumb)
-                                .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
+                                .apply(THUMB_RGB565)
                                 .override(330, 474) // PERF: match ~165x237dp bubble, avoid full-res decode
                                 .centerCrop()
                                 .placeholder(android.R.color.darker_gray)
@@ -1712,7 +1712,7 @@ public class MessagePagingAdapter
                                         reelThumbCache.put(fRKey, t);
                                         if (fh.ivReelShareThumb != null && rowStillMatches) {
                                             glide(fCtxT).load(t)
-                                                .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
+                                                .apply(THUMB_RGB565)
                                                 .override(330, 474)
                                                 .centerCrop()
                                                 .into(fh.ivReelShareThumb);
@@ -1733,7 +1733,7 @@ public class MessagePagingAdapter
                                         if (fh.ivReelShareAvatar != null) {
                                             glide(fCtxT)
                                                     .load(ap)
-                                                    .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
+                                                    .apply(THUMB_RGB565)
                                                     .override(48, 48)
                                                     .circleCrop()
                                                     .placeholder(android.R.drawable.ic_menu_camera)
@@ -1975,7 +1975,7 @@ public class MessagePagingAdapter
                                         h.ivLinkThumb.setVisibility(View.VISIBLE);
                                         glide(ctx)
                                             .load(r.imageUrl)
-                                            .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
+                                            .apply(THUMB_RGB565)
                                             .override(300, 300)
                                             .centerCrop()
                                             .into(h.ivLinkThumb);

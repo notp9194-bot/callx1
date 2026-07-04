@@ -1721,19 +1721,22 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // typical visible window of ~12 items, cache=2 means almost every
         // onBind() must pull from the recycle pool (slow). Cache=10 keeps the
         // most recently off-screen views ready to rebind without reinflation.
-        binding.rvMessages.setItemViewCacheSize(20);
+        binding.rvMessages.setItemViewCacheSize(24);
         // FIX #2d: Tune RecycledViewPool per view type (5 types × 5 each).
         // Default pool size is 5 already but explicit sizing prevents the pool
         // from being exhausted on fast flings that scroll past many bubbles.
         RecyclerView.RecycledViewPool pool = new RecyclerView.RecycledViewPool();
-        // PERF: increased TYPE_SENT/RECEIVED pool to 10 — fast flings scroll
-        // past ~8-12 bubbles before stopping; pool=5 gets exhausted half-way,
-        // forcing expensive ViewHolder inflation mid-fling.
-        pool.setMaxRecycledViews(1 /* TYPE_SENT */,        10);
-        pool.setMaxRecycledViews(2 /* TYPE_RECEIVED */,    10);
-        pool.setMaxRecycledViews(3 /* TYPE_STATUS_SEEN */,  3);
-        pool.setMaxRecycledViews(4 /* TYPE_REEL_SEEN */,    3);
-        pool.setMaxRecycledViews(5 /* TYPE_CALL_ENTRY */,   3);
+        // PERF: increased TYPE_SENT/RECEIVED pool to 18 — on a fast fling
+        // (Telegram-speed flick, not just a slow drag) the visible window
+        // can blow past 12-16 bubbles before the list settles; the old
+        // pool=10 was still getting exhausted mid-fling on exactly that kind
+        // of fast fling, forcing expensive ViewHolder inflation instead of
+        // reuse. Less-common types bumped 3 → 6 for the same reason.
+        pool.setMaxRecycledViews(1 /* TYPE_SENT */,        18);
+        pool.setMaxRecycledViews(2 /* TYPE_RECEIVED */,    18);
+        pool.setMaxRecycledViews(3 /* TYPE_STATUS_SEEN */,  6);
+        pool.setMaxRecycledViews(4 /* TYPE_REEL_SEEN */,    6);
+        pool.setMaxRecycledViews(5 /* TYPE_CALL_ENTRY */,   6);
         binding.rvMessages.setRecycledViewPool(pool);
         // PERF: scroll-ahead image preloading — fast fling ke dauran agli
         // ~8 items ki thumbnail Glide cache mein pehle se fetch ho jaati
