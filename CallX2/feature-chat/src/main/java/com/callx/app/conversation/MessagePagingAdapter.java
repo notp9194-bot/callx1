@@ -264,7 +264,7 @@ public class MessagePagingAdapter
         }
         @Override
         public void draw(@NonNull android.graphics.Canvas canvas, CharSequence text, int start, int end,
-                          float x, float top, int y, int bottom, @NonNull android.graphics.Paint paint) {
+                          float x, int top, int y, int bottom, @NonNull android.graphics.Paint paint) {
             // Intentionally blank — reserves horizontal space only.
         }
     }
