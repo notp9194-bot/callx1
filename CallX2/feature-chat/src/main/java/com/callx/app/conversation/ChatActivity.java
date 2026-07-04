@@ -1743,6 +1743,27 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // so the automatic state-save is useless work.
         binding.rvMessages.setSaveEnabled(false);
 
+        // PERF OPT #4: fling-only hardware layer on the RecyclerView.
+        // Every text bubble draws a rounded-corner GradientDrawable background
+        // (BubbleShapeManager) plus a TextView — cheap individually, but during
+        // a fast fling the layout is repainting many of these every frame.
+        // Switching the whole RecyclerView to LAYER_TYPE_HARDWARE only while
+        // actively dragging/settling turns that repeated bubble-shape drawing
+        // into a single cached GPU texture that's just translated per frame;
+        // switching back to LAYER_TYPE_NONE the instant scrolling stops avoids
+        // paying the (larger) GPU memory cost of a hardware layer while idle.
+        // This is the same technique WhatsApp/Telegram-style chat lists use to
+        // keep fling buttery on mid-range devices.
+        binding.rvMessages.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            @Override public void onScrollStateChanged(@NonNull RecyclerView rv, int newState) {
+                if (newState == RecyclerView.SCROLL_STATE_IDLE) {
+                    rv.setLayerType(View.LAYER_TYPE_NONE, null);
+                } else if (rv.getLayerType() != View.LAYER_TYPE_HARDWARE) {
+                    rv.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+                }
+            }
+        });
+
         pagingAdapter.registerAdapterDataObserver(new RecyclerView.AdapterDataObserver() {
             @Override public void onItemRangeInserted(int positionStart, int itemCount) {
                 super.onItemRangeInserted(positionStart, itemCount);

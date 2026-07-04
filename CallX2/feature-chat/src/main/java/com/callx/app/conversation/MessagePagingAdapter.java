@@ -181,18 +181,19 @@ public class MessagePagingAdapter
 
     // LRU cache (messageId + text-hash → PrecomputedTextCompat) so scrolling
     // back to an already-seen long message reuses the previous result
-    // instantly instead of recomputing. Capped at 80 entries — generous for
-    // a chat screen's worth of long messages without growing unbounded.
-    // Accessed from both the UI thread (read on bind) and the background
-    // executor threads (write on completion) — all access MUST go through
-    // precomputeCacheLock.
+    // instantly instead of recomputing. Capped at 140 entries — the
+    // precompute threshold was lowered (80→40 chars, see bind code) so more
+    // messages now qualify; the cap grew to match without letting it grow
+    // unbounded. Accessed from both the UI thread (read on bind) and the
+    // background executor threads (write on completion) — all access MUST
+    // go through precomputeCacheLock.
     private final Object precomputeCacheLock = new Object();
     private final java.util.LinkedHashMap<String, PrecomputedTextCompat> precomputedTextCache =
-            new java.util.LinkedHashMap<String, PrecomputedTextCompat>(64, 0.75f, true) {
+            new java.util.LinkedHashMap<String, PrecomputedTextCompat>(96, 0.75f, true) {
                 @Override
                 protected boolean removeEldestEntry(
                         java.util.Map.Entry<String, PrecomputedTextCompat> eldest) {
-                    return size() > 80;
+                    return size() > 140;
                 }
             };
 
@@ -1794,7 +1795,14 @@ public class MessagePagingAdapter
                 //    (or recycled) and the stale result is dropped silently.
                 h.tvMessage.setText(spanned);
                 final int myTextBindToken = ++h.textBindToken;
-                if (txt.length() > 80) {
+                // PERF: threshold lowered from 80 → 40. With breakStrategy=simple
+                // now set on tv_message (see item_message_sent/received.xml),
+                // StaticLayout construction is cheap enough that more messages
+                // can afford the (small) thread-hop cost, moving line-breaking/
+                // measuring for typical medium-length chat messages off the UI
+                // thread too — not just long ones — which matters most during
+                // a fast fling when many bubbles bind in the same frame budget.
+                if (txt.length() > 40) {
                     final String mid = m.messageId != null ? m.messageId : m.id;
                     final String cacheKey = (mid != null ? mid : "") + "#" + txt.hashCode();
 
