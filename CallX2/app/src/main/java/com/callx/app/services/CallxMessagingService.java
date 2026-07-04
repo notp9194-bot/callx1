@@ -2238,10 +2238,19 @@ public class CallxMessagingService extends FirebaseMessagingService {
           String messageId   = safeGet(data, "messageId");
           String reaction    = safeGet(data, "reaction");
           String msgText     = safeGet(data, "text");
+          String reactorPhoto = safeGet(data, "fromPhoto");
+          String reactorThumb = safeGet(data, "fromThumb");
+          // HUN-FIX: regular chat notifications prefer fromThumb over
+          // fromPhoto (thumb is smaller/faster and more reliably populated —
+          // see onMessageReceived's avatarUrl logic). Reactions were only
+          // reading fromPhoto, which is often empty → avatar silently missing.
+          final String avatarUrl = (reactorThumb != null && !reactorThumb.isEmpty())
+                  ? reactorThumb : reactorPhoto;
           String tsStr       = safeGet(data, "ts");
           android.util.Log.d("CallxFCM", "handleMessageReaction: reactorUid=" + reactorUid
                   + " reactorName=" + reactorName + " chatId=" + chatId
-                  + " messageId=" + messageId + " reaction=" + reaction);
+                  + " messageId=" + messageId + " reaction=" + reaction
+                  + " fromPhoto=" + reactorPhoto + " fromThumb=" + reactorThumb);
           // Only "reaction" is truly required to build a usable notification —
           // don't drop the whole thing just because fromName came through empty
           // (e.g. reactor never set a display name). Previously this bailed on
@@ -2250,65 +2259,83 @@ public class CallxMessagingService extends FirebaseMessagingService {
               android.util.Log.w("CallxFCM", "handleMessageReaction: dropped — no reaction field in payload (server not updated?)");
               return;
           }
-          if (reactorName == null) reactorName = "Someone";
+          final String finalReactorName = (reactorName == null || reactorName.isEmpty()) ? "Someone" : reactorName;
 
           // HUN-FIX: longer preview (was 40 chars) so the reacted-to message
-          // is actually readable, expanded via BigTextStyle below.
+          // is actually readable.
           String preview = (msgText != null && !msgText.isEmpty())
                   ? ("\"" + (msgText.length() > 80 ? msgText.substring(0, 80) + "…" : msgText) + "\"")
                   : "your message";
-          String title = reactorName + " reacted " + reaction;
-          String body  = "Reacted " + reaction + " to " + preview;
+          final String title = finalReactorName + " reacted " + reaction;
+          final String body  = "Reacted " + reaction + " to " + preview;
 
           // timestamp: server sends "ts" (reaction time) when available,
-          // fall back to now — used for setWhen() so the tray shows the
-          // actual time like every other message notification.
-          long when;
-          try { when = (tsStr != null && !tsStr.isEmpty()) ? Long.parseLong(tsStr) : System.currentTimeMillis(); }
-          catch (NumberFormatException e) { when = System.currentTimeMillis(); }
+          // fall back to now.
+          long parsedWhen;
+          try { parsedWhen = (tsStr != null && !tsStr.isEmpty()) ? Long.parseLong(tsStr) : System.currentTimeMillis(); }
+          catch (NumberFormatException e) { parsedWhen = System.currentTimeMillis(); }
+          final long when = parsedWhen;
 
           Intent chatIntent = new Intent(this, ChatActivity.class);
           chatIntent.putExtra("partnerUid", reactorUid);
-          chatIntent.putExtra("partnerName", reactorName);
+          chatIntent.putExtra("partnerName", finalReactorName);
+          chatIntent.putExtra("partnerPhoto", reactorPhoto != null ? reactorPhoto : "");
           chatIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-          int notifId = ("msg_react_" + chatId + "_" + messageId).hashCode();
+          final int notifId = ("msg_react_" + chatId + "_" + messageId).hashCode();
           PendingIntent pi = PendingIntent.getActivity(this, notifId, chatIntent,
                   PendingIntent.FLAG_UPDATE_CURRENT |
                   (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? PendingIntent.FLAG_IMMUTABLE : 0));
 
-          NotificationCompat.Builder b = new NotificationCompat.Builder(
-                  this, com.callx.app.utils.Constants.CHANNEL_REACTIONS)
-              .setSmallIcon(R.drawable.ic_message_notification)
-              .setContentTitle(title)
-              .setContentText(body)
-              .setStyle(new NotificationCompat.BigTextStyle().bigText(body))
-              .setAutoCancel(true)
-              // HUN-FIX: PRIORITY_HIGH — on pre-O devices (no channel concept)
-              // this is what drives heads-up; on O+ the channel importance
-              // (now IMPORTANCE_HIGH, see CallxApp#createChannels) is what
-              // actually matters, but keep priority consistent with it.
-              .setPriority(NotificationCompat.PRIORITY_HIGH)
-              .setCategory(NotificationCompat.CATEGORY_SOCIAL)
-              .setWhen(when)
-              .setShowWhen(true)
-              .setContentIntent(pi);
+          // HUN-FIX (proper): avatar download + circular crop happens off-thread
+          // using the SAME downloadBitmap()/circle() helpers the normal chat
+          // notifications use (see buildAndShow/postRichNotification above),
+          // and the notification uses Person + MessagingStyle so the system
+          // renders a real round avatar + bold name + timestamp — this is far
+          // more reliable across OEMs (Xiaomi/Samsung/etc.) than a manually
+          // set largeIcon on a plain Builder, which several launchers ignore.
+          bg.execute(() -> {
+              Bitmap avatarBm = null;
+              try { avatarBm = circle(downloadBitmap(avatarUrl, 100, 100)); }
+              catch (Exception e) {
+                  android.util.Log.w("CallxFCM", "handleMessageReaction: avatar download failed: " + e.getMessage());
+              }
 
-          String reactorPhoto = safeGet(data, "fromPhoto");
-          new Thread(() -> {
-              try {
-                  Bitmap bm = com.callx.app.utils.StatusNotificationHelper
-                          .downloadBitmap(getApplicationContext(), reactorPhoto);
-                  if (bm != null) b.setLargeIcon(
-                          com.callx.app.utils.StatusNotificationHelper.circle(bm));
-              } catch (Exception ignored) {}
+              Person.Builder pb = new Person.Builder().setName(finalReactorName);
+              if (reactorUid != null) pb.setKey(reactorUid);
+              if (avatarBm != null) pb.setIcon(IconCompat.createWithBitmap(avatarBm));
+              Person sender = pb.build();
+
+              Person me = new Person.Builder().setName("You").setKey("me").build();
+              NotificationCompat.MessagingStyle style =
+                      new NotificationCompat.MessagingStyle(me);
+              style.addMessage(body, when, sender);
+
+              NotificationCompat.Builder b = new NotificationCompat.Builder(
+                      this, com.callx.app.utils.Constants.CHANNEL_REACTIONS)
+                  .setSmallIcon(R.drawable.ic_message_notification)
+                  .setContentTitle(title)
+                  .setContentText(body)
+                  .setStyle(style)
+                  .setAutoCancel(true)
+                  // HUN-FIX: PRIORITY_HIGH — on pre-O devices (no channel concept)
+                  // this is what drives heads-up; on O+ the channel importance
+                  // (now IMPORTANCE_HIGH, see CallxApp#createChannels) is what
+                  // actually matters, but keep priority consistent with it.
+                  .setPriority(NotificationCompat.PRIORITY_HIGH)
+                  .setCategory(NotificationCompat.CATEGORY_SOCIAL)
+                  .setWhen(when)
+                  .setShowWhen(true)
+                  .setContentIntent(pi);
+              if (avatarBm != null) b.setLargeIcon(avatarBm); // fallback for pre-N / launchers that ignore MessagingStyle icon
+
               NotificationManager nm =
                       (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
               if (nm != null) nm.notify(notifId, b.build());
-          }).start();
+          });
 
           com.callx.app.utils.NotificationFirebaseStore.save(
               com.callx.app.utils.NotificationFirebaseStore.TYPE_MESSAGE,
-              title, body, reactorUid, reactorName, reactorPhoto, null, null, null,
+              title, body, reactorUid, finalReactorName, reactorPhoto, null, null, null,
               isForegrounded() ? com.callx.app.utils.NotificationFirebaseStore.DELIVERY_FOREGROUND
                                : com.callx.app.utils.NotificationFirebaseStore.DELIVERY_BACKGROUND);
       }
@@ -2330,66 +2357,91 @@ public class CallxMessagingService extends FirebaseMessagingService {
           String messageId   = safeGet(data, "messageId");
           String reaction    = safeGet(data, "reaction");
           String msgText     = safeGet(data, "text");
+          String reactorPhoto = safeGet(data, "fromPhoto");
+          String reactorThumb = safeGet(data, "fromThumb");
+          // HUN-FIX: prefer fromThumb, same as regular chat notifications —
+          // fromPhoto alone is often empty.
+          final String avatarUrl = (reactorThumb != null && !reactorThumb.isEmpty())
+                  ? reactorThumb : reactorPhoto;
           String tsStr       = safeGet(data, "ts");
           android.util.Log.d("CallxFCM", "handleGroupMessageReaction: reactorUid=" + reactorUid
                   + " reactorName=" + reactorName + " groupId=" + groupId
-                  + " messageId=" + messageId + " reaction=" + reaction);
+                  + " messageId=" + messageId + " reaction=" + reaction
+                  + " fromPhoto=" + reactorPhoto + " fromThumb=" + reactorThumb);
           if (reaction == null) {
               android.util.Log.w("CallxFCM", "handleGroupMessageReaction: dropped — no reaction field in payload (server not updated?)");
               return;
           }
-          if (reactorName == null) reactorName = "Someone";
+          final String finalReactorName = (reactorName == null || reactorName.isEmpty()) ? "Someone" : reactorName;
+          final String finalGroupName   = groupName != null ? groupName : "";
 
-          // HUN-FIX: longer preview (was 40 chars), expanded via BigTextStyle below.
+          // HUN-FIX: longer preview (was 40 chars).
           String preview = (msgText != null && !msgText.isEmpty())
                   ? ("\"" + (msgText.length() > 80 ? msgText.substring(0, 80) + "…" : msgText) + "\"")
                   : "your message";
-          String title = reactorName + " reacted " + reaction
-                  + (groupName != null && !groupName.isEmpty() ? " in " + groupName : "");
-          String body  = "Reacted " + reaction + " to " + preview;
+          final String title = finalReactorName + " reacted " + reaction
+                  + (!finalGroupName.isEmpty() ? " in " + finalGroupName : "");
+          final String body  = "Reacted " + reaction + " to " + preview;
 
-          long when;
-          try { when = (tsStr != null && !tsStr.isEmpty()) ? Long.parseLong(tsStr) : System.currentTimeMillis(); }
-          catch (NumberFormatException e) { when = System.currentTimeMillis(); }
+          long parsedWhen;
+          try { parsedWhen = (tsStr != null && !tsStr.isEmpty()) ? Long.parseLong(tsStr) : System.currentTimeMillis(); }
+          catch (NumberFormatException e) { parsedWhen = System.currentTimeMillis(); }
+          final long when = parsedWhen;
 
           Intent groupIntent = new Intent(this, GroupChatActivity.class);
           groupIntent.putExtra("groupId", groupId);
           groupIntent.putExtra("groupName", groupName);
           groupIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-          int notifId = ("grp_react_" + groupId + "_" + messageId).hashCode();
+          final int notifId = ("grp_react_" + groupId + "_" + messageId).hashCode();
           PendingIntent pi = PendingIntent.getActivity(this, notifId, groupIntent,
                   PendingIntent.FLAG_UPDATE_CURRENT |
                   (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? PendingIntent.FLAG_IMMUTABLE : 0));
 
-          NotificationCompat.Builder b = new NotificationCompat.Builder(
-                  this, com.callx.app.utils.Constants.CHANNEL_REACTIONS)
-              .setSmallIcon(R.drawable.ic_message_notification)
-              .setContentTitle(title)
-              .setContentText(body)
-              .setStyle(new NotificationCompat.BigTextStyle().bigText(body))
-              .setAutoCancel(true)
-              .setPriority(NotificationCompat.PRIORITY_HIGH)
-              .setCategory(NotificationCompat.CATEGORY_SOCIAL)
-              .setWhen(when)
-              .setShowWhen(true)
-              .setContentIntent(pi);
+          // HUN-FIX (proper): same avatar+Person+MessagingStyle pattern as the
+          // 1:1 reaction notification and as the app's normal group chat
+          // notifications (see postGroupRichNotification) — reliable round
+          // avatar, bold sender name, and system-rendered timestamp.
+          bg.execute(() -> {
+              Bitmap avatarBm = null;
+              try { avatarBm = circle(downloadBitmap(avatarUrl, 100, 100)); }
+              catch (Exception e) {
+                  android.util.Log.w("CallxFCM", "handleGroupMessageReaction: avatar download failed: " + e.getMessage());
+              }
 
-          String reactorPhoto = safeGet(data, "fromPhoto");
-          new Thread(() -> {
-              try {
-                  Bitmap bm = com.callx.app.utils.StatusNotificationHelper
-                          .downloadBitmap(getApplicationContext(), reactorPhoto);
-                  if (bm != null) b.setLargeIcon(
-                          com.callx.app.utils.StatusNotificationHelper.circle(bm));
-              } catch (Exception ignored) {}
+              Person.Builder pb = new Person.Builder().setName(finalReactorName);
+              if (reactorUid != null) pb.setKey(reactorUid);
+              if (avatarBm != null) pb.setIcon(IconCompat.createWithBitmap(avatarBm));
+              Person sender = pb.build();
+
+              Person me = new Person.Builder().setName("You").setKey("me").build();
+              NotificationCompat.MessagingStyle style =
+                      new NotificationCompat.MessagingStyle(me)
+                          .setConversationTitle(finalGroupName.isEmpty() ? null : finalGroupName)
+                          .setGroupConversation(true);
+              style.addMessage(body, when, sender);
+
+              NotificationCompat.Builder b = new NotificationCompat.Builder(
+                      this, com.callx.app.utils.Constants.CHANNEL_REACTIONS)
+                  .setSmallIcon(R.drawable.ic_message_notification)
+                  .setContentTitle(title)
+                  .setContentText(body)
+                  .setStyle(style)
+                  .setAutoCancel(true)
+                  .setPriority(NotificationCompat.PRIORITY_HIGH)
+                  .setCategory(NotificationCompat.CATEGORY_SOCIAL)
+                  .setWhen(when)
+                  .setShowWhen(true)
+                  .setContentIntent(pi);
+              if (avatarBm != null) b.setLargeIcon(avatarBm);
+
               NotificationManager nm =
                       (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
               if (nm != null) nm.notify(notifId, b.build());
-          }).start();
+          });
 
           com.callx.app.utils.NotificationFirebaseStore.save(
               com.callx.app.utils.NotificationFirebaseStore.TYPE_GROUP,
-              title, body, reactorUid, reactorName, reactorPhoto, null, null, null,
+              title, body, reactorUid, finalReactorName, reactorPhoto, null, null, null,
               isForegrounded() ? com.callx.app.utils.NotificationFirebaseStore.DELIVERY_FOREGROUND
                                : com.callx.app.utils.NotificationFirebaseStore.DELIVERY_BACKGROUND);
       }
