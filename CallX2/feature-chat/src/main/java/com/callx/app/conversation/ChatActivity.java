@@ -53,6 +53,7 @@ import androidx.paging.PagingDataTransforms;
 import androidx.paging.PagingLiveData;
 import androidx.recyclerview.widget.ItemTouchHelper;
 import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.LinearSmoothScroller;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.bumptech.glide.Glide;
@@ -1784,12 +1785,6 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                     return;
                 }
                 int total = pagingAdapter.getItemCount();
-                // AUTO-SCROLL DISABLED: new inserts no longer force the
-                // RecyclerView to jump to the bottom, regardless of whether
-                // the user is currently at the bottom or scrolled up. The
-                // list simply grows in place; the user explicitly taps the
-                // "↓ N new messages" indicator / FAB (or scrolls manually)
-                // to go to the latest message.
                 int othersCount = 0;
                 for (int i = positionStart; i < Math.min(positionStart + itemCount, total); i++) {
                     Message m = pagingAdapter.peek(i);
@@ -1797,7 +1792,33 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                         othersCount++;
                     }
                 }
-                if (othersCount > 0 && !isUserAtBottom) {
+                // WHATSAPP-STYLE AUTO-SCROLL: only fires when the freshly
+                // inserted rows land at the very TAIL of the list (a real new
+                // message — not an older page getting prepended while the
+                // user has scrolled up to read history; that insert happens
+                // at positionStart 0 and must NOT move the viewport).
+                boolean isTailInsert = (positionStart + itemCount) >= total;
+                if (isTailInsert && isUserAtBottom) {
+                    // User is already sitting at the bottom, so the new
+                    // message should reveal itself the way WhatsApp does:
+                    // the existing bubbles glide upward smoothly and the new
+                    // one settles into view — not an instant jump, and not
+                    // "nothing happens until you scroll manually" (that was
+                    // the old AUTO-SCROLL DISABLED behaviour, which made new
+                    // messages feel stuck/laggy instead of alive).
+                    // The distance covered is only the height of the 1-2 new
+                    // rows since we're already pinned at the tail, so the
+                    // built-in smooth scroller covers it in a couple of
+                    // frames — no janky "flying past many items" like a
+                    // long-distance smoothScrollToPosition would cause.
+                    final int newLast = total - 1;
+                    binding.rvMessages.post(() -> {
+                        if (binding == null) return;
+                        smoothScrollToBottomWhatsAppStyle(newLast);
+                    });
+                    pendingNewMsgCount = 0;
+                    hideNewMessagesIndicator();
+                } else if (othersCount > 0 && !isUserAtBottom) {
                     pendingNewMsgCount += othersCount;
                     updateNewMessagesIndicator(pendingNewMsgCount);
                 }
@@ -2206,6 +2227,40 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         pendingNewMsgCount = 0;
         hideNewMessagesIndicator();
         isUserAtBottom = true;
+    }
+
+    /**
+     * WHATSAPP-STYLE SMOOTH REVEAL for a freshly-arrived tail message.
+     *
+     * RecyclerView's default smoothScrollToPosition() is tuned for
+     * arbitrary-distance jumps (its speed is MILLISECONDS_PER_INCH-based —
+     * fine, but not tuned for "just nudge the list up by one bubble").
+     * Here the target is always just 1-2 rows below the fold, so we use a
+     * short, fixed, fully-predictable duration with a decelerate curve —
+     * the same easing WhatsApp/Telegram use for their own "list glides up
+     * to reveal the new message" reveal. Snap-to-end (SNAP_TO_END) is used
+     * so the new bubble settles flush at the bottom of the viewport instead
+     * of being centred or over/under-shooting.
+     */
+    private void smoothScrollToBottomWhatsAppStyle(int targetPosition) {
+        if (binding == null || targetPosition < 0) return;
+        RecyclerView.LayoutManager rawLm = binding.rvMessages.getLayoutManager();
+        if (!(rawLm instanceof LinearLayoutManager)) return;
+        LinearLayoutManager lm = (LinearLayoutManager) rawLm;
+        LinearSmoothScroller scroller = new LinearSmoothScroller(this) {
+            @Override protected int getVerticalSnapPreference() {
+                return LinearSmoothScroller.SNAP_TO_END;
+            }
+            @Override protected float calculateSpeedPerPixel(android.util.DisplayMetrics dm) {
+                // Fixed, snappy-but-smooth speed — independent of screen
+                // density so the reveal feels identical across devices.
+                // Lower value = faster scroll. ~180-220ms total for the
+                // 1-2 row distance this is ever used for.
+                return 1.5f / dm.densityDpi;
+            }
+        };
+        scroller.setTargetPosition(targetPosition);
+        lm.startSmoothScroll(scroller);
     }
 
     /** Shows or updates the "↓ N new messages" floating indicator chip. */
