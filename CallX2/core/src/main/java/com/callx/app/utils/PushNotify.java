@@ -741,7 +741,22 @@ public class PushNotify {
                 Log.w("PushNotify", "POST fail to " + url + ": " + e.getMessage());
             }
             @Override public void onResponse(Call call, Response response) {
-                if (response.body() != null) response.close();
+                // DEBUG: log non-2xx responses with body so failures (missing
+                // fcmToken → 404, bad payload → 400/500, etc.) are visible in
+                // logcat instead of silently vanishing. Remove/lower to
+                // Log.v once the reaction-notification flow is confirmed working.
+                try {
+                    if (!response.isSuccessful()) {
+                        String errBody = response.body() != null ? response.body().string() : "";
+                        Log.w("PushNotify", "POST " + url + " -> HTTP " + response.code() + ": " + errBody);
+                    } else {
+                        Log.d("PushNotify", "POST " + url + " -> OK (" + response.code() + ")");
+                    }
+                } catch (Exception e) {
+                    Log.w("PushNotify", "POST " + url + " response read err: " + e.getMessage());
+                } finally {
+                    if (response.body() != null) response.close();
+                }
             }
         });
     }

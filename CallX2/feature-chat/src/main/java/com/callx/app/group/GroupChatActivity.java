@@ -1562,10 +1562,15 @@ public class GroupChatActivity extends AppCompatActivity
         // as ChatReactionController's 1:1 behavior. Works even if the
         // author's app is backgrounded or fully killed (FCM data push →
         // CallxMessagingService.handleGroupMessageReaction()).
+        android.util.Log.d("GroupReaction", "sendReaction: removing=" + removing
+                + " msgSenderId=" + m.senderId + " myUid=" + currentUid + " emoji=" + emoji);
         if (!removing && m.senderId != null && !m.senderId.equals(currentUid)) {
+            android.util.Log.d("GroupReaction", "Firing notifyGroupMessageReaction to " + m.senderId);
             PushNotify.notifyGroupMessageReaction(
                     m.senderId, currentUid, currentName,
                     groupId, groupName, m.id, emoji, m.text);
+        } else {
+            android.util.Log.d("GroupReaction", "Skipped notify (removing, own message, or null senderId)");
         }
     }
 

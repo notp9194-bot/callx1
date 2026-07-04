@@ -675,6 +675,17 @@ app.post("/notify", async (req, res) => {
   const isMessageReaction = (type === "message_reaction" || type === "group_message_reaction");
   const skipBlockChecks   = isStatusReply || isMissedCall || isSpecialRequest || isUnblockNotify || isViewOnceViewed;
 
+  // DEBUG: reaction notifications going missing? Check server logs for this
+  // line — if it never appears, the app never even hit /notify with a
+  // reaction type (client-side issue). If it appears but the client still
+  // shows nothing, the bug is on the Android side (check logcat for
+  // "CallxFCM"/"ChatReaction"/"GroupReaction" tags).
+  if (isMessageReaction) {
+    console.log("[/notify] reaction request:", JSON.stringify({
+      type, toUid, fromUid, fromName, chatId, groupId, messageId, reaction
+    }));
+  }
+
   try {
     const db = admin.database();
 
@@ -707,15 +718,19 @@ app.post("/notify", async (req, res) => {
       = await Promise.all(reads);
 
     const user = receiverSnap ? (receiverSnap.val() || {}) : {};
-    if (!user.fcmToken)
+    if (!user.fcmToken) {
+      if (isMessageReaction) console.log("[/notify] reaction dropped — toUid has no fcmToken:", toUid);
       return res.status(404).json({ error: "no token" });
+    }
 
     const myThumb        = String(user.thumbUrl || user.photoUrl || "");
     const isPermaBlocked = !skipBlockChecks && pbSnap && pbSnap.val() === true;
     const isBlocked      = !skipBlockChecks && blockedSnap && blockedSnap.val() === true;
 
-    if (isPermaBlocked)
+    if (isPermaBlocked) {
+      if (isMessageReaction) console.log("[/notify] reaction dropped — permaBlocked:", fromUid, "->", toUid);
       return res.json({ ok: true, dropped: "permaBlocked" });
+    }
 
     // Special request: attempt limit + 7-day expire (server-side safety)
     if (isSpecialRequest && fromUid && sreqSnap) {
@@ -823,6 +838,7 @@ app.post("/notify", async (req, res) => {
     };
 
     const r = await admin.messaging().send(message);
+    if (isMessageReaction) console.log("[/notify] reaction FCM sent OK, id:", r, "toUid:", toUid);
     res.json({ ok: true, id: r });
   } catch (e) {
     console.error("notify err:", e.message);

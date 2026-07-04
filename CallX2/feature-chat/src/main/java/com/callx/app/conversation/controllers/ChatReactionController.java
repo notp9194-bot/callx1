@@ -101,10 +101,15 @@ public class ChatReactionController {
         // CHANGING a reaction — un-reacting stays silent, same as WhatsApp.
         // Fires even if the recipient's app is backgrounded or fully killed
         // (FCM data push → CallxMessagingService.handleMessageReaction()).
+        android.util.Log.d("ChatReaction", "toggleReaction: removing=" + removing
+                + " msgSenderId=" + m.senderId + " myUid=" + uid + " emoji=" + emoji);
         if (!removing && m.senderId != null && !m.senderId.equals(uid)) {
+            android.util.Log.d("ChatReaction", "Firing notifyMessageReaction to " + m.senderId);
             PushNotify.notifyMessageReaction(
                     m.senderId, uid, delegate.getCurrentName(),
                     delegate.getChatId(), m.id, emoji, m.text);
+        } else {
+            android.util.Log.d("ChatReaction", "Skipped notify (removing, own message, or null senderId)");
         }
     }
 

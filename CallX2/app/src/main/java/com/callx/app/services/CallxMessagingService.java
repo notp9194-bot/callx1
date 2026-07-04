@@ -133,10 +133,12 @@ public class CallxMessagingService extends FirebaseMessagingService {
         } else if ("message_reaction".equals(type)) {
             // 1:1 chat emoji reaction — background/killed-safe, see
             // PushNotify.notifyMessageReaction() + ChatReactionController.
+            android.util.Log.d("CallxFCM", "onMessageReceived: type=message_reaction, dispatching");
             handleMessageReaction(data);
         } else if ("group_message_reaction".equals(type)) {
             // Group chat emoji reaction — only the reacted-to message's
             // author receives this (see PushNotify.notifyGroupMessageReaction).
+            android.util.Log.d("CallxFCM", "onMessageReceived: type=group_message_reaction, dispatching");
             handleGroupMessageReaction(data);
         } else if ("contact_join".equals(type)) {
             handleContactJoin(data);
@@ -2236,7 +2238,18 @@ public class CallxMessagingService extends FirebaseMessagingService {
           String messageId   = safeGet(data, "messageId");
           String reaction    = safeGet(data, "reaction");
           String msgText     = safeGet(data, "text");
-          if (reactorName == null || reaction == null) return;
+          android.util.Log.d("CallxFCM", "handleMessageReaction: reactorUid=" + reactorUid
+                  + " reactorName=" + reactorName + " chatId=" + chatId
+                  + " messageId=" + messageId + " reaction=" + reaction);
+          // Only "reaction" is truly required to build a usable notification —
+          // don't drop the whole thing just because fromName came through empty
+          // (e.g. reactor never set a display name). Previously this bailed on
+          // reactorName==null too, which silently ate the notification.
+          if (reaction == null) {
+              android.util.Log.w("CallxFCM", "handleMessageReaction: dropped — no reaction field in payload (server not updated?)");
+              return;
+          }
+          if (reactorName == null) reactorName = "Someone";
 
           String preview = (msgText != null && !msgText.isEmpty())
                   ? ("\"" + (msgText.length() > 40 ? msgText.substring(0, 40) + "…" : msgText) + "\"")
@@ -2300,7 +2313,14 @@ public class CallxMessagingService extends FirebaseMessagingService {
           String messageId   = safeGet(data, "messageId");
           String reaction    = safeGet(data, "reaction");
           String msgText     = safeGet(data, "text");
-          if (reactorName == null || reaction == null) return;
+          android.util.Log.d("CallxFCM", "handleGroupMessageReaction: reactorUid=" + reactorUid
+                  + " reactorName=" + reactorName + " groupId=" + groupId
+                  + " messageId=" + messageId + " reaction=" + reaction);
+          if (reaction == null) {
+              android.util.Log.w("CallxFCM", "handleGroupMessageReaction: dropped — no reaction field in payload (server not updated?)");
+              return;
+          }
+          if (reactorName == null) reactorName = "Someone";
 
           String preview = (msgText != null && !msgText.isEmpty())
                   ? ("\"" + (msgText.length() > 40 ? msgText.substring(0, 40) + "…" : msgText) + "\"")
