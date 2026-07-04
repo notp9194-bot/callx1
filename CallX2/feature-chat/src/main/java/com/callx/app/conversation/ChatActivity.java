@@ -3616,20 +3616,10 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                     // Finger moving or list flinging — halt all pending decodes.
                     com.bumptech.glide.Glide.with(ChatActivity.this).pauseRequestsRecursive();
                     com.callx.app.utils.LinkPreviewFetcher.setScrolling(true);
-                    // PERF: hardware layer during fling/drag — RecyclerView's
-                    // rendered content gets cached as a single GPU texture, so
-                    // scroll-offsetting the whole list is a cheap texture
-                    // translate instead of re-issuing every bubble's draw
-                    // commands (rounded rects, text, Glide bitmaps) on every
-                    // frame. Switched back to NONE on idle below — leaving a
-                    // hardware layer on permanently wastes GPU memory and can
-                    // actually slow down normal (non-scrolling) redraws.
-                    rv.setLayerType(View.LAYER_TYPE_HARDWARE, null);
                 } else if (newState == RecyclerView.SCROLL_STATE_IDLE) {
                     // List fully stopped — resume image loading for visible items.
                     com.bumptech.glide.Glide.with(ChatActivity.this).resumeRequestsRecursive();
                     com.callx.app.utils.LinkPreviewFetcher.setScrolling(false);
-                    rv.setLayerType(View.LAYER_TYPE_NONE, null);
                 }
                 if (newState != RecyclerView.SCROLL_STATE_IDLE) return;
                 if (presenceController == null) return;

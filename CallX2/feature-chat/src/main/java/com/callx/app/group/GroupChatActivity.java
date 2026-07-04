@@ -853,20 +853,12 @@ public class GroupChatActivity extends AppCompatActivity
                     // SETTLING = user released, list is flinging — pause Glide.
                     com.bumptech.glide.Glide.with(GroupChatActivity.this).pauseRequests();
                     com.callx.app.utils.LinkPreviewFetcher.setScrolling(true);
-                    // PERF: hardware layer during fling — caches the RecyclerView's
-                    // rendered content as a single GPU texture so scroll-offsetting
-                    // is a cheap texture translate instead of re-issuing every
-                    // bubble's draw commands each frame. Group chat rows are
-                    // heavier (avatar + sender name + bubble) so this matters more
-                    // here than in 1:1 chat. Switched back to NONE below.
-                    rv.setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null);
                 } else if (newState == RecyclerView.SCROLL_STATE_IDLE
                         || newState == RecyclerView.SCROLL_STATE_DRAGGING) {
                     // IDLE/DRAGGING = stopped or slow drag — resume Glide.
                     com.bumptech.glide.Glide.with(GroupChatActivity.this).resumeRequests();
                     com.callx.app.utils.LinkPreviewFetcher.setScrolling(
                             newState == RecyclerView.SCROLL_STATE_DRAGGING);
-                    rv.setLayerType(android.view.View.LAYER_TYPE_NONE, null);
                 }
                 if (newState != RecyclerView.SCROLL_STATE_IDLE) return;
                 if (watchingController == null) return;
