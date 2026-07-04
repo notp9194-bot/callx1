@@ -216,6 +216,105 @@ public class MessagePagingAdapter
                 }
             };
 
+    // BUG FIX (cold-open "bubble sometimes full, sometimes partial"):
+    // On a cache MISS, the >40-char path used to ALWAYS hop to
+    // TEXT_PRECOMPUTE_EXECUTOR and apply the result later via
+    // holderRef.itemView.post(). Fine for a message already on screen and
+    // settled — but for a message seen for the very FIRST time (every long
+    // message during cold open, since nothing is cached yet), applying the
+    // precomputed text AFTER the initial layout/scroll-to-bottom already
+    // happened could change that bubble's measured height a frame or two
+    // late. With stackFromEnd + itemAnimator(null), that late height
+    // change doesn't always trigger a re-anchor of the bottom edge — so
+    // the bubble could end up only partially inside the viewport. Race
+    // won → bubble looked fully wrong ("thoda sa dikhta tha").
+    //
+    // Fix: keep this flag OFF (synchronous PrecomputedTextCompat.create()
+    // right on the bind call — a small one-time cost only for the handful
+    // of long messages visible on cold open) until ChatActivity /
+    // GroupChatActivity flips it ON a short beat after the initial page
+    // has actually settled on screen. From then on the original
+    // async-off-thread behaviour resumes for fling performance.
+    public volatile boolean asyncTextEnabled = false;
+
+    // WHATSAPP-STYLE FOOTER RESERVE — invisible trailing span appended to
+    // every text-bubble's message text so the time+tick footer (drawn as
+    // a FrameLayout-overlay sibling, not a real second row) never paints
+    // on top of the last line of text.
+    //
+    // BUG FIXED: nothing reserved real room for the footer — tv_message
+    // only had paddingEnd=6dp/paddingBottom=2dp, nowhere near the ~40-50dp
+    // the time+tick actually occupy. Long/wrapped messages "looked" fine
+    // purely by luck (their last line rarely reaches the right edge), but
+    // any SHORT single-line message had the footer sit directly on top of
+    // its only line of text.
+    //
+    // This ReplacementSpan draws nothing — it just tells the line-breaker
+    // "reserve this many px of blank space here," exactly like WhatsApp's
+    // own trailing-space trick. If the real last line + reserve doesn't
+    // fit the bubble's max width, it naturally wraps to its own line,
+    // which is also correct (footer then sits under a blank reserve run).
+    private static final class FooterReserveSpan extends android.text.style.ReplacementSpan {
+        private final int widthPx;
+        FooterReserveSpan(int widthPx) { this.widthPx = Math.max(0, widthPx); }
+        @Override
+        public int getSize(@NonNull android.graphics.Paint paint, CharSequence text, int start, int end,
+                            android.graphics.Paint.FontMetricsInt fm) {
+            return widthPx;
+        }
+        @Override
+        public void draw(@NonNull android.graphics.Canvas canvas, CharSequence text, int start, int end,
+                          float x, float top, int y, int bottom, @NonNull android.graphics.Paint paint) {
+            // Intentionally blank — reserves horizontal space only.
+        }
+    }
+
+    /**
+     * Approximates how many px of blank space the ll_msg_footer (time +
+     * tick + edited-pencil, sent messages also get the tick glyph) will
+     * actually occupy, so we can reserve exactly that much room on the
+     * message text's last line.
+     *
+     * Derived straight from the Message model rather than from the footer
+     * views themselves, since the tick/expiry views are bound to their
+     * final state AFTER the text bubble is bound in bindMessage() — using
+     * their current (possibly stale/leftover-from-recycling) state here
+     * would be unreliable.
+     */
+    private int computeFooterReservePx(VH h, Message m, boolean isSentMsg, String timeStr) {
+        float density = h.itemView.getResources().getDisplayMetrics().density;
+        float w = 0f;
+        if (h.tvTime != null && timeStr != null) {
+            w += h.tvTime.getPaint().measureText(timeStr);
+        }
+        if (isSentMsg) {
+            // Widest tick glyph is the double-check — reserve for it
+            // regardless of actual current status so re-binds on status
+            // change (sent -> delivered -> read) never need a different
+            // reserve width.
+            w += 16f * density;  // glyph
+            w += 2f * density;   // tv_status marginStart
+        }
+        long expiresAt = m.expiresAt != null ? m.expiresAt : 0L;
+        if (expiresAt > 0 && expiresAt - System.currentTimeMillis() > 0) {
+            w += 34f * density;  // worst-case countdown text width
+            w += 2f * density;
+        }
+        w += 8f * density; // ll_msg_footer's own marginEnd + a small safety buffer
+        return (int) Math.ceil(w);
+    }
+
+    /** Wraps {@code base} with an invisible trailing {@link FooterReserveSpan}. */
+    private static CharSequence appendFooterReserve(CharSequence base, int reservePx) {
+        android.text.SpannableStringBuilder sb = new android.text.SpannableStringBuilder(base);
+        sb.append(' ');
+        int start = sb.length();
+        sb.append('\u00A0');
+        sb.setSpan(new FooterReserveSpan(reservePx), start, sb.length(),
+                android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        return sb;
+    }
+
     // ── Fields ────────────────────────────────────────────────────
     private final String currentUid;
     private final boolean isGroup;
@@ -1793,7 +1892,20 @@ public class MessagePagingAdapter
                 //    h.textBindToken still matches what was captured before
                 //    dispatch — otherwise the holder has since been rebound
                 //    (or recycled) and the stale result is dropped silently.
-                h.tvMessage.setText(spanned);
+                // BUG FIX (time/tick sitting ON TOP of short messages):
+                // wrap the text with an invisible trailing span that
+                // reserves exactly as much room as the footer (time+tick)
+                // actually needs — see FooterReserveSpan / appendFooterReserve
+                // above. Long/wrapped messages already had enough natural
+                // slack on their last line so this is a no-op look-wise for
+                // them; short single-line messages now correctly leave a
+                // gap for the footer instead of being drawn under it.
+                String footerTimeStr = (h.tvTime != null && h.tvTime.getText() != null)
+                        ? h.tvTime.getText().toString() : null;
+                int footerReservePx = computeFooterReservePx(h, m, isSentMsg, footerTimeStr);
+                CharSequence displaySpanned = appendFooterReserve(spanned, footerReservePx);
+
+                h.tvMessage.setText(displaySpanned);
                 final int myTextBindToken = ++h.textBindToken;
                 // PERF: threshold lowered from 80 → 40. With breakStrategy=simple
                 // now set on tv_message (see item_message_sent/received.xml),
@@ -1804,7 +1916,12 @@ public class MessagePagingAdapter
                 // a fast fling when many bubbles bind in the same frame budget.
                 if (txt.length() > 40) {
                     final String mid = m.messageId != null ? m.messageId : m.id;
-                    final String cacheKey = (mid != null ? mid : "") + "#" + txt.hashCode();
+                    // Reserve width is folded into the cache key — a message
+                    // whose footer needs differ (edited flag flips, expiry
+                    // countdown starts, etc.) simply misses the cache and
+                    // recomputes rather than reusing a wrongly-sized layout.
+                    final String cacheKey = (mid != null ? mid : "") + "#" + txt.hashCode()
+                            + "#" + footerReservePx;
 
                     PrecomputedTextCompat cachedPct;
                     synchronized (precomputeCacheLock) {
@@ -1817,9 +1934,9 @@ public class MessagePagingAdapter
                         // layout is actually reused instead of being
                         // remeasured from scratch.
                         TextViewCompat.setPrecomputedText(h.tvMessage, cachedPct);
-                    } else {
+                    } else if (asyncTextEnabled) {
                         final VH holderRef = h;
-                        final CharSequence finalSpanned = spanned;
+                        final CharSequence finalSpanned = displaySpanned;
                         // Cheap — must run on UI thread since it reads the
                         // TextView's current paint/typeface/width.
                         final PrecomputedTextCompat.Params params =
@@ -1840,6 +1957,25 @@ public class MessagePagingAdapter
                                 TextViewCompat.setPrecomputedText(holderRef.tvMessage, pct);
                             });
                         });
+                    } else {
+                        // BUG FIX: cold-open path. asyncTextEnabled is still
+                        // false (initial page hasn't settled yet) — compute
+                        // synchronously, right here, right now, so the
+                        // bubble's FIRST and ONLY measured height is already
+                        // final before stackFromEnd anchors the viewport.
+                        // No post(), no race, no "bubble thoda sa dikhta hai".
+                        try {
+                            PrecomputedTextCompat.Params params =
+                                    TextViewCompat.getTextMetricsParams(h.tvMessage);
+                            PrecomputedTextCompat pct =
+                                    PrecomputedTextCompat.create(displaySpanned, params);
+                            synchronized (precomputeCacheLock) {
+                                precomputedTextCache.put(cacheKey, pct);
+                            }
+                            TextViewCompat.setPrecomputedText(h.tvMessage, pct);
+                        } catch (Exception ignored) {
+                            // Plain text already on screen from setText() above — fine.
+                        }
                     }
                 }
 

@@ -1878,6 +1878,13 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             if (!pagesReadyForReveal[0] && pagingAdapter.getItemCount() > 0) {
                 pagesReadyForReveal[0] = true;
                 startPostponedContentTransition();
+                // BUG FIX (cold-open big-bubble race): keep the adapter's
+                // text-precompute path synchronous until the very first
+                // page has actually settled on screen, then flip it back
+                // to async for fling performance. See asyncTextEnabled's
+                // javadoc in MessagePagingAdapter for the full story.
+                binding.rvMessages.postDelayed(
+                        () -> pagingAdapter.asyncTextEnabled = true, 400L);
             }
             // addOnPagesUpdatedListener() takes a Kotlin Function0<Unit>, not a
             // java.lang.Runnable — from Java that lambda must explicitly hand
@@ -3501,6 +3508,11 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // SWIPE TO REPLY + FAB
     // ─────────────────────────────────────────────────────────────────────
 
+    // Kept so a reverse-swipe cancel (see onSwipeReplyCancelled below) can
+    // dismiss the "Replying to X…" snackbar immediately instead of leaving
+    // it on screen for a reply that's no longer actually queued up.
+    private Snackbar pendingReplySnackbar;
+
     private void setupSwipeToReply() {
         SwipeReplyHandler handler = new SwipeReplyHandler(this,
                 new java.util.AbstractList<Message>() {
@@ -3508,9 +3520,23 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                     @Override public int size() { return pagingAdapter.getItemCount(); }
                 },
                 currentUid,
-                (message, adapterPosition) -> {
-                    ReplyAnalyticsTracker.get().onSwipeAttempt(100f);
-                    startReply(message);
+                new SwipeReplyHandler.OnSwipeReplyListener() {
+                    @Override public void onSwipeReply(Message message, int adapterPosition) {
+                        ReplyAnalyticsTracker.get().onSwipeAttempt(100f);
+                        startReply(message);
+                    }
+
+                    // BUG FIX: user dragged past the reply threshold, then
+                    // swiped back to (near) the original position without
+                    // releasing — WhatsApp cancels the reply-in-progress
+                    // here instead of leaving it queued up.
+                    @Override public void onSwipeReplyCancelled() {
+                        if (pendingReplySnackbar != null) {
+                            pendingReplySnackbar.dismiss();
+                            pendingReplySnackbar = null;
+                        }
+                        if (replyController != null) replyController.cancel();
+                    }
                 });
 
         swipeHelper = new ItemTouchHelper(handler);
@@ -3522,9 +3548,9 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             @Override public void onPendingUndo(Message message, Runnable cancelAction) {
                 String senderName = (currentUid != null && currentUid.equals(message.senderId))
                         ? "You" : (message.senderName != null ? message.senderName : "Unknown");
-                Snackbar.make(binding.getRoot(), "Replying to " + senderName + "\u2026", Snackbar.LENGTH_SHORT)
-                        .setAction("UNDO", v -> { cancelAction.run(); ReplyAnalyticsTracker.get().onUndoUsed(); })
-                        .show();
+                pendingReplySnackbar = Snackbar.make(binding.getRoot(), "Replying to " + senderName + "\u2026", Snackbar.LENGTH_SHORT)
+                        .setAction("UNDO", v -> { cancelAction.run(); ReplyAnalyticsTracker.get().onUndoUsed(); });
+                pendingReplySnackbar.show();
             }
             @Override public void onNavigateToOriginal(String messageId) { navigateToOriginalMsg(messageId); }
             @Override public void onUndoConfirmed() {}

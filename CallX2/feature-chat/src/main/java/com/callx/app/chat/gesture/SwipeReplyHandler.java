@@ -54,6 +54,15 @@ public class SwipeReplyHandler extends ItemTouchHelper.Callback {
     private static final float VELOCITY_GUARD  = 3500f;   // px/s — fast fling → ignore
     private static final long  DEBOUNCE_MS     = 350L;    // min gap between triggers
     private static final int   ICON_SIZE_DP    = 36;
+    // BUG FIX (swipe-to-reply not cancelling on reverse swipe): if the user
+    // drags past the trigger point (reply already fired) and then, in the
+    // SAME finger-down gesture, drags back down near the bubble's resting
+    // position without releasing, WhatsApp treats that as "changed their
+    // mind" and cancels the reply instead of keeping it queued. Once |dX|
+    // falls back under this fraction of the trigger distance we fire
+    // onSwipeReplyCancelled() and re-arm `triggered` so swiping back out
+    // again (still same gesture) can re-fire a fresh reply.
+    private static final float CANCEL_BACK_RATIO = 0.35f;
 
     // ── State ──────────────────────────────────────────────────────────────
     private final List<Message>        messages;
@@ -89,6 +98,17 @@ public class SwipeReplyHandler extends ItemTouchHelper.Callback {
 
     public interface OnSwipeReplyListener {
         void onSwipeReply(Message message, int adapterPosition);
+
+        /**
+         * Called when the user, in the SAME continuous drag that already
+         * crossed the trigger threshold (so onSwipeReply already fired),
+         * pulls the bubble back near its resting position without letting
+         * go. WhatsApp cancels the reply in this case instead of leaving
+         * it queued up for whatever position the finger happened to be at
+         * on release. Default no-op so existing callers don't have to
+         * implement this to keep compiling.
+         */
+        default void onSwipeReplyCancelled() {}
     }
 
     public SwipeReplyHandler(
@@ -270,6 +290,17 @@ public class SwipeReplyHandler extends ItemTouchHelper.Callback {
                     android.os.Trace.endSection();
                 }
             }
+        }
+
+        // ── Cancel reply if user swipes back to (near) start position ──
+        // WhatsApp-style: reply already fired once trigger was crossed, but
+        // the finger is still down and has come back close to the resting
+        // spot in this SAME drag — treat it as an undo, not a completed
+        // reply, and re-arm so a fresh out-swipe fires a new reply cleanly.
+        if (isCurrentlyActive && triggered && absDx <= trigger * CANCEL_BACK_RATIO) {
+            triggered   = false;
+            hapticFired = false;
+            if (listener != null) listener.onSwipeReplyCancelled();
         }
     }
 

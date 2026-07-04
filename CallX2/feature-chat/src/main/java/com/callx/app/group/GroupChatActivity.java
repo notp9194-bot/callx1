@@ -910,6 +910,11 @@ public class GroupChatActivity extends AppCompatActivity
                 if (!initialScrollDone && total2 > 0) {
                     initialScrollDone = true;
                     binding.rvMessages.post(() -> restoreScrollOrGoToUnread());
+                    // BUG FIX (cold-open big-bubble race): see asyncTextEnabled's
+                    // javadoc in MessagePagingAdapter — keep text-precompute
+                    // synchronous until the first page has actually settled.
+                    binding.rvMessages.postDelayed(
+                            () -> pagingAdapter.asyncTextEnabled = true, 400L);
                     return;
                 }
                 if (!initialScrollDone) return;
