@@ -32,16 +32,27 @@ public class ChatThemeManager {
     public void setTheme(int id) { bubbleCache.clear(); }
     public void clearBubbleCache() { bubbleCache.clear(); }
 
-    /** Apply bubble background — cached per (sent, hasReply) combo to avoid GC pressure. */
-    public void applyBubble(View bubbleView, boolean sent, String msgType, boolean hasReply) {
-        if (bubbleView == null) return;
+    /**
+     * PERF: build all 4 bubble-drawable combos (sent/received × reply/no-reply)
+     * up front, once, e.g. right after the chat's RecyclerView is created —
+     * instead of lazily on whichever bubble happens to bind first. Without
+     * this, the very first sent AND first received bubble each pay a
+     * GradientDrawable allocation the moment they scroll on screen; with a
+     * chat that opens already scrolled to the bottom (the common case) that
+     * lands right in the middle of the initial layout pass. Pre-warming
+     * moves that one-time cost to adapter setup, before the user sees
+     * anything, so first-frame bubble rendering is a pure cache hit.
+     */
+    public void preWarm(Context ctx) {
+        for (int cacheKey = 0; cacheKey < 4; cacheKey++) {
+            boolean sent = (cacheKey & 1) != 0;
+            getOrCreateBubbleDrawable(ctx, cacheKey, sent);
+        }
+    }
 
-        // Cache key: bit0 = sent, bit1 = hasReply  →  4 possible drawables total
-        int cacheKey = (sent ? 1 : 0) | (hasReply ? 2 : 0);
+    private GradientDrawable getOrCreateBubbleDrawable(Context ctx, int cacheKey, boolean sent) {
         GradientDrawable gd = bubbleCache.get(cacheKey);
-
         if (gd == null) {
-            Context ctx = bubbleView.getContext();
             float d = ctx.getResources().getDisplayMetrics().density;
             float r = 18f * d;
             float tail = 4f * d;
@@ -60,6 +71,16 @@ public class ChatThemeManager {
             }
             bubbleCache.put(cacheKey, gd);
         }
+        return gd;
+    }
+
+    /** Apply bubble background — cached per (sent, hasReply) combo to avoid GC pressure. */
+    public void applyBubble(View bubbleView, boolean sent, String msgType, boolean hasReply) {
+        if (bubbleView == null) return;
+
+        // Cache key: bit0 = sent, bit1 = hasReply  →  4 possible drawables total
+        int cacheKey = (sent ? 1 : 0) | (hasReply ? 2 : 0);
+        GradientDrawable gd = getOrCreateBubbleDrawable(bubbleView.getContext(), cacheKey, sent);
 
         // PERF SAFETY: GradientDrawable is mutable — sharing the same instance
         // across multiple Views means setColor()/setAlpha() on one bubble would

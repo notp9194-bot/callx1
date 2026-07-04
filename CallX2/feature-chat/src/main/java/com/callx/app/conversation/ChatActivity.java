@@ -1664,6 +1664,9 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // during idle time before the user scrolls to them (no stutter).
         llm.setInitialPrefetchItemCount(6);
         binding.rvMessages.setLayoutManager(llm);
+        // PERF: build the 4 bubble-drawable combos now, before the first
+        // layout pass — see ChatThemeManager.preWarm() for why.
+        com.callx.app.utils.ChatThemeManager.get(this).preWarm(this);
         // PERF: setScrollingTouchSlop(TOUCH_SLOP_DEFAULT) — RV defaults to
         // TOUCH_SLOP_PAGING (larger tolerance, designed for ViewPagers).
         // TOUCH_SLOP_DEFAULT is the standard touch threshold used by ListView/ScrollView.

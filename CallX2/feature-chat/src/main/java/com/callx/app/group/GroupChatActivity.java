@@ -734,6 +734,9 @@ public class GroupChatActivity extends AppCompatActivity
         llm.setStackFromEnd(true);
         llm.setInitialPrefetchItemCount(6);
         binding.rvMessages.setLayoutManager(llm);
+        // PERF: build the 4 bubble-drawable combos now, before the first
+        // layout pass — see ChatThemeManager.preWarm() for why.
+        com.callx.app.utils.ChatThemeManager.get(this).preWarm(this);
         // PERF: same touch-slop fix as 1:1 ChatActivity — RV defaults to
         // TOUCH_SLOP_PAGING (ViewPager-tuned, larger tolerance before a touch
         // is recognized as a scroll). TOUCH_SLOP_DEFAULT matches ListView/ScrollView
