@@ -378,27 +378,40 @@
 
         </FrameLayout>
 
-        <!-- Reactions -->
-        <LinearLayout
-            android:id="@+id/ll_reactions"
+    </LinearLayout>
+
+    <!--
+        Reaction badge — WhatsApp style: floats OUTSIDE the bubble, hanging
+        over its bottom-end corner. Previously this was a child INSIDE
+        ll_bubble's vertical stack with a dark pill background — that made
+        it render as an extra row taking up bubble space with a visible box,
+        instead of a small overlapping emoji badge. Now it's a sibling of
+        ll_bubble, constrained to its bottom-end corner and pulled down/out
+        with a negative margin so it clearly overlaps without covering the
+        message text or footer. No background/padding box — plain emoji
+        only, with a soft shadow so it stays legible over any bubble color.
+    -->
+    <LinearLayout
+        android:id="@+id/ll_reactions"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:elevation="2dp"
+        android:layout_marginEnd="4dp"
+        android:layout_marginBottom="-10dp"
+        android:visibility="gone"
+        app:layout_constraintEnd_toEndOf="@id/ll_bubble"
+        app:layout_constraintBottom_toBottomOf="@id/ll_bubble">
+
+        <TextView
+            android:id="@+id/tv_reactions"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:background="#22000000"
-            android:paddingStart="8dp"
-            android:paddingEnd="8dp"
-            android:paddingTop="2dp"
-            android:paddingBottom="2dp"
-            android:layout_margin="3dp"
-            android:visibility="gone">
-
-            <TextView
-                android:id="@+id/tv_reactions"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:textSize="14sp"/>
-
-        </LinearLayout>
+            android:textSize="14sp"
+            android:shadowColor="#66000000"
+            android:shadowDx="0"
+            android:shadowDy="1"
+            android:shadowRadius="2"/>
 
     </LinearLayout>
 
