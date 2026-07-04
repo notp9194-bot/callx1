@@ -196,6 +196,25 @@ public class MessagePagingAdapter
                 }
             };
 
+    // PERF: Linkify.addLinks() runs several regex passes (URL/phone/email)
+    // over the full message text — a real cost on every onBindViewHolder,
+    // paid again and again for the very common "scroll away, scroll back"
+    // case where the same message gets rebound to a recycled holder
+    // repeatedly. Cache the finished CharSequence (SpannableString with
+    // link spans, or the plain String when there's no link) keyed by
+    // messageId+text-hash, so a repeat bind is a HashMap lookup instead
+    // of a fresh regex scan + allocation. Shares the same lock as
+    // precomputedTextCache since both are read on the UI thread only
+    // here (no background writers for this one).
+    private final java.util.LinkedHashMap<String, CharSequence> linkifiedTextCache =
+            new java.util.LinkedHashMap<String, CharSequence>(64, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(
+                        java.util.Map.Entry<String, CharSequence> eldest) {
+                    return size() > 120;
+                }
+            };
+
     // ── Fields ────────────────────────────────────────────────────
     private final String currentUid;
     private final boolean isGroup;
@@ -1699,36 +1718,55 @@ public class MessagePagingAdapter
                 // ── Font Size — moved to onCreateViewHolder for constant case ──
                 // Only call here for safety (noop if already set at create time)
                 // ── Clickable links: URLs, phone numbers, emails ─────────────
-                boolean mightHaveLink = txt.contains("http://")
-                        || txt.contains("https://")
-                        || txt.contains("www.")
-                        || txt.contains("@")
-                        || (txt.length() >= 7 && txt.contains("+"));
-                // PERF/RAM: SpannableString always carries an internal span
-                // array even with zero spans attached — for the common
-                // plain-text message (no link) that's a pure-waste
-                // allocation on every single bind. Only pay for it when
-                // Linkify actually has something to attach.
+                // PERF: check the linkify cache before running Linkify's regex
+                // passes — see linkifiedTextCache field comment. Cache hit means
+                // "spanned instanceof String" tells us there was no link (we
+                // only ever store the plain String in that case), no need to
+                // re-derive mightHaveLink.
+                final String linkCacheKey = (m.messageId != null ? m.messageId : m.id) + "#" + txt.hashCode();
                 CharSequence spanned;
+                boolean mightHaveLink;
+                synchronized (precomputeCacheLock) {
+                    spanned = linkifiedTextCache.get(linkCacheKey);
+                }
+                if (spanned != null) {
+                    mightHaveLink = !(spanned instanceof String);
+                } else {
+                    mightHaveLink = txt.contains("http://")
+                            || txt.contains("https://")
+                            || txt.contains("www.")
+                            || txt.contains("@")
+                            || (txt.length() >= 7 && txt.contains("+"));
+                    // PERF/RAM: SpannableString always carries an internal span
+                    // array even with zero spans attached — for the common
+                    // plain-text message (no link) that's a pure-waste
+                    // allocation on every single bind. Only pay for it when
+                    // Linkify actually has something to attach.
+                    if (mightHaveLink) {
+                        android.text.SpannableString linkSpanned = new android.text.SpannableString(txt);
+                        android.text.util.Linkify.addLinks(linkSpanned,
+                            android.text.util.Linkify.WEB_URLS |
+                            android.text.util.Linkify.PHONE_NUMBERS |
+                            android.text.util.Linkify.EMAIL_ADDRESSES);
+                        spanned = linkSpanned;
+                    } else {
+                        spanned = txt;
+                    }
+                    synchronized (precomputeCacheLock) {
+                        linkifiedTextCache.put(linkCacheKey, spanned);
+                    }
+                }
+                boolean isSentMsg = currentUid.equals(m.senderId);
                 if (mightHaveLink) {
-                    android.text.SpannableString linkSpanned = new android.text.SpannableString(txt);
-                    android.text.util.Linkify.addLinks(linkSpanned,
-                        android.text.util.Linkify.WEB_URLS |
-                        android.text.util.Linkify.PHONE_NUMBERS |
-                        android.text.util.Linkify.EMAIL_ADDRESSES);
                     // Link color matching bubble theme
-                    boolean isSentMsg = currentUid.equals(m.senderId);
                     int linkColor = isSentMsg ? 0xFFB3E5FC : 0xFF1565C0;
                     h.tvMessage.setLinkTextColor(linkColor);
                     h.tvMessage.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
                     h.tvMessage.setHighlightColor(0x33FFFFFF);
-                    spanned = linkSpanned;
                 } else {
                     // Plain text — remove MovementMethod so RecyclerView keeps scroll events
                     h.tvMessage.setMovementMethod(null);
-                    spanned = txt;
                 }
-                boolean isSentMsg = currentUid.equals(m.senderId);
                 h.tvMessage.setAlpha(1f);
                 h.tvMessage.setTextColor(
                     com.callx.app.utils.ChatThemeManager.get(ctx).getTextColor(isSentMsg));

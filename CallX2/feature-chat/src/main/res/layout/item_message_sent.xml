@@ -197,6 +197,8 @@
                 android:textSize="15sp"
                 android:includeFontPadding="false"
                 android:lineSpacingExtra="0dp"
+                android:breakStrategy="simple"
+                android:hyphenationFrequency="none"
                 android:visibility="gone"/>
 
             <!--
