@@ -101,6 +101,19 @@ public class MessagePagingAdapter
                         a.edited == b.edited &&
                         !safeEquals(a.status, b.status);
                 if (onlyStatusChanged) return PAYLOAD_STATUS;
+
+                // Only reactions changed — return PAYLOAD_REACTIONS so onBind
+                // skips full rebind and only updates ll_reactions/tv_reactions.
+                boolean onlyReactionsChanged =
+                        safeEquals(a.text, b.text) &&
+                        safeEquals(a.type, b.type) &&
+                        safeEquals(a.status, b.status) &&
+                        a.timestamp == b.timestamp &&
+                        a.edited == b.edited &&
+                        pollVotesEqual(a.pollVotes, b.pollVotes) &&
+                        !reactionsEqual(a.reactions, b.reactions);
+                if (onlyReactionsChanged) return PAYLOAD_REACTIONS;
+
                 return null; // null → full rebind
             }
         };
@@ -133,6 +146,11 @@ public class MessagePagingAdapter
     // ── DiffUtil payload key — only tv_status needs rebind when status changes ──
     static final String PAYLOAD_STATUS     = "status";
     static final String PAYLOAD_VIEW_ONCE  = "view_once_state";
+    // PERF: reactions-only change (someone tapped an emoji) used to fall
+    // through to a full rebind (Glide reload, Linkify, bubble redraw,
+    // countdown restart) just to update a 1-line TextView. Dedicated
+    // payload skips straight to bindReactionsOnly().
+    static final String PAYLOAD_REACTIONS  = "reactions";
 
     // PERF: RGB_565 for thumbnail-sized images — half the memory of ARGB_8888.
     // Thumbnails (avatars, video covers, reply previews, status/reel chips) have
@@ -579,6 +597,15 @@ public class MessagePagingAdapter
             Message m = getItem(position);
             if (m != null) {
                 bindPresenceOnly(h, m);
+            }
+            return;
+        }
+        if (!payloads.isEmpty() && PAYLOAD_REACTIONS.equals(payloads.get(0))) {
+            // Fast path: only the reactions map changed — update just
+            // ll_reactions/tv_reactions, skip full bind entirely.
+            Message m = getItem(position);
+            if (m != null) {
+                bindReactionsOnly(h, m);
             }
             return;
         }
@@ -1107,32 +1134,7 @@ public class MessagePagingAdapter
         }
 
         // ── Reactions display ─────────────────────────────────────────
-        if (h.llReactions != null && h.tvReactions != null) {
-            java.util.Map<String, String> rxMap = m.reactions;
-            if (rxMap != null && !rxMap.isEmpty()) {
-                // Count each unique emoji
-                java.util.LinkedHashMap<String, Integer> counts = new java.util.LinkedHashMap<>();
-                for (String emoji : rxMap.values()) {
-                    counts.put(emoji, counts.containsKey(emoji) ? counts.get(emoji) + 1 : 1);
-                }
-                StringBuilder sb = new StringBuilder();
-                int shown = 0;
-                for (java.util.Map.Entry<String, Integer> e : counts.entrySet()) {
-                    sb.append(e.getKey());
-                    if (e.getValue() > 1) sb.append(e.getValue());
-                    sb.append(" ");
-                    if (++shown >= 4) break; // max 4 distinct emojis shown
-                }
-                h.tvReactions.setText(sb.toString().trim());
-                h.llReactions.setVisibility(View.VISIBLE);
-                h.llReactions.setOnClickListener(v -> {
-                    if (actionListener != null) actionListener.onReactionTap(m);
-                });
-            } else {
-                h.llReactions.setVisibility(View.GONE);
-                h.llReactions.setOnClickListener(null);
-            }
-        }
+        bindReactionsOnly(h, m);
 
         // ── Forwarded label ─────────────────────────────────────────────
         if (h.tvForwarded != null) {
@@ -2785,6 +2787,40 @@ public class MessagePagingAdapter
             h.llBubble.setForeground(isReplyTarget
                     ? ContextCompat.getDrawable(h.itemView.getContext(), R.drawable.bg_reply_target_highlight)
                     : null);
+        }
+    }
+
+    /** Fast-path: rebind ONLY the reactions row. Called both from the full
+     *  bindMessage() path AND from the payload-aware onBind for
+     *  PAYLOAD_REACTIONS (someone tapped/removed an emoji), so a reactions
+     *  update no longer re-runs the whole bindMessage() (no Glide reload,
+     *  no Linkify, no new GradientDrawable, no countdown restart) just to
+     *  refresh a 1-line TextView. */
+    private void bindReactionsOnly(@NonNull VH h, @NonNull Message m) {
+        if (h.llReactions == null || h.tvReactions == null) return;
+        java.util.Map<String, String> rxMap = m.reactions;
+        if (rxMap != null && !rxMap.isEmpty()) {
+            // Count each unique emoji
+            java.util.LinkedHashMap<String, Integer> counts = new java.util.LinkedHashMap<>();
+            for (String emoji : rxMap.values()) {
+                counts.put(emoji, counts.containsKey(emoji) ? counts.get(emoji) + 1 : 1);
+            }
+            StringBuilder sb = new StringBuilder();
+            int shown = 0;
+            for (java.util.Map.Entry<String, Integer> e : counts.entrySet()) {
+                sb.append(e.getKey());
+                if (e.getValue() > 1) sb.append(e.getValue());
+                sb.append(" ");
+                if (++shown >= 4) break; // max 4 distinct emojis shown
+            }
+            h.tvReactions.setText(sb.toString().trim());
+            h.llReactions.setVisibility(View.VISIBLE);
+            h.llReactions.setOnClickListener(v -> {
+                if (actionListener != null) actionListener.onReactionTap(m);
+            });
+        } else {
+            h.llReactions.setVisibility(View.GONE);
+            h.llReactions.setOnClickListener(null);
         }
     }
 
