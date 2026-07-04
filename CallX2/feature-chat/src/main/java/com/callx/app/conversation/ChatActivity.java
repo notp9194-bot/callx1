@@ -238,6 +238,27 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // user was scrolled up. Shown in the "↓ N new messages" indicator.
     private int     pendingNewMsgCount         = 0;
 
+    // ── WHATSAPP-STYLE REVEAL SCROLL TUNING ─────────────────────────────
+    // Only one auto-scroll should ever be "in flight" toward the tail —
+    // if several inserts land in quick succession (fast back-to-back
+    // messages), each one cancels the previous pending post and reposts
+    // with the freshest target instead of stacking multiple competing
+    // smoothScrollBy() calls (which is what causes a stutter/"double
+    // bounce" feel instead of one continuous glide).
+    private Runnable pendingAutoScrollRunnable = null;
+    // Material "standard decelerate" bezier — fast start, gentle settle.
+    // Matches the motion feel WhatsApp/Telegram use for their own list
+    // reveal instead of RecyclerView's default (linear-ish) scroller curve.
+    private static final android.view.animation.Interpolator WHATSAPP_REVEAL_INTERPOLATOR =
+            new android.view.animation.PathInterpolator(0.22f, 0.61f, 0.36f, 1f);
+    // Duration scales gently with distance so a tall multi-line bubble
+    // doesn't feel "too fast" while a one-line bubble doesn't feel
+    // "too slow" — clamped so it's always a quick, buttery reveal and
+    // never a slow crawl or a jarring snap.
+    private static final float WHATSAPP_REVEAL_MS_PER_PIXEL   = 0.6f;
+    private static final int   WHATSAPP_REVEAL_MIN_DURATION_MS = 160;
+    private static final int   WHATSAPP_REVEAL_MAX_DURATION_MS = 280;
+
     // ── PERF FIX: don't show the skeleton at all for fast/cached loads ─────
     // Shimmer used to be set VISIBLE unconditionally the instant onCreate ran,
     // before Paging even had a chance to check whether Room already had this
@@ -1811,11 +1832,22 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                     // built-in smooth scroller covers it in a couple of
                     // frames — no janky "flying past many items" like a
                     // long-distance smoothScrollToPosition would cause.
-                    final int newLast = total - 1;
-                    binding.rvMessages.post(() -> {
+                    if (pendingAutoScrollRunnable != null) {
+                        binding.rvMessages.removeCallbacks(pendingAutoScrollRunnable);
+                    }
+                    pendingAutoScrollRunnable = () -> {
+                        pendingAutoScrollRunnable = null;
                         if (binding == null) return;
-                        smoothScrollToBottomWhatsAppStyle(newLast);
-                    });
+                        // Don't fight an active user gesture — if they started
+                        // dragging/flinging between the insert and this posted
+                        // frame, let their gesture win. stackFromEnd() means
+                        // the tail keeps growing underneath them regardless,
+                        // and onScrolled()'s own atBottom check will pick up
+                        // cleanly once they let go.
+                        if (binding.rvMessages.getScrollState() != RecyclerView.SCROLL_STATE_IDLE) return;
+                        smoothScrollToBottomWhatsAppStyle(pagingAdapter.getItemCount() - 1);
+                    };
+                    binding.rvMessages.post(pendingAutoScrollRunnable);
                     pendingNewMsgCount = 0;
                     hideNewMessagesIndicator();
                 } else if (othersCount > 0 && !isUserAtBottom) {
@@ -2232,30 +2264,43 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     /**
      * WHATSAPP-STYLE SMOOTH REVEAL for a freshly-arrived tail message.
      *
-     * RecyclerView's default smoothScrollToPosition() is tuned for
-     * arbitrary-distance jumps (its speed is MILLISECONDS_PER_INCH-based —
-     * fine, but not tuned for "just nudge the list up by one bubble").
-     * Here the target is always just 1-2 rows below the fold, so we use a
-     * short, fixed, fully-predictable duration with a decelerate curve —
-     * the same easing WhatsApp/Telegram use for their own "list glides up
-     * to reveal the new message" reveal. Snap-to-end (SNAP_TO_END) is used
-     * so the new bubble settles flush at the bottom of the viewport instead
-     * of being centred or over/under-shooting.
+     * FAST PATH: because calculateExtraLayoutSpace() (see setupPagingRecyclerView)
+     * already pre-lays one full screen beyond the fold, the new row is almost
+     * always already measured & positioned off-screen by the time this runs.
+     * That means we can read its exact pixel position and hand RecyclerView's
+     * own smoothScrollBy(dx, dy, interpolator, duration) overload the precise
+     * distance — one continuous, physically accurate glide with a real
+     * Material easing curve, instead of LinearSmoothScroller's frame-by-frame
+     * "seek the target" approximation. Duration adapts slightly to distance
+     * (a tall multi-line bubble vs. a short one-liner) but stays clamped to a
+     * quick, buttery range.
+     *
+     * FALLBACK: on the rare chance the row isn't laid out yet (e.g. a large
+     * batch landed beyond the pre-layout window), LinearSmoothScroller still
+     * handles it correctly, just without the exact-pixel precision.
      */
     private void smoothScrollToBottomWhatsAppStyle(int targetPosition) {
         if (binding == null || targetPosition < 0) return;
-        RecyclerView.LayoutManager rawLm = binding.rvMessages.getLayoutManager();
+        RecyclerView rv = binding.rvMessages;
+        RecyclerView.LayoutManager rawLm = rv.getLayoutManager();
         if (!(rawLm instanceof LinearLayoutManager)) return;
         LinearLayoutManager lm = (LinearLayoutManager) rawLm;
+
+        android.view.View targetView = lm.findViewByPosition(targetPosition);
+        if (targetView != null) {
+            int viewportBottom = rv.getHeight() - rv.getPaddingBottom();
+            int dy = targetView.getBottom() - viewportBottom;
+            if (dy <= 0) return; // already fully visible — nothing to reveal
+            int duration = (int) Math.max(WHATSAPP_REVEAL_MIN_DURATION_MS,
+                    Math.min(WHATSAPP_REVEAL_MAX_DURATION_MS, dy * WHATSAPP_REVEAL_MS_PER_PIXEL));
+            rv.smoothScrollBy(0, dy, WHATSAPP_REVEAL_INTERPOLATOR, duration);
+            return;
+        }
         LinearSmoothScroller scroller = new LinearSmoothScroller(this) {
             @Override protected int getVerticalSnapPreference() {
                 return LinearSmoothScroller.SNAP_TO_END;
             }
             @Override protected float calculateSpeedPerPixel(android.util.DisplayMetrics dm) {
-                // Fixed, snappy-but-smooth speed — independent of screen
-                // density so the reveal feels identical across devices.
-                // Lower value = faster scroll. ~180-220ms total for the
-                // 1-2 row distance this is ever used for.
                 return 1.5f / dm.densityDpi;
             }
         };
