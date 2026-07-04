@@ -388,7 +388,7 @@
                     android:id="@+id/tv_time"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:textColor="#AAFFFFFF"
+                    android:textColor="@color/bubble_time_received"
                     android:textSize="9sp"/>
 
                 <!-- tv_status stub — always GONE for received -->

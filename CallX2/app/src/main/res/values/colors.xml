@@ -19,6 +19,8 @@
     <color name="bubble_sent">#DCF8C6</color>
     <color name="bubble_sent_end">#C5E8B0</color>
     <color name="bubble_sent_text">#111B21</color>
+    <color name="bubble_time_sent">#99000000</color>
+    <color name="bubble_time_received">#99000000</color>
     <color name="bubble_received">#FFFFFF</color>
     <color name="bubble_received_end">#F5F5F5</color>
     <color name="bubble_received_text">#111B21</color>

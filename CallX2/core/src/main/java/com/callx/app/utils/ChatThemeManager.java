@@ -21,11 +21,35 @@ public class ChatThemeManager {
     // 4 possible combos: sent+reply, sent+noReply, recv+reply, recv+noReply.
     private final SparseArray<GradientDrawable> bubbleCache = new SparseArray<>(4);
 
+    // BUG FIX: ChatThemeManager.instance is a static singleton that survives
+    // for the whole app process. bubbleCache used to only get cleared via an
+    // explicit setTheme()/clearBubbleCache() call — but nothing called that
+    // when the SYSTEM switched between light/dark mode. Result: once a bubble
+    // drawable was cached in (say) light mode, every bubble kept showing that
+    // same stale light-mode GradientDrawable forever, even after the screen
+    // itself (chat background, via resource-qualified surface_chat_bg) had
+    // correctly switched to dark. Text color isn't cached and DOES resolve
+    // fresh every bind, so the end result was correct dark-mode text sitting
+    // on a stale light-mode bubble — exactly the "white text invisible on
+    // white/green bubble" symptom. Tracking the last-seen night-mode flag and
+    // wiping the cache the moment it changes fixes both the bubble color and
+    // the text-contrast issue in one place.
+    private Boolean lastNightMode = null;
+
     private ChatThemeManager(Context ctx) {}
 
     public static ChatThemeManager get(Context ctx) {
         if (instance == null) instance = new ChatThemeManager(ctx);
+        instance.invalidateIfNightModeChanged(ctx);
         return instance;
+    }
+
+    private void invalidateIfNightModeChanged(Context ctx) {
+        boolean night = isDarkMode(ctx);
+        if (lastNightMode == null || lastNightMode != night) {
+            bubbleCache.clear();
+            lastNightMode = night;
+        }
     }
 
     public int getCurrentTheme() { return THEME_HYBRID; }
