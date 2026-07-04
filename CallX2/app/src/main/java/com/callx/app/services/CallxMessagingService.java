@@ -2238,6 +2238,7 @@ public class CallxMessagingService extends FirebaseMessagingService {
           String messageId   = safeGet(data, "messageId");
           String reaction    = safeGet(data, "reaction");
           String msgText     = safeGet(data, "text");
+          String tsStr       = safeGet(data, "ts");
           android.util.Log.d("CallxFCM", "handleMessageReaction: reactorUid=" + reactorUid
                   + " reactorName=" + reactorName + " chatId=" + chatId
                   + " messageId=" + messageId + " reaction=" + reaction);
@@ -2251,11 +2252,20 @@ public class CallxMessagingService extends FirebaseMessagingService {
           }
           if (reactorName == null) reactorName = "Someone";
 
+          // HUN-FIX: longer preview (was 40 chars) so the reacted-to message
+          // is actually readable, expanded via BigTextStyle below.
           String preview = (msgText != null && !msgText.isEmpty())
-                  ? ("\"" + (msgText.length() > 40 ? msgText.substring(0, 40) + "…" : msgText) + "\"")
+                  ? ("\"" + (msgText.length() > 80 ? msgText.substring(0, 80) + "…" : msgText) + "\"")
                   : "your message";
           String title = reactorName + " reacted " + reaction;
           String body  = "Reacted " + reaction + " to " + preview;
+
+          // timestamp: server sends "ts" (reaction time) when available,
+          // fall back to now — used for setWhen() so the tray shows the
+          // actual time like every other message notification.
+          long when;
+          try { when = (tsStr != null && !tsStr.isEmpty()) ? Long.parseLong(tsStr) : System.currentTimeMillis(); }
+          catch (NumberFormatException e) { when = System.currentTimeMillis(); }
 
           Intent chatIntent = new Intent(this, ChatActivity.class);
           chatIntent.putExtra("partnerUid", reactorUid);
@@ -2271,9 +2281,16 @@ public class CallxMessagingService extends FirebaseMessagingService {
               .setSmallIcon(R.drawable.ic_message_notification)
               .setContentTitle(title)
               .setContentText(body)
+              .setStyle(new NotificationCompat.BigTextStyle().bigText(body))
               .setAutoCancel(true)
-              .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+              // HUN-FIX: PRIORITY_HIGH — on pre-O devices (no channel concept)
+              // this is what drives heads-up; on O+ the channel importance
+              // (now IMPORTANCE_HIGH, see CallxApp#createChannels) is what
+              // actually matters, but keep priority consistent with it.
+              .setPriority(NotificationCompat.PRIORITY_HIGH)
               .setCategory(NotificationCompat.CATEGORY_SOCIAL)
+              .setWhen(when)
+              .setShowWhen(true)
               .setContentIntent(pi);
 
           String reactorPhoto = safeGet(data, "fromPhoto");
@@ -2313,6 +2330,7 @@ public class CallxMessagingService extends FirebaseMessagingService {
           String messageId   = safeGet(data, "messageId");
           String reaction    = safeGet(data, "reaction");
           String msgText     = safeGet(data, "text");
+          String tsStr       = safeGet(data, "ts");
           android.util.Log.d("CallxFCM", "handleGroupMessageReaction: reactorUid=" + reactorUid
                   + " reactorName=" + reactorName + " groupId=" + groupId
                   + " messageId=" + messageId + " reaction=" + reaction);
@@ -2322,12 +2340,17 @@ public class CallxMessagingService extends FirebaseMessagingService {
           }
           if (reactorName == null) reactorName = "Someone";
 
+          // HUN-FIX: longer preview (was 40 chars), expanded via BigTextStyle below.
           String preview = (msgText != null && !msgText.isEmpty())
-                  ? ("\"" + (msgText.length() > 40 ? msgText.substring(0, 40) + "…" : msgText) + "\"")
+                  ? ("\"" + (msgText.length() > 80 ? msgText.substring(0, 80) + "…" : msgText) + "\"")
                   : "your message";
           String title = reactorName + " reacted " + reaction
                   + (groupName != null && !groupName.isEmpty() ? " in " + groupName : "");
           String body  = "Reacted " + reaction + " to " + preview;
+
+          long when;
+          try { when = (tsStr != null && !tsStr.isEmpty()) ? Long.parseLong(tsStr) : System.currentTimeMillis(); }
+          catch (NumberFormatException e) { when = System.currentTimeMillis(); }
 
           Intent groupIntent = new Intent(this, GroupChatActivity.class);
           groupIntent.putExtra("groupId", groupId);
@@ -2343,9 +2366,12 @@ public class CallxMessagingService extends FirebaseMessagingService {
               .setSmallIcon(R.drawable.ic_message_notification)
               .setContentTitle(title)
               .setContentText(body)
+              .setStyle(new NotificationCompat.BigTextStyle().bigText(body))
               .setAutoCancel(true)
-              .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+              .setPriority(NotificationCompat.PRIORITY_HIGH)
               .setCategory(NotificationCompat.CATEGORY_SOCIAL)
+              .setWhen(when)
+              .setShowWhen(true)
               .setContentIntent(pi);
 
           String reactorPhoto = safeGet(data, "fromPhoto");

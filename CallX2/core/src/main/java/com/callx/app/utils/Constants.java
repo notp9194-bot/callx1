@@ -25,7 +25,12 @@ public class Constants {
     public static final String CHANNEL_MUTED          = "callx_muted";
     // Emoji reaction notifications (1:1 + group) — background/killed-state safe,
     // separate from CHANNEL_MESSAGES so users can control reaction alerts independently.
-    public static final String CHANNEL_REACTIONS      = "callx_message_reactions";
+    // HUN-FIX: bumped to _v2 — old channel was created with IMPORTANCE_DEFAULT,
+    // and Android NEVER lets app code raise an existing channel's importance
+    // once created (user has to do it manually in system settings). Renaming
+    // the ID forces a fresh channel to be created at IMPORTANCE_HIGH so
+    // heads-up banners actually show for reactions on Android 8+.
+    public static final String CHANNEL_REACTIONS      = "callx_message_reactions_v2";
 
     public static final String CHANNEL_GROUP_CALLS_INCOMING = "callx_group_calls_incoming";
     public static final String CHANNEL_GROUP_CALLS_ONGOING  = "callx_group_calls_ongoing";

@@ -447,8 +447,12 @@ public class CallxApp extends Application {
         // Emoji reaction notifications — background/killed-state safe (see
         // PushNotify.notifyMessageReaction / notifyGroupMessageReaction and
         // CallxMessagingService#handleMessageReaction).
+        // HUN-FIX: was IMPORTANCE_DEFAULT — that's why heads-up (peeking banner)
+        // never showed for reactions. Android 8+ ONLY shows heads-up when the
+        // channel importance is IMPORTANCE_HIGH; NotificationCompat.Builder's
+        // setPriority() is ignored on O+, only the channel importance matters.
         makeChannel(nm, Constants.CHANNEL_REACTIONS, "Message Reactions",
-            NotificationManager.IMPORTANCE_DEFAULT, true, false, null,
+            NotificationManager.IMPORTANCE_HIGH, true, false, null,
             android.app.Notification.VISIBILITY_PRIVATE, false);
 
         // Group call channels
