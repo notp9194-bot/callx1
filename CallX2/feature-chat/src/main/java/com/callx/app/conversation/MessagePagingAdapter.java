@@ -660,7 +660,15 @@ public class MessagePagingAdapter
             // both sides see "watched your reel" for every reel view.
             return currentUid.equals(m.reelOwnerUid) ? TYPE_CANVAS_RECEIVED : TYPE_HIDDEN;
         }
-        if ("call_entry".equals(m.type))  return TYPE_CALL_ENTRY;
+        // call_entry — now rendered on Canvas as a bubbleless pill
+        // (MessageBubbleCanvasView.bindCallEntry) instead of
+        // item_call_entry_bubble.xml. Aligned to whichever side placed
+        // the call, same as the legacy row's dynamic gravity.
+        // TYPE_CALL_ENTRY + bindCallEntryBubble() are kept only as an
+        // unused fallback.
+        if ("call_entry".equals(m.type)) {
+            return currentUid.equals(m.senderId) ? TYPE_CANVAS_SENT : TYPE_CANVAS_RECEIVED;
+        }
         // Feature 13: View Once — now rendered on Canvas (all 3 states)
         // instead of item_view_once_bubble/sent_waiting/expired.xml.
         // TYPE_VIEW_ONCE_* + their legacy bind methods are kept only as
@@ -1308,6 +1316,7 @@ public class MessagePagingAdapter
         final boolean isStatusSeen = "status_seen".equals(m.type);
         final boolean isReelSeen = "reel_seen".equals(m.type);
         final boolean isSeen = isStatusSeen || isReelSeen;
+        final boolean isCallEntry = "call_entry".equals(m.type);
         final boolean isViewOnceMsg = Boolean.TRUE.equals(m.viewOnce);
         final boolean isViewOnceExpiredState = isViewOnceMsg
                 && com.callx.app.conversation.controllers.ChatViewOnceController.isExpired(m);
@@ -1407,6 +1416,39 @@ public class MessagePagingAdapter
                             }
                         });
             }
+        } else if (isCallEntry) {
+            // Mirrors the legacy bindCallEntryBubble() exactly — same
+            // icon/label/color/alignment logic, just pushed through
+            // cv.bindCallEntry() instead of tv_call_entry_icon/label/time
+            // + ll_call_entry_pill's gravity flip.
+            boolean isVideoCall = "video".equals(m.fileName);
+            boolean isMissed    = "missed".equals(m.text);
+            String icon = isVideoCall ? "\uD83D\uDCF9" : "\uD83D\uDCDE";
+            String label;
+            int labelColor;
+            if (isMissed) {
+                if (sent) {
+                    label = isVideoCall ? "No answer (video)" : "No answer";
+                } else {
+                    label = isVideoCall ? "Missed video call" : "Missed call";
+                }
+                labelColor = 0xFFFF5555;
+            } else {
+                String durStr = "";
+                if (m.duration != null && m.duration > 0) {
+                    long sec = m.duration / 1000;
+                    durStr = " \u2022 " + String.format(java.util.Locale.getDefault(), "%d:%02d", sec / 60, sec % 60);
+                }
+                if (sent) {
+                    label = isVideoCall ? ("Video call" + durStr) : ("Audio call" + durStr);
+                } else {
+                    label = isVideoCall ? ("Incoming video call" + durStr) : ("Incoming call" + durStr);
+                }
+                labelColor = 0xFFFFFFFF;
+            }
+            String callTime = (m.timestamp != null && m.timestamp > 0) ? formatTime(m.timestamp) : "";
+            cv.bindCallEntry(icon, label, labelColor, callTime, sent);
+            cv.setDeletedStyle(false);
         } else if (isMultiMedia) {
             final java.util.List<java.util.Map<String, Object>> items = m.mediaItems;
             final int total = items != null ? items.size() : 0;

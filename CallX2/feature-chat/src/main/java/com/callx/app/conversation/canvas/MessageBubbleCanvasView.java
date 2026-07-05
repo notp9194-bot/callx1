@@ -530,6 +530,23 @@ public class MessageBubbleCanvasView extends View {
     static final float SEEN_TIME_GAP_TOP_DP      = 3f;
     static final int   SEEN_REEL_BG_COLOR        = 0xFF7F1D1D;
     static final int   SEEN_STATUS_BG_COLOR      = 0xFF4C1D95;
+
+    // ── Call-entry pill — mirrors item_call_entry_bubble.xml: a small
+    // rounded pill (same solid purple as the seen-bubble card, 14dp
+    // corner) holding an icon glyph + italic-free label + " • " dot +
+    // timestamp all on one row, no reply/reactions/pinned/footer-tick —
+    // it's a plain system row, aligned to the caller's side via the
+    // normal bubbleLeft/sent convention (sent = "I placed this call"). ──
+    static final float CALL_ENTRY_PAD_H_DP          = 16f;
+    static final float CALL_ENTRY_PAD_V_DP           = 7f;
+    static final float CALL_ENTRY_MIN_WIDTH_DP       = 180f;
+    static final float CALL_ENTRY_ICON_LABEL_GAP_DP  = 6f;
+    static final float CALL_ENTRY_ICON_SP            = 15f;
+    static final float CALL_ENTRY_LABEL_SP           = 13f;
+    static final float CALL_ENTRY_DOT_SP             = 10f;
+    static final float CALL_ENTRY_TIME_SP            = 10f;
+    static final String CALL_ENTRY_DOT_TEXT          = "  \u2022  ";
+    static final int   CALL_ENTRY_TIME_COLOR         = 0xFF94A3B8; // text_muted
     static final int   SEEN_THUMB_BG_COLOR       = 0xFF2A2A2A;
     static final int   SEEN_LABEL_COLOR          = 0xFFFFFFFF;
     static final int   SEEN_NAME_COLOR           = 0xFF4FC3F7; // brand_primary-ish accent
@@ -942,6 +959,17 @@ public class MessageBubbleCanvasView extends View {
 
     // ── Reel-seen / Status-seen "watched/seen" system bubbles ──
     boolean isSeenBubble = false;
+    boolean isCallEntry = false;
+    String callEntryIcon = "";
+    String callEntryLabel = "";
+    int callEntryLabelColor = 0xFFFFFFFF;
+    String callEntryTime = "";
+    final RectF callEntryPillRect = new RectF();
+    final Paint callEntryBgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    final TextPaint callEntryIconPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    final TextPaint callEntryLabelPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    final TextPaint callEntryDotPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    final TextPaint callEntryTimePaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
     boolean seenIsReel = false; // true = reel_seen (🎬), false = status_seen (👁)
     Bitmap seenAvatarBitmap;
     Bitmap seenThumbBitmap;
@@ -1194,6 +1222,15 @@ public class MessageBubbleCanvasView extends View {
         seenNamePaint.setTextSize(SEEN_NAME_TEXT_SP * density);
         seenTimePaint.setColor(SEEN_TIME_COLOR);
         seenTimePaint.setTextSize(SEEN_TIME_TEXT_SP * density);
+
+        // ── Call-entry pill paints ──
+        callEntryBgPaint.setColor(SEEN_STATUS_BG_COLOR);
+        callEntryIconPaint.setTextSize(CALL_ENTRY_ICON_SP * density);
+        callEntryLabelPaint.setTextSize(CALL_ENTRY_LABEL_SP * density);
+        callEntryDotPaint.setColor(CALL_ENTRY_TIME_COLOR);
+        callEntryDotPaint.setTextSize(CALL_ENTRY_DOT_SP * density);
+        callEntryTimePaint.setColor(CALL_ENTRY_TIME_COLOR);
+        callEntryTimePaint.setTextSize(CALL_ENTRY_TIME_SP * density);
 
         setWillNotDraw(false);
 
@@ -1829,6 +1866,48 @@ public class MessageBubbleCanvasView extends View {
     /** Swap in a decoded reel/status thumbnail Bitmap once Glide finishes (bindSeenBubble only). */
     public void setSeenThumbBitmap(@Nullable Bitmap bitmap) {
         this.seenThumbBitmap = bitmap;
+        invalidate();
+    }
+
+    /**
+     * Binds the "call log" system row — mirrors item_call_entry_bubble.xml:
+     * a small rounded pill (icon + label + " • " dot + time, single row,
+     * no reply/reactions/pinned/tick-footer) aligned to the caller's side.
+     * Caller (adapter) computes the emoji/label text/color exactly as the
+     * legacy bindCallEntryBubble() did — this method just measures/draws
+     * whatever strings it's given.
+     *
+     * @param icon        "📞" or "📹"
+     * @param label       e.g. "Audio call • 2:30" / "Missed video call"
+     * @param labelColor  0xFFFFFFFF normally, red for missed/no-answer
+     * @param timeText    formatted "h:mm a" timestamp
+     * @param iAmCaller   true = pill aligns to the right (I placed the call)
+     */
+    public void bindCallEntry(@Nullable String icon, @Nullable String label,
+                               int labelColor, @Nullable String timeText, boolean iAmCaller) {
+        this.isMedia = false;
+        this.isMediaGroup = false;
+        this.isReelShare = false;
+        this.isVideoMedia = false;
+        this.isAudio = false;
+        this.isContact = false;
+        this.isLocation = false;
+        this.isPoll = false;
+        this.isGifBubble = false;
+        this.isFileBubble = false;
+        this.isViewOnce = false;
+        this.isSeenBubble = false;
+        this.hasLinkPreview = false;
+        this.mediaGated = false;
+        this.mediaDownloading = false;
+        this.isCallEntry = true;
+        this.callEntryIcon = icon != null ? icon : "";
+        this.callEntryLabel = label != null ? label : "";
+        this.callEntryLabelColor = labelColor;
+        this.callEntryTime = timeText != null ? timeText : "";
+        this.sent = iAmCaller;
+
+        requestLayout();
         invalidate();
     }
 
@@ -2734,6 +2813,36 @@ public class MessageBubbleCanvasView extends View {
             bubbleContentWidth = Math.max(Math.round(avatarSize + avatarGap + cardW) - hPad * 2, replyBoxContentWidth);
             bubbleHeight = replyBoxHeight + replyGap + Math.round(Math.max(avatarSize, cardH));
 
+        } else if (isCallEntry) {
+            // ── Call-entry pill — single row (icon + label + dot + time),
+            // no reply box, no vPad (the RecyclerView item margin already
+            // supplies the 4dp gap item_call_entry_bubble.xml's own
+            // paddingTop/Bottom gave it). Width = padH*2 + row content,
+            // floored at CALL_ENTRY_MIN_WIDTH_DP same as the legacy pill's
+            // android:minWidth="180dp". ──
+            callEntryLabelPaint.setColor(callEntryLabelColor);
+            float padH = CALL_ENTRY_PAD_H_DP * density;
+            float padV = CALL_ENTRY_PAD_V_DP * density;
+            float gap  = CALL_ENTRY_ICON_LABEL_GAP_DP * density;
+            float iconW  = callEntryIconPaint.measureText(callEntryIcon);
+            float labelW = callEntryLabelPaint.measureText(callEntryLabel);
+            float dotW   = callEntryDotPaint.measureText(CALL_ENTRY_DOT_TEXT);
+            float timeW  = callEntryTimePaint.measureText(callEntryTime);
+            float rowContentW = iconW + gap + labelW + dotW + timeW;
+
+            Paint.FontMetrics cifm = callEntryIconPaint.getFontMetrics();
+            Paint.FontMetrics clfm = callEntryLabelPaint.getFontMetrics();
+            Paint.FontMetrics cdfm = callEntryDotPaint.getFontMetrics();
+            Paint.FontMetrics ctfm = callEntryTimePaint.getFontMetrics();
+            float rowH = Math.max(Math.max(cifm.descent - cifm.ascent, clfm.descent - clfm.ascent),
+                    Math.max(cdfm.descent - cdfm.ascent, ctfm.descent - ctfm.ascent));
+
+            int pillWidth = Math.round(Math.max(CALL_ENTRY_MIN_WIDTH_DP * density, rowContentW + padH * 2));
+            int pillHeight = Math.round(rowH + padV * 2);
+
+            bubbleContentWidth = pillWidth - hPad * 2;
+            bubbleHeight = pillHeight;
+
         } else if (isPoll) {
             // ── Poll card — uses normal bubble bg (unlike contact/location).
             // Width = POLL_CARD_WIDTH_DP; height = padding + header row +
@@ -2940,6 +3049,10 @@ public class MessageBubbleCanvasView extends View {
         bubbleLeft = sent ? (parentWidth - bubbleWidth) : 0;
         bubbleTop = pinnedTopExtra;
         bubbleRect.set(bubbleLeft, bubbleTop, bubbleLeft + bubbleWidth, bubbleTop + bubbleHeight);
+
+        if (isCallEntry) {
+            callEntryPillRect.set(bubbleRect);
+        }
 
         if (hasReply) {
             int replyMargin = Math.round(REPLY_MARGIN_DP * density);
@@ -3224,15 +3337,15 @@ public class MessageBubbleCanvasView extends View {
     @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
-        if (!isReelShare && !isContact && !isLocation && !isViewOnce && !isSeenBubble) {
+        if (!isReelShare && !isContact && !isLocation && !isViewOnce && !isSeenBubble && !isCallEntry) {
             if (bubbleDrawable == null) return;
             if (!isMedia && !isMediaGroup && !isAudio && !isPoll && textLayout == null) return;
         }
 
-        if (!isReelShare && !isContact && !isLocation && !isFileBubble && !isViewOnce && !isSeenBubble) {
-            // Reel-share, contact, location, file, view-once, and seen
-            // cards never draw the normal chat-bubble background — the
-            // card itself is the visual.
+        if (!isReelShare && !isContact && !isLocation && !isFileBubble && !isViewOnce && !isSeenBubble && !isCallEntry) {
+            // Reel-share, contact, location, file, view-once, seen, and
+            // call-entry cards never draw the normal chat-bubble
+            // background — the card/pill itself is the visual.
             bubbleDrawable.setBounds(
                     (int) bubbleRect.left, (int) bubbleRect.top,
                     (int) bubbleRect.right, (int) bubbleRect.bottom);
@@ -3268,6 +3381,8 @@ public class MessageBubbleCanvasView extends View {
             viewOnceRenderer.draw(canvas);
         } else if (isSeenBubble) {
             seenBubbleRenderer.draw(canvas);
+        } else if (isCallEntry) {
+            drawCallEntry(canvas);
         } else if (isPoll) {
             pollRenderer.draw(canvas);
         } else if (isMediaGroup) {
@@ -3357,6 +3472,30 @@ public class MessageBubbleCanvasView extends View {
         if (sent) {
             drawTick(canvas, footerRightX - TICK_SIZE_DP * density, footerBaselineY);
         }
+    }
+
+    private void drawCallEntry(Canvas canvas) {
+        float r = SEEN_CARD_CORNER_DP * density;
+        canvas.drawRoundRect(callEntryPillRect, r, r, callEntryBgPaint);
+
+        float padH = CALL_ENTRY_PAD_H_DP * density;
+        float gap  = CALL_ENTRY_ICON_LABEL_GAP_DP * density;
+        float left = callEntryPillRect.left + padH;
+
+        Paint.FontMetrics cifm = callEntryIconPaint.getFontMetrics();
+        Paint.FontMetrics clfm = callEntryLabelPaint.getFontMetrics();
+        Paint.FontMetrics cdfm = callEntryDotPaint.getFontMetrics();
+        Paint.FontMetrics ctfm = callEntryTimePaint.getFontMetrics();
+        float rowCenterY = callEntryPillRect.centerY();
+
+        float x = left;
+        canvas.drawText(callEntryIcon, x, rowCenterY - (cifm.ascent + cifm.descent) / 2f, callEntryIconPaint);
+        x += callEntryIconPaint.measureText(callEntryIcon) + gap;
+        canvas.drawText(callEntryLabel, x, rowCenterY - (clfm.ascent + clfm.descent) / 2f, callEntryLabelPaint);
+        x += callEntryLabelPaint.measureText(callEntryLabel);
+        canvas.drawText(CALL_ENTRY_DOT_TEXT, x, rowCenterY - (cdfm.ascent + cdfm.descent) / 2f, callEntryDotPaint);
+        x += callEntryDotPaint.measureText(CALL_ENTRY_DOT_TEXT);
+        canvas.drawText(callEntryTime, x, rowCenterY - (ctfm.ascent + ctfm.descent) / 2f, callEntryTimePaint);
     }
 
     private void drawReplyPreview(Canvas canvas) {
