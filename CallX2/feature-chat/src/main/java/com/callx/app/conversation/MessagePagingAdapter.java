@@ -717,11 +717,10 @@ public class MessagePagingAdapter
             // Disappearing-message countdown (setExpiryText) is now modeled
             // for the plain-text footer, the captioned/captionless media
             // pill (image/video/gif/multi_media reuse the same pill), the
-            // audio/file/poll footer row — i.e. every bubble type that
-            // actually has a footer/pill to draw it in. Contact/location/
-            // reel-share cards have no timestamp row at all (matches their
-            // legacy XML having none), so they still fall back to the old
-            // path until/unless that card gets one.
+            // audio/file/poll footer row, and now a small top-corner expiry
+            // pill on the contact/location cards + the reel-share card's
+            // existing bottom-end timestamp pill — every bubble type has
+            // somewhere to draw it now.
             String expiryType = m.type != null ? m.type : "text";
             switch (expiryType) {
                 case "text":
@@ -732,6 +731,10 @@ public class MessagePagingAdapter
                 case "audio":
                 case "multi_media":
                 case "poll":
+                case "contact":
+                case "location":
+                case "reel_share":
+                case "reel_link":
                     break; // eligible — footer/pill models expiry
                 default:
                     return false;
@@ -771,8 +774,8 @@ public class MessagePagingAdapter
             // Reel-share card (MessageBubbleCanvasView.bindReelShare) —
             // bubbleless 165×237dp Instagram-style card, same shape sent
             // and received. Deleted/expiry are already handled above this
-            // check (deleted always wins; expiry disqualifies non-text
-            // types including this one, same as image/multi_media).
+            // check — its always-shown bottom-end timestamp pill now also
+            // reserves space for + draws the expiry countdown.
             return true;
         }
         if ("video".equals(type)) {
@@ -793,16 +796,20 @@ public class MessagePagingAdapter
         }
         if ("contact".equals(type)) {
             // Contact-share card (MessageBubbleCanvasView.bindContact) —
-            // bubbleless 165dp-wide card, same shape sent and received, no
-            // timestamp/tick footer (matches item_msg_contact.xml having
-            // none). Deleted/expiry already handled above this check.
+            // bubbleless 165dp-wide card, same shape sent and received.
+            // No regular timestamp/tick footer (matches item_msg_contact.xml
+            // having none), but now shows a small top-corner expiry pill
+            // when a disappearing-message timer is running. Deleted/expiry
+            // already handled above this check.
             return true;
         }
         if ("location".equals(type)) {
             // Location-share card (MessageBubbleCanvasView.bindLocation) —
             // bubbleless 165dp-wide card, same shape family as the contact
-            // card, no timestamp/tick footer (matches item_msg_location.xml
-            // having none). Deleted/expiry already handled above this check.
+            // card. No regular timestamp/tick footer (matches
+            // item_msg_location.xml having none), but now shows a small
+            // top-corner expiry pill when a disappearing-message timer is
+            // running. Deleted/expiry already handled above this check.
             return true;
         }
         if ("poll".equals(type)) {

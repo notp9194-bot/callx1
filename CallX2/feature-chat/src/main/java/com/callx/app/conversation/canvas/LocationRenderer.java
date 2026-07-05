@@ -87,5 +87,14 @@ final class LocationRenderer {
         canvas.drawText(MessageBubbleCanvasView.LOCATION_BUTTON_TEXT, host.locationButtonRect.centerX(), locBtnBaselineY, host.locationButtonTextPaint);
 
         canvas.restore();
+
+        // ── Disappearing-message countdown — this card has no regular
+        // timestamp/tick row (matches item_msg_location.xml having none),
+        // so the expiry pill is a small floating badge over the map header
+        // instead of sharing a footer row. Drawn after canvas.restore() so
+        // it isn't clipped to the card's rounded shape. ──
+        if (host.hasExpiry) {
+            host.drawCornerExpiryPill(canvas, host.locationMapRect);
+        }
     }
 }

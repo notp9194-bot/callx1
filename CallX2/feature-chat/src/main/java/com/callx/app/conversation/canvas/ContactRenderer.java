@@ -90,5 +90,14 @@ final class ContactRenderer {
         canvas.drawText(MessageBubbleCanvasView.CONTACT_BUTTON_TEXT, host.contactButtonRect.centerX(), btnBaselineY, host.contactButtonTextPaint);
 
         canvas.restore();
+
+        // ── Disappearing-message countdown — this card has no regular
+        // timestamp/tick row (matches item_msg_contact.xml having none), so
+        // the expiry pill is a small floating badge in the card's top-end
+        // corner instead of sharing a footer row. Drawn after canvas.restore()
+        // so it isn't clipped to the card's rounded shape. ──
+        if (host.hasExpiry) {
+            host.drawCornerExpiryPill(canvas, host.contactCardRect);
+        }
     }
 }

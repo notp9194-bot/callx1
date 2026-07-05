@@ -3138,7 +3138,8 @@ public class MessageBubbleCanvasView extends View {
             float pillPadV = MEDIA_PILL_PADDING_V_DP * density;
             float pillMargin = MEDIA_PILL_MARGIN_DP * density;
             float pillTextW = mediaPillTextPaint.measureText(footerTimeText)
-                    + (sent ? (TICK_SIZE_DP + TICK_GAP_DP) * density : 0);
+                    + (sent ? (TICK_SIZE_DP + TICK_GAP_DP) * density : 0)
+                    + expiryReserveWidth();
             float pillH = spToPx(FOOTER_TEXT_SP) + pillPadV * 2;
             mediaPillRect.set(
                     reelCardRect.right - pillMargin - pillTextW - pillPadH * 2,
@@ -3490,6 +3491,30 @@ public class MessageBubbleCanvasView extends View {
         if (sent) {
             drawTick(canvas, footerRightX - TICK_SIZE_DP * density, footerBaselineY);
         }
+    }
+
+    /**
+     * Small floating "⏳ mm:ss" badge for cards that have no regular
+     * timestamp/tick footer row (contact/location) — pinned inside the
+     * given rect's top-end corner with a small inset, dark rounded
+     * background + expiryPaint text, same countdown string setExpiryText()
+     * already feeds every other footer/pill. No-op when there's nothing to
+     * show, so callers can call this unconditionally right after
+     * canvas.restore() when hasExpiry is true.
+     */
+    void drawCornerExpiryPill(Canvas canvas, RectF anchorRect) {
+        if (!hasExpiry || expiryText == null || expiryText.isEmpty()) return;
+        float padH = 6f * density, padV = 3f * density, inset = 6f * density;
+        Paint.FontMetrics efm = expiryPaint.getFontMetrics();
+        float textW = expiryPaint.measureText(expiryText);
+        float pillH = (efm.descent - efm.ascent) + padV * 2;
+        float pillW = textW + padH * 2;
+        float right = anchorRect.right - inset;
+        float top = anchorRect.top + inset;
+        RectF pillRect = new RectF(right - pillW, top, right, top + pillH);
+        canvas.drawRoundRect(pillRect, pillH / 2f, pillH / 2f, mediaPillBgPaint);
+        float baseline = pillRect.centerY() - (efm.ascent + efm.descent) / 2f;
+        canvas.drawText(expiryText, pillRect.left + padH, baseline, expiryPaint);
     }
 
     private void drawCallEntry(Canvas canvas) {
