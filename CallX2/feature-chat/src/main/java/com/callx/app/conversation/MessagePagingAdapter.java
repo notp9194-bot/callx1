@@ -2,6 +2,7 @@ package com.callx.app.conversation;
 
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.Bitmap;
 import android.media.MediaPlayer;
 import android.view.*;
 import android.widget.*;
@@ -148,6 +149,15 @@ public class MessagePagingAdapter
     private static final int TYPE_VIEW_ONCE_EXPIRED = 9;
     /** View-once message: sent by ME, not yet opened by receiver — shows lock/waiting state. */
     private static final int TYPE_VIEW_ONCE_SENT_WAITING = 10;
+    /**
+     * Phase 1 Canvas rendering (see conversation.canvas.MessageBubbleCanvasView).
+     * Used ONLY for messages isCanvasEligible() accepts — plain text (any
+     * sent/received) or a single sent image, with no forward/pin/reactions/
+     * group-sender-label/edited-label. Everything else still uses
+     * TYPE_SENT/TYPE_RECEIVED + item_message_sent/received.xml as before.
+     */
+    private static final int TYPE_CANVAS_SENT     = 11;
+    private static final int TYPE_CANVAS_RECEIVED = 12;
 
     // ── DiffUtil payload key — only tv_status needs rebind when status changes ──
     static final String PAYLOAD_STATUS     = "status";
@@ -652,7 +662,40 @@ public class MessagePagingAdapter
             if (currentUid.equals(m.senderId)) return TYPE_VIEW_ONCE_SENT_WAITING;
             return TYPE_VIEW_ONCE_SENT;
         }
-        return currentUid.equals(m.senderId) ? TYPE_SENT : TYPE_RECEIVED;
+        boolean sentFlag = currentUid.equals(m.senderId);
+        if (isCanvasEligible(m, sentFlag)) {
+            return sentFlag ? TYPE_CANVAS_SENT : TYPE_CANVAS_RECEIVED;
+        }
+        return sentFlag ? TYPE_SENT : TYPE_RECEIVED;
+    }
+
+    /**
+     * True if MessageBubbleCanvasView (Phase 1) can fully render this
+     * message on its own. Deliberately conservative — anything this
+     * returns false for keeps using the existing item_message_sent/
+     * received.xml + bindMessage() path, unchanged. See
+     * MessageBubbleCanvasView's class doc for the full list of what it
+     * does/doesn't handle; this method must stay in sync with that list.
+     */
+    private boolean isCanvasEligible(@NonNull Message m, boolean sentFlag) {
+        if (Boolean.TRUE.equals(m.deleted))       return false; // "This message was deleted" text swap — not modeled
+        if (Boolean.TRUE.equals(m.edited))        return false; // "(edited)" label — not modeled
+        if (m.forwardedFrom != null)               return false; // forwarded label — not modeled
+        if (Boolean.TRUE.equals(m.pinned))        return false; // pinned label — not modeled
+        if (m.reactions != null && !m.reactions.isEmpty()) return false; // reactions strip — not modeled
+        if (m.isGroup)                              return false; // group sender-name row above bubble — not modeled
+        if (Boolean.TRUE.equals(m.broadcast))     return false; // broadcast badge — not modeled
+        if (m.expiresAt != null && m.expiresAt > 0) return false; // disappearing-message countdown label — not modeled
+
+        String type = m.type != null ? m.type : "text";
+        if ("text".equals(type)) return true;
+        if ("image".equals(type)) {
+            // Received images need the manual download-overlay pill
+            // (fl_download_overlay) which this view doesn't render yet —
+            // only the sender's own already-local image is eligible.
+            return sentFlag;
+        }
+        return false; // gif/video/audio/file/poll/multi_media/link/reel_share/contact/location — all still on the old path
     }
 
     @NonNull
@@ -668,6 +711,16 @@ public class MessagePagingAdapter
                     .inflate(R.layout.item_date_separator, parent, false);
             v.setSaveEnabled(false);
             return new VH(v);
+        }
+        if (viewType == TYPE_CANVAS_SENT || viewType == TYPE_CANVAS_RECEIVED) {
+            com.callx.app.conversation.canvas.MessageBubbleCanvasView cv =
+                    new com.callx.app.conversation.canvas.MessageBubbleCanvasView(parent.getContext());
+            cv.setLayoutParams(new RecyclerView.LayoutParams(
+                    RecyclerView.LayoutParams.MATCH_PARENT, RecyclerView.LayoutParams.WRAP_CONTENT));
+            cv.setSaveEnabled(false);
+            VH vh = new VH(cv);
+            vh.canvasView = cv;
+            return vh;
         }
         int layout;
         if (viewType == TYPE_VIEW_ONCE_SENT)         layout = R.layout.item_view_once_bubble;
@@ -780,6 +833,10 @@ public class MessagePagingAdapter
                 return;
             }
             bindViewOnceSent(h, m);
+            return;
+        }
+        if (h.canvasView != null) {
+            bindCanvasMessage(h, m);
             return;
         }
         bindMessage(h, m, position);
@@ -1095,6 +1152,125 @@ public class MessagePagingAdapter
                 && c1.get(java.util.Calendar.DAY_OF_YEAR) == c2.get(java.util.Calendar.DAY_OF_YEAR);
         sameDayCache.put(cacheKey, same);
         return same;
+    }
+
+    /**
+     * Binds a message to a MessageBubbleCanvasView holder (see
+     * isCanvasEligible()). Only ever called for plain-text messages, or a
+     * sent single image, optionally with a reply — every other shape is
+     * filtered out before a holder ever gets here.
+     */
+    private void bindCanvasMessage(@NonNull VH h, @NonNull Message m) {
+        final Context ctx = h.itemView.getContext();
+        final com.callx.app.conversation.canvas.MessageBubbleCanvasView cv = h.canvasView;
+        final int myToken = ++h.canvasBindToken;
+        final boolean sent = currentUid != null && currentUid.equals(m.senderId);
+        final boolean isRead = "read".equals(m.status);
+        final boolean isDelivered = isRead || "delivered".equals(m.status);
+        final String timeStr = (m.timestamp != null && m.timestamp > 0) ? formatTime(m.timestamp) : "";
+        final String type = m.type != null ? m.type : "text";
+        final boolean isImage = "image".equals(type);
+
+        if (isImage) {
+            final String fullUrl = m.mediaUrl != null ? m.mediaUrl : m.text;
+            // No caption support for single "image" messages in this codebase
+            // (m.text/m.mediaUrl is the URL, not a caption — see bindMessage()'s
+            // "image"/"gif" case) — always captionless here.
+            cv.bindMedia(null, null, timeStr, sent, isRead, isDelivered);
+            if (fullUrl != null && !fullUrl.isEmpty()) {
+                glide(ctx).asBitmap()
+                        .load(fullUrl)
+                        .apply(THUMB_RGB565)
+                        .override(480, 480)
+                        .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
+                            @Override
+                            public void onResourceReady(@NonNull Bitmap resource,
+                                    @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
+                                if (h.canvasBindToken != myToken) return; // holder recycled/rebound since this load started
+                                cv.setMediaBitmap(resource);
+                            }
+                            @Override
+                            public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {
+                                if (h.canvasBindToken != myToken) return;
+                                cv.setMediaBitmap(null);
+                            }
+                        });
+            }
+        } else {
+            cv.bind(m.text != null ? m.text : "", timeStr, sent, isRead, isDelivered);
+        }
+
+        // ── Reply preview ──
+        if (m.replyToId != null && !m.replyToId.isEmpty()) {
+            cv.setReply(m.replyToSenderName, m.replyToText, null);
+            if (m.replyToMediaUrl != null && !m.replyToMediaUrl.isEmpty()) {
+                glide(ctx).asBitmap()
+                        .load(m.replyToMediaUrl)
+                        .apply(THUMB_RGB565)
+                        .override(88, 88)
+                        .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
+                            @Override
+                            public void onResourceReady(@NonNull Bitmap resource,
+                                    @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
+                                if (h.canvasBindToken != myToken) return; // holder recycled/rebound since this load started
+                                cv.setReply(m.replyToSenderName, m.replyToText, resource);
+                            }
+                            @Override
+                            public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {}
+                        });
+            }
+        } else {
+            cv.clearReply();
+        }
+
+        // ── Selection highlight (multi-select mode) — works unmodified since
+        // it only touches h.itemView's alpha/background/tag, which is cv itself. ──
+        applySelectionHighlight(h, m);
+
+        cv.setOnBubbleClickListener(new com.callx.app.conversation.canvas.MessageBubbleCanvasView.OnBubbleClickListener() {
+            @Override
+            public void onBubbleClick() {
+                if (multiSelectMode) {
+                    String id = m.messageId != null ? m.messageId : m.id;
+                    if (id != null) {
+                        if (selectedMessageIds.contains(id)) selectedMessageIds.remove(id);
+                        else selectedMessageIds.add(id);
+                        notifyItemChanged(h.getAdapterPosition());
+                        if (multiSelectListener != null) multiSelectListener.onSelectionChanged(selectedMessageIds.size());
+                    }
+                }
+            }
+
+            @Override
+            public void onBubbleLongClick() {
+                cv.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
+                if (!multiSelectMode) {
+                    enterMultiSelectMode(m);
+                } else if (actionListener != null) {
+                    showActionBottomSheet(ctx, m);
+                }
+            }
+
+            @Override
+            public boolean onLinkClick(String url) {
+                return false; // link-tap-inside-text not modeled yet — falls through to onBubbleClick
+            }
+
+            @Override
+            public void onReplyPreviewClick() {
+                if (actionListener != null && m.replyToId != null) {
+                    actionListener.onNavigateToOriginal(m.replyToId);
+                }
+            }
+
+            @Override
+            public void onImageClick() {
+                if (isImage) {
+                    String fullUrl = m.mediaUrl != null ? m.mediaUrl : m.text;
+                    showImageActionSheet(ctx, m, fullUrl, fullUrl);
+                }
+            }
+        });
     }
 
     private void bindMessage(@NonNull VH h, @NonNull Message m, int position) {
@@ -2826,6 +3002,10 @@ public class MessagePagingAdapter
         if (holder.ivVideoThumb      != null) glide(ctx).clear(holder.ivVideoThumb);
         if (holder.ivStatusSeenThumb != null) glide(ctx).clear(holder.ivStatusSeenThumb);
         if (holder.ivReelSeenThumb   != null) glide(ctx).clear(holder.ivReelSeenThumb);
+        // Same staleness-guard idea as bindCanvasMessage()'s Glide
+        // CustomTarget calls — invalidate any in-flight canvas image/reply-
+        // thumb load the instant this holder is recycled.
+        holder.canvasBindToken++;
         // Invalidate the download-overlay binding guard so an in-flight
         // getRemoteSize/getWithProgress callback for the old message
         // can't touch this holder after it's been recycled for a new one.
@@ -3036,6 +3216,21 @@ public class MessagePagingAdapter
 
     static class VH extends RecyclerView.ViewHolder {
         TextView     tvMessage, tvTime, tvSenderName, tvFileName;
+        // Phase 1 Canvas rendering — non-null ONLY for TYPE_CANVAS_SENT/
+        // TYPE_CANVAS_RECEIVED holders (see onCreateViewHolder). When set,
+        // onBindViewHolder routes to bindCanvasMessage() instead of the
+        // normal findViewById-based fields below, all of which stay null
+        // for this holder (harmless — a bare custom View has no ids to find).
+        com.callx.app.conversation.canvas.MessageBubbleCanvasView canvasView;
+        // Bumped on every bindCanvasMessage() call and checked before an
+        // async Glide result (image bitmap / reply thumb) is applied — a
+        // slow load that resolves after this holder has been recycled and
+        // rebound to a different message must NOT paint onto the new one.
+        // Unlike Glide's ImageView targets (which auto-cancel via view
+        // attachment), the raw CustomTarget<Bitmap> used for canvas binds
+        // has no such lifecycle tie-in, so this token is the only thing
+        // preventing that race.
+        volatile int canvasBindToken = 0;
         TextView     tvDateHeader;   // date separator chip (Today / Yesterday / MMM d)
         ImageView    ivImage;
         TextView     tvStatus;   // tv_status in both item layouts
