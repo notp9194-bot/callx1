@@ -1,6 +1,6 @@
 package com.callx.app.conversation.canvas;
 
-import android.graphics.Paint;
+import android.text.TextPaint;
 import android.text.TextUtils;
 
 /**
@@ -37,7 +37,7 @@ final class EllipsizeCache {
      * Returns the ellipsized string for the given inputs, recomputing only
      * if they differ from the last call.
      */
-    String get(CharSequence source, Paint paint, float maxWidthPx, TextUtils.TruncateAt at) {
+    String get(CharSequence source, TextPaint paint, float maxWidthPx, TextUtils.TruncateAt at) {
         String src = source != null ? source.toString() : "";
         float width = Math.max(1f, maxWidthPx);
         float size = paint.getTextSize();
