@@ -1410,7 +1410,7 @@ public class MessagePagingAdapter
         } else if (isMultiMedia) {
             final java.util.List<java.util.Map<String, Object>> items = m.mediaItems;
             final int total = items != null ? items.size() : 0;
-            java.util.List<com.callx.app.conversation.canvas.MessageBubbleCanvasView.GridItem> gridItems =
+            java.util.List<com.callx.app.conversation.canvas.GridItem> gridItems =
                     new java.util.ArrayList<>();
             int visible = Math.min(total, 9);
             for (int i = 0; i < visible; i++) {
@@ -1421,7 +1421,7 @@ public class MessagePagingAdapter
                 String dur = durObj instanceof String ? (String) durObj : null;
                 Object capObj = item.get("caption");
                 String cap = capObj instanceof String ? (String) capObj : null;
-                gridItems.add(new com.callx.app.conversation.canvas.MessageBubbleCanvasView.GridItem(isVideoCell, dur, cap));
+                gridItems.add(new com.callx.app.conversation.canvas.GridItem(isVideoCell, dur, cap));
             }
             cv.bindMediaGroup(gridItems, m.caption, timeStr, sent, isRead, isDelivered);
             cv.setDeletedStyle(false); // clears any italic/dim state a recycled view carried from a deleted message
@@ -2043,7 +2043,7 @@ public class MessagePagingAdapter
         // it only touches h.itemView's alpha/background/tag, which is cv itself. ──
         applySelectionHighlight(h, m);
 
-        cv.setOnBubbleClickListener(new com.callx.app.conversation.canvas.MessageBubbleCanvasView.OnBubbleClickListener() {
+        cv.setOnBubbleClickListener(new com.callx.app.conversation.canvas.OnBubbleClickListener() {
             @Override
             public void onBubbleClick() {
                 if (multiSelectMode) {

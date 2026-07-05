@@ -178,50 +178,50 @@ import com.callx.app.utils.ChatThemeManager;
  */
 public class MessageBubbleCanvasView extends View {
 
-    private static final float CORNER_RADIUS_DP = 18f;
-    private static final float TAIL_RADIUS_DP    = 4f;
-    private static final float H_PADDING_DP      = 12f;
-    private static final float V_PADDING_DP      = 8f;
-    private static final float TEXT_SIZE_SP      = 15f;
-    private static final float FOOTER_GAP_DP     = 4f;
-    private static final float FOOTER_TEXT_SP    = 11f;
-    private static final float TICK_GAP_DP       = 3f;
-    private static final float TICK_SIZE_DP      = 12f;
-    private static final float MAX_BUBBLE_WIDTH_FRACTION = 0.78f;
+    static final float CORNER_RADIUS_DP = 18f;
+    static final float TAIL_RADIUS_DP    = 4f;
+    static final float H_PADDING_DP      = 12f;
+    static final float V_PADDING_DP      = 8f;
+    static final float TEXT_SIZE_SP      = 15f;
+    static final float FOOTER_GAP_DP     = 4f;
+    static final float FOOTER_TEXT_SP    = 11f;
+    static final float TICK_GAP_DP       = 3f;
+    static final float TICK_SIZE_DP      = 12f;
+    static final float MAX_BUBBLE_WIDTH_FRACTION = 0.78f;
 
     // ── Reply-preview strip — mirrors ll_reply_preview in
     // item_message_sent/received.xml exactly (margins, sizes, colors) ──
-    private static final float REPLY_MARGIN_DP       = 4f;   // outer margin around the whole strip
-    private static final float REPLY_BAR_WIDTH_DP    = 3f;   // colored left bar
-    private static final float REPLY_PADDING_H_DP    = 8f;   // inner horizontal padding (text column)
-    private static final float REPLY_PADDING_V_DP    = 4f;   // inner vertical padding (text column)
-    private static final float REPLY_MIN_HEIGHT_DP   = 36f;
-    private static final float REPLY_CORNER_RADIUS_DP = 6f;
-    private static final float REPLY_SENDER_SIZE_SP  = 11f;
-    private static final float REPLY_TEXT_SIZE_SP    = 12f;
-    private static final float REPLY_THUMB_SIZE_DP   = 44f;
-    private static final float REPLY_THUMB_MARGIN_DP = 4f;
-    private static final float REPLY_GAP_TO_MESSAGE_DP = 2f; // gap between reply strip and message text below it
+    static final float REPLY_MARGIN_DP       = 4f;   // outer margin around the whole strip
+    static final float REPLY_BAR_WIDTH_DP    = 3f;   // colored left bar
+    static final float REPLY_PADDING_H_DP    = 8f;   // inner horizontal padding (text column)
+    static final float REPLY_PADDING_V_DP    = 4f;   // inner vertical padding (text column)
+    static final float REPLY_MIN_HEIGHT_DP   = 36f;
+    static final float REPLY_CORNER_RADIUS_DP = 6f;
+    static final float REPLY_SENDER_SIZE_SP  = 11f;
+    static final float REPLY_TEXT_SIZE_SP    = 12f;
+    static final float REPLY_THUMB_SIZE_DP   = 44f;
+    static final float REPLY_THUMB_MARGIN_DP = 4f;
+    static final float REPLY_GAP_TO_MESSAGE_DP = 2f; // gap between reply strip and message text below it
 
-    private static final int SENT_REPLY_BG     = 0x33000000;
-    private static final int SENT_REPLY_BAR    = 0xFFFFD700;
-    private static final int SENT_REPLY_SENDER = 0xFFFFD54F;
-    private static final int SENT_REPLY_TEXT   = 0xDDFFFFFF;
-    private static final int RECEIVED_REPLY_BG = 0x22000000;
+    static final int SENT_REPLY_BG     = 0x33000000;
+    static final int SENT_REPLY_BAR    = 0xFFFFD700;
+    static final int SENT_REPLY_SENDER = 0xFFFFD54F;
+    static final int SENT_REPLY_TEXT   = 0xDDFFFFFF;
+    static final int RECEIVED_REPLY_BG = 0x22000000;
 
     // ── Image media bubble — mirrors iv_image (180×180dp, centerCrop,
     // bg_media_card 12dp corner radius) in item_message_sent/received.xml ──
-    private static final float MEDIA_SIZE_DP           = 180f;
-    private static final float MEDIA_CORNER_RADIUS_DP  = 12f;
-    private static final float MEDIA_MARGIN_DP         = 2f;   // gap between media edge and bubble edge
-    private static final float MEDIA_CAPTION_GAP_DP    = 6f;   // gap between image and caption text
-    private static final float MEDIA_PILL_PADDING_H_DP = 6f;
-    private static final float MEDIA_PILL_PADDING_V_DP = 3f;
-    private static final float MEDIA_PILL_MARGIN_DP    = 6f;   // pill inset from image's bottom-right corner
-    private static final float MEDIA_PILL_CORNER_DP    = 8f;
-    private static final int   MEDIA_PILL_BG           = 0x66000000; // translucent black, WhatsApp-style
-    private static final int   MEDIA_PILL_TEXT         = 0xFFFFFFFF;
-    private static final int   MEDIA_PLACEHOLDER_COLOR = 0xFFD9D9D9; // shown until Bitmap arrives — no theme lookup yet (see class doc)
+    static final float MEDIA_SIZE_DP           = 180f;
+    static final float MEDIA_CORNER_RADIUS_DP  = 12f;
+    static final float MEDIA_MARGIN_DP         = 2f;   // gap between media edge and bubble edge
+    static final float MEDIA_CAPTION_GAP_DP    = 6f;   // gap between image and caption text
+    static final float MEDIA_PILL_PADDING_H_DP = 6f;
+    static final float MEDIA_PILL_PADDING_V_DP = 3f;
+    static final float MEDIA_PILL_MARGIN_DP    = 6f;   // pill inset from image's bottom-right corner
+    static final float MEDIA_PILL_CORNER_DP    = 8f;
+    static final int   MEDIA_PILL_BG           = 0x66000000; // translucent black, WhatsApp-style
+    static final int   MEDIA_PILL_TEXT         = 0xFFFFFFFF;
+    static final int   MEDIA_PLACEHOLDER_COLOR = 0xFFD9D9D9; // shown until Bitmap arrives — no theme lookup yet (see class doc)
 
     // ── Audio (voice message) bubble — mirrors layout_msg_audio.xml
     // exactly: a 40dp circular play/pause button (circle_primary bg,
@@ -233,20 +233,20 @@ public class MessageBubbleCanvasView extends View {
     // seed (the audio URL) exactly like AudioWaveformView's placeholder
     // bars — no real PCM amplitude extraction — so the same voice note
     // always renders the same bar shape across rebinds/recycling. ──
-    private static final float AUDIO_CONTENT_WIDTH_DP = 200f; // fixed row content width (excludes hPad)
-    private static final float AUDIO_BTN_SIZE_DP       = 40f;
-    private static final float AUDIO_ROW_GAP_DP        = 8f;  // button↔waveform and waveform↔duration gaps
-    private static final float AUDIO_DUR_WIDTH_DP      = 36f;
-    private static final float AUDIO_DUR_TEXT_SP       = 11f;
-    private static final float AUDIO_WAVEFORM_HEIGHT_DP = 28f;
-    private static final int   AUDIO_BAR_COUNT         = 28;
-    private static final float AUDIO_BAR_GAP_RATIO     = 0.45f; // fraction of each bar's slot left as gap
-    private static final int   AUDIO_BTN_BG_COLOR      = 0xFF008069; // matches circle_primary/brand_primary
-    private static final int   AUDIO_BTN_ICON_COLOR    = 0xFFFFFFFF;
-    private static final float AUDIO_PLAY_TRIANGLE_DP  = 14f;
-    private static final float AUDIO_PAUSE_BAR_W_DP    = 3.5f;
-    private static final float AUDIO_PAUSE_BAR_H_DP    = 14f;
-    private static final float AUDIO_PAUSE_BAR_GAP_DP  = 4f;
+    static final float AUDIO_CONTENT_WIDTH_DP = 200f; // fixed row content width (excludes hPad)
+    static final float AUDIO_BTN_SIZE_DP       = 40f;
+    static final float AUDIO_ROW_GAP_DP        = 8f;  // button↔waveform and waveform↔duration gaps
+    static final float AUDIO_DUR_WIDTH_DP      = 36f;
+    static final float AUDIO_DUR_TEXT_SP       = 11f;
+    static final float AUDIO_WAVEFORM_HEIGHT_DP = 28f;
+    static final int   AUDIO_BAR_COUNT         = 28;
+    static final float AUDIO_BAR_GAP_RATIO     = 0.45f; // fraction of each bar's slot left as gap
+    static final int   AUDIO_BTN_BG_COLOR      = 0xFF008069; // matches circle_primary/brand_primary
+    static final int   AUDIO_BTN_ICON_COLOR    = 0xFFFFFFFF;
+    static final float AUDIO_PLAY_TRIANGLE_DP  = 14f;
+    static final float AUDIO_PAUSE_BAR_W_DP    = 3.5f;
+    static final float AUDIO_PAUSE_BAR_H_DP    = 14f;
+    static final float AUDIO_PAUSE_BAR_GAP_DP  = 4f;
 
     // ── Reaction badge — mirrors ll_reactions/tv_reactions in
     // item_message_sent/received.xml: a plain-emoji badge (no background
@@ -254,10 +254,10 @@ public class MessageBubbleCanvasView extends View {
     // a negative margin so it overlaps without covering the text/footer.
     // Same treatment for sent and received (both layouts constrain it
     // identically to the bubble's end/bottom). ──
-    private static final float REACTIONS_TEXT_SP      = 28f;
-    private static final float REACTIONS_MARGIN_END_DP = 4f;
-    private static final float REACTIONS_OVERLAP_DP   = 14f; // how far the badge hangs below the bubble's bottom edge (matches layout_marginBottom="-14dp")
-    private static final int   REACTIONS_SHADOW_COLOR = 0x66000000;
+    static final float REACTIONS_TEXT_SP      = 28f;
+    static final float REACTIONS_MARGIN_END_DP = 4f;
+    static final float REACTIONS_OVERLAP_DP   = 14f; // how far the badge hangs below the bubble's bottom edge (matches layout_marginBottom="-14dp")
+    static final int   REACTIONS_SHADOW_COLOR = 0x66000000;
 
     // ── Pinned label — mirrors tv_pinned_label's text/size/color from
     // item_message_sent.xml ("📌 Pinned", 10sp, #E65100). That XML view was
@@ -266,30 +266,30 @@ public class MessageBubbleCanvasView extends View {
     // bubble), so rather than reproduce that half-finished/sent-only
     // placement, this anchors the label to the BUBBLE's own top-end corner
     // — works symmetrically for sent and received alike. ──
-    private static final float PINNED_LABEL_TEXT_SP = 10f;
-    private static final int   PINNED_LABEL_COLOR   = 0xFFE65100;
-    private static final String PINNED_LABEL_TEXT   = "📌 Pinned";
-    private static final float PINNED_LABEL_GAP_DP  = 2f; // gap between label and bubble top
-    private static final float GROUP_SENDER_TEXT_SP = 11f; // matches tv_sender_name in item_message_received.xml
+    static final float PINNED_LABEL_TEXT_SP = 10f;
+    static final int   PINNED_LABEL_COLOR   = 0xFFE65100;
+    static final String PINNED_LABEL_TEXT   = "📌 Pinned";
+    static final float PINNED_LABEL_GAP_DP  = 2f; // gap between label and bubble top
+    static final float GROUP_SENDER_TEXT_SP = 11f; // matches tv_sender_name in item_message_received.xml
 
     // ── Forwarded label — mirrors tv_forwarded's text/size/color/style from
     // item_message_received.xml ("↪ Forwarded from X", 11sp italic, #888888).
     // Stacked directly below the pinned-label/group-sender row (same
     // constraintTop_toBottomOf relationship the legacy layout uses). ──
-    private static final float FORWARDED_LABEL_TEXT_SP = 11f;
-    private static final int   FORWARDED_LABEL_COLOR   = 0xFF888888;
+    static final float FORWARDED_LABEL_TEXT_SP = 11f;
+    static final int   FORWARDED_LABEL_COLOR   = 0xFF888888;
 
     // ── Deleted-message placeholder — mirrors bindMessage()'s
     // tvMessage.setAlpha(0.6f) treatment for "This message was deleted" /
     // "You deleted this message"; italic added for the same "ghost text"
     // effect most chat apps use. ──
-    private static final int DELETED_TEXT_ALPHA = 153; // ~0.6 * 255
+    static final int DELETED_TEXT_ALPHA = 153; // ~0.6 * 255
 
     // ── Disappearing-message countdown — mirrors tv_expiry's text/size/color
     // from item_message_sent/received.xml ("⏳ mm:ss", 9sp, gold), drawn in
     // the footer row just before the timestamp. ──
-    private static final float EXPIRY_TEXT_SP = 9f;
-    private static final int   EXPIRY_COLOR   = 0xFFFFCC00;
+    static final float EXPIRY_TEXT_SP = 9f;
+    static final int   EXPIRY_COLOR   = 0xFFFFCC00;
 
     // ── Media GROUP (multi-image/video grid) — mirrors MediaGroupLayoutHelper's
     // layout rules/constants exactly for visual parity, but is an entirely
@@ -299,48 +299,48 @@ public class MessageBubbleCanvasView extends View {
     // SENT groups of plain image/video items (no audio/file cells, no
     // per-item captions) reach this — received groups keep the manual
     // download-gate UI on the old path, same precedent as single images. ──
-    private static final int GROUP_SINGLE_W    = 240;
-    private static final int GROUP_SINGLE_H    = 200;
-    private static final int GROUP_PAIR_CELL   = 118;
-    private static final int GROUP_THREE_TOP_W = 240;
-    private static final int GROUP_THREE_TOP_H = 140;
-    private static final int GROUP_THREE_BOT   = 116;
-    private static final int GROUP_GRID2_CELL  = 118;
-    private static final int GROUP_GRID3_CELL  = 78;
-    private static final int GROUP_GAP         = 2;
-    private static final int GROUP_CORNER_R    = 4; // per-cell radius (matches buildCell's 4dp)
-    private static final int GROUP_MAX_VISIBLE = 9; // 3x3 cap; beyond this, last cell shows "+N"
-    private static final float GROUP_CAPTION_SCRIM_H_DP = 40f;
-    private static final float GROUP_CAPTION_TEXT_SP    = 14f;
-    private static final int   GROUP_PLAY_CIRCLE_DP      = 36;
-    private static final int   GROUP_PLAY_TRIANGLE_DP    = 20;
-    private static final int   GROUP_DURATION_TEXT_SP    = 10;
+    static final int GROUP_SINGLE_W    = 240;
+    static final int GROUP_SINGLE_H    = 200;
+    static final int GROUP_PAIR_CELL   = 118;
+    static final int GROUP_THREE_TOP_W = 240;
+    static final int GROUP_THREE_TOP_H = 140;
+    static final int GROUP_THREE_BOT   = 116;
+    static final int GROUP_GRID2_CELL  = 118;
+    static final int GROUP_GRID3_CELL  = 78;
+    static final int GROUP_GAP         = 2;
+    static final int GROUP_CORNER_R    = 4; // per-cell radius (matches buildCell's 4dp)
+    static final int GROUP_MAX_VISIBLE = 9; // 3x3 cap; beyond this, last cell shows "+N"
+    static final float GROUP_CAPTION_SCRIM_H_DP = 40f;
+    static final float GROUP_CAPTION_TEXT_SP    = 14f;
+    static final int   GROUP_PLAY_CIRCLE_DP      = 36;
+    static final int   GROUP_PLAY_TRIANGLE_DP    = 20;
+    static final int   GROUP_DURATION_TEXT_SP    = 10;
     // ── Per-item caption strip — mirrors MediaGroupLayoutHelper's per-cell
     // caption exactly: a 22dp gradient scrim pinned to the cell's bottom
     // edge, single-line ellipsized 10sp white text. When a video cell also
     // has a caption, its duration badge moves to the cell's top-end corner
     // instead (same conflict-avoidance the legacy helper uses). ──
-    private static final float GROUP_ITEM_CAPTION_STRIP_H_DP = 22f;
-    private static final float GROUP_ITEM_CAPTION_TEXT_SP    = 10f;
-    private static final float GROUP_ITEM_CAPTION_MARGIN_DP  = 4f;
-    private static final float GROUP_ITEM_CAPTION_BOTTOM_DP  = 2f;
+    static final float GROUP_ITEM_CAPTION_STRIP_H_DP = 22f;
+    static final float GROUP_ITEM_CAPTION_TEXT_SP    = 10f;
+    static final float GROUP_ITEM_CAPTION_MARGIN_DP  = 4f;
+    static final float GROUP_ITEM_CAPTION_BOTTOM_DP  = 2f;
 
     // ── Received-group manual download-gate — mirrors MediaGroupLayoutHelper's
     // addMasterDownloadOverlay()/buildCellDownloadOverlay() visuals exactly
     // (same colors/sizes), just Canvas-drawn instead of View-built. Only
     // reachable for RECEIVED groups — see setGroupDownloadGate(). ──
-    private static final int   GROUP_GATE_SCRIM_COLOR      = 0x2E000000; // dims whole grid while gate is up
-    private static final int   GROUP_GATE_PILL_BG          = 0x8A000000;
-    private static final float GROUP_GATE_PILL_CORNER_DP   = 24f;
-    private static final float GROUP_GATE_PILL_PAD_H_DP    = 14f;
-    private static final float GROUP_GATE_PILL_PAD_V_DP    = 8f;
-    private static final float GROUP_GATE_PILL_ICON_DP     = 18f;
-    private static final float GROUP_GATE_PILL_ICON_GAP_DP = 8f;
-    private static final float GROUP_GATE_PILL_TEXT_SP     = 13f;
-    private static final int   GROUP_CELL_GATE_DIM_COLOR   = 0x40000000; // per-cell badge once master pill dismissed
-    private static final int   GROUP_CELL_GATE_BADGE_BG    = 0x99000000;
-    private static final float GROUP_CELL_GATE_BADGE_DP    = 26f;
-    private static final float GROUP_CELL_GATE_ICON_DP     = 14f;
+    static final int   GROUP_GATE_SCRIM_COLOR      = 0x2E000000; // dims whole grid while gate is up
+    static final int   GROUP_GATE_PILL_BG          = 0x8A000000;
+    static final float GROUP_GATE_PILL_CORNER_DP   = 24f;
+    static final float GROUP_GATE_PILL_PAD_H_DP    = 14f;
+    static final float GROUP_GATE_PILL_PAD_V_DP    = 8f;
+    static final float GROUP_GATE_PILL_ICON_DP     = 18f;
+    static final float GROUP_GATE_PILL_ICON_GAP_DP = 8f;
+    static final float GROUP_GATE_PILL_TEXT_SP     = 13f;
+    static final int   GROUP_CELL_GATE_DIM_COLOR   = 0x40000000; // per-cell badge once master pill dismissed
+    static final int   GROUP_CELL_GATE_BADGE_BG    = 0x99000000;
+    static final float GROUP_CELL_GATE_BADGE_DP    = 26f;
+    static final float GROUP_CELL_GATE_ICON_DP     = 14f;
 
     // ── Live download-progress ring — shared by the single-media gate pill
     // and the per-cell group badge (see drawProgressRing()). Determinate
@@ -349,8 +349,8 @@ public class MessageBubbleCanvasView extends View {
     // wall-clock time via postInvalidateOnAnimation() — no Handler/
     // ValueAnimator bookkeeping needed, and every visible instance across
     // the RecyclerView stays in sync since they all read the same clock. ──
-    private static final long  INDETERMINATE_PERIOD_MS = 900L;
-    private static final float INDETERMINATE_SWEEP_DEG = 100f;
+    static final long  INDETERMINATE_PERIOD_MS = 900L;
+    static final float INDETERMINATE_SWEEP_DEG = 100f;
 
     // ── Single-media manual download gate — mirrors the legacy
     // fl_download_overlay/pb_download_spinner treatment for a RECEIVED
@@ -358,7 +358,7 @@ public class MessageBubbleCanvasView extends View {
     // slot with a centered pill, idle "⬇ <label>" (tap to start) or a live
     // spinner/percentage while a download is in flight. Visually reuses the
     // GROUP_GATE_PILL_* constants above for parity with the group version. ──
-    private static final int MEDIA_GATE_SCRIM_COLOR = 0x2E000000;
+    static final int MEDIA_GATE_SCRIM_COLOR = 0x2E000000;
 
     // ── Reel-share card — mirrors layout_msg_reel_share.xml exactly: a
     // bubbleless 165×237dp Instagram-style reel card (NOT the normal chat
@@ -371,32 +371,32 @@ public class MessageBubbleCanvasView extends View {
     // exactly like ll_msg_footer's bottom|end FrameLayout gravity in the
     // legacy layout — always shown regardless of caption presence, since
     // the caption is a separate overlay inside the bottom gradient. ──
-    private static final float REEL_CARD_WIDTH_DP        = 165f;
-    private static final float REEL_CARD_HEIGHT_DP       = 237f;
-    private static final float REEL_CORNER_RADIUS_DP     = 12f;
-    private static final float REEL_TOP_GRADIENT_DP      = 60f;
-    private static final float REEL_BOTTOM_GRADIENT_DP   = 80f;
-    private static final float REEL_HEADER_PAD_H_DP      = 8f;
-    private static final float REEL_HEADER_PAD_TOP_DP    = 7f;
-    private static final float REEL_AVATAR_SIZE_DP       = 24f;
-    private static final float REEL_AVATAR_TEXT_GAP_DP   = 5f;
-    private static final float REEL_USERNAME_TEXT_SP     = 10f;
-    private static final float REEL_PLAY_ICON_SP         = 28f;
-    private static final int   REEL_PLAY_ICON_COLOR      = 0xDDFFFFFF;
-    private static final float REEL_BOTTOM_PAD_H_DP      = 8f;
-    private static final float REEL_BOTTOM_PAD_END_DP    = 36f; // room for the footer pill, matches legacy paddingEnd
-    private static final float REEL_BOTTOM_PAD_BOTTOM_DP = 7f;
-    private static final float REEL_CAPTION_TEXT_SP      = 10f;
-    private static final float REEL_LABEL_TEXT_SP        = 9f;
-    private static final float REEL_LABEL_GAP_TOP_DP     = 2f;
-    private static final int   REEL_CAPTION_COLOR        = 0xEEFFFFFF;
-    private static final int   REEL_LABEL_COLOR          = 0xCCFFFFFF;
-    private static final String REEL_LABEL_TEXT          = "\u2B21  Reels";
-    private static final String REEL_PLAY_GLYPH          = "\u25B6";
-    private static final String REEL_DEFAULT_USERNAME    = "@callx_reel";
-    private static final int   REEL_SHADOW_COLOR         = 0xAA000000;
-    private static final int   REEL_CARD_BG_COLOR        = 0xFF1A1A1A; // matches thumbnail's #1A1A1A placeholder bg
-    private static final int   REEL_AVATAR_PLACEHOLDER_COLOR = 0xFF3A3A3A;
+    static final float REEL_CARD_WIDTH_DP        = 165f;
+    static final float REEL_CARD_HEIGHT_DP       = 237f;
+    static final float REEL_CORNER_RADIUS_DP     = 12f;
+    static final float REEL_TOP_GRADIENT_DP      = 60f;
+    static final float REEL_BOTTOM_GRADIENT_DP   = 80f;
+    static final float REEL_HEADER_PAD_H_DP      = 8f;
+    static final float REEL_HEADER_PAD_TOP_DP    = 7f;
+    static final float REEL_AVATAR_SIZE_DP       = 24f;
+    static final float REEL_AVATAR_TEXT_GAP_DP   = 5f;
+    static final float REEL_USERNAME_TEXT_SP     = 10f;
+    static final float REEL_PLAY_ICON_SP         = 28f;
+    static final int   REEL_PLAY_ICON_COLOR      = 0xDDFFFFFF;
+    static final float REEL_BOTTOM_PAD_H_DP      = 8f;
+    static final float REEL_BOTTOM_PAD_END_DP    = 36f; // room for the footer pill, matches legacy paddingEnd
+    static final float REEL_BOTTOM_PAD_BOTTOM_DP = 7f;
+    static final float REEL_CAPTION_TEXT_SP      = 10f;
+    static final float REEL_LABEL_TEXT_SP        = 9f;
+    static final float REEL_LABEL_GAP_TOP_DP     = 2f;
+    static final int   REEL_CAPTION_COLOR        = 0xEEFFFFFF;
+    static final int   REEL_LABEL_COLOR          = 0xCCFFFFFF;
+    static final String REEL_LABEL_TEXT          = "\u2B21  Reels";
+    static final String REEL_PLAY_GLYPH          = "\u25B6";
+    static final String REEL_DEFAULT_USERNAME    = "@callx_reel";
+    static final int   REEL_SHADOW_COLOR         = 0xAA000000;
+    static final int   REEL_CARD_BG_COLOR        = 0xFF1A1A1A; // matches thumbnail's #1A1A1A placeholder bg
+    static final int   REEL_AVATAR_PLACEHOLDER_COLOR = 0xFF3A3A3A;
 
     // ── Contact-share card — mirrors item_msg_contact.xml exactly: a
     // bubbleless 165dp-wide, wrap_content-height card (no chat-bubble
@@ -405,27 +405,27 @@ public class MessageBubbleCanvasView extends View {
     // thin divider, and a "View Contact" action row below. No timestamp/
     // tick footer at all — item_msg_contact.xml has none, unlike the reel
     // card's always-shown pill. ──
-    private static final float CONTACT_CARD_WIDTH_DP    = 165f;
-    private static final float CONTACT_TOP_HEIGHT_DP    = 88f;
-    private static final float CONTACT_DIVIDER_HEIGHT_DP = 0.5f;
-    private static final float CONTACT_BUTTON_HEIGHT_DP = 32f;
-    private static final float CONTACT_CORNER_RADIUS_DP = 12f;
-    private static final float CONTACT_AVATAR_SIZE_DP   = 38f;
-    private static final float CONTACT_PAD_H_DP         = 10f;
-    private static final float CONTACT_TEXT_GAP_DP      = 8f;
-    private static final float CONTACT_NAME_TEXT_SP     = 12f;
-    private static final float CONTACT_PHONE_TEXT_SP    = 10f;
-    private static final float CONTACT_PHONE_GAP_DP     = 2f;
-    private static final float CONTACT_BUTTON_TEXT_SP   = 11f;
-    private static final int   CONTACT_BG_COLOR         = 0xFF1C1C1E;
-    private static final int   CONTACT_DIVIDER_COLOR    = 0x33FFFFFF;
-    private static final int   CONTACT_NAME_COLOR       = 0xFFFFFFFF;
-    private static final int   CONTACT_PHONE_COLOR      = 0xCCFFFFFF;
-    private static final int   CONTACT_BUTTON_TEXT_COLOR = 0xFF4FC3F7;
-    private static final int   CONTACT_AVATAR_PLACEHOLDER_COLOR = 0xFF3A3A3A;
-    private static final int   CONTACT_TEXT_SHADOW_COLOR = 0xAA000000; // matches shadowColor on tvContactName/tvContactPhone
-    private static final String CONTACT_DEFAULT_NAME     = "Contact";
-    private static final String CONTACT_BUTTON_TEXT      = "View Contact";
+    static final float CONTACT_CARD_WIDTH_DP    = 165f;
+    static final float CONTACT_TOP_HEIGHT_DP    = 88f;
+    static final float CONTACT_DIVIDER_HEIGHT_DP = 0.5f;
+    static final float CONTACT_BUTTON_HEIGHT_DP = 32f;
+    static final float CONTACT_CORNER_RADIUS_DP = 12f;
+    static final float CONTACT_AVATAR_SIZE_DP   = 38f;
+    static final float CONTACT_PAD_H_DP         = 10f;
+    static final float CONTACT_TEXT_GAP_DP      = 8f;
+    static final float CONTACT_NAME_TEXT_SP     = 12f;
+    static final float CONTACT_PHONE_TEXT_SP    = 10f;
+    static final float CONTACT_PHONE_GAP_DP     = 2f;
+    static final float CONTACT_BUTTON_TEXT_SP   = 11f;
+    static final int   CONTACT_BG_COLOR         = 0xFF1C1C1E;
+    static final int   CONTACT_DIVIDER_COLOR    = 0x33FFFFFF;
+    static final int   CONTACT_NAME_COLOR       = 0xFFFFFFFF;
+    static final int   CONTACT_PHONE_COLOR      = 0xCCFFFFFF;
+    static final int   CONTACT_BUTTON_TEXT_COLOR = 0xFF4FC3F7;
+    static final int   CONTACT_AVATAR_PLACEHOLDER_COLOR = 0xFF3A3A3A;
+    static final int   CONTACT_TEXT_SHADOW_COLOR = 0xAA000000; // matches shadowColor on tvContactName/tvContactPhone
+    static final String CONTACT_DEFAULT_NAME     = "Contact";
+    static final String CONTACT_BUTTON_TEXT      = "View Contact";
 
     // ── Location-share card — mirrors item_msg_location.xml exactly: same
     // bubbleless 165dp-wide card shape family as the contact card, but with
@@ -433,25 +433,25 @@ public class MessageBubbleCanvasView extends View {
     // else a placeholder pin drawn straight on the Canvas), a translucent
     // purple address strip (up to 2 lines), and an "Open in Maps" action
     // row. No timestamp/tick footer, same precedent as the contact card. ──
-    private static final float LOCATION_CARD_WIDTH_DP        = 165f;
-    private static final float LOCATION_MAP_HEIGHT_DP        = 110f;
-    private static final float LOCATION_DIVIDER_HEIGHT_DP    = 0.5f;
-    private static final float LOCATION_BUTTON_HEIGHT_DP     = 32f;
-    private static final float LOCATION_CORNER_RADIUS_DP     = 12f;
-    private static final float LOCATION_PIN_SIZE_DP          = 28f;
-    private static final float LOCATION_ADDRESS_PAD_H_DP     = 10f;
-    private static final float LOCATION_ADDRESS_PAD_TOP_DP   = 6f;
-    private static final float LOCATION_ADDRESS_PAD_BOTTOM_DP = 4f;
-    private static final float LOCATION_ADDRESS_TEXT_SP      = 10f;
-    private static final float LOCATION_BUTTON_TEXT_SP       = 11f;
-    private static final int   LOCATION_MAP_BG_COLOR         = 0xFF4A148C;
-    private static final int   LOCATION_PIN_COLOR            = 0xFFEF9A9A;
-    private static final int   LOCATION_DIVIDER_COLOR        = 0xFF7B1FA2;
-    private static final int   LOCATION_ADDRESS_BG_COLOR     = 0xFF6A1B9A;
-    private static final int   LOCATION_ADDRESS_TEXT_COLOR   = 0xFFF3E5F5;
-    private static final int   LOCATION_BUTTON_TEXT_COLOR    = 0xFFCE93D8;
-    private static final String LOCATION_DEFAULT_ADDRESS     = "Location";
-    private static final String LOCATION_BUTTON_TEXT         = "Open in Maps";
+    static final float LOCATION_CARD_WIDTH_DP        = 165f;
+    static final float LOCATION_MAP_HEIGHT_DP        = 110f;
+    static final float LOCATION_DIVIDER_HEIGHT_DP    = 0.5f;
+    static final float LOCATION_BUTTON_HEIGHT_DP     = 32f;
+    static final float LOCATION_CORNER_RADIUS_DP     = 12f;
+    static final float LOCATION_PIN_SIZE_DP          = 28f;
+    static final float LOCATION_ADDRESS_PAD_H_DP     = 10f;
+    static final float LOCATION_ADDRESS_PAD_TOP_DP   = 6f;
+    static final float LOCATION_ADDRESS_PAD_BOTTOM_DP = 4f;
+    static final float LOCATION_ADDRESS_TEXT_SP      = 10f;
+    static final float LOCATION_BUTTON_TEXT_SP       = 11f;
+    static final int   LOCATION_MAP_BG_COLOR         = 0xFF4A148C;
+    static final int   LOCATION_PIN_COLOR            = 0xFFEF9A9A;
+    static final int   LOCATION_DIVIDER_COLOR        = 0xFF7B1FA2;
+    static final int   LOCATION_ADDRESS_BG_COLOR     = 0xFF6A1B9A;
+    static final int   LOCATION_ADDRESS_TEXT_COLOR   = 0xFFF3E5F5;
+    static final int   LOCATION_BUTTON_TEXT_COLOR    = 0xFFCE93D8;
+    static final String LOCATION_DEFAULT_ADDRESS     = "Location";
+    static final String LOCATION_BUTTON_TEXT         = "Open in Maps";
 
     // ── View-once bubbles — mirrors item_view_once_bubble.xml /
     // item_view_once_sent_waiting.xml / item_view_once_expired.xml: a
@@ -463,40 +463,40 @@ public class MessageBubbleCanvasView extends View {
     public static final int VIEW_ONCE_RECEIVED = 0; // receiver, not yet opened — "🔒 View Once / Tap to open"
     public static final int VIEW_ONCE_WAITING  = 1; // sender, receiver hasn't opened yet — "🔒 Waiting to be opened"
     public static final int VIEW_ONCE_EXPIRED  = 2; // opened/expired/removed — "👁 Opened|Expired|Removed"
-    private static final float VO_CORNER_RADIUS_DP     = 16f;
-    private static final float VO_WIDTH_RECEIVED_DP    = 200f;
-    private static final float VO_WIDTH_WAITING_DP     = 200f;
-    private static final float VO_WIDTH_EXPIRED_DP     = 220f;
-    private static final float VO_PAD_RECEIVED_DP      = 12f;
-    private static final float VO_PAD_WAITING_DP       = 10f;
-    private static final float VO_PAD_EXPIRED_DP       = 10f;
-    private static final float VO_ICON_TEXT_SP         = 22f;
-    private static final float VO_ICON_WAITING_SP      = 18f;
-    private static final float VO_ICON_EXPIRED_SP      = 18f;
-    private static final float VO_LABEL_TEXT_SP        = 15f;
-    private static final float VO_SUBLABEL_TEXT_SP     = 12f;
-    private static final float VO_WAITING_LABEL_SP     = 13f;
-    private static final float VO_EXPIRED_LABEL_SP     = 14f;
-    private static final float VO_OPENED_AT_SP         = 10f;
-    private static final float VO_TIME_SP              = 9f;
-    private static final float VO_ICON_TEXT_GAP_DP     = 10f;
-    private static final float VO_LABEL_SUBLABEL_GAP_DP = 2f;
-    private static final float VO_ROW_GAP_TOP_DP       = 8f;
-    private static final float VO_OPENED_AT_GAP_DP     = 2f;
-    private static final int   VO_COLOR_RECEIVED       = 0xFF00897B;
-    private static final int   VO_COLOR_WAITING        = 0xFF1A5C4A;
-    private static final int   VO_COLOR_EXPIRED        = 0xFF555555;
-    private static final int   VO_LABEL_COLOR          = 0xFFFFFFFF;
-    private static final int   VO_SUBLABEL_COLOR       = 0xCCFFFFFF;
-    private static final int   VO_WAITING_LABEL_COLOR  = 0xCCFFFFFF;
-    private static final int   VO_EXPIRED_LABEL_COLOR  = 0x99FFFFFF;
-    private static final int   VO_OPENED_AT_COLOR      = 0x77FFFFFF;
-    private static final int   VO_TIME_COLOR           = 0xAAFFFFFF;
-    private static final int   VO_TIME_WAITING_COLOR   = 0x88FFFFFF;
-    private static final String VO_LOCK_GLYPH          = "\uD83D\uDD12"; // 🔒
-    private static final String VO_EYE_GLYPH           = "\uD83D\uDC41"; // 👁
-    private static final String VO_LABEL_TEXT          = "View Once";
-    private static final String VO_WAITING_LABEL_TEXT  = "Waiting to be opened";
+    static final float VO_CORNER_RADIUS_DP     = 16f;
+    static final float VO_WIDTH_RECEIVED_DP    = 200f;
+    static final float VO_WIDTH_WAITING_DP     = 200f;
+    static final float VO_WIDTH_EXPIRED_DP     = 220f;
+    static final float VO_PAD_RECEIVED_DP      = 12f;
+    static final float VO_PAD_WAITING_DP       = 10f;
+    static final float VO_PAD_EXPIRED_DP       = 10f;
+    static final float VO_ICON_TEXT_SP         = 22f;
+    static final float VO_ICON_WAITING_SP      = 18f;
+    static final float VO_ICON_EXPIRED_SP      = 18f;
+    static final float VO_LABEL_TEXT_SP        = 15f;
+    static final float VO_SUBLABEL_TEXT_SP     = 12f;
+    static final float VO_WAITING_LABEL_SP     = 13f;
+    static final float VO_EXPIRED_LABEL_SP     = 14f;
+    static final float VO_OPENED_AT_SP         = 10f;
+    static final float VO_TIME_SP              = 9f;
+    static final float VO_ICON_TEXT_GAP_DP     = 10f;
+    static final float VO_LABEL_SUBLABEL_GAP_DP = 2f;
+    static final float VO_ROW_GAP_TOP_DP       = 8f;
+    static final float VO_OPENED_AT_GAP_DP     = 2f;
+    static final int   VO_COLOR_RECEIVED       = 0xFF00897B;
+    static final int   VO_COLOR_WAITING        = 0xFF1A5C4A;
+    static final int   VO_COLOR_EXPIRED        = 0xFF555555;
+    static final int   VO_LABEL_COLOR          = 0xFFFFFFFF;
+    static final int   VO_SUBLABEL_COLOR       = 0xCCFFFFFF;
+    static final int   VO_WAITING_LABEL_COLOR  = 0xCCFFFFFF;
+    static final int   VO_EXPIRED_LABEL_COLOR  = 0x99FFFFFF;
+    static final int   VO_OPENED_AT_COLOR      = 0x77FFFFFF;
+    static final int   VO_TIME_COLOR           = 0xAAFFFFFF;
+    static final int   VO_TIME_WAITING_COLOR   = 0x88FFFFFF;
+    static final String VO_LOCK_GLYPH          = "\uD83D\uDD12"; // 🔒
+    static final String VO_EYE_GLYPH           = "\uD83D\uDC41"; // 👁
+    static final String VO_LABEL_TEXT          = "View Once";
+    static final String VO_WAITING_LABEL_TEXT  = "Waiting to be opened";
 
     // ── "Watched your reel" / "Seen your status" system bubbles — mirrors
     // item_reel_seen_bubble.xml / item_status_seen_bubble.xml: unlike every
@@ -508,87 +508,87 @@ public class MessageBubbleCanvasView extends View {
     // card (own solid colour, not the sent/received theme) containing an
     // optional thumbnail + play/eye overlay, an icon+label row, an
     // optional sender name (groups), and a time line. ──
-    private static final float SEEN_AVATAR_SIZE_DP       = 36f;
-    private static final float SEEN_AVATAR_GAP_DP        = 8f;
-    private static final float SEEN_CARD_CORNER_DP       = 14f;
-    private static final float SEEN_CARD_PAD_H_DP        = 12f;
-    private static final float SEEN_CARD_PAD_END_DP      = 14f;
-    private static final float SEEN_CARD_PAD_TOP_DP      = 8f;
-    private static final float SEEN_CARD_PAD_BOTTOM_DP   = 6f;
-    private static final float SEEN_CARD_MIN_WIDTH_DP    = 160f;
-    private static final float SEEN_THUMB_W_DP           = 120f;
-    private static final float SEEN_THUMB_H_DP           = 80f;
-    private static final float SEEN_THUMB_MARGIN_BOTTOM_DP = 6f;
-    private static final float SEEN_OVERLAY_ICON_SP      = 22f;
-    private static final float SEEN_ICON_TEXT_SP         = 14f;
-    private static final float SEEN_ICON_LABEL_GAP_DP    = 5f;
-    private static final float SEEN_LABEL_TEXT_SP        = 14f;
-    private static final float SEEN_NAME_TEXT_SP         = 11f;
-    private static final float SEEN_NAME_GAP_TOP_DP      = 1f;
-    private static final float SEEN_TIME_TEXT_SP         = 10f;
-    private static final float SEEN_TIME_GAP_TOP_DP      = 3f;
-    private static final int   SEEN_REEL_BG_COLOR        = 0xFF7F1D1D;
-    private static final int   SEEN_STATUS_BG_COLOR      = 0xFF4C1D95;
-    private static final int   SEEN_THUMB_BG_COLOR       = 0xFF2A2A2A;
-    private static final int   SEEN_LABEL_COLOR          = 0xFFFFFFFF;
-    private static final int   SEEN_NAME_COLOR           = 0xFF4FC3F7; // brand_primary-ish accent
-    private static final int   SEEN_TIME_COLOR           = 0xB3CCCCCC;
-    private static final int   SEEN_AVATAR_PLACEHOLDER_COLOR = 0xFF3A3A3A;
-    private static final int   SEEN_OVERLAY_ICON_COLOR   = 0xFFFFFFFF;
-    private static final String SEEN_REEL_ICON_GLYPH     = "\uD83C\uDFAC"; // 🎬
-    private static final String SEEN_STATUS_ICON_GLYPH   = "\uD83D\uDC41"; // 👁
-    private static final String SEEN_REEL_LABEL_TEXT     = "Watched your reel";
-    private static final String SEEN_STATUS_LABEL_TEXT   = "Seen your status";
-    private static final String SEEN_REEL_PLAY_GLYPH     = "\u25B6";
-    private static final String SEEN_STATUS_EYE_GLYPH    = "\uD83D\uDC41"; // 👁
+    static final float SEEN_AVATAR_SIZE_DP       = 36f;
+    static final float SEEN_AVATAR_GAP_DP        = 8f;
+    static final float SEEN_CARD_CORNER_DP       = 14f;
+    static final float SEEN_CARD_PAD_H_DP        = 12f;
+    static final float SEEN_CARD_PAD_END_DP      = 14f;
+    static final float SEEN_CARD_PAD_TOP_DP      = 8f;
+    static final float SEEN_CARD_PAD_BOTTOM_DP   = 6f;
+    static final float SEEN_CARD_MIN_WIDTH_DP    = 160f;
+    static final float SEEN_THUMB_W_DP           = 120f;
+    static final float SEEN_THUMB_H_DP           = 80f;
+    static final float SEEN_THUMB_MARGIN_BOTTOM_DP = 6f;
+    static final float SEEN_OVERLAY_ICON_SP      = 22f;
+    static final float SEEN_ICON_TEXT_SP         = 14f;
+    static final float SEEN_ICON_LABEL_GAP_DP    = 5f;
+    static final float SEEN_LABEL_TEXT_SP        = 14f;
+    static final float SEEN_NAME_TEXT_SP         = 11f;
+    static final float SEEN_NAME_GAP_TOP_DP      = 1f;
+    static final float SEEN_TIME_TEXT_SP         = 10f;
+    static final float SEEN_TIME_GAP_TOP_DP      = 3f;
+    static final int   SEEN_REEL_BG_COLOR        = 0xFF7F1D1D;
+    static final int   SEEN_STATUS_BG_COLOR      = 0xFF4C1D95;
+    static final int   SEEN_THUMB_BG_COLOR       = 0xFF2A2A2A;
+    static final int   SEEN_LABEL_COLOR          = 0xFFFFFFFF;
+    static final int   SEEN_NAME_COLOR           = 0xFF4FC3F7; // brand_primary-ish accent
+    static final int   SEEN_TIME_COLOR           = 0xB3CCCCCC;
+    static final int   SEEN_AVATAR_PLACEHOLDER_COLOR = 0xFF3A3A3A;
+    static final int   SEEN_OVERLAY_ICON_COLOR   = 0xFFFFFFFF;
+    static final String SEEN_REEL_ICON_GLYPH     = "\uD83C\uDFAC"; // 🎬
+    static final String SEEN_STATUS_ICON_GLYPH   = "\uD83D\uDC41"; // 👁
+    static final String SEEN_REEL_LABEL_TEXT     = "Watched your reel";
+    static final String SEEN_STATUS_LABEL_TEXT   = "Seen your status";
+    static final String SEEN_REEL_PLAY_GLYPH     = "\u25B6";
+    static final String SEEN_STATUS_EYE_GLYPH    = "\uD83D\uDC41"; // 👁
 
     // ── Poll-card — mirrors layout_msg_poll.xml exactly: a dark card
     // rendered inside the normal bubble background. Header row (poll icon
     // + "POLL" label + open/closed chip), question StaticLayout, subtitle,
     // N option rows (fill bar + radio icon + text + pct), total-votes footer. ──
-    private static final float POLL_CARD_WIDTH_DP         = 220f;
-    private static final float POLL_PADDING_H_DP          = 12f;
-    private static final float POLL_PADDING_TOP_DP        = 10f;
-    private static final float POLL_PADDING_BOTTOM_DP     = 10f;
-    private static final float POLL_HEADER_ICON_SIZE_DP   = 15f;
-    private static final float POLL_HEADER_ICON_MARGIN_DP = 6f;
-    private static final float POLL_HEADER_TEXT_SP        = 10f;
-    private static final float POLL_CHIP_PAD_H_DP         = 6f;
-    private static final float POLL_CHIP_PAD_V_DP         = 2f;
-    private static final float POLL_CHIP_CORNER_DP        = 9f;
-    private static final float POLL_CHIP_TEXT_SP          = 9f;
-    private static final float POLL_QUESTION_TEXT_SP      = 13.5f;
-    private static final float POLL_QUESTION_GAP_DP       = 6f;
-    private static final float POLL_SUBTITLE_TEXT_SP      = 10f;
-    private static final float POLL_SUBTITLE_GAP_DP       = 2f;
-    private static final float POLL_OPTION_GAP_DP         = 5f;
-    private static final float POLL_OPTION_PAD_H_DP       = 9f;
-    private static final float POLL_OPTION_PAD_V_DP       = 8f;
-    private static final float POLL_OPTION_CORNER_DP      = 10f;
-    private static final float POLL_OPTION_ICON_SIZE_DP   = 14f;
-    private static final float POLL_OPTION_ICON_MARGIN_DP = 7f;
-    private static final float POLL_OPTION_TEXT_SP        = 12.5f;
-    private static final float POLL_OPTION_PCT_SP         = 11f;
-    private static final float POLL_OPTIONS_GAP_DP        = 8f;
-    private static final float POLL_FOOTER_GAP_DP         = 8f;
-    private static final float POLL_FOOTER_TEXT_SP        = 10f;
-    private static final int   POLL_HEADER_ICON_COLOR     = 0xB3FFFFFF;
-    private static final int   POLL_CHIP_NEUTRAL_BG       = 0x26FFFFFF;
-    private static final int   POLL_CHIP_CLOSED_BG        = 0x40EF4444;
-    private static final int   POLL_CHIP_TEXT_COLOR       = 0xFFFFFFFF;
-    private static final int   POLL_QUESTION_COLOR        = 0xFFFFFFFF;
-    private static final int   POLL_SUBTITLE_COLOR        = 0x99FFFFFF;
-    private static final int   POLL_OPTION_BG             = 0x1AFFFFFF;
-    private static final int   POLL_OPTION_VOTED_BG       = 0x1F5B5BF6;
-    private static final int   POLL_OPTION_FILL_COLOR     = 0x3D5B5BF6;
-    private static final int   POLL_OPTION_FILL_LEADER    = 0x5C5B5BF6;
-    private static final int   POLL_OPTION_FILL_NEUTRAL   = 0x26FFFFFF;
-    private static final int   POLL_OPTION_TEXT_COLOR     = 0xFFFFFFFF;
-    private static final int   POLL_OPTION_PCT_COLOR      = 0xCCFFFFFF;
-    private static final int   POLL_FOOTER_TEXT_COLOR     = 0x99FFFFFF;
-    private static final int   POLL_STROKE_COLOR          = 0x1FFFFFFF;
-    private static final int   POLL_VOTED_STROKE_COLOR    = 0xFF4CAF50;
-    private static final float POLL_STROKE_WIDTH_DP        = 1.0f;
+    static final float POLL_CARD_WIDTH_DP         = 220f;
+    static final float POLL_PADDING_H_DP          = 12f;
+    static final float POLL_PADDING_TOP_DP        = 10f;
+    static final float POLL_PADDING_BOTTOM_DP     = 10f;
+    static final float POLL_HEADER_ICON_SIZE_DP   = 15f;
+    static final float POLL_HEADER_ICON_MARGIN_DP = 6f;
+    static final float POLL_HEADER_TEXT_SP        = 10f;
+    static final float POLL_CHIP_PAD_H_DP         = 6f;
+    static final float POLL_CHIP_PAD_V_DP         = 2f;
+    static final float POLL_CHIP_CORNER_DP        = 9f;
+    static final float POLL_CHIP_TEXT_SP          = 9f;
+    static final float POLL_QUESTION_TEXT_SP      = 13.5f;
+    static final float POLL_QUESTION_GAP_DP       = 6f;
+    static final float POLL_SUBTITLE_TEXT_SP      = 10f;
+    static final float POLL_SUBTITLE_GAP_DP       = 2f;
+    static final float POLL_OPTION_GAP_DP         = 5f;
+    static final float POLL_OPTION_PAD_H_DP       = 9f;
+    static final float POLL_OPTION_PAD_V_DP       = 8f;
+    static final float POLL_OPTION_CORNER_DP      = 10f;
+    static final float POLL_OPTION_ICON_SIZE_DP   = 14f;
+    static final float POLL_OPTION_ICON_MARGIN_DP = 7f;
+    static final float POLL_OPTION_TEXT_SP        = 12.5f;
+    static final float POLL_OPTION_PCT_SP         = 11f;
+    static final float POLL_OPTIONS_GAP_DP        = 8f;
+    static final float POLL_FOOTER_GAP_DP         = 8f;
+    static final float POLL_FOOTER_TEXT_SP        = 10f;
+    static final int   POLL_HEADER_ICON_COLOR     = 0xB3FFFFFF;
+    static final int   POLL_CHIP_NEUTRAL_BG       = 0x26FFFFFF;
+    static final int   POLL_CHIP_CLOSED_BG        = 0x40EF4444;
+    static final int   POLL_CHIP_TEXT_COLOR       = 0xFFFFFFFF;
+    static final int   POLL_QUESTION_COLOR        = 0xFFFFFFFF;
+    static final int   POLL_SUBTITLE_COLOR        = 0x99FFFFFF;
+    static final int   POLL_OPTION_BG             = 0x1AFFFFFF;
+    static final int   POLL_OPTION_VOTED_BG       = 0x1F5B5BF6;
+    static final int   POLL_OPTION_FILL_COLOR     = 0x3D5B5BF6;
+    static final int   POLL_OPTION_FILL_LEADER    = 0x5C5B5BF6;
+    static final int   POLL_OPTION_FILL_NEUTRAL   = 0x26FFFFFF;
+    static final int   POLL_OPTION_TEXT_COLOR     = 0xFFFFFFFF;
+    static final int   POLL_OPTION_PCT_COLOR      = 0xCCFFFFFF;
+    static final int   POLL_FOOTER_TEXT_COLOR     = 0x99FFFFFF;
+    static final int   POLL_STROKE_COLOR          = 0x1FFFFFFF;
+    static final int   POLL_VOTED_STROKE_COLOR    = 0xFF4CAF50;
+    static final float POLL_STROKE_WIDTH_DP        = 1.0f;
 
 
     // ── Link-preview card — mirrors layout_msg_link_preview.xml
@@ -601,131 +601,71 @@ public class MessageBubbleCanvasView extends View {
     // ViewStub's fixed 280dp (@dimen/msg_bubble_max_width) width, the
     // card here is sized to this view's own maxTextWidth column so it
     // never forces the bubble wider than the screen actually allows. ──
-    private static final float LINK_PREVIEW_GAP_TOP_DP      = 6f; // gap between message text and the card
-    private static final float LINK_PREVIEW_CORNER_DP       = 6f; // matches bg_reply_preview_sent/received's 6dp radius
-    private static final float LINK_PREVIEW_THUMB_HEIGHT_DP = 120f;
-    private static final float LINK_PREVIEW_PAD_H_DP        = 10f;
-    private static final float LINK_PREVIEW_PAD_TOP_DP      = 8f;
-    private static final float LINK_PREVIEW_PAD_BOTTOM_DP   = 8f;
-    private static final float LINK_PREVIEW_DOMAIN_SP       = 10f;
-    private static final float LINK_PREVIEW_TITLE_SP        = 13f;
-    private static final float LINK_PREVIEW_TITLE_GAP_DP    = 2f; // gap between domain and title lines
-    private static final int   LINK_PREVIEW_DOMAIN_COLOR    = 0xFFFFD54F;
-    private static final int   LINK_PREVIEW_TITLE_COLOR     = 0xFFFFFFFF;
-    private static final int   LINK_PREVIEW_THUMB_PLACEHOLDER_COLOR = 0xFF2A2A2A;
+    static final float LINK_PREVIEW_GAP_TOP_DP      = 6f; // gap between message text and the card
+    static final float LINK_PREVIEW_CORNER_DP       = 6f; // matches bg_reply_preview_sent/received's 6dp radius
+    static final float LINK_PREVIEW_THUMB_HEIGHT_DP = 120f;
+    static final float LINK_PREVIEW_PAD_H_DP        = 10f;
+    static final float LINK_PREVIEW_PAD_TOP_DP      = 8f;
+    static final float LINK_PREVIEW_PAD_BOTTOM_DP   = 8f;
+    static final float LINK_PREVIEW_DOMAIN_SP       = 10f;
+    static final float LINK_PREVIEW_TITLE_SP        = 13f;
+    static final float LINK_PREVIEW_TITLE_GAP_DP    = 2f; // gap between domain and title lines
+    static final int   LINK_PREVIEW_DOMAIN_COLOR    = 0xFFFFD54F;
+    static final int   LINK_PREVIEW_TITLE_COLOR     = 0xFFFFFFFF;
+    static final int   LINK_PREVIEW_THUMB_PLACEHOLDER_COLOR = 0xFF2A2A2A;
 
-    public interface OnBubbleClickListener {
+    // OnBubbleClickListener and GridItem now live in their own files
+    // (OnBubbleClickListener.java / GridItem.java, same package) — feature-
+    // based file split, no behavior change.
 
-        void onBubbleClick();
-        void onBubbleLongClick();
-        /** Returns true if a link at (x,y) was hit and handled — caller should not treat as a normal click. */
-        default boolean onLinkClick(String url) { return false; }
-        /** Tapped the reply-preview strip — caller should scroll/jump to the quoted message. */
-        default void onReplyPreviewClick() {}
-        /** Tapped the image itself (media bubbles only) — caller should open the full-screen media viewer. */
-        default void onImageClick() {}
-        /** Tapped the single-media download gate pill (setMediaDownloadGate) while idle (not yet downloading) —
-         *  caller should start the manual download and drive setMediaDownloadProgress() as it reports progress. */
-        default void onMediaDownloadClick() {}
-        /** Tapped cell `index` inside a media-group grid (bindMediaGroup only) — caller should open the gallery viewer at that index. */
-        default void onMediaCellClick(int index) {}
-        /** Tapped the master "Download N photos" pill on a RECEIVED group — caller should start every pending cell's download (view has already dismissed the pill locally). */
-        default void onGroupDownloadAllClick() {}
-        /** Tapped an individual still-pending cell directly (gate already dismissed) — caller should start that one cell's download. */
-        default void onGroupCellDownloadClick(int index) {}
-        /** Tapped the reaction badge — caller should open the reaction-details/picker sheet (same as ll_reactions' click listener on the legacy path). */
-        default void onReactionsClick() {}
-        /** Tapped the play/pause button on an audio bubble (bindAudio only) — caller should toggle MediaPlayer playback for this message. */
-        default void onAudioPlayPauseClick() {}
-        /** Dragged/tapped the waveform on an audio bubble (bindAudio only) — fraction is 0..1 of the track; caller should seek MediaPlayer to it. The view already updated its own progress bar optimistically. */
-        default void onAudioSeek(float fraction) {}
-        /** Tapped the "View Contact" row on a contact card (bindContact only) — caller should open the system Contacts app / dialer for this contact's phone number, same as the legacy btnViewContact click listener. */
-        default void onContactViewClick() {}
-        /** Tapped the "Open in Maps" row on a location card (bindLocation only) — caller should launch a maps app (or geo: intent) for this location's coordinates, same as the legacy btnOpenMaps click listener. */
-        default void onLocationOpenMapsClick() {}
-        /** Tapped a GIF thumbnail — caller should open the full-screen GIF viewer / start GIF playback. */
-        default void onGifClick() {}
-        /** Tapped the ⬇ download button on an uncached file bubble — caller should start the file download. */
-        default void onFileDownloadClick() {}
-        /** Tapped the ⬗ open button on a cached file bubble — caller should open the file via FileProvider. */
-        default void onFileOpenClick() {}
-        default void onPollOptionClick(int optionIndex) {}
-        /** Tapped the "✏️ edited" tag inside the footer timestamp — caller should show the edit-history sheet for this message. */
-        default void onEditedTagClick() {}
-        /** Tapped a view-once bubble (bindViewOnce only). Fires for every variant — the caller should
-         *  ignore it for VIEW_ONCE_WAITING/VIEW_ONCE_EXPIRED (mirrors the legacy path's null click
-         *  listener on those two states) and open the view-once viewer only for VIEW_ONCE_RECEIVED. */
-        default void onViewOnceClick() {}
-        /** Tapped a "watched your reel" / "seen your status" system bubble (bindSeenBubble only) —
-         *  caller should open the reel or the status viewer, same as the legacy tap listeners on
-         *  ll_bubble/fl_reel_seen_thumb / fl_status_seen_thumb (whole card and thumbnail both open it). */
-        default void onSeenBubbleClick() {}
-    }
+    final TextPaint textPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    final TextPaint footerPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    final Paint tickPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    final RectF bubbleRect = new RectF();
 
-    /** Immutable per-cell descriptor for bindMediaGroup(); bitmaps are supplied
-     *  later, one at a time, via setMediaGroupBitmap() as Glide decodes them. */
-    public static final class GridItem {
-        public final boolean isVideo;
-        public final String duration; // e.g. "0:32"; null/empty if none or not a video
-        public final String caption;  // per-item caption; null/empty for none — see setGroupCaptions doc
-        public GridItem(boolean isVideo, @Nullable String duration) {
-            this(isVideo, duration, null);
-        }
-        public GridItem(boolean isVideo, @Nullable String duration, @Nullable String caption) {
-            this.isVideo = isVideo;
-            this.duration = duration;
-            this.caption = caption;
-        }
-    }
-
-    private final TextPaint textPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
-    private final TextPaint footerPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint tickPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final RectF bubbleRect = new RectF();
-
-    private String messageText = "";
-    private String footerTimeText = "";
-    private boolean sent = false;
-    private boolean read = false;
-    private boolean delivered = false;
+    String messageText = "";
+    String footerTimeText = "";
+    boolean sent = false;
+    boolean read = false;
+    boolean delivered = false;
     // ── "✏️ edited" tag hit-testing ──────────────────────────────────
     // footerTimeText already has the "  ✏️ edited" suffix baked in by the
     // caller when applicable; this flag just gates whether the footer's
     // bounding box (computed fresh in drawFooter() every draw) should be
     // treated as a tappable region in onTouchEvent.
-    private boolean isEdited = false;
-    private final RectF footerTextRect = new RectF();
+    boolean isEdited = false;
+    final RectF footerTextRect = new RectF();
 
-    private StaticLayout textLayout;
-    private GradientDrawable bubbleDrawable;
-    private int lastCacheKey = -1;
+    StaticLayout textLayout;
+    GradientDrawable bubbleDrawable;
+    int lastCacheKey = -1;
 
-    private float density;
-    private int bubbleLeft, bubbleTop;
-    private float footerReserveWidth;
+    float density;
+    int bubbleLeft, bubbleTop;
+    float footerReserveWidth;
 
     // ── Reply-preview state ──────────────────────────────────────────
-    private boolean hasReply = false;
-    private String replySenderName = "";
-    private String replyText = "";
-    private Bitmap replyThumb;
+    boolean hasReply = false;
+    String replySenderName = "";
+    String replyText = "";
+    Bitmap replyThumb;
 
-    private final Paint replyBgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint replyBarPaint = new Paint();
-    private final TextPaint replySenderPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
-    private final TextPaint replyTextPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
-    private final Rect replyThumbSrcRect = new Rect();
-    private final RectF replyThumbDstRect = new RectF();
+    final Paint replyBgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    final Paint replyBarPaint = new Paint();
+    final TextPaint replySenderPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    final TextPaint replyTextPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    final Rect replyThumbSrcRect = new Rect();
+    final RectF replyThumbDstRect = new RectF();
 
-    private StaticLayout replySenderLayout;
-    private StaticLayout replyTextLayout;
-    private final RectF replyBoxRect = new RectF();
-    private int replyBoxHeight = 0;
+    StaticLayout replySenderLayout;
+    StaticLayout replyTextLayout;
+    final RectF replyBoxRect = new RectF();
+    int replyBoxHeight = 0;
 
     // ── Media (image) bubble state ───────────────────────────────────
-    private boolean isMedia = false;
-    private boolean mediaHasCaption = false;
-    private Bitmap mediaBitmap;
+    boolean isMedia = false;
+    boolean mediaHasCaption = false;
+    Bitmap mediaBitmap;
     // Single "video" message reuses the whole isMedia/mediaRect/mediaBitmap
     // infrastructure (same fixed 180dp square, same footer pill) — this
     // flag just adds the play-glyph + duration-badge overlay on top,
@@ -735,248 +675,248 @@ public class MessageBubbleCanvasView extends View {
     // groupPlayTrianglePaint/groupDurationTextPaint/groupDurationBgPaint/
     // groupPlayTrianglePath from the media-GROUP state below — same visual,
     // no need to duplicate paints/constants.
-    private boolean isVideoMedia = false;
-    private String videoDuration;
-    private final Paint mediaBitmapPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
-    private final Paint mediaPlaceholderPaint = new Paint();
-    private final Paint mediaPillBgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final TextPaint mediaPillTextPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
-    private final RectF mediaRect = new RectF();
-    private final RectF mediaPillRect = new RectF();
-    private final android.graphics.Matrix mediaShaderMatrix = new android.graphics.Matrix();
+    boolean isVideoMedia = false;
+    String videoDuration;
+    final Paint mediaBitmapPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+    final Paint mediaPlaceholderPaint = new Paint();
+    final Paint mediaPillBgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    final TextPaint mediaPillTextPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    final RectF mediaRect = new RectF();
+    final RectF mediaPillRect = new RectF();
+    final android.graphics.Matrix mediaShaderMatrix = new android.graphics.Matrix();
 
     // ── Audio (voice message) bubble state — entirely separate mode from
     // isMedia/isMediaGroup/isReelShare (see AUDIO_* constants doc above). ──
-    private boolean isAudio = false;
-    private float[] audioLevels = new float[0];
-    private float audioProgress = 0f;   // 0..1 played fraction, drives waveform fill + seek
-    private boolean audioPlaying = false;
-    private String audioElapsedText = ""; // "m:ss" while playing; empty when idle (mirrors legacy tv_audio_dur, which never shows a total duration upfront)
-    private final Paint audioBtnBgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint audioBtnIconPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint audioWaveformIdlePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint audioWaveformPlayedPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final TextPaint audioDurPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
-    private final RectF audioBtnRect = new RectF();
-    private final RectF audioWaveformRect = new RectF();
-    private final android.graphics.Path audioPlayTrianglePath = new android.graphics.Path();
+    boolean isAudio = false;
+    float[] audioLevels = new float[0];
+    float audioProgress = 0f;   // 0..1 played fraction, drives waveform fill + seek
+    boolean audioPlaying = false;
+    String audioElapsedText = ""; // "m:ss" while playing; empty when idle (mirrors legacy tv_audio_dur, which never shows a total duration upfront)
+    final Paint audioBtnBgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    final Paint audioBtnIconPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    final Paint audioWaveformIdlePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    final Paint audioWaveformPlayedPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    final TextPaint audioDurPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    final RectF audioBtnRect = new RectF();
+    final RectF audioWaveformRect = new RectF();
+    final android.graphics.Path audioPlayTrianglePath = new android.graphics.Path();
 
     // ── Single-media manual download gate state — see setMediaDownloadGate(). ──
-    private boolean mediaGated = false;
-    private boolean mediaDownloading = false;
-    private int mediaDownloadProgress = -1; // -1 = indeterminate, 0-100 = live percent
-    private String mediaDownloadLabel = "";
-    private final Paint mediaGateScrimPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint mediaGatePillBgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final TextPaint mediaGatePillTextPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint mediaGatePillIconPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final RectF mediaGatePillRect = new RectF();
+    boolean mediaGated = false;
+    boolean mediaDownloading = false;
+    int mediaDownloadProgress = -1; // -1 = indeterminate, 0-100 = live percent
+    String mediaDownloadLabel = "";
+    final Paint mediaGateScrimPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    final Paint mediaGatePillBgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    final TextPaint mediaGatePillTextPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    final Paint mediaGatePillIconPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    final RectF mediaGatePillRect = new RectF();
 
     // ── Reaction badge state — independent of text/media/group mode; any
     // of the three can have reactions overlaid. ──
-    private boolean hasReactions = false;
-    private String reactionsText = "";
-    private final TextPaint reactionsTextPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
-    private final RectF reactionsRect = new RectF();
+    boolean hasReactions = false;
+    String reactionsText = "";
+    final TextPaint reactionsTextPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    final RectF reactionsRect = new RectF();
 
     // ── Pinned label state ────────────────────────────────────────────
-    private boolean isPinned = false;
-    private final TextPaint pinnedLabelPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
-    private int pinnedLabelHeight = 0;
-    private float pinnedLabelWidth = 0;
+    boolean isPinned = false;
+    final TextPaint pinnedLabelPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    int pinnedLabelHeight = 0;
+    float pinnedLabelWidth = 0;
 
     // ── Group-chat sender-name state — mirrors tv_sender_name in
     // item_message_received.xml. Only meaningful for received messages;
     // the sender AVATAR (iv_sender_avatar) is intentionally not modeled —
     // it's dead markup in the legacy layout too (never bound anywhere in
     // MessagePagingAdapter), so there's nothing functional to mirror. ──
-    private boolean hasGroupSender = false;
-    private String groupSenderName = "";
-    private final TextPaint groupSenderPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
-    private int groupSenderTextHeight = 0;
-    private float groupSenderWidth = 0;
+    boolean hasGroupSender = false;
+    String groupSenderName = "";
+    final TextPaint groupSenderPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    int groupSenderTextHeight = 0;
+    float groupSenderWidth = 0;
 
     // ── Forwarded-label state — stacks below the pinned-label/group-sender
     // row above the bubble (own row, own baseline; see onMeasure). ──
-    private boolean hasForwarded = false;
-    private String forwardedText = "";
-    private final TextPaint forwardedPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
-    private int forwardedTextHeight = 0;
-    private float forwardedTextWidth = 0;
+    boolean hasForwarded = false;
+    String forwardedText = "";
+    final TextPaint forwardedPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    int forwardedTextHeight = 0;
+    float forwardedTextWidth = 0;
     // Baselines for all three "above the bubble" rows — computed once per
     // onMeasure() pass, consumed by the matching drawXxx() in onDraw() so
     // the draw path never has to re-derive vertical position from scratch.
-    private float pinnedBaselineY = 0;
-    private float groupSenderBaselineY = 0;
-    private float forwardedBaselineY = 0;
+    float pinnedBaselineY = 0;
+    float groupSenderBaselineY = 0;
+    float forwardedBaselineY = 0;
 
     // ── Deleted-message placeholder style — only affects the plain-text
     // path (bind()); caller substitutes the placeholder string itself. ──
-    private boolean isDeletedStyle = false;
+    boolean isDeletedStyle = false;
 
     // ── Disappearing-message countdown state — an extra segment in the
     // footer row, drawn just before the timestamp/tick. ──
-    private boolean hasExpiry = false;
-    private String expiryText = "";
-    private final TextPaint expiryPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    boolean hasExpiry = false;
+    String expiryText = "";
+    final TextPaint expiryPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
 
     // ── Media GROUP (multi-image/video grid) state — entirely separate
     // from the single-image `isMedia` state above. ──
-    private boolean isMediaGroup = false;
-    private java.util.List<GridItem> groupItems = java.util.Collections.emptyList();
-    private Bitmap[] groupBitmaps = new Bitmap[0];
-    private final RectF[] groupRects = new RectF[GROUP_MAX_VISIBLE];
-    private int groupVisibleCount = 0;
-    private int groupRemaining = 0; // >0 only on the last visible cell when total > GROUP_MAX_VISIBLE
-    private boolean groupHasCaption = false;
-    private StaticLayout groupCaptionLayout;
-    private final RectF groupContentRect = new RectF(); // whole grid area (no reply/caption)
-    private final Paint groupCellBgPaint = new Paint();
-    private final Paint groupBitmapPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
-    private final Paint groupScrimPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint groupMoreOverlayPaint = new Paint();
-    private final TextPaint groupMoreTextPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint groupPlayCirclePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint groupPlayTrianglePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final TextPaint groupDurationTextPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint groupDurationBgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final android.graphics.Matrix groupShaderMatrix = new android.graphics.Matrix();
-    private final android.graphics.Path groupPlayTrianglePath = new android.graphics.Path();
-    private final TextPaint groupCaptionTextPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
-    private final TextPaint groupItemCaptionPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint groupItemCaptionScrimPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    boolean isMediaGroup = false;
+    java.util.List<GridItem> groupItems = java.util.Collections.emptyList();
+    Bitmap[] groupBitmaps = new Bitmap[0];
+    final RectF[] groupRects = new RectF[GROUP_MAX_VISIBLE];
+    int groupVisibleCount = 0;
+    int groupRemaining = 0; // >0 only on the last visible cell when total > GROUP_MAX_VISIBLE
+    boolean groupHasCaption = false;
+    StaticLayout groupCaptionLayout;
+    final RectF groupContentRect = new RectF(); // whole grid area (no reply/caption)
+    final Paint groupCellBgPaint = new Paint();
+    final Paint groupBitmapPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+    final Paint groupScrimPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    final Paint groupMoreOverlayPaint = new Paint();
+    final TextPaint groupMoreTextPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    final Paint groupPlayCirclePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    final Paint groupPlayTrianglePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    final TextPaint groupDurationTextPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    final Paint groupDurationBgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    final android.graphics.Matrix groupShaderMatrix = new android.graphics.Matrix();
+    final android.graphics.Path groupPlayTrianglePath = new android.graphics.Path();
+    final TextPaint groupCaptionTextPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    final TextPaint groupItemCaptionPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    final Paint groupItemCaptionScrimPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
 
     // ── Received-group manual download-gate state — only ever set for
     // RECEIVED groups (see setGroupDownloadGate()); stays all-false/inert
     // for SENT groups and for received groups with nothing left to
     // download. Recomputed fresh on every bindMediaGroup() so a recycled
     // view never carries a stale gate from the previous message. ──
-    private boolean groupGateActive = false;
-    private int groupGatePendingCount = 0;
-    private boolean[] groupCellPending = new boolean[0];
-    private boolean[] groupCellDownloading = new boolean[0];
-    private int[] groupCellProgress = new int[0]; // parallel to groupCellDownloading; -1 = indeterminate
-    private final Paint groupGateScrimPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint groupGatePillBgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final TextPaint groupGatePillTextPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint groupGatePillIconPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint groupCellGateDimPaint = new Paint();
-    private final Paint groupCellGateBadgeBgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint groupCellGateIconPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final RectF groupGatePillRect = new RectF();
-    private final android.graphics.Path groupGateIconPath = new android.graphics.Path();
+    boolean groupGateActive = false;
+    int groupGatePendingCount = 0;
+    boolean[] groupCellPending = new boolean[0];
+    boolean[] groupCellDownloading = new boolean[0];
+    int[] groupCellProgress = new int[0]; // parallel to groupCellDownloading; -1 = indeterminate
+    final Paint groupGateScrimPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    final Paint groupGatePillBgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    final TextPaint groupGatePillTextPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    final Paint groupGatePillIconPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    final Paint groupCellGateDimPaint = new Paint();
+    final Paint groupCellGateBadgeBgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    final Paint groupCellGateIconPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    final RectF groupGatePillRect = new RectF();
+    final android.graphics.Path groupGateIconPath = new android.graphics.Path();
 
     // ── Reel-share card state — entirely separate mode from isMedia/
     // isMediaGroup (see REEL_* constants doc above). ──
-    private boolean isReelShare = false;
-    private String reelUsername = REEL_DEFAULT_USERNAME;
-    private Bitmap reelThumbBitmap;
-    private Bitmap reelAvatarBitmap;
-    private boolean reelHasCaption = false;
-    private String reelCaptionText = "";
-    private StaticLayout reelCaptionLayout;
-    private final RectF reelCardRect = new RectF();
-    private final RectF reelAvatarRect = new RectF();
-    private final Paint reelCardBgPaint = new Paint();
-    private final Paint reelThumbPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
-    private final Paint reelAvatarPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
-    private final Paint reelAvatarPlaceholderPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final TextPaint reelUsernamePaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
-    private final TextPaint reelPlayIconPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
-    private final TextPaint reelCaptionPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
-    private final TextPaint reelLabelPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
-    private GradientDrawable reelTopGradient;
-    private GradientDrawable reelBottomGradient;
-    private final android.graphics.Matrix reelShaderMatrix = new android.graphics.Matrix();
-    private final android.graphics.Matrix reelAvatarShaderMatrix = new android.graphics.Matrix();
+    boolean isReelShare = false;
+    String reelUsername = REEL_DEFAULT_USERNAME;
+    Bitmap reelThumbBitmap;
+    Bitmap reelAvatarBitmap;
+    boolean reelHasCaption = false;
+    String reelCaptionText = "";
+    StaticLayout reelCaptionLayout;
+    final RectF reelCardRect = new RectF();
+    final RectF reelAvatarRect = new RectF();
+    final Paint reelCardBgPaint = new Paint();
+    final Paint reelThumbPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+    final Paint reelAvatarPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+    final Paint reelAvatarPlaceholderPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    final TextPaint reelUsernamePaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    final TextPaint reelPlayIconPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    final TextPaint reelCaptionPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    final TextPaint reelLabelPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    GradientDrawable reelTopGradient;
+    GradientDrawable reelBottomGradient;
+    final android.graphics.Matrix reelShaderMatrix = new android.graphics.Matrix();
+    final android.graphics.Matrix reelAvatarShaderMatrix = new android.graphics.Matrix();
 
     // ── Contact-share card state — entirely separate mode from isMedia/
     // isMediaGroup/isReelShare/isAudio (see CONTACT_* constants doc above). ──
-    private boolean isContact = false;
-    private String contactName = "";
-    private String contactPhone = "";
-    private Bitmap contactAvatarBitmap;
-    private final RectF contactCardRect = new RectF();
-    private final RectF contactAvatarRect = new RectF();
-    private final RectF contactButtonRect = new RectF(); // "View Contact" row — the only tappable sub-region
-    private final Paint contactCardBgPaint = new Paint();
-    private final Paint contactDividerPaint = new Paint();
-    private final Paint contactAvatarPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
-    private final Paint contactAvatarPlaceholderPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final TextPaint contactNamePaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
-    private final TextPaint contactPhonePaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
-    private final TextPaint contactButtonTextPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
-    private final android.graphics.Matrix contactAvatarShaderMatrix = new android.graphics.Matrix();
+    boolean isContact = false;
+    String contactName = "";
+    String contactPhone = "";
+    Bitmap contactAvatarBitmap;
+    final RectF contactCardRect = new RectF();
+    final RectF contactAvatarRect = new RectF();
+    final RectF contactButtonRect = new RectF(); // "View Contact" row — the only tappable sub-region
+    final Paint contactCardBgPaint = new Paint();
+    final Paint contactDividerPaint = new Paint();
+    final Paint contactAvatarPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+    final Paint contactAvatarPlaceholderPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    final TextPaint contactNamePaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    final TextPaint contactPhonePaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    final TextPaint contactButtonTextPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    final android.graphics.Matrix contactAvatarShaderMatrix = new android.graphics.Matrix();
 
-    private boolean isLocation = false;
-    private String locationAddress = "";
-    private Bitmap locationMapBitmap;
-    private StaticLayout locationAddressLayout;
-    private final RectF locationCardRect = new RectF();
-    private final RectF locationMapRect = new RectF();
-    private final RectF locationButtonRect = new RectF(); // "Open in Maps" row — the only tappable sub-region
-    private final Paint locationMapBgPaint = new Paint();
-    private final Paint locationMapBitmapPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
-    private final Paint locationPinPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint locationDividerPaint = new Paint();
-    private final Paint locationAddressBgPaint = new Paint();
-    private final Paint locationButtonBgPaint = new Paint();
-    private final TextPaint locationAddressTextPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
-    private final TextPaint locationButtonTextPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
-    private final android.graphics.Path locationPinPath = new android.graphics.Path();
-    private final android.graphics.Matrix locationMapShaderMatrix = new android.graphics.Matrix();
+    boolean isLocation = false;
+    String locationAddress = "";
+    Bitmap locationMapBitmap;
+    StaticLayout locationAddressLayout;
+    final RectF locationCardRect = new RectF();
+    final RectF locationMapRect = new RectF();
+    final RectF locationButtonRect = new RectF(); // "Open in Maps" row — the only tappable sub-region
+    final Paint locationMapBgPaint = new Paint();
+    final Paint locationMapBitmapPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+    final Paint locationPinPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    final Paint locationDividerPaint = new Paint();
+    final Paint locationAddressBgPaint = new Paint();
+    final Paint locationButtonBgPaint = new Paint();
+    final TextPaint locationAddressTextPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    final TextPaint locationButtonTextPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    final android.graphics.Path locationPinPath = new android.graphics.Path();
+    final android.graphics.Matrix locationMapShaderMatrix = new android.graphics.Matrix();
 
     // ── Poll card state ─────────────────────────────────────────────────────
-    private boolean isPoll        = false;
-    private String   pollQuestion  = "";
-    private boolean  pollClosed    = false;
-    private boolean  pollMultiChoice = false;
-    private String[] pollOptions   = new String[0];
-    private int[]    pollCounts    = new int[0];
-    private boolean[] pollMyVote   = new boolean[0];
-    private boolean[] pollIsLeader = new boolean[0];
-    private int      pollTotal     = 0;
-    private StaticLayout   pollQuestionLayout;
-    private StaticLayout[] pollOptionLayouts = new StaticLayout[0];
-    private float[]        pollFillWidths    = new float[0];
-    private final java.util.ArrayList<RectF> pollOptionRects = new java.util.ArrayList<>();
-    private float pollHeaderRowH  = 0f;
-    private float pollSubtitleH   = 0f;
-    private float pollTotalCardH  = 0f;
+    boolean isPoll        = false;
+    String   pollQuestion  = "";
+    boolean  pollClosed    = false;
+    boolean  pollMultiChoice = false;
+    String[] pollOptions   = new String[0];
+    int[]    pollCounts    = new int[0];
+    boolean[] pollMyVote   = new boolean[0];
+    boolean[] pollIsLeader = new boolean[0];
+    int      pollTotal     = 0;
+    StaticLayout   pollQuestionLayout;
+    StaticLayout[] pollOptionLayouts = new StaticLayout[0];
+    float[]        pollFillWidths    = new float[0];
+    final java.util.ArrayList<RectF> pollOptionRects = new java.util.ArrayList<>();
+    float pollHeaderRowH  = 0f;
+    float pollSubtitleH   = 0f;
+    float pollTotalCardH  = 0f;
     // Paints (initialised in constructor)
-    private final Paint     pollOptionBgPaint    = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint     pollFillPaint        = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint     pollStrokePaint      = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final TextPaint pollHeaderLabelPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
-    private final TextPaint pollChipPaint        = new TextPaint(Paint.ANTI_ALIAS_FLAG);
-    private final TextPaint pollQuestionPaint    = new TextPaint(Paint.ANTI_ALIAS_FLAG);
-    private final TextPaint pollSubtitlePaint    = new TextPaint(Paint.ANTI_ALIAS_FLAG);
-    private final TextPaint pollOptionTextPaint  = new TextPaint(Paint.ANTI_ALIAS_FLAG);
-    private final TextPaint pollOptionPctPaint   = new TextPaint(Paint.ANTI_ALIAS_FLAG);
-    private final TextPaint pollFooterPaint      = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    final Paint     pollOptionBgPaint    = new Paint(Paint.ANTI_ALIAS_FLAG);
+    final Paint     pollFillPaint        = new Paint(Paint.ANTI_ALIAS_FLAG);
+    final Paint     pollStrokePaint      = new Paint(Paint.ANTI_ALIAS_FLAG);
+    final TextPaint pollHeaderLabelPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    final TextPaint pollChipPaint        = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    final TextPaint pollQuestionPaint    = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    final TextPaint pollSubtitlePaint    = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    final TextPaint pollOptionTextPaint  = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    final TextPaint pollOptionPctPaint   = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    final TextPaint pollFooterPaint      = new TextPaint(Paint.ANTI_ALIAS_FLAG);
 
     // ── GIF bubble state — reuses the isMedia/mediaRect/mediaBitmap
     // infrastructure entirely (same 180dp square, same download-gate overlay,
     // same timestamp pill) with just a "GIF" badge pill drawn in the top-start
     // corner of the thumbnail to signal the content is animated. ──
-    private boolean isGifBubble = false;
-    private static final String GIF_BADGE_TEXT = "GIF";
+    boolean isGifBubble = false;
+    static final String GIF_BADGE_TEXT = "GIF";
 
     // ── File bubble state — card-style bubble (240dp wide): left icon circle,
     // centre name+size row, right download/open action button, footer below. ──
-    private boolean isFileBubble        = false;
-    private String  fileNameText        = "";
-    private String  fileSizeMimeText    = "";
-    private int     fileIconColor       = 0xFF607D8B;
-    private boolean fileIsCached        = false;
-    private boolean fileIsDownloading   = false;
-    private int     fileDownloadPercent = 0;
-    private float   fileCardHeight      = 0f;
-    private final RectF fileActionRect  = new RectF(); // tap target for ⬇/⬗ button
-    private static final float FILE_CARD_W_DP     = 240f;
-    private static final float FILE_ICON_COL_DP   = 52f;
-    private static final float FILE_ACTION_COL_DP = 44f;
-    private static final float FILE_ROW_PAD_DP    = 10f;
+    boolean isFileBubble        = false;
+    String  fileNameText        = "";
+    String  fileSizeMimeText    = "";
+    int     fileIconColor       = 0xFF607D8B;
+    boolean fileIsCached        = false;
+    boolean fileIsDownloading   = false;
+    int     fileDownloadPercent = 0;
+    float   fileCardHeight      = 0f;
+    final RectF fileActionRect  = new RectF(); // tap target for ⬇/⬗ button
+    static final float FILE_CARD_W_DP     = 240f;
+    static final float FILE_ICON_COL_DP   = 52f;
+    static final float FILE_ACTION_COL_DP = 44f;
+    static final float FILE_ROW_PAD_DP    = 10f;
 
 
     // ── Link-preview card state — only meaningful alongside the
@@ -986,63 +926,77 @@ public class MessageBubbleCanvasView extends View {
     // reserved height is correct even before the Bitmap itself arrives
     // via setLinkPreviewThumbBitmap(). ──
     // ── View-once bubble state (Feature 13's 3 special layouts) ──
-    private boolean isViewOnce = false;
-    private int viewOnceVariant = VIEW_ONCE_RECEIVED;
-    private String viewOnceSublabel = "";
-    private String viewOnceExpiredLabel = "Opened";
-    private String viewOnceOpenedAtText = "";
-    private boolean viewOnceShowOpenedAt = false;
-    private final RectF viewOnceCardRect = new RectF();
-    private final Paint viewOnceBgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final TextPaint viewOnceIconPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
-    private final TextPaint viewOnceLabelPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
-    private final TextPaint viewOnceSublabelPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
-    private final TextPaint viewOnceTimePaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    boolean isViewOnce = false;
+    int viewOnceVariant = VIEW_ONCE_RECEIVED;
+    String viewOnceSublabel = "";
+    String viewOnceExpiredLabel = "Opened";
+    String viewOnceOpenedAtText = "";
+    boolean viewOnceShowOpenedAt = false;
+    final RectF viewOnceCardRect = new RectF();
+    final Paint viewOnceBgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    final TextPaint viewOnceIconPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    final TextPaint viewOnceLabelPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    final TextPaint viewOnceSublabelPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    final TextPaint viewOnceTimePaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
 
     // ── Reel-seen / Status-seen "watched/seen" system bubbles ──
-    private boolean isSeenBubble = false;
-    private boolean seenIsReel = false; // true = reel_seen (🎬), false = status_seen (👁)
-    private Bitmap seenAvatarBitmap;
-    private Bitmap seenThumbBitmap;
-    private boolean seenHasThumb = false;
-    private String seenName = "";
-    private boolean seenHasName = false;
-    private final RectF seenAvatarRect = new RectF();
-    private final RectF seenCardRect = new RectF();
-    private final RectF seenThumbRect = new RectF();
-    private final Paint seenCardBgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint seenAvatarPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
-    private final Paint seenAvatarPlaceholderPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint seenThumbPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
-    private final Paint seenThumbBgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final TextPaint seenOverlayIconPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
-    private final TextPaint seenIconPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
-    private final TextPaint seenLabelPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
-    private final TextPaint seenNamePaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
-    private final TextPaint seenTimePaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
-    private final android.graphics.Matrix seenAvatarShaderMatrix = new android.graphics.Matrix();
-    private final android.graphics.Matrix seenThumbShaderMatrix = new android.graphics.Matrix();
+    boolean isSeenBubble = false;
+    boolean seenIsReel = false; // true = reel_seen (🎬), false = status_seen (👁)
+    Bitmap seenAvatarBitmap;
+    Bitmap seenThumbBitmap;
+    boolean seenHasThumb = false;
+    String seenName = "";
+    boolean seenHasName = false;
+    final RectF seenAvatarRect = new RectF();
+    final RectF seenCardRect = new RectF();
+    final RectF seenThumbRect = new RectF();
+    final Paint seenCardBgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    final Paint seenAvatarPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+    final Paint seenAvatarPlaceholderPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    final Paint seenThumbPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+    final Paint seenThumbBgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    final TextPaint seenOverlayIconPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    final TextPaint seenIconPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    final TextPaint seenLabelPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    final TextPaint seenNamePaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    final TextPaint seenTimePaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    final android.graphics.Matrix seenAvatarShaderMatrix = new android.graphics.Matrix();
+    final android.graphics.Matrix seenThumbShaderMatrix = new android.graphics.Matrix();
 
-    private boolean hasLinkPreview = false;
-    private String linkPreviewUrl = "";
-    private String linkTitle = "";
-    private String linkDomain = "";
-    private boolean linkHasThumb = false;
-    private Bitmap linkThumbBitmap;
-    private StaticLayout linkTitleLayout;
-    private int linkCardHeight = 0;
-    private final RectF linkCardRect = new RectF();
-    private final RectF linkThumbRect = new RectF();
-    private final Paint linkCardBgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint linkThumbPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
-    private final Paint linkThumbPlaceholderPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final TextPaint linkDomainPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
-    private final TextPaint linkTitlePaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
-    private final android.graphics.Matrix linkThumbShaderMatrix = new android.graphics.Matrix();
+    boolean hasLinkPreview = false;
+    String linkPreviewUrl = "";
+    String linkTitle = "";
+    String linkDomain = "";
+    boolean linkHasThumb = false;
+    Bitmap linkThumbBitmap;
+    StaticLayout linkTitleLayout;
+    int linkCardHeight = 0;
+    final RectF linkCardRect = new RectF();
+    final RectF linkThumbRect = new RectF();
+    final Paint linkCardBgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    final Paint linkThumbPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+    final Paint linkThumbPlaceholderPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    final TextPaint linkDomainPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    final TextPaint linkTitlePaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    final android.graphics.Matrix linkThumbShaderMatrix = new android.graphics.Matrix();
 
-    private OnBubbleClickListener clickListener;
-    private final GestureDetector gestureDetector;
+    OnBubbleClickListener clickListener;
+    final GestureDetector gestureDetector;
 
+    // ── Per-feature draw() renderers (feature-based file split) — bind/
+    // measure/touch logic stays on this host view; each renderer only
+    // owns the drawXxx(Canvas) body that used to live here directly. ──
+    private final ReelShareRenderer reelShareRenderer = new ReelShareRenderer(this);
+    private final ContactRenderer contactRenderer = new ContactRenderer(this);
+    private final LocationRenderer locationRenderer = new LocationRenderer(this);
+    private final ViewOnceRenderer viewOnceRenderer = new ViewOnceRenderer(this);
+    private final SeenBubbleRenderer seenBubbleRenderer = new SeenBubbleRenderer(this);
+    private final PollRenderer pollRenderer = new PollRenderer(this);
+    private final MediaGroupRenderer mediaGroupRenderer = new MediaGroupRenderer(this);
+    private final MediaRenderer mediaRenderer = new MediaRenderer(this);
+    private final AudioRenderer audioRenderer = new AudioRenderer(this);
+    private final FileBubbleRenderer fileBubbleRenderer = new FileBubbleRenderer(this);
+    private final LinkPreviewRenderer linkPreviewRenderer = new LinkPreviewRenderer(this);
 
     public MessageBubbleCanvasView(Context ctx) {
         this(ctx, null);
@@ -3198,7 +3152,7 @@ public class MessageBubbleCanvasView extends View {
         setMeasuredDimension(parentWidth, totalHeight);
     }
 
-    private int dp(int v) {
+    int dp(int v) {
         return Math.round(v * density);
     }
 
@@ -3304,25 +3258,25 @@ public class MessageBubbleCanvasView extends View {
         }
 
         if (isReelShare) {
-            drawReelShare(canvas);
+            reelShareRenderer.draw(canvas);
         } else if (isContact) {
-            drawContact(canvas);
+            contactRenderer.draw(canvas);
         } else if (isLocation) {
-            drawLocation(canvas);
+            locationRenderer.draw(canvas);
         } else if (isViewOnce) {
-            drawViewOnce(canvas);
+            viewOnceRenderer.draw(canvas);
         } else if (isSeenBubble) {
-            drawSeenBubble(canvas);
+            seenBubbleRenderer.draw(canvas);
         } else if (isPoll) {
-            drawPoll(canvas);
+            pollRenderer.draw(canvas);
         } else if (isMediaGroup) {
-            drawMediaGroup(canvas);
+            mediaGroupRenderer.draw(canvas);
         } else if (isMedia) {
-            drawMedia(canvas, hPad, vPad);
+            mediaRenderer.draw(canvas, hPad, vPad);
         } else if (isAudio) {
-            drawAudio(canvas, hPad, vPad);
+            audioRenderer.draw(canvas, hPad, vPad);
         } else if (isFileBubble) {
-            drawFileBubble(canvas);
+            fileBubbleRenderer.draw(canvas);
         } else {
             int replyGap = hasReply ? Math.round(REPLY_GAP_TO_MESSAGE_DP * density) : 0;
             canvas.save();
@@ -3331,7 +3285,7 @@ public class MessageBubbleCanvasView extends View {
             canvas.restore();
 
             if (hasLinkPreview) {
-                drawLinkPreview(canvas);
+                linkPreviewRenderer.draw(canvas);
             }
 
             drawFooter(canvas, bubbleRect.bottom - vPad * 0.4f, bubbleRect.right - hPad);
@@ -3373,1234 +3327,7 @@ public class MessageBubbleCanvasView extends View {
         canvas.drawText(forwardedText, bubbleRect.left, forwardedBaselineY, forwardedPaint);
     }
 
-    /**
-     * Draws the reel-share card — mirrors layout_msg_reel_share.xml:
-     * rounded 165×237dp thumbnail (or #1A1A1A placeholder), top gradient +
-     * avatar/username header, centered play glyph, bottom gradient +
-     * caption + "⬡ Reels" label, and the timestamp/tick pill in the
-     * bottom-end corner (always shown, same as ll_msg_footer there).
-     */
-    private void drawReelShare(Canvas canvas) {
-        float r = REEL_CORNER_RADIUS_DP * density;
-
-        // ── Thumbnail (or placeholder), clipped to the card's rounded shape ──
-        if (reelThumbBitmap != null) {
-            float scale = Math.max(reelCardRect.width() / reelThumbBitmap.getWidth(),
-                    reelCardRect.height() / reelThumbBitmap.getHeight());
-            float dx = reelCardRect.left - (reelThumbBitmap.getWidth() * scale - reelCardRect.width()) / 2f;
-            float dy = reelCardRect.top - (reelThumbBitmap.getHeight() * scale - reelCardRect.height()) / 2f;
-            reelShaderMatrix.reset();
-            reelShaderMatrix.setScale(scale, scale);
-            reelShaderMatrix.postTranslate(dx, dy);
-
-            android.graphics.BitmapShader shader = new android.graphics.BitmapShader(
-                    reelThumbBitmap, android.graphics.Shader.TileMode.CLAMP, android.graphics.Shader.TileMode.CLAMP);
-            shader.setLocalMatrix(reelShaderMatrix);
-            reelThumbPaint.setShader(shader);
-            canvas.drawRoundRect(reelCardRect, r, r, reelThumbPaint);
-        } else {
-            canvas.drawRoundRect(reelCardRect, r, r, reelCardBgPaint);
-        }
-
-        // ── Top gradient (fades thumbnail so the header reads clearly) ──
-        reelTopGradient.setBounds(
-                (int) reelCardRect.left, (int) reelCardRect.top,
-                (int) reelCardRect.right, (int) (reelCardRect.top + REEL_TOP_GRADIENT_DP * density));
-        reelTopGradient.draw(canvas);
-
-        // ── Bottom gradient (fades thumbnail so caption/label reads clearly) ──
-        reelBottomGradient.setBounds(
-                (int) reelCardRect.left, (int) (reelCardRect.bottom - REEL_BOTTOM_GRADIENT_DP * density),
-                (int) reelCardRect.right, (int) reelCardRect.bottom);
-        reelBottomGradient.draw(canvas);
-
-        // ── Header: avatar + username ──
-        if (reelAvatarBitmap != null) {
-            float scale = Math.max(reelAvatarRect.width() / reelAvatarBitmap.getWidth(),
-                    reelAvatarRect.height() / reelAvatarBitmap.getHeight());
-            float dx = reelAvatarRect.left - (reelAvatarBitmap.getWidth() * scale - reelAvatarRect.width()) / 2f;
-            float dy = reelAvatarRect.top - (reelAvatarBitmap.getHeight() * scale - reelAvatarRect.height()) / 2f;
-            reelAvatarShaderMatrix.reset();
-            reelAvatarShaderMatrix.setScale(scale, scale);
-            reelAvatarShaderMatrix.postTranslate(dx, dy);
-
-            android.graphics.BitmapShader shader = new android.graphics.BitmapShader(
-                    reelAvatarBitmap, android.graphics.Shader.TileMode.CLAMP, android.graphics.Shader.TileMode.CLAMP);
-            shader.setLocalMatrix(reelAvatarShaderMatrix);
-            reelAvatarPaint.setShader(shader);
-            canvas.drawOval(reelAvatarRect, reelAvatarPaint);
-        } else {
-            canvas.drawOval(reelAvatarRect, reelAvatarPlaceholderPaint);
-        }
-
-        float usernameX = reelAvatarRect.right + REEL_AVATAR_TEXT_GAP_DP * density;
-        Paint.FontMetrics ufm = reelUsernamePaint.getFontMetrics();
-        float usernameBaselineY = reelAvatarRect.centerY() - (ufm.ascent + ufm.descent) / 2f;
-        float usernameMaxW = reelCardRect.right - REEL_HEADER_PAD_H_DP * density - usernameX;
-        String usernameToDraw = TextUtils.ellipsize(reelUsername, reelUsernamePaint,
-                Math.max(1, usernameMaxW), TextUtils.TruncateAt.END).toString();
-        canvas.drawText(usernameToDraw, usernameX, usernameBaselineY, reelUsernamePaint);
-
-        // ── Centered play glyph ──
-        Paint.FontMetrics pfm = reelPlayIconPaint.getFontMetrics();
-        float playBaselineY = reelCardRect.centerY() - (pfm.ascent + pfm.descent) / 2f;
-        canvas.drawText(REEL_PLAY_GLYPH, reelCardRect.centerX(), playBaselineY, reelPlayIconPaint);
-
-        // ── Bottom: caption + "⬡ Reels" label ──
-        float bottomPadH = REEL_BOTTOM_PAD_H_DP * density;
-        float bottomPadBottom = REEL_BOTTOM_PAD_BOTTOM_DP * density;
-        Paint.FontMetrics lfm = reelLabelPaint.getFontMetrics();
-        float labelHeight = lfm.descent - lfm.ascent;
-        float labelBaselineY = reelCardRect.bottom - bottomPadBottom - lfm.descent;
-        canvas.drawText(REEL_LABEL_TEXT, reelCardRect.left + bottomPadH, labelBaselineY, reelLabelPaint);
-
-        if (reelHasCaption && reelCaptionLayout != null) {
-            float captionBottom = labelBaselineY + lfm.ascent - REEL_LABEL_GAP_TOP_DP * density;
-            canvas.save();
-            canvas.translate(reelCardRect.left + bottomPadH, captionBottom - reelCaptionLayout.getHeight());
-            reelCaptionLayout.draw(canvas);
-            canvas.restore();
-        }
-
-        // ── Timestamp/tick pill — always shown, bottom-end corner ──
-        float rr = MEDIA_PILL_CORNER_DP * density;
-        canvas.drawRoundRect(mediaPillRect, rr, rr, mediaPillBgPaint);
-        float pillPadH = MEDIA_PILL_PADDING_H_DP * density;
-        float textBaselineY = mediaPillRect.bottom - (mediaPillRect.height()
-                - (mediaPillTextPaint.descent() - mediaPillTextPaint.ascent())) / 2f
-                - mediaPillTextPaint.descent();
-        float tickReserve = sent ? (TICK_SIZE_DP + TICK_GAP_DP) * density : 0;
-        canvas.drawText(footerTimeText,
-                mediaPillRect.right - pillPadH - tickReserve - mediaPillTextPaint.measureText(footerTimeText),
-                textBaselineY, mediaPillTextPaint);
-        if (sent) {
-            Paint saved = new Paint(tickPaint);
-            tickPaint.setColor(MEDIA_PILL_TEXT);
-            drawTick(canvas, mediaPillRect.right - pillPadH - TICK_SIZE_DP * density, textBaselineY);
-            tickPaint.set(saved);
-        }
-    }
-
-    /**
-     * Draws the contact-share card — mirrors item_msg_contact.xml: one
-     * rounded 165dp-wide card (single #1C1C1E background covers both the
-     * "top section" and the "View Contact" row, since they share the same
-     * color in the legacy layout — only the divider line is visually
-     * distinct), a circular avatar (placeholder ic_person glyph if no
-     * photo), name + phone stacked beside it, and the "View Contact"
-     * label centered in its own row below a thin divider.
-     */
-    private void drawContact(Canvas canvas) {
-        float r = CONTACT_CORNER_RADIUS_DP * density;
-        canvas.save();
-        // Clip to the card's rounded shape (android:clipToOutline on the
-        // legacy ll_contact_card) so the flat divider/button-row rects
-        // drawn below don't square off the bottom corners.
-        android.graphics.Path clipPath = new android.graphics.Path();
-        clipPath.addRoundRect(contactCardRect, r, r, android.graphics.Path.Direction.CW);
-        canvas.clipPath(clipPath);
-
-        canvas.drawRect(contactCardRect, contactCardBgPaint);
-
-        // ── Avatar (photo or placeholder) ──
-        if (contactAvatarBitmap != null) {
-            float scale = Math.max(contactAvatarRect.width() / contactAvatarBitmap.getWidth(),
-                    contactAvatarRect.height() / contactAvatarBitmap.getHeight());
-            float dx = contactAvatarRect.left - (contactAvatarBitmap.getWidth() * scale - contactAvatarRect.width()) / 2f;
-            float dy = contactAvatarRect.top - (contactAvatarBitmap.getHeight() * scale - contactAvatarRect.height()) / 2f;
-            contactAvatarShaderMatrix.reset();
-            contactAvatarShaderMatrix.setScale(scale, scale);
-            contactAvatarShaderMatrix.postTranslate(dx, dy);
-
-            android.graphics.BitmapShader shader = new android.graphics.BitmapShader(
-                    contactAvatarBitmap, android.graphics.Shader.TileMode.CLAMP, android.graphics.Shader.TileMode.CLAMP);
-            shader.setLocalMatrix(contactAvatarShaderMatrix);
-            contactAvatarPaint.setShader(shader);
-            canvas.drawOval(contactAvatarRect, contactAvatarPaint);
-        } else {
-            canvas.drawOval(contactAvatarRect, contactAvatarPlaceholderPaint);
-        }
-
-        // ── Name / phone column beside the avatar ──
-        float textX = contactAvatarRect.right + CONTACT_TEXT_GAP_DP * density;
-        float textMaxW = contactCardRect.right - CONTACT_PAD_H_DP * density - textX;
-        String nameToDraw = TextUtils.ellipsize(contactName, contactNamePaint,
-                Math.max(1, textMaxW), TextUtils.TruncateAt.END).toString();
-        String phoneToDraw = TextUtils.ellipsize(contactPhone, contactPhonePaint,
-                Math.max(1, textMaxW), TextUtils.TruncateAt.END).toString();
-
-        Paint.FontMetrics nfm = contactNamePaint.getFontMetrics();
-        Paint.FontMetrics phfm = contactPhonePaint.getFontMetrics();
-        float nameH = nfm.descent - nfm.ascent;
-        float phoneH = phfm.descent - phfm.ascent;
-        boolean hasPhone = !phoneToDraw.isEmpty();
-        float phoneGap = hasPhone ? CONTACT_PHONE_GAP_DP * density : 0;
-        float blockH = nameH + (hasPhone ? phoneGap + phoneH : 0);
-        float blockTop = contactAvatarRect.centerY() - blockH / 2f;
-
-        canvas.drawText(nameToDraw, textX, blockTop - nfm.ascent, contactNamePaint);
-        if (hasPhone) {
-            float phoneBaselineY = blockTop + nameH + phoneGap - phfm.ascent;
-            canvas.drawText(phoneToDraw, textX, phoneBaselineY, contactPhonePaint);
-        }
-
-        // ── Divider ──
-        float dividerTop = contactCardRect.top + CONTACT_TOP_HEIGHT_DP * density;
-        canvas.drawRect(contactCardRect.left, dividerTop, contactCardRect.right,
-                dividerTop + CONTACT_DIVIDER_HEIGHT_DP * density, contactDividerPaint);
-
-        // ── "View Contact" row ──
-        Paint.FontMetrics bfm = contactButtonTextPaint.getFontMetrics();
-        float btnBaselineY = contactButtonRect.centerY() - (bfm.ascent + bfm.descent) / 2f;
-        canvas.drawText(CONTACT_BUTTON_TEXT, contactButtonRect.centerX(), btnBaselineY, contactButtonTextPaint);
-
-        canvas.restore();
-    }
-
-    /**
-     * Draws the location-share card — mirrors item_msg_location.xml: a
-     * purple map-thumbnail header (Google Static Maps bitmap if supplied,
-     * centerCrop-scaled the same way drawMedia()'s bitmap fill works;
-     * else a placeholder pin drawn straight on the flat purple
-     * background), a translucent purple address strip (up to 2 lines,
-    /**
-     * Draws the poll card inside the normal bubble background.
-     * Layout (top-to-bottom inside bubble's vPad):
-     *   POLL icon + "POLL" label + chip  — header row
-     *   question StaticLayout
-     *   subtitle ("Select one/more answer")
-     *   N option rows (fill bar + icon + text + pct%)
-     *   total-votes footer
-     *   timestamp/tick footer (drawn by drawFooter below)
-     */
-    private void drawPoll(Canvas canvas) {
-        float padH   = POLL_PADDING_H_DP * density;
-        float padTop = POLL_PADDING_TOP_DP * density;
-        float vPad   = V_PADDING_DP * density;
-        int   hPad   = Math.round(H_PADDING_DP * density);
-
-        float left  = bubbleLeft + hPad + padH;
-        float right = bubbleLeft + bubbleRect.width() - hPad - padH;
-        float top   = bubbleTop + vPad + padTop;
-
-        // ── Header row: poll icon dot + "POLL" label + status chip ──────────
-        float iconSz  = POLL_HEADER_ICON_SIZE_DP * density;
-        float iconMar = POLL_HEADER_ICON_MARGIN_DP * density;
-
-        // Draw a small filled circle as the poll icon
-        pollOptionBgPaint.setColor(POLL_HEADER_ICON_COLOR);
-        canvas.drawCircle(left + iconSz / 2f, top + pollHeaderRowH / 2f, iconSz / 2f * 0.7f, pollOptionBgPaint);
-
-        // "POLL" label
-        Paint.FontMetrics hfm = pollHeaderLabelPaint.getFontMetrics();
-        float labelBaseline = top + pollHeaderRowH / 2f - (hfm.ascent + hfm.descent) / 2f;
-        canvas.drawText("POLL", left + iconSz + iconMar, labelBaseline, pollHeaderLabelPaint);
-
-        // Status chip (CLOSED or LIVE)
-        String chipText = pollClosed ? "CLOSED" : "LIVE";
-        float chipTxtW  = pollChipPaint.measureText(chipText);
-        float chipPadH  = POLL_CHIP_PAD_H_DP * density;
-        float chipPadV  = POLL_CHIP_PAD_V_DP * density;
-        float chipW     = chipTxtW + chipPadH * 2;
-        float chipH     = pollChipPaint.getFontMetrics().descent - pollChipPaint.getFontMetrics().ascent + chipPadV * 2;
-        float chipLeft  = right - chipW;
-        float chipTop   = top + (pollHeaderRowH - chipH) / 2f;
-        pollOptionBgPaint.setColor(pollClosed ? POLL_CHIP_CLOSED_BG : POLL_CHIP_NEUTRAL_BG);
-        RectF chipRect = new RectF(chipLeft, chipTop, right, chipTop + chipH);
-        float chipR = POLL_CHIP_CORNER_DP * density;
-        canvas.drawRoundRect(chipRect, chipR, chipR, pollOptionBgPaint);
-        Paint.FontMetrics cfm = pollChipPaint.getFontMetrics();
-        float chipBaseline = chipTop + chipH / 2f - (cfm.ascent + cfm.descent) / 2f;
-        canvas.drawText(chipText, chipLeft + chipPadH, chipBaseline, pollChipPaint);
-
-        // ── Question ────────────────────────────────────────────────────────
-        float qTop = top + pollHeaderRowH + POLL_QUESTION_GAP_DP * density;
-        if (pollQuestionLayout != null) {
-            canvas.save();
-            canvas.translate(left, qTop);
-            pollQuestionLayout.draw(canvas);
-            canvas.restore();
-        }
-
-        // ── Subtitle ─────────────────────────────────────────────────────────
-        float qHeight = pollQuestionLayout != null ? pollQuestionLayout.getHeight() : 0f;
-        float subTop  = qTop + qHeight + POLL_SUBTITLE_GAP_DP * density;
-        String subtitle = pollClosed ? "Poll closed" : (pollMultiChoice ? "Select one or more answers" : "Select one answer");
-        Paint.FontMetrics sfm = pollSubtitlePaint.getFontMetrics();
-        float subBaseline = subTop - sfm.ascent;
-        canvas.drawText(subtitle, left, subBaseline, pollSubtitlePaint);
-
-        // ── Option rows ──────────────────────────────────────────────────────
-        float optPadH  = POLL_OPTION_PAD_H_DP * density;
-        float optPadV  = POLL_OPTION_PAD_V_DP * density;
-        float optCorner = POLL_OPTION_CORNER_DP * density;
-        float optIconSz = POLL_OPTION_ICON_SIZE_DP * density;
-        float optIconMar = POLL_OPTION_ICON_MARGIN_DP * density;
-        float optGap   = POLL_OPTION_GAP_DP * density;
-        float innerW   = right - left;
-
-        float rowTop = subTop + pollSubtitleH + POLL_OPTIONS_GAP_DP * density;
-        pollOptionRects.clear();
-        int n = pollOptions.length;
-        // Compute fill widths
-        for (int i = 0; i < n; i++) {
-            float pct = (pollTotal > 0) ? (pollCounts[i] * 1f / pollTotal) : 0f;
-            pollFillWidths[i] = innerW * pct;
-        }
-
-        for (int i = 0; i < n; i++) {
-            StaticLayout optLayout = (i < pollOptionLayouts.length) ? pollOptionLayouts[i] : null;
-            float txtH = optLayout != null ? optLayout.getHeight() : 0f;
-            float rowH = Math.max(txtH, optIconSz) + optPadV * 2;
-            RectF rowRect = new RectF(left, rowTop, right, rowTop + rowH);
-            pollOptionRects.add(new RectF(rowRect));
-
-            boolean isMyVote = (i < pollMyVote.length) && pollMyVote[i];
-            boolean isLeader = (i < pollIsLeader.length) && pollIsLeader[i];
-
-            // Option background (stroke)
-            pollOptionBgPaint.setColor(isMyVote ? POLL_OPTION_VOTED_BG : POLL_OPTION_BG);
-            canvas.drawRoundRect(rowRect, optCorner, optCorner, pollOptionBgPaint);
-
-            // Fill bar (progress)
-            float fillW = (i < pollFillWidths.length) ? pollFillWidths[i] : 0f;
-            if (fillW > 0f) {
-                int fillColor = isMyVote ? (isLeader ? POLL_OPTION_FILL_LEADER : POLL_OPTION_FILL_COLOR) : POLL_OPTION_FILL_NEUTRAL;
-                pollFillPaint.setColor(fillColor);
-                RectF fillRect = new RectF(left, rowTop, left + fillW, rowTop + rowH);
-                // Clip fill to row's rounded rect path
-                canvas.save();
-                android.graphics.Path fp = new android.graphics.Path();
-                fp.addRoundRect(rowRect, optCorner, optCorner, android.graphics.Path.Direction.CW);
-                canvas.clipPath(fp);
-                canvas.drawRect(fillRect, pollFillPaint);
-                canvas.restore();
-            }
-
-            // Stroke
-            pollStrokePaint.setColor(isMyVote ? POLL_VOTED_STROKE_COLOR : POLL_STROKE_COLOR);
-            canvas.drawRoundRect(rowRect, optCorner, optCorner, pollStrokePaint);
-
-            // Radio / check icon (simple circle outline for radio, filled dot for selected)
-            float iconCx = left + optPadH + optIconSz / 2f;
-            float iconCy = rowTop + rowH / 2f;
-            pollOptionBgPaint.setColor(isMyVote ? POLL_VOTED_STROKE_COLOR : POLL_STROKE_COLOR);
-            if (isMyVote) {
-                canvas.drawCircle(iconCx, iconCy, optIconSz / 2f * 0.85f, pollOptionBgPaint);
-                pollOptionBgPaint.setColor(POLL_OPTION_VOTED_BG);
-                canvas.drawCircle(iconCx, iconCy, optIconSz / 2f * 0.45f, pollOptionBgPaint);
-            } else {
-                pollStrokePaint.setColor(POLL_STROKE_COLOR);
-                canvas.drawCircle(iconCx, iconCy, optIconSz / 2f * 0.85f, pollStrokePaint);
-            }
-
-            // Option text
-            if (optLayout != null) {
-                float txtTop = rowTop + (rowH - txtH) / 2f;
-                canvas.save();
-                canvas.translate(left + optPadH + optIconSz + optIconMar, txtTop);
-                optLayout.draw(canvas);
-                canvas.restore();
-            }
-
-            // Percentage label
-            int pct = pollTotal > 0 ? Math.round(pollCounts[i] * 100f / pollTotal) : 0;
-            String pctStr = pct + "%";
-            Paint.FontMetrics pfm = pollOptionPctPaint.getFontMetrics();
-            float pctBaseline = rowTop + rowH / 2f - (pfm.ascent + pfm.descent) / 2f;
-            canvas.drawText(pctStr, right - optPadH, pctBaseline, pollOptionPctPaint);
-
-            rowTop += rowH + optGap;
-        }
-
-        // ── Votes footer ─────────────────────────────────────────────────────
-        rowTop -= optGap; // remove last gap
-        float footerGap = POLL_FOOTER_GAP_DP * density;
-        String footerStr = pollTotal == 1 ? "1 vote" : pollTotal + " votes";
-        Paint.FontMetrics ffm = pollFooterPaint.getFontMetrics();
-        float footerBaseline = rowTop + footerGap + (-ffm.ascent);
-        canvas.drawText(footerStr, left, footerBaseline, pollFooterPaint);
-
-        // ── Timestamp / tick footer ─────────────────────────────────────────
-        int    fvPad = Math.round(V_PADDING_DP * density);
-        drawFooter(canvas, bubbleRect.bottom - fvPad * 0.4f, bubbleRect.right - hPad);
-    }
-
-    /**
-     * Draws the location card — mirrors item_msg_location.xml: a bubbleless
-     * rounded card with a purple map-thumbnail header (pin placeholder when
-     * no map bitmap is available), a translucent purple address strip encoded
-     * via StaticLayout), and a bottom "Open in Maps" row — same
-     * rounded-card clip treatment as drawContact().
-     */
-    private void drawLocation(Canvas canvas) {
-        float r = LOCATION_CORNER_RADIUS_DP * density;
-        canvas.save();
-        android.graphics.Path clipPath = new android.graphics.Path();
-        clipPath.addRoundRect(locationCardRect, r, r, android.graphics.Path.Direction.CW);
-        canvas.clipPath(clipPath);
-
-        // ── Map header ──
-        canvas.drawRect(locationMapRect, locationMapBgPaint);
-        if (locationMapBitmap != null) {
-            float scale = Math.max(locationMapRect.width() / locationMapBitmap.getWidth(),
-                    locationMapRect.height() / locationMapBitmap.getHeight());
-            float dx = locationMapRect.left - (locationMapBitmap.getWidth() * scale - locationMapRect.width()) / 2f;
-            float dy = locationMapRect.top - (locationMapBitmap.getHeight() * scale - locationMapRect.height()) / 2f;
-            locationMapShaderMatrix.reset();
-            locationMapShaderMatrix.setScale(scale, scale);
-            locationMapShaderMatrix.postTranslate(dx, dy);
-
-            android.graphics.BitmapShader shader = new android.graphics.BitmapShader(
-                    locationMapBitmap, android.graphics.Shader.TileMode.CLAMP, android.graphics.Shader.TileMode.CLAMP);
-            shader.setLocalMatrix(locationMapShaderMatrix);
-            locationMapBitmapPaint.setShader(shader);
-            canvas.drawRect(locationMapRect, locationMapBitmapPaint);
-        } else {
-            // Placeholder pin — teardrop + circular head, matches
-            // ic_location_pin's silhouette closely enough at this size.
-            float pinSize = LOCATION_PIN_SIZE_DP * density;
-            float cx = locationMapRect.centerX();
-            float cy = locationMapRect.centerY() - pinSize * 0.15f;
-            locationPinPath.reset();
-            locationPinPath.addCircle(cx, cy, pinSize * 0.32f, android.graphics.Path.Direction.CW);
-            locationPinPath.moveTo(cx - pinSize * 0.32f, cy + pinSize * 0.08f);
-            locationPinPath.lineTo(cx, cy + pinSize * 0.62f);
-            locationPinPath.lineTo(cx + pinSize * 0.32f, cy + pinSize * 0.08f);
-            locationPinPath.close();
-            canvas.drawPath(locationPinPath, locationPinPaint);
-        }
-
-        // ── Divider under the map ──
-        float dividerH = LOCATION_DIVIDER_HEIGHT_DP * density;
-        float divTop1 = locationMapRect.bottom;
-        canvas.drawRect(locationCardRect.left, divTop1, locationCardRect.right, divTop1 + dividerH, locationDividerPaint);
-
-        // ── Address strip ──
-        float addrTop = divTop1 + dividerH;
-        float addrBottom = locationButtonRect.top - dividerH;
-        canvas.drawRect(locationCardRect.left, addrTop, locationCardRect.right, addrBottom, locationAddressBgPaint);
-        if (locationAddressLayout != null) {
-            canvas.save();
-            canvas.translate(locationCardRect.left + LOCATION_ADDRESS_PAD_H_DP * density,
-                    addrTop + LOCATION_ADDRESS_PAD_TOP_DP * density);
-            locationAddressLayout.draw(canvas);
-            canvas.restore();
-        }
-
-        // ── Divider above the button row ──
-        canvas.drawRect(locationCardRect.left, addrBottom, locationCardRect.right, addrBottom + dividerH, locationDividerPaint);
-
-        // ── "Open in Maps" row ──
-        canvas.drawRect(locationButtonRect, locationButtonBgPaint);
-        Paint.FontMetrics lbfm = locationButtonTextPaint.getFontMetrics();
-        float locBtnBaselineY = locationButtonRect.centerY() - (lbfm.ascent + lbfm.descent) / 2f;
-        canvas.drawText(LOCATION_BUTTON_TEXT, locationButtonRect.centerX(), locBtnBaselineY, locationButtonTextPaint);
-
-        canvas.restore();
-    }
-
-    /**
-     * Draws one of the 3 view-once bubble variants — mirrors
-     * item_view_once_bubble.xml / item_view_once_sent_waiting.xml /
-     * item_view_once_expired.xml: a rounded solid-colour card (own
-     * colour per state, drawn directly instead of via bubbleDrawable),
-     * an icon glyph beside a label(+sublabel) column, and a small
-     * bottom-end timestamp.
-     */
-    private void drawViewOnce(Canvas canvas) {
-        float r = VO_CORNER_RADIUS_DP * density;
-        int bg;
-        float pad;
-        switch (viewOnceVariant) {
-            case VIEW_ONCE_WAITING:
-                bg = VO_COLOR_WAITING;
-                pad = VO_PAD_WAITING_DP * density;
-                break;
-            case VIEW_ONCE_EXPIRED:
-                bg = VO_COLOR_EXPIRED;
-                pad = VO_PAD_EXPIRED_DP * density;
-                break;
-            default:
-                bg = VO_COLOR_RECEIVED;
-                pad = VO_PAD_RECEIVED_DP * density;
-                break;
-        }
-        viewOnceBgPaint.setColor(bg);
-        canvas.drawRoundRect(viewOnceCardRect, r, r, viewOnceBgPaint);
-
-        float left = viewOnceCardRect.left + pad;
-        float right = viewOnceCardRect.right - pad;
-        float top = viewOnceCardRect.top + pad;
-
-        Paint.FontMetrics iconFm = viewOnceIconPaint.getFontMetrics();
-        float iconH = iconFm.descent - iconFm.ascent;
-
-        if (viewOnceVariant == VIEW_ONCE_RECEIVED) {
-            Paint.FontMetrics lfm = viewOnceLabelPaint.getFontMetrics();
-            Paint.FontMetrics sfm = viewOnceSublabelPaint.getFontMetrics();
-            float labelH = lfm.descent - lfm.ascent;
-            float sublabelH = sfm.descent - sfm.ascent;
-            float textColH = labelH + VO_LABEL_SUBLABEL_GAP_DP * density + sublabelH;
-            float rowH = Math.max(iconH, textColH);
-            float rowCenterY = top + rowH / 2f;
-
-            canvas.drawText(VO_LOCK_GLYPH, left, rowCenterY - (iconFm.ascent + iconFm.descent) / 2f, viewOnceIconPaint);
-            float textX = left + viewOnceIconPaint.measureText(VO_LOCK_GLYPH) + VO_ICON_TEXT_GAP_DP * density;
-            float blockTop = rowCenterY - textColH / 2f;
-            canvas.drawText(VO_LABEL_TEXT, textX, blockTop - lfm.ascent, viewOnceLabelPaint);
-            if (!viewOnceSublabel.isEmpty()) {
-                canvas.drawText(viewOnceSublabel, textX, blockTop + labelH + VO_LABEL_SUBLABEL_GAP_DP * density - sfm.ascent,
-                        viewOnceSublabelPaint);
-            }
-        } else if (viewOnceVariant == VIEW_ONCE_WAITING) {
-            Paint.FontMetrics lfm = viewOnceLabelPaint.getFontMetrics();
-            float labelH = lfm.descent - lfm.ascent;
-            float rowH = Math.max(iconH, labelH);
-            float rowCenterY = top + rowH / 2f;
-            canvas.drawText(VO_LOCK_GLYPH, left, rowCenterY - (iconFm.ascent + iconFm.descent) / 2f, viewOnceIconPaint);
-            float textX = left + viewOnceIconPaint.measureText(VO_LOCK_GLYPH) + VO_ICON_TEXT_GAP_DP * density;
-            canvas.drawText(VO_WAITING_LABEL_TEXT, textX, rowCenterY - (lfm.ascent + lfm.descent) / 2f, viewOnceLabelPaint);
-        } else { // VIEW_ONCE_EXPIRED
-            Paint.FontMetrics lfm = viewOnceLabelPaint.getFontMetrics();
-            float labelH = lfm.descent - lfm.ascent;
-            float rowH = Math.max(iconH, labelH);
-            float rowCenterY = top + rowH / 2f;
-            canvas.drawText(VO_EYE_GLYPH, left, rowCenterY - (iconFm.ascent + iconFm.descent) / 2f, viewOnceIconPaint);
-            float textX = left + viewOnceIconPaint.measureText(VO_EYE_GLYPH) + VO_ICON_TEXT_GAP_DP * density;
-            canvas.drawText(viewOnceExpiredLabel, textX, rowCenterY - (lfm.ascent + lfm.descent) / 2f, viewOnceLabelPaint);
-
-            if (viewOnceShowOpenedAt && !viewOnceOpenedAtText.isEmpty()) {
-                Paint openedAtPaint = viewOnceSublabelPaint;
-                float savedSize = openedAtPaint.getTextSize();
-                int savedColor = openedAtPaint.getColor();
-                openedAtPaint.setTextSize(VO_OPENED_AT_SP * density);
-                openedAtPaint.setColor(VO_OPENED_AT_COLOR);
-                Paint.FontMetrics ofm = openedAtPaint.getFontMetrics();
-                float openedAtTop = top + rowH + VO_OPENED_AT_GAP_DP * density;
-                canvas.drawText(viewOnceOpenedAtText, textX, openedAtTop - ofm.ascent, openedAtPaint);
-                openedAtPaint.setTextSize(savedSize);
-                openedAtPaint.setColor(savedColor);
-            }
-        }
-
-        Paint.FontMetrics tfm = viewOnceTimePaint.getFontMetrics();
-        float timeBaselineY = viewOnceCardRect.bottom - pad - tfm.descent;
-        canvas.drawText(footerTimeText, right, timeBaselineY, viewOnceTimePaint);
-    }
-
-    /**
-     * Draws a "watched your reel" / "seen your status" system bubble —
-     * mirrors item_reel_seen_bubble.xml / item_status_seen_bubble.xml: a
-     * circular avatar (photo or placeholder) sitting to the LEFT of the
-     * card, then a small rounded card (own solid colour per type) with
-     * an optional thumbnail + play/eye overlay glyph, an icon + italic
-     * label row, an optional sender name, and a small time line.
-     */
-    private void drawSeenBubble(Canvas canvas) {
-        // ── Avatar (outside/left of the card) ──
-        if (seenAvatarBitmap != null) {
-            float scale = Math.max(seenAvatarRect.width() / seenAvatarBitmap.getWidth(),
-                    seenAvatarRect.height() / seenAvatarBitmap.getHeight());
-            float dx = seenAvatarRect.left - (seenAvatarBitmap.getWidth() * scale - seenAvatarRect.width()) / 2f;
-            float dy = seenAvatarRect.top - (seenAvatarBitmap.getHeight() * scale - seenAvatarRect.height()) / 2f;
-            seenAvatarShaderMatrix.reset();
-            seenAvatarShaderMatrix.setScale(scale, scale);
-            seenAvatarShaderMatrix.postTranslate(dx, dy);
-
-            android.graphics.BitmapShader shader = new android.graphics.BitmapShader(
-                    seenAvatarBitmap, android.graphics.Shader.TileMode.CLAMP, android.graphics.Shader.TileMode.CLAMP);
-            shader.setLocalMatrix(seenAvatarShaderMatrix);
-            seenAvatarPaint.setShader(shader);
-            canvas.drawOval(seenAvatarRect, seenAvatarPaint);
-        } else {
-            canvas.drawOval(seenAvatarRect, seenAvatarPlaceholderPaint);
-        }
-
-        // ── Card ──
-        float r = SEEN_CARD_CORNER_DP * density;
-        seenCardBgPaint.setColor(seenIsReel ? SEEN_REEL_BG_COLOR : SEEN_STATUS_BG_COLOR);
-        canvas.save();
-        android.graphics.Path clipPath = new android.graphics.Path();
-        clipPath.addRoundRect(seenCardRect, r, r, android.graphics.Path.Direction.CW);
-        canvas.clipPath(clipPath);
-        canvas.drawRect(seenCardRect, seenCardBgPaint);
-
-        float padH = SEEN_CARD_PAD_H_DP * density;
-        float padEnd = SEEN_CARD_PAD_END_DP * density;
-        float left = seenCardRect.left + padH;
-        float right = seenCardRect.right - padEnd;
-        float cursorY = seenCardRect.top + SEEN_CARD_PAD_TOP_DP * density;
-
-        // ── Optional thumbnail + play/eye overlay ──
-        if (seenHasThumb) {
-            canvas.drawRect(seenThumbRect, seenThumbBgPaint);
-            if (seenThumbBitmap != null) {
-                float scale = Math.max(seenThumbRect.width() / seenThumbBitmap.getWidth(),
-                        seenThumbRect.height() / seenThumbBitmap.getHeight());
-                float dx = seenThumbRect.left - (seenThumbBitmap.getWidth() * scale - seenThumbRect.width()) / 2f;
-                float dy = seenThumbRect.top - (seenThumbBitmap.getHeight() * scale - seenThumbRect.height()) / 2f;
-                seenThumbShaderMatrix.reset();
-                seenThumbShaderMatrix.setScale(scale, scale);
-                seenThumbShaderMatrix.postTranslate(dx, dy);
-                android.graphics.BitmapShader shader = new android.graphics.BitmapShader(
-                        seenThumbBitmap, android.graphics.Shader.TileMode.CLAMP, android.graphics.Shader.TileMode.CLAMP);
-                shader.setLocalMatrix(seenThumbShaderMatrix);
-                seenThumbPaint.setShader(shader);
-                canvas.drawRect(seenThumbRect, seenThumbPaint);
-            }
-            String overlayGlyph = seenIsReel ? SEEN_REEL_PLAY_GLYPH : SEEN_STATUS_EYE_GLYPH;
-            canvas.drawText(overlayGlyph, seenThumbRect.centerX(),
-                    seenThumbRect.centerY() - (seenOverlayIconPaint.ascent() + seenOverlayIconPaint.descent()) / 2f,
-                    seenOverlayIconPaint);
-            cursorY = seenThumbRect.bottom + SEEN_THUMB_MARGIN_BOTTOM_DP * density;
-        }
-
-        // ── Icon + italic label row ──
-        Paint.FontMetrics ifm = seenIconPaint.getFontMetrics();
-        Paint.FontMetrics lfm = seenLabelPaint.getFontMetrics();
-        float rowH = Math.max(ifm.descent - ifm.ascent, lfm.descent - lfm.ascent);
-        float rowCenterY = cursorY + rowH / 2f;
-        String iconGlyph = seenIsReel ? SEEN_REEL_ICON_GLYPH : SEEN_STATUS_ICON_GLYPH;
-        canvas.drawText(iconGlyph, left, rowCenterY - (ifm.ascent + ifm.descent) / 2f, seenIconPaint);
-        float labelX = left + seenIconPaint.measureText(iconGlyph) + SEEN_ICON_LABEL_GAP_DP * density;
-        String labelText = seenIsReel ? SEEN_REEL_LABEL_TEXT : SEEN_STATUS_LABEL_TEXT;
-        String labelToDraw = TextUtils.ellipsize(labelText, seenLabelPaint,
-                Math.max(1, right - labelX), TextUtils.TruncateAt.END).toString();
-        canvas.drawText(labelToDraw, labelX, rowCenterY - (lfm.ascent + lfm.descent) / 2f, seenLabelPaint);
-        cursorY += rowH;
-
-        // ── Optional sender name (groups) ──
-        if (seenHasName) {
-            Paint.FontMetrics nfm = seenNamePaint.getFontMetrics();
-            cursorY += SEEN_NAME_GAP_TOP_DP * density;
-            String nameToDraw = TextUtils.ellipsize(seenName, seenNamePaint,
-                    Math.max(1, right - left), TextUtils.TruncateAt.END).toString();
-            canvas.drawText(nameToDraw, left, cursorY - nfm.ascent, seenNamePaint);
-            cursorY += (nfm.descent - nfm.ascent);
-        }
-
-        // ── Time line ──
-        Paint.FontMetrics tfm = seenTimePaint.getFontMetrics();
-        cursorY += SEEN_TIME_GAP_TOP_DP * density;
-        canvas.drawText(footerTimeText, left, cursorY - tfm.ascent, seenTimePaint);
-
-        canvas.restore();
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // FILE BUBBLE DRAW — card-style: icon circle | name+meta | action button
-    // ─────────────────────────────────────────────────────────────────────────
-    private void drawFileBubble(Canvas canvas) {
-        int hPad = Math.round(H_PADDING_DP * density);
-        int vPad = Math.round(V_PADDING_DP * density);
-        int replyGap = hasReply ? Math.round(REPLY_GAP_TO_MESSAGE_DP * density) : 0;
-        float top  = bubbleTop + replyBoxHeight + replyGap + vPad;
-        float left = bubbleRect.left + hPad;
-        float rowPad  = FILE_ROW_PAD_DP * density;
-        float iconCol = FILE_ICON_COL_DP * density;
-        float actCol  = FILE_ACTION_COL_DP * density;
-        float contentW = bubbleRect.width() - hPad * 2f;
-
-        // ── Icon circle ────────────────────────────────────────────────────────
-        float cx = left + iconCol / 2f;
-        float cy = top  + fileCardHeight / 2f;
-        float cr = iconCol * 0.38f;
-        Paint iconBg = new Paint(Paint.ANTI_ALIAS_FLAG);
-        iconBg.setColor(fileIconColor);
-        canvas.drawCircle(cx, cy, cr, iconBg);
-        // File glyph — simple dog-ear rectangle
-        android.graphics.Path fp = new android.graphics.Path();
-        float fw = cr * 0.55f, fh = cr * 0.72f;
-        float fx = cx - fw / 2f, fy = cy - fh / 2f;
-        float fold = fw * 0.30f;
-        fp.moveTo(fx, fy + fold);
-        fp.lineTo(fx, fy + fh);
-        fp.lineTo(fx + fw, fy + fh);
-        fp.lineTo(fx + fw, fy);
-        fp.lineTo(fx + fw - fold, fy);
-        fp.lineTo(fx, fy + fold);
-        fp.close();
-        fp.moveTo(fx, fy + fold);
-        fp.lineTo(fx + fw - fold, fy + fold);
-        fp.lineTo(fx + fw - fold, fy);
-        Paint glyphPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        glyphPaint.setColor(0xFFFFFFFF);
-        glyphPaint.setStyle(Paint.Style.FILL);
-        canvas.drawPath(fp, glyphPaint);
-
-        // ── Action button (right column) ───────────────────────────────────────
-        float aRight = bubbleRect.right - hPad;
-        float aLeft  = aRight - actCol;
-        float actCx  = aLeft + actCol / 2f;
-        float actCy  = cy;
-        float actR   = actCol * 0.38f;
-        Paint actBg = new Paint(Paint.ANTI_ALIAS_FLAG);
-        actBg.setColor(0x22000000);
-        canvas.drawCircle(actCx, actCy, actR, actBg);
-        // Store tap rect
-        fileActionRect.set(actCx - actR, actCy - actR, actCx + actR, actCy + actR);
-
-        // Draw icon glyph: ⬇ (download arrow) or ⬗ (open/share square)
-        Paint actIcon = new Paint(Paint.ANTI_ALIAS_FLAG);
-        actIcon.setColor(sent ? 0xFF555555 : 0xFF008069);
-        actIcon.setStyle(Paint.Style.FILL);
-        if (fileIsDownloading) {
-            // Progress ring
-            drawProgressRing(canvas, actCx, actCy, actR * 1.4f, actIcon, fileDownloadPercent);
-        } else if (fileIsCached) {
-            // Open icon — simple right-pointing arrow
-            android.graphics.Path arr = new android.graphics.Path();
-            float as = actR * 0.45f;
-            arr.moveTo(actCx - as, actCy - as * 0.7f);
-            arr.lineTo(actCx + as, actCy);
-            arr.lineTo(actCx - as, actCy + as * 0.7f);
-            actIcon.setStyle(Paint.Style.STROKE);
-            actIcon.setStrokeWidth(density * 2f);
-            canvas.drawPath(arr, actIcon);
-        } else {
-            // Download arrow
-            android.graphics.Path dl = new android.graphics.Path();
-            float as = actR * 0.42f;
-            dl.moveTo(actCx, actCy - as);
-            dl.lineTo(actCx, actCy + as * 0.5f);
-            dl.moveTo(actCx - as * 0.7f, actCy + as * 0.2f);
-            dl.lineTo(actCx, actCy + as * 0.9f);
-            dl.lineTo(actCx + as * 0.7f, actCy + as * 0.2f);
-            actIcon.setStyle(Paint.Style.STROKE);
-            actIcon.setStrokeWidth(density * 2f);
-            canvas.drawPath(dl, actIcon);
-        }
-
-        // ── Name + meta text (centre column) ──────────────────────────────────
-        float textLeft = left + iconCol + rowPad;
-        float textRight = aLeft - rowPad;
-        float textColW = Math.max(1f, textRight - textLeft);
-        // File name
-        textPaint.setTextSize(spToPx(13f));
-        textPaint.setTypeface(Typeface.DEFAULT_BOLD);
-        textPaint.setColor(sent ? 0xFF1A1A1A : 0xFF1A1A1A);
-        float nameTruncW = textPaint.measureText(fileNameText);
-        String displayName = fileNameText;
-        if (nameTruncW > textColW) {
-            displayName = android.text.TextUtils.ellipsize(
-                    fileNameText, textPaint, textColW, android.text.TextUtils.TruncateAt.MIDDLE).toString();
-        }
-        float nameLineH = textPaint.getFontSpacing();
-        float metaLineH;
-        {
-            textPaint.setTextSize(spToPx(10f));
-            textPaint.setTypeface(Typeface.DEFAULT);
-            metaLineH = textPaint.getFontSpacing();
-            textPaint.setTextSize(spToPx(13f));
-            textPaint.setTypeface(Typeface.DEFAULT_BOLD);
-        }
-        float totalTxtH = nameLineH + 2f * density + metaLineH;
-        float nameY = top + (fileCardHeight - totalTxtH) / 2f + nameLineH * 0.85f;
-        canvas.drawText(displayName, textLeft, nameY, textPaint);
-        // Meta (size · type)
-        textPaint.setTextSize(spToPx(10f));
-        textPaint.setTypeface(Typeface.DEFAULT);
-        textPaint.setColor(0xFF888888);
-        float metaY = nameY + 2f * density + metaLineH * 0.85f;
-        String displayMeta = fileSizeMimeText;
-        if (textPaint.measureText(displayMeta) > textColW) {
-            displayMeta = android.text.TextUtils.ellipsize(
-                    displayMeta, textPaint, textColW, android.text.TextUtils.TruncateAt.END).toString();
-        }
-        canvas.drawText(displayMeta, textLeft, metaY, textPaint);
-
-        // ── Footer ─────────────────────────────────────────────────────────────
-        int footerH = Math.round(spToPx(FOOTER_TEXT_SP) + FOOTER_GAP_DP * density);
-        drawFooter(canvas, bubbleRect.bottom - vPad * 0.4f, bubbleRect.right - hPad);
-    }
-
-    private void drawMedia(Canvas canvas, int hPad, int vPad) {
-        float r = MEDIA_CORNER_RADIUS_DP * density;
-        if (mediaBitmap != null) {
-            // Rounded-corner centerCrop: scale a BitmapShader so the source
-            // bitmap fills mediaRect exactly (matching ImageView's
-            // centerCrop), then clip to a round rect with drawRoundRect —
-            // avoids clipPath (which can force a software layer on some
-            // Android versions) while still giving true rounded corners.
-            float scale = Math.max(mediaRect.width() / mediaBitmap.getWidth(),
-                    mediaRect.height() / mediaBitmap.getHeight());
-            float dx = mediaRect.left - (mediaBitmap.getWidth() * scale - mediaRect.width()) / 2f;
-            float dy = mediaRect.top - (mediaBitmap.getHeight() * scale - mediaRect.height()) / 2f;
-            mediaShaderMatrix.reset();
-            mediaShaderMatrix.setScale(scale, scale);
-            mediaShaderMatrix.postTranslate(dx, dy);
-
-            android.graphics.BitmapShader shader = new android.graphics.BitmapShader(
-                    mediaBitmap, android.graphics.Shader.TileMode.CLAMP, android.graphics.Shader.TileMode.CLAMP);
-            shader.setLocalMatrix(mediaShaderMatrix);
-            mediaBitmapPaint.setShader(shader);
-            canvas.drawRoundRect(mediaRect, r, r, mediaBitmapPaint);
-        } else {
-            // Not decoded yet — plain placeholder box, same rounded shape.
-            canvas.drawRoundRect(mediaRect, r, r, mediaPlaceholderPaint);
-        }
-
-        // ── GIF badge — "GIF" pill in top-start corner, WhatsApp/Telegram style ──
-        if (isGifBubble) {
-            float badgePad = 4f * density;
-            float badgeR   = 4f * density;
-            float badgeTsz = spToPx(10f);
-            textPaint.setTextSize(badgeTsz);
-            textPaint.setTypeface(Typeface.DEFAULT_BOLD);
-            float tw = textPaint.measureText(GIF_BADGE_TEXT);
-            float bw = tw + badgePad * 2f;
-            float bh = badgeTsz + badgePad * 2f;
-            float bx = mediaRect.left + 6f * density;
-            float by = mediaRect.top  + 6f * density;
-            Paint gifBadgeBg = new Paint(Paint.ANTI_ALIAS_FLAG);
-            gifBadgeBg.setColor(0xCC000000);
-            RectF gifBadgeRF = new RectF(bx, by, bx + bw, by + bh);
-            canvas.drawRoundRect(gifBadgeRF, badgeR, badgeR, gifBadgeBg);
-            textPaint.setColor(0xFFFFFFFF);
-            canvas.drawText(GIF_BADGE_TEXT, bx + badgePad, by + badgePad + badgeTsz * 0.85f, textPaint);
-            textPaint.setTypeface(Typeface.DEFAULT); // restore
-        }
-
-        if (isVideoMedia) {
-            drawVideoPlayOverlay(canvas);
-        }
-
-        if (mediaGated) {
-            // Manual-download gate covers the whole slot (idle pill or live
-            // spinner/percentage) — same precedent as the group gate: while
-            // it's up, the timestamp/tick pill below is skipped entirely
-            // (nothing meaningful to show over an unfetched image yet).
-            drawMediaDownloadGate(canvas);
-            return;
-        }
-
-        if (mediaHasCaption && textLayout != null) {
-            float captionTop = mediaRect.bottom + MEDIA_CAPTION_GAP_DP * density;
-            canvas.save();
-            canvas.translate(bubbleLeft + hPad, captionTop);
-            textLayout.draw(canvas);
-            canvas.restore();
-            drawFooter(canvas, bubbleRect.bottom - vPad * 0.4f, bubbleRect.right - hPad);
-        } else {
-            // Captionless image: translucent timestamp/tick pill overlaid
-            // on the image's bottom-right corner, WhatsApp-style.
-            float rr = MEDIA_PILL_CORNER_DP * density;
-            canvas.drawRoundRect(mediaPillRect, rr, rr, mediaPillBgPaint);
-            float pillPadH = MEDIA_PILL_PADDING_H_DP * density;
-            float textBaselineY = mediaPillRect.bottom - (mediaPillRect.height()
-                    - (mediaPillTextPaint.descent() - mediaPillTextPaint.ascent())) / 2f
-                    - mediaPillTextPaint.descent();
-            float tickReserve = sent ? (TICK_SIZE_DP + TICK_GAP_DP) * density : 0;
-            canvas.drawText(footerTimeText,
-                    mediaPillRect.right - pillPadH - tickReserve - mediaPillTextPaint.measureText(footerTimeText),
-                    textBaselineY, mediaPillTextPaint);
-            if (sent) {
-                // Reuse the same tick paint as the text-bubble footer, but
-                // white (matches mediaPillTextPaint) so it reads on the pill.
-                Paint saved = new Paint(tickPaint);
-                tickPaint.setColor(MEDIA_PILL_TEXT);
-                drawTick(canvas, mediaPillRect.right - pillPadH - TICK_SIZE_DP * density, textBaselineY);
-                tickPaint.set(saved);
-            }
-        }
-    }
-
-    /**
-     * Draws the play-circle+triangle glyph centered on mediaRect, plus a
-     * duration badge in the bottom-left corner — mirrors the legacy
-     * fl_video/iv_video_thumb treatment for a single "video" message.
-     * Reuses groupPlayCirclePaint/groupPlayTrianglePaint/
-     * groupDurationTextPaint/groupDurationBgPaint/groupPlayTrianglePath
-     * from the media-GROUP video-cell overlay — identical visual, no
-     * separate constants needed for the single-video case.
-     */
-    private void drawVideoPlayOverlay(Canvas canvas) {
-        float cx = mediaRect.centerX(), cy = mediaRect.centerY();
-        float circleR = (GROUP_PLAY_CIRCLE_DP * density) / 2f;
-        canvas.drawCircle(cx, cy, circleR, groupPlayCirclePaint);
-
-        float triR = (GROUP_PLAY_TRIANGLE_DP * density) / 2f;
-        groupPlayTrianglePath.reset();
-        groupPlayTrianglePath.moveTo(cx - triR * 0.5f, cy - triR * 0.8f);
-        groupPlayTrianglePath.lineTo(cx - triR * 0.5f, cy + triR * 0.8f);
-        groupPlayTrianglePath.lineTo(cx + triR * 0.9f, cy);
-        groupPlayTrianglePath.close();
-        canvas.drawPath(groupPlayTrianglePath, groupPlayTrianglePaint);
-
-        if (videoDuration != null && !videoDuration.isEmpty()) {
-            float durPadH = 3 * density, durPadV = 1 * density;
-            float textW = groupDurationTextPaint.measureText(videoDuration);
-            float textH = groupDurationTextPaint.descent() - groupDurationTextPaint.ascent();
-            float left = mediaRect.left + 4 * density;
-            float bottom = mediaRect.bottom - 4 * density;
-            RectF durBg = new RectF(left, bottom - textH - durPadV * 2, left + textW + durPadH * 2, bottom);
-            canvas.drawRoundRect(durBg, 3 * density, 3 * density, groupDurationBgPaint);
-            float textBaseline = durBg.bottom - durPadV - groupDurationTextPaint.descent();
-            canvas.drawText(videoDuration, durBg.left + durPadH, textBaseline, groupDurationTextPaint);
-        }
-    }
-
-    /**
-     * Draws the audio row — play/pause circle button, waveform track
-     * (idle-colored bars, with the played fraction re-drawn in the
-     * played color, clipped to audioProgress), elapsed-time label, and
-     * finally the normal text-bubble footer (time/tick) below the whole
-     * row, since an audio bubble is never captioned.
-     */
-    private void drawAudio(Canvas canvas, int hPad, int vPad) {
-        // ── Play/pause button ──
-        canvas.drawCircle(audioBtnRect.centerX(), audioBtnRect.centerY(),
-                audioBtnRect.width() / 2f, audioBtnBgPaint);
-        float cx = audioBtnRect.centerX(), cy = audioBtnRect.centerY();
-        if (audioPlaying) {
-            float barW = AUDIO_PAUSE_BAR_W_DP * density;
-            float barH = AUDIO_PAUSE_BAR_H_DP * density;
-            float gap = AUDIO_PAUSE_BAR_GAP_DP * density;
-            canvas.drawRoundRect(cx - gap / 2f - barW, cy - barH / 2f, cx - gap / 2f, cy + barH / 2f,
-                    barW / 3f, barW / 3f, audioBtnIconPaint);
-            canvas.drawRoundRect(cx + gap / 2f, cy - barH / 2f, cx + gap / 2f + barW, cy + barH / 2f,
-                    barW / 3f, barW / 3f, audioBtnIconPaint);
-        } else {
-            float triR = (AUDIO_PLAY_TRIANGLE_DP * density) / 2f;
-            audioPlayTrianglePath.reset();
-            audioPlayTrianglePath.moveTo(cx - triR * 0.5f, cy - triR * 0.85f);
-            audioPlayTrianglePath.lineTo(cx - triR * 0.5f, cy + triR * 0.85f);
-            audioPlayTrianglePath.lineTo(cx + triR * 0.95f, cy);
-            audioPlayTrianglePath.close();
-            canvas.drawPath(audioPlayTrianglePath, audioBtnIconPaint);
-        }
-
-        // ── Waveform ── same shape/placement logic as AudioWaveformView's
-        // drawBars(): fixed bar count, rounded bars centered vertically in
-        // the track, drawn once per onDraw (cheap enough — only the
-        // currently-playing bubble redraws every 250ms tick).
-        int n = audioLevels.length;
-        if (n > 0) {
-            float slot = audioWaveformRect.width() / n;
-            float barWidth = slot * (1f - AUDIO_BAR_GAP_RATIO);
-            float radius = barWidth / 2f;
-            float centerY = audioWaveformRect.centerY();
-            float trackH = audioWaveformRect.height();
-            float playedRightEdge = audioWaveformRect.left + audioWaveformRect.width() * audioProgress;
-            float x = audioWaveformRect.left;
-            for (float lvl : audioLevels) {
-                float barHeight = Math.max(barWidth, lvl * trackH);
-                boolean played = (x + barWidth / 2f) <= playedRightEdge;
-                canvas.drawRoundRect(x, centerY - barHeight / 2f, x + barWidth, centerY + barHeight / 2f,
-                        radius, radius, played ? audioWaveformPlayedPaint : audioWaveformIdlePaint);
-                x += slot;
-            }
-        }
-
-        // ── Elapsed-time label ── right-aligned in its fixed slot just
-        // past the waveform; empty (idle) until playback actually starts,
-        // same as the legacy tv_audio_dur.
-        if (!audioElapsedText.isEmpty()) {
-            float baselineY = audioWaveformRect.centerY()
-                    - (audioDurPaint.ascent() + audioDurPaint.descent()) / 2f;
-            canvas.drawText(audioElapsedText, bubbleRect.right - hPad, baselineY, audioDurPaint);
-        }
-
-        drawFooter(canvas, bubbleRect.bottom - vPad * 0.4f, bubbleRect.right - hPad);
-    }
-
-    /**
-     * Draws the single-media download gate: a dim scrim over mediaRect plus
-     * a centered pill — idle "⬇ <label>" (tap to start) when !mediaDownloading,
-     * or a live spinner/percentage ring while mediaDownloading is true. See
-     * setMediaDownloadGate()/setMediaDownloadProgress().
-     */
-    private void drawMediaDownloadGate(Canvas canvas) {
-        float r = MEDIA_CORNER_RADIUS_DP * density;
-        canvas.drawRoundRect(mediaRect, r, r, mediaGateScrimPaint);
-
-        String label = mediaDownloading
-                ? (mediaDownloadProgress >= 0 ? mediaDownloadProgress + "%" : "")
-                : (mediaDownloadLabel.isEmpty() ? "Photo" : mediaDownloadLabel);
-
-        float iconSize = GROUP_GATE_PILL_ICON_DP * density;
-        float iconGap = GROUP_GATE_PILL_ICON_GAP_DP * density;
-        float padH = GROUP_GATE_PILL_PAD_H_DP * density;
-        float padV = GROUP_GATE_PILL_PAD_V_DP * density;
-        float textW = label.isEmpty() ? 0 : mediaGatePillTextPaint.measureText(label);
-        float contentH = Math.max(iconSize, mediaGatePillTextPaint.descent() - mediaGatePillTextPaint.ascent());
-        float pillW = padH * 2 + iconSize + (label.isEmpty() ? 0 : iconGap + textW);
-        float pillH = padV * 2 + contentH;
-        float cx = mediaRect.centerX(), cy = mediaRect.centerY();
-        mediaGatePillRect.set(cx - pillW / 2f, cy - pillH / 2f, cx + pillW / 2f, cy + pillH / 2f);
-
-        float pillR = GROUP_GATE_PILL_CORNER_DP * density;
-        canvas.drawRoundRect(mediaGatePillRect, pillR, pillR, mediaGatePillBgPaint);
-
-        float iconCx = mediaGatePillRect.left + padH + iconSize / 2f;
-        float iconCy = mediaGatePillRect.centerY();
-
-        if (mediaDownloading) {
-            drawProgressRing(canvas, iconCx, iconCy, iconSize, mediaGatePillIconPaint, mediaDownloadProgress);
-        } else {
-            drawGateIcon(canvas, iconCx, iconCy, iconSize, mediaGatePillIconPaint);
-        }
-
-        if (!label.isEmpty()) {
-            float textBaselineY = mediaGatePillRect.centerY()
-                    - (mediaGatePillTextPaint.ascent() + mediaGatePillTextPaint.descent()) / 2f;
-            canvas.drawText(label, iconCx + iconSize / 2f + iconGap, textBaselineY, mediaGatePillTextPaint);
-        }
-    }
-
-    private void drawMediaGroup(Canvas canvas) {
-        float cellR = GROUP_CORNER_R * density;
-        for (int i = 0; i < groupVisibleCount; i++) {
-            RectF rect = groupRects[i];
-            boolean isLastOverlay = (i == groupVisibleCount - 1) && groupRemaining > 0;
-            GridItem item = i < groupItems.size() ? groupItems.get(i) : null;
-            Bitmap bmp = groupBitmaps[i];
-
-            if (bmp != null) {
-                float scale = Math.max(rect.width() / bmp.getWidth(), rect.height() / bmp.getHeight());
-                float dx = rect.left - (bmp.getWidth() * scale - rect.width()) / 2f;
-                float dy = rect.top - (bmp.getHeight() * scale - rect.height()) / 2f;
-                groupShaderMatrix.reset();
-                groupShaderMatrix.setScale(scale, scale);
-                groupShaderMatrix.postTranslate(dx, dy);
-                android.graphics.BitmapShader shader = new android.graphics.BitmapShader(
-                        bmp, android.graphics.Shader.TileMode.CLAMP, android.graphics.Shader.TileMode.CLAMP);
-                shader.setLocalMatrix(groupShaderMatrix);
-                groupBitmapPaint.setShader(shader);
-                canvas.drawRoundRect(rect, cellR, cellR, groupBitmapPaint);
-            } else {
-                canvas.drawRoundRect(rect, cellR, cellR, groupCellBgPaint);
-            }
-
-            if (item != null && item.isVideo && !isLastOverlay) {
-                float cx = rect.centerX(), cy = rect.centerY();
-                float circleR = (GROUP_PLAY_CIRCLE_DP * density) / 2f;
-                canvas.drawCircle(cx, cy, circleR, groupPlayCirclePaint);
-
-                float triR = (GROUP_PLAY_TRIANGLE_DP * density) / 2f;
-                groupPlayTrianglePath.reset();
-                groupPlayTrianglePath.moveTo(cx - triR * 0.5f, cy - triR * 0.8f);
-                groupPlayTrianglePath.lineTo(cx - triR * 0.5f, cy + triR * 0.8f);
-                groupPlayTrianglePath.lineTo(cx + triR * 0.9f, cy);
-                groupPlayTrianglePath.close();
-                canvas.drawPath(groupPlayTrianglePath, groupPlayTrianglePaint);
-
-                boolean hasItemCaption = item.caption != null && !item.caption.isEmpty();
-                if (item.duration != null && !item.duration.isEmpty()) {
-                    float durPadH = 3 * density, durPadV = 1 * density;
-                    float textW = groupDurationTextPaint.measureText(item.duration);
-                    float textH = groupDurationTextPaint.descent() - groupDurationTextPaint.ascent();
-                    RectF durBg;
-                    if (hasItemCaption) {
-                        // Duration moves to the top-end corner so it doesn't
-                        // collide with the caption strip pinned to the bottom
-                        // (same conflict-avoidance MediaGroupLayoutHelper uses).
-                        float right = rect.right - 4 * density;
-                        float top = rect.top + 4 * density;
-                        durBg = new RectF(right - textW - durPadH * 2, top, right, top + textH + durPadV * 2);
-                    } else {
-                        float left = rect.left + 4 * density;
-                        float bottom = rect.bottom - 4 * density;
-                        durBg = new RectF(left, bottom - textH - durPadV * 2, left + textW + durPadH * 2, bottom);
-                    }
-                    canvas.drawRoundRect(durBg, 3 * density, 3 * density, groupDurationBgPaint);
-                    float textBaseline = hasItemCaption
-                            ? durBg.top + durPadV - groupDurationTextPaint.ascent()
-                            : durBg.bottom - durPadV - groupDurationTextPaint.descent();
-                    canvas.drawText(item.duration, durBg.left + durPadH, textBaseline, groupDurationTextPaint);
-                }
-            }
-
-            // Per-item caption: small gradient strip + single-line ellipsized
-            // text pinned to this cell's bottom edge — mirrors
-            // MediaGroupLayoutHelper's per-item caption exactly, just Canvas-
-            // drawn. Skipped on the "+N" overflow cell (nothing legible fits
-            // under the dark overlay+count already covering it).
-            if (item != null && !isLastOverlay && item.caption != null && !item.caption.isEmpty()) {
-                float stripH = GROUP_ITEM_CAPTION_STRIP_H_DP * density;
-                float stripTop = rect.bottom - stripH;
-                android.graphics.Shader grad = new android.graphics.LinearGradient(
-                        0, stripTop, 0, rect.bottom, 0x00000000, 0x99000000, android.graphics.Shader.TileMode.CLAMP);
-                groupItemCaptionScrimPaint.setShader(grad);
-                canvas.drawRect(rect.left, stripTop, rect.right, rect.bottom, groupItemCaptionScrimPaint);
-
-                float margin = GROUP_ITEM_CAPTION_MARGIN_DP * density;
-                float maxTextW = rect.width() - margin * 2;
-                CharSequence ellipsized = TextUtils.ellipsize(item.caption, groupItemCaptionPaint, maxTextW, TextUtils.TruncateAt.END);
-                float baseline = rect.bottom - GROUP_ITEM_CAPTION_BOTTOM_DP * density - groupItemCaptionPaint.descent();
-                canvas.drawText(ellipsized, 0, ellipsized.length(), rect.left + margin, baseline, groupItemCaptionPaint);
-            }
-
-            if (isLastOverlay) {
-                canvas.drawRoundRect(rect, cellR, cellR, groupMoreOverlayPaint);
-                canvas.drawText("+" + groupRemaining, rect.centerX(),
-                        rect.centerY() - (groupMoreTextPaint.ascent() + groupMoreTextPaint.descent()) / 2f,
-                        groupMoreTextPaint);
-            }
-
-            // Per-cell download badge — only drawn once the master gate
-            // pill (below) has been dismissed; while the gate is up it
-            // alone covers the whole grid, same as the old View-based
-            // master overlay sitting on top of every per-cell overlay.
-            if (!groupGateActive && !isLastOverlay
-                    && i < groupCellPending.length && groupCellPending[i]) {
-                canvas.drawRoundRect(rect, cellR, cellR, groupCellGateDimPaint);
-                float cx = rect.centerX(), cy = rect.centerY();
-                float badgeR = (GROUP_CELL_GATE_BADGE_DP * density) / 2f;
-                canvas.drawCircle(cx, cy, badgeR, groupCellGateBadgeBgPaint);
-                boolean downloading = i < groupCellDownloading.length && groupCellDownloading[i];
-                if (downloading) {
-                    int prog = i < groupCellProgress.length ? groupCellProgress[i] : -1;
-                    drawProgressRing(canvas, cx, cy, GROUP_CELL_GATE_ICON_DP * density, groupCellGateIconPaint, prog);
-                } else {
-                    drawGateIcon(canvas, cx, cy, GROUP_CELL_GATE_ICON_DP * density, groupCellGateIconPaint);
-                }
-            }
-        }
-
-        if (groupGateActive) {
-            // Master "Download N photos" pill — mirrors
-            // MediaGroupLayoutHelper.addMasterDownloadOverlay(): a single
-            // dim scrim over the whole grid with a centered pill, tap
-            // anywhere in the grid to dismiss + start every pending cell.
-            canvas.drawRect(groupContentRect, groupGateScrimPaint);
-
-            String label = "Download " + groupGatePendingCount
-                    + (groupGatePendingCount == 1 ? " photo" : " photos");
-            float iconSize = GROUP_GATE_PILL_ICON_DP * density;
-            float iconGap = GROUP_GATE_PILL_ICON_GAP_DP * density;
-            float padH = GROUP_GATE_PILL_PAD_H_DP * density;
-            float padV = GROUP_GATE_PILL_PAD_V_DP * density;
-            float textW = groupGatePillTextPaint.measureText(label);
-            float contentH = Math.max(iconSize, groupGatePillTextPaint.descent() - groupGatePillTextPaint.ascent());
-            float pillW = padH * 2 + iconSize + iconGap + textW;
-            float pillH = padV * 2 + contentH;
-            float cx = groupContentRect.centerX(), cy = groupContentRect.centerY();
-            groupGatePillRect.set(cx - pillW / 2f, cy - pillH / 2f, cx + pillW / 2f, cy + pillH / 2f);
-
-            float pillR = GROUP_GATE_PILL_CORNER_DP * density;
-            canvas.drawRoundRect(groupGatePillRect, pillR, pillR, groupGatePillBgPaint);
-
-            float iconCx = groupGatePillRect.left + padH + iconSize / 2f;
-            float iconCy = groupGatePillRect.centerY();
-            drawGateIcon(canvas, iconCx, iconCy, iconSize, groupGatePillIconPaint);
-
-            float textBaselineY = groupGatePillRect.centerY()
-                    - (groupGatePillTextPaint.ascent() + groupGatePillTextPaint.descent()) / 2f;
-            canvas.drawText(label, iconCx + iconSize / 2f + iconGap, textBaselineY, groupGatePillTextPaint);
-        }
-
-        if (groupHasCaption && groupCaptionLayout != null) {
-            float scrimTop = groupContentRect.bottom - GROUP_CAPTION_SCRIM_H_DP * density;
-            android.graphics.Shader grad = new android.graphics.LinearGradient(
-                    0, scrimTop, 0, groupContentRect.bottom,
-                    0x00000000, 0xAA000000, android.graphics.Shader.TileMode.CLAMP);
-            groupScrimPaint.setShader(grad);
-            canvas.drawRect(groupContentRect.left, scrimTop, groupContentRect.right, groupContentRect.bottom, groupScrimPaint);
-
-            canvas.save();
-            canvas.translate(groupContentRect.left + 4 * density,
-                    groupContentRect.bottom - groupCaptionLayout.getHeight() - 4 * density);
-            groupCaptionLayout.draw(canvas);
-            canvas.restore();
-        } else {
-            // Captionless group: translucent timestamp/tick pill overlaid
-            // on the grid's bottom-right corner — same treatment as the
-            // single-image bubble's captionless pill.
-            float rr = MEDIA_PILL_CORNER_DP * density;
-            canvas.drawRoundRect(mediaPillRect, rr, rr, mediaPillBgPaint);
-            float pillPadH = MEDIA_PILL_PADDING_H_DP * density;
-            float textBaselineY = mediaPillRect.bottom - (mediaPillRect.height()
-                    - (mediaPillTextPaint.descent() - mediaPillTextPaint.ascent())) / 2f
-                    - mediaPillTextPaint.descent();
-            float tickReserve = sent ? (TICK_SIZE_DP + TICK_GAP_DP) * density : 0;
-            canvas.drawText(footerTimeText,
-                    mediaPillRect.right - pillPadH - tickReserve - mediaPillTextPaint.measureText(footerTimeText),
-                    textBaselineY, mediaPillTextPaint);
-            if (sent) {
-                drawTick(canvas, mediaPillRect.right - pillPadH - TICK_SIZE_DP * density, textBaselineY);
-            }
-        }
-    }
-
-    /** Extra width (text + trailing gap) the "⏳ mm:ss" countdown reserves in
-     *  the footer row, ahead of the timestamp — 0 when there's no active expiry. */
-    private float expiryReserveWidth() {
-        return hasExpiry ? expiryPaint.measureText(expiryText) + FOOTER_GAP_DP * density : 0f;
-    }
-
-    /**
-     * Draws the link-preview card computed in onMeasure — rounded card
-     * background (same #33000000/#22000000 sent/received treatment as
-     * the reply-preview strip), an optional top thumbnail band
-     * (centerCrop bitmap, or a plain placeholder box while it's still
-     * loading), then the domain row and bold title underneath. Card tap
-     * handling lives in onTouchEvent (linkCardRect hit-test).
-     */
-    private void drawLinkPreview(Canvas canvas) {
-        float r = LINK_PREVIEW_CORNER_DP * density;
-        canvas.drawRoundRect(linkCardRect, r, r, linkCardBgPaint);
-
-        float textLeft = linkCardRect.left + LINK_PREVIEW_PAD_H_DP * density;
-        float textRight = linkCardRect.right - LINK_PREVIEW_PAD_H_DP * density;
-        float cursorY;
-
-        if (linkHasThumb) {
-            if (linkThumbBitmap != null) {
-                // Rounded-top-corner centerCrop, same BitmapShader technique
-                // drawMedia() uses for the single-image bubble — clipped to
-                // the card's own round-rect so only the top two corners
-                // actually round (bottom corners are covered by the text
-                // column below, so a full round-rect clip reads correctly).
-                float scale = Math.max(linkThumbRect.width() / linkThumbBitmap.getWidth(),
-                        linkThumbRect.height() / linkThumbBitmap.getHeight());
-                float dx = linkThumbRect.left - (linkThumbBitmap.getWidth() * scale - linkThumbRect.width()) / 2f;
-                float dy = linkThumbRect.top - (linkThumbBitmap.getHeight() * scale - linkThumbRect.height()) / 2f;
-                linkThumbShaderMatrix.reset();
-                linkThumbShaderMatrix.setScale(scale, scale);
-                linkThumbShaderMatrix.postTranslate(dx, dy);
-
-                android.graphics.BitmapShader shader = new android.graphics.BitmapShader(
-                        linkThumbBitmap, android.graphics.Shader.TileMode.CLAMP, android.graphics.Shader.TileMode.CLAMP);
-                shader.setLocalMatrix(linkThumbShaderMatrix);
-                linkThumbPaint.setShader(shader);
-                int saveCount = canvas.save();
-                android.graphics.Path clip = new android.graphics.Path();
-                clip.addRoundRect(linkCardRect, r, r, android.graphics.Path.Direction.CW);
-                canvas.clipPath(clip);
-                canvas.drawRect(linkThumbRect, linkThumbPaint);
-                canvas.restoreToCount(saveCount);
-            } else {
-                // Not decoded yet — plain placeholder band, same rounded-top shape.
-                int saveCount = canvas.save();
-                android.graphics.Path clip = new android.graphics.Path();
-                clip.addRoundRect(linkCardRect, r, r, android.graphics.Path.Direction.CW);
-                canvas.clipPath(clip);
-                canvas.drawRect(linkThumbRect, linkThumbPlaceholderPaint);
-                canvas.restoreToCount(saveCount);
-            }
-            cursorY = linkThumbRect.bottom + LINK_PREVIEW_PAD_TOP_DP * density;
-        } else {
-            cursorY = linkCardRect.top + LINK_PREVIEW_PAD_TOP_DP * density;
-        }
-
-        if (!linkDomain.isEmpty()) {
-            Paint.FontMetrics dfm = linkDomainPaint.getFontMetrics();
-            float baselineY = cursorY - dfm.ascent;
-            canvas.drawText(linkDomain.toUpperCase(java.util.Locale.getDefault()), textLeft, baselineY, linkDomainPaint);
-            cursorY = baselineY + dfm.descent + LINK_PREVIEW_TITLE_GAP_DP * density;
-        }
-
-        if (linkTitleLayout != null) {
-            canvas.save();
-            canvas.translate(textLeft, cursorY);
-            linkTitleLayout.draw(canvas);
-            canvas.restore();
-        }
-    }
-
-    private void drawFooter(Canvas canvas, float footerBaselineY, float footerRightX) {
+    void drawFooter(Canvas canvas, float footerBaselineY, float footerRightX) {
         float timeX = footerRightX - footerPaint.measureText(footerTimeText)
                 - (sent ? (TICK_SIZE_DP + TICK_GAP_DP) * density : 0);
         canvas.drawText(footerTimeText, timeX, footerBaselineY, footerPaint);
@@ -4658,7 +3385,7 @@ public class MessageBubbleCanvasView extends View {
         }
     }
 
-    private final RectF gateIconArcRect = new RectF();
+    final RectF gateIconArcRect = new RectF();
 
     /**
      * Draws the IDLE download-gate glyph at (cx, cy) sized to `size`: a
@@ -4667,7 +3394,7 @@ public class MessageBubbleCanvasView extends View {
      * download starts, drawProgressRing() takes over instead (live
      * spinner/percentage) — see setMediaDownloadGate()/setGroupCellProgress().
      */
-    private void drawGateIcon(Canvas canvas, float cx, float cy, float size, Paint paint) {
+    void drawGateIcon(Canvas canvas, float cx, float cy, float size, Paint paint) {
         float r = size / 2f;
         float shaftTop = cy - r;
         float shaftBottom = cy + r * 0.25f;
@@ -4686,7 +3413,7 @@ public class MessageBubbleCanvasView extends View {
      * postInvalidateOnAnimation() — the standard technique for an
      * indeterminate spinner on a custom View without a Handler/ValueAnimator.
      */
-    private void drawProgressRing(Canvas canvas, float cx, float cy, float size, Paint paint, int percent) {
+    void drawProgressRing(Canvas canvas, float cx, float cy, float size, Paint paint, int percent) {
         float r = size / 2f;
         gateIconArcRect.set(cx - r, cy - r, cx + r, cy + r);
         if (percent >= 0) {
@@ -4699,7 +3426,7 @@ public class MessageBubbleCanvasView extends View {
         }
     }
 
-    private void drawTick(Canvas canvas, float x, float baselineY) {
+    void drawTick(Canvas canvas, float x, float baselineY) {
         // Simple two-stroke check mark; double check mark for delivered/read.
         float size = TICK_SIZE_DP * density;
         float y = baselineY - size * 0.4f;
@@ -4929,7 +3656,7 @@ public class MessageBubbleCanvasView extends View {
         return gestureDetector.onTouchEvent(event) || super.onTouchEvent(event);
     }
 
-    private float spToPx(float sp) {
+    float spToPx(float sp) {
         return sp * getContext().getResources().getDisplayMetrics().scaledDensity;
     }
 }

@@ -1,0 +1,200 @@
+package com.callx.app.conversation.canvas;
+
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.RectF;
+import android.text.TextUtils;
+
+/**
+ * Draws the media-group (album grid) slot: per-cell centerCrop bitmap (or
+ * placeholder), per-video play-glyph + duration badge, per-item caption
+ * strip, "+N" overflow overlay, per-cell/master download gates, group
+ * caption or captionless timestamp/tick pill.
+ *
+ * Moved verbatim out of MessageBubbleCanvasView (feature-based file
+ * split, no behavior change) — bind/measure/touch logic for the media
+ * group stays on the host view; this class only owns the draw() call.
+ */
+final class MediaGroupRenderer {
+
+    private final MessageBubbleCanvasView host;
+
+    MediaGroupRenderer(MessageBubbleCanvasView host) {
+        this.host = host;
+    }
+
+    void draw(Canvas canvas) {
+        float cellR = MessageBubbleCanvasView.GROUP_CORNER_R * host.density;
+        for (int i = 0; i < host.groupVisibleCount; i++) {
+            RectF rect = host.groupRects[i];
+            boolean isLastOverlay = (i == host.groupVisibleCount - 1) && host.groupRemaining > 0;
+            GridItem item = i < host.groupItems.size() ? host.groupItems.get(i) : null;
+            Bitmap bmp = host.groupBitmaps[i];
+
+            if (bmp != null) {
+                float scale = Math.max(rect.width() / bmp.getWidth(), rect.height() / bmp.getHeight());
+                float dx = rect.left - (bmp.getWidth() * scale - rect.width()) / 2f;
+                float dy = rect.top - (bmp.getHeight() * scale - rect.height()) / 2f;
+                host.groupShaderMatrix.reset();
+                host.groupShaderMatrix.setScale(scale, scale);
+                host.groupShaderMatrix.postTranslate(dx, dy);
+                android.graphics.BitmapShader shader = new android.graphics.BitmapShader(
+                        bmp, android.graphics.Shader.TileMode.CLAMP, android.graphics.Shader.TileMode.CLAMP);
+                shader.setLocalMatrix(host.groupShaderMatrix);
+                host.groupBitmapPaint.setShader(shader);
+                canvas.drawRoundRect(rect, cellR, cellR, host.groupBitmapPaint);
+            } else {
+                canvas.drawRoundRect(rect, cellR, cellR, host.groupCellBgPaint);
+            }
+
+            if (item != null && item.isVideo && !isLastOverlay) {
+                float cx = rect.centerX(), cy = rect.centerY();
+                float circleR = (MessageBubbleCanvasView.GROUP_PLAY_CIRCLE_DP * host.density) / 2f;
+                canvas.drawCircle(cx, cy, circleR, host.groupPlayCirclePaint);
+
+                float triR = (MessageBubbleCanvasView.GROUP_PLAY_TRIANGLE_DP * host.density) / 2f;
+                host.groupPlayTrianglePath.reset();
+                host.groupPlayTrianglePath.moveTo(cx - triR * 0.5f, cy - triR * 0.8f);
+                host.groupPlayTrianglePath.lineTo(cx - triR * 0.5f, cy + triR * 0.8f);
+                host.groupPlayTrianglePath.lineTo(cx + triR * 0.9f, cy);
+                host.groupPlayTrianglePath.close();
+                canvas.drawPath(host.groupPlayTrianglePath, host.groupPlayTrianglePaint);
+
+                boolean hasItemCaption = item.caption != null && !item.caption.isEmpty();
+                if (item.duration != null && !item.duration.isEmpty()) {
+                    float durPadH = 3 * host.density, durPadV = 1 * host.density;
+                    float textW = host.groupDurationTextPaint.measureText(item.duration);
+                    float textH = host.groupDurationTextPaint.descent() - host.groupDurationTextPaint.ascent();
+                    RectF durBg;
+                    if (hasItemCaption) {
+                        // Duration moves to the top-end corner so it doesn't
+                        // collide with the caption strip pinned to the bottom
+                        // (same conflict-avoidance MediaGroupLayoutHelper uses).
+                        float right = rect.right - 4 * host.density;
+                        float top = rect.top + 4 * host.density;
+                        durBg = new RectF(right - textW - durPadH * 2, top, right, top + textH + durPadV * 2);
+                    } else {
+                        float left = rect.left + 4 * host.density;
+                        float bottom = rect.bottom - 4 * host.density;
+                        durBg = new RectF(left, bottom - textH - durPadV * 2, left + textW + durPadH * 2, bottom);
+                    }
+                    canvas.drawRoundRect(durBg, 3 * host.density, 3 * host.density, host.groupDurationBgPaint);
+                    float textBaseline = hasItemCaption
+                            ? durBg.top + durPadV - host.groupDurationTextPaint.ascent()
+                            : durBg.bottom - durPadV - host.groupDurationTextPaint.descent();
+                    canvas.drawText(item.duration, durBg.left + durPadH, textBaseline, host.groupDurationTextPaint);
+                }
+            }
+
+            // Per-item caption: small gradient strip + single-line ellipsized
+            // text pinned to this cell's bottom edge — mirrors
+            // MediaGroupLayoutHelper's per-item caption exactly, just Canvas-
+            // drawn. Skipped on the "+N" overflow cell (nothing legible fits
+            // under the dark overlay+count already covering it).
+            if (item != null && !isLastOverlay && item.caption != null && !item.caption.isEmpty()) {
+                float stripH = MessageBubbleCanvasView.GROUP_ITEM_CAPTION_STRIP_H_DP * host.density;
+                float stripTop = rect.bottom - stripH;
+                android.graphics.Shader grad = new android.graphics.LinearGradient(
+                        0, stripTop, 0, rect.bottom, 0x00000000, 0x99000000, android.graphics.Shader.TileMode.CLAMP);
+                host.groupItemCaptionScrimPaint.setShader(grad);
+                canvas.drawRect(rect.left, stripTop, rect.right, rect.bottom, host.groupItemCaptionScrimPaint);
+
+                float margin = MessageBubbleCanvasView.GROUP_ITEM_CAPTION_MARGIN_DP * host.density;
+                float maxTextW = rect.width() - margin * 2;
+                CharSequence ellipsized = TextUtils.ellipsize(item.caption, host.groupItemCaptionPaint, maxTextW, TextUtils.TruncateAt.END);
+                float baseline = rect.bottom - MessageBubbleCanvasView.GROUP_ITEM_CAPTION_BOTTOM_DP * host.density - host.groupItemCaptionPaint.descent();
+                canvas.drawText(ellipsized, 0, ellipsized.length(), rect.left + margin, baseline, host.groupItemCaptionPaint);
+            }
+
+            if (isLastOverlay) {
+                canvas.drawRoundRect(rect, cellR, cellR, host.groupMoreOverlayPaint);
+                canvas.drawText("+" + host.groupRemaining, rect.centerX(),
+                        rect.centerY() - (host.groupMoreTextPaint.ascent() + host.groupMoreTextPaint.descent()) / 2f,
+                        host.groupMoreTextPaint);
+            }
+
+            // Per-cell download badge — only drawn once the master gate
+            // pill (below) has been dismissed; while the gate is up it
+            // alone covers the whole grid, same as the old View-based
+            // master overlay sitting on top of every per-cell overlay.
+            if (!host.groupGateActive && !isLastOverlay
+                    && i < host.groupCellPending.length && host.groupCellPending[i]) {
+                canvas.drawRoundRect(rect, cellR, cellR, host.groupCellGateDimPaint);
+                float cx = rect.centerX(), cy = rect.centerY();
+                float badgeR = (MessageBubbleCanvasView.GROUP_CELL_GATE_BADGE_DP * host.density) / 2f;
+                canvas.drawCircle(cx, cy, badgeR, host.groupCellGateBadgeBgPaint);
+                boolean downloading = i < host.groupCellDownloading.length && host.groupCellDownloading[i];
+                if (downloading) {
+                    int prog = i < host.groupCellProgress.length ? host.groupCellProgress[i] : -1;
+                    host.drawProgressRing(canvas, cx, cy, MessageBubbleCanvasView.GROUP_CELL_GATE_ICON_DP * host.density, host.groupCellGateIconPaint, prog);
+                } else {
+                    host.drawGateIcon(canvas, cx, cy, MessageBubbleCanvasView.GROUP_CELL_GATE_ICON_DP * host.density, host.groupCellGateIconPaint);
+                }
+            }
+        }
+
+        if (host.groupGateActive) {
+            // Master "Download N photos" pill — mirrors
+            // MediaGroupLayoutHelper.addMasterDownloadOverlay(): a single
+            // dim scrim over the whole grid with a centered pill, tap
+            // anywhere in the grid to dismiss + start every pending cell.
+            canvas.drawRect(host.groupContentRect, host.groupGateScrimPaint);
+
+            String label = "Download " + host.groupGatePendingCount
+                    + (host.groupGatePendingCount == 1 ? " photo" : " photos");
+            float iconSize = MessageBubbleCanvasView.GROUP_GATE_PILL_ICON_DP * host.density;
+            float iconGap = MessageBubbleCanvasView.GROUP_GATE_PILL_ICON_GAP_DP * host.density;
+            float padH = MessageBubbleCanvasView.GROUP_GATE_PILL_PAD_H_DP * host.density;
+            float padV = MessageBubbleCanvasView.GROUP_GATE_PILL_PAD_V_DP * host.density;
+            float textW = host.groupGatePillTextPaint.measureText(label);
+            float contentH = Math.max(iconSize, host.groupGatePillTextPaint.descent() - host.groupGatePillTextPaint.ascent());
+            float pillW = padH * 2 + iconSize + iconGap + textW;
+            float pillH = padV * 2 + contentH;
+            float cx = host.groupContentRect.centerX(), cy = host.groupContentRect.centerY();
+            host.groupGatePillRect.set(cx - pillW / 2f, cy - pillH / 2f, cx + pillW / 2f, cy + pillH / 2f);
+
+            float pillR = MessageBubbleCanvasView.GROUP_GATE_PILL_CORNER_DP * host.density;
+            canvas.drawRoundRect(host.groupGatePillRect, pillR, pillR, host.groupGatePillBgPaint);
+
+            float iconCx = host.groupGatePillRect.left + padH + iconSize / 2f;
+            float iconCy = host.groupGatePillRect.centerY();
+            host.drawGateIcon(canvas, iconCx, iconCy, iconSize, host.groupGatePillIconPaint);
+
+            float textBaselineY = host.groupGatePillRect.centerY()
+                    - (host.groupGatePillTextPaint.ascent() + host.groupGatePillTextPaint.descent()) / 2f;
+            canvas.drawText(label, iconCx + iconSize / 2f + iconGap, textBaselineY, host.groupGatePillTextPaint);
+        }
+
+        if (host.groupHasCaption && host.groupCaptionLayout != null) {
+            float scrimTop = host.groupContentRect.bottom - MessageBubbleCanvasView.GROUP_CAPTION_SCRIM_H_DP * host.density;
+            android.graphics.Shader grad = new android.graphics.LinearGradient(
+                    0, scrimTop, 0, host.groupContentRect.bottom,
+                    0x00000000, 0xAA000000, android.graphics.Shader.TileMode.CLAMP);
+            host.groupScrimPaint.setShader(grad);
+            canvas.drawRect(host.groupContentRect.left, scrimTop, host.groupContentRect.right, host.groupContentRect.bottom, host.groupScrimPaint);
+
+            canvas.save();
+            canvas.translate(host.groupContentRect.left + 4 * host.density,
+                    host.groupContentRect.bottom - host.groupCaptionLayout.getHeight() - 4 * host.density);
+            host.groupCaptionLayout.draw(canvas);
+            canvas.restore();
+        } else {
+            // Captionless group: translucent timestamp/tick pill overlaid
+            // on the grid's bottom-right corner — same treatment as the
+            // single-image bubble's captionless pill.
+            float rr = MessageBubbleCanvasView.MEDIA_PILL_CORNER_DP * host.density;
+            canvas.drawRoundRect(host.mediaPillRect, rr, rr, host.mediaPillBgPaint);
+            float pillPadH = MessageBubbleCanvasView.MEDIA_PILL_PADDING_H_DP * host.density;
+            float textBaselineY = host.mediaPillRect.bottom - (host.mediaPillRect.height()
+                    - (host.mediaPillTextPaint.descent() - host.mediaPillTextPaint.ascent())) / 2f
+                    - host.mediaPillTextPaint.descent();
+            float tickReserve = host.sent ? (MessageBubbleCanvasView.TICK_SIZE_DP + MessageBubbleCanvasView.TICK_GAP_DP) * host.density : 0;
+            canvas.drawText(host.footerTimeText,
+                    host.mediaPillRect.right - pillPadH - tickReserve - host.mediaPillTextPaint.measureText(host.footerTimeText),
+                    textBaselineY, host.mediaPillTextPaint);
+            if (host.sent) {
+                host.drawTick(canvas, host.mediaPillRect.right - pillPadH - MessageBubbleCanvasView.TICK_SIZE_DP * host.density, textBaselineY);
+            }
+        }
+    }
+}
