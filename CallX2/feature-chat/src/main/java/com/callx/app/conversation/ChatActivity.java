@@ -387,6 +387,14 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         getWindow().requestFeature(android.view.Window.FEATURE_ACTIVITY_TRANSITIONS);
         getWindow().setEnterTransition(new android.transition.Slide(android.view.Gravity.END));
         getWindow().setExitTransition(new android.transition.Slide(android.view.Gravity.END));
+        // PERF: activity_chat.xml's root FrameLayout has an opaque
+        // match_parent android:background (surface_chat_bg), so the theme's
+        // windowBackground drawn underneath it is never actually visible —
+        // it's a full-screen overdraw layer painted and immediately covered
+        // every single frame. Killing it here is the standard fix (same one
+        // Android Studio's "Debug GPU Overdraw" tool recommends for any
+        // screen with its own opaque root background).
+        getWindow().setBackgroundDrawable(null);
         postponeEnterTransition();
         new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
                 this::startPostponedContentTransition, SAFETY_TRANSITION_TIMEOUT_MS);

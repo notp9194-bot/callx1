@@ -235,6 +235,11 @@ public class GroupChatActivity extends AppCompatActivity
         super.onCreate(savedInstanceState);
         binding = ActivityChatBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
+        // PERF: same overdraw fix as 1:1 ChatActivity — this screen reuses
+        // activity_chat.xml, whose root already has an opaque background,
+        // so the theme's windowBackground underneath is dead weight drawn
+        // every frame for nothing.
+        getWindow().setBackgroundDrawable(null);
 
         // Left/right screen-edge se swipe karke back jaane ke liye
         // (RecyclerView ke andar "swipe to reply" se clash nahi karta —
