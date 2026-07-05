@@ -2,7 +2,6 @@ package com.callx.app.conversation.canvas;
 
 import android.graphics.Canvas;
 import android.graphics.Paint;
-import android.graphics.Typeface;
 
 /**
  * FILE BUBBLE DRAW — card-style: icon circle | name+meta | action button.
@@ -109,32 +108,22 @@ final class FileBubbleRenderer {
         float textLeft = left + iconCol + rowPad;
         float textRight = aLeft - rowPad;
         float textColW = Math.max(1f, textRight - textLeft);
-        // File name
-        host.textPaint.setTextSize(host.spToPx(13f));
-        host.textPaint.setTypeface(Typeface.DEFAULT_BOLD);
-        host.textPaint.setColor(host.sent ? 0xFF1A1A1A : 0xFF1A1A1A);
+        // File name — fileNamePaint/fileMetaPaint are pre-configured once
+        // (size/typeface/color never change for this bubble type) instead
+        // of toggling the shared host.textPaint back and forth every
+        // draw() call.
         String displayName = host.fileNameEllipsizeCache.get(
-                host.fileNameText, host.textPaint, textColW, android.text.TextUtils.TruncateAt.MIDDLE);
-        float nameLineH = host.textPaint.getFontSpacing();
-        float metaLineH;
-        {
-            host.textPaint.setTextSize(host.spToPx(10f));
-            host.textPaint.setTypeface(Typeface.DEFAULT);
-            metaLineH = host.textPaint.getFontSpacing();
-            host.textPaint.setTextSize(host.spToPx(13f));
-            host.textPaint.setTypeface(Typeface.DEFAULT_BOLD);
-        }
+                host.fileNameText, host.fileNamePaint, textColW, android.text.TextUtils.TruncateAt.MIDDLE);
+        float nameLineH = host.fileNamePaint.getFontSpacing();
+        float metaLineH = host.fileMetaPaint.getFontSpacing();
         float totalTxtH = nameLineH + 2f * host.density + metaLineH;
         float nameY = top + (host.fileCardHeight - totalTxtH) / 2f + nameLineH * 0.85f;
-        canvas.drawText(displayName, textLeft, nameY, host.textPaint);
+        canvas.drawText(displayName, textLeft, nameY, host.fileNamePaint);
         // Meta (size · type)
-        host.textPaint.setTextSize(host.spToPx(10f));
-        host.textPaint.setTypeface(Typeface.DEFAULT);
-        host.textPaint.setColor(0xFF888888);
         float metaY = nameY + 2f * host.density + metaLineH * 0.85f;
         String displayMeta = host.fileMetaEllipsizeCache.get(
-                host.fileSizeMimeText, host.textPaint, textColW, android.text.TextUtils.TruncateAt.END);
-        canvas.drawText(displayMeta, textLeft, metaY, host.textPaint);
+                host.fileSizeMimeText, host.fileMetaPaint, textColW, android.text.TextUtils.TruncateAt.END);
+        canvas.drawText(displayMeta, textLeft, metaY, host.fileMetaPaint);
 
         // ── Footer ─────────────────────────────────────────────────────────────
         int footerH = Math.round(host.spToPx(MessageBubbleCanvasView.FOOTER_TEXT_SP) + MessageBubbleCanvasView.FOOTER_GAP_DP * host.density);

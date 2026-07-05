@@ -675,6 +675,24 @@ public class MessageBubbleCanvasView extends View {
     // view instance.
     private String lastSizeSignature;
 
+    // ── onMeasure() StaticLayout rebuild guards ──────────────────────
+    // onMeasure() itself can run 2-3+ times in a single layout pass (the
+    // parent RecyclerView/ConstraintLayout re-measuring with the same
+    // effective width spec), and each call used to unconditionally rebuild
+    // every StaticLayout it touches — reply-preview sender+text, every
+    // poll question/option, and the link-preview title — even when
+    // nothing about that text/width actually changed since the previous
+    // onMeasure() call in the same pass. StaticLayout.Builder.build() is
+    // the single most expensive thing this view does (line-breaking +
+    // ellipsis binary search), so each of those three now remembers a
+    // small key (source text + column width) and skips the rebuild when
+    // the key hasn't changed, reusing the StaticLayout already sitting in
+    // the field from last time.
+    private String lastReplyMeasureKey;
+    private String lastPollQuestionKey;
+    private String lastPollOptionsKey;
+    private String lastLinkTitleKey;
+
     /** Call once all size-relevant fields for this bind are set. Skips requestLayout() if nothing that affects measured size actually changed since the last bind on this view. */
     private void requestLayoutIfSizeChanged(String signature) {
         if (lastSizeSignature == null || !lastSizeSignature.equals(signature)) {
@@ -1016,6 +1034,17 @@ public class MessageBubbleCanvasView extends View {
     final android.graphics.Path fileActionIconPath = new android.graphics.Path();
     final EllipsizeCache fileNameEllipsizeCache = new EllipsizeCache();
     final EllipsizeCache fileMetaEllipsizeCache = new EllipsizeCache();
+    // Dedicated paints for the file-card name/meta rows — configured once
+    // (below, alongside the other one-time paint setup) instead of the
+    // renderer repeatedly toggling the SHARED host.textPaint's size/
+    // typeface/color back and forth (13sp bold -> 10sp regular -> 13sp
+    // bold -> 10sp regular) on every single draw() call. setTextSize()/
+    // setTypeface() aren't free (they invalidate the Paint's cached font
+    // metrics), and this bubble type redraws every frame it's on-screen
+    // during a fling — same fix pattern as the poll/contact/location
+    // paints, which were already each given their own dedicated instance.
+    final TextPaint fileNamePaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    final TextPaint fileMetaPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
     static final float FILE_CARD_W_DP     = 240f;
     static final float FILE_ICON_COL_DP   = 52f;
     static final float FILE_ACTION_COL_DP = 44f;
@@ -1289,6 +1318,18 @@ public class MessageBubbleCanvasView extends View {
         pollOptionPctPaint.setFakeBoldText(true);
         pollFooterPaint.setColor(POLL_FOOTER_TEXT_COLOR);
         pollFooterPaint.setTextSize(POLL_FOOTER_TEXT_SP * density);
+
+        // ── File-card name/meta paints ── both rows are always the same
+        // fixed style regardless of sent/received or message content, so
+        // (unlike e.g. poll fill-bar colors, which genuinely vary per
+        // option/frame) these are simply set once here instead of being
+        // rebuilt in FileBubbleRenderer's draw() every frame.
+        fileNamePaint.setTextSize(spToPx(13f));
+        fileNamePaint.setTypeface(Typeface.DEFAULT_BOLD);
+        fileNamePaint.setColor(0xFF1A1A1A);
+        fileMetaPaint.setTextSize(spToPx(10f));
+        fileMetaPaint.setTypeface(Typeface.DEFAULT);
+        fileMetaPaint.setColor(0xFF888888);
 
         // ── View-once bubble paints ──
         viewOnceIconPaint.setTextSize(VO_ICON_TEXT_SP * density);
@@ -2779,20 +2820,24 @@ public class MessageBubbleCanvasView extends View {
             int replyTextColMaxWidth = Math.max(1, maxTextWidth - replyBar - replyPadH * 2
                     - replyThumbSize - replyThumbMargin * 2);
 
-            replySenderLayout = StaticLayout.Builder
-                    .obtain(replySenderName, 0, replySenderName.length(), replySenderPaint, replyTextColMaxWidth)
-                    .setAlignment(Layout.Alignment.ALIGN_NORMAL)
-                    .setMaxLines(1)
-                    .setEllipsize(TextUtils.TruncateAt.END)
-                    .setIncludePad(false)
-                    .build();
-            replyTextLayout = StaticLayout.Builder
-                    .obtain(replyText, 0, replyText.length(), replyTextPaint, replyTextColMaxWidth)
-                    .setAlignment(Layout.Alignment.ALIGN_NORMAL)
-                    .setMaxLines(2)
-                    .setEllipsize(TextUtils.TruncateAt.END)
-                    .setIncludePad(false)
-                    .build();
+            String replyKey = replySenderName + "\u0001" + replyText + "\u0001" + replyTextColMaxWidth;
+            if (replySenderLayout == null || replyTextLayout == null || !replyKey.equals(lastReplyMeasureKey)) {
+                replySenderLayout = StaticLayout.Builder
+                        .obtain(replySenderName, 0, replySenderName.length(), replySenderPaint, replyTextColMaxWidth)
+                        .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                        .setMaxLines(1)
+                        .setEllipsize(TextUtils.TruncateAt.END)
+                        .setIncludePad(false)
+                        .build();
+                replyTextLayout = StaticLayout.Builder
+                        .obtain(replyText, 0, replyText.length(), replyTextPaint, replyTextColMaxWidth)
+                        .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                        .setMaxLines(2)
+                        .setEllipsize(TextUtils.TruncateAt.END)
+                        .setIncludePad(false)
+                        .build();
+                lastReplyMeasureKey = replyKey;
+            }
 
             int replyTextColWidth = Math.max(maxLineWidth(replySenderLayout), maxLineWidth(replyTextLayout));
             int replyTextColHeight = replySenderLayout.getHeight() + replyTextLayout.getHeight();
@@ -3053,13 +3098,17 @@ public class MessageBubbleCanvasView extends View {
 
             // Question layout
             pollQuestionPaint.setTextSize(spToPx(POLL_QUESTION_TEXT_SP));
-            pollQuestionLayout = StaticLayout.Builder
-                    .obtain(pollQuestion, 0, pollQuestion.length(), pollQuestionPaint, innerW)
-                    .setAlignment(Layout.Alignment.ALIGN_NORMAL)
-                    .setMaxLines(3)
-                    .setEllipsize(TextUtils.TruncateAt.END)
-                    .setIncludePad(false)
-                    .build();
+            String pollQuestionKey = pollQuestion + "\u0001" + innerW;
+            if (pollQuestionLayout == null || !pollQuestionKey.equals(lastPollQuestionKey)) {
+                pollQuestionLayout = StaticLayout.Builder
+                        .obtain(pollQuestion, 0, pollQuestion.length(), pollQuestionPaint, innerW)
+                        .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                        .setMaxLines(3)
+                        .setEllipsize(TextUtils.TruncateAt.END)
+                        .setIncludePad(false)
+                        .build();
+                lastPollQuestionKey = pollQuestionKey;
+            }
 
             // Subtitle line height
             Paint.FontMetrics sfm = pollSubtitlePaint.getFontMetrics();
@@ -3067,19 +3116,26 @@ public class MessageBubbleCanvasView extends View {
 
             // Option text layouts
             int n = pollOptions.length;
-            pollOptionLayouts = new StaticLayout[n];
             float iconSz   = POLL_OPTION_ICON_SIZE_DP * density;
             float iconMar  = POLL_OPTION_ICON_MARGIN_DP * density;
             float pctW     = pollOptionPctPaint.measureText("100%") + iconMar;
             int optTextW   = Math.max(1, innerW - Math.round(POLL_OPTION_PAD_H_DP * density * 2 + iconSz + iconMar + pctW));
-            for (int i = 0; i < n; i++) {
-                pollOptionLayouts[i] = StaticLayout.Builder
-                        .obtain(pollOptions[i], 0, pollOptions[i].length(), pollOptionTextPaint, optTextW)
-                        .setAlignment(Layout.Alignment.ALIGN_NORMAL)
-                        .setMaxLines(2)
-                        .setEllipsize(TextUtils.TruncateAt.END)
-                        .setIncludePad(false)
-                        .build();
+            String pollOptionsKey = String.join("\u0001", pollOptions) + "\u0002" + optTextW;
+            boolean pollOptionsStale = pollOptionLayouts.length != n
+                    || (n > 0 && pollOptionLayouts[0] == null)
+                    || !pollOptionsKey.equals(lastPollOptionsKey);
+            if (pollOptionsStale) {
+                pollOptionLayouts = new StaticLayout[n];
+                for (int i = 0; i < n; i++) {
+                    pollOptionLayouts[i] = StaticLayout.Builder
+                            .obtain(pollOptions[i], 0, pollOptions[i].length(), pollOptionTextPaint, optTextW)
+                            .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                            .setMaxLines(2)
+                            .setEllipsize(TextUtils.TruncateAt.END)
+                            .setIncludePad(false)
+                            .build();
+                }
+                lastPollOptionsKey = pollOptionsKey;
             }
 
             // Total height of option rows
@@ -3211,13 +3267,17 @@ public class MessageBubbleCanvasView extends View {
                 int cardPadBottom = Math.round(LINK_PREVIEW_PAD_BOTTOM_DP * density);
                 int titleMaxWidth = Math.max(1, maxTextWidth - cardPadH * 2);
                 String titleSrc = !linkTitle.isEmpty() ? linkTitle : linkPreviewUrl;
-                linkTitleLayout = StaticLayout.Builder
-                        .obtain(titleSrc, 0, titleSrc.length(), linkTitlePaint, titleMaxWidth)
-                        .setAlignment(Layout.Alignment.ALIGN_NORMAL)
-                        .setMaxLines(2)
-                        .setEllipsize(TextUtils.TruncateAt.END)
-                        .setIncludePad(false)
-                        .build();
+                String linkTitleKey = titleSrc + "\u0001" + titleMaxWidth;
+                if (linkTitleLayout == null || !linkTitleKey.equals(lastLinkTitleKey)) {
+                    linkTitleLayout = StaticLayout.Builder
+                            .obtain(titleSrc, 0, titleSrc.length(), linkTitlePaint, titleMaxWidth)
+                            .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                            .setMaxLines(2)
+                            .setEllipsize(TextUtils.TruncateAt.END)
+                            .setIncludePad(false)
+                            .build();
+                    lastLinkTitleKey = linkTitleKey;
+                }
                 int domainHeight = 0;
                 int domainGap = 0;
                 if (!linkDomain.isEmpty()) {
