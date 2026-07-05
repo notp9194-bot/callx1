@@ -753,13 +753,17 @@ public class MessagePagingAdapter
             // for the received case, same as MediaGroupLayoutHelper's old
             // View-based grid. Per-item captions are now modeled too
             // (MessageBubbleCanvasView.GridItem.caption / drawMediaGroup's
-            // per-cell strip) — still only if every cell is a plain
-            // image/video (audio/file cells aren't modeled).
+            // per-cell strip). Mixed-type groups (audio/file cells alongside
+            // image/video) are now modeled too — MediaGroupRenderer draws a
+            // dark placeholder + glyph + filename/duration label for those
+            // cells (GridItem.isAudio/isFile/label), same visual as
+            // MediaGroupLayoutHelper.buildCell()'s isAudio||isFile branch.
             if (m.mediaItems == null || m.mediaItems.isEmpty()) return false;
             for (java.util.Map<String, Object> item : m.mediaItems) {
                 Object mtObj = item.get("mediaType");
                 String mt = mtObj instanceof String ? (String) mtObj : "";
-                if (!"image".equals(mt) && !"video".equals(mt)) return false;
+                if (!"image".equals(mt) && !"video".equals(mt)
+                        && !"audio".equals(mt) && !"file".equals(mt)) return false;
             }
             return true;
         }
@@ -1474,12 +1478,27 @@ public class MessagePagingAdapter
             for (int i = 0; i < visible; i++) {
                 java.util.Map<String, Object> item = items.get(i);
                 Object mtObj = item.get("mediaType");
-                boolean isVideoCell = "video".equals(mtObj instanceof String ? mtObj : "");
+                String mt = mtObj instanceof String ? (String) mtObj : "";
+                boolean isVideoCell = "video".equals(mt);
+                boolean isAudioCell = "audio".equals(mt);
+                boolean isFileCell  = "file".equals(mt);
                 Object durObj = item.get("duration");
                 String dur = durObj instanceof String ? (String) durObj : null;
                 Object capObj = item.get("caption");
                 String cap = capObj instanceof String ? (String) capObj : null;
-                gridItems.add(new com.callx.app.conversation.canvas.GridItem(isVideoCell, dur, cap));
+                // Label under the glyph for audio/file cells — audio
+                // duration (falls back to "Audio"), or file name (falls
+                // back to "File") — mirrors MediaGroupLayoutHelper.buildCell().
+                String cellLabel = null;
+                if (isAudioCell) {
+                    cellLabel = (dur == null || dur.isEmpty()) ? "Audio" : dur;
+                } else if (isFileCell) {
+                    Object fnObj = item.get("fileName");
+                    String fn = fnObj instanceof String ? (String) fnObj : null;
+                    cellLabel = (fn == null || fn.isEmpty()) ? "File" : fn;
+                }
+                gridItems.add(new com.callx.app.conversation.canvas.GridItem(
+                        isVideoCell, isAudioCell, isFileCell, dur, cap, cellLabel));
             }
             cv.bindMediaGroup(gridItems, m.caption, timeStr, sent, isRead, isDelivered);
             cv.setDeletedStyle(false); // clears any italic/dim state a recycled view carried from a deleted message
@@ -1500,7 +1519,16 @@ public class MessagePagingAdapter
                 String cellThumb = thumbObj instanceof String ? (String) thumbObj : "";
                 String mediaType = mtObj instanceof String ? (String) mtObj : "image";
                 boolean isImageCell = "image".equals(mediaType);
+                boolean isAudioOrFileCell = "audio".equals(mediaType) || "file".equals(mediaType);
                 final int cellIndex = i;
+
+                // Audio/file cells have no thumbnail — MediaGroupRenderer
+                // draws an icon+label placeholder for them directly, so skip
+                // the Glide load entirely and never mark them pending (no
+                // manual download gate for these, same as the legacy
+                // MediaGroupLayoutHelper.buildCell() isAudio||isFile branch,
+                // which never wires a download overlay for those cells).
+                if (isAudioOrFileCell) continue;
 
                 java.io.File cachedFile = (!sent && isImageCell && !cellUrl.isEmpty())
                         ? com.callx.app.utils.MediaCache.getCached(ctx, cellUrl) : null;

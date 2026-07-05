@@ -30,8 +30,25 @@ final class MediaGroupRenderer {
             boolean isLastOverlay = (i == host.groupVisibleCount - 1) && host.groupRemaining > 0;
             GridItem item = i < host.groupItems.size() ? host.groupItems.get(i) : null;
             Bitmap bmp = host.groupBitmaps[i];
+            boolean isAudioOrFileCell = item != null && (item.isAudio || item.isFile);
 
-            if (bmp != null) {
+            if (isAudioOrFileCell) {
+                // Audio/file cell — no thumbnail bitmap is ever requested for
+                // these (see MessagePagingAdapter's per-cell Glide-load loop),
+                // so just draw the dark placeholder + glyph + filename/duration
+                // label, mirroring MediaGroupLayoutHelper.buildCell()'s
+                // isAudio||isFile branch (icon ImageView + centered TextView).
+                canvas.drawRoundRect(rect, cellR, cellR, host.groupFileCellBgPaint);
+                drawFileOrAudioGlyph(canvas, rect, item.isAudio);
+
+                String label = (item.label != null && !item.label.isEmpty())
+                        ? item.label : (item.isAudio ? "Audio" : "File");
+                float maxTextW = rect.width() - 4 * host.density;
+                CharSequence ellipsized = TextUtils.ellipsize(
+                        label, host.groupFileLabelPaint, maxTextW, TextUtils.TruncateAt.MIDDLE);
+                float baseline = rect.bottom - 4 * host.density - host.groupFileLabelPaint.descent();
+                canvas.drawText(ellipsized, 0, ellipsized.length(), rect.centerX(), baseline, host.groupFileLabelPaint);
+            } else if (bmp != null) {
                 float scale = Math.max(rect.width() / bmp.getWidth(), rect.height() / bmp.getHeight());
                 float dx = rect.left - (bmp.getWidth() * scale - rect.width()) / 2f;
                 float dy = rect.top - (bmp.getHeight() * scale - rect.height()) / 2f;
@@ -197,6 +214,49 @@ final class MediaGroupRenderer {
             if (host.sent) {
                 host.drawTick(canvas, host.mediaPillRect.right - pillPadH - MessageBubbleCanvasView.TICK_SIZE_DP * host.density, textBaselineY);
             }
+        }
+    }
+
+    /**
+     * Small centered glyph for a mixed-group audio/file cell — a simple
+     * speaker/waveform shape for audio, a dog-eared page shape (same idea
+     * as FileBubbleRenderer's file glyph) for file. Sits above the
+     * filename/duration label, same vertical arrangement as the legacy
+     * ImageView(icon)+TextView(label) pair in MediaGroupLayoutHelper.
+     */
+    private void drawFileOrAudioGlyph(Canvas canvas, RectF rect, boolean isAudio) {
+        float cx = rect.centerX();
+        // Icon center sits slightly above the cell's middle to leave room
+        // for the label pinned to the bottom edge, mirroring the legacy
+        // icon's bottomMargin=14dp inside a bottom-gravity TextView row.
+        float cy = rect.centerY() - MessageBubbleCanvasView.GROUP_ITEM_CAPTION_MARGIN_DP * host.density;
+        float glyphR = Math.min(rect.width(), rect.height()) * 0.16f;
+
+        if (isAudio) {
+            // Waveform-style glyph: three rounded bars of varying height.
+            float barW = glyphR * 0.4f;
+            float gap = glyphR * 0.3f;
+            float[] heights = {glyphR * 0.9f, glyphR * 1.6f, glyphR * 1.1f};
+            float totalW = barW * 3 + gap * 2;
+            float x = cx - totalW / 2f;
+            for (float h : heights) {
+                canvas.drawRoundRect(x, cy - h / 2f, x + barW, cy + h / 2f,
+                        barW / 2f, barW / 2f, host.groupFileGlyphPaint);
+                x += barW + gap;
+            }
+        } else {
+            // Dog-eared page glyph — same construction as FileBubbleRenderer's.
+            android.graphics.Path fp = new android.graphics.Path();
+            float fw = glyphR * 1.1f, fh = glyphR * 1.45f;
+            float fx = cx - fw / 2f, fy = cy - fh / 2f;
+            float fold = fw * 0.30f;
+            fp.moveTo(fx, fy + fold);
+            fp.lineTo(fx, fy + fh);
+            fp.lineTo(fx + fw, fy + fh);
+            fp.lineTo(fx + fw, fy);
+            fp.lineTo(fx + fw - fold, fy);
+            fp.close();
+            canvas.drawPath(fp, host.groupFileGlyphPaint);
         }
     }
 }

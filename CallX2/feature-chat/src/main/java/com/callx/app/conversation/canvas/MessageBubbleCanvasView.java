@@ -804,6 +804,13 @@ public class MessageBubbleCanvasView extends View {
     final TextPaint groupItemCaptionPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
     final Paint groupItemCaptionScrimPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
 
+    // ── Mixed-group audio/file cell paints — no thumbnail for these cells,
+    // just a dark placeholder + glyph + filename/duration label, mirroring
+    // MediaGroupLayoutHelper.buildCell()'s isAudio||isFile branch. ──
+    final Paint groupFileCellBgPaint = new Paint();
+    final Paint groupFileGlyphPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    final TextPaint groupFileLabelPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+
     // ── Received-group manual download-gate state — only ever set for
     // RECEIVED groups (see setGroupDownloadGate()); stays all-false/inert
     // for SENT groups and for received groups with nothing left to
@@ -1077,6 +1084,12 @@ public class MessageBubbleCanvasView extends View {
         groupCaptionTextPaint.setTextSize(GROUP_CAPTION_TEXT_SP * density);
         groupItemCaptionPaint.setColor(Color.WHITE);
         groupItemCaptionPaint.setTextSize(GROUP_ITEM_CAPTION_TEXT_SP * density);
+        groupFileCellBgPaint.setColor(0xFF2C2C2C); // matches MediaGroupLayoutHelper's isAudio||isFile cell background
+        groupFileGlyphPaint.setColor(Color.WHITE);
+        groupFileGlyphPaint.setStyle(Paint.Style.FILL);
+        groupFileLabelPaint.setColor(Color.WHITE);
+        groupFileLabelPaint.setTextSize(9f * density); // sp≈dp here, matches legacy tvLabel.setTextSize(9f)
+        groupFileLabelPaint.setTextAlign(Paint.Align.CENTER);
         for (int i = 0; i < groupRects.length; i++) groupRects[i] = new RectF();
 
         groupGateScrimPaint.setColor(GROUP_GATE_SCRIM_COLOR);
