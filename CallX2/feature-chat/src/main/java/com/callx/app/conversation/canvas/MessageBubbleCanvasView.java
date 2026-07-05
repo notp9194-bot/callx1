@@ -658,49 +658,6 @@ public class MessageBubbleCanvasView extends View {
     GradientDrawable bubbleDrawable;
     int lastCacheKey = -1;
 
-    // ── requestLayout() skip-if-unchanged guard ──────────────────────
-    // Every bindXxx() used to call requestLayout() unconditionally, even
-    // on a rebind that only changes draw-only state (read/delivered tick,
-    // color refresh, etc.) with the exact same size-affecting content —
-    // e.g. a delivered→read status update re-invokes bind()/bindMedia()
-    // with identical text/caption. That's a real, frequent case (fires
-    // once per status change per visible bubble) and each unnecessary
-    // requestLayout() forces a fresh measure/layout pass on this view AND
-    // ripples up into the parent RecyclerView. Each bindXxx() below now
-    // builds a small signature string of just the fields that actually
-    // drive its measured size (mode + text/caption/counts + sent/hasReply
-    // — deliberately NOT read/delivered/colors/bitmaps, which are
-    // draw-only) and only calls requestLayout() when that signature
-    // actually changed from the previous bind on this (possibly recycled)
-    // view instance.
-    private String lastSizeSignature;
-
-    // ── onMeasure() StaticLayout rebuild guards ──────────────────────
-    // onMeasure() itself can run 2-3+ times in a single layout pass (the
-    // parent RecyclerView/ConstraintLayout re-measuring with the same
-    // effective width spec), and each call used to unconditionally rebuild
-    // every StaticLayout it touches — reply-preview sender+text, every
-    // poll question/option, and the link-preview title — even when
-    // nothing about that text/width actually changed since the previous
-    // onMeasure() call in the same pass. StaticLayout.Builder.build() is
-    // the single most expensive thing this view does (line-breaking +
-    // ellipsis binary search), so each of those three now remembers a
-    // small key (source text + column width) and skips the rebuild when
-    // the key hasn't changed, reusing the StaticLayout already sitting in
-    // the field from last time.
-    private String lastReplyMeasureKey;
-    private String lastPollQuestionKey;
-    private String lastPollOptionsKey;
-    private String lastLinkTitleKey;
-
-    /** Call once all size-relevant fields for this bind are set. Skips requestLayout() if nothing that affects measured size actually changed since the last bind on this view. */
-    private void requestLayoutIfSizeChanged(String signature) {
-        if (lastSizeSignature == null || !lastSizeSignature.equals(signature)) {
-            lastSizeSignature = signature;
-            requestLayout();
-        }
-    }
-
     float density;
     int bubbleLeft, bubbleTop;
     float footerReserveWidth;
@@ -745,17 +702,10 @@ public class MessageBubbleCanvasView extends View {
     final RectF mediaRect = new RectF();
     final RectF mediaPillRect = new RectF();
     final android.graphics.Matrix mediaShaderMatrix = new android.graphics.Matrix();
-    // Cached single-media shader — rebuilt only when mediaBitmap identity or
-    // mediaRect changes, not on every draw() (see MediaRenderer#draw).
-    android.graphics.BitmapShader mediaCachedShader;
-    Bitmap mediaCachedShaderBitmap;
-    final RectF mediaCachedShaderRect = new RectF();
-    // Scratch paint/rect reused by MediaRenderer's GIF badge + video-duration
-    // badge, and by MediaRenderer/ReelShareRenderer's tick-color save/restore
-    // (avoids `new Paint()`/`new RectF()` per frame).
-    final Paint mediaGifBadgeBgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    final RectF mediaGifBadgeRect = new RectF();
-    final RectF mediaVideoDurationRect = new RectF();
+    // Reused by drawCornerExpiryPill() below — avoids a `new RectF()` on
+    // every draw() for cards (contact/location) that show the floating
+    // expiry badge instead of a regular footer.
+    final RectF cornerExpiryPillRect = new RectF();
 
     // ── Audio (voice message) bubble state — entirely separate mode from
     // isMedia/isMediaGroup/isReelShare (see AUDIO_* constants doc above). ──
@@ -772,10 +722,6 @@ public class MessageBubbleCanvasView extends View {
     final RectF audioBtnRect = new RectF();
     final RectF audioWaveformRect = new RectF();
     final android.graphics.Path audioPlayTrianglePath = new android.graphics.Path();
-    // Scratch int Rect reused by invalidateAudioRow() (see setAudioProgress()
-    // etc.) — dirty-region invalidate() for playback ticks instead of
-    // repainting the whole item view every ~250ms.
-    private final android.graphics.Rect audioInvalidateRect = new android.graphics.Rect();
 
     // ── Single-media manual download gate state — see setMediaDownloadGate(). ──
     boolean mediaGated = false;
@@ -835,10 +781,6 @@ public class MessageBubbleCanvasView extends View {
     boolean hasExpiry = false;
     String expiryText = "";
     final TextPaint expiryPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
-    // Scratch int Rect reused by invalidateExpiryRegion() (see
-    // setExpiryText()) — dirty-region invalidate() for the once-a-second
-    // countdown tick instead of repainting the whole item view.
-    private final android.graphics.Rect expiryInvalidateRect = new android.graphics.Rect();
 
     // ── Media GROUP (multi-image/video grid) state — entirely separate
     // from the single-image `isMedia` state above. ──
@@ -861,19 +803,6 @@ public class MessageBubbleCanvasView extends View {
     final TextPaint groupDurationTextPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
     final Paint groupDurationBgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     final android.graphics.Matrix groupShaderMatrix = new android.graphics.Matrix();
-    // Per-cell BitmapShader cache — rebuilt only when a cell's bitmap
-    // identity or on-screen rect actually changes, instead of every draw()
-    // (perf: shader+matrix construction is comparatively expensive and was
-    // previously happening on every single frame while scrolling/animating).
-    final android.graphics.BitmapShader[] groupCellShaders = new android.graphics.BitmapShader[GROUP_MAX_VISIBLE];
-    final Bitmap[] groupCellShaderBitmap = new Bitmap[GROUP_MAX_VISIBLE];
-    final RectF[] groupCellShaderRect = new RectF[GROUP_MAX_VISIBLE];
-    final RectF groupDurationBgRect = new RectF(); // reused scratch rect for video-duration badge
-    // Per-cell memoized ellipsize results (see EllipsizeCache) — one slot
-    // per grid cell for its audio/file label, one per cell for its
-    // per-item caption strip.
-    final EllipsizeCache[] groupCellLabelEllipsizeCache = new EllipsizeCache[GROUP_MAX_VISIBLE];
-    final EllipsizeCache[] groupItemCaptionEllipsizeCache = new EllipsizeCache[GROUP_MAX_VISIBLE];
     final android.graphics.Path groupPlayTrianglePath = new android.graphics.Path();
     final TextPaint groupCaptionTextPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
     final TextPaint groupItemCaptionPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
@@ -939,10 +868,6 @@ public class MessageBubbleCanvasView extends View {
     final RectF contactCardRect = new RectF();
     final RectF contactAvatarRect = new RectF();
     final RectF contactButtonRect = new RectF(); // "View Contact" row — the only tappable sub-region
-    // Memoized ellipsize results (see EllipsizeCache) — draw() no longer
-    // re-measures/re-ellipsizes name+phone on every frame.
-    final EllipsizeCache contactNameEllipsizeCache = new EllipsizeCache();
-    final EllipsizeCache contactPhoneEllipsizeCache = new EllipsizeCache();
     final Paint contactCardBgPaint = new Paint();
     final Paint contactDividerPaint = new Paint();
     final Paint contactAvatarPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
@@ -987,12 +912,6 @@ public class MessageBubbleCanvasView extends View {
     float pollHeaderRowH  = 0f;
     float pollSubtitleH   = 0f;
     float pollTotalCardH  = 0f;
-    // Scratch rect/path reused by PollRenderer's header chip, per-option fill
-    // bar, and fill-clip path — avoids `new RectF()`/`new Path()` per option
-    // per draw() (perf: was allocating on every frame for every poll row).
-    final RectF pollChipRect = new RectF();
-    final RectF pollFillRect = new RectF();
-    final android.graphics.Path pollFillClipPath = new android.graphics.Path();
     // Paints (initialised in constructor)
     final Paint     pollOptionBgPaint    = new Paint(Paint.ANTI_ALIAS_FLAG);
     final Paint     pollFillPaint        = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -1023,28 +942,6 @@ public class MessageBubbleCanvasView extends View {
     int     fileDownloadPercent = 0;
     float   fileCardHeight      = 0f;
     final RectF fileActionRect  = new RectF(); // tap target for ⬇/⬗ button
-    // Pre-allocated paint/path objects for FileBubbleRenderer — reused every
-    // draw() instead of being `new`'d per frame (perf: avoids GC churn while
-    // fast-scrolling a list full of file bubbles).
-    final Paint fileIconBgPaint    = new Paint(Paint.ANTI_ALIAS_FLAG);
-    final Paint fileGlyphPaint     = new Paint(Paint.ANTI_ALIAS_FLAG);
-    final Paint fileActionBgPaint  = new Paint(Paint.ANTI_ALIAS_FLAG);
-    final Paint fileActionIconPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    final android.graphics.Path fileGlyphPath = new android.graphics.Path();
-    final android.graphics.Path fileActionIconPath = new android.graphics.Path();
-    final EllipsizeCache fileNameEllipsizeCache = new EllipsizeCache();
-    final EllipsizeCache fileMetaEllipsizeCache = new EllipsizeCache();
-    // Dedicated paints for the file-card name/meta rows — configured once
-    // (below, alongside the other one-time paint setup) instead of the
-    // renderer repeatedly toggling the SHARED host.textPaint's size/
-    // typeface/color back and forth (13sp bold -> 10sp regular -> 13sp
-    // bold -> 10sp regular) on every single draw() call. setTextSize()/
-    // setTypeface() aren't free (they invalidate the Paint's cached font
-    // metrics), and this bubble type redraws every frame it's on-screen
-    // during a fling — same fix pattern as the poll/contact/location
-    // paints, which were already each given their own dedicated instance.
-    final TextPaint fileNamePaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
-    final TextPaint fileMetaPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
     static final float FILE_CARD_W_DP     = 240f;
     static final float FILE_ICON_COL_DP   = 52f;
     static final float FILE_ACTION_COL_DP = 44f;
@@ -1198,9 +1095,6 @@ public class MessageBubbleCanvasView extends View {
         groupFileLabelPaint.setTextSize(9f * density); // sp≈dp here, matches legacy tvLabel.setTextSize(9f)
         groupFileLabelPaint.setTextAlign(Paint.Align.CENTER);
         for (int i = 0; i < groupRects.length; i++) groupRects[i] = new RectF();
-        for (int i = 0; i < groupCellShaderRect.length; i++) groupCellShaderRect[i] = new RectF();
-        for (int i = 0; i < groupCellLabelEllipsizeCache.length; i++) groupCellLabelEllipsizeCache[i] = new EllipsizeCache();
-        for (int i = 0; i < groupItemCaptionEllipsizeCache.length; i++) groupItemCaptionEllipsizeCache[i] = new EllipsizeCache();
 
         groupGateScrimPaint.setColor(GROUP_GATE_SCRIM_COLOR);
         groupGatePillBgPaint.setColor(GROUP_GATE_PILL_BG);
@@ -1318,18 +1212,6 @@ public class MessageBubbleCanvasView extends View {
         pollOptionPctPaint.setFakeBoldText(true);
         pollFooterPaint.setColor(POLL_FOOTER_TEXT_COLOR);
         pollFooterPaint.setTextSize(POLL_FOOTER_TEXT_SP * density);
-
-        // ── File-card name/meta paints ── both rows are always the same
-        // fixed style regardless of sent/received or message content, so
-        // (unlike e.g. poll fill-bar colors, which genuinely vary per
-        // option/frame) these are simply set once here instead of being
-        // rebuilt in FileBubbleRenderer's draw() every frame.
-        fileNamePaint.setTextSize(spToPx(13f));
-        fileNamePaint.setTypeface(Typeface.DEFAULT_BOLD);
-        fileNamePaint.setColor(0xFF1A1A1A);
-        fileMetaPaint.setTextSize(spToPx(10f));
-        fileMetaPaint.setTypeface(Typeface.DEFAULT);
-        fileMetaPaint.setColor(0xFF888888);
 
         // ── View-once bubble paints ──
         viewOnceIconPaint.setTextSize(VO_ICON_TEXT_SP * density);
@@ -1455,7 +1337,7 @@ public class MessageBubbleCanvasView extends View {
         resolveReplyColors(ctx);
 
         textLayout = null; // recomputed in onMeasure
-        requestLayoutIfSizeChanged("text|" + sent + "|" + hasReply + "|" + messageText);
+        requestLayout();
         invalidate();
     }
 
@@ -1512,8 +1394,7 @@ public class MessageBubbleCanvasView extends View {
         resolveReplyColors(ctx);
 
         textLayout = null; // recomputed in onMeasure (only used if mediaHasCaption)
-        requestLayoutIfSizeChanged("media|" + sent + "|" + hasReply + "|" + mediaHasCaption + "|" + messageText
-                + "|" + isGifBubble);
+        requestLayout();
         invalidate();
     }
 
@@ -1604,7 +1485,7 @@ public class MessageBubbleCanvasView extends View {
         resolveReplyColors(ctx);
 
         textLayout = null;
-        requestLayoutIfSizeChanged("audio|" + sent + "|" + hasReply);
+        requestLayout();
         invalidate();
     }
 
@@ -1612,7 +1493,7 @@ public class MessageBubbleCanvasView extends View {
     public void setAudioPlaying(boolean playing) {
         if (this.audioPlaying == playing) return;
         this.audioPlaying = playing;
-        invalidateAudioRow();
+        invalidate();
     }
 
     /** Cheap path — called every playback tick (e.g. every 250ms). No layout/measure work, draw-only, same precedent as AudioWaveformView.setProgress(). */
@@ -1620,13 +1501,13 @@ public class MessageBubbleCanvasView extends View {
         float clamped = Math.max(0f, Math.min(1f, fraction));
         if (clamped == audioProgress) return;
         audioProgress = clamped;
-        invalidateAudioRow();
+        invalidate();
     }
 
     /** Elapsed "m:ss" label shown next to the waveform while playing; pass "" to clear it back to idle (mirrors legacy tv_audio_dur, which never shows a total duration upfront — only the live elapsed time once playback starts). */
     public void setAudioElapsedText(@Nullable String text) {
         this.audioElapsedText = text != null ? text : "";
-        invalidateAudioRow();
+        invalidate();
     }
 
     /** Resets the bubble to its idle state (button back to ▶, progress to 0, elapsed label cleared) — call when playback stops/completes/errors, or right before rebinding a recycled holder to a different message. */
@@ -1634,27 +1515,7 @@ public class MessageBubbleCanvasView extends View {
         this.audioPlaying = false;
         this.audioProgress = 0f;
         this.audioElapsedText = "";
-        invalidateAudioRow();
-    }
-
-    /**
-     * Dirty-region invalidate() for the audio row (button + waveform +
-     * elapsed-time label) — used by the playback setters above, which fire
-     * every ~250ms while a voice message is playing. Repainting just this
-     * row instead of the whole item view (invalidate()) noticeably cuts
-     * per-tick draw cost when several audio bubbles / a long list is on
-     * screen. Falls back harmlessly to an empty rect before the first
-     * measure() pass has run (rects default to (0,0,0,0)).
-     */
-    private void invalidateAudioRow() {
-        float pad = 4f * density;
-        float left = Math.min(audioBtnRect.left, audioWaveformRect.left) - pad;
-        float top = Math.min(audioBtnRect.top, audioWaveformRect.top) - pad;
-        float right = Math.max(bubbleRect.right, audioWaveformRect.right) + pad;
-        float bottom = Math.max(audioBtnRect.bottom, audioWaveformRect.bottom) + pad;
-        audioInvalidateRect.set((int) Math.floor(left), (int) Math.floor(top),
-                (int) Math.ceil(right), (int) Math.ceil(bottom));
-        invalidate(audioInvalidateRect);
+        invalidate();
     }
 
     /** Same bar-height generation AudioWaveformView.generateLevels() uses — a stable seed always produces the same "waveform" shape. */
@@ -1769,8 +1630,7 @@ public class MessageBubbleCanvasView extends View {
 
         groupCaptionLayout = null; // recomputed in onMeasure
         textLayout = null;
-        requestLayoutIfSizeChanged("mediaGroup|" + sent + "|" + hasReply + "|" + groupVisibleCount
-                + "|" + groupRemaining + "|" + groupHasCaption + "|" + messageText);
+        requestLayout();
         invalidate();
     }
 
@@ -1821,8 +1681,7 @@ public class MessageBubbleCanvasView extends View {
         tickPaint.setColor(ChatThemeManager.get(ctx).getTickColor(read));
 
         reelCaptionLayout = null; // recomputed in onMeasure
-        requestLayoutIfSizeChanged("reelShare|" + sent + "|" + hasReply + "|" + reelHasCaption
-                + "|" + reelCaptionText + "|" + reelUsername);
+        requestLayout();
         invalidate();
     }
 
@@ -1898,7 +1757,7 @@ public class MessageBubbleCanvasView extends View {
         this.contactPhone = phone != null ? phone : "";
         this.sent = isSent;
 
-        requestLayoutIfSizeChanged("contact|" + sent + "|" + hasReply + "|" + contactName + "|" + contactPhone);
+        requestLayout();
         invalidate();
     }
 
@@ -1969,8 +1828,7 @@ public class MessageBubbleCanvasView extends View {
         this.footerTimeText = timeText != null ? timeText : "";
         this.sent = isSent;
 
-        requestLayoutIfSizeChanged("viewOnce|" + sent + "|" + variant + "|" + viewOnceSublabel
-                + "|" + viewOnceExpiredLabel + "|" + viewOnceOpenedAtText + "|" + viewOnceShowOpenedAt);
+        requestLayout();
         invalidate();
     }
 
@@ -2012,7 +1870,7 @@ public class MessageBubbleCanvasView extends View {
         this.footerTimeText = timeText != null ? timeText : "";
         this.sent = false;
 
-        requestLayoutIfSizeChanged("seenBubble|" + isReel + "|" + hasThumb + "|" + seenHasName + "|" + seenName);
+        requestLayout();
         invalidate();
     }
 
@@ -2066,8 +1924,7 @@ public class MessageBubbleCanvasView extends View {
         this.callEntryTime = timeText != null ? timeText : "";
         this.sent = iAmCaller;
 
-        requestLayoutIfSizeChanged("callEntry|" + sent + "|" + callEntryIcon + "|" + callEntryLabel
-                + "|" + callEntryTime);
+        requestLayout();
         invalidate();
     }
 
@@ -2090,7 +1947,7 @@ public class MessageBubbleCanvasView extends View {
         this.sent = isSent;
 
         locationAddressLayout = null; // recomputed in onMeasure
-        requestLayoutIfSizeChanged("location|" + sent + "|" + hasReply + "|" + locationAddress);
+        requestLayout();
         invalidate();
     }
 
@@ -2173,7 +2030,7 @@ public class MessageBubbleCanvasView extends View {
         this.read        = isRead;
         this.delivered   = isDelivered;
         this.footerTimeText = "";  // set separately via bind() footer — caller must call setFooterTime() after bindFile() if needed; or we use the existing footerTimeText field
-        requestLayoutIfSizeChanged("file|" + sent + "|" + hasReply + "|" + fileNameText + "|" + fileSizeMimeText);
+        requestLayout();
         invalidate();
     }
 
@@ -2319,13 +2176,7 @@ public class MessageBubbleCanvasView extends View {
         resolveReplyColors(ctx);
 
         pollQuestionLayout = null; // recomputed in onMeasure
-        // Note: counts/myVote deliberately excluded from the signature — a
-        // new vote coming in re-invokes bindPoll() constantly (every voter
-        // change) but only redraws the fill-bar widths/leader highlight,
-        // never the bubble's measured height, so it must not force a
-        // remeasure on every single vote.
-        requestLayoutIfSizeChanged("poll|" + sent + "|" + hasReply + "|" + pollQuestion + "|" + n
-                + "|" + java.util.Arrays.toString(this.pollOptions) + "|" + closed + "|" + multiChoice);
+        requestLayout();
         invalidate();
     }
 
@@ -2418,13 +2269,9 @@ public class MessageBubbleCanvasView extends View {
      *                   iv_reply_thumb. Pass null for text-only replies.
      */
     public void setReply(String senderName, String text, @Nullable Bitmap thumb) {
-        String newSender = senderName != null ? senderName : "";
-        String newText = text != null ? text : "";
-        boolean sizeChanged = !this.hasReply || !newSender.equals(this.replySenderName)
-                || !newText.equals(this.replyText) || (thumb == null) != (this.replyThumb == null);
         this.hasReply = true;
-        this.replySenderName = newSender;
-        this.replyText = newText;
+        this.replySenderName = senderName != null ? senderName : "";
+        this.replyText = text != null ? text : "";
         this.replyThumb = thumb;
         resolveReplyColors(getContext());
         // Bubble corner treatment doesn't actually depend on hasReply in this
@@ -2436,17 +2283,14 @@ public class MessageBubbleCanvasView extends View {
             bubbleDrawable = buildBubbleDrawable(getContext(), sent);
             lastCacheKey = cacheKey;
         }
-        if (sizeChanged) {
-            replySenderLayout = null; // recomputed in onMeasure
-            replyTextLayout = null;
-            requestLayout();
-        }
+        replySenderLayout = null; // recomputed in onMeasure
+        replyTextLayout = null;
+        requestLayout();
         invalidate();
     }
 
     /** Call when a message has no reply — clears any previous reply-strip state so a recycled view doesn't show stale data. */
     public void clearReply() {
-        boolean sizeChanged = this.hasReply;
         this.hasReply = false;
         this.replySenderName = "";
         this.replyText = "";
@@ -2454,7 +2298,7 @@ public class MessageBubbleCanvasView extends View {
         this.replySenderLayout = null;
         this.replyTextLayout = null;
         this.replyBoxHeight = 0;
-        if (sizeChanged) requestLayout();
+        requestLayout();
         invalidate();
     }
 
@@ -2474,21 +2318,17 @@ public class MessageBubbleCanvasView extends View {
      *             is treated the same as clearReactions().
      */
     public void setReactions(@Nullable String text) {
-        boolean newHas = text != null && !text.isEmpty();
-        String newText = text != null ? text : "";
-        boolean sizeChanged = newHas != this.hasReactions || !newText.equals(this.reactionsText);
-        this.hasReactions = newHas;
-        this.reactionsText = newText;
-        if (sizeChanged) requestLayout();
+        this.hasReactions = text != null && !text.isEmpty();
+        this.reactionsText = text != null ? text : "";
+        requestLayout();
         invalidate();
     }
 
     /** Call when a message has no reactions — clears any previous badge state so a recycled view doesn't show a stale reaction. */
     public void clearReactions() {
-        boolean sizeChanged = this.hasReactions;
         this.hasReactions = false;
         this.reactionsText = "";
-        if (sizeChanged) requestLayout();
+        requestLayout();
         invalidate();
     }
 
@@ -2499,9 +2339,8 @@ public class MessageBubbleCanvasView extends View {
      * since a recycled view holds whatever the previous message left in it.
      */
     public void setPinned(boolean pinned) {
-        boolean sizeChanged = pinned != this.isPinned;
         this.isPinned = pinned;
-        if (sizeChanged) requestLayout();
+        requestLayout();
         invalidate();
     }
 
@@ -2516,25 +2355,21 @@ public class MessageBubbleCanvasView extends View {
      * @param name display name; null/empty is treated as clearGroupSender().
      */
     public void setGroupSender(@Nullable String name) {
-        boolean newHas = name != null && !name.isEmpty();
-        String newName = name != null ? name : "";
-        boolean sizeChanged = newHas != this.hasGroupSender || !newName.equals(this.groupSenderName);
-        this.hasGroupSender = newHas;
-        this.groupSenderName = newName;
+        this.hasGroupSender = name != null && !name.isEmpty();
+        this.groupSenderName = name != null ? name : "";
         if (hasGroupSender) {
             groupSenderPaint.setColor(androidx.core.content.ContextCompat.getColor(
                     getContext(), com.callx.app.core.R.color.brand_primary));
         }
-        if (sizeChanged) requestLayout();
+        requestLayout();
         invalidate();
     }
 
     /** Call for sent messages, or received messages outside a group chat — clears any stale sender-name state on a recycled view. */
     public void clearGroupSender() {
-        boolean sizeChanged = this.hasGroupSender;
         this.hasGroupSender = false;
         this.groupSenderName = "";
-        if (sizeChanged) requestLayout();
+        requestLayout();
         invalidate();
     }
 
@@ -2552,11 +2387,9 @@ public class MessageBubbleCanvasView extends View {
      */
     public void setForwardedFrom(@Nullable String originalSenderName) {
         boolean fwd = originalSenderName != null && !originalSenderName.isEmpty();
-        String newText = fwd ? ("\u21AA Forwarded from " + originalSenderName) : "";
-        boolean sizeChanged = fwd != this.hasForwarded || !newText.equals(this.forwardedText);
         this.hasForwarded = fwd;
-        this.forwardedText = newText;
-        if (sizeChanged) requestLayout();
+        this.forwardedText = fwd ? ("\u21AA Forwarded from " + originalSenderName) : "";
+        requestLayout();
         invalidate();
     }
 
@@ -2577,14 +2410,11 @@ public class MessageBubbleCanvasView extends View {
      * isCanvasEligible() in MessagePagingAdapter).
      */
     public void setDeletedStyle(boolean deleted) {
-        boolean sizeChanged = deleted != this.isDeletedStyle;
         this.isDeletedStyle = deleted;
         textPaint.setTypeface(deleted ? Typeface.create(Typeface.DEFAULT, Typeface.ITALIC) : Typeface.DEFAULT);
         textPaint.setAlpha(deleted ? DELETED_TEXT_ALPHA : 255);
-        if (sizeChanged) {
-            textLayout = null; // rebuild with the new typeface/alpha before the next draw
-            requestLayout();
-        }
+        textLayout = null; // rebuild with the new typeface/alpha before the next draw
+        requestLayout();
         invalidate();
     }
 
@@ -2599,48 +2429,10 @@ public class MessageBubbleCanvasView extends View {
      * formatting, same as formatRemaining() does for the legacy TextView).
      */
     public void setExpiryText(@Nullable String text) {
-        String newText = text != null ? text : "";
-        boolean hadExpiry = this.hasExpiry;
-        boolean willHaveExpiry = !newText.isEmpty();
-        // Most ticks just decrement the same "mm:ss" digit count (e.g.
-        // "12:34" -> "12:33"), so the reserved footer width — and therefore
-        // the bubble's measured size — doesn't actually change. Only pay for
-        // a full requestLayout()+invalidate() when the reserve width (or
-        // the has-expiry/no-expiry state itself) really changed; otherwise
-        // just repaint the small region the countdown is drawn in.
-        float oldReserve = measureExpiryReserve(this.expiryText);
-        float newReserve = measureExpiryReserve(newText);
-        this.hasExpiry = willHaveExpiry;
-        this.expiryText = newText;
-        if (hadExpiry != willHaveExpiry || oldReserve != newReserve) {
-            requestLayout();
-            invalidate();
-        } else {
-            invalidateExpiryRegion();
-        }
-    }
-
-    /** Text-only width of the "⏳ mm:ss" countdown for the given string, independent of the current expiryText/hasExpiry fields — used by setExpiryText() to detect whether an incoming tick actually changes the reserved footer width. */
-    private float measureExpiryReserve(@Nullable String text) {
-        if (text == null || text.isEmpty()) return 0f;
-        return expiryPaint.measureText(text) + EXPIRY_GAP_DP * density;
-    }
-
-    /**
-     * Dirty-region invalidate() for the once-a-second expiry countdown tick
-     * — covers the whole bubble rect (footer row, corner pill, or captionless
-     * media pill all live within it depending on bubble type) rather than
-     * the full item view, which also includes the avatar column/reactions
-     * row/group-sender label that never change on a countdown tick.
-     */
-    private void invalidateExpiryRegion() {
-        float pad = 2f * density;
-        expiryInvalidateRect.set(
-                (int) Math.floor(bubbleRect.left - pad),
-                (int) Math.floor(bubbleRect.top - pad),
-                (int) Math.ceil(bubbleRect.right + pad),
-                (int) Math.ceil(bubbleRect.bottom + pad));
-        invalidate(expiryInvalidateRect);
+        this.hasExpiry = text != null && !text.isEmpty();
+        this.expiryText = text != null ? text : "";
+        requestLayout();
+        invalidate();
     }
 
     /** Call once the countdown finishes, or for a message with no expiry at all. */
@@ -2674,21 +2466,14 @@ public class MessageBubbleCanvasView extends View {
      *                 resize again once setLinkPreviewThumbBitmap() lands.
      */
     public void setLinkPreview(String url, @Nullable String title, @Nullable String domain, boolean hasThumb) {
-        boolean newHas = url != null && !url.isEmpty();
-        String newTitle = title != null ? title : "";
-        String newDomain = domain != null ? domain : "";
-        boolean sizeChanged = newHas != this.hasLinkPreview || !newTitle.equals(this.linkTitle)
-                || !newDomain.equals(this.linkDomain) || hasThumb != this.linkHasThumb;
-        this.hasLinkPreview = newHas;
+        this.hasLinkPreview = url != null && !url.isEmpty();
         this.linkPreviewUrl = url != null ? url : "";
-        this.linkTitle = newTitle;
-        this.linkDomain = newDomain;
+        this.linkTitle = title != null ? title : "";
+        this.linkDomain = domain != null ? domain : "";
         this.linkHasThumb = hasThumb;
         this.linkThumbBitmap = null; // any bitmap from a previously-bound URL no longer applies
-        if (sizeChanged) {
-            this.linkTitleLayout = null; // recomputed in onMeasure
-            requestLayout();
-        }
+        this.linkTitleLayout = null; // recomputed in onMeasure
+        requestLayout();
         invalidate();
     }
 
@@ -2700,7 +2485,6 @@ public class MessageBubbleCanvasView extends View {
 
     /** Call when the message has no link, the URL has no OG data, or the fetch failed — clears any stale card state on a recycled view. */
     public void clearLinkPreview() {
-        boolean sizeChanged = this.hasLinkPreview;
         this.hasLinkPreview = false;
         this.linkPreviewUrl = "";
         this.linkTitle = "";
@@ -2709,7 +2493,7 @@ public class MessageBubbleCanvasView extends View {
         this.linkThumbBitmap = null;
         this.linkTitleLayout = null;
         this.linkCardHeight = 0;
-        if (sizeChanged) requestLayout();
+        requestLayout();
         invalidate();
     }
 
@@ -2820,24 +2604,20 @@ public class MessageBubbleCanvasView extends View {
             int replyTextColMaxWidth = Math.max(1, maxTextWidth - replyBar - replyPadH * 2
                     - replyThumbSize - replyThumbMargin * 2);
 
-            String replyKey = replySenderName + "\u0001" + replyText + "\u0001" + replyTextColMaxWidth;
-            if (replySenderLayout == null || replyTextLayout == null || !replyKey.equals(lastReplyMeasureKey)) {
-                replySenderLayout = StaticLayout.Builder
-                        .obtain(replySenderName, 0, replySenderName.length(), replySenderPaint, replyTextColMaxWidth)
-                        .setAlignment(Layout.Alignment.ALIGN_NORMAL)
-                        .setMaxLines(1)
-                        .setEllipsize(TextUtils.TruncateAt.END)
-                        .setIncludePad(false)
-                        .build();
-                replyTextLayout = StaticLayout.Builder
-                        .obtain(replyText, 0, replyText.length(), replyTextPaint, replyTextColMaxWidth)
-                        .setAlignment(Layout.Alignment.ALIGN_NORMAL)
-                        .setMaxLines(2)
-                        .setEllipsize(TextUtils.TruncateAt.END)
-                        .setIncludePad(false)
-                        .build();
-                lastReplyMeasureKey = replyKey;
-            }
+            replySenderLayout = StaticLayout.Builder
+                    .obtain(replySenderName, 0, replySenderName.length(), replySenderPaint, replyTextColMaxWidth)
+                    .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                    .setMaxLines(1)
+                    .setEllipsize(TextUtils.TruncateAt.END)
+                    .setIncludePad(false)
+                    .build();
+            replyTextLayout = StaticLayout.Builder
+                    .obtain(replyText, 0, replyText.length(), replyTextPaint, replyTextColMaxWidth)
+                    .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                    .setMaxLines(2)
+                    .setEllipsize(TextUtils.TruncateAt.END)
+                    .setIncludePad(false)
+                    .build();
 
             int replyTextColWidth = Math.max(maxLineWidth(replySenderLayout), maxLineWidth(replyTextLayout));
             int replyTextColHeight = replySenderLayout.getHeight() + replyTextLayout.getHeight();
@@ -3098,17 +2878,13 @@ public class MessageBubbleCanvasView extends View {
 
             // Question layout
             pollQuestionPaint.setTextSize(spToPx(POLL_QUESTION_TEXT_SP));
-            String pollQuestionKey = pollQuestion + "\u0001" + innerW;
-            if (pollQuestionLayout == null || !pollQuestionKey.equals(lastPollQuestionKey)) {
-                pollQuestionLayout = StaticLayout.Builder
-                        .obtain(pollQuestion, 0, pollQuestion.length(), pollQuestionPaint, innerW)
-                        .setAlignment(Layout.Alignment.ALIGN_NORMAL)
-                        .setMaxLines(3)
-                        .setEllipsize(TextUtils.TruncateAt.END)
-                        .setIncludePad(false)
-                        .build();
-                lastPollQuestionKey = pollQuestionKey;
-            }
+            pollQuestionLayout = StaticLayout.Builder
+                    .obtain(pollQuestion, 0, pollQuestion.length(), pollQuestionPaint, innerW)
+                    .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                    .setMaxLines(3)
+                    .setEllipsize(TextUtils.TruncateAt.END)
+                    .setIncludePad(false)
+                    .build();
 
             // Subtitle line height
             Paint.FontMetrics sfm = pollSubtitlePaint.getFontMetrics();
@@ -3116,26 +2892,19 @@ public class MessageBubbleCanvasView extends View {
 
             // Option text layouts
             int n = pollOptions.length;
+            pollOptionLayouts = new StaticLayout[n];
             float iconSz   = POLL_OPTION_ICON_SIZE_DP * density;
             float iconMar  = POLL_OPTION_ICON_MARGIN_DP * density;
             float pctW     = pollOptionPctPaint.measureText("100%") + iconMar;
             int optTextW   = Math.max(1, innerW - Math.round(POLL_OPTION_PAD_H_DP * density * 2 + iconSz + iconMar + pctW));
-            String pollOptionsKey = String.join("\u0001", pollOptions) + "\u0002" + optTextW;
-            boolean pollOptionsStale = pollOptionLayouts.length != n
-                    || (n > 0 && pollOptionLayouts[0] == null)
-                    || !pollOptionsKey.equals(lastPollOptionsKey);
-            if (pollOptionsStale) {
-                pollOptionLayouts = new StaticLayout[n];
-                for (int i = 0; i < n; i++) {
-                    pollOptionLayouts[i] = StaticLayout.Builder
-                            .obtain(pollOptions[i], 0, pollOptions[i].length(), pollOptionTextPaint, optTextW)
-                            .setAlignment(Layout.Alignment.ALIGN_NORMAL)
-                            .setMaxLines(2)
-                            .setEllipsize(TextUtils.TruncateAt.END)
-                            .setIncludePad(false)
-                            .build();
-                }
-                lastPollOptionsKey = pollOptionsKey;
+            for (int i = 0; i < n; i++) {
+                pollOptionLayouts[i] = StaticLayout.Builder
+                        .obtain(pollOptions[i], 0, pollOptions[i].length(), pollOptionTextPaint, optTextW)
+                        .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                        .setMaxLines(2)
+                        .setEllipsize(TextUtils.TruncateAt.END)
+                        .setIncludePad(false)
+                        .build();
             }
 
             // Total height of option rows
@@ -3267,17 +3036,13 @@ public class MessageBubbleCanvasView extends View {
                 int cardPadBottom = Math.round(LINK_PREVIEW_PAD_BOTTOM_DP * density);
                 int titleMaxWidth = Math.max(1, maxTextWidth - cardPadH * 2);
                 String titleSrc = !linkTitle.isEmpty() ? linkTitle : linkPreviewUrl;
-                String linkTitleKey = titleSrc + "\u0001" + titleMaxWidth;
-                if (linkTitleLayout == null || !linkTitleKey.equals(lastLinkTitleKey)) {
-                    linkTitleLayout = StaticLayout.Builder
-                            .obtain(titleSrc, 0, titleSrc.length(), linkTitlePaint, titleMaxWidth)
-                            .setAlignment(Layout.Alignment.ALIGN_NORMAL)
-                            .setMaxLines(2)
-                            .setEllipsize(TextUtils.TruncateAt.END)
-                            .setIncludePad(false)
-                            .build();
-                    lastLinkTitleKey = linkTitleKey;
-                }
+                linkTitleLayout = StaticLayout.Builder
+                        .obtain(titleSrc, 0, titleSrc.length(), linkTitlePaint, titleMaxWidth)
+                        .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                        .setMaxLines(2)
+                        .setEllipsize(TextUtils.TruncateAt.END)
+                        .setIncludePad(false)
+                        .build();
                 int domainHeight = 0;
                 int domainGap = 0;
                 if (!linkDomain.isEmpty()) {
@@ -3750,11 +3515,10 @@ public class MessageBubbleCanvasView extends View {
         float pillW = textW + padH * 2;
         float right = anchorRect.right - inset;
         float top = anchorRect.top + inset;
-        RectF pillRect = cornerExpiryPillRect;
-        pillRect.set(right - pillW, top, right, top + pillH);
-        canvas.drawRoundRect(pillRect, pillH / 2f, pillH / 2f, mediaPillBgPaint);
-        float baseline = pillRect.centerY() - (efm.ascent + efm.descent) / 2f;
-        canvas.drawText(expiryText, pillRect.left + padH, baseline, expiryPaint);
+        cornerExpiryPillRect.set(right - pillW, top, right, top + pillH);
+        canvas.drawRoundRect(cornerExpiryPillRect, pillH / 2f, pillH / 2f, mediaPillBgPaint);
+        float baseline = cornerExpiryPillRect.centerY() - (efm.ascent + efm.descent) / 2f;
+        canvas.drawText(expiryText, cornerExpiryPillRect.left + padH, baseline, expiryPaint);
     }
 
     private void drawCallEntry(Canvas canvas) {
@@ -3818,7 +3582,6 @@ public class MessageBubbleCanvasView extends View {
     }
 
     final RectF gateIconArcRect = new RectF();
-    final RectF cornerExpiryPillRect = new RectF(); // reused scratch rect for drawCornerExpiryPill()
 
     /**
      * Draws the IDLE download-gate glyph at (cx, cy) sized to `size`: a

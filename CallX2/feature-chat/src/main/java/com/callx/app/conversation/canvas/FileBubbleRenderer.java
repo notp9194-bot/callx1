@@ -2,6 +2,8 @@ package com.callx.app.conversation.canvas;
 
 import android.graphics.Canvas;
 import android.graphics.Paint;
+import android.graphics.Path;
+import android.graphics.Typeface;
 
 /**
  * FILE BUBBLE DRAW — card-style: icon circle | name+meta | action button.
@@ -9,13 +11,35 @@ import android.graphics.Paint;
  * Moved verbatim out of MessageBubbleCanvasView (feature-based file split,
  * no behavior change) — bind/measure/touch logic for the file bubble
  * stays on the host view; this class only owns the draw() call.
+ *
+ * PERF: this instance is created once per MessageBubbleCanvasView (see the
+ * `final FileBubbleRenderer fileBubbleRenderer = ...` field on the host)
+ * and reused across every rebind while the view is recycled by the
+ * RecyclerView, so all Paint/Path objects below are allocated once in the
+ * constructor and only mutated (color/style/geometry) inside draw() —
+ * no per-frame `new Paint()`/`new Path()` churn during scroll.
  */
 final class FileBubbleRenderer {
 
     private final MessageBubbleCanvasView host;
 
+    // ── Pooled drawing objects — allocated once, reused every draw() ───────
+    private final Paint iconBgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Path glyphPath = new Path();
+    private final Paint glyphPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint actionBgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint actionIconPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    // Shared by the "open" (right-arrow) and "download" (down-arrow) glyphs —
+    // only one of the two is ever drawn per frame, so one reusable Path
+    // covers both; reset() before each shape.
+    private final Path actionArrowPath = new Path();
+
     FileBubbleRenderer(MessageBubbleCanvasView host) {
         this.host = host;
+        // Colors/styles that never change frame-to-frame are set once here.
+        glyphPaint.setColor(0xFFFFFFFF);
+        glyphPaint.setStyle(Paint.Style.FILL);
+        actionBgPaint.setColor(0x22000000);
     }
 
     void draw(Canvas canvas) {
@@ -30,36 +54,27 @@ final class FileBubbleRenderer {
         float contentW = host.bubbleRect.width() - hPad * 2f;
 
         // ── Icon circle ────────────────────────────────────────────────────────
-        // Paints/paths below are pre-allocated fields on the host view
-        // (fileIconBgPaint/fileGlyphPaint/fileActionBgPaint/fileActionIconPaint/
-        // fileGlyphPath/fileActionIconPath) and reset+reused every draw()
-        // instead of `new`'d per frame — avoids GC churn while fast-scrolling.
         float cx = left + iconCol / 2f;
         float cy = top  + host.fileCardHeight / 2f;
         float cr = iconCol * 0.38f;
-        Paint iconBg = host.fileIconBgPaint;
-        iconBg.setColor(host.fileIconColor);
-        canvas.drawCircle(cx, cy, cr, iconBg);
+        iconBgPaint.setColor(host.fileIconColor);
+        canvas.drawCircle(cx, cy, cr, iconBgPaint);
         // File glyph — simple dog-ear rectangle
-        android.graphics.Path fp = host.fileGlyphPath;
-        fp.reset();
+        glyphPath.reset();
         float fw = cr * 0.55f, fh = cr * 0.72f;
         float fx = cx - fw / 2f, fy = cy - fh / 2f;
         float fold = fw * 0.30f;
-        fp.moveTo(fx, fy + fold);
-        fp.lineTo(fx, fy + fh);
-        fp.lineTo(fx + fw, fy + fh);
-        fp.lineTo(fx + fw, fy);
-        fp.lineTo(fx + fw - fold, fy);
-        fp.lineTo(fx, fy + fold);
-        fp.close();
-        fp.moveTo(fx, fy + fold);
-        fp.lineTo(fx + fw - fold, fy + fold);
-        fp.lineTo(fx + fw - fold, fy);
-        Paint glyphPaint = host.fileGlyphPaint;
-        glyphPaint.setColor(0xFFFFFFFF);
-        glyphPaint.setStyle(Paint.Style.FILL);
-        canvas.drawPath(fp, glyphPaint);
+        glyphPath.moveTo(fx, fy + fold);
+        glyphPath.lineTo(fx, fy + fh);
+        glyphPath.lineTo(fx + fw, fy + fh);
+        glyphPath.lineTo(fx + fw, fy);
+        glyphPath.lineTo(fx + fw - fold, fy);
+        glyphPath.lineTo(fx, fy + fold);
+        glyphPath.close();
+        glyphPath.moveTo(fx, fy + fold);
+        glyphPath.lineTo(fx + fw - fold, fy + fold);
+        glyphPath.lineTo(fx + fw - fold, fy);
+        canvas.drawPath(glyphPath, glyphPaint);
 
         // ── Action button (right column) ───────────────────────────────────────
         float aRight = host.bubbleRect.right - hPad;
@@ -67,63 +82,77 @@ final class FileBubbleRenderer {
         float actCx  = aLeft + actCol / 2f;
         float actCy  = cy;
         float actR   = actCol * 0.38f;
-        Paint actBg = host.fileActionBgPaint;
-        actBg.setColor(0x22000000);
-        canvas.drawCircle(actCx, actCy, actR, actBg);
+        canvas.drawCircle(actCx, actCy, actR, actionBgPaint);
         // Store tap rect
         host.fileActionRect.set(actCx - actR, actCy - actR, actCx + actR, actCy + actR);
 
         // Draw icon glyph: ⬇ (download arrow) or ⬗ (open/share square)
-        Paint actIcon = host.fileActionIconPaint;
-        actIcon.setColor(host.sent ? 0xFF555555 : 0xFF008069);
-        actIcon.setStyle(Paint.Style.FILL);
-        android.graphics.Path actPath = host.fileActionIconPath;
-        actPath.reset();
+        actionIconPaint.setColor(host.sent ? 0xFF555555 : 0xFF008069);
+        actionIconPaint.setStyle(Paint.Style.FILL);
         if (host.fileIsDownloading) {
             // Progress ring
-            host.drawProgressRing(canvas, actCx, actCy, actR * 1.4f, actIcon, host.fileDownloadPercent);
+            host.drawProgressRing(canvas, actCx, actCy, actR * 1.4f, actionIconPaint, host.fileDownloadPercent);
         } else if (host.fileIsCached) {
             // Open icon — simple right-pointing arrow
+            actionArrowPath.reset();
             float as = actR * 0.45f;
-            actPath.moveTo(actCx - as, actCy - as * 0.7f);
-            actPath.lineTo(actCx + as, actCy);
-            actPath.lineTo(actCx - as, actCy + as * 0.7f);
-            actIcon.setStyle(Paint.Style.STROKE);
-            actIcon.setStrokeWidth(host.density * 2f);
-            canvas.drawPath(actPath, actIcon);
+            actionArrowPath.moveTo(actCx - as, actCy - as * 0.7f);
+            actionArrowPath.lineTo(actCx + as, actCy);
+            actionArrowPath.lineTo(actCx - as, actCy + as * 0.7f);
+            actionIconPaint.setStyle(Paint.Style.STROKE);
+            actionIconPaint.setStrokeWidth(host.density * 2f);
+            canvas.drawPath(actionArrowPath, actionIconPaint);
         } else {
             // Download arrow
+            actionArrowPath.reset();
             float as = actR * 0.42f;
-            actPath.moveTo(actCx, actCy - as);
-            actPath.lineTo(actCx, actCy + as * 0.5f);
-            actPath.moveTo(actCx - as * 0.7f, actCy + as * 0.2f);
-            actPath.lineTo(actCx, actCy + as * 0.9f);
-            actPath.lineTo(actCx + as * 0.7f, actCy + as * 0.2f);
-            actIcon.setStyle(Paint.Style.STROKE);
-            actIcon.setStrokeWidth(host.density * 2f);
-            canvas.drawPath(actPath, actIcon);
+            actionArrowPath.moveTo(actCx, actCy - as);
+            actionArrowPath.lineTo(actCx, actCy + as * 0.5f);
+            actionArrowPath.moveTo(actCx - as * 0.7f, actCy + as * 0.2f);
+            actionArrowPath.lineTo(actCx, actCy + as * 0.9f);
+            actionArrowPath.lineTo(actCx + as * 0.7f, actCy + as * 0.2f);
+            actionIconPaint.setStyle(Paint.Style.STROKE);
+            actionIconPaint.setStrokeWidth(host.density * 2f);
+            canvas.drawPath(actionArrowPath, actionIconPaint);
         }
 
         // ── Name + meta text (centre column) ──────────────────────────────────
         float textLeft = left + iconCol + rowPad;
         float textRight = aLeft - rowPad;
         float textColW = Math.max(1f, textRight - textLeft);
-        // File name — fileNamePaint/fileMetaPaint are pre-configured once
-        // (size/typeface/color never change for this bubble type) instead
-        // of toggling the shared host.textPaint back and forth every
-        // draw() call.
-        String displayName = host.fileNameEllipsizeCache.get(
-                host.fileNameText, host.fileNamePaint, textColW, android.text.TextUtils.TruncateAt.MIDDLE);
-        float nameLineH = host.fileNamePaint.getFontSpacing();
-        float metaLineH = host.fileMetaPaint.getFontSpacing();
+        // File name
+        host.textPaint.setTextSize(host.spToPx(13f));
+        host.textPaint.setTypeface(Typeface.DEFAULT_BOLD);
+        host.textPaint.setColor(host.sent ? 0xFF1A1A1A : 0xFF1A1A1A);
+        float nameTruncW = host.textPaint.measureText(host.fileNameText);
+        String displayName = host.fileNameText;
+        if (nameTruncW > textColW) {
+            displayName = android.text.TextUtils.ellipsize(
+                    host.fileNameText, host.textPaint, textColW, android.text.TextUtils.TruncateAt.MIDDLE).toString();
+        }
+        float nameLineH = host.textPaint.getFontSpacing();
+        float metaLineH;
+        {
+            host.textPaint.setTextSize(host.spToPx(10f));
+            host.textPaint.setTypeface(Typeface.DEFAULT);
+            metaLineH = host.textPaint.getFontSpacing();
+            host.textPaint.setTextSize(host.spToPx(13f));
+            host.textPaint.setTypeface(Typeface.DEFAULT_BOLD);
+        }
         float totalTxtH = nameLineH + 2f * host.density + metaLineH;
         float nameY = top + (host.fileCardHeight - totalTxtH) / 2f + nameLineH * 0.85f;
-        canvas.drawText(displayName, textLeft, nameY, host.fileNamePaint);
+        canvas.drawText(displayName, textLeft, nameY, host.textPaint);
         // Meta (size · type)
+        host.textPaint.setTextSize(host.spToPx(10f));
+        host.textPaint.setTypeface(Typeface.DEFAULT);
+        host.textPaint.setColor(0xFF888888);
         float metaY = nameY + 2f * host.density + metaLineH * 0.85f;
-        String displayMeta = host.fileMetaEllipsizeCache.get(
-                host.fileSizeMimeText, host.fileMetaPaint, textColW, android.text.TextUtils.TruncateAt.END);
-        canvas.drawText(displayMeta, textLeft, metaY, host.fileMetaPaint);
+        String displayMeta = host.fileSizeMimeText;
+        if (host.textPaint.measureText(displayMeta) > textColW) {
+            displayMeta = android.text.TextUtils.ellipsize(
+                    displayMeta, host.textPaint, textColW, android.text.TextUtils.TruncateAt.END).toString();
+        }
+        canvas.drawText(displayMeta, textLeft, metaY, host.textPaint);
 
         // ── Footer ─────────────────────────────────────────────────────────────
         int footerH = Math.round(host.spToPx(MessageBubbleCanvasView.FOOTER_TEXT_SP) + MessageBubbleCanvasView.FOOTER_GAP_DP * host.density);

@@ -1,8 +1,12 @@
 package com.callx.app.conversation.canvas;
 
 import android.graphics.Bitmap;
+import android.graphics.BitmapShader;
 import android.graphics.Canvas;
+import android.graphics.LinearGradient;
+import android.graphics.Path;
 import android.graphics.RectF;
+import android.graphics.Shader;
 import android.text.TextUtils;
 
 /**
@@ -14,6 +18,12 @@ import android.text.TextUtils;
  * Moved verbatim out of MessageBubbleCanvasView (feature-based file
  * split, no behavior change) — bind/measure/touch logic for the media
  * group stays on the host view; this class only owns the draw() call.
+ *
+ * PERF: this instance is created once per MessageBubbleCanvasView and
+ * reused across every rebind while the view is recycled, so per-cell
+ * BitmapShaders/gradients and scratch RectF/Path objects below are cached
+ * as fields and only rebuilt when the underlying bitmap or geometry they
+ * depend on actually changes — not on every draw() during scroll.
  */
 final class MediaGroupRenderer {
 
@@ -22,6 +32,32 @@ final class MediaGroupRenderer {
     MediaGroupRenderer(MessageBubbleCanvasView host) {
         this.host = host;
     }
+
+    // ── Per-cell BitmapShader cache ─────────────────────────────────────────
+    // One slot per possible grid cell (GROUP_MAX_VISIBLE). A shader is only
+    // rebuilt when the cell's bitmap reference or its scale/translate
+    // (derived from the cell rect) actually changed since the last draw —
+    // otherwise the previously-built shader is reused as-is.
+    private final BitmapShader[] cellShaders = new BitmapShader[MessageBubbleCanvasView.GROUP_MAX_VISIBLE];
+    private final Bitmap[] cellShaderBitmaps = new Bitmap[MessageBubbleCanvasView.GROUP_MAX_VISIBLE];
+    private final float[] cellShaderScale = new float[MessageBubbleCanvasView.GROUP_MAX_VISIBLE];
+    private final float[] cellShaderDx = new float[MessageBubbleCanvasView.GROUP_MAX_VISIBLE];
+    private final float[] cellShaderDy = new float[MessageBubbleCanvasView.GROUP_MAX_VISIBLE];
+
+    // ── Other pooled scratch objects (avoid per-draw() `new RectF()`/`new
+    // LinearGradient()` for the duration badge + caption-strip scrims) ─────
+    private final RectF durBgRect = new RectF();
+
+    // Per-cell caption-strip gradient cache (mirrors the BitmapShader cache
+    // above): only rebuilt when the strip's top/bottom Y actually changes.
+    private final LinearGradient[] itemCaptionGradients = new LinearGradient[MessageBubbleCanvasView.GROUP_MAX_VISIBLE];
+    private final float[] itemCaptionGradientTop = new float[MessageBubbleCanvasView.GROUP_MAX_VISIBLE];
+    private final float[] itemCaptionGradientBottom = new float[MessageBubbleCanvasView.GROUP_MAX_VISIBLE];
+
+    // Group-level caption scrim gradient — single slot, same rebuild-on-change rule.
+    private LinearGradient groupScrimGradient;
+    private float groupScrimGradientTop = Float.NaN;
+    private float groupScrimGradientBottom = Float.NaN;
 
     void draw(Canvas canvas) {
         float cellR = MessageBubbleCanvasView.GROUP_CORNER_R * host.density;
@@ -44,41 +80,43 @@ final class MediaGroupRenderer {
                 String label = (item.label != null && !item.label.isEmpty())
                         ? item.label : (item.isAudio ? "Audio" : "File");
                 float maxTextW = rect.width() - 4 * host.density;
-                CharSequence ellipsized = host.groupCellLabelEllipsizeCache[i].get(
+                CharSequence ellipsized = TextUtils.ellipsize(
                         label, host.groupFileLabelPaint, maxTextW, TextUtils.TruncateAt.MIDDLE);
                 float baseline = rect.bottom - 4 * host.density - host.groupFileLabelPaint.descent();
                 canvas.drawText(ellipsized, 0, ellipsized.length(), rect.centerX(), baseline, host.groupFileLabelPaint);
             } else if (bmp != null) {
-                // Rebuild the BitmapShader+matrix only when this cell's bitmap
-                // identity or on-screen rect actually changed since the last
-                // draw — cached per-cell in groupCellShaders/groupCellShaderBitmap/
-                // groupCellShaderRect on the host. Reuses the same shader object
-                // on every other frame (e.g. plain re-invalidate, unrelated
-                // countdown/waveform tick) instead of allocating a new
-                // BitmapShader (and re-touching the matrix) every draw() call.
-                RectF cachedRect = host.groupCellShaderRect[i];
-                boolean needsRebuild = host.groupCellShaders[i] == null
-                        || host.groupCellShaderBitmap[i] != bmp
-                        || cachedRect.left != rect.left || cachedRect.top != rect.top
-                        || cachedRect.right != rect.right || cachedRect.bottom != rect.bottom;
+                float scale = Math.max(rect.width() / bmp.getWidth(), rect.height() / bmp.getHeight());
+                float dx = rect.left - (bmp.getWidth() * scale - rect.width()) / 2f;
+                float dy = rect.top - (bmp.getHeight() * scale - rect.height()) / 2f;
+
+                BitmapShader shader = cellShaders[i];
+                boolean needsRebuild = shader == null
+                        || cellShaderBitmaps[i] != bmp
+                        || cellShaderScale[i] != scale
+                        || cellShaderDx[i] != dx
+                        || cellShaderDy[i] != dy;
                 if (needsRebuild) {
-                    float scale = Math.max(rect.width() / bmp.getWidth(), rect.height() / bmp.getHeight());
-                    float dx = rect.left - (bmp.getWidth() * scale - rect.width()) / 2f;
-                    float dy = rect.top - (bmp.getHeight() * scale - rect.height()) / 2f;
+                    shader = new BitmapShader(bmp, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP);
                     host.groupShaderMatrix.reset();
                     host.groupShaderMatrix.setScale(scale, scale);
                     host.groupShaderMatrix.postTranslate(dx, dy);
-                    android.graphics.BitmapShader shader = new android.graphics.BitmapShader(
-                            bmp, android.graphics.Shader.TileMode.CLAMP, android.graphics.Shader.TileMode.CLAMP);
                     shader.setLocalMatrix(host.groupShaderMatrix);
-                    host.groupCellShaders[i] = shader;
-                    host.groupCellShaderBitmap[i] = bmp;
-                    cachedRect.set(rect);
+                    cellShaders[i] = shader;
+                    cellShaderBitmaps[i] = bmp;
+                    cellShaderScale[i] = scale;
+                    cellShaderDx[i] = dx;
+                    cellShaderDy[i] = dy;
                 }
-                host.groupBitmapPaint.setShader(host.groupCellShaders[i]);
+                host.groupBitmapPaint.setShader(shader);
                 canvas.drawRoundRect(rect, cellR, cellR, host.groupBitmapPaint);
             } else {
                 canvas.drawRoundRect(rect, cellR, cellR, host.groupCellBgPaint);
+                // Bitmap for this cell was cleared (e.g. recycled bind) —
+                // drop the stale shader cache so a later bitmap always
+                // triggers a fresh build rather than comparing against a
+                // now-irrelevant previous reference.
+                cellShaders[i] = null;
+                cellShaderBitmaps[i] = null;
             }
 
             if (item != null && item.isVideo && !isLastOverlay) {
@@ -99,24 +137,23 @@ final class MediaGroupRenderer {
                     float durPadH = 3 * host.density, durPadV = 1 * host.density;
                     float textW = host.groupDurationTextPaint.measureText(item.duration);
                     float textH = host.groupDurationTextPaint.descent() - host.groupDurationTextPaint.ascent();
-                    RectF durBg = host.groupDurationBgRect; // reused scratch rect, no per-frame alloc
                     if (hasItemCaption) {
                         // Duration moves to the top-end corner so it doesn't
                         // collide with the caption strip pinned to the bottom
                         // (same conflict-avoidance MediaGroupLayoutHelper uses).
                         float right = rect.right - 4 * host.density;
                         float top = rect.top + 4 * host.density;
-                        durBg.set(right - textW - durPadH * 2, top, right, top + textH + durPadV * 2);
+                        durBgRect.set(right - textW - durPadH * 2, top, right, top + textH + durPadV * 2);
                     } else {
                         float left = rect.left + 4 * host.density;
                         float bottom = rect.bottom - 4 * host.density;
-                        durBg.set(left, bottom - textH - durPadV * 2, left + textW + durPadH * 2, bottom);
+                        durBgRect.set(left, bottom - textH - durPadV * 2, left + textW + durPadH * 2, bottom);
                     }
-                    canvas.drawRoundRect(durBg, 3 * host.density, 3 * host.density, host.groupDurationBgPaint);
+                    canvas.drawRoundRect(durBgRect, 3 * host.density, 3 * host.density, host.groupDurationBgPaint);
                     float textBaseline = hasItemCaption
-                            ? durBg.top + durPadV - host.groupDurationTextPaint.ascent()
-                            : durBg.bottom - durPadV - host.groupDurationTextPaint.descent();
-                    canvas.drawText(item.duration, durBg.left + durPadH, textBaseline, host.groupDurationTextPaint);
+                            ? durBgRect.top + durPadV - host.groupDurationTextPaint.ascent()
+                            : durBgRect.bottom - durPadV - host.groupDurationTextPaint.descent();
+                    canvas.drawText(item.duration, durBgRect.left + durPadH, textBaseline, host.groupDurationTextPaint);
                 }
             }
 
@@ -128,15 +165,21 @@ final class MediaGroupRenderer {
             if (item != null && !isLastOverlay && item.caption != null && !item.caption.isEmpty()) {
                 float stripH = MessageBubbleCanvasView.GROUP_ITEM_CAPTION_STRIP_H_DP * host.density;
                 float stripTop = rect.bottom - stripH;
-                android.graphics.Shader grad = new android.graphics.LinearGradient(
-                        0, stripTop, 0, rect.bottom, 0x00000000, 0x99000000, android.graphics.Shader.TileMode.CLAMP);
+
+                LinearGradient grad = itemCaptionGradients[i];
+                if (grad == null || itemCaptionGradientTop[i] != stripTop || itemCaptionGradientBottom[i] != rect.bottom) {
+                    grad = new LinearGradient(
+                            0, stripTop, 0, rect.bottom, 0x00000000, 0x99000000, Shader.TileMode.CLAMP);
+                    itemCaptionGradients[i] = grad;
+                    itemCaptionGradientTop[i] = stripTop;
+                    itemCaptionGradientBottom[i] = rect.bottom;
+                }
                 host.groupItemCaptionScrimPaint.setShader(grad);
                 canvas.drawRect(rect.left, stripTop, rect.right, rect.bottom, host.groupItemCaptionScrimPaint);
 
                 float margin = MessageBubbleCanvasView.GROUP_ITEM_CAPTION_MARGIN_DP * host.density;
                 float maxTextW = rect.width() - margin * 2;
-                CharSequence ellipsized = host.groupItemCaptionEllipsizeCache[i].get(
-                        item.caption, host.groupItemCaptionPaint, maxTextW, TextUtils.TruncateAt.END);
+                CharSequence ellipsized = TextUtils.ellipsize(item.caption, host.groupItemCaptionPaint, maxTextW, TextUtils.TruncateAt.END);
                 float baseline = rect.bottom - MessageBubbleCanvasView.GROUP_ITEM_CAPTION_BOTTOM_DP * host.density - host.groupItemCaptionPaint.descent();
                 canvas.drawText(ellipsized, 0, ellipsized.length(), rect.left + margin, baseline, host.groupItemCaptionPaint);
             }
@@ -202,10 +245,14 @@ final class MediaGroupRenderer {
 
         if (host.groupHasCaption && host.groupCaptionLayout != null) {
             float scrimTop = host.groupContentRect.bottom - MessageBubbleCanvasView.GROUP_CAPTION_SCRIM_H_DP * host.density;
-            android.graphics.Shader grad = new android.graphics.LinearGradient(
-                    0, scrimTop, 0, host.groupContentRect.bottom,
-                    0x00000000, 0xAA000000, android.graphics.Shader.TileMode.CLAMP);
-            host.groupScrimPaint.setShader(grad);
+            float scrimBottom = host.groupContentRect.bottom;
+            if (groupScrimGradient == null || groupScrimGradientTop != scrimTop || groupScrimGradientBottom != scrimBottom) {
+                groupScrimGradient = new LinearGradient(
+                        0, scrimTop, 0, scrimBottom, 0x00000000, 0xAA000000, Shader.TileMode.CLAMP);
+                groupScrimGradientTop = scrimTop;
+                groupScrimGradientBottom = scrimBottom;
+            }
+            host.groupScrimPaint.setShader(groupScrimGradient);
             canvas.drawRect(host.groupContentRect.left, scrimTop, host.groupContentRect.right, host.groupContentRect.bottom, host.groupScrimPaint);
 
             canvas.save();
@@ -242,6 +289,8 @@ final class MediaGroupRenderer {
      * filename/duration label, same vertical arrangement as the legacy
      * ImageView(icon)+TextView(label) pair in MediaGroupLayoutHelper.
      */
+    private final Path fileOrAudioGlyphPath = new Path();
+
     private void drawFileOrAudioGlyph(Canvas canvas, RectF rect, boolean isAudio) {
         float cx = rect.centerX();
         // Icon center sits slightly above the cell's middle to leave room
@@ -264,17 +313,17 @@ final class MediaGroupRenderer {
             }
         } else {
             // Dog-eared page glyph — same construction as FileBubbleRenderer's.
-            android.graphics.Path fp = new android.graphics.Path();
+            fileOrAudioGlyphPath.reset();
             float fw = glyphR * 1.1f, fh = glyphR * 1.45f;
             float fx = cx - fw / 2f, fy = cy - fh / 2f;
             float fold = fw * 0.30f;
-            fp.moveTo(fx, fy + fold);
-            fp.lineTo(fx, fy + fh);
-            fp.lineTo(fx + fw, fy + fh);
-            fp.lineTo(fx + fw, fy);
-            fp.lineTo(fx + fw - fold, fy);
-            fp.close();
-            canvas.drawPath(fp, host.groupFileGlyphPaint);
+            fileOrAudioGlyphPath.moveTo(fx, fy + fold);
+            fileOrAudioGlyphPath.lineTo(fx, fy + fh);
+            fileOrAudioGlyphPath.lineTo(fx + fw, fy + fh);
+            fileOrAudioGlyphPath.lineTo(fx + fw, fy);
+            fileOrAudioGlyphPath.lineTo(fx + fw - fold, fy);
+            fileOrAudioGlyphPath.close();
+            canvas.drawPath(fileOrAudioGlyphPath, host.groupFileGlyphPaint);
         }
     }
 }

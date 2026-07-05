@@ -34,35 +34,18 @@ final class MediaRenderer {
             // centerCrop), then clip to a round rect with drawRoundRect —
             // avoids clipPath (which can force a software layer on some
             // Android versions) while still giving true rounded corners.
-            //
-            // The shader+matrix is only rebuilt when the bitmap identity or
-            // mediaRect actually changed since last draw (cached on host via
-            // mediaCachedShader/mediaCachedShaderBitmap/mediaCachedShaderRect)
-            // — otherwise every re-invalidate (waveform tick, expiry
-            // countdown, plain scroll re-layout) was paying for a fresh
-            // BitmapShader allocation + matrix rebuild for no visual change.
-            RectF cachedRect = host.mediaCachedShaderRect;
-            boolean needsRebuild = host.mediaCachedShader == null
-                    || host.mediaCachedShaderBitmap != host.mediaBitmap
-                    || cachedRect.left != host.mediaRect.left || cachedRect.top != host.mediaRect.top
-                    || cachedRect.right != host.mediaRect.right || cachedRect.bottom != host.mediaRect.bottom;
-            if (needsRebuild) {
-                float scale = Math.max(host.mediaRect.width() / host.mediaBitmap.getWidth(),
-                        host.mediaRect.height() / host.mediaBitmap.getHeight());
-                float dx = host.mediaRect.left - (host.mediaBitmap.getWidth() * scale - host.mediaRect.width()) / 2f;
-                float dy = host.mediaRect.top - (host.mediaBitmap.getHeight() * scale - host.mediaRect.height()) / 2f;
-                host.mediaShaderMatrix.reset();
-                host.mediaShaderMatrix.setScale(scale, scale);
-                host.mediaShaderMatrix.postTranslate(dx, dy);
+            float scale = Math.max(host.mediaRect.width() / host.mediaBitmap.getWidth(),
+                    host.mediaRect.height() / host.mediaBitmap.getHeight());
+            float dx = host.mediaRect.left - (host.mediaBitmap.getWidth() * scale - host.mediaRect.width()) / 2f;
+            float dy = host.mediaRect.top - (host.mediaBitmap.getHeight() * scale - host.mediaRect.height()) / 2f;
+            host.mediaShaderMatrix.reset();
+            host.mediaShaderMatrix.setScale(scale, scale);
+            host.mediaShaderMatrix.postTranslate(dx, dy);
 
-                android.graphics.BitmapShader shader = new android.graphics.BitmapShader(
-                        host.mediaBitmap, android.graphics.Shader.TileMode.CLAMP, android.graphics.Shader.TileMode.CLAMP);
-                shader.setLocalMatrix(host.mediaShaderMatrix);
-                host.mediaCachedShader = shader;
-                host.mediaCachedShaderBitmap = host.mediaBitmap;
-                cachedRect.set(host.mediaRect);
-            }
-            host.mediaBitmapPaint.setShader(host.mediaCachedShader);
+            android.graphics.BitmapShader shader = new android.graphics.BitmapShader(
+                    host.mediaBitmap, android.graphics.Shader.TileMode.CLAMP, android.graphics.Shader.TileMode.CLAMP);
+            shader.setLocalMatrix(host.mediaShaderMatrix);
+            host.mediaBitmapPaint.setShader(shader);
             canvas.drawRoundRect(host.mediaRect, r, r, host.mediaBitmapPaint);
         } else {
             // Not decoded yet — plain placeholder box, same rounded shape.
@@ -81,10 +64,9 @@ final class MediaRenderer {
             float bh = badgeTsz + badgePad * 2f;
             float bx = host.mediaRect.left + 6f * host.density;
             float by = host.mediaRect.top  + 6f * host.density;
-            Paint gifBadgeBg = host.mediaGifBadgeBgPaint;
+            Paint gifBadgeBg = new Paint(Paint.ANTI_ALIAS_FLAG);
             gifBadgeBg.setColor(0xCC000000);
-            RectF gifBadgeRF = host.mediaGifBadgeRect;
-            gifBadgeRF.set(bx, by, bx + bw, by + bh);
+            RectF gifBadgeRF = new RectF(bx, by, bx + bw, by + bh);
             canvas.drawRoundRect(gifBadgeRF, badgeR, badgeR, gifBadgeBg);
             host.textPaint.setColor(0xFFFFFFFF);
             canvas.drawText(MessageBubbleCanvasView.GIF_BADGE_TEXT, bx + badgePad, by + badgePad + badgeTsz * 0.85f, host.textPaint);
@@ -129,12 +111,10 @@ final class MediaRenderer {
             if (host.sent) {
                 // Reuse the same tick paint as the text-bubble footer, but
                 // white (matches mediaPillTextPaint) so it reads on the pill.
-                // Only the color needs to be swapped and restored — no need
-                // to allocate a whole extra Paint object just to remember it.
-                int savedColor = host.tickPaint.getColor();
+                Paint saved = new Paint(host.tickPaint);
                 host.tickPaint.setColor(MessageBubbleCanvasView.MEDIA_PILL_TEXT);
                 host.drawTick(canvas, host.mediaPillRect.right - pillPadH - MessageBubbleCanvasView.TICK_SIZE_DP * host.density, textBaselineY);
-                host.tickPaint.setColor(savedColor);
+                host.tickPaint.set(saved);
             }
         }
     }
@@ -167,8 +147,7 @@ final class MediaRenderer {
             float textH = host.groupDurationTextPaint.descent() - host.groupDurationTextPaint.ascent();
             float left = host.mediaRect.left + 4 * host.density;
             float bottom = host.mediaRect.bottom - 4 * host.density;
-            RectF durBg = host.mediaVideoDurationRect; // reused scratch rect, no per-frame alloc
-            durBg.set(left, bottom - textH - durPadV * 2, left + textW + durPadH * 2, bottom);
+            RectF durBg = new RectF(left, bottom - textH - durPadV * 2, left + textW + durPadH * 2, bottom);
             canvas.drawRoundRect(durBg, 3 * host.density, 3 * host.density, host.groupDurationBgPaint);
             float textBaseline = durBg.bottom - durPadV - host.groupDurationTextPaint.descent();
             canvas.drawText(host.videoDuration, durBg.left + durPadH, textBaseline, host.groupDurationTextPaint);
