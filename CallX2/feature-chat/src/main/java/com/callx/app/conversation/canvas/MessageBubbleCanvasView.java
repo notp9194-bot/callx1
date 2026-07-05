@@ -41,8 +41,8 @@ import com.callx.app.utils.ChatThemeManager;
  * shape and the text block) — they're computed once in onMeasure() and then
  * just drawn.
  *
- * SCOPE OF THIS FILE (deliberately limited)
- * ──────────────────────────────────────────
+ * SCOPE OF THIS FILE
+ * ──────────────────
  * This view handles:
  *   • plain-text bubbles — sender's own text + timestamp + read/delivered tick
  *   • the reply-preview strip (quoted sender name + quoted text + optional
@@ -52,22 +52,26 @@ import com.callx.app.utils.ChatThemeManager;
  *     centerCrop-equivalent scaling, optional caption text below the image,
  *     and (for captionless images) a translucent timestamp/tick pill
  *     overlaid on the image itself, WhatsApp-style.
+ *   • a SENT multi-image/video grid (bindMediaGroup) — mirrors
+ *     MediaGroupLayoutHelper's 1/2/3/4/5-9/10+ layout rules, video play-icon
+ *     + duration badge, "+N" overflow on the last cell, and a group caption
+ *     scrim overlapping the grid's bottom edge. See isCanvasEligible() in
+ *     MessagePagingAdapter for exactly what qualifies (sent-only, plain
+ *     image/video cells only, no per-item captions).
  *
  * It intentionally does NOT (yet) handle:
- *   • multi-image grids (ll_media_group), video, GIF, audio, file, poll,
- *     link-preview, or reel-share bubbles
+ *   • RECEIVED multi-image/video grids — these keep the manual per-cell
+ *     download-gate + master "Download N photos" pill on the old
+ *     MediaGroupLayoutHelper path (same precedent as single received images)
+ *   • audio/file cells inside a media group, or per-item captions
+ *   • GIF, audio, file, poll, link-preview, or reel-share bubbles
  *   • the download-progress overlay (pill/spinner/percentage) — the image
  *     slot shows a plain placeholder box until a decoded Bitmap is supplied
  *   • forwarded/pinned labels, reactions strip
  *   • swipe-to-reply gesture, long-press action menu
  *
  * Those all still render through the existing item_message_sent/received.xml
- * + MessagePagingAdapter path. Converting them is real, additional work —
- * each one needs its own hit-testing and its own Canvas drawing routine, and
- * getting media bubbles wrong is much easier to do than getting plain
- * text wrong (multi-touch targets, RTL runs, emoji spans, image aspect
- * ratios). Doing all of it in one pass and calling it "done" would trade a
- * working, heavily-tuned app for a broken one.
+ * + MessagePagingAdapter path.
  *
  * HOW TO WIRE THIS IN
  * ────────────────────
@@ -135,6 +139,31 @@ public class MessageBubbleCanvasView extends View {
     private static final int   MEDIA_PILL_TEXT         = 0xFFFFFFFF;
     private static final int   MEDIA_PLACEHOLDER_COLOR = 0xFFD9D9D9; // shown until Bitmap arrives — no theme lookup yet (see class doc)
 
+    // ── Media GROUP (multi-image/video grid) — mirrors MediaGroupLayoutHelper's
+    // layout rules/constants exactly for visual parity, but is an entirely
+    // separate mode from the single-image `isMedia` path above (own state,
+    // own measure/draw/hit-test) so the already-working single-image path
+    // can't regress. See MessagePagingAdapter.isCanvasEligible(): only
+    // SENT groups of plain image/video items (no audio/file cells, no
+    // per-item captions) reach this — received groups keep the manual
+    // download-gate UI on the old path, same precedent as single images. ──
+    private static final int GROUP_SINGLE_W    = 240;
+    private static final int GROUP_SINGLE_H    = 200;
+    private static final int GROUP_PAIR_CELL   = 118;
+    private static final int GROUP_THREE_TOP_W = 240;
+    private static final int GROUP_THREE_TOP_H = 140;
+    private static final int GROUP_THREE_BOT   = 116;
+    private static final int GROUP_GRID2_CELL  = 118;
+    private static final int GROUP_GRID3_CELL  = 78;
+    private static final int GROUP_GAP         = 2;
+    private static final int GROUP_CORNER_R    = 4; // per-cell radius (matches buildCell's 4dp)
+    private static final int GROUP_MAX_VISIBLE = 9; // 3x3 cap; beyond this, last cell shows "+N"
+    private static final float GROUP_CAPTION_SCRIM_H_DP = 40f;
+    private static final float GROUP_CAPTION_TEXT_SP    = 14f;
+    private static final int   GROUP_PLAY_CIRCLE_DP      = 36;
+    private static final int   GROUP_PLAY_TRIANGLE_DP    = 20;
+    private static final int   GROUP_DURATION_TEXT_SP    = 10;
+
     public interface OnBubbleClickListener {
         void onBubbleClick();
         void onBubbleLongClick();
@@ -144,6 +173,19 @@ public class MessageBubbleCanvasView extends View {
         void onReplyPreviewClick();
         /** Tapped the image itself (media bubbles only) — caller should open the full-screen media viewer. */
         void onImageClick();
+        /** Tapped cell `index` inside a media-group grid (bindMediaGroup only) — caller should open the gallery viewer at that index. */
+        void onMediaCellClick(int index);
+    }
+
+    /** Immutable per-cell descriptor for bindMediaGroup(); bitmaps are supplied
+     *  later, one at a time, via setMediaGroupBitmap() as Glide decodes them. */
+    public static final class GridItem {
+        public final boolean isVideo;
+        public final String duration; // e.g. "0:32"; null/empty if none or not a video
+        public GridItem(boolean isVideo, @Nullable String duration) {
+            this.isVideo = isVideo;
+            this.duration = duration;
+        }
     }
 
     private final TextPaint textPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
@@ -195,6 +237,30 @@ public class MessageBubbleCanvasView extends View {
     private final RectF mediaPillRect = new RectF();
     private final android.graphics.Matrix mediaShaderMatrix = new android.graphics.Matrix();
 
+    // ── Media GROUP (multi-image/video grid) state — entirely separate
+    // from the single-image `isMedia` state above. ──
+    private boolean isMediaGroup = false;
+    private java.util.List<GridItem> groupItems = java.util.Collections.emptyList();
+    private Bitmap[] groupBitmaps = new Bitmap[0];
+    private final RectF[] groupRects = new RectF[GROUP_MAX_VISIBLE];
+    private int groupVisibleCount = 0;
+    private int groupRemaining = 0; // >0 only on the last visible cell when total > GROUP_MAX_VISIBLE
+    private boolean groupHasCaption = false;
+    private StaticLayout groupCaptionLayout;
+    private final RectF groupContentRect = new RectF(); // whole grid area (no reply/caption)
+    private final Paint groupCellBgPaint = new Paint();
+    private final Paint groupBitmapPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+    private final Paint groupScrimPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint groupMoreOverlayPaint = new Paint();
+    private final TextPaint groupMoreTextPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint groupPlayCirclePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint groupPlayTrianglePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final TextPaint groupDurationTextPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint groupDurationBgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final android.graphics.Matrix groupShaderMatrix = new android.graphics.Matrix();
+    private final android.graphics.Path groupPlayTrianglePath = new android.graphics.Path();
+    private final TextPaint groupCaptionTextPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+
     private OnBubbleClickListener clickListener;
     private final GestureDetector gestureDetector;
 
@@ -215,6 +281,23 @@ public class MessageBubbleCanvasView extends View {
         mediaPillBgPaint.setColor(MEDIA_PILL_BG);
         mediaPillTextPaint.setColor(MEDIA_PILL_TEXT);
         mediaPillTextPaint.setTextSize(spToPx(FOOTER_TEXT_SP));
+
+        groupCellBgPaint.setColor(Color.DKGRAY);
+        groupMoreOverlayPaint.setColor(0xBB000000);
+        groupMoreTextPaint.setColor(Color.WHITE);
+        groupMoreTextPaint.setFakeBoldText(true);
+        groupMoreTextPaint.setTextSize(22f * density);
+        groupMoreTextPaint.setTextAlign(Paint.Align.CENTER);
+        groupPlayCirclePaint.setColor(0x99000000);
+        groupPlayTrianglePaint.setColor(Color.WHITE);
+        groupDurationTextPaint.setColor(Color.WHITE);
+        groupDurationTextPaint.setFakeBoldText(true);
+        groupDurationTextPaint.setTextSize(GROUP_DURATION_TEXT_SP * density);
+        groupDurationBgPaint.setColor(0x99000000);
+        groupCaptionTextPaint.setColor(Color.WHITE);
+        groupCaptionTextPaint.setTextSize(GROUP_CAPTION_TEXT_SP * density);
+        for (int i = 0; i < groupRects.length; i++) groupRects[i] = new RectF();
+
         setWillNotDraw(false);
 
         gestureDetector = new GestureDetector(ctx, new GestureDetector.SimpleOnGestureListener() {
@@ -238,6 +321,7 @@ public class MessageBubbleCanvasView extends View {
      */
     public void bind(String text, String timeText, boolean isSent, boolean isRead, boolean isDelivered) {
         this.isMedia = false;
+        this.isMediaGroup = false;
         this.mediaBitmap = null;
         this.messageText = text != null ? text : "";
         this.footerTimeText = timeText != null ? timeText : "";
@@ -278,6 +362,7 @@ public class MessageBubbleCanvasView extends View {
     public void bindMedia(@Nullable Bitmap bitmap, @Nullable String caption, String timeText,
                            boolean isSent, boolean isRead, boolean isDelivered) {
         this.isMedia = true;
+        this.isMediaGroup = false;
         this.mediaBitmap = bitmap;
         this.messageText = caption != null ? caption : "";
         this.mediaHasCaption = !this.messageText.isEmpty();
@@ -306,6 +391,57 @@ public class MessageBubbleCanvasView extends View {
     /** Swap in a decoded Bitmap once an async (Glide) load finishes — no re-measure needed, same fixed image size. */
     public void setMediaBitmap(@Nullable Bitmap bitmap) {
         this.mediaBitmap = bitmap;
+        invalidate();
+    }
+
+    /**
+     * Bind this view to a SENT multi-image/video group (matches ll_media_group
+     * + MediaGroupLayoutHelper's 1/2/3/4/5-9/10+ grid rules). Pass bitmap=null
+     * per-cell placeholders first (thumbnails still loading); call
+     * setMediaGroupBitmap(index, bitmap) as each Glide load finishes.
+     *
+     * Deliberately conservative like bindMedia(): only image/video cells, no
+     * per-item captions, no manual-download gate — see isCanvasEligible() in
+     * MessagePagingAdapter for exactly what qualifies.
+     */
+    public void bindMediaGroup(java.util.List<GridItem> items, @Nullable String caption, String timeText,
+                                boolean isSent, boolean isRead, boolean isDelivered) {
+        this.isMedia = false;
+        this.isMediaGroup = true;
+        this.groupItems = items != null ? items : java.util.Collections.emptyList();
+        int total = this.groupItems.size();
+        this.groupVisibleCount = Math.min(total, GROUP_MAX_VISIBLE);
+        this.groupRemaining = total - GROUP_MAX_VISIBLE; // used only if > 0
+        this.groupBitmaps = new Bitmap[groupVisibleCount];
+        this.groupHasCaption = caption != null && !caption.isEmpty();
+        this.messageText = groupHasCaption ? caption : "";
+        this.footerTimeText = timeText != null ? timeText : "";
+        this.sent = isSent;
+        this.read = isRead;
+        this.delivered = isDelivered;
+
+        Context ctx = getContext();
+        textPaint.setColor(ChatThemeManager.get(ctx).getTextColor(ctx, sent));
+        footerPaint.setColor(textPaint.getColor());
+        tickPaint.setColor(ChatThemeManager.get(ctx).getTickColor(read));
+
+        int cacheKey = (sent ? 1 : 0) << 1 | (hasReply ? 1 : 0);
+        if (cacheKey != lastCacheKey || bubbleDrawable == null) {
+            bubbleDrawable = buildBubbleDrawable(ctx, sent);
+            lastCacheKey = cacheKey;
+        }
+        resolveReplyColors(ctx);
+
+        groupCaptionLayout = null; // recomputed in onMeasure
+        textLayout = null;
+        requestLayout();
+        invalidate();
+    }
+
+    /** Swap in a decoded per-cell thumbnail once its Glide load finishes — no re-measure needed. */
+    public void setMediaGroupBitmap(int index, @Nullable Bitmap bitmap) {
+        if (index < 0 || index >= groupBitmaps.length) return;
+        groupBitmaps[index] = bitmap;
         invalidate();
     }
 
@@ -475,6 +611,28 @@ public class MessageBubbleCanvasView extends View {
             // — see onDraw — matching the text-bubble footer placement).
             bubbleHeight = replyBoxHeight + replyGap + vPad + mediaSize + vPad + captionBlockHeight;
 
+        } else if (isMediaGroup) {
+            // ── Media-group grid (multi-image/video) ──
+            int[] dims = computeGroupGridDims(groupVisibleCount);
+            int gridW = dims[0];
+            int gridH = dims[1];
+
+            if (groupHasCaption) {
+                groupCaptionLayout = StaticLayout.Builder
+                        .obtain(messageText, 0, messageText.length(), groupCaptionTextPaint,
+                                Math.max(1, Math.min(gridW - dp(8), maxTextWidth)))
+                        .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                        .setMaxLines(3)
+                        .setEllipsize(TextUtils.TruncateAt.END)
+                        .setIncludePad(false)
+                        .build();
+            } else {
+                groupCaptionLayout = null;
+            }
+
+            bubbleContentWidth = Math.min(Math.max(gridW, replyBoxContentWidth), maxTextWidth);
+            bubbleHeight = replyBoxHeight + replyGap + vPad + gridH + vPad;
+
         } else {
             // ── Plain text bubble ──
             footerReserveWidth = footerPaint.measureText(footerTimeText)
@@ -531,7 +689,88 @@ public class MessageBubbleCanvasView extends View {
             }
         }
 
+        if (isMediaGroup) {
+            float gridTop = bubbleTop + replyBoxHeight + replyGap + vPad;
+            layoutGroupCells(bubbleLeft + hPad, gridTop);
+            groupContentRect.set(bubbleLeft + hPad, gridTop,
+                    bubbleLeft + bubbleWidth - hPad, bubbleTop + bubbleHeight - vPad);
+
+            if (!groupHasCaption) {
+                float pillPadH = MEDIA_PILL_PADDING_H_DP * density;
+                float pillPadV = MEDIA_PILL_PADDING_V_DP * density;
+                float pillMargin = MEDIA_PILL_MARGIN_DP * density;
+                float pillTextW = mediaPillTextPaint.measureText(footerTimeText)
+                        + (sent ? (TICK_SIZE_DP + TICK_GAP_DP) * density : 0);
+                float pillH = spToPx(FOOTER_TEXT_SP) + pillPadV * 2;
+                mediaPillRect.set(
+                        groupContentRect.right - pillMargin - pillTextW - pillPadH * 2,
+                        groupContentRect.bottom - pillMargin - pillH,
+                        groupContentRect.right - pillMargin,
+                        groupContentRect.bottom - pillMargin);
+            }
+        }
+
         setMeasuredDimension(parentWidth, bubbleHeight);
+    }
+
+    private int dp(int v) {
+        return Math.round(v * density);
+    }
+
+    /**
+     * Grid outer dimensions [width, height] in px for `n` visible cells,
+     * following MediaGroupLayoutHelper's exact rules: 1 → wide single card,
+     * 2 → side-by-side pair, 3 → wide top + 2 below, 4 → 2x2, 5-9 → 3x3
+     * (rows may be partial; each row still reserves full 3-column width —
+     * a deliberate simplification vs. the old WRAP_CONTENT-per-row helper,
+     * traded for simpler/robust hit-testing in a Canvas-drawn grid).
+     */
+    private int[] computeGroupGridDims(int n) {
+        int gap = dp(GROUP_GAP);
+        if (n <= 0) return new int[]{0, 0};
+        if (n == 1) return new int[]{dp(GROUP_SINGLE_W), dp(GROUP_SINGLE_H)};
+        if (n == 2) return new int[]{dp(GROUP_PAIR_CELL) * 2 + gap, dp(GROUP_PAIR_CELL)};
+        if (n == 3) return new int[]{dp(GROUP_THREE_TOP_W), dp(GROUP_THREE_TOP_H) + gap + dp(GROUP_THREE_BOT)};
+        if (n == 4) return new int[]{dp(GROUP_GRID2_CELL) * 2 + gap, dp(GROUP_GRID2_CELL) * 2 + gap};
+        int rows = (int) Math.ceil(n / 3f);
+        return new int[]{dp(GROUP_GRID3_CELL) * 3 + gap * 2, dp(GROUP_GRID3_CELL) * rows + gap * (rows - 1)};
+    }
+
+    /** Fills groupRects[0..groupVisibleCount) with absolute on-screen cell
+     *  positions, anchored at (originX, originY) = top-left of the grid area. */
+    private void layoutGroupCells(float originX, float originY) {
+        int n = groupVisibleCount;
+        int gap = dp(GROUP_GAP);
+        if (n <= 0) return;
+        if (n == 1) {
+            groupRects[0].set(originX, originY, originX + dp(GROUP_SINGLE_W), originY + dp(GROUP_SINGLE_H));
+        } else if (n == 2) {
+            int c = dp(GROUP_PAIR_CELL);
+            groupRects[0].set(originX, originY, originX + c, originY + c);
+            groupRects[1].set(originX + c + gap, originY, originX + c + gap + c, originY + c);
+        } else if (n == 3) {
+            int tw = dp(GROUP_THREE_TOP_W), th = dp(GROUP_THREE_TOP_H), bc = dp(GROUP_THREE_BOT);
+            groupRects[0].set(originX, originY, originX + tw, originY + th);
+            float rowTop = originY + th + gap;
+            groupRects[1].set(originX, rowTop, originX + bc, rowTop + bc);
+            groupRects[2].set(originX + bc + gap, rowTop, originX + bc + gap + bc, rowTop + bc);
+        } else if (n == 4) {
+            int c = dp(GROUP_GRID2_CELL);
+            for (int i = 0; i < 4; i++) {
+                int row = i / 2, col = i % 2;
+                float left = originX + col * (c + gap);
+                float top  = originY + row * (c + gap);
+                groupRects[i].set(left, top, left + c, top + c);
+            }
+        } else {
+            int c = dp(GROUP_GRID3_CELL);
+            for (int i = 0; i < n; i++) {
+                int row = i / 3, col = i % 3;
+                float left = originX + col * (c + gap);
+                float top  = originY + row * (c + gap);
+                groupRects[i].set(left, top, left + c, top + c);
+            }
+        }
     }
 
     private static int maxLineWidth(StaticLayout layout) {
@@ -546,7 +785,7 @@ public class MessageBubbleCanvasView extends View {
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
         if (bubbleDrawable == null) return;
-        if (!isMedia && textLayout == null) return;
+        if (!isMedia && !isMediaGroup && textLayout == null) return;
 
         bubbleDrawable.setBounds(
                 (int) bubbleRect.left, (int) bubbleRect.top,
@@ -560,7 +799,9 @@ public class MessageBubbleCanvasView extends View {
             drawReplyPreview(canvas);
         }
 
-        if (isMedia) {
+        if (isMediaGroup) {
+            drawMediaGroup(canvas);
+        } else if (isMedia) {
             drawMedia(canvas, hPad, vPad);
         } else {
             int replyGap = hasReply ? Math.round(REPLY_GAP_TO_MESSAGE_DP * density) : 0;
@@ -626,6 +867,97 @@ public class MessageBubbleCanvasView extends View {
                 tickPaint.setColor(MEDIA_PILL_TEXT);
                 drawTick(canvas, mediaPillRect.right - pillPadH - TICK_SIZE_DP * density, textBaselineY);
                 tickPaint.set(saved);
+            }
+        }
+    }
+
+    private void drawMediaGroup(Canvas canvas) {
+        float cellR = GROUP_CORNER_R * density;
+        for (int i = 0; i < groupVisibleCount; i++) {
+            RectF rect = groupRects[i];
+            boolean isLastOverlay = (i == groupVisibleCount - 1) && groupRemaining > 0;
+            GridItem item = i < groupItems.size() ? groupItems.get(i) : null;
+            Bitmap bmp = groupBitmaps[i];
+
+            if (bmp != null) {
+                float scale = Math.max(rect.width() / bmp.getWidth(), rect.height() / bmp.getHeight());
+                float dx = rect.left - (bmp.getWidth() * scale - rect.width()) / 2f;
+                float dy = rect.top - (bmp.getHeight() * scale - rect.height()) / 2f;
+                groupShaderMatrix.reset();
+                groupShaderMatrix.setScale(scale, scale);
+                groupShaderMatrix.postTranslate(dx, dy);
+                android.graphics.BitmapShader shader = new android.graphics.BitmapShader(
+                        bmp, android.graphics.Shader.TileMode.CLAMP, android.graphics.Shader.TileMode.CLAMP);
+                shader.setLocalMatrix(groupShaderMatrix);
+                groupBitmapPaint.setShader(shader);
+                canvas.drawRoundRect(rect, cellR, cellR, groupBitmapPaint);
+            } else {
+                canvas.drawRoundRect(rect, cellR, cellR, groupCellBgPaint);
+            }
+
+            if (item != null && item.isVideo && !isLastOverlay) {
+                float cx = rect.centerX(), cy = rect.centerY();
+                float circleR = (GROUP_PLAY_CIRCLE_DP * density) / 2f;
+                canvas.drawCircle(cx, cy, circleR, groupPlayCirclePaint);
+
+                float triR = (GROUP_PLAY_TRIANGLE_DP * density) / 2f;
+                groupPlayTrianglePath.reset();
+                groupPlayTrianglePath.moveTo(cx - triR * 0.5f, cy - triR * 0.8f);
+                groupPlayTrianglePath.lineTo(cx - triR * 0.5f, cy + triR * 0.8f);
+                groupPlayTrianglePath.lineTo(cx + triR * 0.9f, cy);
+                groupPlayTrianglePath.close();
+                canvas.drawPath(groupPlayTrianglePath, groupPlayTrianglePaint);
+
+                if (item.duration != null && !item.duration.isEmpty()) {
+                    float durPadH = 3 * density, durPadV = 1 * density;
+                    float textW = groupDurationTextPaint.measureText(item.duration);
+                    float textH = groupDurationTextPaint.descent() - groupDurationTextPaint.ascent();
+                    float left = rect.left + 4 * density;
+                    float bottom = rect.bottom - 4 * density;
+                    RectF durBg = new RectF(left, bottom - textH - durPadV * 2, left + textW + durPadH * 2, bottom);
+                    canvas.drawRoundRect(durBg, 3 * density, 3 * density, groupDurationBgPaint);
+                    canvas.drawText(item.duration, left + durPadH, bottom - durPadV - groupDurationTextPaint.descent(),
+                            groupDurationTextPaint);
+                }
+            }
+
+            if (isLastOverlay) {
+                canvas.drawRoundRect(rect, cellR, cellR, groupMoreOverlayPaint);
+                canvas.drawText("+" + groupRemaining, rect.centerX(),
+                        rect.centerY() - (groupMoreTextPaint.ascent() + groupMoreTextPaint.descent()) / 2f,
+                        groupMoreTextPaint);
+            }
+        }
+
+        if (groupHasCaption && groupCaptionLayout != null) {
+            float scrimTop = groupContentRect.bottom - GROUP_CAPTION_SCRIM_H_DP * density;
+            android.graphics.Shader grad = new android.graphics.LinearGradient(
+                    0, scrimTop, 0, groupContentRect.bottom,
+                    0x00000000, 0xAA000000, android.graphics.Shader.TileMode.CLAMP);
+            groupScrimPaint.setShader(grad);
+            canvas.drawRect(groupContentRect.left, scrimTop, groupContentRect.right, groupContentRect.bottom, groupScrimPaint);
+
+            canvas.save();
+            canvas.translate(groupContentRect.left + 4 * density,
+                    groupContentRect.bottom - groupCaptionLayout.getHeight() - 4 * density);
+            groupCaptionLayout.draw(canvas);
+            canvas.restore();
+        } else {
+            // Captionless group: translucent timestamp/tick pill overlaid
+            // on the grid's bottom-right corner — same treatment as the
+            // single-image bubble's captionless pill.
+            float rr = MEDIA_PILL_CORNER_DP * density;
+            canvas.drawRoundRect(mediaPillRect, rr, rr, mediaPillBgPaint);
+            float pillPadH = MEDIA_PILL_PADDING_H_DP * density;
+            float textBaselineY = mediaPillRect.bottom - (mediaPillRect.height()
+                    - (mediaPillTextPaint.descent() - mediaPillTextPaint.ascent())) / 2f
+                    - mediaPillTextPaint.descent();
+            float tickReserve = sent ? (TICK_SIZE_DP + TICK_GAP_DP) * density : 0;
+            canvas.drawText(footerTimeText,
+                    mediaPillRect.right - pillPadH - tickReserve - mediaPillTextPaint.measureText(footerTimeText),
+                    textBaselineY, mediaPillTextPaint);
+            if (sent) {
+                drawTick(canvas, mediaPillRect.right - pillPadH - TICK_SIZE_DP * density, textBaselineY);
             }
         }
     }
@@ -713,6 +1045,15 @@ public class MessageBubbleCanvasView extends View {
                 && mediaRect.contains(event.getX(), event.getY())) {
             if (clickListener != null) clickListener.onImageClick();
             return true;
+        }
+        if (isMediaGroup && event.getActionMasked() == MotionEvent.ACTION_UP) {
+            float x = event.getX(), y = event.getY();
+            for (int i = 0; i < groupVisibleCount; i++) {
+                if (groupRects[i].contains(x, y)) {
+                    if (clickListener != null) clickListener.onMediaCellClick(i);
+                    return true;
+                }
+            }
         }
         return gestureDetector.onTouchEvent(event) || super.onTouchEvent(event);
     }

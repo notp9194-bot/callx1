@@ -695,7 +695,26 @@ public class MessagePagingAdapter
             // only the sender's own already-local image is eligible.
             return sentFlag;
         }
-        return false; // gif/video/audio/file/poll/multi_media/link/reel_share/contact/location — all still on the old path
+        if ("multi_media".equals(type)) {
+            // Same precedent as single images above: received groups keep
+            // the manual per-cell download-gate + master "Download N
+            // photos" pill on the old path (not modeled in Canvas yet).
+            // Only the sender's own already-local group is eligible, and
+            // only if every cell is a plain image/video (audio/file cells
+            // and per-item captions aren't modeled — see MediaGroupLayoutHelper
+            // vs. MessageBubbleCanvasView.drawMediaGroup()).
+            if (!sentFlag) return false;
+            if (m.mediaItems == null || m.mediaItems.isEmpty()) return false;
+            for (java.util.Map<String, Object> item : m.mediaItems) {
+                Object mtObj = item.get("mediaType");
+                String mt = mtObj instanceof String ? (String) mtObj : "";
+                if (!"image".equals(mt) && !"video".equals(mt)) return false;
+                Object capObj = item.get("caption");
+                if (capObj instanceof String && !((String) capObj).isEmpty()) return false;
+            }
+            return true;
+        }
+        return false; // gif/video/audio/file/poll/link/reel_share/contact/location — all still on the old path
     }
 
     @NonNull
@@ -1156,9 +1175,10 @@ public class MessagePagingAdapter
 
     /**
      * Binds a message to a MessageBubbleCanvasView holder (see
-     * isCanvasEligible()). Only ever called for plain-text messages, or a
-     * sent single image, optionally with a reply — every other shape is
-     * filtered out before a holder ever gets here.
+     * isCanvasEligible()). Only ever called for plain-text messages, a
+     * sent single image, or a sent multi-image/video group (all cells
+     * plain image/video, no per-item captions) — optionally with a reply.
+     * Every other shape is filtered out before a holder ever gets here.
      */
     private void bindCanvasMessage(@NonNull VH h, @NonNull Message m) {
         final Context ctx = h.itemView.getContext();
@@ -1170,8 +1190,52 @@ public class MessagePagingAdapter
         final String timeStr = (m.timestamp != null && m.timestamp > 0) ? formatTime(m.timestamp) : "";
         final String type = m.type != null ? m.type : "text";
         final boolean isImage = "image".equals(type);
+        final boolean isMultiMedia = "multi_media".equals(type);
 
-        if (isImage) {
+        if (isMultiMedia) {
+            final java.util.List<java.util.Map<String, Object>> items = m.mediaItems;
+            final int total = items != null ? items.size() : 0;
+            java.util.List<com.callx.app.conversation.canvas.MessageBubbleCanvasView.GridItem> gridItems =
+                    new java.util.ArrayList<>();
+            int visible = Math.min(total, 9);
+            for (int i = 0; i < visible; i++) {
+                java.util.Map<String, Object> item = items.get(i);
+                Object mtObj = item.get("mediaType");
+                boolean isVideoCell = "video".equals(mtObj instanceof String ? mtObj : "");
+                Object durObj = item.get("duration");
+                String dur = durObj instanceof String ? (String) durObj : null;
+                gridItems.add(new com.callx.app.conversation.canvas.MessageBubbleCanvasView.GridItem(isVideoCell, dur));
+            }
+            cv.bindMediaGroup(gridItems, m.caption, timeStr, sent, isRead, isDelivered);
+
+            for (int i = 0; i < visible; i++) {
+                java.util.Map<String, Object> item = items.get(i);
+                Object urlObj = item.get("url");
+                Object thumbObj = item.get("thumbUrl");
+                String cellUrl = urlObj instanceof String ? (String) urlObj : "";
+                String cellThumb = thumbObj instanceof String ? (String) thumbObj : "";
+                String loadUrl = !cellThumb.isEmpty() ? cellThumb : cellUrl;
+                if (loadUrl.isEmpty()) continue;
+                final int cellIndex = i;
+                glide(ctx).asBitmap()
+                        .load(loadUrl)
+                        .apply(THUMB_RGB565)
+                        .override(240, 240)
+                        .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
+                            @Override
+                            public void onResourceReady(@NonNull Bitmap resource,
+                                    @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
+                                if (h.canvasBindToken != myToken) return; // holder recycled/rebound since this load started
+                                cv.setMediaGroupBitmap(cellIndex, resource);
+                            }
+                            @Override
+                            public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {
+                                if (h.canvasBindToken != myToken) return;
+                                cv.setMediaGroupBitmap(cellIndex, null);
+                            }
+                        });
+            }
+        } else if (isImage) {
             final String fullUrl = m.mediaUrl != null ? m.mediaUrl : m.text;
             // No caption support for single "image" messages in this codebase
             // (m.text/m.mediaUrl is the URL, not a caption — see bindMessage()'s
@@ -1269,6 +1333,36 @@ public class MessagePagingAdapter
                     String fullUrl = m.mediaUrl != null ? m.mediaUrl : m.text;
                     showImageActionSheet(ctx, m, fullUrl, fullUrl);
                 }
+            }
+
+            @Override
+            public void onMediaCellClick(int index) {
+                if (!isMultiMedia || m.mediaItems == null || index < 0 || index >= m.mediaItems.size()) return;
+                java.util.Map<String, Object> item = m.mediaItems.get(index);
+                Object urlObj = item.get("url");
+                Object thumbObj = item.get("thumbUrl");
+                Object mtObj = item.get("mediaType");
+                String url = urlObj instanceof String ? (String) urlObj : "";
+                String thumbUrl = thumbObj instanceof String ? (String) thumbObj : "";
+                String mediaType = mtObj instanceof String ? (String) mtObj : "image";
+                if (url.isEmpty()) return;
+                try {
+                    String groupMsgId = (m.id != null && !m.id.isEmpty()) ? m.id : m.messageId;
+                    android.content.Intent intent = new android.content.Intent();
+                    intent.setClassName(ctx, "com.callx.app.activities.MediaViewerActivity");
+                    intent.putExtra("mediaItemsJson",
+                            com.callx.app.utils.MediaItemsJsonUtil.mediaItemsToJson(m.mediaItems));
+                    intent.putExtra("startIndex", index);
+                    intent.putExtra("url", url);
+                    intent.putExtra("type", mediaType);
+                    intent.putExtra("thumbUrl", !thumbUrl.isEmpty() ? thumbUrl : url);
+                    if (chatId != null && groupMsgId != null) {
+                        intent.putExtra("chatId", chatId);
+                        intent.putExtra("messageId", groupMsgId);
+                    }
+                    intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                    ctx.startActivity(intent);
+                } catch (Exception ignored) {}
             }
         });
     }
