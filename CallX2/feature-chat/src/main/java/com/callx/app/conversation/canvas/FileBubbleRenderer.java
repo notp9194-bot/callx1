@@ -34,6 +34,18 @@ final class FileBubbleRenderer {
     // covers both; reset() before each shape.
     private final Path actionArrowPath = new Path();
 
+    // ── Ellipsize/measure cache — fileNameText/fileSizeMimeText only
+    // change on rebind (bindFile()), but the old code ran measureText() +
+    // TextUtils.ellipsize() on every single draw() during scroll. Cache the
+    // displayed string and only recompute when either the raw text or the
+    // available column width (textColW, tied to the card's layout) changes.
+    private String lastNameRaw;
+    private float lastNameColW = -1f;
+    private String cachedNameDisplay;
+    private String lastMetaRaw;
+    private float lastMetaColW = -1f;
+    private String cachedMetaDisplay;
+
     FileBubbleRenderer(MessageBubbleCanvasView host) {
         this.host = host;
         // Colors/styles that never change frame-to-frame are set once here.
@@ -124,11 +136,18 @@ final class FileBubbleRenderer {
         host.textPaint.setTextSize(host.spToPx(13f));
         host.textPaint.setTypeface(Typeface.DEFAULT_BOLD);
         host.textPaint.setColor(host.sent ? 0xFF1A1A1A : 0xFF1A1A1A);
-        float nameTruncW = host.textPaint.measureText(host.fileNameText);
-        String displayName = host.fileNameText;
-        if (nameTruncW > textColW) {
-            displayName = android.text.TextUtils.ellipsize(
-                    host.fileNameText, host.textPaint, textColW, android.text.TextUtils.TruncateAt.MIDDLE).toString();
+        String displayName;
+        if (cachedNameDisplay != null && host.fileNameText.equals(lastNameRaw) && textColW == lastNameColW) {
+            displayName = cachedNameDisplay;
+        } else {
+            displayName = host.fileNameText;
+            if (host.textPaint.measureText(host.fileNameText) > textColW) {
+                displayName = android.text.TextUtils.ellipsize(
+                        host.fileNameText, host.textPaint, textColW, android.text.TextUtils.TruncateAt.MIDDLE).toString();
+            }
+            lastNameRaw = host.fileNameText;
+            lastNameColW = textColW;
+            cachedNameDisplay = displayName;
         }
         float nameLineH = host.textPaint.getFontSpacing();
         float metaLineH;
@@ -147,10 +166,18 @@ final class FileBubbleRenderer {
         host.textPaint.setTypeface(Typeface.DEFAULT);
         host.textPaint.setColor(0xFF888888);
         float metaY = nameY + 2f * host.density + metaLineH * 0.85f;
-        String displayMeta = host.fileSizeMimeText;
-        if (host.textPaint.measureText(displayMeta) > textColW) {
-            displayMeta = android.text.TextUtils.ellipsize(
-                    displayMeta, host.textPaint, textColW, android.text.TextUtils.TruncateAt.END).toString();
+        String displayMeta;
+        if (cachedMetaDisplay != null && host.fileSizeMimeText.equals(lastMetaRaw) && textColW == lastMetaColW) {
+            displayMeta = cachedMetaDisplay;
+        } else {
+            displayMeta = host.fileSizeMimeText;
+            if (host.textPaint.measureText(displayMeta) > textColW) {
+                displayMeta = android.text.TextUtils.ellipsize(
+                        displayMeta, host.textPaint, textColW, android.text.TextUtils.TruncateAt.END).toString();
+            }
+            lastMetaRaw = host.fileSizeMimeText;
+            lastMetaColW = textColW;
+            cachedMetaDisplay = displayMeta;
         }
         canvas.drawText(displayMeta, textLeft, metaY, host.textPaint);
 

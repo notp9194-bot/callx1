@@ -59,6 +59,18 @@ final class MediaGroupRenderer {
     private float groupScrimGradientTop = Float.NaN;
     private float groupScrimGradientBottom = Float.NaN;
 
+    // ── Ellipsize cache — per-cell file/audio label and per-item caption
+    // only actually change on rebind, but the old code ran
+    // TextUtils.ellipsize() on every single draw() during scroll, for every
+    // visible cell. Cache the result per cell index and only recompute when
+    // that cell's raw text or available width changes.
+    private final String[] cellLabelRaw = new String[MessageBubbleCanvasView.GROUP_MAX_VISIBLE];
+    private final float[] cellLabelMaxW = new float[MessageBubbleCanvasView.GROUP_MAX_VISIBLE];
+    private final CharSequence[] cellLabelDisplay = new CharSequence[MessageBubbleCanvasView.GROUP_MAX_VISIBLE];
+    private final String[] cellCaptionRaw = new String[MessageBubbleCanvasView.GROUP_MAX_VISIBLE];
+    private final float[] cellCaptionMaxW = new float[MessageBubbleCanvasView.GROUP_MAX_VISIBLE];
+    private final CharSequence[] cellCaptionDisplay = new CharSequence[MessageBubbleCanvasView.GROUP_MAX_VISIBLE];
+
     void draw(Canvas canvas) {
         float cellR = MessageBubbleCanvasView.GROUP_CORNER_R * host.density;
         for (int i = 0; i < host.groupVisibleCount; i++) {
@@ -80,8 +92,16 @@ final class MediaGroupRenderer {
                 String label = (item.label != null && !item.label.isEmpty())
                         ? item.label : (item.isAudio ? "Audio" : "File");
                 float maxTextW = rect.width() - 4 * host.density;
-                CharSequence ellipsized = TextUtils.ellipsize(
-                        label, host.groupFileLabelPaint, maxTextW, TextUtils.TruncateAt.MIDDLE);
+                CharSequence ellipsized;
+                if (cellLabelDisplay[i] != null && label.equals(cellLabelRaw[i]) && maxTextW == cellLabelMaxW[i]) {
+                    ellipsized = cellLabelDisplay[i];
+                } else {
+                    ellipsized = TextUtils.ellipsize(
+                            label, host.groupFileLabelPaint, maxTextW, TextUtils.TruncateAt.MIDDLE);
+                    cellLabelRaw[i] = label;
+                    cellLabelMaxW[i] = maxTextW;
+                    cellLabelDisplay[i] = ellipsized;
+                }
                 float baseline = rect.bottom - 4 * host.density - host.groupFileLabelPaint.descent();
                 canvas.drawText(ellipsized, 0, ellipsized.length(), rect.centerX(), baseline, host.groupFileLabelPaint);
             } else if (bmp != null) {
@@ -179,7 +199,15 @@ final class MediaGroupRenderer {
 
                 float margin = MessageBubbleCanvasView.GROUP_ITEM_CAPTION_MARGIN_DP * host.density;
                 float maxTextW = rect.width() - margin * 2;
-                CharSequence ellipsized = TextUtils.ellipsize(item.caption, host.groupItemCaptionPaint, maxTextW, TextUtils.TruncateAt.END);
+                CharSequence ellipsized;
+                if (cellCaptionDisplay[i] != null && item.caption.equals(cellCaptionRaw[i]) && maxTextW == cellCaptionMaxW[i]) {
+                    ellipsized = cellCaptionDisplay[i];
+                } else {
+                    ellipsized = TextUtils.ellipsize(item.caption, host.groupItemCaptionPaint, maxTextW, TextUtils.TruncateAt.END);
+                    cellCaptionRaw[i] = item.caption;
+                    cellCaptionMaxW[i] = maxTextW;
+                    cellCaptionDisplay[i] = ellipsized;
+                }
                 float baseline = rect.bottom - MessageBubbleCanvasView.GROUP_ITEM_CAPTION_BOTTOM_DP * host.density - host.groupItemCaptionPaint.descent();
                 canvas.drawText(ellipsized, 0, ellipsized.length(), rect.left + margin, baseline, host.groupItemCaptionPaint);
             }

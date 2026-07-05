@@ -25,6 +25,19 @@ final class ContactRenderer {
         this.host = host;
     }
 
+    // ── Ellipsize cache — name/phone only actually change on rebind
+    // (bindContact()), but the old code re-ran TextUtils.ellipsize() (which
+    // internally remeasures the whole string) on every single draw() during
+    // scroll. Cache the result and only recompute when either the raw text
+    // or the available column width (textMaxW, which tracks the card's
+    // layout) has changed since the last draw.
+    private String lastNameRaw;
+    private float lastNameMaxW = -1f;
+    private String cachedNameDisplay;
+    private String lastPhoneRaw;
+    private float lastPhoneMaxW = -1f;
+    private String cachedPhoneDisplay;
+
     void draw(Canvas canvas) {
         float r = MessageBubbleCanvasView.CONTACT_CORNER_RADIUS_DP * host.density;
         canvas.save();
@@ -59,10 +72,27 @@ final class ContactRenderer {
         // ── Name / phone column beside the avatar ──
         float textX = host.contactAvatarRect.right + MessageBubbleCanvasView.CONTACT_TEXT_GAP_DP * host.density;
         float textMaxW = host.contactCardRect.right - MessageBubbleCanvasView.CONTACT_PAD_H_DP * host.density - textX;
-        String nameToDraw = TextUtils.ellipsize(host.contactName, host.contactNamePaint,
-                Math.max(1, textMaxW), TextUtils.TruncateAt.END).toString();
-        String phoneToDraw = TextUtils.ellipsize(host.contactPhone, host.contactPhonePaint,
-                Math.max(1, textMaxW), TextUtils.TruncateAt.END).toString();
+        float safeMaxW = Math.max(1, textMaxW);
+        String nameToDraw;
+        if (cachedNameDisplay != null && host.contactName.equals(lastNameRaw) && safeMaxW == lastNameMaxW) {
+            nameToDraw = cachedNameDisplay;
+        } else {
+            nameToDraw = TextUtils.ellipsize(host.contactName, host.contactNamePaint,
+                    safeMaxW, TextUtils.TruncateAt.END).toString();
+            lastNameRaw = host.contactName;
+            lastNameMaxW = safeMaxW;
+            cachedNameDisplay = nameToDraw;
+        }
+        String phoneToDraw;
+        if (cachedPhoneDisplay != null && host.contactPhone.equals(lastPhoneRaw) && safeMaxW == lastPhoneMaxW) {
+            phoneToDraw = cachedPhoneDisplay;
+        } else {
+            phoneToDraw = TextUtils.ellipsize(host.contactPhone, host.contactPhonePaint,
+                    safeMaxW, TextUtils.TruncateAt.END).toString();
+            lastPhoneRaw = host.contactPhone;
+            lastPhoneMaxW = safeMaxW;
+            cachedPhoneDisplay = phoneToDraw;
+        }
 
         Paint.FontMetrics nfm = host.contactNamePaint.getFontMetrics();
         Paint.FontMetrics phfm = host.contactPhonePaint.getFontMetrics();
