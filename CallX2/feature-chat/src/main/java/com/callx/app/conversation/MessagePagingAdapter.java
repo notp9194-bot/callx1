@@ -698,14 +698,14 @@ public class MessagePagingAdapter
             return sentFlag;
         }
         if ("multi_media".equals(type)) {
-            // Same precedent as single images above: received groups keep
-            // the manual per-cell download-gate + master "Download N
-            // photos" pill on the old path (not modeled in Canvas yet).
-            // Only the sender's own already-local group is eligible, and
-            // only if every cell is a plain image/video (audio/file cells
-            // and per-item captions aren't modeled — see MediaGroupLayoutHelper
-            // vs. MessageBubbleCanvasView.drawMediaGroup()).
-            if (!sentFlag) return false;
+            // Both sent and received groups are eligible now — the
+            // manual per-cell download-gate + master "Download N photos"
+            // pill is modeled in MessageBubbleCanvasView (setGroupDownloadGate)
+            // for the received case, same as MediaGroupLayoutHelper's old
+            // View-based grid. Still only if every cell is a plain
+            // image/video (audio/file cells and per-item captions aren't
+            // modeled — see MediaGroupLayoutHelper vs.
+            // MessageBubbleCanvasView.drawMediaGroup()).
             if (m.mediaItems == null || m.mediaItems.isEmpty()) return false;
             for (java.util.Map<String, Object> item : m.mediaItems) {
                 Object mtObj = item.get("mediaType");
@@ -1178,9 +1178,10 @@ public class MessagePagingAdapter
     /**
      * Binds a message to a MessageBubbleCanvasView holder (see
      * isCanvasEligible()). Only ever called for plain-text messages, a
-     * sent single image, or a sent multi-image/video group (all cells
-     * plain image/video, no per-item captions) — optionally with a reply.
-     * Every other shape is filtered out before a holder ever gets here.
+     * sent single image, or a sent/received multi-image/video group (all
+     * cells plain image/video, no per-item captions) — optionally with a
+     * reply. Every other shape is filtered out before a holder ever gets
+     * here.
      */
     private void bindCanvasMessage(@NonNull VH h, @NonNull Message m) {
         final Context ctx = h.itemView.getContext();
@@ -1210,20 +1211,47 @@ public class MessagePagingAdapter
             }
             cv.bindMediaGroup(gridItems, m.caption, timeStr, sent, isRead, isDelivered);
 
+            // Per-cell thumbnail load, plus (received-only) the manual
+            // download-gate flagging — mirrors MediaGroupLayoutHelper's
+            // buildCell(): an already-cached image cell loads its sharp
+            // local copy straight away with no gate; an un-cached one
+            // shows a lightweight thumb and gets marked pending so
+            // setGroupDownloadGate() can put up the master pill.
+            boolean[] cellPending = new boolean[visible];
             for (int i = 0; i < visible; i++) {
                 java.util.Map<String, Object> item = items.get(i);
                 Object urlObj = item.get("url");
                 Object thumbObj = item.get("thumbUrl");
+                Object mtObj = item.get("mediaType");
                 String cellUrl = urlObj instanceof String ? (String) urlObj : "";
                 String cellThumb = thumbObj instanceof String ? (String) thumbObj : "";
-                String loadUrl = !cellThumb.isEmpty() ? cellThumb : cellUrl;
-                if (loadUrl.isEmpty()) continue;
+                String mediaType = mtObj instanceof String ? (String) mtObj : "image";
+                boolean isImageCell = "image".equals(mediaType);
                 final int cellIndex = i;
-                glide(ctx).asBitmap()
-                        .load(loadUrl)
-                        .apply(THUMB_RGB565)
-                        .override(240, 240)
-                        .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
+
+                java.io.File cachedFile = (!sent && isImageCell && !cellUrl.isEmpty())
+                        ? com.callx.app.utils.MediaCache.getCached(ctx, cellUrl) : null;
+
+                String loadUrl;
+                if (cachedFile != null) {
+                    loadUrl = null; // loaded from the local File below instead
+                } else if (!cellThumb.isEmpty()) {
+                    loadUrl = cellThumb;
+                } else if (!sent && isImageCell && !cellUrl.isEmpty()) {
+                    // No thumbUrl on a received image — same fallback
+                    // MediaGroupLayoutHelper uses: a derived low-res
+                    // Cloudinary transform instead of the raw full url.
+                    loadUrl = com.callx.app.utils.CloudinaryUploader.deriveThumbUrl(cellUrl, 200);
+                    cellPending[i] = true;
+                } else {
+                    loadUrl = cellUrl;
+                }
+                if (!sent && isImageCell && cachedFile == null && !cellUrl.isEmpty() && !cellThumb.isEmpty()) {
+                    cellPending[i] = true; // has a thumb to show, but full-res still needs downloading
+                }
+
+                com.bumptech.glide.request.target.CustomTarget<Bitmap> target =
+                        new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
                             @Override
                             public void onResourceReady(@NonNull Bitmap resource,
                                     @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
@@ -1235,8 +1263,18 @@ public class MessagePagingAdapter
                                 if (h.canvasBindToken != myToken) return;
                                 cv.setMediaGroupBitmap(cellIndex, null);
                             }
-                        });
+                        };
+
+                if (cachedFile != null) {
+                    glide(ctx).asBitmap().load(cachedFile).apply(THUMB_RGB565).override(240, 240).into(target);
+                } else if (loadUrl != null && !loadUrl.isEmpty()) {
+                    glide(ctx).asBitmap().load(loadUrl).apply(THUMB_RGB565).override(240, 240).into(target);
+                }
             }
+            // For sent groups this is an all-false array (gate stays inert,
+            // unchanged behavior); for received groups it arms the master
+            // "Download N photos" pill iff at least one cell is pending.
+            cv.setGroupDownloadGate(cellPending);
         } else if (isImage) {
             final String fullUrl = m.mediaUrl != null ? m.mediaUrl : m.text;
             // No caption support for single "image" messages in this codebase
@@ -1387,6 +1425,70 @@ public class MessagePagingAdapter
                     intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
                     ctx.startActivity(intent);
                 } catch (Exception ignored) {}
+            }
+
+            @Override
+            public void onGroupDownloadAllClick() {
+                if (!isMultiMedia || m.mediaItems == null) return;
+                int visible = Math.min(m.mediaItems.size(), 9);
+                for (int i = 0; i < visible; i++) {
+                    downloadGroupCell(ctx, h, cv, myToken, m.mediaItems.get(i), i);
+                }
+            }
+
+            @Override
+            public void onGroupCellDownloadClick(int index) {
+                if (!isMultiMedia || m.mediaItems == null || index < 0 || index >= m.mediaItems.size()) return;
+                downloadGroupCell(ctx, h, cv, myToken, m.mediaItems.get(index), index);
+            }
+        });
+    }
+
+    /**
+     * Starts (or no-ops if already in flight, or not an image cell) the
+     * manual download for one cell inside a RECEIVED media-group grid —
+     * mirrors MediaGroupLayoutHelper.startCellDownload(): dedupes against
+     * the same downloadingMediaUrls set the single-image download pill
+     * uses, drives the cell's spinner badge live, and swaps in the
+     * full-res bitmap once ready.
+     */
+    private void downloadGroupCell(Context ctx, VH h, com.callx.app.conversation.canvas.MessageBubbleCanvasView cv,
+                                    int myToken, java.util.Map<String, Object> item, int index) {
+        Object mtObj = item.get("mediaType");
+        String mediaType = mtObj instanceof String ? (String) mtObj : "image";
+        if (!"image".equals(mediaType)) return; // video/audio/file cells never gate
+        Object urlObj = item.get("url");
+        String url = urlObj instanceof String ? (String) urlObj : "";
+        if (url.isEmpty() || downloadingMediaUrls.contains(url)) return;
+        downloadingMediaUrls.add(url);
+        cv.setGroupCellDownloading(index, true);
+
+        com.callx.app.utils.MediaCache.getWithProgress(ctx, url,
+                new com.callx.app.utils.MediaCache.ProgressCallback() {
+            @Override public void onProgress(int percent) {
+                // Grid cells are too small for a "%" label — the spinner
+                // badge alone (already showing) covers this.
+            }
+            @Override public void onReady(java.io.File file) {
+                downloadingMediaUrls.remove(url);
+                if (h.canvasBindToken != myToken) return; // holder recycled/rebound since this started
+                glide(ctx).asBitmap().load(file).apply(THUMB_RGB565).override(240, 240)
+                        .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
+                            @Override
+                            public void onResourceReady(@NonNull Bitmap resource,
+                                    @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
+                                if (h.canvasBindToken != myToken) return;
+                                cv.setMediaGroupBitmap(index, resource);
+                                cv.markGroupCellDownloaded(index);
+                            }
+                            @Override
+                            public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {}
+                        });
+            }
+            @Override public void onError(String reason) {
+                downloadingMediaUrls.remove(url);
+                if (h.canvasBindToken != myToken) return;
+                cv.setGroupCellDownloading(index, false); // stays pending — tap the cell again to retry
             }
         });
     }

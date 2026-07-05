@@ -53,12 +53,20 @@ import com.callx.app.utils.ChatThemeManager;
  *     centerCrop-equivalent scaling, optional caption text below the image,
  *     and (for captionless images) a translucent timestamp/tick pill
  *     overlaid on the image itself, WhatsApp-style.
- *   • a SENT multi-image/video grid (bindMediaGroup) — mirrors
- *     MediaGroupLayoutHelper's 1/2/3/4/5-9/10+ layout rules, video play-icon
- *     + duration badge, "+N" overflow on the last cell, and a group caption
- *     scrim overlapping the grid's bottom edge. See isCanvasEligible() in
- *     MessagePagingAdapter for exactly what qualifies (sent-only, plain
- *     image/video cells only, no per-item captions).
+ *   • a multi-image/video grid (bindMediaGroup, both SENT and RECEIVED) —
+ *     mirrors MediaGroupLayoutHelper's 1/2/3/4/5-9/10+ layout rules, video
+ *     play-icon + duration badge, "+N" overflow on the last cell, and a
+ *     group caption scrim overlapping the grid's bottom edge. See
+ *     isCanvasEligible() in MessagePagingAdapter for exactly what qualifies
+ *     (plain image/video cells only, no per-item captions).
+ *   • for RECEIVED groups specifically: the same manual download-gate
+ *     treatment as MediaGroupLayoutHelper's old grid — a full-grid dim
+ *     scrim + centered "Download N photos" pill while any image cell is
+ *     still un-cached (setGroupDownloadGate), and a small per-cell
+ *     dim+icon badge for an individual cell's in-flight download
+ *     (setGroupCellDownloading/markGroupCellDownloaded) once the master
+ *     pill has been dismissed. Video cells never gate (they stream
+ *     directly, same precedent as the old helper).
  *   • a reaction badge (setReactions/clearReactions) — mirrors ll_reactions/
  *     tv_reactions: plain-emoji text floating over the bubble's bottom-end
  *     corner, no background box. Works alongside any of the modes above.
@@ -71,9 +79,6 @@ import com.callx.app.utils.ChatThemeManager;
  *     layout too, never actually bound anywhere.
  *
  * It intentionally does NOT (yet) handle:
- *   • RECEIVED multi-image/video grids — these keep the manual per-cell
- *     download-gate + master "Download N photos" pill on the old
- *     MediaGroupLayoutHelper path (same precedent as single received images)
  *   • audio/file cells inside a media group, or per-item captions
  *   • GIF, audio, file, poll, link-preview, or reel-share bubbles
  *   • the download-progress overlay (pill/spinner/percentage) — the image
@@ -199,6 +204,23 @@ public class MessageBubbleCanvasView extends View {
     private static final int   GROUP_PLAY_TRIANGLE_DP    = 20;
     private static final int   GROUP_DURATION_TEXT_SP    = 10;
 
+    // ── Received-group manual download-gate — mirrors MediaGroupLayoutHelper's
+    // addMasterDownloadOverlay()/buildCellDownloadOverlay() visuals exactly
+    // (same colors/sizes), just Canvas-drawn instead of View-built. Only
+    // reachable for RECEIVED groups — see setGroupDownloadGate(). ──
+    private static final int   GROUP_GATE_SCRIM_COLOR      = 0x2E000000; // dims whole grid while gate is up
+    private static final int   GROUP_GATE_PILL_BG          = 0x8A000000;
+    private static final float GROUP_GATE_PILL_CORNER_DP   = 24f;
+    private static final float GROUP_GATE_PILL_PAD_H_DP    = 14f;
+    private static final float GROUP_GATE_PILL_PAD_V_DP    = 8f;
+    private static final float GROUP_GATE_PILL_ICON_DP     = 18f;
+    private static final float GROUP_GATE_PILL_ICON_GAP_DP = 8f;
+    private static final float GROUP_GATE_PILL_TEXT_SP     = 13f;
+    private static final int   GROUP_CELL_GATE_DIM_COLOR   = 0x40000000; // per-cell badge once master pill dismissed
+    private static final int   GROUP_CELL_GATE_BADGE_BG    = 0x99000000;
+    private static final float GROUP_CELL_GATE_BADGE_DP    = 26f;
+    private static final float GROUP_CELL_GATE_ICON_DP     = 14f;
+
     public interface OnBubbleClickListener {
         void onBubbleClick();
         void onBubbleLongClick();
@@ -210,6 +232,10 @@ public class MessageBubbleCanvasView extends View {
         void onImageClick();
         /** Tapped cell `index` inside a media-group grid (bindMediaGroup only) — caller should open the gallery viewer at that index. */
         void onMediaCellClick(int index);
+        /** Tapped the master "Download N photos" pill on a RECEIVED group — caller should start every pending cell's download (view has already dismissed the pill locally). */
+        void onGroupDownloadAllClick();
+        /** Tapped an individual still-pending cell directly (gate already dismissed) — caller should start that one cell's download. */
+        void onGroupCellDownloadClick(int index);
         /** Tapped the reaction badge — caller should open the reaction-details/picker sheet (same as ll_reactions' click listener on the legacy path). */
         void onReactionsClick();
     }
@@ -322,6 +348,25 @@ public class MessageBubbleCanvasView extends View {
     private final android.graphics.Path groupPlayTrianglePath = new android.graphics.Path();
     private final TextPaint groupCaptionTextPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
 
+    // ── Received-group manual download-gate state — only ever set for
+    // RECEIVED groups (see setGroupDownloadGate()); stays all-false/inert
+    // for SENT groups and for received groups with nothing left to
+    // download. Recomputed fresh on every bindMediaGroup() so a recycled
+    // view never carries a stale gate from the previous message. ──
+    private boolean groupGateActive = false;
+    private int groupGatePendingCount = 0;
+    private boolean[] groupCellPending = new boolean[0];
+    private boolean[] groupCellDownloading = new boolean[0];
+    private final Paint groupGateScrimPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint groupGatePillBgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final TextPaint groupGatePillTextPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint groupGatePillIconPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint groupCellGateDimPaint = new Paint();
+    private final Paint groupCellGateBadgeBgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint groupCellGateIconPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final RectF groupGatePillRect = new RectF();
+    private final android.graphics.Path groupGateIconPath = new android.graphics.Path();
+
     private OnBubbleClickListener clickListener;
     private final GestureDetector gestureDetector;
 
@@ -367,6 +412,24 @@ public class MessageBubbleCanvasView extends View {
         groupCaptionTextPaint.setColor(Color.WHITE);
         groupCaptionTextPaint.setTextSize(GROUP_CAPTION_TEXT_SP * density);
         for (int i = 0; i < groupRects.length; i++) groupRects[i] = new RectF();
+
+        groupGateScrimPaint.setColor(GROUP_GATE_SCRIM_COLOR);
+        groupGatePillBgPaint.setColor(GROUP_GATE_PILL_BG);
+        groupGatePillTextPaint.setColor(Color.WHITE);
+        groupGatePillTextPaint.setFakeBoldText(true);
+        groupGatePillTextPaint.setTextSize(GROUP_GATE_PILL_TEXT_SP * density);
+        groupGatePillIconPaint.setColor(Color.WHITE);
+        groupGatePillIconPaint.setStyle(Paint.Style.STROKE);
+        groupGatePillIconPaint.setStrokeWidth(1.6f * density);
+        groupGatePillIconPaint.setStrokeCap(Paint.Cap.ROUND);
+        groupGatePillIconPaint.setStrokeJoin(Paint.Join.ROUND);
+        groupCellGateDimPaint.setColor(GROUP_CELL_GATE_DIM_COLOR);
+        groupCellGateBadgeBgPaint.setColor(GROUP_CELL_GATE_BADGE_BG);
+        groupCellGateIconPaint.setColor(Color.WHITE);
+        groupCellGateIconPaint.setStyle(Paint.Style.STROKE);
+        groupCellGateIconPaint.setStrokeWidth(1.4f * density);
+        groupCellGateIconPaint.setStrokeCap(Paint.Cap.ROUND);
+        groupCellGateIconPaint.setStrokeJoin(Paint.Join.ROUND);
 
         setWillNotDraw(false);
 
@@ -483,6 +546,15 @@ public class MessageBubbleCanvasView extends View {
         this.groupVisibleCount = Math.min(total, GROUP_MAX_VISIBLE);
         this.groupRemaining = total - GROUP_MAX_VISIBLE; // used only if > 0
         this.groupBitmaps = new Bitmap[groupVisibleCount];
+        // Gate state is cleared here and only re-armed by an explicit
+        // setGroupDownloadGate() call right after bind — for SENT groups
+        // (or a RECEIVED group with nothing left to fetch) that call is
+        // simply never made / made with an all-false array, so the gate
+        // stays inert instead of showing a stale pill from a recycled view.
+        this.groupGateActive = false;
+        this.groupGatePendingCount = 0;
+        this.groupCellPending = new boolean[groupVisibleCount];
+        this.groupCellDownloading = new boolean[groupVisibleCount];
         this.groupHasCaption = caption != null && !caption.isEmpty();
         this.messageText = groupHasCaption ? caption : "";
         this.footerTimeText = timeText != null ? timeText : "";
@@ -512,6 +584,54 @@ public class MessageBubbleCanvasView extends View {
     public void setMediaGroupBitmap(int index, @Nullable Bitmap bitmap) {
         if (index < 0 || index >= groupBitmaps.length) return;
         groupBitmaps[index] = bitmap;
+        invalidate();
+    }
+
+    /**
+     * Arms (or clears) the RECEIVED-group manual download-gate. Call once,
+     * right after bindMediaGroup(), with one boolean per visible cell:
+     * true = that cell is an un-cached image still needing a manual
+     * download, false = already local (or a video/audio/file cell, which
+     * never gates). Pass an all-false array (or simply never call this)
+     * for SENT groups — the gate only ever applies to received media.
+     *
+     * While any entry is true, the whole grid shows a single dimmed
+     * overlay with a centered "Download N photos" pill (mirrors
+     * MediaGroupLayoutHelper's addMasterDownloadOverlay) that swallows
+     * every tap in the grid until the person taps it — same as the old
+     * View-based master overlay blocking the per-cell overlays beneath it.
+     */
+    public void setGroupDownloadGate(@Nullable boolean[] cellNeedsDownload) {
+        int n = groupVisibleCount;
+        this.groupCellPending = new boolean[n];
+        this.groupCellDownloading = new boolean[n];
+        int pending = 0;
+        if (cellNeedsDownload != null) {
+            for (int i = 0; i < n && i < cellNeedsDownload.length; i++) {
+                groupCellPending[i] = cellNeedsDownload[i];
+                if (cellNeedsDownload[i]) pending++;
+            }
+        }
+        this.groupGatePendingCount = pending;
+        this.groupGateActive = pending > 0;
+        invalidate();
+    }
+
+    /** Marks one cell as actively downloading (or not) — draws a small dim+icon
+     *  badge on just that cell once the master gate has been dismissed. */
+    public void setGroupCellDownloading(int index, boolean downloading) {
+        if (index < 0 || index >= groupCellDownloading.length) return;
+        groupCellDownloading[index] = downloading;
+        invalidate();
+    }
+
+    /** Call once a cell's manual download finishes and its full-res bitmap has
+     *  been supplied via setMediaGroupBitmap() — clears its pending/downloading
+     *  badge so the cell renders as a plain image again. */
+    public void markGroupCellDownloaded(int index) {
+        if (index < 0 || index >= groupCellPending.length) return;
+        groupCellPending[index] = false;
+        if (index < groupCellDownloading.length) groupCellDownloading[index] = false;
         invalidate();
     }
 
@@ -1148,6 +1268,52 @@ public class MessageBubbleCanvasView extends View {
                         rect.centerY() - (groupMoreTextPaint.ascent() + groupMoreTextPaint.descent()) / 2f,
                         groupMoreTextPaint);
             }
+
+            // Per-cell download badge — only drawn once the master gate
+            // pill (below) has been dismissed; while the gate is up it
+            // alone covers the whole grid, same as the old View-based
+            // master overlay sitting on top of every per-cell overlay.
+            if (!groupGateActive && !isLastOverlay
+                    && i < groupCellPending.length && groupCellPending[i]) {
+                canvas.drawRoundRect(rect, cellR, cellR, groupCellGateDimPaint);
+                float cx = rect.centerX(), cy = rect.centerY();
+                float badgeR = (GROUP_CELL_GATE_BADGE_DP * density) / 2f;
+                canvas.drawCircle(cx, cy, badgeR, groupCellGateBadgeBgPaint);
+                boolean downloading = i < groupCellDownloading.length && groupCellDownloading[i];
+                drawGateIcon(canvas, cx, cy, GROUP_CELL_GATE_ICON_DP * density, groupCellGateIconPaint, downloading);
+            }
+        }
+
+        if (groupGateActive) {
+            // Master "Download N photos" pill — mirrors
+            // MediaGroupLayoutHelper.addMasterDownloadOverlay(): a single
+            // dim scrim over the whole grid with a centered pill, tap
+            // anywhere in the grid to dismiss + start every pending cell.
+            canvas.drawRect(groupContentRect, groupGateScrimPaint);
+
+            String label = "Download " + groupGatePendingCount
+                    + (groupGatePendingCount == 1 ? " photo" : " photos");
+            float iconSize = GROUP_GATE_PILL_ICON_DP * density;
+            float iconGap = GROUP_GATE_PILL_ICON_GAP_DP * density;
+            float padH = GROUP_GATE_PILL_PAD_H_DP * density;
+            float padV = GROUP_GATE_PILL_PAD_V_DP * density;
+            float textW = groupGatePillTextPaint.measureText(label);
+            float contentH = Math.max(iconSize, groupGatePillTextPaint.descent() - groupGatePillTextPaint.ascent());
+            float pillW = padH * 2 + iconSize + iconGap + textW;
+            float pillH = padV * 2 + contentH;
+            float cx = groupContentRect.centerX(), cy = groupContentRect.centerY();
+            groupGatePillRect.set(cx - pillW / 2f, cy - pillH / 2f, cx + pillW / 2f, cy + pillH / 2f);
+
+            float pillR = GROUP_GATE_PILL_CORNER_DP * density;
+            canvas.drawRoundRect(groupGatePillRect, pillR, pillR, groupGatePillBgPaint);
+
+            float iconCx = groupGatePillRect.left + padH + iconSize / 2f;
+            float iconCy = groupGatePillRect.centerY();
+            drawGateIcon(canvas, iconCx, iconCy, iconSize, groupGatePillIconPaint, false);
+
+            float textBaselineY = groupGatePillRect.centerY()
+                    - (groupGatePillTextPaint.ascent() + groupGatePillTextPaint.descent()) / 2f;
+            canvas.drawText(label, iconCx + iconSize / 2f + iconGap, textBaselineY, groupGatePillTextPaint);
         }
 
         if (groupHasCaption && groupCaptionLayout != null) {
@@ -1230,6 +1396,31 @@ public class MessageBubbleCanvasView extends View {
         }
     }
 
+    private final RectF gateIconArcRect = new RectF();
+
+    /**
+     * Draws the download-gate glyph at (cx, cy) sized to `size`: a simple
+     * download arrow (vertical stroke + arrowhead + tray) when idle, or a
+     * partial ring standing in for a spinner while `downloading` is true.
+     * (Static, not animated — a deliberate simplification vs. the old
+     * View-based ProgressBar; the cell/pill still updates the instant the
+     * download finishes via markGroupCellDownloaded().)
+     */
+    private void drawGateIcon(Canvas canvas, float cx, float cy, float size, Paint paint, boolean downloading) {
+        float r = size / 2f;
+        if (downloading) {
+            gateIconArcRect.set(cx - r, cy - r, cx + r, cy + r);
+            canvas.drawArc(gateIconArcRect, -90, 270, false, paint);
+            return;
+        }
+        float shaftTop = cy - r;
+        float shaftBottom = cy + r * 0.25f;
+        canvas.drawLine(cx, shaftTop, cx, shaftBottom, paint);
+        canvas.drawLine(cx - r * 0.5f, shaftBottom - r * 0.5f, cx, shaftBottom, paint);
+        canvas.drawLine(cx + r * 0.5f, shaftBottom - r * 0.5f, cx, shaftBottom, paint);
+        canvas.drawLine(cx - r, cy + r, cx + r, cy + r, paint);
+    }
+
     private void drawTick(Canvas canvas, float x, float baselineY) {
         // Simple two-stroke check mark; double check mark for delivered/read.
         float size = TICK_SIZE_DP * density;
@@ -1274,10 +1465,33 @@ public class MessageBubbleCanvasView extends View {
         }
         if (isMediaGroup && event.getActionMasked() == MotionEvent.ACTION_UP) {
             float x = event.getX(), y = event.getY();
-            for (int i = 0; i < groupVisibleCount; i++) {
-                if (groupRects[i].contains(x, y)) {
-                    if (clickListener != null) clickListener.onMediaCellClick(i);
+            if (groupGateActive) {
+                // Master pill swallows every tap in the grid area, exactly
+                // like the old View-based overlay sitting on top of the
+                // whole wrapper. Dismiss it locally right away (same
+                // synchronous removeView() the old helper did) — the
+                // adapter's onGroupDownloadAllClick() then kicks off each
+                // pending cell's actual download.
+                if (groupContentRect.contains(x, y)) {
+                    groupGateActive = false;
+                    invalidate();
+                    if (clickListener != null) clickListener.onGroupDownloadAllClick();
                     return true;
+                }
+            } else {
+                for (int i = 0; i < groupVisibleCount; i++) {
+                    if (groupRects[i].contains(x, y)) {
+                        boolean pending = i < groupCellPending.length && groupCellPending[i];
+                        boolean downloading = i < groupCellDownloading.length && groupCellDownloading[i];
+                        if (pending && !downloading) {
+                            if (clickListener != null) clickListener.onGroupCellDownloadClick(i);
+                        } else if (!pending) {
+                            if (clickListener != null) clickListener.onMediaCellClick(i);
+                        }
+                        // pending && downloading → ignore tap, matches the
+                        // old per-cell overlay disabling clicks in-flight.
+                        return true;
+                    }
                 }
             }
         }
