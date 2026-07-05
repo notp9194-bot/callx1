@@ -554,6 +554,12 @@ public class MessageBubbleCanvasView extends View {
         void onContactViewClick();
         /** Tapped the "Open in Maps" row on a location card (bindLocation only) — caller should launch a maps app (or geo: intent) for this location's coordinates, same as the legacy btnOpenMaps click listener. */
         void onLocationOpenMapsClick();
+        /** Tapped a GIF thumbnail — caller should open the full-screen GIF viewer / start GIF playback. */
+        default void onGifClick() {}
+        /** Tapped the ⬇ download button on an uncached file bubble — caller should start the file download. */
+        default void onFileDownloadClick() {}
+        /** Tapped the ⬗ open button on a cached file bubble — caller should open the file via FileProvider. */
+        default void onFileOpenClick() {}
         default void onPollOptionClick(int optionIndex) {}
     }
 
@@ -842,6 +848,29 @@ public class MessageBubbleCanvasView extends View {
     private final TextPaint pollOptionTextPaint  = new TextPaint(Paint.ANTI_ALIAS_FLAG);
     private final TextPaint pollOptionPctPaint   = new TextPaint(Paint.ANTI_ALIAS_FLAG);
     private final TextPaint pollFooterPaint      = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+
+    // ── GIF bubble state — reuses the isMedia/mediaRect/mediaBitmap
+    // infrastructure entirely (same 180dp square, same download-gate overlay,
+    // same timestamp pill) with just a "GIF" badge pill drawn in the top-start
+    // corner of the thumbnail to signal the content is animated. ──
+    private boolean isGifBubble = false;
+    private static final String GIF_BADGE_TEXT = "GIF";
+
+    // ── File bubble state — card-style bubble (240dp wide): left icon circle,
+    // centre name+size row, right download/open action button, footer below. ──
+    private boolean isFileBubble        = false;
+    private String  fileNameText        = "";
+    private String  fileSizeMimeText    = "";
+    private int     fileIconColor       = 0xFF607D8B;
+    private boolean fileIsCached        = false;
+    private boolean fileIsDownloading   = false;
+    private int     fileDownloadPercent = 0;
+    private float   fileCardHeight      = 0f;
+    private final RectF fileActionRect  = new RectF(); // tap target for ⬇/⬗ button
+    private static final float FILE_CARD_W_DP     = 240f;
+    private static final float FILE_ICON_COL_DP   = 52f;
+    private static final float FILE_ACTION_COL_DP = 44f;
+    private static final float FILE_ROW_PAD_DP    = 10f;
 
 
     // ── Link-preview card state — only meaningful alongside the
@@ -1554,6 +1583,140 @@ public class MessageBubbleCanvasView extends View {
         locationAddressLayout = null; // recomputed in onMeasure
         requestLayout();
         invalidate();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // GIF BUBBLE — bindGif / setGifBitmap / resetGif
+    // Reuses the single-image layout path entirely (same 180dp slot, same
+    // download-gate overlay) and adds a "GIF" badge pill in the top-start
+    // corner of the thumbnail, matching WhatsApp/Telegram's GIF treatment.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Binds a GIF message bubble. Delegates to bindMedia() for layout/draw;
+     * sets isGifBubble so drawMedia() adds the "GIF" badge.
+     */
+    public void bindGif(@Nullable String gifUrl, boolean isSent, boolean isRead, boolean isDelivered) {
+        isGifBubble = true;
+        isFileBubble = false;
+        bindMedia(null, isSent, isRead, isDelivered);
+    }
+
+    /** Swaps in the decoded GIF first-frame bitmap. Same pattern as setMediaBitmap(). */
+    public void setGifBitmap(@Nullable Bitmap bmp) {
+        isGifBubble = true;
+        setMediaBitmap(bmp);
+    }
+
+    /** Resets GIF state. Call from onViewRecycled(). */
+    public void resetGif() {
+        isGifBubble = false;
+        clearMediaDownloadGate();
+        setMediaBitmap(null);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // FILE BUBBLE — bindFile / setFileDownloadState / setFileCached / clearFileBubble
+    // Card-style bubble: left file-type icon circle, centre name+size row,
+    // right download/open action button, standard footer below.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Binds a file message bubble.
+     *
+     * @param fileName      Display file name, e.g. "report.pdf".
+     * @param mimeType      MIME type string — drives icon color and label.
+     * @param formattedSize Human-readable size, e.g. "12.4 MB". Pass "" if unknown.
+     * @param isCached      True if the file is already on disk (shows Open icon ⬗).
+     * @param isSent        True for outgoing bubbles.
+     * @param isRead        True if read (double-blue tick).
+     * @param isDelivered   True if delivered but unread (double-grey tick).
+     */
+    public void bindFile(@Nullable String fileName, @Nullable String mimeType,
+                         @Nullable String formattedSize, boolean isCached,
+                         boolean isSent, boolean isRead, boolean isDelivered) {
+        this.isMedia        = false;
+        this.isMediaGroup   = false;
+        this.isReelShare    = false;
+        this.isVideoMedia   = false;
+        this.isAudio        = false;
+        this.isContact      = false;
+        this.isLocation     = false;
+        this.isPoll         = false;
+        this.isGifBubble    = false;
+        this.isFileBubble   = true;
+        this.hasLinkPreview = false;
+        this.mediaGated     = false;
+        this.mediaDownloading = false;
+
+        this.fileIsCached        = isCached;
+        this.fileIsDownloading   = false;
+        this.fileDownloadPercent = 0;
+        this.fileNameText        = (fileName != null && !fileName.isEmpty()) ? fileName : "File";
+        this.fileIconColor       = resolveFileIconColor(mimeType);
+        String mimeLabel         = resolveFileMimeLabel(mimeType);
+        this.fileSizeMimeText    = (formattedSize != null && !formattedSize.isEmpty())
+                ? formattedSize + " · " + mimeLabel : mimeLabel;
+
+        this.sent        = isSent;
+        this.read        = isRead;
+        this.delivered   = isDelivered;
+        this.footerTimeText = "";  // set separately via bind() footer — caller must call setFooterTime() after bindFile() if needed; or we use the existing footerTimeText field
+        requestLayout();
+        invalidate();
+    }
+
+    /** Updates the download-progress state on a file bubble. Call from adapter's download callback. */
+    public void setFileDownloadState(boolean downloading, int percent) {
+        this.fileIsDownloading   = downloading;
+        this.fileDownloadPercent = percent;
+        invalidate();
+    }
+
+    /** Marks the file as cached (download complete). Redraws action button as ⬗. */
+    public void setFileCached(boolean cached) {
+        this.fileIsCached      = cached;
+        this.fileIsDownloading = false;
+        invalidate();
+    }
+
+    /** Resets all file-bubble state. Call from onViewRecycled(). */
+    public void clearFileBubble() {
+        isFileBubble        = false;
+        fileNameText        = "";
+        fileSizeMimeText    = "";
+        fileIconColor       = 0xFF607D8B;
+        fileIsCached        = false;
+        fileIsDownloading   = false;
+        fileDownloadPercent = 0;
+    }
+
+    private static int resolveFileIconColor(@Nullable String mime) {
+        if (mime == null) return 0xFF607D8B;
+        if (mime.equals("application/pdf"))                            return 0xFFE53935;
+        if (mime.startsWith("audio/"))                                 return 0xFFFB8C00;
+        if (mime.startsWith("video/"))                                 return 0xFF8E24AA;
+        if (mime.startsWith("image/"))                                 return 0xFF039BE5;
+        if (mime.contains("zip") || mime.contains("rar")
+                || mime.contains("7z") || mime.contains("tar"))        return 0xFF546E7A;
+        if (mime.contains("wordprocessing") || mime.contains("msword")) return 0xFF1E88E5;
+        if (mime.contains("spreadsheet") || mime.contains("excel"))    return 0xFF43A047;
+        if (mime.contains("presentation") || mime.contains("powerpoint")) return 0xFFFB8C00;
+        return 0xFF607D8B;
+    }
+
+    private static String resolveFileMimeLabel(@Nullable String mime) {
+        if (mime == null) return "File";
+        if (mime.equals("application/pdf"))                            return "PDF";
+        if (mime.startsWith("audio/"))                                 return "Audio";
+        if (mime.startsWith("video/"))                                 return "Video";
+        if (mime.startsWith("image/"))                                 return "Image";
+        if (mime.contains("zip") || mime.contains("rar")
+                || mime.contains("7z") || mime.contains("tar"))        return "Archive";
+        if (mime.contains("wordprocessing") || mime.contains("msword")) return "Word";
+        if (mime.contains("spreadsheet") || mime.contains("excel"))    return "Excel";
+        if (mime.contains("presentation") || mime.contains("powerpoint")) return "PPT";
+        return "File";
     }
 
 
@@ -2310,6 +2473,26 @@ public class MessageBubbleCanvasView extends View {
             bubbleContentWidth = Math.min(Math.max(gridW, replyBoxContentWidth), maxTextWidth);
             bubbleHeight = replyBoxHeight + replyGap + vPad + gridH + vPad;
 
+        } else if (isFileBubble) {
+            // ── File card (fixed 240dp wide) ─────────────────────────────────
+            int cardW = Math.round(FILE_CARD_W_DP * density);
+            textPaint.setTextSize(spToPx(13f));
+            textPaint.setTypeface(Typeface.DEFAULT_BOLD);
+            float nameLineH = textPaint.getFontSpacing();
+            textPaint.setTextSize(spToPx(10f));
+            textPaint.setTypeface(Typeface.DEFAULT);
+            float metaLineH = textPaint.getFontSpacing();
+            float rowPad  = FILE_ROW_PAD_DP * density;
+            float iconH   = FILE_ICON_COL_DP * density;
+            float contentH = Math.max(iconH, rowPad + nameLineH + 2f * density + metaLineH + rowPad);
+            fileCardHeight  = contentH;
+            footerReserveWidth = footerPaint.measureText(footerTimeText)
+                    + (sent ? (TICK_SIZE_DP + TICK_GAP_DP) * density : 0)
+                    + FOOTER_GAP_DP * density;
+            int footerH  = Math.round(spToPx(FOOTER_TEXT_SP) + FOOTER_GAP_DP * density);
+            bubbleContentWidth = Math.min(Math.max(cardW, replyBoxContentWidth), maxTextWidth);
+            bubbleHeight = replyBoxHeight + replyGap + vPad + Math.round(contentH) + footerH;
+
         } else if (isAudio) {
             // ── Audio row (fixed-width, like the legacy ll_audio row) —
             // no caption, so bubbleHeight is just the row itself plus the
@@ -2652,13 +2835,9 @@ public class MessageBubbleCanvasView extends View {
             if (!isMedia && !isMediaGroup && !isAudio && !isPoll && textLayout == null) return;
         }
 
-        if (!isReelShare && !isContact && !isLocation) {
-            // Reel-share, contact, and location cards never draw the normal
-            // chat-bubble background — the card itself (drawn in
-            // drawReelShare/drawContact/drawLocation) is the entire visual,
-            // matching layout_msg_reel_share.xml / item_msg_contact.xml /
-            // item_msg_location.xml's bg=null on the outer bubble container
-            // for these message types.
+        if (!isReelShare && !isContact && !isLocation && !isFileBubble) {
+            // Reel-share, contact, location, and file cards never draw the
+            // normal chat-bubble background — the card itself is the visual.
             bubbleDrawable.setBounds(
                     (int) bubbleRect.left, (int) bubbleRect.top,
                     (int) bubbleRect.right, (int) bubbleRect.bottom);
@@ -2698,6 +2877,8 @@ public class MessageBubbleCanvasView extends View {
             drawMedia(canvas, hPad, vPad);
         } else if (isAudio) {
             drawAudio(canvas, hPad, vPad);
+        } else if (isFileBubble) {
+            drawFileBubble(canvas);
         } else {
             int replyGap = hasReply ? Math.round(REPLY_GAP_TO_MESSAGE_DP * density) : 0;
             canvas.save();
@@ -3172,6 +3353,133 @@ public class MessageBubbleCanvasView extends View {
         canvas.restore();
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // FILE BUBBLE DRAW — card-style: icon circle | name+meta | action button
+    // ─────────────────────────────────────────────────────────────────────────
+    private void drawFileBubble(Canvas canvas) {
+        int hPad = Math.round(H_PADDING_DP * density);
+        int vPad = Math.round(V_PADDING_DP * density);
+        int replyGap = hasReply ? Math.round(REPLY_GAP_TO_MESSAGE_DP * density) : 0;
+        float top  = bubbleTop + replyBoxHeight + replyGap + vPad;
+        float left = bubbleRect.left + hPad;
+        float rowPad  = FILE_ROW_PAD_DP * density;
+        float iconCol = FILE_ICON_COL_DP * density;
+        float actCol  = FILE_ACTION_COL_DP * density;
+        float contentW = bubbleRect.width() - hPad * 2f;
+
+        // ── Icon circle ────────────────────────────────────────────────────────
+        float cx = left + iconCol / 2f;
+        float cy = top  + fileCardHeight / 2f;
+        float cr = iconCol * 0.38f;
+        Paint iconBg = new Paint(Paint.ANTI_ALIAS_FLAG);
+        iconBg.setColor(fileIconColor);
+        canvas.drawCircle(cx, cy, cr, iconBg);
+        // File glyph — simple dog-ear rectangle
+        android.graphics.Path fp = new android.graphics.Path();
+        float fw = cr * 0.55f, fh = cr * 0.72f;
+        float fx = cx - fw / 2f, fy = cy - fh / 2f;
+        float fold = fw * 0.30f;
+        fp.moveTo(fx, fy + fold);
+        fp.lineTo(fx, fy + fh);
+        fp.lineTo(fx + fw, fy + fh);
+        fp.lineTo(fx + fw, fy);
+        fp.lineTo(fx + fw - fold, fy);
+        fp.lineTo(fx, fy + fold);
+        fp.close();
+        fp.moveTo(fx, fy + fold);
+        fp.lineTo(fx + fw - fold, fy + fold);
+        fp.lineTo(fx + fw - fold, fy);
+        Paint glyphPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        glyphPaint.setColor(0xFFFFFFFF);
+        glyphPaint.setStyle(Paint.Style.FILL);
+        canvas.drawPath(fp, glyphPaint);
+
+        // ── Action button (right column) ───────────────────────────────────────
+        float aRight = bubbleRect.right - hPad;
+        float aLeft  = aRight - actCol;
+        float actCx  = aLeft + actCol / 2f;
+        float actCy  = cy;
+        float actR   = actCol * 0.38f;
+        Paint actBg = new Paint(Paint.ANTI_ALIAS_FLAG);
+        actBg.setColor(0x22000000);
+        canvas.drawCircle(actCx, actCy, actR, actBg);
+        // Store tap rect
+        fileActionRect.set(actCx - actR, actCy - actR, actCx + actR, actCy + actR);
+
+        // Draw icon glyph: ⬇ (download arrow) or ⬗ (open/share square)
+        Paint actIcon = new Paint(Paint.ANTI_ALIAS_FLAG);
+        actIcon.setColor(sent ? 0xFF555555 : 0xFF008069);
+        actIcon.setStyle(Paint.Style.FILL);
+        if (fileIsDownloading) {
+            // Progress ring
+            drawProgressRing(canvas, actCx, actCy, actR * 1.4f, actIcon, fileDownloadPercent);
+        } else if (fileIsCached) {
+            // Open icon — simple right-pointing arrow
+            android.graphics.Path arr = new android.graphics.Path();
+            float as = actR * 0.45f;
+            arr.moveTo(actCx - as, actCy - as * 0.7f);
+            arr.lineTo(actCx + as, actCy);
+            arr.lineTo(actCx - as, actCy + as * 0.7f);
+            actIcon.setStyle(Paint.Style.STROKE);
+            actIcon.setStrokeWidth(density * 2f);
+            canvas.drawPath(arr, actIcon);
+        } else {
+            // Download arrow
+            android.graphics.Path dl = new android.graphics.Path();
+            float as = actR * 0.42f;
+            dl.moveTo(actCx, actCy - as);
+            dl.lineTo(actCx, actCy + as * 0.5f);
+            dl.moveTo(actCx - as * 0.7f, actCy + as * 0.2f);
+            dl.lineTo(actCx, actCy + as * 0.9f);
+            dl.lineTo(actCx + as * 0.7f, actCy + as * 0.2f);
+            actIcon.setStyle(Paint.Style.STROKE);
+            actIcon.setStrokeWidth(density * 2f);
+            canvas.drawPath(dl, actIcon);
+        }
+
+        // ── Name + meta text (centre column) ──────────────────────────────────
+        float textLeft = left + iconCol + rowPad;
+        float textRight = aLeft - rowPad;
+        float textColW = Math.max(1f, textRight - textLeft);
+        // File name
+        textPaint.setTextSize(spToPx(13f));
+        textPaint.setTypeface(Typeface.DEFAULT_BOLD);
+        textPaint.setColor(sent ? 0xFF1A1A1A : 0xFF1A1A1A);
+        float nameTruncW = textPaint.measureText(fileNameText);
+        String displayName = fileNameText;
+        if (nameTruncW > textColW) {
+            displayName = android.text.TextUtils.ellipsize(
+                    fileNameText, textPaint, textColW, android.text.TextUtils.TruncateAt.MIDDLE).toString();
+        }
+        float nameLineH = textPaint.getFontSpacing();
+        float metaLineH;
+        {
+            textPaint.setTextSize(spToPx(10f));
+            textPaint.setTypeface(Typeface.DEFAULT);
+            metaLineH = textPaint.getFontSpacing();
+            textPaint.setTextSize(spToPx(13f));
+            textPaint.setTypeface(Typeface.DEFAULT_BOLD);
+        }
+        float totalTxtH = nameLineH + 2f * density + metaLineH;
+        float nameY = top + (fileCardHeight - totalTxtH) / 2f + nameLineH * 0.85f;
+        canvas.drawText(displayName, textLeft, nameY, textPaint);
+        // Meta (size · type)
+        textPaint.setTextSize(spToPx(10f));
+        textPaint.setTypeface(Typeface.DEFAULT);
+        textPaint.setColor(0xFF888888);
+        float metaY = nameY + 2f * density + metaLineH * 0.85f;
+        String displayMeta = fileSizeMimeText;
+        if (textPaint.measureText(displayMeta) > textColW) {
+            displayMeta = android.text.TextUtils.ellipsize(
+                    displayMeta, textPaint, textColW, android.text.TextUtils.TruncateAt.END).toString();
+        }
+        canvas.drawText(displayMeta, textLeft, metaY, textPaint);
+
+        // ── Footer ─────────────────────────────────────────────────────────────
+        int footerH = Math.round(spToPx(FOOTER_TEXT_SP) + FOOTER_GAP_DP * density);
+        drawFooter(canvas, bubbleRect.bottom - vPad * 0.4f, bubbleRect.right - hPad);
+    }
+
     private void drawMedia(Canvas canvas, int hPad, int vPad) {
         float r = MEDIA_CORNER_RADIUS_DP * density;
         if (mediaBitmap != null) {
@@ -3196,6 +3504,27 @@ public class MessageBubbleCanvasView extends View {
         } else {
             // Not decoded yet — plain placeholder box, same rounded shape.
             canvas.drawRoundRect(mediaRect, r, r, mediaPlaceholderPaint);
+        }
+
+        // ── GIF badge — "GIF" pill in top-start corner, WhatsApp/Telegram style ──
+        if (isGifBubble) {
+            float badgePad = 4f * density;
+            float badgeR   = 4f * density;
+            float badgeTsz = spToPx(10f);
+            textPaint.setTextSize(badgeTsz);
+            textPaint.setTypeface(Typeface.DEFAULT_BOLD);
+            float tw = textPaint.measureText(GIF_BADGE_TEXT);
+            float bw = tw + badgePad * 2f;
+            float bh = badgeTsz + badgePad * 2f;
+            float bx = mediaRect.left + 6f * density;
+            float by = mediaRect.top  + 6f * density;
+            Paint gifBadgeBg = new Paint(Paint.ANTI_ALIAS_FLAG);
+            gifBadgeBg.setColor(0xCC000000);
+            RectF gifBadgeRF = new RectF(bx, by, bx + bw, by + bh);
+            canvas.drawRoundRect(gifBadgeRF, badgeR, badgeR, gifBadgeBg);
+            textPaint.setColor(0xFFFFFFFF);
+            canvas.drawText(GIF_BADGE_TEXT, bx + badgePad, by + badgePad + badgeTsz * 0.85f, textPaint);
+            textPaint.setTypeface(Typeface.DEFAULT); // restore
         }
 
         if (isVideoMedia) {
@@ -3790,6 +4119,24 @@ public class MessageBubbleCanvasView extends View {
             if (action == MotionEvent.ACTION_UP && audioWaveformRect.contains(event.getX(), event.getY())) {
                 return true; // already handled by the DOWN/MOVE branch above
             }
+        }
+        // ── File bubble action-button tap ────────────────────────────────────
+        if (isFileBubble && event.getActionMasked() == MotionEvent.ACTION_UP
+                && fileActionRect.contains(event.getX(), event.getY())) {
+            if (clickListener != null) {
+                if (fileIsCached) {
+                    clickListener.onFileOpenClick();
+                } else if (!fileIsDownloading) {
+                    clickListener.onFileDownloadClick();
+                }
+            }
+            return true;
+        }
+        // ── GIF tap — whole image opens the GIF viewer ───────────────────────
+        if (isGifBubble && !mediaGated && event.getActionMasked() == MotionEvent.ACTION_UP
+                && mediaRect.contains(event.getX(), event.getY())) {
+            if (clickListener != null) clickListener.onGifClick();
+            return true;
         }
         if (isMedia && event.getActionMasked() == MotionEvent.ACTION_UP
                 && mediaRect.contains(event.getX(), event.getY())) {

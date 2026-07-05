@@ -772,7 +772,10 @@ public class MessagePagingAdapter
             // old ensurePollInflated / ViewStub path entirely.
             return true;
         }
-        return false; // gif/file — still on the old path
+        // v59: GIF and file bubbles now render on Canvas
+        if ("gif".equals(type))  return true;
+        if ("file".equals(type)) return true;
+        return false;
     }
 
     @NonNull
@@ -1261,6 +1264,8 @@ public class MessagePagingAdapter
         final boolean isAudio = "audio".equals(type);
         final boolean isContact = "contact".equals(type);
         final boolean isLocation = "location".equals(type);
+        final boolean isGif  = "gif".equals(type);
+        final boolean isFile = "file".equals(type);
         final boolean isPoll = "poll".equals(type);
         final boolean isDeleted = Boolean.TRUE.equals(m.deleted);
 
@@ -1669,6 +1674,135 @@ public class MessagePagingAdapter
                         @Override public void onProgress(int percent) {}
                     });
             }
+        } else if (isGif) {
+            // ── v59: GIF Canvas bubble ────────────────────────────────────────
+            // Reuses the single-image slot (same 180dp square, same download-gate)
+            // with a "GIF" badge pill. Mirrors the legacy GifDrawable/Glide path.
+            final String gifUrl = m.mediaUrl != null ? m.mediaUrl : "";
+            cv.bindGif(gifUrl, sent, isRead, isDelivered);
+            cv.setDeletedStyle(false);
+
+            java.io.File gifCached = MediaCache.getCached(ctx, gifUrl);
+            if (gifCached != null) {
+                // Already on disk — decode and display immediately.
+                glide(ctx).asBitmap().load(gifCached).apply(THUMB_RGB565)
+                        .into(new com.bumptech.glide.request.target.CustomTarget<android.graphics.Bitmap>() {
+                            @Override
+                            public void onResourceReady(@NonNull android.graphics.Bitmap resource,
+                                    @Nullable com.bumptech.glide.request.transition.Transition<? super android.graphics.Bitmap> transition) {
+                                if (h.canvasBindToken != myToken) return;
+                                cv.setGifBitmap(resource);
+                            }
+                            @Override
+                            public void onLoadCleared(@Nullable android.graphics.drawable.Drawable p) {}
+                        });
+            } else if (!gifUrl.isEmpty()) {
+                // Not cached — show download gate, fetch remote size for the label.
+                cv.setMediaDownloadGate(false, 0, "GIF");
+                MediaCache.getRemoteSize(gifUrl, sizeBytes -> {
+                    if (h.canvasBindToken != myToken) return;
+                    String lbl = sizeBytes > 0
+                            ? android.text.format.Formatter.formatShortFileSize(ctx, sizeBytes)
+                            : "GIF";
+                    cv.setMediaDownloadGate(false, 0, lbl);
+                });
+            }
+
+            cv.setOnBubbleClickListener(new com.callx.app.conversation.canvas.MessageBubbleCanvasView.OnBubbleClickListener() {
+                @Override public void onBubbleClick()      { if (actionListener != null) actionListener.onMessageClick(m); }
+                @Override public void onBubbleLongClick()  { if (actionListener != null) showActionBottomSheet(ctx, m); }
+                @Override public boolean onLinkClick(String url) { return false; }
+                @Override public void onReplyPreviewClick() {}
+                @Override public void onImageClick()        {}
+                @Override public void onGifClick() {
+                    // Open GIF in the full-screen media viewer — same intent as
+                    // tapping a GIF image in the legacy path.
+                    if (actionListener != null) actionListener.onMediaClick(m, 0);
+                }
+                @Override public void onMediaDownloadClick() {
+                    if (!downloadingMediaUrls.add(gifUrl)) return;
+                    cv.setMediaDownloadGate(true, 0, "GIF");
+                    MediaCache.getWithProgress(ctx, gifUrl,
+                            pct  -> { if (h.canvasBindToken == myToken) cv.setMediaDownloadProgress(pct); },
+                            file -> {
+                                if (h.canvasBindToken != myToken) return;
+                                glide(ctx).asBitmap().load(file).apply(THUMB_RGB565)
+                                        .into(new com.bumptech.glide.request.target.CustomTarget<android.graphics.Bitmap>() {
+                                            @Override public void onResourceReady(@NonNull android.graphics.Bitmap bmp,
+                                                    @Nullable com.bumptech.glide.request.transition.Transition<? super android.graphics.Bitmap> t) {
+                                                if (h.canvasBindToken != myToken) return;
+                                                cv.setGifBitmap(bmp); cv.clearMediaDownloadGate();
+                                                downloadingMediaUrls.remove(gifUrl);
+                                            }
+                                            @Override public void onLoadCleared(@Nullable android.graphics.drawable.Drawable p) {}
+                                        });
+                            },
+                            err  -> { cv.setMediaDownloadGate(false, -1, "Tap to retry"); downloadingMediaUrls.remove(gifUrl); });
+                }
+                @Override public void onMediaCellClick(int i)   {}
+                @Override public void onGroupDownloadAllClick()  {}
+                @Override public void onGroupCellDownloadClick(int i) {}
+                @Override public void onReactionsClick()         {}
+                @Override public void onAudioPlayPauseClick()    {}
+                @Override public void onAudioSeek(float f)       {}
+                @Override public void onContactViewClick()       {}
+                @Override public void onLocationOpenMapsClick()  {}
+            });
+
+        } else if (isFile) {
+            // ── v59: File Canvas bubble ───────────────────────────────────────
+            // Card-style bubble: file-type icon circle, name+size row,
+            // download/open button, footer. Mirrors the legacy ll_file row.
+            final String fileUrl  = m.mediaUrl != null ? m.mediaUrl : "";
+            final String fileName = m.fileName != null ? m.fileName : "File";
+            final String mime     = m.mimeType != null ? m.mimeType : "";
+            final long   sizeRaw  = m.fileSize != null ? m.fileSize : 0L;
+            final String sizeStr  = sizeRaw > 0
+                    ? android.text.format.Formatter.formatShortFileSize(ctx, sizeRaw) : "";
+
+            boolean fileCached = !fileUrl.isEmpty() && MediaCache.getCached(ctx, fileUrl) != null;
+            cv.bindFile(fileName, mime, sizeStr, fileCached, sent, isRead, isDelivered);
+            cv.setDeletedStyle(false);
+
+            cv.setOnBubbleClickListener(new com.callx.app.conversation.canvas.MessageBubbleCanvasView.OnBubbleClickListener() {
+                @Override public void onBubbleClick()      { if (actionListener != null) actionListener.onMessageClick(m); }
+                @Override public void onBubbleLongClick()  { if (actionListener != null) showActionBottomSheet(ctx, m); }
+                @Override public boolean onLinkClick(String url) { return false; }
+                @Override public void onReplyPreviewClick() {}
+                @Override public void onImageClick()        {}
+                @Override public void onMediaDownloadClick() {}
+                @Override public void onMediaCellClick(int i) {}
+                @Override public void onGroupDownloadAllClick() {}
+                @Override public void onGroupCellDownloadClick(int i) {}
+                @Override public void onReactionsClick() {}
+                @Override public void onAudioPlayPauseClick() {}
+                @Override public void onAudioSeek(float f) {}
+                @Override public void onContactViewClick() {}
+                @Override public void onLocationOpenMapsClick() {}
+                @Override public void onFileDownloadClick() {
+                    if (fileUrl.isEmpty() || !downloadingMediaUrls.add(fileUrl)) return;
+                    cv.setFileDownloadState(true, -1);
+                    MediaCache.getWithProgress(ctx, fileUrl,
+                            pct  -> { if (h.canvasBindToken == myToken) cv.setFileDownloadState(true, pct); },
+                            file -> { if (h.canvasBindToken == myToken) cv.setFileCached(true); downloadingMediaUrls.remove(fileUrl); },
+                            err  -> { if (h.canvasBindToken == myToken) cv.setFileDownloadState(false, 0);  downloadingMediaUrls.remove(fileUrl); });
+                }
+                @Override public void onFileOpenClick() {
+                    // Open the cached file via FileProvider — same as the legacy ivFileAction click.
+                    java.io.File cached = MediaCache.getCached(ctx, fileUrl);
+                    if (cached == null) return;
+                    try {
+                        android.net.Uri uri = androidx.core.content.FileProvider.getUriForFile(
+                                ctx, ctx.getPackageName() + ".provider", cached);
+                        android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_VIEW);
+                        intent.setDataAndType(uri, mime.isEmpty() ? "*/*" : mime);
+                        intent.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                                | android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                        ctx.startActivity(intent);
+                    } catch (Exception e) { /* no app to handle this type */ }
+                }
+            });
+
         } else if (isPoll) {
             // Mirrors the legacy ensurePollInflated / bindPoll(VH, ...) path —
             // pushed through cv.bindPoll() instead of ViewStub/LinearLayout calls.
@@ -3894,6 +4028,12 @@ public class MessagePagingAdapter
         // CustomTarget calls — invalidate any in-flight canvas image/reply-
         // thumb load the instant this holder is recycled.
         holder.canvasBindToken++;
+        // v59: reset GIF and file bubble state so a recycled holder can't
+        // bleed stale badge/icon/progress into the next item it's bound to.
+        if (holder.canvasView != null) {
+            holder.canvasView.resetGif();
+            holder.canvasView.clearFileBubble();
+        }
         // Invalidate the download-overlay binding guard so an in-flight
         // getRemoteSize/getWithProgress callback for the old message
         // can't touch this holder after it's been recycled for a new one.
