@@ -453,6 +453,55 @@ public class MessageBubbleCanvasView extends View {
     private static final String LOCATION_DEFAULT_ADDRESS     = "Location";
     private static final String LOCATION_BUTTON_TEXT         = "Open in Maps";
 
+    // ── Poll-card — mirrors layout_msg_poll.xml exactly: a dark card
+    // rendered inside the normal bubble background. Header row (poll icon
+    // + "POLL" label + open/closed chip), question StaticLayout, subtitle,
+    // N option rows (fill bar + radio icon + text + pct), total-votes footer. ──
+    private static final float POLL_CARD_WIDTH_DP         = 220f;
+    private static final float POLL_PADDING_H_DP          = 12f;
+    private static final float POLL_PADDING_TOP_DP        = 10f;
+    private static final float POLL_PADDING_BOTTOM_DP     = 10f;
+    private static final float POLL_HEADER_ICON_SIZE_DP   = 15f;
+    private static final float POLL_HEADER_ICON_MARGIN_DP = 6f;
+    private static final float POLL_HEADER_TEXT_SP        = 10f;
+    private static final float POLL_CHIP_PAD_H_DP         = 6f;
+    private static final float POLL_CHIP_PAD_V_DP         = 2f;
+    private static final float POLL_CHIP_CORNER_DP        = 9f;
+    private static final float POLL_CHIP_TEXT_SP          = 9f;
+    private static final float POLL_QUESTION_TEXT_SP      = 13.5f;
+    private static final float POLL_QUESTION_GAP_DP       = 6f;
+    private static final float POLL_SUBTITLE_TEXT_SP      = 10f;
+    private static final float POLL_SUBTITLE_GAP_DP       = 2f;
+    private static final float POLL_OPTION_GAP_DP         = 5f;
+    private static final float POLL_OPTION_PAD_H_DP       = 9f;
+    private static final float POLL_OPTION_PAD_V_DP       = 8f;
+    private static final float POLL_OPTION_CORNER_DP      = 10f;
+    private static final float POLL_OPTION_ICON_SIZE_DP   = 14f;
+    private static final float POLL_OPTION_ICON_MARGIN_DP = 7f;
+    private static final float POLL_OPTION_TEXT_SP        = 12.5f;
+    private static final float POLL_OPTION_PCT_SP         = 11f;
+    private static final float POLL_OPTIONS_GAP_DP        = 8f;
+    private static final float POLL_FOOTER_GAP_DP         = 8f;
+    private static final float POLL_FOOTER_TEXT_SP        = 10f;
+    private static final int   POLL_HEADER_ICON_COLOR     = 0xB3FFFFFF;
+    private static final int   POLL_CHIP_NEUTRAL_BG       = 0x26FFFFFF;
+    private static final int   POLL_CHIP_CLOSED_BG        = 0x40EF4444;
+    private static final int   POLL_CHIP_TEXT_COLOR       = 0xFFFFFFFF;
+    private static final int   POLL_QUESTION_COLOR        = 0xFFFFFFFF;
+    private static final int   POLL_SUBTITLE_COLOR        = 0x99FFFFFF;
+    private static final int   POLL_OPTION_BG             = 0x1AFFFFFF;
+    private static final int   POLL_OPTION_VOTED_BG       = 0x1F5B5BF6;
+    private static final int   POLL_OPTION_FILL_COLOR     = 0x3D5B5BF6;
+    private static final int   POLL_OPTION_FILL_LEADER    = 0x5C5B5BF6;
+    private static final int   POLL_OPTION_FILL_NEUTRAL   = 0x26FFFFFF;
+    private static final int   POLL_OPTION_TEXT_COLOR     = 0xFFFFFFFF;
+    private static final int   POLL_OPTION_PCT_COLOR      = 0xCCFFFFFF;
+    private static final int   POLL_FOOTER_TEXT_COLOR     = 0x99FFFFFF;
+    private static final int   POLL_STROKE_COLOR          = 0x1FFFFFFF;
+    private static final int   POLL_VOTED_STROKE_COLOR    = 0xFF4CAF50;
+    private static final float POLL_STROKE_WIDTH_DP        = 1.0f;
+
+
     // ── Link-preview card — mirrors layout_msg_link_preview.xml
     // (stub_link_preview): optional OG-image thumbnail (match-width ×
     // 120dp, centerCrop) on top, then a padded text column with the
@@ -505,6 +554,7 @@ public class MessageBubbleCanvasView extends View {
         void onContactViewClick();
         /** Tapped the "Open in Maps" row on a location card (bindLocation only) — caller should launch a maps app (or geo: intent) for this location's coordinates, same as the legacy btnOpenMaps click listener. */
         void onLocationOpenMapsClick();
+        default void onPollOptionClick(int optionIndex) {}
     }
 
     /** Immutable per-cell descriptor for bindMediaGroup(); bitmaps are supplied
@@ -764,6 +814,36 @@ public class MessageBubbleCanvasView extends View {
     private final android.graphics.Path locationPinPath = new android.graphics.Path();
     private final android.graphics.Matrix locationMapShaderMatrix = new android.graphics.Matrix();
 
+    // ── Poll card state ─────────────────────────────────────────────────────
+    private boolean isPoll        = false;
+    private String   pollQuestion  = "";
+    private boolean  pollClosed    = false;
+    private boolean  pollMultiChoice = false;
+    private String[] pollOptions   = new String[0];
+    private int[]    pollCounts    = new int[0];
+    private boolean[] pollMyVote   = new boolean[0];
+    private boolean[] pollIsLeader = new boolean[0];
+    private int      pollTotal     = 0;
+    private StaticLayout   pollQuestionLayout;
+    private StaticLayout[] pollOptionLayouts = new StaticLayout[0];
+    private float[]        pollFillWidths    = new float[0];
+    private final java.util.ArrayList<RectF> pollOptionRects = new java.util.ArrayList<>();
+    private float pollHeaderRowH  = 0f;
+    private float pollSubtitleH   = 0f;
+    private float pollTotalCardH  = 0f;
+    // Paints (initialised in constructor)
+    private final Paint     pollOptionBgPaint    = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint     pollFillPaint        = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint     pollStrokePaint      = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final TextPaint pollHeaderLabelPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    private final TextPaint pollChipPaint        = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    private final TextPaint pollQuestionPaint    = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    private final TextPaint pollSubtitlePaint    = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    private final TextPaint pollOptionTextPaint  = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    private final TextPaint pollOptionPctPaint   = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    private final TextPaint pollFooterPaint      = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+
+
     // ── Link-preview card state — only meaningful alongside the
     // plain-text bind() mode (see LINK_PREVIEW_* constants doc above).
     // hasThumb is set upfront in setLinkPreview() (from whether
@@ -937,6 +1017,29 @@ public class MessageBubbleCanvasView extends View {
         audioDurPaint.setTextSize(AUDIO_DUR_TEXT_SP * density);
         audioDurPaint.setTextAlign(Paint.Align.RIGHT);
 
+        // ── Poll card paints ──
+        pollOptionBgPaint.setStyle(Paint.Style.FILL);
+        pollFillPaint.setStyle(Paint.Style.FILL);
+        pollStrokePaint.setStyle(Paint.Style.STROKE);
+        pollStrokePaint.setStrokeWidth(POLL_STROKE_WIDTH_DP * density);
+        pollHeaderLabelPaint.setColor(POLL_HEADER_ICON_COLOR);
+        pollHeaderLabelPaint.setTextSize(POLL_HEADER_TEXT_SP * density);
+        pollChipPaint.setColor(POLL_CHIP_TEXT_COLOR);
+        pollChipPaint.setTextSize(POLL_CHIP_TEXT_SP * density);
+        pollChipPaint.setFakeBoldText(true);
+        pollQuestionPaint.setColor(POLL_QUESTION_COLOR);
+        pollQuestionPaint.setTextSize(spToPx(POLL_QUESTION_TEXT_SP));
+        pollQuestionPaint.setFakeBoldText(true);
+        pollSubtitlePaint.setColor(POLL_SUBTITLE_COLOR);
+        pollSubtitlePaint.setTextSize(POLL_SUBTITLE_TEXT_SP * density);
+        pollOptionTextPaint.setColor(POLL_OPTION_TEXT_COLOR);
+        pollOptionTextPaint.setTextSize(spToPx(POLL_OPTION_TEXT_SP));
+        pollOptionPctPaint.setColor(POLL_OPTION_PCT_COLOR);
+        pollOptionPctPaint.setTextSize(POLL_OPTION_PCT_SP * density);
+        pollOptionPctPaint.setFakeBoldText(true);
+        pollFooterPaint.setColor(POLL_FOOTER_TEXT_COLOR);
+        pollFooterPaint.setTextSize(POLL_FOOTER_TEXT_SP * density);
+
         setWillNotDraw(false);
 
         gestureDetector = new GestureDetector(ctx, new GestureDetector.SimpleOnGestureListener() {
@@ -954,6 +1057,10 @@ public class MessageBubbleCanvasView extends View {
         this.clickListener = l;
     }
 
+    public OnBubbleClickListener getOnBubbleClickListener() {
+        return this.clickListener;
+    }
+
     /**
      * Bind this view to a message. Call from the adapter's onBindViewHolder
      * in place of the old setText()/Glide/etc. calls for the plain-text case.
@@ -966,6 +1073,7 @@ public class MessageBubbleCanvasView extends View {
         this.isAudio = false;
         this.isContact = false;
         this.isLocation = false;
+        this.isPoll = false;
         this.mediaBitmap = null;
         this.messageText = text != null ? text : "";
         this.footerTimeText = timeText != null ? timeText : "";
@@ -1012,6 +1120,7 @@ public class MessageBubbleCanvasView extends View {
         this.isAudio = false;
         this.isContact = false;
         this.isLocation = false;
+        this.isPoll = false;
         this.videoDuration = null;
         this.mediaBitmap = bitmap;
         this.hasLinkPreview = false; // link-preview card is text-mode-only; a stale flag from a recycled view must not leak in here
@@ -1094,6 +1203,7 @@ public class MessageBubbleCanvasView extends View {
         this.isAudio = true;
         this.isContact = false;
         this.isLocation = false;
+        this.isPoll = false;
         this.videoDuration = null;
         this.mediaBitmap = null;
         this.hasLinkPreview = false; // link-preview card is text-mode-only; a stale flag from a recycled view must not leak in here
@@ -1233,6 +1343,7 @@ public class MessageBubbleCanvasView extends View {
         this.isAudio = false;
         this.isContact = false;
         this.isLocation = false;
+        this.isPoll = false;
         this.videoDuration = null;
         this.hasLinkPreview = false; // link-preview card is text-mode-only; a stale flag from a recycled view must not leak in here
         this.groupItems = items != null ? items : java.util.Collections.emptyList();
@@ -1299,6 +1410,7 @@ public class MessageBubbleCanvasView extends View {
         this.isAudio = false;
         this.isContact = false;
         this.isLocation = false;
+        this.isPoll = false;
         this.videoDuration = null;
         this.hasLinkPreview = false; // link-preview card is text-mode-only; a stale flag from a recycled view must not leak in here
         this.reelThumbBitmap = thumb;
@@ -1385,6 +1497,7 @@ public class MessageBubbleCanvasView extends View {
         this.isAudio = false;
         this.isContact = true;
         this.isLocation = false;
+        this.isPoll = false;
         this.hasLinkPreview = false; // stale flag from a recycled view must not leak in here
         this.mediaGated = false;
         this.mediaDownloading = false;
@@ -1430,6 +1543,7 @@ public class MessageBubbleCanvasView extends View {
         this.isAudio = false;
         this.isContact = false;
         this.isLocation = true;
+        this.isPoll = false;
         this.hasLinkPreview = false; // stale flag from a recycled view must not leak in here
         this.mediaGated = false;
         this.mediaDownloading = false;
@@ -1438,6 +1552,97 @@ public class MessageBubbleCanvasView extends View {
         this.sent = isSent;
 
         locationAddressLayout = null; // recomputed in onMeasure
+        requestLayout();
+        invalidate();
+    }
+
+
+    /**
+     * Bind this view to a poll message. Call from bindCanvasMessage() in the
+     * adapter in place of the old ensurePollInflated / bindPoll(VH, ...) path.
+     *
+     * @param question    poll question text
+     * @param options     ordered list of option strings
+     * @param counts      per-option vote count (same length as options)
+     * @param myVote      per-option whether the current user voted for it
+     * @param total       total number of distinct voters
+     * @param closed      true = poll is closed, show "Closed" chip
+     * @param multiChoice true = multi-select poll
+     * @param isSent      true = sent bubble, false = received
+     * @param timeText    formatted timestamp + tick string for the footer
+     * @param isRead      read-tick colour
+     * @param isDelivered delivered-tick colour
+     */
+    public void bindPoll(
+            @Nullable String question,
+            @Nullable java.util.List<String> options,
+            int[] counts,
+            boolean[] myVote,
+            int total,
+            boolean closed,
+            boolean multiChoice,
+            boolean isSent,
+            String timeText,
+            boolean isRead,
+            boolean isDelivered) {
+        this.isMedia       = false;
+        this.isMediaGroup  = false;
+        this.isReelShare   = false;
+        this.isVideoMedia  = false;
+        this.isAudio       = false;
+        this.isContact     = false;
+        this.isLocation    = false;
+        this.isPoll        = true;
+        this.hasLinkPreview = false;
+        this.mediaBitmap   = null;
+        this.messageText   = "";
+        this.footerTimeText = timeText != null ? timeText : "";
+        this.sent          = isSent;
+        this.read          = isRead;
+        this.delivered     = isDelivered;
+
+        this.pollQuestion   = question != null ? question : "";
+        this.pollClosed     = closed;
+        this.pollMultiChoice = multiChoice;
+        this.pollTotal      = total;
+
+        int n = options != null ? options.size() : 0;
+        this.pollOptions  = new String[n];
+        this.pollCounts   = counts  != null && counts.length  >= n ? counts  : new int[n];
+        this.pollMyVote   = myVote  != null && myVote.length  >= n ? myVote  : new boolean[n];
+        this.pollIsLeader = new boolean[n];
+        this.pollFillWidths = new float[n];
+        this.pollOptionLayouts = new StaticLayout[n];
+        for (int i = 0; i < n; i++) {
+            this.pollOptions[i] = options.get(i) != null ? options.get(i) : "";
+        }
+
+        // Leader detection (same logic as bindPoll(VH) in adapter)
+        int maxCount = 0;
+        for (int c : this.pollCounts) if (c > maxCount) maxCount = c;
+        if (maxCount > 0) {
+            int countAtMax = 0;
+            for (int c : this.pollCounts) if (c == maxCount) countAtMax++;
+            boolean clearLeader = countAtMax < n;
+            for (int i = 0; i < n; i++) {
+                this.pollIsLeader[i] = clearLeader && this.pollCounts[i] == maxCount;
+            }
+        }
+
+        Context ctx = getContext();
+        textPaint.setColor(ChatThemeManager.get(ctx).getTextColor(ctx, sent));
+        footerPaint.setColor(textPaint.getColor());
+        tickPaint.setColor(ChatThemeManager.get(ctx).getTickColor(read));
+
+        // Bubble drawable cache (poll uses normal bubble bg)
+        int cacheKey = (sent ? 1 : 0) << 1 | (hasReply ? 1 : 0);
+        if (cacheKey != lastCacheKey || bubbleDrawable == null) {
+            bubbleDrawable = buildBubbleDrawable(ctx, sent);
+            lastCacheKey = cacheKey;
+        }
+        resolveReplyColors(ctx);
+
+        pollQuestionLayout = null; // recomputed in onMeasure
         requestLayout();
         invalidate();
     }
@@ -1999,6 +2204,90 @@ public class MessageBubbleCanvasView extends View {
             bubbleContentWidth = Math.max(cardW - hPad * 2, replyBoxContentWidth);
             bubbleHeight = replyBoxHeight + replyGap + cardH;
 
+        } else if (isPoll) {
+            // ── Poll card — uses normal bubble bg (unlike contact/location).
+            // Width = POLL_CARD_WIDTH_DP; height = padding + header row +
+            // question + subtitle + options + footer + padding + timestamp row.
+            float padH   = POLL_PADDING_H_DP * density;
+            float padTop = POLL_PADDING_TOP_DP * density;
+            float padBot = POLL_PADDING_BOTTOM_DP * density;
+            int cardW    = Math.round(POLL_CARD_WIDTH_DP * density);
+            int innerW   = Math.max(1, cardW - Math.round(padH * 2));
+
+            // Header row height (icon + label text, single line)
+            Paint.FontMetrics hfm = pollHeaderLabelPaint.getFontMetrics();
+            float headerTxtH = hfm.descent - hfm.ascent;
+            pollHeaderRowH = Math.max(POLL_HEADER_ICON_SIZE_DP * density, headerTxtH);
+
+            // Question layout
+            pollQuestionPaint.setTextSize(spToPx(POLL_QUESTION_TEXT_SP));
+            pollQuestionLayout = StaticLayout.Builder
+                    .obtain(pollQuestion, 0, pollQuestion.length(), pollQuestionPaint, innerW)
+                    .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                    .setMaxLines(3)
+                    .setEllipsize(TextUtils.TruncateAt.END)
+                    .setIncludePad(false)
+                    .build();
+
+            // Subtitle line height
+            Paint.FontMetrics sfm = pollSubtitlePaint.getFontMetrics();
+            pollSubtitleH = sfm.descent - sfm.ascent;
+
+            // Option text layouts
+            int n = pollOptions.length;
+            pollOptionLayouts = new StaticLayout[n];
+            float iconSz   = POLL_OPTION_ICON_SIZE_DP * density;
+            float iconMar  = POLL_OPTION_ICON_MARGIN_DP * density;
+            float pctW     = pollOptionPctPaint.measureText("100%") + iconMar;
+            int optTextW   = Math.max(1, innerW - Math.round(POLL_OPTION_PAD_H_DP * density * 2 + iconSz + iconMar + pctW));
+            for (int i = 0; i < n; i++) {
+                pollOptionLayouts[i] = StaticLayout.Builder
+                        .obtain(pollOptions[i], 0, pollOptions[i].length(), pollOptionTextPaint, optTextW)
+                        .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                        .setMaxLines(2)
+                        .setEllipsize(TextUtils.TruncateAt.END)
+                        .setIncludePad(false)
+                        .build();
+            }
+
+            // Total height of option rows
+            float optPadV = POLL_OPTION_PAD_V_DP * density;
+            float optGap  = POLL_OPTION_GAP_DP * density;
+            float optionsH = 0f;
+            for (int i = 0; i < n; i++) {
+                float rowH = Math.max(pollOptionLayouts[i].getHeight(), iconSz) + optPadV * 2;
+                optionsH += rowH;
+                if (i < n - 1) optionsH += optGap;
+            }
+
+            // Footer text height
+            Paint.FontMetrics ffm = pollFooterPaint.getFontMetrics();
+            float footerTxtH = ffm.descent - ffm.ascent;
+
+            // Footer (timestamp) reserved width/height
+            footerReserveWidth = footerPaint.measureText(footerTimeText)
+                    + (sent ? (TICK_SIZE_DP + TICK_GAP_DP) * density : 0)
+                    + FOOTER_GAP_DP * density;
+            int footerRowH = Math.round(spToPx(FOOTER_TEXT_SP) + FOOTER_GAP_DP * density);
+
+            pollTotalCardH = padTop
+                    + pollHeaderRowH
+                    + POLL_QUESTION_GAP_DP * density
+                    + pollQuestionLayout.getHeight()
+                    + POLL_SUBTITLE_GAP_DP * density
+                    + pollSubtitleH
+                    + POLL_OPTIONS_GAP_DP * density
+                    + optionsH
+                    + POLL_FOOTER_GAP_DP * density
+                    + footerTxtH
+                    + padBot;
+
+            bubbleContentWidth = Math.min(Math.max(cardW - Math.round(padH * 2), replyBoxContentWidth), maxTextWidth);
+            bubbleHeight = replyBoxHeight + replyGap + vPad
+                    + Math.round(pollTotalCardH)
+                    + vPad + footerRowH;
+
+
         } else if (isMediaGroup) {
             // ── Media-group grid (multi-image/video) ──
             int[] dims = computeGroupGridDims(groupVisibleCount);
@@ -2360,7 +2649,7 @@ public class MessageBubbleCanvasView extends View {
         super.onDraw(canvas);
         if (!isReelShare && !isContact && !isLocation) {
             if (bubbleDrawable == null) return;
-            if (!isMedia && !isMediaGroup && !isAudio && textLayout == null) return;
+            if (!isMedia && !isMediaGroup && !isAudio && !isPoll && textLayout == null) return;
         }
 
         if (!isReelShare && !isContact && !isLocation) {
@@ -2401,6 +2690,8 @@ public class MessageBubbleCanvasView extends View {
             drawContact(canvas);
         } else if (isLocation) {
             drawLocation(canvas);
+        } else if (isPoll) {
+            drawPoll(canvas);
         } else if (isMediaGroup) {
             drawMediaGroup(canvas);
         } else if (isMedia) {
@@ -2647,6 +2938,170 @@ public class MessageBubbleCanvasView extends View {
      * centerCrop-scaled the same way drawMedia()'s bitmap fill works;
      * else a placeholder pin drawn straight on the flat purple
      * background), a translucent purple address strip (up to 2 lines,
+    /**
+     * Draws the poll card inside the normal bubble background.
+     * Layout (top-to-bottom inside bubble's vPad):
+     *   POLL icon + "POLL" label + chip  — header row
+     *   question StaticLayout
+     *   subtitle ("Select one/more answer")
+     *   N option rows (fill bar + icon + text + pct%)
+     *   total-votes footer
+     *   timestamp/tick footer (drawn by drawFooter below)
+     */
+    private void drawPoll(Canvas canvas) {
+        float padH   = POLL_PADDING_H_DP * density;
+        float padTop = POLL_PADDING_TOP_DP * density;
+        float vPad   = V_PADDING_DP * density;
+        int   hPad   = Math.round(H_PADDING_DP * density);
+
+        float left  = bubbleLeft + hPad + padH;
+        float right = bubbleLeft + bubbleRect.width() - hPad - padH;
+        float top   = bubbleTop + vPad + padTop;
+
+        // ── Header row: poll icon dot + "POLL" label + status chip ──────────
+        float iconSz  = POLL_HEADER_ICON_SIZE_DP * density;
+        float iconMar = POLL_HEADER_ICON_MARGIN_DP * density;
+
+        // Draw a small filled circle as the poll icon
+        pollOptionBgPaint.setColor(POLL_HEADER_ICON_COLOR);
+        canvas.drawCircle(left + iconSz / 2f, top + pollHeaderRowH / 2f, iconSz / 2f * 0.7f, pollOptionBgPaint);
+
+        // "POLL" label
+        Paint.FontMetrics hfm = pollHeaderLabelPaint.getFontMetrics();
+        float labelBaseline = top + pollHeaderRowH / 2f - (hfm.ascent + hfm.descent) / 2f;
+        canvas.drawText("POLL", left + iconSz + iconMar, labelBaseline, pollHeaderLabelPaint);
+
+        // Status chip (CLOSED or LIVE)
+        String chipText = pollClosed ? "CLOSED" : "LIVE";
+        float chipTxtW  = pollChipPaint.measureText(chipText);
+        float chipPadH  = POLL_CHIP_PAD_H_DP * density;
+        float chipPadV  = POLL_CHIP_PAD_V_DP * density;
+        float chipW     = chipTxtW + chipPadH * 2;
+        float chipH     = pollChipPaint.getFontMetrics().descent - pollChipPaint.getFontMetrics().ascent + chipPadV * 2;
+        float chipLeft  = right - chipW;
+        float chipTop   = top + (pollHeaderRowH - chipH) / 2f;
+        pollOptionBgPaint.setColor(pollClosed ? POLL_CHIP_CLOSED_BG : POLL_CHIP_NEUTRAL_BG);
+        RectF chipRect = new RectF(chipLeft, chipTop, right, chipTop + chipH);
+        float chipR = POLL_CHIP_CORNER_DP * density;
+        canvas.drawRoundRect(chipRect, chipR, chipR, pollOptionBgPaint);
+        Paint.FontMetrics cfm = pollChipPaint.getFontMetrics();
+        float chipBaseline = chipTop + chipH / 2f - (cfm.ascent + cfm.descent) / 2f;
+        canvas.drawText(chipText, chipLeft + chipPadH, chipBaseline, pollChipPaint);
+
+        // ── Question ────────────────────────────────────────────────────────
+        float qTop = top + pollHeaderRowH + POLL_QUESTION_GAP_DP * density;
+        if (pollQuestionLayout != null) {
+            canvas.save();
+            canvas.translate(left, qTop);
+            pollQuestionLayout.draw(canvas);
+            canvas.restore();
+        }
+
+        // ── Subtitle ─────────────────────────────────────────────────────────
+        float qHeight = pollQuestionLayout != null ? pollQuestionLayout.getHeight() : 0f;
+        float subTop  = qTop + qHeight + POLL_SUBTITLE_GAP_DP * density;
+        String subtitle = pollClosed ? "Poll closed" : (pollMultiChoice ? "Select one or more answers" : "Select one answer");
+        Paint.FontMetrics sfm = pollSubtitlePaint.getFontMetrics();
+        float subBaseline = subTop - sfm.ascent;
+        canvas.drawText(subtitle, left, subBaseline, pollSubtitlePaint);
+
+        // ── Option rows ──────────────────────────────────────────────────────
+        float optPadH  = POLL_OPTION_PAD_H_DP * density;
+        float optPadV  = POLL_OPTION_PAD_V_DP * density;
+        float optCorner = POLL_OPTION_CORNER_DP * density;
+        float optIconSz = POLL_OPTION_ICON_SIZE_DP * density;
+        float optIconMar = POLL_OPTION_ICON_MARGIN_DP * density;
+        float optGap   = POLL_OPTION_GAP_DP * density;
+        float innerW   = right - left;
+
+        float rowTop = subTop + pollSubtitleH + POLL_OPTIONS_GAP_DP * density;
+        pollOptionRects.clear();
+        int n = pollOptions.length;
+        // Compute fill widths
+        for (int i = 0; i < n; i++) {
+            float pct = (pollTotal > 0) ? (pollCounts[i] * 1f / pollTotal) : 0f;
+            pollFillWidths[i] = innerW * pct;
+        }
+
+        for (int i = 0; i < n; i++) {
+            StaticLayout optLayout = (i < pollOptionLayouts.length) ? pollOptionLayouts[i] : null;
+            float txtH = optLayout != null ? optLayout.getHeight() : 0f;
+            float rowH = Math.max(txtH, optIconSz) + optPadV * 2;
+            RectF rowRect = new RectF(left, rowTop, right, rowTop + rowH);
+            pollOptionRects.add(new RectF(rowRect));
+
+            boolean isMyVote = (i < pollMyVote.length) && pollMyVote[i];
+            boolean isLeader = (i < pollIsLeader.length) && pollIsLeader[i];
+
+            // Option background (stroke)
+            pollOptionBgPaint.setColor(isMyVote ? POLL_OPTION_VOTED_BG : POLL_OPTION_BG);
+            canvas.drawRoundRect(rowRect, optCorner, optCorner, pollOptionBgPaint);
+
+            // Fill bar (progress)
+            float fillW = (i < pollFillWidths.length) ? pollFillWidths[i] : 0f;
+            if (fillW > 0f) {
+                int fillColor = isMyVote ? (isLeader ? POLL_OPTION_FILL_LEADER : POLL_OPTION_FILL_COLOR) : POLL_OPTION_FILL_NEUTRAL;
+                pollFillPaint.setColor(fillColor);
+                RectF fillRect = new RectF(left, rowTop, left + fillW, rowTop + rowH);
+                // Clip fill to row's rounded rect path
+                canvas.save();
+                android.graphics.Path fp = new android.graphics.Path();
+                fp.addRoundRect(rowRect, optCorner, optCorner, android.graphics.Path.Direction.CW);
+                canvas.clipPath(fp);
+                canvas.drawRect(fillRect, pollFillPaint);
+                canvas.restore();
+            }
+
+            // Stroke
+            pollStrokePaint.setColor(isMyVote ? POLL_VOTED_STROKE_COLOR : POLL_STROKE_COLOR);
+            canvas.drawRoundRect(rowRect, optCorner, optCorner, pollStrokePaint);
+
+            // Radio / check icon (simple circle outline for radio, filled dot for selected)
+            float iconCx = left + optPadH + optIconSz / 2f;
+            float iconCy = rowTop + rowH / 2f;
+            pollOptionBgPaint.setColor(isMyVote ? POLL_VOTED_STROKE_COLOR : POLL_STROKE_COLOR);
+            if (isMyVote) {
+                canvas.drawCircle(iconCx, iconCy, optIconSz / 2f * 0.85f, pollOptionBgPaint);
+                pollOptionBgPaint.setColor(POLL_OPTION_VOTED_BG);
+                canvas.drawCircle(iconCx, iconCy, optIconSz / 2f * 0.45f, pollOptionBgPaint);
+            } else {
+                pollStrokePaint.setColor(POLL_STROKE_COLOR);
+                canvas.drawCircle(iconCx, iconCy, optIconSz / 2f * 0.85f, pollStrokePaint);
+            }
+
+            // Option text
+            if (optLayout != null) {
+                float txtTop = rowTop + (rowH - txtH) / 2f;
+                canvas.save();
+                canvas.translate(left + optPadH + optIconSz + optIconMar, txtTop);
+                optLayout.draw(canvas);
+                canvas.restore();
+            }
+
+            // Percentage label
+            int pct = pollTotal > 0 ? Math.round(pollCounts[i] * 100f / pollTotal) : 0;
+            String pctStr = pct + "%";
+            Paint.FontMetrics pfm = pollOptionPctPaint.getFontMetrics();
+            float pctBaseline = rowTop + rowH / 2f - (pfm.ascent + pfm.descent) / 2f;
+            canvas.drawText(pctStr, right - optPadH, pctBaseline, pollOptionPctPaint);
+
+            rowTop += rowH + optGap;
+        }
+
+        // ── Votes footer ─────────────────────────────────────────────────────
+        rowTop -= optGap; // remove last gap
+        float footerGap = POLL_FOOTER_GAP_DP * density;
+        String footerStr = pollTotal == 1 ? "1 vote" : pollTotal + " votes";
+        Paint.FontMetrics ffm = pollFooterPaint.getFontMetrics();
+        float footerBaseline = rowTop + footerGap + (-ffm.ascent);
+        canvas.drawText(footerStr, left, footerBaseline, pollFooterPaint);
+
+        // ── Timestamp / tick footer ─────────────────────────────────────────
+        int    fvPad = Math.round(V_PADDING_DP * density);
+        drawFooter(canvas, bubbleRect.bottom - fvPad * 0.4f, bubbleRect.right - hPad);
+    }
+
+
      * via StaticLayout), and a bottom "Open in Maps" row — same
      * rounded-card clip treatment as drawContact().
      */
@@ -3365,6 +3820,15 @@ public class MessageBubbleCanvasView extends View {
             // (handled below by gestureDetector, same as every other mode).
             if (clickListener != null) clickListener.onContactViewClick();
             return true;
+        }
+        if (isPoll && event.getActionMasked() == MotionEvent.ACTION_UP) {
+            float ex = event.getX(), ey = event.getY();
+            for (int i = 0; i < pollOptionRects.size(); i++) {
+                if (pollOptionRects.get(i).contains(ex, ey)) {
+                    if (clickListener != null) clickListener.onPollOptionClick(i);
+                    return true;
+                }
+            }
         }
         if (isLocation && event.getActionMasked() == MotionEvent.ACTION_UP
                 && locationButtonRect.contains(event.getX(), event.getY())) {

@@ -766,7 +766,13 @@ public class MessagePagingAdapter
             // having none). Deleted/expiry already handled above this check.
             return true;
         }
-        return false; // gif/file/poll — all still on the old path
+        if ("poll".equals(type)) {
+            // Poll card rendered by MessageBubbleCanvasView.bindPoll() —
+            // same Canvas bubble path as contact/location. Replaces the
+            // old ensurePollInflated / ViewStub path entirely.
+            return true;
+        }
+        return false; // gif/file — still on the old path
     }
 
     @NonNull
@@ -1255,6 +1261,7 @@ public class MessagePagingAdapter
         final boolean isAudio = "audio".equals(type);
         final boolean isContact = "contact".equals(type);
         final boolean isLocation = "location".equals(type);
+        final boolean isPoll = "poll".equals(type);
         final boolean isDeleted = Boolean.TRUE.equals(m.deleted);
 
         if (isDeleted) {
@@ -1662,6 +1669,51 @@ public class MessagePagingAdapter
                         @Override public void onProgress(int percent) {}
                     });
             }
+        } else if (isPoll) {
+            // Mirrors the legacy ensurePollInflated / bindPoll(VH, ...) path —
+            // pushed through cv.bindPoll() instead of ViewStub/LinearLayout calls.
+            java.util.List<String> opts = m.pollOptions != null
+                    ? m.pollOptions : java.util.Collections.emptyList();
+            java.util.Map<String, java.util.List<Integer>> votesMap = m.pollVotes != null
+                    ? m.pollVotes : java.util.Collections.emptyMap();
+            int[] counts = com.callx.app.utils.PollJsonUtil.countVotes(votesMap, opts.size());
+            int total    = com.callx.app.utils.PollJsonUtil.totalVotes(votesMap);
+            boolean[] myVote = new boolean[opts.size()];
+            if (currentUid != null) {
+                java.util.List<Integer> mine = votesMap.get(currentUid);
+                if (mine != null) {
+                    for (int idx : mine) {
+                        if (idx >= 0 && idx < myVote.length) myVote[idx] = true;
+                    }
+                }
+            }
+            cv.bindPoll(
+                    m.pollQuestion,
+                    opts,
+                    counts,
+                    myVote,
+                    total,
+                    Boolean.TRUE.equals(m.pollClosed),
+                    Boolean.TRUE.equals(m.pollMultiChoice),
+                    sent, timeStr, isRead, isDelivered);
+            cv.setDeletedStyle(false);
+
+            // Wire poll-option taps → ActionListener.onPollVote() (same as the
+            // legacy row.setOnClickListener in bindPoll(VH, ...) above).
+            final Message pollMsg = m;
+            cv.setOnBubbleClickListener(new com.callx.app.conversation.canvas.MessageBubbleCanvasView.OnBubbleClickListener() {
+                @Override public void onBubbleClick() { /* no-op for poll */ }
+                @Override public void onBubbleLongClick() {
+                    if (actionListener != null) showActionBottomSheet(ctx, pollMsg);
+                }
+                @Override public void onPollOptionClick(int optionIndex) {
+                    if (Boolean.TRUE.equals(pollMsg.pollClosed)) {
+                        android.widget.Toast.makeText(ctx, "This poll is closed", android.widget.Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    if (actionListener != null) actionListener.onPollVote(pollMsg, optionIndex);
+                }
+            });
         } else {
             cv.bind(m.text != null ? m.text : "", timeStr, sent, isRead, isDelivered);
             cv.setDeletedStyle(false); // clears any italic/dim state a recycled view carried from a deleted message
@@ -2536,13 +2588,11 @@ public class MessagePagingAdapter
                 }
                 break;
             case "poll":
-                ensurePollInflated(h); // ViewStub lazy inflate
-                if (h.llPoll != null) {
-                    bindPoll(h, m, sent);
-                } else {
-                    h.tvMessage.setVisibility(View.VISIBLE);
-                    h.tvMessage.setText("\uD83D\uDCCA " + (m.pollQuestion != null ? m.pollQuestion : "Poll"));
-                }
+                // Canvas path — getItemViewType() now returns TYPE_CANVAS_SENT/RECEIVED for
+                // poll messages (isCanvasEligible() returns true), so this case is never
+                // reached for normal operation. Kept as a safety fallback only.
+                h.tvMessage.setVisibility(View.VISIBLE);
+                h.tvMessage.setText("\uD83D\uDCCA " + (m.pollQuestion != null ? m.pollQuestion : "Poll"));
                 break;
             case "reel_share":
             case "reel_link": {
