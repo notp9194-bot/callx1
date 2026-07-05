@@ -7,6 +7,7 @@ import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Rect;
 import android.graphics.RectF;
+import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.text.Layout;
 import android.text.StaticLayout;
@@ -76,14 +77,28 @@ import com.callx.app.utils.ChatThemeManager;
  *     mirrors tv_sender_name (11sp bold, brand_primary) above the bubble's
  *     top-start corner, received messages only. The sender AVATAR
  *     (iv_sender_avatar) is NOT modeled — it's dead markup in the legacy
- *     layout too, never actually bound anywhere.
+ *     layout too, never actually bound anywhere. This same row is also
+ *     used for the 📢 broadcast badge (either "📢 Broadcast" in a 1:1
+ *     chat, or a "📢 " prefix on the group sender name) — the caller
+ *     (MessagePagingAdapter) composes whichever string applies and passes
+ *     it through setGroupSender(), same as the legacy tv_sender_name path.
+ *   • a forwarded-message label (setForwardedFrom/clearForwarded) — mirrors
+ *     tv_forwarded ("↪ Forwarded from X", 11sp italic, #888888), stacked
+ *     directly below the pinned-label/group-sender row, same corner.
+ *   • a deleted-message placeholder (setDeletedStyle) — once the caller
+ *     substitutes "This message was deleted"/"You deleted this message"
+ *     as the bind() text, this switches the text paint italic + 60% alpha
+ *     to match bindMessage()'s tvMessage.setAlpha(0.6f) treatment.
+ *   • a disappearing-message countdown (setExpiryText/clearExpiry) — mirrors
+ *     tv_expiry ("⏳ mm:ss", 9sp, gold) inside the footer row, just before
+ *     the timestamp. The caller re-calls this once a second via the shared
+ *     ExpiryTickManager, same cadence as the legacy TextView path.
  *
  * It intentionally does NOT (yet) handle:
  *   • audio/file cells inside a media group, or per-item captions
  *   • GIF, audio, file, poll, link-preview, or reel-share bubbles
  *   • the download-progress overlay (pill/spinner/percentage) — the image
  *     slot shows a plain placeholder box until a decoded Bitmap is supplied
- *   • forwarded label
  *   • swipe-to-reply gesture, long-press action menu
  *
  * Those all still render through the existing item_message_sent/received.xml
@@ -178,6 +193,25 @@ public class MessageBubbleCanvasView extends View {
     private static final String PINNED_LABEL_TEXT   = "📌 Pinned";
     private static final float PINNED_LABEL_GAP_DP  = 2f; // gap between label and bubble top
     private static final float GROUP_SENDER_TEXT_SP = 11f; // matches tv_sender_name in item_message_received.xml
+
+    // ── Forwarded label — mirrors tv_forwarded's text/size/color/style from
+    // item_message_received.xml ("↪ Forwarded from X", 11sp italic, #888888).
+    // Stacked directly below the pinned-label/group-sender row (same
+    // constraintTop_toBottomOf relationship the legacy layout uses). ──
+    private static final float FORWARDED_LABEL_TEXT_SP = 11f;
+    private static final int   FORWARDED_LABEL_COLOR   = 0xFF888888;
+
+    // ── Deleted-message placeholder — mirrors bindMessage()'s
+    // tvMessage.setAlpha(0.6f) treatment for "This message was deleted" /
+    // "You deleted this message"; italic added for the same "ghost text"
+    // effect most chat apps use. ──
+    private static final int DELETED_TEXT_ALPHA = 153; // ~0.6 * 255
+
+    // ── Disappearing-message countdown — mirrors tv_expiry's text/size/color
+    // from item_message_sent/received.xml ("⏳ mm:ss", 9sp, gold), drawn in
+    // the footer row just before the timestamp. ──
+    private static final float EXPIRY_TEXT_SP = 9f;
+    private static final int   EXPIRY_COLOR   = 0xFFFFCC00;
 
     // ── Media GROUP (multi-image/video grid) — mirrors MediaGroupLayoutHelper's
     // layout rules/constants exactly for visual parity, but is an entirely
@@ -324,6 +358,30 @@ public class MessageBubbleCanvasView extends View {
     private int groupSenderTextHeight = 0;
     private float groupSenderWidth = 0;
 
+    // ── Forwarded-label state — stacks below the pinned-label/group-sender
+    // row above the bubble (own row, own baseline; see onMeasure). ──
+    private boolean hasForwarded = false;
+    private String forwardedText = "";
+    private final TextPaint forwardedPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    private int forwardedTextHeight = 0;
+    private float forwardedTextWidth = 0;
+    // Baselines for all three "above the bubble" rows — computed once per
+    // onMeasure() pass, consumed by the matching drawXxx() in onDraw() so
+    // the draw path never has to re-derive vertical position from scratch.
+    private float pinnedBaselineY = 0;
+    private float groupSenderBaselineY = 0;
+    private float forwardedBaselineY = 0;
+
+    // ── Deleted-message placeholder style — only affects the plain-text
+    // path (bind()); caller substitutes the placeholder string itself. ──
+    private boolean isDeletedStyle = false;
+
+    // ── Disappearing-message countdown state — an extra segment in the
+    // footer row, drawn just before the timestamp/tick. ──
+    private boolean hasExpiry = false;
+    private String expiryText = "";
+    private final TextPaint expiryPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+
     // ── Media GROUP (multi-image/video grid) state — entirely separate
     // from the single-image `isMedia` state above. ──
     private boolean isMediaGroup = false;
@@ -396,6 +454,13 @@ public class MessageBubbleCanvasView extends View {
 
         groupSenderPaint.setTextSize(spToPx(GROUP_SENDER_TEXT_SP));
         groupSenderPaint.setFakeBoldText(true);
+
+        forwardedPaint.setTextSize(spToPx(FORWARDED_LABEL_TEXT_SP));
+        forwardedPaint.setColor(FORWARDED_LABEL_COLOR);
+        forwardedPaint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.ITALIC));
+
+        expiryPaint.setTextSize(spToPx(EXPIRY_TEXT_SP));
+        expiryPaint.setColor(EXPIRY_COLOR);
 
         groupCellBgPaint.setColor(Color.DKGRAY);
         groupMoreOverlayPaint.setColor(0xBB000000);
@@ -753,6 +818,73 @@ public class MessageBubbleCanvasView extends View {
         invalidate();
     }
 
+    /**
+     * Show the italic "↪ Forwarded from X" label, stacked directly below
+     * the pinned-label/group-sender row (mirrors tv_forwarded's
+     * constraintTop_toBottomOf tv_sender_name in item_message_received.xml —
+     * same top-start corner, works for sent and received alike since this
+     * view anchors it to the bubble's own left edge rather than a shared
+     * avatar column). Always call this every bind (or clearForwarded()) —
+     * a recycled view otherwise keeps the previous message's label.
+     *
+     * @param originalSenderName original sender's display name; null/empty
+     *                           is treated as clearForwarded().
+     */
+    public void setForwardedFrom(@Nullable String originalSenderName) {
+        boolean fwd = originalSenderName != null && !originalSenderName.isEmpty();
+        this.hasForwarded = fwd;
+        this.forwardedText = fwd ? ("\u21AA Forwarded from " + originalSenderName) : "";
+        requestLayout();
+        invalidate();
+    }
+
+    /** Call when a message wasn't forwarded — clears any stale label state on a recycled view. */
+    public void clearForwarded() {
+        setForwardedFrom(null);
+    }
+
+    /**
+     * Switch the plain-text bubble into the deleted-message placeholder
+     * look — italic + 60% alpha, matching bindMessage()'s
+     * tvMessage.setAlpha(0.6f) treatment for "This message was deleted" /
+     * "You deleted this message". Call bind() with the already-substituted
+     * placeholder text FIRST, then this every time (true or false) — a
+     * recycled view otherwise keeps the previous message's italic/alpha
+     * state. Only meaningful for the plain-text bind() path: a deleted
+     * message never reaches bindMedia()/bindMediaGroup() (see
+     * isCanvasEligible() in MessagePagingAdapter).
+     */
+    public void setDeletedStyle(boolean deleted) {
+        this.isDeletedStyle = deleted;
+        textPaint.setTypeface(deleted ? Typeface.create(Typeface.DEFAULT, Typeface.ITALIC) : Typeface.DEFAULT);
+        textPaint.setAlpha(deleted ? DELETED_TEXT_ALPHA : 255);
+        textLayout = null; // rebuild with the new typeface/alpha before the next draw
+        requestLayout();
+        invalidate();
+    }
+
+    /**
+     * Show/update the "⏳ mm:ss" disappearing-message countdown in the
+     * footer row, just before the timestamp — mirrors tv_expiry in
+     * item_message_sent/received.xml's ll_msg_footer. Caller
+     * (MessagePagingAdapter) re-calls this once a second via the shared
+     * ExpiryTickManager while the message has an active expiresAt, and
+     * clearExpiry() once it fires (or immediately, for a message that
+     * never had one). Already-formatted text (caller does the mm:ss
+     * formatting, same as formatRemaining() does for the legacy TextView).
+     */
+    public void setExpiryText(@Nullable String text) {
+        this.hasExpiry = text != null && !text.isEmpty();
+        this.expiryText = text != null ? text : "";
+        requestLayout();
+        invalidate();
+    }
+
+    /** Call once the countdown finishes, or for a message with no expiry at all. */
+    public void clearExpiry() {
+        setExpiryText(null);
+    }
+
     private void resolveReplyColors(Context ctx) {
         if (sent) {
             replyBgPaint.setColor(SENT_REPLY_BG);
@@ -792,17 +924,21 @@ public class MessageBubbleCanvasView extends View {
         int footerHeight = Math.round(spToPx(FOOTER_TEXT_SP) + FOOTER_GAP_DP * density);
         int maxTextWidth = Math.max(1, maxBubbleWidth - hPad * 2);
 
-        // ── Pinned label / group sender-name — both sit above the bubble
-        // entirely (opposite corners of the same row: pinned at top-end,
-        // sender-name at top-start), so they shift bubbleTop down rather
-        // than participating in bubbleHeight, and share one reserved
-        // "row" sized to whichever of the two is taller. ──
-        int aboveExtra = 0;
+        // ── Pinned label / group sender-name (+ broadcast badge, which
+        // reuses the same row via setGroupSender) / forwarded label — all
+        // sit above the bubble entirely, so they shift bubbleTop down
+        // rather than participating in bubbleHeight. Row 1 (pinned at
+        // top-end, sender-name at top-start) shares one reserved band
+        // sized to whichever of the two is taller; forwarded stacks in
+        // its own row directly below row 1 — mirrors tv_forwarded's
+        // constraintTop_toBottomOf tv_sender_name in the legacy layout. ──
+        int labelGap = Math.round(PINNED_LABEL_GAP_DP * density);
+        int row1Height = 0;
         if (isPinned) {
             Paint.FontMetrics pfm = pinnedLabelPaint.getFontMetrics();
             pinnedLabelHeight = Math.round(pfm.descent - pfm.ascent);
             pinnedLabelWidth = pinnedLabelPaint.measureText(PINNED_LABEL_TEXT);
-            aboveExtra = Math.max(aboveExtra, pinnedLabelHeight);
+            row1Height = Math.max(row1Height, pinnedLabelHeight);
         } else {
             pinnedLabelHeight = 0;
             pinnedLabelWidth = 0;
@@ -811,12 +947,30 @@ public class MessageBubbleCanvasView extends View {
             Paint.FontMetrics gfm = groupSenderPaint.getFontMetrics();
             groupSenderTextHeight = Math.round(gfm.descent - gfm.ascent);
             groupSenderWidth = groupSenderPaint.measureText(groupSenderName);
-            aboveExtra = Math.max(aboveExtra, groupSenderTextHeight);
+            row1Height = Math.max(row1Height, groupSenderTextHeight);
         } else {
             groupSenderTextHeight = 0;
             groupSenderWidth = 0;
         }
-        int pinnedTopExtra = aboveExtra > 0 ? aboveExtra + Math.round(PINNED_LABEL_GAP_DP * density) : 0;
+
+        int aboveExtra = 0;
+        if (row1Height > 0) {
+            pinnedBaselineY = row1Height - pinnedLabelPaint.getFontMetrics().descent;
+            groupSenderBaselineY = row1Height - groupSenderPaint.getFontMetrics().descent;
+            aboveExtra = row1Height + labelGap;
+        }
+
+        if (hasForwarded) {
+            Paint.FontMetrics ffm = forwardedPaint.getFontMetrics();
+            forwardedTextHeight = Math.round(ffm.descent - ffm.ascent);
+            forwardedTextWidth = forwardedPaint.measureText(forwardedText);
+            forwardedBaselineY = aboveExtra + forwardedTextHeight - ffm.descent;
+            aboveExtra += forwardedTextHeight + labelGap;
+        } else {
+            forwardedTextHeight = 0;
+            forwardedTextWidth = 0;
+        }
+        int pinnedTopExtra = aboveExtra;
 
         // ── Reply-preview box — measured the same way regardless of
         // isMedia; a reply strip can sit above either a text or an image
@@ -924,7 +1078,8 @@ public class MessageBubbleCanvasView extends View {
             // ── Plain text bubble ──
             footerReserveWidth = footerPaint.measureText(footerTimeText)
                     + (sent ? (TICK_SIZE_DP + TICK_GAP_DP) * density : 0)
-                    + FOOTER_GAP_DP * density;
+                    + FOOTER_GAP_DP * density
+                    + expiryReserveWidth();
 
             textLayout = StaticLayout.Builder
                     .obtain(messageText, 0, messageText.length(), textPaint, maxTextWidth)
@@ -1106,6 +1261,10 @@ public class MessageBubbleCanvasView extends View {
             drawGroupSenderName(canvas);
         }
 
+        if (hasForwarded) {
+            drawForwardedLabel(canvas);
+        }
+
         int hPad = Math.round(H_PADDING_DP * density);
         int vPad = Math.round(V_PADDING_DP * density);
 
@@ -1142,8 +1301,7 @@ public class MessageBubbleCanvasView extends View {
         // onMeasure, right-aligned to the bubble's own right edge (works
         // for sent AND received, since each bubble's own right edge is
         // used rather than the parent row's right edge).
-        float baselineY = bubbleTop - PINNED_LABEL_GAP_DP * density - pinnedLabelPaint.getFontMetrics().descent;
-        canvas.drawText(PINNED_LABEL_TEXT, bubbleRect.right - pinnedLabelWidth, baselineY, pinnedLabelPaint);
+        canvas.drawText(PINNED_LABEL_TEXT, bubbleRect.right - pinnedLabelWidth, pinnedBaselineY, pinnedLabelPaint);
     }
 
     private void drawGroupSenderName(Canvas canvas) {
@@ -1151,8 +1309,17 @@ public class MessageBubbleCanvasView extends View {
         // bubble's own left edge (opposite corner) — received bubbles
         // start at bubbleLeft=0, so this sits at the row's start, matching
         // tv_sender_name's constraintStart_toEndOf the (unused) avatar.
-        float baselineY = bubbleTop - PINNED_LABEL_GAP_DP * density - groupSenderPaint.getFontMetrics().descent;
-        canvas.drawText(groupSenderName, bubbleRect.left, baselineY, groupSenderPaint);
+        // Also used for the 📢 broadcast badge — the caller composes
+        // whichever string applies (see setGroupSender()'s doc).
+        canvas.drawText(groupSenderName, bubbleRect.left, groupSenderBaselineY, groupSenderPaint);
+    }
+
+    private void drawForwardedLabel(Canvas canvas) {
+        // Own row directly below row 1 (pinned/group-sender), left-aligned
+        // to the bubble's own left edge — mirrors tv_forwarded's
+        // constraintTop_toBottomOf tv_sender_name + constraintStart_toEndOf
+        // the (unused) avatar in item_message_received.xml.
+        canvas.drawText(forwardedText, bubbleRect.left, forwardedBaselineY, forwardedPaint);
     }
 
     private void drawMedia(Canvas canvas, int hPad, int vPad) {
@@ -1349,11 +1516,20 @@ public class MessageBubbleCanvasView extends View {
         }
     }
 
+    /** Extra width (text + trailing gap) the "⏳ mm:ss" countdown reserves in
+     *  the footer row, ahead of the timestamp — 0 when there's no active expiry. */
+    private float expiryReserveWidth() {
+        return hasExpiry ? expiryPaint.measureText(expiryText) + FOOTER_GAP_DP * density : 0f;
+    }
+
     private void drawFooter(Canvas canvas, float footerBaselineY, float footerRightX) {
-        canvas.drawText(footerTimeText,
-                footerRightX - footerPaint.measureText(footerTimeText)
-                        - (sent ? (TICK_SIZE_DP + TICK_GAP_DP) * density : 0),
-                footerBaselineY, footerPaint);
+        float timeX = footerRightX - footerPaint.measureText(footerTimeText)
+                - (sent ? (TICK_SIZE_DP + TICK_GAP_DP) * density : 0);
+        canvas.drawText(footerTimeText, timeX, footerBaselineY, footerPaint);
+
+        if (hasExpiry) {
+            canvas.drawText(expiryText, timeX - expiryReserveWidth(), footerBaselineY, expiryPaint);
+        }
 
         if (sent) {
             drawTick(canvas, footerRightX - TICK_SIZE_DP * density, footerBaselineY);

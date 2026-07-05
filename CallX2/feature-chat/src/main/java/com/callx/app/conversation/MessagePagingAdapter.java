@@ -72,7 +72,9 @@ public class MessagePagingAdapter
                     && reactionsEqual(a.reactions, b.reactions)  // FIX: reactions change pe rebind trigger
                     && pollVotesEqual(a.pollVotes, b.pollVotes)
                     && safeEquals(asStr(a.pollClosed), asStr(b.pollClosed))
-                    && safeEquals(asStr(a.broadcast), asStr(b.broadcast));  // broadcast badge rebind
+                    && safeEquals(asStr(a.broadcast), asStr(b.broadcast))  // broadcast badge rebind
+                    && safeEquals(a.forwardedFrom, b.forwardedFrom)        // forwarded label rebind (Canvas + legacy)
+                    && safeEquals(asStr(a.expiresAt), asStr(b.expiresAt)); // disappearing countdown rebind (Canvas + legacy)
             }
 
             private String asStr(Boolean b) { return b == null ? "null" : b.toString(); }
@@ -680,14 +682,26 @@ public class MessagePagingAdapter
      * does/doesn't handle; this method must stay in sync with that list.
      */
     private boolean isCanvasEligible(@NonNull Message m, boolean sentFlag) {
-        if (Boolean.TRUE.equals(m.deleted))       return false; // "This message was deleted" text swap — not modeled
-        if (Boolean.TRUE.equals(m.edited))        return false; // "(edited)" label — not modeled
-        if (m.forwardedFrom != null)               return false; // forwarded label — not modeled
+        // "This message was deleted" text swap is now modeled
+        // (MessageBubbleCanvasView.setDeletedStyle) — a deleted message
+        // always renders as the plain-text placeholder regardless of its
+        // original type (mirrors bindMessage()'s early return), so it's
+        // eligible here no matter what m.type says.
+        if (Boolean.TRUE.equals(m.deleted)) return true;
+        // edited label (setGroupSender/footer suffix), forwarded label
+        // (setForwardedFrom), and broadcast badge (setGroupSender) are now
+        // modeled — no longer disqualifying.
         // pinned is now modeled (MessageBubbleCanvasView.setPinned) — no longer disqualifying
         // reactions are now modeled (MessageBubbleCanvasView.setReactions) — no longer disqualifying
         // isGroup is now modeled for received messages (MessageBubbleCanvasView.setGroupSender) — no longer disqualifying
-        if (Boolean.TRUE.equals(m.broadcast))     return false; // broadcast badge — not modeled
-        if (m.expiresAt != null && m.expiresAt > 0) return false; // disappearing-message countdown label — not modeled
+        if (m.expiresAt != null && m.expiresAt > 0) {
+            // Disappearing-message countdown (setExpiryText) is only modeled
+            // for the plain-text footer so far — a media bubble's
+            // translucent timestamp pill doesn't have room for it yet, so
+            // keep those on the old path until that's added.
+            String expiryType = m.type != null ? m.type : "text";
+            if (!"text".equals(expiryType)) return false;
+        }
 
         String type = m.type != null ? m.type : "text";
         if ("text".equals(type)) return true;
@@ -1177,11 +1191,13 @@ public class MessagePagingAdapter
 
     /**
      * Binds a message to a MessageBubbleCanvasView holder (see
-     * isCanvasEligible()). Only ever called for plain-text messages, a
-     * sent single image, or a sent/received multi-image/video group (all
-     * cells plain image/video, no per-item captions) — optionally with a
-     * reply. Every other shape is filtered out before a holder ever gets
-     * here.
+     * isCanvasEligible()). Covers plain-text messages, a sent single
+     * image, or a sent/received multi-image/video group (all cells plain
+     * image/video, no per-item captions) — optionally with a reply,
+     * reactions, pinned/forwarded/broadcast labels, and (plain-text only)
+     * a disappearing-message countdown. A deleted message always renders
+     * as the plain-text placeholder regardless of its original type.
+     * Every other shape is filtered out before a holder ever gets here.
      */
     private void bindCanvasMessage(@NonNull VH h, @NonNull Message m) {
         final Context ctx = h.itemView.getContext();
@@ -1190,12 +1206,24 @@ public class MessagePagingAdapter
         final boolean sent = currentUid != null && currentUid.equals(m.senderId);
         final boolean isRead = "read".equals(m.status);
         final boolean isDelivered = isRead || "delivered".equals(m.status);
-        final String timeStr = (m.timestamp != null && m.timestamp > 0) ? formatTime(m.timestamp) : "";
+        // Same "  ✏️ edited" suffix bindMessage() appends to tv_time — flows
+        // through into whichever bind*() call below via this one string, so
+        // it shows up for text/image/multi_media/deleted-placeholder alike.
+        String timeStr = (m.timestamp != null && m.timestamp > 0) ? formatTime(m.timestamp) : "";
+        if (Boolean.TRUE.equals(m.edited)) timeStr = timeStr + "  \u270F\uFE0F edited";
         final String type = m.type != null ? m.type : "text";
         final boolean isImage = "image".equals(type);
         final boolean isMultiMedia = "multi_media".equals(type);
+        final boolean isDeleted = Boolean.TRUE.equals(m.deleted);
 
-        if (isMultiMedia) {
+        if (isDeleted) {
+            // Mirrors bindMessage()'s deleted-message branch: always the
+            // plain-text placeholder, regardless of the message's original
+            // type — no media/group content is ever shown once deleted.
+            String placeholder = sent ? "You deleted this message" : "This message was deleted";
+            cv.bind(placeholder, timeStr, sent, isRead, isDelivered);
+            cv.setDeletedStyle(true);
+        } else if (isMultiMedia) {
             final java.util.List<java.util.Map<String, Object>> items = m.mediaItems;
             final int total = items != null ? items.size() : 0;
             java.util.List<com.callx.app.conversation.canvas.MessageBubbleCanvasView.GridItem> gridItems =
@@ -1210,6 +1238,7 @@ public class MessagePagingAdapter
                 gridItems.add(new com.callx.app.conversation.canvas.MessageBubbleCanvasView.GridItem(isVideoCell, dur));
             }
             cv.bindMediaGroup(gridItems, m.caption, timeStr, sent, isRead, isDelivered);
+            cv.setDeletedStyle(false); // clears any italic/dim state a recycled view carried from a deleted message
 
             // Per-cell thumbnail load, plus (received-only) the manual
             // download-gate flagging — mirrors MediaGroupLayoutHelper's
@@ -1281,6 +1310,7 @@ public class MessagePagingAdapter
             // (m.text/m.mediaUrl is the URL, not a caption — see bindMessage()'s
             // "image"/"gif" case) — always captionless here.
             cv.bindMedia(null, null, timeStr, sent, isRead, isDelivered);
+            cv.setDeletedStyle(false); // clears any italic/dim state a recycled view carried from a deleted message
             if (fullUrl != null && !fullUrl.isEmpty()) {
                 glide(ctx).asBitmap()
                         .load(fullUrl)
@@ -1302,6 +1332,7 @@ public class MessagePagingAdapter
             }
         } else {
             cv.bind(m.text != null ? m.text : "", timeStr, sent, isRead, isDelivered);
+            cv.setDeletedStyle(false); // clears any italic/dim state a recycled view carried from a deleted message
         }
 
         // ── Reply preview ──
@@ -1336,12 +1367,50 @@ public class MessagePagingAdapter
         cv.setPinned(Boolean.TRUE.equals(m.pinned));
 
         // ── Group-chat sender name (received only — same gate bindMessage()
-        // uses for tvSenderName; broadcast is already excluded from Canvas
-        // eligibility above, so no 📢-prefix case reaches here) ──
+        // uses for tvSenderName) — also carries the 📢 broadcast badge,
+        // exactly mirroring bindMessage()'s tv_sender_name block: a group
+        // message gets a "📢 " prefix on the sender name, a 1:1 broadcast
+        // shows the row solely for "📢 Broadcast". ──
+        boolean isBroadcastMsg = Boolean.TRUE.equals(m.broadcast);
         if (!sent && isGroup && m.senderName != null && !m.senderName.isEmpty()) {
-            cv.setGroupSender(m.senderName);
+            cv.setGroupSender(isBroadcastMsg ? "\uD83D\uDCE2 " + m.senderName : m.senderName);
+        } else if (!sent && isBroadcastMsg) {
+            cv.setGroupSender("\uD83D\uDCE2 Broadcast");
         } else {
             cv.clearGroupSender();
+        }
+
+        // ── Forwarded label ──
+        if (m.forwardedFrom != null && !m.forwardedFrom.isEmpty()) {
+            cv.setForwardedFrom(m.forwardedFrom);
+        } else {
+            cv.clearForwarded();
+        }
+
+        // ── Disappearing-message countdown — same shared ExpiryTickManager
+        // handler the legacy path uses, targeting the canvas view instead of
+        // tv_expiry. Mirrors bindMessage(): skipped entirely once a message
+        // is deleted (nothing left to count down to). ──
+        com.callx.app.utils.ExpiryTickManager.get().unregister(h);
+        if (!isDeleted) {
+            long expiresAt = m.expiresAt != null ? m.expiresAt : 0L;
+            long remaining = expiresAt - System.currentTimeMillis();
+            if (expiresAt > 0 && remaining > 0) {
+                cv.setExpiryText("\u23F3 " + formatRemaining(remaining));
+                com.callx.app.utils.ExpiryTickManager.get().register(h, expiresAt,
+                        new com.callx.app.utils.ExpiryTickManager.Listener() {
+                    @Override public void onTick(long ms) {
+                        if (h.canvasView != null) h.canvasView.setExpiryText("\u23F3 " + formatRemaining(ms));
+                    }
+                    @Override public void onFinish() {
+                        if (h.canvasView != null) h.canvasView.clearExpiry();
+                    }
+                });
+            } else {
+                cv.clearExpiry();
+            }
+        } else {
+            cv.clearExpiry();
         }
 
         // ── Selection highlight (multi-select mode) — works unmodified since
