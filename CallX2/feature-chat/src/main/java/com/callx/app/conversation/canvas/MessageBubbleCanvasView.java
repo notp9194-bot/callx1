@@ -3282,7 +3282,10 @@ public class MessageBubbleCanvasView extends View {
         drawFooter(canvas, bubbleRect.bottom - fvPad * 0.4f, bubbleRect.right - hPad);
     }
 
-
+    /**
+     * Draws the location card — mirrors item_msg_location.xml: a bubbleless
+     * rounded card with a purple map-thumbnail header (pin placeholder when
+     * no map bitmap is available), a translucent purple address strip encoded
      * via StaticLayout), and a bottom "Open in Maps" row — same
      * rounded-card clip treatment as drawContact().
      */
