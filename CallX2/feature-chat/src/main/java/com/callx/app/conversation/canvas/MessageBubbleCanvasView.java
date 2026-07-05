@@ -3,6 +3,7 @@ package com.callx.app.conversation.canvas;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
+import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Rect;
 import android.graphics.RectF;
@@ -58,6 +59,16 @@ import com.callx.app.utils.ChatThemeManager;
  *     scrim overlapping the grid's bottom edge. See isCanvasEligible() in
  *     MessagePagingAdapter for exactly what qualifies (sent-only, plain
  *     image/video cells only, no per-item captions).
+ *   • a reaction badge (setReactions/clearReactions) — mirrors ll_reactions/
+ *     tv_reactions: plain-emoji text floating over the bubble's bottom-end
+ *     corner, no background box. Works alongside any of the modes above.
+ *   • a pinned label (setPinned) — "📌 Pinned" text above the bubble's
+ *     top-end corner, works for sent and received alike.
+ *   • a group-chat sender-name row (setGroupSender/clearGroupSender) —
+ *     mirrors tv_sender_name (11sp bold, brand_primary) above the bubble's
+ *     top-start corner, received messages only. The sender AVATAR
+ *     (iv_sender_avatar) is NOT modeled — it's dead markup in the legacy
+ *     layout too, never actually bound anywhere.
  *
  * It intentionally does NOT (yet) handle:
  *   • RECEIVED multi-image/video grids — these keep the manual per-cell
@@ -67,7 +78,7 @@ import com.callx.app.utils.ChatThemeManager;
  *   • GIF, audio, file, poll, link-preview, or reel-share bubbles
  *   • the download-progress overlay (pill/spinner/percentage) — the image
  *     slot shows a plain placeholder box until a decoded Bitmap is supplied
- *   • forwarded/pinned labels, reactions strip
+ *   • forwarded label
  *   • swipe-to-reply gesture, long-press action menu
  *
  * Those all still render through the existing item_message_sent/received.xml
@@ -139,6 +150,30 @@ public class MessageBubbleCanvasView extends View {
     private static final int   MEDIA_PILL_TEXT         = 0xFFFFFFFF;
     private static final int   MEDIA_PLACEHOLDER_COLOR = 0xFFD9D9D9; // shown until Bitmap arrives — no theme lookup yet (see class doc)
 
+    // ── Reaction badge — mirrors ll_reactions/tv_reactions in
+    // item_message_sent/received.xml: a plain-emoji badge (no background
+    // box) floating outside the bubble's bottom-end corner, pulled down by
+    // a negative margin so it overlaps without covering the text/footer.
+    // Same treatment for sent and received (both layouts constrain it
+    // identically to the bubble's end/bottom). ──
+    private static final float REACTIONS_TEXT_SP      = 28f;
+    private static final float REACTIONS_MARGIN_END_DP = 4f;
+    private static final float REACTIONS_OVERLAP_DP   = 14f; // how far the badge hangs below the bubble's bottom edge (matches layout_marginBottom="-14dp")
+    private static final int   REACTIONS_SHADOW_COLOR = 0x66000000;
+
+    // ── Pinned label — mirrors tv_pinned_label's text/size/color from
+    // item_message_sent.xml ("📌 Pinned", 10sp, #E65100). That XML view was
+    // never actually bound anywhere in MessagePagingAdapter (dead markup,
+    // sent-layout-only, aligned to the parent row's end rather than the
+    // bubble), so rather than reproduce that half-finished/sent-only
+    // placement, this anchors the label to the BUBBLE's own top-end corner
+    // — works symmetrically for sent and received alike. ──
+    private static final float PINNED_LABEL_TEXT_SP = 10f;
+    private static final int   PINNED_LABEL_COLOR   = 0xFFE65100;
+    private static final String PINNED_LABEL_TEXT   = "📌 Pinned";
+    private static final float PINNED_LABEL_GAP_DP  = 2f; // gap between label and bubble top
+    private static final float GROUP_SENDER_TEXT_SP = 11f; // matches tv_sender_name in item_message_received.xml
+
     // ── Media GROUP (multi-image/video grid) — mirrors MediaGroupLayoutHelper's
     // layout rules/constants exactly for visual parity, but is an entirely
     // separate mode from the single-image `isMedia` path above (own state,
@@ -175,6 +210,8 @@ public class MessageBubbleCanvasView extends View {
         void onImageClick();
         /** Tapped cell `index` inside a media-group grid (bindMediaGroup only) — caller should open the gallery viewer at that index. */
         void onMediaCellClick(int index);
+        /** Tapped the reaction badge — caller should open the reaction-details/picker sheet (same as ll_reactions' click listener on the legacy path). */
+        void onReactionsClick();
     }
 
     /** Immutable per-cell descriptor for bindMediaGroup(); bitmaps are supplied
@@ -237,6 +274,30 @@ public class MessageBubbleCanvasView extends View {
     private final RectF mediaPillRect = new RectF();
     private final android.graphics.Matrix mediaShaderMatrix = new android.graphics.Matrix();
 
+    // ── Reaction badge state — independent of text/media/group mode; any
+    // of the three can have reactions overlaid. ──
+    private boolean hasReactions = false;
+    private String reactionsText = "";
+    private final TextPaint reactionsTextPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    private final RectF reactionsRect = new RectF();
+
+    // ── Pinned label state ────────────────────────────────────────────
+    private boolean isPinned = false;
+    private final TextPaint pinnedLabelPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    private int pinnedLabelHeight = 0;
+    private float pinnedLabelWidth = 0;
+
+    // ── Group-chat sender-name state — mirrors tv_sender_name in
+    // item_message_received.xml. Only meaningful for received messages;
+    // the sender AVATAR (iv_sender_avatar) is intentionally not modeled —
+    // it's dead markup in the legacy layout too (never bound anywhere in
+    // MessagePagingAdapter), so there's nothing functional to mirror. ──
+    private boolean hasGroupSender = false;
+    private String groupSenderName = "";
+    private final TextPaint groupSenderPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    private int groupSenderTextHeight = 0;
+    private float groupSenderWidth = 0;
+
     // ── Media GROUP (multi-image/video grid) state — entirely separate
     // from the single-image `isMedia` state above. ──
     private boolean isMediaGroup = false;
@@ -281,6 +342,15 @@ public class MessageBubbleCanvasView extends View {
         mediaPillBgPaint.setColor(MEDIA_PILL_BG);
         mediaPillTextPaint.setColor(MEDIA_PILL_TEXT);
         mediaPillTextPaint.setTextSize(spToPx(FOOTER_TEXT_SP));
+
+        reactionsTextPaint.setTextSize(spToPx(REACTIONS_TEXT_SP));
+        reactionsTextPaint.setShadowLayer(2f * density, 0f, 1f * density, REACTIONS_SHADOW_COLOR);
+
+        pinnedLabelPaint.setTextSize(spToPx(PINNED_LABEL_TEXT_SP));
+        pinnedLabelPaint.setColor(PINNED_LABEL_COLOR);
+
+        groupSenderPaint.setTextSize(spToPx(GROUP_SENDER_TEXT_SP));
+        groupSenderPaint.setFakeBoldText(true);
 
         groupCellBgPaint.setColor(Color.DKGRAY);
         groupMoreOverlayPaint.setColor(0xBB000000);
@@ -492,6 +562,77 @@ public class MessageBubbleCanvasView extends View {
         invalidate();
     }
 
+    /**
+     * Attach a reaction badge to this bubble — mirrors ll_reactions/
+     * tv_reactions in item_message_sent/received.xml: plain emoji text
+     * (e.g. "😂2 👍"), no background box, floating over the bubble's
+     * bottom-end corner. Works the same regardless of bind()/bindMedia()/
+     * bindMediaGroup() mode. Call setReactions(text) when the message has
+     * reactions, clearReactions() otherwise — always call one of the two,
+     * every bind, since a recycled view holds whatever the previous
+     * message left in it.
+     *
+     * @param text already-formatted reaction summary (caller does the
+     *             emoji-counting/truncation, same as bindReactionsOnly()
+     *             does for the legacy tv_reactions TextView); null/empty
+     *             is treated the same as clearReactions().
+     */
+    public void setReactions(@Nullable String text) {
+        this.hasReactions = text != null && !text.isEmpty();
+        this.reactionsText = text != null ? text : "";
+        requestLayout();
+        invalidate();
+    }
+
+    /** Call when a message has no reactions — clears any previous badge state so a recycled view doesn't show a stale reaction. */
+    public void clearReactions() {
+        this.hasReactions = false;
+        this.reactionsText = "";
+        requestLayout();
+        invalidate();
+    }
+
+    /**
+     * Show/hide the "📌 Pinned" label above the bubble's top-end corner.
+     * Works alongside any bind mode (text/media/group) and with or without
+     * a reply/reactions. Always call this every bind — true or false —
+     * since a recycled view holds whatever the previous message left in it.
+     */
+    public void setPinned(boolean pinned) {
+        this.isPinned = pinned;
+        requestLayout();
+        invalidate();
+    }
+
+    /**
+     * Show the sender-name row above the bubble's top-start corner, for a
+     * received message in a group chat — mirrors tv_sender_name (11sp,
+     * bold, brand_primary). Caller (MessagePagingAdapter) only calls this
+     * for `!sent && isGroup` messages, same gate the legacy path uses;
+     * this view itself doesn't re-check sent/group, it just draws
+     * whatever name it's given.
+     *
+     * @param name display name; null/empty is treated as clearGroupSender().
+     */
+    public void setGroupSender(@Nullable String name) {
+        this.hasGroupSender = name != null && !name.isEmpty();
+        this.groupSenderName = name != null ? name : "";
+        if (hasGroupSender) {
+            groupSenderPaint.setColor(androidx.core.content.ContextCompat.getColor(
+                    getContext(), com.callx.app.core.R.color.brand_primary));
+        }
+        requestLayout();
+        invalidate();
+    }
+
+    /** Call for sent messages, or received messages outside a group chat — clears any stale sender-name state on a recycled view. */
+    public void clearGroupSender() {
+        this.hasGroupSender = false;
+        this.groupSenderName = "";
+        requestLayout();
+        invalidate();
+    }
+
     private void resolveReplyColors(Context ctx) {
         if (sent) {
             replyBgPaint.setColor(SENT_REPLY_BG);
@@ -530,6 +671,32 @@ public class MessageBubbleCanvasView extends View {
         int vPad = Math.round(V_PADDING_DP * density);
         int footerHeight = Math.round(spToPx(FOOTER_TEXT_SP) + FOOTER_GAP_DP * density);
         int maxTextWidth = Math.max(1, maxBubbleWidth - hPad * 2);
+
+        // ── Pinned label / group sender-name — both sit above the bubble
+        // entirely (opposite corners of the same row: pinned at top-end,
+        // sender-name at top-start), so they shift bubbleTop down rather
+        // than participating in bubbleHeight, and share one reserved
+        // "row" sized to whichever of the two is taller. ──
+        int aboveExtra = 0;
+        if (isPinned) {
+            Paint.FontMetrics pfm = pinnedLabelPaint.getFontMetrics();
+            pinnedLabelHeight = Math.round(pfm.descent - pfm.ascent);
+            pinnedLabelWidth = pinnedLabelPaint.measureText(PINNED_LABEL_TEXT);
+            aboveExtra = Math.max(aboveExtra, pinnedLabelHeight);
+        } else {
+            pinnedLabelHeight = 0;
+            pinnedLabelWidth = 0;
+        }
+        if (hasGroupSender) {
+            Paint.FontMetrics gfm = groupSenderPaint.getFontMetrics();
+            groupSenderTextHeight = Math.round(gfm.descent - gfm.ascent);
+            groupSenderWidth = groupSenderPaint.measureText(groupSenderName);
+            aboveExtra = Math.max(aboveExtra, groupSenderTextHeight);
+        } else {
+            groupSenderTextHeight = 0;
+            groupSenderWidth = 0;
+        }
+        int pinnedTopExtra = aboveExtra > 0 ? aboveExtra + Math.round(PINNED_LABEL_GAP_DP * density) : 0;
 
         // ── Reply-preview box — measured the same way regardless of
         // isMedia; a reply strip can sit above either a text or an image
@@ -657,7 +824,7 @@ public class MessageBubbleCanvasView extends View {
         int bubbleWidth = bubbleContentWidth + hPad * 2;
 
         bubbleLeft = sent ? (parentWidth - bubbleWidth) : 0;
-        bubbleTop = 0;
+        bubbleTop = pinnedTopExtra;
         bubbleRect.set(bubbleLeft, bubbleTop, bubbleLeft + bubbleWidth, bubbleTop + bubbleHeight);
 
         if (hasReply) {
@@ -710,7 +877,26 @@ public class MessageBubbleCanvasView extends View {
             }
         }
 
-        setMeasuredDimension(parentWidth, bubbleHeight);
+        // ── Reaction badge — floats past the bubble's bottom edge, so the
+        // view's total height must grow to fit it or it'd be clipped by
+        // this View's own canvas bounds (unlike the old ConstraintLayout,
+        // which just grew wrap_content to fit an overlapping sibling). ──
+        int totalHeight = bubbleTop + bubbleHeight;
+        if (hasReactions) {
+            float marginEnd = REACTIONS_MARGIN_END_DP * density;
+            float overlap = REACTIONS_OVERLAP_DP * density;
+            Paint.FontMetrics fm = reactionsTextPaint.getFontMetrics();
+            float badgeW = reactionsTextPaint.measureText(reactionsText);
+            float badgeH = fm.descent - fm.ascent;
+            float right = bubbleRect.right - marginEnd;
+            float bottom = bubbleRect.bottom + overlap;
+            reactionsRect.set(right - badgeW, bottom - badgeH, right, bottom);
+            totalHeight = Math.max(totalHeight, Math.round(bottom));
+        } else {
+            reactionsRect.setEmpty();
+        }
+
+        setMeasuredDimension(parentWidth, totalHeight);
     }
 
     private int dp(int v) {
@@ -792,6 +978,14 @@ public class MessageBubbleCanvasView extends View {
                 (int) bubbleRect.right, (int) bubbleRect.bottom);
         bubbleDrawable.draw(canvas);
 
+        if (isPinned) {
+            drawPinnedLabel(canvas);
+        }
+
+        if (hasGroupSender) {
+            drawGroupSenderName(canvas);
+        }
+
         int hPad = Math.round(H_PADDING_DP * density);
         int vPad = Math.round(V_PADDING_DP * density);
 
@@ -812,6 +1006,33 @@ public class MessageBubbleCanvasView extends View {
 
             drawFooter(canvas, bubbleRect.bottom - vPad * 0.4f, bubbleRect.right - hPad);
         }
+
+        if (hasReactions) {
+            drawReactionsBadge(canvas);
+        }
+    }
+
+    private void drawReactionsBadge(Canvas canvas) {
+        float baselineY = reactionsRect.bottom - reactionsTextPaint.getFontMetrics().descent;
+        canvas.drawText(reactionsText, reactionsRect.left, baselineY, reactionsTextPaint);
+    }
+
+    private void drawPinnedLabel(Canvas canvas) {
+        // Sits in the [0, bubbleTop) strip reserved above the bubble in
+        // onMeasure, right-aligned to the bubble's own right edge (works
+        // for sent AND received, since each bubble's own right edge is
+        // used rather than the parent row's right edge).
+        float baselineY = bubbleTop - PINNED_LABEL_GAP_DP * density - pinnedLabelPaint.getFontMetrics().descent;
+        canvas.drawText(PINNED_LABEL_TEXT, bubbleRect.right - pinnedLabelWidth, baselineY, pinnedLabelPaint);
+    }
+
+    private void drawGroupSenderName(Canvas canvas) {
+        // Same reserved row as the pinned label, but left-aligned to the
+        // bubble's own left edge (opposite corner) — received bubbles
+        // start at bubbleLeft=0, so this sits at the row's start, matching
+        // tv_sender_name's constraintStart_toEndOf the (unused) avatar.
+        float baselineY = bubbleTop - PINNED_LABEL_GAP_DP * density - groupSenderPaint.getFontMetrics().descent;
+        canvas.drawText(groupSenderName, bubbleRect.left, baselineY, groupSenderPaint);
     }
 
     private void drawMedia(Canvas canvas, int hPad, int vPad) {
@@ -1039,6 +1260,11 @@ public class MessageBubbleCanvasView extends View {
         if (hasReply && event.getActionMasked() == MotionEvent.ACTION_UP
                 && replyBoxRect.contains(event.getX(), event.getY())) {
             if (clickListener != null) clickListener.onReplyPreviewClick();
+            return true;
+        }
+        if (hasReactions && event.getActionMasked() == MotionEvent.ACTION_UP
+                && reactionsRect.contains(event.getX(), event.getY())) {
+            if (clickListener != null) clickListener.onReactionsClick();
             return true;
         }
         if (isMedia && event.getActionMasked() == MotionEvent.ACTION_UP

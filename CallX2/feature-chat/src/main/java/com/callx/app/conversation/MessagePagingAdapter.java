@@ -68,6 +68,7 @@ public class MessagePagingAdapter
                     && safeEquals(asStr(a.editedAt), asStr(b.editedAt))
                     && a.deleted == b.deleted
                     && a.fontStyle == b.fontStyle
+                    && safeEquals(asStr(a.pinned), asStr(b.pinned))  // pinned label rebind (Canvas + legacy)
                     && reactionsEqual(a.reactions, b.reactions)  // FIX: reactions change pe rebind trigger
                     && pollVotesEqual(a.pollVotes, b.pollVotes)
                     && safeEquals(asStr(a.pollClosed), asStr(b.pollClosed))
@@ -152,8 +153,9 @@ public class MessagePagingAdapter
     /**
      * Phase 1 Canvas rendering (see conversation.canvas.MessageBubbleCanvasView).
      * Used ONLY for messages isCanvasEligible() accepts — plain text (any
-     * sent/received) or a single sent image, with no forward/pin/reactions/
-     * group-sender-label/edited-label. Everything else still uses
+     * sent/received), a single sent image, or a sent media group, with or
+     * without reactions/pinned-state/group-sender-name, but no
+     * forward-label/edited-label/broadcast. Everything else still uses
      * TYPE_SENT/TYPE_RECEIVED + item_message_sent/received.xml as before.
      */
     private static final int TYPE_CANVAS_SENT     = 11;
@@ -681,9 +683,9 @@ public class MessagePagingAdapter
         if (Boolean.TRUE.equals(m.deleted))       return false; // "This message was deleted" text swap — not modeled
         if (Boolean.TRUE.equals(m.edited))        return false; // "(edited)" label — not modeled
         if (m.forwardedFrom != null)               return false; // forwarded label — not modeled
-        if (Boolean.TRUE.equals(m.pinned))        return false; // pinned label — not modeled
-        if (m.reactions != null && !m.reactions.isEmpty()) return false; // reactions strip — not modeled
-        if (m.isGroup)                              return false; // group sender-name row above bubble — not modeled
+        // pinned is now modeled (MessageBubbleCanvasView.setPinned) — no longer disqualifying
+        // reactions are now modeled (MessageBubbleCanvasView.setReactions) — no longer disqualifying
+        // isGroup is now modeled for received messages (MessageBubbleCanvasView.setGroupSender) — no longer disqualifying
         if (Boolean.TRUE.equals(m.broadcast))     return false; // broadcast badge — not modeled
         if (m.expiresAt != null && m.expiresAt > 0) return false; // disappearing-message countdown label — not modeled
 
@@ -1287,6 +1289,23 @@ public class MessagePagingAdapter
             cv.clearReply();
         }
 
+        // ── Reaction badge ──
+        String reactionsText = formatReactions(m.reactions);
+        if (reactionsText != null) cv.setReactions(reactionsText);
+        else cv.clearReactions();
+
+        // ── Pinned label ──
+        cv.setPinned(Boolean.TRUE.equals(m.pinned));
+
+        // ── Group-chat sender name (received only — same gate bindMessage()
+        // uses for tvSenderName; broadcast is already excluded from Canvas
+        // eligibility above, so no 📢-prefix case reaches here) ──
+        if (!sent && isGroup && m.senderName != null && !m.senderName.isEmpty()) {
+            cv.setGroupSender(m.senderName);
+        } else {
+            cv.clearGroupSender();
+        }
+
         // ── Selection highlight (multi-select mode) — works unmodified since
         // it only touches h.itemView's alpha/background/tag, which is cv itself. ──
         applySelectionHighlight(h, m);
@@ -1325,6 +1344,11 @@ public class MessagePagingAdapter
                 if (actionListener != null && m.replyToId != null) {
                     actionListener.onNavigateToOriginal(m.replyToId);
                 }
+            }
+
+            @Override
+            public void onReactionsClick() {
+                if (actionListener != null) actionListener.onReactionTap(m);
             }
 
             @Override
@@ -3265,23 +3289,20 @@ public class MessagePagingAdapter
      *  no Linkify, no new GradientDrawable, no countdown restart) just to
      *  refresh a 1-line TextView. */
     private void bindReactionsOnly(@NonNull VH h, @NonNull Message m) {
+        String formatted = formatReactions(m.reactions);
+        if (h.canvasView != null) {
+            // Canvas path: setReactions()/clearReactions() handles its own
+            // requestLayout()+invalidate(), and the tap target is wired
+            // via onReactionsClick() in bindCanvasMessage()'s click
+            // listener (set once per full bind — no separate listener to
+            // reattach here, unlike the legacy llReactions view).
+            if (formatted != null) h.canvasView.setReactions(formatted);
+            else h.canvasView.clearReactions();
+            return;
+        }
         if (h.llReactions == null || h.tvReactions == null) return;
-        java.util.Map<String, String> rxMap = m.reactions;
-        if (rxMap != null && !rxMap.isEmpty()) {
-            // Count each unique emoji
-            java.util.LinkedHashMap<String, Integer> counts = new java.util.LinkedHashMap<>();
-            for (String emoji : rxMap.values()) {
-                counts.put(emoji, counts.containsKey(emoji) ? counts.get(emoji) + 1 : 1);
-            }
-            StringBuilder sb = new StringBuilder();
-            int shown = 0;
-            for (java.util.Map.Entry<String, Integer> e : counts.entrySet()) {
-                sb.append(e.getKey());
-                if (e.getValue() > 1) sb.append(e.getValue());
-                sb.append(" ");
-                if (++shown >= 4) break; // max 4 distinct emojis shown
-            }
-            h.tvReactions.setText(sb.toString().trim());
+        if (formatted != null) {
+            h.tvReactions.setText(formatted);
             h.llReactions.setVisibility(View.VISIBLE);
             h.llReactions.setOnClickListener(v -> {
                 if (actionListener != null) actionListener.onReactionTap(m);
@@ -3290,6 +3311,28 @@ public class MessagePagingAdapter
             h.llReactions.setVisibility(View.GONE);
             h.llReactions.setOnClickListener(null);
         }
+    }
+
+    /** Shared emoji-counting/formatting logic for both the legacy
+     *  tv_reactions TextView and MessageBubbleCanvasView's reaction badge.
+     *  Returns null if there are no reactions to show. */
+    @Nullable
+    private String formatReactions(@Nullable java.util.Map<String, String> rxMap) {
+        if (rxMap == null || rxMap.isEmpty()) return null;
+        java.util.LinkedHashMap<String, Integer> counts = new java.util.LinkedHashMap<>();
+        for (String emoji : rxMap.values()) {
+            counts.put(emoji, counts.containsKey(emoji) ? counts.get(emoji) + 1 : 1);
+        }
+        StringBuilder sb = new StringBuilder();
+        int shown = 0;
+        for (java.util.Map.Entry<String, Integer> e : counts.entrySet()) {
+            sb.append(e.getKey());
+            if (e.getValue() > 1) sb.append(e.getValue());
+            sb.append(" ");
+            if (++shown >= 4) break; // max 4 distinct emojis shown
+        }
+        String result = sb.toString().trim();
+        return result.isEmpty() ? null : result;
     }
 
     /** PERF: tiny view-cache for a poll option row, stashed via row.setTag().
