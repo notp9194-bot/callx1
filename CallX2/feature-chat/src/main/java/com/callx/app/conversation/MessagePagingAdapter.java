@@ -736,7 +736,14 @@ public class MessagePagingAdapter
             // types including this one, same as image/multi_media).
             return true;
         }
-        return false; // gif/video/audio/file/poll/link/contact/location — all still on the old path
+        if ("video".equals(type)) {
+            // Single video message (MessageBubbleCanvasView.bindVideo) —
+            // reuses the same 180dp-square slot as "image", just with the
+            // play-glyph + duration-badge overlay. No caption support,
+            // same as the legacy fl_video case.
+            return true;
+        }
+        return false; // gif/audio/file/poll/link/contact/location — all still on the old path
     }
 
     @NonNull
@@ -1221,6 +1228,7 @@ public class MessagePagingAdapter
         final boolean isImage = "image".equals(type);
         final boolean isMultiMedia = "multi_media".equals(type);
         final boolean isReelShare = "reel_share".equals(type) || "reel_link".equals(type);
+        final boolean isVideo = "video".equals(type);
         final boolean isDeleted = Boolean.TRUE.equals(m.deleted);
 
         if (isDeleted) {
@@ -1505,6 +1513,40 @@ public class MessagePagingAdapter
                             }
                         });
             }
+        } else if (isVideo) {
+            // Mirrors the legacy "video" case (fl_video/iv_video_thumb) —
+            // prefer the Cloudinary thumbnailUrl over the raw video URL
+            // for the preview frame, same fallback order, and format the
+            // duration badge the same "m:ss" way.
+            final String vUrl = m.mediaUrl != null ? m.mediaUrl : m.text;
+            final String vThumbUrl = (m.thumbnailUrl != null && !m.thumbnailUrl.isEmpty()) ? m.thumbnailUrl : vUrl;
+            String durText = null;
+            if (m.duration != null && m.duration > 0) {
+                long secs = m.duration / 1000;
+                durText = String.format(java.util.Locale.US, "%d:%02d", secs / 60, secs % 60);
+            }
+            cv.bindVideo(null, durText, timeStr, sent, isRead, isDelivered);
+            cv.setDeletedStyle(false);
+            if (vThumbUrl != null && !vThumbUrl.isEmpty()) {
+                glide(ctx).asBitmap()
+                        .load(vThumbUrl)
+                        .apply(THUMB_RGB565)
+                        .thumbnail(0.1f)
+                        .override(480, 480)
+                        .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
+                            @Override
+                            public void onResourceReady(@NonNull Bitmap resource,
+                                    @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
+                                if (h.canvasBindToken != myToken) return;
+                                cv.setMediaBitmap(resource);
+                            }
+                            @Override
+                            public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {
+                                if (h.canvasBindToken != myToken) return;
+                                cv.setMediaBitmap(null);
+                            }
+                        });
+            }
         } else {
             cv.bind(m.text != null ? m.text : "", timeStr, sent, isRead, isDelivered);
             cv.setDeletedStyle(false); // clears any italic/dim state a recycled view carried from a deleted message
@@ -1638,6 +1680,18 @@ public class MessagePagingAdapter
                 if (isImage) {
                     String fullUrl = m.mediaUrl != null ? m.mediaUrl : m.text;
                     showImageActionSheet(ctx, m, fullUrl, fullUrl);
+                } else if (isVideo) {
+                    // Mirrors the legacy fl_video/ivImage-fallback click
+                    // listeners — open MediaViewerActivity with the raw
+                    // video URL (not the thumbnail).
+                    String vUrl = m.mediaUrl != null ? m.mediaUrl : m.text;
+                    android.content.Intent i = new android.content.Intent().setClassName(
+                            ctx.getPackageName(), "com.callx.app.activities.MediaViewerActivity");
+                    i.putExtra("url", vUrl);
+                    i.putExtra("type", "video");
+                    i.putExtra("chatId", chatId);
+                    i.putExtra("messageId", m.messageId != null ? m.messageId : m.id);
+                    ctx.startActivity(i);
                 } else if (isReelShare) {
                     // Mirrors the legacy ll_reel_share.setOnClickListener —
                     // deep-link into the reel by ID, falling back to the

@@ -122,6 +122,13 @@ import com.callx.app.utils.ChatThemeManager;
  *     corner (always shown here, unlike the image bubble's caption-gated
  *     version). Tapping anywhere on the card fires onImageClick(), same as
  *     the legacy ll_reel_share click listener.
+ *   • a single "video" message (bindVideo) — reuses bindMedia()'s exact
+ *     180dp-square slot/mediaRect/footer-pill machinery, just with a
+ *     play-circle+triangle glyph centered on the thumbnail and a duration
+ *     badge in the bottom-left corner (drawVideoPlayOverlay), mirroring
+ *     the legacy fl_video/iv_video_thumb bubble. Never has a caption, same
+ *     as that legacy case. Tapping the thumbnail fires onImageClick(),
+ *     same trigger point as tapping an image bubble.
  *
  * Those all still render through the existing item_message_sent/received.xml
  * + MessagePagingAdapter path.
@@ -422,6 +429,17 @@ public class MessageBubbleCanvasView extends View {
     private boolean isMedia = false;
     private boolean mediaHasCaption = false;
     private Bitmap mediaBitmap;
+    // Single "video" message reuses the whole isMedia/mediaRect/mediaBitmap
+    // infrastructure (same fixed 180dp square, same footer pill) — this
+    // flag just adds the play-glyph + duration-badge overlay on top,
+    // mirroring the legacy fl_video/iv_video_thumb treatment. Never has a
+    // caption (mediaHasCaption stays false for video, same as the legacy
+    // "video" case never binding a caption). Reuses groupPlayCirclePaint/
+    // groupPlayTrianglePaint/groupDurationTextPaint/groupDurationBgPaint/
+    // groupPlayTrianglePath from the media-GROUP state below — same visual,
+    // no need to duplicate paints/constants.
+    private boolean isVideoMedia = false;
+    private String videoDuration;
     private final Paint mediaBitmapPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
     private final Paint mediaPlaceholderPaint = new Paint();
     private final Paint mediaPillBgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -693,6 +711,8 @@ public class MessageBubbleCanvasView extends View {
     public void bind(String text, String timeText, boolean isSent, boolean isRead, boolean isDelivered) {
         this.isMedia = false;
         this.isMediaGroup = false;
+        this.isReelShare = false;
+        this.isVideoMedia = false;
         this.mediaBitmap = null;
         this.messageText = text != null ? text : "";
         this.footerTimeText = timeText != null ? timeText : "";
@@ -734,6 +754,9 @@ public class MessageBubbleCanvasView extends View {
                            boolean isSent, boolean isRead, boolean isDelivered) {
         this.isMedia = true;
         this.isMediaGroup = false;
+        this.isReelShare = false;
+        this.isVideoMedia = false;
+        this.videoDuration = null;
         this.mediaBitmap = bitmap;
         // Cleared fresh on every bind — a recycled holder must not carry a
         // stale gate from whatever RECEIVED image the view last showed;
@@ -769,6 +792,25 @@ public class MessageBubbleCanvasView extends View {
     /** Swap in a decoded Bitmap once an async (Glide) load finishes — no re-measure needed, same fixed image size. */
     public void setMediaBitmap(@Nullable Bitmap bitmap) {
         this.mediaBitmap = bitmap;
+        invalidate();
+    }
+
+    /**
+     * Bind this view to a single "video" message — reuses the exact same
+     * 180dp-square slot as bindMedia() (mediaRect/mediaBitmap/footer pill),
+     * just with the play-glyph + duration-badge overlay drawn on top
+     * (drawMedia()) and no caption support, mirroring the legacy
+     * fl_video/iv_video_thumb case which never binds a caption either.
+     * Pass thumb=null if not yet decoded; setMediaBitmap() swaps it in
+     * later exactly as it does for bindMedia(). Video never shows the
+     * manual download gate — same "streams directly" precedent as video
+     * cells inside a media group (see setMediaDownloadGate() doc).
+     */
+    public void bindVideo(@Nullable Bitmap thumb, @Nullable String duration, String timeText,
+                          boolean isSent, boolean isRead, boolean isDelivered) {
+        bindMedia(thumb, null, timeText, isSent, isRead, isDelivered);
+        this.isVideoMedia = true;
+        this.videoDuration = duration;
         invalidate();
     }
 
@@ -826,6 +868,9 @@ public class MessageBubbleCanvasView extends View {
                                 boolean isSent, boolean isRead, boolean isDelivered) {
         this.isMedia = false;
         this.isMediaGroup = true;
+        this.isReelShare = false;
+        this.isVideoMedia = false;
+        this.videoDuration = null;
         this.groupItems = items != null ? items : java.util.Collections.emptyList();
         int total = this.groupItems.size();
         this.groupVisibleCount = Math.min(total, GROUP_MAX_VISIBLE);
@@ -886,6 +931,8 @@ public class MessageBubbleCanvasView extends View {
         this.isMedia = false;
         this.isMediaGroup = false;
         this.isReelShare = true;
+        this.isVideoMedia = false;
+        this.videoDuration = null;
         this.reelThumbBitmap = thumb;
         this.reelAvatarBitmap = avatar;
         this.reelUsername = (username != null && !username.isEmpty()) ? "@" + username : REEL_DEFAULT_USERNAME;
@@ -1846,6 +1893,10 @@ public class MessageBubbleCanvasView extends View {
             canvas.drawRoundRect(mediaRect, r, r, mediaPlaceholderPaint);
         }
 
+        if (isVideoMedia) {
+            drawVideoPlayOverlay(canvas);
+        }
+
         if (mediaGated) {
             // Manual-download gate covers the whole slot (idle pill or live
             // spinner/percentage) — same precedent as the group gate: while
@@ -1883,6 +1934,41 @@ public class MessageBubbleCanvasView extends View {
                 drawTick(canvas, mediaPillRect.right - pillPadH - TICK_SIZE_DP * density, textBaselineY);
                 tickPaint.set(saved);
             }
+        }
+    }
+
+    /**
+     * Draws the play-circle+triangle glyph centered on mediaRect, plus a
+     * duration badge in the bottom-left corner — mirrors the legacy
+     * fl_video/iv_video_thumb treatment for a single "video" message.
+     * Reuses groupPlayCirclePaint/groupPlayTrianglePaint/
+     * groupDurationTextPaint/groupDurationBgPaint/groupPlayTrianglePath
+     * from the media-GROUP video-cell overlay — identical visual, no
+     * separate constants needed for the single-video case.
+     */
+    private void drawVideoPlayOverlay(Canvas canvas) {
+        float cx = mediaRect.centerX(), cy = mediaRect.centerY();
+        float circleR = (GROUP_PLAY_CIRCLE_DP * density) / 2f;
+        canvas.drawCircle(cx, cy, circleR, groupPlayCirclePaint);
+
+        float triR = (GROUP_PLAY_TRIANGLE_DP * density) / 2f;
+        groupPlayTrianglePath.reset();
+        groupPlayTrianglePath.moveTo(cx - triR * 0.5f, cy - triR * 0.8f);
+        groupPlayTrianglePath.lineTo(cx - triR * 0.5f, cy + triR * 0.8f);
+        groupPlayTrianglePath.lineTo(cx + triR * 0.9f, cy);
+        groupPlayTrianglePath.close();
+        canvas.drawPath(groupPlayTrianglePath, groupPlayTrianglePaint);
+
+        if (videoDuration != null && !videoDuration.isEmpty()) {
+            float durPadH = 3 * density, durPadV = 1 * density;
+            float textW = groupDurationTextPaint.measureText(videoDuration);
+            float textH = groupDurationTextPaint.descent() - groupDurationTextPaint.ascent();
+            float left = mediaRect.left + 4 * density;
+            float bottom = mediaRect.bottom - 4 * density;
+            RectF durBg = new RectF(left, bottom - textH - durPadV * 2, left + textW + durPadH * 2, bottom);
+            canvas.drawRoundRect(durBg, 3 * density, 3 * density, groupDurationBgPaint);
+            float textBaseline = durBg.bottom - durPadV - groupDurationTextPaint.descent();
+            canvas.drawText(videoDuration, durBg.left + durPadH, textBaseline, groupDurationTextPaint);
         }
     }
 
