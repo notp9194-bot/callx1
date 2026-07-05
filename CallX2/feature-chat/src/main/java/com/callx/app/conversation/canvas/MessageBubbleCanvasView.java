@@ -561,6 +561,8 @@ public class MessageBubbleCanvasView extends View {
         /** Tapped the ⬗ open button on a cached file bubble — caller should open the file via FileProvider. */
         default void onFileOpenClick() {}
         default void onPollOptionClick(int optionIndex) {}
+        /** Tapped the "✏️ edited" tag inside the footer timestamp — caller should show the edit-history sheet for this message. */
+        default void onEditedTagClick() {}
     }
 
     /** Immutable per-cell descriptor for bindMediaGroup(); bitmaps are supplied
@@ -589,6 +591,13 @@ public class MessageBubbleCanvasView extends View {
     private boolean sent = false;
     private boolean read = false;
     private boolean delivered = false;
+    // ── "✏️ edited" tag hit-testing ──────────────────────────────────
+    // footerTimeText already has the "  ✏️ edited" suffix baked in by the
+    // caller when applicable; this flag just gates whether the footer's
+    // bounding box (computed fresh in drawFooter() every draw) should be
+    // treated as a tappable region in onTouchEvent.
+    private boolean isEdited = false;
+    private final RectF footerTextRect = new RectF();
 
     private StaticLayout textLayout;
     private GradientDrawable bubbleDrawable;
@@ -1110,6 +1119,14 @@ public class MessageBubbleCanvasView extends View {
 
     public OnBubbleClickListener getOnBubbleClickListener() {
         return this.clickListener;
+    }
+
+    /** Marks whether the currently-bound message is edited — caller's
+     *  footerTimeText should already contain the "  ✏️ edited" suffix;
+     *  this just tells onTouchEvent whether the footer's hit-rect
+     *  (computed in drawFooter()) should respond to taps. */
+    public void setEdited(boolean edited) {
+        this.isEdited = edited;
     }
 
     /**
@@ -3995,6 +4012,14 @@ public class MessageBubbleCanvasView extends View {
                 - (sent ? (TICK_SIZE_DP + TICK_GAP_DP) * density : 0);
         canvas.drawText(footerTimeText, timeX, footerBaselineY, footerPaint);
 
+        // Record the footer text's bounding box so onTouchEvent can hit-test
+        // taps on the "✏️ edited" tag (baked into footerTimeText by the
+        // caller) — recomputed on every draw so it always tracks the
+        // footer's actual on-screen position for this bind.
+        Paint.FontMetrics footerFm = footerPaint.getFontMetrics();
+        footerTextRect.set(timeX, footerBaselineY + footerFm.ascent,
+                timeX + footerPaint.measureText(footerTimeText), footerBaselineY + footerFm.descent);
+
         if (hasExpiry) {
             canvas.drawText(expiryText, timeX - expiryReserveWidth(), footerBaselineY, expiryPaint);
         }
@@ -4126,6 +4151,15 @@ public class MessageBubbleCanvasView extends View {
 
     @Override
     public boolean onTouchEvent(MotionEvent event) {
+        if (isEdited && event.getActionMasked() == MotionEvent.ACTION_UP
+                && footerTextRect.contains(event.getX(), event.getY())) {
+            // Tapped the "✏️ edited" tag inside the footer timestamp —
+            // mirrors the legacy tv_time click listener that opened the
+            // edit-history sheet.
+            cancelPendingLongPress(event);
+            if (clickListener != null) clickListener.onEditedTagClick();
+            return true;
+        }
         if (hasReply && event.getActionMasked() == MotionEvent.ACTION_UP
                 && replyBoxRect.contains(event.getX(), event.getY())) {
             cancelPendingLongPress(event);

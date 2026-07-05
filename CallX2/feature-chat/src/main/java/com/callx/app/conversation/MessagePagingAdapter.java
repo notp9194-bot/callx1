@@ -795,8 +795,20 @@ public class MessagePagingAdapter
         if (viewType == TYPE_CANVAS_SENT || viewType == TYPE_CANVAS_RECEIVED) {
             com.callx.app.conversation.canvas.MessageBubbleCanvasView cv =
                     new com.callx.app.conversation.canvas.MessageBubbleCanvasView(parent.getContext());
-            cv.setLayoutParams(new RecyclerView.LayoutParams(
-                    RecyclerView.LayoutParams.MATCH_PARENT, RecyclerView.LayoutParams.WRAP_CONTENT));
+            RecyclerView.LayoutParams cvLp = new RecyclerView.LayoutParams(
+                    RecyclerView.LayoutParams.MATCH_PARENT, RecyclerView.LayoutParams.WRAP_CONTENT);
+            // FIX: item_message_sent/received.xml gives every legacy bubble
+            // row 2dp top + 2dp bottom padding (= 4dp WhatsApp-style gap
+            // between consecutive bubbles). The canvas path builds this
+            // View programmatically with no margin at all, so canvas
+            // bubbles were rendering flush against each other — restore
+            // the same 2dp/2dp via RecyclerView item margins instead
+            // (onMeasure's totalHeight has no room for outer spacing, so
+            // margin — not padding — is the right lever here).
+            int vGap = Math.round(2 * parent.getContext().getResources().getDisplayMetrics().density);
+            cvLp.topMargin = vGap;
+            cvLp.bottomMargin = vGap;
+            cv.setLayoutParams(cvLp);
             cv.setSaveEnabled(false);
             VH vh = new VH(cv);
             vh.canvasView = cv;
@@ -1256,6 +1268,12 @@ public class MessagePagingAdapter
         // it shows up for text/image/multi_media/deleted-placeholder alike.
         String timeStr = (m.timestamp != null && m.timestamp > 0) ? formatTime(m.timestamp) : "";
         if (Boolean.TRUE.equals(m.edited)) timeStr = timeStr + "  \u270F\uFE0F edited";
+        // FIX: tell the canvas view whether the "✏️ edited" suffix above is
+        // actually present, so its onTouchEvent knows to treat the footer's
+        // hit-rect as tappable (see setEdited() doc) — without this the
+        // pencil tag drew fine but was never clickable and edit history
+        // never opened.
+        cv.setEdited(Boolean.TRUE.equals(m.edited));
         final String type = m.type != null ? m.type : "text";
         final boolean isImage = "image".equals(type);
         final boolean isMultiMedia = "multi_media".equals(type);
@@ -1838,23 +1856,13 @@ public class MessagePagingAdapter
                     Boolean.TRUE.equals(m.pollMultiChoice),
                     sent, timeStr, isRead, isDelivered);
             cv.setDeletedStyle(false);
-
-            // Wire poll-option taps → ActionListener.onPollVote() (same as the
-            // legacy row.setOnClickListener in bindPoll(VH, ...) above).
-            final Message pollMsg = m;
-            cv.setOnBubbleClickListener(new com.callx.app.conversation.canvas.MessageBubbleCanvasView.OnBubbleClickListener() {
-                @Override public void onBubbleClick() { /* no-op for poll */ }
-                @Override public void onBubbleLongClick() {
-                    if (actionListener != null) showActionBottomSheet(ctx, pollMsg);
-                }
-                @Override public void onPollOptionClick(int optionIndex) {
-                    if (Boolean.TRUE.equals(pollMsg.pollClosed)) {
-                        android.widget.Toast.makeText(ctx, "This poll is closed", android.widget.Toast.LENGTH_SHORT).show();
-                        return;
-                    }
-                    if (actionListener != null) actionListener.onPollVote(pollMsg, optionIndex);
-                }
-            });
+            // NOTE: poll-option tap → ActionListener.onPollVote() is wired
+            // in the single setOnBubbleClickListener() call at the end of
+            // this method (onPollOptionClick override) — a second,
+            // poll-only listener used to be set right here, but it was
+            // always clobbered by that later unconditional call, which is
+            // exactly why voting silently did nothing. See that override's
+            // comment for details.
         } else {
             cv.bind(m.text != null ? m.text : "", timeStr, sent, isRead, isDelivered);
             cv.setDeletedStyle(false); // clears any italic/dim state a recycled view carried from a deleted message
@@ -2235,6 +2243,31 @@ public class MessagePagingAdapter
                                     "https://maps.google.com/?q=%.6f,%.6f", lat, lng)));
                     ctx.startActivity(fallback);
                 }
+            }
+
+            @Override
+            public void onEditedTagClick() {
+                // Mirrors the legacy tv_time click listener — tapping the
+                // "✏️ edited" tag opens the edit-history sheet.
+                if (actionListener != null) actionListener.onShowEditHistory(m);
+            }
+
+            @Override
+            public void onPollOptionClick(int optionIndex) {
+                // FIX: this used to be wired via a SECOND, poll-only
+                // setOnBubbleClickListener() call made earlier in the
+                // isPoll branch above — but this single unconditional
+                // setOnBubbleClickListener() call (which runs for every
+                // message type, poll included) always ran after it and
+                // silently replaced it, so poll votes never fired. Voting
+                // now lives here, in the one listener that actually stays
+                // attached.
+                if (!isPoll) return;
+                if (Boolean.TRUE.equals(m.pollClosed)) {
+                    android.widget.Toast.makeText(ctx, "This poll is closed", android.widget.Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                if (actionListener != null) actionListener.onPollVote(m, optionIndex);
             }
         });
     }
