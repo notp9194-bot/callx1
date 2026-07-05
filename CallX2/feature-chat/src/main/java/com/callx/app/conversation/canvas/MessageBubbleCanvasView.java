@@ -898,6 +898,9 @@ public class MessageBubbleCanvasView extends View {
 
     private OnBubbleClickListener clickListener;
     private final GestureDetector gestureDetector;
+    /** True when an ACTION_UP was already claimed by a sub-region hit-test; prevents
+     *  onSingleTapConfirmed from also firing onBubbleClick() for that same tap. */
+    private boolean gestureConsumedBySubRegion;
 
 
     public MessageBubbleCanvasView(Context ctx) {
@@ -1073,6 +1076,7 @@ public class MessageBubbleCanvasView extends View {
 
         gestureDetector = new GestureDetector(ctx, new GestureDetector.SimpleOnGestureListener() {
             @Override public boolean onSingleTapConfirmed(MotionEvent e) {
+                if (gestureConsumedBySubRegion) { gestureConsumedBySubRegion = false; return true; }
                 if (clickListener != null) clickListener.onBubbleClick();
                 return true;
             }
@@ -4080,52 +4084,69 @@ public class MessageBubbleCanvasView extends View {
 
     @Override
     public boolean onTouchEvent(MotionEvent event) {
-        // NOTE (known simplification): reply-box/image hit-tests intercept
-        // ACTION_UP directly without feeding it back through gestureDetector,
-        // so GestureDetector's internal down/up bookkeeping is slightly out
-        // of sync after such a tap. Harmless in practice (each tap is a
-        // fresh down/up pair) but worth revisiting if double-tap-to-zoom or
-        // similar multi-event gestures are added to this view later.
-        if (hasReply && event.getActionMasked() == MotionEvent.ACTION_UP
-                && replyBoxRect.contains(event.getX(), event.getY())) {
+        int action = event.getActionMasked();
+        float ex = event.getX(), ey = event.getY();
+
+        // ── Long-press safety fix ─────────────────────────────────────────────
+        // GestureDetector starts its long-press countdown on every ACTION_DOWN.
+        // Sub-region handlers below may return early on ACTION_UP without ever
+        // passing the UP to the detector, so the countdown was never cancelled —
+        // the detector would fire onLongPress ~500 ms after the tap and activate
+        // multi-select on a plain click.  Fix: always feed the UP to the detector
+        // first so it cancels the timer.  The gestureConsumedBySubRegion flag
+        // tells onSingleTapConfirmed to suppress onBubbleClick() for that same
+        // tap (the sub-region callback already handled the user intent).
+        if (action == MotionEvent.ACTION_DOWN) {
+            gestureConsumedBySubRegion = false;
+        } else if (action == MotionEvent.ACTION_UP) {
+            gestureDetector.onTouchEvent(event); // cancels long-press; may queue onSingleTapConfirmed
+        }
+
+        if (hasReply && action == MotionEvent.ACTION_UP
+                && replyBoxRect.contains(ex, ey)) {
+            gestureConsumedBySubRegion = true;
             if (clickListener != null) clickListener.onReplyPreviewClick();
             return true;
         }
-        if (hasLinkPreview && event.getActionMasked() == MotionEvent.ACTION_UP
-                && linkCardRect.contains(event.getX(), event.getY())) {
+        if (hasLinkPreview && action == MotionEvent.ACTION_UP
+                && linkCardRect.contains(ex, ey)) {
             // Whole card opens the link — mirrors the legacy
             // ll_link_preview.setOnClickListener (ACTION_VIEW browser intent).
+            gestureConsumedBySubRegion = true;
             if (clickListener != null) clickListener.onLinkClick(linkPreviewUrl);
             return true;
         }
-        if (hasReactions && event.getActionMasked() == MotionEvent.ACTION_UP
-                && reactionsRect.contains(event.getX(), event.getY())) {
+        if (hasReactions && action == MotionEvent.ACTION_UP
+                && reactionsRect.contains(ex, ey)) {
+            gestureConsumedBySubRegion = true;
             if (clickListener != null) clickListener.onReactionsClick();
             return true;
         }
         if (isAudio) {
-            int action = event.getActionMasked();
-            if (action == MotionEvent.ACTION_UP && audioBtnRect.contains(event.getX(), event.getY())) {
+            if (action == MotionEvent.ACTION_UP && audioBtnRect.contains(ex, ey)) {
+                gestureConsumedBySubRegion = true;
                 if (clickListener != null) clickListener.onAudioPlayPauseClick();
                 return true;
             }
             // Scrub the waveform like AudioWaveformView.onTouchEvent — live
             // drag, not just a tap-to-seek, so DOWN and MOVE both count.
             if ((action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_MOVE)
-                    && audioWaveformRect.contains(event.getX(), event.getY())) {
+                    && audioWaveformRect.contains(ex, ey)) {
                 float fraction = Math.max(0f, Math.min(1f,
-                        (event.getX() - audioWaveformRect.left) / audioWaveformRect.width()));
+                        (ex - audioWaveformRect.left) / audioWaveformRect.width()));
                 setAudioProgress(fraction);
                 if (clickListener != null) clickListener.onAudioSeek(fraction);
                 return true;
             }
-            if (action == MotionEvent.ACTION_UP && audioWaveformRect.contains(event.getX(), event.getY())) {
+            if (action == MotionEvent.ACTION_UP && audioWaveformRect.contains(ex, ey)) {
+                gestureConsumedBySubRegion = true;
                 return true; // already handled by the DOWN/MOVE branch above
             }
         }
         // ── File bubble action-button tap ────────────────────────────────────
-        if (isFileBubble && event.getActionMasked() == MotionEvent.ACTION_UP
-                && fileActionRect.contains(event.getX(), event.getY())) {
+        if (isFileBubble && action == MotionEvent.ACTION_UP
+                && fileActionRect.contains(ex, ey)) {
+            gestureConsumedBySubRegion = true;
             if (clickListener != null) {
                 if (fileIsCached) {
                     clickListener.onFileOpenClick();
@@ -4136,13 +4157,15 @@ public class MessageBubbleCanvasView extends View {
             return true;
         }
         // ── GIF tap — whole image opens the GIF viewer ───────────────────────
-        if (isGifBubble && !mediaGated && event.getActionMasked() == MotionEvent.ACTION_UP
-                && mediaRect.contains(event.getX(), event.getY())) {
+        if (isGifBubble && !mediaGated && action == MotionEvent.ACTION_UP
+                && mediaRect.contains(ex, ey)) {
+            gestureConsumedBySubRegion = true;
             if (clickListener != null) clickListener.onGifClick();
             return true;
         }
-        if (isMedia && event.getActionMasked() == MotionEvent.ACTION_UP
-                && mediaRect.contains(event.getX(), event.getY())) {
+        if (isMedia && action == MotionEvent.ACTION_UP
+                && mediaRect.contains(ex, ey)) {
+            gestureConsumedBySubRegion = true;
             if (mediaGated) {
                 // Idle pill → start the download; already-in-flight → swallow
                 // the tap (same "ignore while downloading" precedent the
@@ -4153,45 +4176,46 @@ public class MessageBubbleCanvasView extends View {
             }
             return true;
         }
-        if (isReelShare && event.getActionMasked() == MotionEvent.ACTION_UP
-                && reelCardRect.contains(event.getX(), event.getY())) {
+        if (isReelShare && action == MotionEvent.ACTION_UP
+                && reelCardRect.contains(ex, ey)) {
             // Whole card opens the reel — mirrors the legacy
             // ll_reel_share.setOnClickListener; there's no separate
             // download-gate mode for reel cards, so this always fires.
+            gestureConsumedBySubRegion = true;
             if (clickListener != null) clickListener.onImageClick();
             return true;
         }
-        if (isContact && event.getActionMasked() == MotionEvent.ACTION_UP
-                && contactButtonRect.contains(event.getX(), event.getY())) {
+        if (isContact && action == MotionEvent.ACTION_UP
+                && contactButtonRect.contains(ex, ey)) {
             // Only the "View Contact" row is clickable — mirrors the
             // legacy btnViewContact.setOnClickListener; the rest of the
             // card (ll_contact_card itself) has no click listener in the
             // legacy path either, just long-press for the action sheet
-            // (handled below by gestureDetector, same as every other mode).
+            // (handled by gestureDetector via the fallthrough below).
+            gestureConsumedBySubRegion = true;
             if (clickListener != null) clickListener.onContactViewClick();
             return true;
         }
-        if (isPoll && event.getActionMasked() == MotionEvent.ACTION_UP) {
-            float ex = event.getX(), ey = event.getY();
+        if (isPoll && action == MotionEvent.ACTION_UP) {
             for (int i = 0; i < pollOptionRects.size(); i++) {
                 if (pollOptionRects.get(i).contains(ex, ey)) {
+                    gestureConsumedBySubRegion = true;
                     if (clickListener != null) clickListener.onPollOptionClick(i);
                     return true;
                 }
             }
         }
-        if (isLocation && event.getActionMasked() == MotionEvent.ACTION_UP
-                && locationButtonRect.contains(event.getX(), event.getY())) {
+        if (isLocation && action == MotionEvent.ACTION_UP
+                && locationButtonRect.contains(ex, ey)) {
             // Only the "Open in Maps" row is clickable — mirrors the
             // legacy btnOpenMaps.setOnClickListener; the rest of the card
-            // has no click listener in the legacy path either, just
-            // long-press for the action sheet (handled below by
-            // gestureDetector, same as every other mode).
+            // has no click listener (just long-press via gestureDetector below).
+            gestureConsumedBySubRegion = true;
             if (clickListener != null) clickListener.onLocationOpenMapsClick();
             return true;
         }
-        if (isMediaGroup && event.getActionMasked() == MotionEvent.ACTION_UP) {
-            float x = event.getX(), y = event.getY();
+        if (isMediaGroup && action == MotionEvent.ACTION_UP) {
+            float x = ex, y = ey;
             if (groupGateActive) {
                 // Master pill swallows every tap in the grid area, exactly
                 // like the old View-based overlay sitting on top of the
@@ -4202,6 +4226,7 @@ public class MessageBubbleCanvasView extends View {
                 if (groupContentRect.contains(x, y)) {
                     groupGateActive = false;
                     invalidate();
+                    gestureConsumedBySubRegion = true;
                     if (clickListener != null) clickListener.onGroupDownloadAllClick();
                     return true;
                 }
@@ -4210,6 +4235,7 @@ public class MessageBubbleCanvasView extends View {
                     if (groupRects[i].contains(x, y)) {
                         boolean pending = i < groupCellPending.length && groupCellPending[i];
                         boolean downloading = i < groupCellDownloading.length && groupCellDownloading[i];
+                        gestureConsumedBySubRegion = true;
                         if (pending && !downloading) {
                             if (clickListener != null) clickListener.onGroupCellDownloadClick(i);
                         } else if (!pending) {
@@ -4222,6 +4248,9 @@ public class MessageBubbleCanvasView extends View {
                 }
             }
         }
+        // UP was already forwarded to gestureDetector at the top of this method;
+        // passing it again would double-process it.  All other events go normally.
+        if (action == MotionEvent.ACTION_UP) return super.onTouchEvent(event);
         return gestureDetector.onTouchEvent(event) || super.onTouchEvent(event);
     }
 
