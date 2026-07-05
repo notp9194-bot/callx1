@@ -1737,6 +1737,18 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         pool.setMaxRecycledViews(3 /* TYPE_STATUS_SEEN */,  6);
         pool.setMaxRecycledViews(4 /* TYPE_REEL_SEEN */,    6);
         pool.setMaxRecycledViews(5 /* TYPE_CALL_ENTRY */,   6);
+        // PERF FIX: TYPE_CANVAS_SENT/RECEIVED (11/12) were missing here entirely,
+        // silently falling back to RecyclerView's default pool size of 5. Since
+        // isCanvasEligible() now covers text/image/video/gif/file/audio/poll/
+        // contact/location/multi_media/reel_share — i.e. almost every bubble in
+        // the chat — these two types are actually the hottest ones in the pool,
+        // not the coldest. A fast Telegram-speed fling was blowing past 5
+        // recycled canvas views almost immediately, forcing a fresh
+        // MessageBubbleCanvasView allocation (+ full Paint/StaticLayout setup)
+        // instead of reuse. Sized same as TYPE_SENT/RECEIVED since canvas has
+        // fully replaced them as the primary bubble path.
+        pool.setMaxRecycledViews(11 /* TYPE_CANVAS_SENT */,     18);
+        pool.setMaxRecycledViews(12 /* TYPE_CANVAS_RECEIVED */, 18);
         binding.rvMessages.setRecycledViewPool(pool);
         // PERF: scroll-ahead image preloading — fast fling ke dauran agli
         // ~8 items ki thumbnail Glide cache mein pehle se fetch ho jaati

@@ -755,6 +755,13 @@ public class GroupChatActivity extends AppCompatActivity
         groupPool.setMaxRecycledViews(3,  3);
         groupPool.setMaxRecycledViews(4,  3);
         groupPool.setMaxRecycledViews(5,  3);
+        // PERF FIX: TYPE_CANVAS_SENT/RECEIVED (11/12) were missing here too —
+        // same gap as 1:1 ChatActivity. isCanvasEligible() covers almost every
+        // bubble type now, so these two were silently falling back to the
+        // RecyclerView default pool size of 5 despite being the hottest types
+        // in a group chat's fast-scroll path. Sized same as sent/received.
+        groupPool.setMaxRecycledViews(11 /* TYPE_CANVAS_SENT */,     10);
+        groupPool.setMaxRecycledViews(12 /* TYPE_CANVAS_RECEIVED */, 10);
         binding.rvMessages.setRecycledViewPool(groupPool);
         // PERF: scroll-ahead image preloading — same helper/size as 1:1
         // ChatActivity, keeps cache-key size consistent with bind().
