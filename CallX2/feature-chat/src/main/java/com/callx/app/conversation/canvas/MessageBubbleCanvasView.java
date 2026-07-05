@@ -722,6 +722,12 @@ public class MessageBubbleCanvasView extends View {
     final RectF audioBtnRect = new RectF();
     final RectF audioWaveformRect = new RectF();
     final android.graphics.Path audioPlayTrianglePath = new android.graphics.Path();
+    // Reused int Rect for invalidateAudioRow()/invalidateExpiryRegion() below
+    // — dirty-region invalidate() needs an android.graphics.Rect (int), not
+    // the RectF (float) types the rest of this view uses, and a fresh one
+    // per tick would be its own per-frame allocation.
+    private final Rect audioDirtyRect = new Rect();
+    private final Rect expiryDirtyRect = new Rect();
 
     // ── Single-media manual download gate state — see setMediaDownloadGate(). ──
     boolean mediaGated = false;
@@ -1493,7 +1499,7 @@ public class MessageBubbleCanvasView extends View {
     public void setAudioPlaying(boolean playing) {
         if (this.audioPlaying == playing) return;
         this.audioPlaying = playing;
-        invalidate();
+        invalidateAudioRow();
     }
 
     /** Cheap path — called every playback tick (e.g. every 250ms). No layout/measure work, draw-only, same precedent as AudioWaveformView.setProgress(). */
@@ -1501,13 +1507,13 @@ public class MessageBubbleCanvasView extends View {
         float clamped = Math.max(0f, Math.min(1f, fraction));
         if (clamped == audioProgress) return;
         audioProgress = clamped;
-        invalidate();
+        invalidateAudioRow();
     }
 
     /** Elapsed "m:ss" label shown next to the waveform while playing; pass "" to clear it back to idle (mirrors legacy tv_audio_dur, which never shows a total duration upfront — only the live elapsed time once playback starts). */
     public void setAudioElapsedText(@Nullable String text) {
         this.audioElapsedText = text != null ? text : "";
-        invalidate();
+        invalidateAudioRow();
     }
 
     /** Resets the bubble to its idle state (button back to ▶, progress to 0, elapsed label cleared) — call when playback stops/completes/errors, or right before rebinding a recycled holder to a different message. */
@@ -1515,7 +1521,36 @@ public class MessageBubbleCanvasView extends View {
         this.audioPlaying = false;
         this.audioProgress = 0f;
         this.audioElapsedText = "";
-        invalidate();
+        invalidateAudioRow();
+    }
+
+    /**
+     * Dirty-region invalidate for audio playback ticks (progress/elapsed
+     * text/play-pause icon) — these fire every ~250ms while a voice message
+     * plays, but only the button+waveform+elapsed-label row actually
+     * changes; the reply preview, footer/tick row, and any other bubbles in
+     * the RecyclerView don't. A plain invalidate() re-draws the whole view
+     * every tick; invalidate(Rect) lets the framework skip everything
+     * outside that band. audioBtnRect/audioWaveformRect are only valid once
+     * a layout pass has run (set in onMeasure), so this falls back to a
+     * full invalidate() the first time (e.g. right after bindAudio(), before
+     * that first layout has happened).
+     */
+    private void invalidateAudioRow() {
+        if (audioBtnRect.isEmpty() && audioWaveformRect.isEmpty()) {
+            invalidate();
+            return;
+        }
+        float pad = 4f * density; // covers button/waveform stroke + AA bleed at the rect edges
+        float left = Math.min(audioBtnRect.left, audioWaveformRect.left) - pad;
+        float top = Math.min(audioBtnRect.top, audioWaveformRect.top) - pad;
+        // Right edge extends to the bubble's own right padding, not just
+        // audioWaveformRect.right, since the elapsed-time label draws past
+        // it, right up against the bubble's right inset.
+        float right = bubbleRect.right + pad;
+        float bottom = Math.max(audioBtnRect.bottom, audioWaveformRect.bottom) + pad;
+        audioDirtyRect.set((int) left, (int) top, (int) Math.ceil(right), (int) Math.ceil(bottom));
+        invalidate(audioDirtyRect);
     }
 
     /** Same bar-height generation AudioWaveformView.generateLevels() uses — a stable seed always produces the same "waveform" shape. */
@@ -2432,7 +2467,50 @@ public class MessageBubbleCanvasView extends View {
         this.hasExpiry = text != null && !text.isEmpty();
         this.expiryText = text != null ? text : "";
         requestLayout();
-        invalidate();
+        invalidateExpiryRegion();
+    }
+
+    /**
+     * Dirty-region invalidate for the once-a-second expiry countdown tick.
+     * The "⏳ mm:ss" pill lands in one of three spots depending on bubble
+     * type — the regular footer row (text/audio/file/poll/etc.), the
+     * captionless media/media-group/reel corner pill (mediaPillRect), or
+     * the floating corner badge on contact/location cards
+     * (drawCornerExpiryPill's anchor) — so rather than branch on every
+     * bubble-type flag here, this unions all three candidate bands. Only
+     * one is ever actually populated/relevant for the current bind; the
+     * others are empty/stale rects left over from a different bind and cost
+     * nothing to include. The result is still far smaller than the full
+     * view (which may also contain a large media bitmap, an album grid, or
+     * a multi-line caption that isn't changing on this tick).
+     *
+     * Note: setExpiryText() also calls requestLayout() right before this,
+     * because the countdown text's width feeds into the footer's reserved
+     * width — the rects read below are last frame's (pre-layout) positions,
+     * so the padding here is intentionally generous to absorb the few
+     * pixels a digit-count change (e.g. "1:00" → "0:59") can shift things by.
+     */
+    private void invalidateExpiryRegion() {
+        float pad = 16f * density;
+        float footerBandH = spToPx(FOOTER_TEXT_SP) + FOOTER_GAP_DP * density;
+        float left = bubbleRect.left;
+        float top = bubbleRect.bottom - footerBandH - pad;
+        float right = bubbleRect.right + pad;
+        float bottom = bubbleRect.bottom + pad;
+        if (!mediaPillRect.isEmpty()) {
+            left = Math.min(left, mediaPillRect.left - pad);
+            top = Math.min(top, mediaPillRect.top - pad);
+            right = Math.max(right, mediaPillRect.right + pad);
+            bottom = Math.max(bottom, mediaPillRect.bottom + pad);
+        }
+        if (isContact) {
+            top = Math.min(top, contactCardRect.top - pad);
+        }
+        if (isLocation) {
+            top = Math.min(top, locationMapRect.top - pad);
+        }
+        expiryDirtyRect.set((int) left, (int) top, (int) Math.ceil(right), (int) Math.ceil(bottom));
+        invalidate(expiryDirtyRect);
     }
 
     /** Call once the countdown finishes, or for a message with no expiry at all. */
