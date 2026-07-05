@@ -1728,52 +1728,13 @@ public class MessagePagingAdapter
                 });
             }
 
-            cv.setOnBubbleClickListener(new com.callx.app.conversation.canvas.MessageBubbleCanvasView.OnBubbleClickListener() {
-                @Override public void onBubbleClick()     {}
-                @Override public void onBubbleLongClick() { if (actionListener != null) showActionBottomSheet(ctx, m); }
-                @Override public void onGifClick() {
-                    // Open GIF in the full-screen media viewer — same intent as the legacy path.
-                    android.content.Intent i = new android.content.Intent().setClassName(
-                            ctx.getPackageName(), "com.callx.app.activities.MediaViewerActivity");
-                    i.putExtra("url", gifUrl);
-                    i.putExtra("type", "gif");
-                    if (chatId != null) i.putExtra("chatId", chatId);
-                    String mid = m.messageId != null ? m.messageId : m.id;
-                    if (mid != null) i.putExtra("messageId", mid);
-                    i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
-                    try { ctx.startActivity(i); } catch (Exception ignored) {}
-                }
-                @Override public void onMediaDownloadClick() {
-                    if (gifUrl.isEmpty() || !downloadingMediaUrls.add(gifUrl)) return;
-                    cv.setMediaDownloadGate(true, 0, null);
-                    com.callx.app.utils.MediaCache.getWithProgress(ctx, gifUrl,
-                            new com.callx.app.utils.MediaCache.ProgressCallback() {
-                        @Override public void onProgress(int percent) {
-                            if (h.canvasBindToken != myToken) return;
-                            cv.setMediaDownloadProgress(percent);
-                        }
-                        @Override public void onReady(java.io.File file) {
-                            downloadingMediaUrls.remove(gifUrl);
-                            if (h.canvasBindToken != myToken) return;
-                            cv.clearMediaDownloadGate();
-                            glide(ctx).asBitmap().load(file).apply(THUMB_RGB565)
-                                    .into(new com.bumptech.glide.request.target.CustomTarget<android.graphics.Bitmap>() {
-                                        @Override public void onResourceReady(@NonNull android.graphics.Bitmap bmp,
-                                                @Nullable com.bumptech.glide.request.transition.Transition<? super android.graphics.Bitmap> t) {
-                                            if (h.canvasBindToken != myToken) return;
-                                            cv.setGifBitmap(bmp);
-                                        }
-                                        @Override public void onLoadCleared(@Nullable android.graphics.drawable.Drawable p) {}
-                                    });
-                        }
-                        @Override public void onError(String reason) {
-                            downloadingMediaUrls.remove(gifUrl);
-                            if (h.canvasBindToken != myToken) return;
-                            cv.setMediaDownloadGate(false, Integer.MIN_VALUE, "Tap to retry");
-                        }
-                    });
-                }
-            });
+            // NOTE: GIF taps (onGifClick) and the download-gate pill
+            // (onMediaDownloadClick) used to be wired via a separate
+            // setOnBubbleClickListener() call right here — it was always
+            // clobbered by the single unconditional setOnBubbleClickListener()
+            // call at the end of this method, so tapping a GIF bubble did
+            // nothing. That logic now lives in that surviving listener's
+            // onGifClick()/onMediaDownloadClick() overrides (isGif-gated).
 
         } else if (isFile) {
             // ── v59: File Canvas bubble ───────────────────────────────────────
@@ -1790,43 +1751,13 @@ public class MessagePagingAdapter
             boolean fileCached = !fileUrl.isEmpty() && MediaCache.getCached(ctx, fileUrl) != null;
             cv.bindFile(fileName, mime, sizeStr, fileCached, sent, isRead, isDelivered);
             cv.setDeletedStyle(false);
-
-            cv.setOnBubbleClickListener(new com.callx.app.conversation.canvas.MessageBubbleCanvasView.OnBubbleClickListener() {
-                @Override public void onBubbleClick()     {}
-                @Override public void onBubbleLongClick() { if (actionListener != null) showActionBottomSheet(ctx, m); }
-                @Override public void onFileDownloadClick() {
-                    if (fileUrl.isEmpty() || !downloadingMediaUrls.add(fileUrl)) return;
-                    cv.setFileDownloadState(true, -1);
-                    com.callx.app.utils.MediaCache.getWithProgress(ctx, fileUrl,
-                            new com.callx.app.utils.MediaCache.ProgressCallback() {
-                        @Override public void onProgress(int percent) {
-                            if (h.canvasBindToken == myToken) cv.setFileDownloadState(true, percent);
-                        }
-                        @Override public void onReady(java.io.File file) {
-                            downloadingMediaUrls.remove(fileUrl);
-                            if (h.canvasBindToken == myToken) cv.setFileCached(true);
-                        }
-                        @Override public void onError(String reason) {
-                            downloadingMediaUrls.remove(fileUrl);
-                            if (h.canvasBindToken == myToken) cv.setFileDownloadState(false, 0);
-                        }
-                    });
-                }
-                @Override public void onFileOpenClick() {
-                    // Open the cached file via FileProvider — same as legacy ivFileAction click.
-                    java.io.File cached = MediaCache.getCached(ctx, fileUrl);
-                    if (cached == null) return;
-                    try {
-                        android.net.Uri uri = androidx.core.content.FileProvider.getUriForFile(
-                                ctx, ctx.getPackageName() + ".provider", cached);
-                        android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_VIEW);
-                        intent.setDataAndType(uri, mime.isEmpty() ? "*/*" : mime);
-                        intent.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
-                                | android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
-                        ctx.startActivity(intent);
-                    } catch (Exception ignored) { /* no app handles this type */ }
-                }
-            });
+            // NOTE: the download button (onFileDownloadClick) and open
+            // button (onFileOpenClick) used to be wired via a separate
+            // setOnBubbleClickListener() call right here — it was always
+            // clobbered by the single unconditional setOnBubbleClickListener()
+            // call at the end of this method, so both buttons silently did
+            // nothing. That logic now lives in that surviving listener's
+            // onFileDownloadClick()/onFileOpenClick() overrides (isFile-gated).
 
         } else if (isPoll) {
             // Mirrors the legacy ensurePollInflated / bindPoll(VH, ...) path —
@@ -2099,6 +2030,42 @@ public class MessagePagingAdapter
 
             @Override
             public void onMediaDownloadClick() {
+                if (isGif) {
+                    // FIX: previously wired via a separate setOnBubbleClickListener()
+                    // set inside the isGif branch — always clobbered by this
+                    // single unconditional call, so the GIF download-gate
+                    // pill silently did nothing.
+                    final String gifUrl = m.mediaUrl != null ? m.mediaUrl : "";
+                    if (gifUrl.isEmpty() || !downloadingMediaUrls.add(gifUrl)) return;
+                    cv.setMediaDownloadGate(true, 0, null);
+                    com.callx.app.utils.MediaCache.getWithProgress(ctx, gifUrl,
+                            new com.callx.app.utils.MediaCache.ProgressCallback() {
+                        @Override public void onProgress(int percent) {
+                            if (h.canvasBindToken != myToken) return;
+                            cv.setMediaDownloadProgress(percent);
+                        }
+                        @Override public void onReady(java.io.File file) {
+                            downloadingMediaUrls.remove(gifUrl);
+                            if (h.canvasBindToken != myToken) return;
+                            cv.clearMediaDownloadGate();
+                            glide(ctx).asBitmap().load(file).apply(THUMB_RGB565)
+                                    .into(new com.bumptech.glide.request.target.CustomTarget<android.graphics.Bitmap>() {
+                                        @Override public void onResourceReady(@NonNull android.graphics.Bitmap bmp,
+                                                @Nullable com.bumptech.glide.request.transition.Transition<? super android.graphics.Bitmap> t) {
+                                            if (h.canvasBindToken != myToken) return;
+                                            cv.setGifBitmap(bmp);
+                                        }
+                                        @Override public void onLoadCleared(@Nullable android.graphics.drawable.Drawable p) {}
+                                    });
+                        }
+                        @Override public void onError(String reason) {
+                            downloadingMediaUrls.remove(gifUrl);
+                            if (h.canvasBindToken != myToken) return;
+                            cv.setMediaDownloadGate(false, Integer.MIN_VALUE, "Tap to retry");
+                        }
+                    });
+                    return;
+                }
                 if (!isImage) return;
                 final String fullUrl = m.mediaUrl != null ? m.mediaUrl : m.text;
                 if (fullUrl == null || fullUrl.isEmpty() || downloadingMediaUrls.contains(fullUrl)) return;
@@ -2243,6 +2210,68 @@ public class MessagePagingAdapter
                                     "https://maps.google.com/?q=%.6f,%.6f", lat, lng)));
                     ctx.startActivity(fallback);
                 }
+            }
+
+            @Override
+            public void onGifClick() {
+                // FIX: see the NOTE left in the isGif branch above — this
+                // used to be wired via a listener that always got clobbered.
+                if (!isGif) return;
+                final String gifUrl = m.mediaUrl != null ? m.mediaUrl : "";
+                android.content.Intent i = new android.content.Intent().setClassName(
+                        ctx.getPackageName(), "com.callx.app.activities.MediaViewerActivity");
+                i.putExtra("url", gifUrl);
+                i.putExtra("type", "gif");
+                if (chatId != null) i.putExtra("chatId", chatId);
+                String mid = m.messageId != null ? m.messageId : m.id;
+                if (mid != null) i.putExtra("messageId", mid);
+                i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                try { ctx.startActivity(i); } catch (Exception ignored) {}
+            }
+
+            @Override
+            public void onFileDownloadClick() {
+                // FIX: see the NOTE left in the isFile branch above — this
+                // used to be wired via a listener that always got clobbered.
+                if (!isFile) return;
+                final String fileUrl = m.mediaUrl != null ? m.mediaUrl : "";
+                if (fileUrl.isEmpty() || !downloadingMediaUrls.add(fileUrl)) return;
+                cv.setFileDownloadState(true, -1);
+                com.callx.app.utils.MediaCache.getWithProgress(ctx, fileUrl,
+                        new com.callx.app.utils.MediaCache.ProgressCallback() {
+                    @Override public void onProgress(int percent) {
+                        if (h.canvasBindToken == myToken) cv.setFileDownloadState(true, percent);
+                    }
+                    @Override public void onReady(java.io.File file) {
+                        downloadingMediaUrls.remove(fileUrl);
+                        if (h.canvasBindToken == myToken) cv.setFileCached(true);
+                    }
+                    @Override public void onError(String reason) {
+                        downloadingMediaUrls.remove(fileUrl);
+                        if (h.canvasBindToken == myToken) cv.setFileDownloadState(false, 0);
+                    }
+                });
+            }
+
+            @Override
+            public void onFileOpenClick() {
+                // FIX: see the NOTE left in the isFile branch above — this
+                // used to be wired via a listener that always got clobbered.
+                if (!isFile) return;
+                final String fileUrl = m.mediaUrl != null ? m.mediaUrl : "";
+                java.io.File cached = MediaCache.getCached(ctx, fileUrl);
+                if (cached == null) return;
+                try {
+                    final String fileNameForOpen = m.fileName != null ? m.fileName : "File";
+                    final String mimeForOpen = guessMimeFromFileName(fileNameForOpen);
+                    android.net.Uri uri = androidx.core.content.FileProvider.getUriForFile(
+                            ctx, ctx.getPackageName() + ".provider", cached);
+                    android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_VIEW);
+                    intent.setDataAndType(uri, mimeForOpen.isEmpty() ? "*/*" : mimeForOpen);
+                    intent.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                            | android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                    ctx.startActivity(intent);
+                } catch (Exception ignored) { /* no app handles this type */ }
             }
 
             @Override
