@@ -658,6 +658,31 @@ public class MessageBubbleCanvasView extends View {
     GradientDrawable bubbleDrawable;
     int lastCacheKey = -1;
 
+    // ── requestLayout() skip-if-unchanged guard ──────────────────────
+    // Every bindXxx() used to call requestLayout() unconditionally, even
+    // on a rebind that only changes draw-only state (read/delivered tick,
+    // color refresh, etc.) with the exact same size-affecting content —
+    // e.g. a delivered→read status update re-invokes bind()/bindMedia()
+    // with identical text/caption. That's a real, frequent case (fires
+    // once per status change per visible bubble) and each unnecessary
+    // requestLayout() forces a fresh measure/layout pass on this view AND
+    // ripples up into the parent RecyclerView. Each bindXxx() below now
+    // builds a small signature string of just the fields that actually
+    // drive its measured size (mode + text/caption/counts + sent/hasReply
+    // — deliberately NOT read/delivered/colors/bitmaps, which are
+    // draw-only) and only calls requestLayout() when that signature
+    // actually changed from the previous bind on this (possibly recycled)
+    // view instance.
+    private String lastSizeSignature;
+
+    /** Call once all size-relevant fields for this bind are set. Skips requestLayout() if nothing that affects measured size actually changed since the last bind on this view. */
+    private void requestLayoutIfSizeChanged(String signature) {
+        if (lastSizeSignature == null || !lastSizeSignature.equals(signature)) {
+            lastSizeSignature = signature;
+            requestLayout();
+        }
+    }
+
     float density;
     int bubbleLeft, bubbleTop;
     float footerReserveWidth;
@@ -1389,7 +1414,7 @@ public class MessageBubbleCanvasView extends View {
         resolveReplyColors(ctx);
 
         textLayout = null; // recomputed in onMeasure
-        requestLayout();
+        requestLayoutIfSizeChanged("text|" + sent + "|" + hasReply + "|" + messageText);
         invalidate();
     }
 
@@ -1446,7 +1471,8 @@ public class MessageBubbleCanvasView extends View {
         resolveReplyColors(ctx);
 
         textLayout = null; // recomputed in onMeasure (only used if mediaHasCaption)
-        requestLayout();
+        requestLayoutIfSizeChanged("media|" + sent + "|" + hasReply + "|" + mediaHasCaption + "|" + messageText
+                + "|" + isGifBubble);
         invalidate();
     }
 
@@ -1537,7 +1563,7 @@ public class MessageBubbleCanvasView extends View {
         resolveReplyColors(ctx);
 
         textLayout = null;
-        requestLayout();
+        requestLayoutIfSizeChanged("audio|" + sent + "|" + hasReply);
         invalidate();
     }
 
@@ -1702,7 +1728,8 @@ public class MessageBubbleCanvasView extends View {
 
         groupCaptionLayout = null; // recomputed in onMeasure
         textLayout = null;
-        requestLayout();
+        requestLayoutIfSizeChanged("mediaGroup|" + sent + "|" + hasReply + "|" + groupVisibleCount
+                + "|" + groupRemaining + "|" + groupHasCaption + "|" + messageText);
         invalidate();
     }
 
@@ -1753,7 +1780,8 @@ public class MessageBubbleCanvasView extends View {
         tickPaint.setColor(ChatThemeManager.get(ctx).getTickColor(read));
 
         reelCaptionLayout = null; // recomputed in onMeasure
-        requestLayout();
+        requestLayoutIfSizeChanged("reelShare|" + sent + "|" + hasReply + "|" + reelHasCaption
+                + "|" + reelCaptionText + "|" + reelUsername);
         invalidate();
     }
 
@@ -1829,7 +1857,7 @@ public class MessageBubbleCanvasView extends View {
         this.contactPhone = phone != null ? phone : "";
         this.sent = isSent;
 
-        requestLayout();
+        requestLayoutIfSizeChanged("contact|" + sent + "|" + hasReply + "|" + contactName + "|" + contactPhone);
         invalidate();
     }
 
@@ -1900,7 +1928,8 @@ public class MessageBubbleCanvasView extends View {
         this.footerTimeText = timeText != null ? timeText : "";
         this.sent = isSent;
 
-        requestLayout();
+        requestLayoutIfSizeChanged("viewOnce|" + sent + "|" + variant + "|" + viewOnceSublabel
+                + "|" + viewOnceExpiredLabel + "|" + viewOnceOpenedAtText + "|" + viewOnceShowOpenedAt);
         invalidate();
     }
 
@@ -1942,7 +1971,7 @@ public class MessageBubbleCanvasView extends View {
         this.footerTimeText = timeText != null ? timeText : "";
         this.sent = false;
 
-        requestLayout();
+        requestLayoutIfSizeChanged("seenBubble|" + isReel + "|" + hasThumb + "|" + seenHasName + "|" + seenName);
         invalidate();
     }
 
@@ -1996,7 +2025,8 @@ public class MessageBubbleCanvasView extends View {
         this.callEntryTime = timeText != null ? timeText : "";
         this.sent = iAmCaller;
 
-        requestLayout();
+        requestLayoutIfSizeChanged("callEntry|" + sent + "|" + callEntryIcon + "|" + callEntryLabel
+                + "|" + callEntryTime);
         invalidate();
     }
 
@@ -2019,7 +2049,7 @@ public class MessageBubbleCanvasView extends View {
         this.sent = isSent;
 
         locationAddressLayout = null; // recomputed in onMeasure
-        requestLayout();
+        requestLayoutIfSizeChanged("location|" + sent + "|" + hasReply + "|" + locationAddress);
         invalidate();
     }
 
@@ -2102,7 +2132,7 @@ public class MessageBubbleCanvasView extends View {
         this.read        = isRead;
         this.delivered   = isDelivered;
         this.footerTimeText = "";  // set separately via bind() footer — caller must call setFooterTime() after bindFile() if needed; or we use the existing footerTimeText field
-        requestLayout();
+        requestLayoutIfSizeChanged("file|" + sent + "|" + hasReply + "|" + fileNameText + "|" + fileSizeMimeText);
         invalidate();
     }
 
@@ -2248,7 +2278,13 @@ public class MessageBubbleCanvasView extends View {
         resolveReplyColors(ctx);
 
         pollQuestionLayout = null; // recomputed in onMeasure
-        requestLayout();
+        // Note: counts/myVote deliberately excluded from the signature — a
+        // new vote coming in re-invokes bindPoll() constantly (every voter
+        // change) but only redraws the fill-bar widths/leader highlight,
+        // never the bubble's measured height, so it must not force a
+        // remeasure on every single vote.
+        requestLayoutIfSizeChanged("poll|" + sent + "|" + hasReply + "|" + pollQuestion + "|" + n
+                + "|" + java.util.Arrays.toString(this.pollOptions) + "|" + closed + "|" + multiChoice);
         invalidate();
     }
 
@@ -2341,9 +2377,13 @@ public class MessageBubbleCanvasView extends View {
      *                   iv_reply_thumb. Pass null for text-only replies.
      */
     public void setReply(String senderName, String text, @Nullable Bitmap thumb) {
+        String newSender = senderName != null ? senderName : "";
+        String newText = text != null ? text : "";
+        boolean sizeChanged = !this.hasReply || !newSender.equals(this.replySenderName)
+                || !newText.equals(this.replyText) || (thumb == null) != (this.replyThumb == null);
         this.hasReply = true;
-        this.replySenderName = senderName != null ? senderName : "";
-        this.replyText = text != null ? text : "";
+        this.replySenderName = newSender;
+        this.replyText = newText;
         this.replyThumb = thumb;
         resolveReplyColors(getContext());
         // Bubble corner treatment doesn't actually depend on hasReply in this
@@ -2355,14 +2395,17 @@ public class MessageBubbleCanvasView extends View {
             bubbleDrawable = buildBubbleDrawable(getContext(), sent);
             lastCacheKey = cacheKey;
         }
-        replySenderLayout = null; // recomputed in onMeasure
-        replyTextLayout = null;
-        requestLayout();
+        if (sizeChanged) {
+            replySenderLayout = null; // recomputed in onMeasure
+            replyTextLayout = null;
+            requestLayout();
+        }
         invalidate();
     }
 
     /** Call when a message has no reply — clears any previous reply-strip state so a recycled view doesn't show stale data. */
     public void clearReply() {
+        boolean sizeChanged = this.hasReply;
         this.hasReply = false;
         this.replySenderName = "";
         this.replyText = "";
@@ -2370,7 +2413,7 @@ public class MessageBubbleCanvasView extends View {
         this.replySenderLayout = null;
         this.replyTextLayout = null;
         this.replyBoxHeight = 0;
-        requestLayout();
+        if (sizeChanged) requestLayout();
         invalidate();
     }
 
@@ -2390,17 +2433,21 @@ public class MessageBubbleCanvasView extends View {
      *             is treated the same as clearReactions().
      */
     public void setReactions(@Nullable String text) {
-        this.hasReactions = text != null && !text.isEmpty();
-        this.reactionsText = text != null ? text : "";
-        requestLayout();
+        boolean newHas = text != null && !text.isEmpty();
+        String newText = text != null ? text : "";
+        boolean sizeChanged = newHas != this.hasReactions || !newText.equals(this.reactionsText);
+        this.hasReactions = newHas;
+        this.reactionsText = newText;
+        if (sizeChanged) requestLayout();
         invalidate();
     }
 
     /** Call when a message has no reactions — clears any previous badge state so a recycled view doesn't show a stale reaction. */
     public void clearReactions() {
+        boolean sizeChanged = this.hasReactions;
         this.hasReactions = false;
         this.reactionsText = "";
-        requestLayout();
+        if (sizeChanged) requestLayout();
         invalidate();
     }
 
@@ -2411,8 +2458,9 @@ public class MessageBubbleCanvasView extends View {
      * since a recycled view holds whatever the previous message left in it.
      */
     public void setPinned(boolean pinned) {
+        boolean sizeChanged = pinned != this.isPinned;
         this.isPinned = pinned;
-        requestLayout();
+        if (sizeChanged) requestLayout();
         invalidate();
     }
 
@@ -2427,21 +2475,25 @@ public class MessageBubbleCanvasView extends View {
      * @param name display name; null/empty is treated as clearGroupSender().
      */
     public void setGroupSender(@Nullable String name) {
-        this.hasGroupSender = name != null && !name.isEmpty();
-        this.groupSenderName = name != null ? name : "";
+        boolean newHas = name != null && !name.isEmpty();
+        String newName = name != null ? name : "";
+        boolean sizeChanged = newHas != this.hasGroupSender || !newName.equals(this.groupSenderName);
+        this.hasGroupSender = newHas;
+        this.groupSenderName = newName;
         if (hasGroupSender) {
             groupSenderPaint.setColor(androidx.core.content.ContextCompat.getColor(
                     getContext(), com.callx.app.core.R.color.brand_primary));
         }
-        requestLayout();
+        if (sizeChanged) requestLayout();
         invalidate();
     }
 
     /** Call for sent messages, or received messages outside a group chat — clears any stale sender-name state on a recycled view. */
     public void clearGroupSender() {
+        boolean sizeChanged = this.hasGroupSender;
         this.hasGroupSender = false;
         this.groupSenderName = "";
-        requestLayout();
+        if (sizeChanged) requestLayout();
         invalidate();
     }
 
@@ -2459,9 +2511,11 @@ public class MessageBubbleCanvasView extends View {
      */
     public void setForwardedFrom(@Nullable String originalSenderName) {
         boolean fwd = originalSenderName != null && !originalSenderName.isEmpty();
+        String newText = fwd ? ("\u21AA Forwarded from " + originalSenderName) : "";
+        boolean sizeChanged = fwd != this.hasForwarded || !newText.equals(this.forwardedText);
         this.hasForwarded = fwd;
-        this.forwardedText = fwd ? ("\u21AA Forwarded from " + originalSenderName) : "";
-        requestLayout();
+        this.forwardedText = newText;
+        if (sizeChanged) requestLayout();
         invalidate();
     }
 
@@ -2482,11 +2536,14 @@ public class MessageBubbleCanvasView extends View {
      * isCanvasEligible() in MessagePagingAdapter).
      */
     public void setDeletedStyle(boolean deleted) {
+        boolean sizeChanged = deleted != this.isDeletedStyle;
         this.isDeletedStyle = deleted;
         textPaint.setTypeface(deleted ? Typeface.create(Typeface.DEFAULT, Typeface.ITALIC) : Typeface.DEFAULT);
         textPaint.setAlpha(deleted ? DELETED_TEXT_ALPHA : 255);
-        textLayout = null; // rebuild with the new typeface/alpha before the next draw
-        requestLayout();
+        if (sizeChanged) {
+            textLayout = null; // rebuild with the new typeface/alpha before the next draw
+            requestLayout();
+        }
         invalidate();
     }
 
@@ -2576,14 +2633,21 @@ public class MessageBubbleCanvasView extends View {
      *                 resize again once setLinkPreviewThumbBitmap() lands.
      */
     public void setLinkPreview(String url, @Nullable String title, @Nullable String domain, boolean hasThumb) {
-        this.hasLinkPreview = url != null && !url.isEmpty();
+        boolean newHas = url != null && !url.isEmpty();
+        String newTitle = title != null ? title : "";
+        String newDomain = domain != null ? domain : "";
+        boolean sizeChanged = newHas != this.hasLinkPreview || !newTitle.equals(this.linkTitle)
+                || !newDomain.equals(this.linkDomain) || hasThumb != this.linkHasThumb;
+        this.hasLinkPreview = newHas;
         this.linkPreviewUrl = url != null ? url : "";
-        this.linkTitle = title != null ? title : "";
-        this.linkDomain = domain != null ? domain : "";
+        this.linkTitle = newTitle;
+        this.linkDomain = newDomain;
         this.linkHasThumb = hasThumb;
         this.linkThumbBitmap = null; // any bitmap from a previously-bound URL no longer applies
-        this.linkTitleLayout = null; // recomputed in onMeasure
-        requestLayout();
+        if (sizeChanged) {
+            this.linkTitleLayout = null; // recomputed in onMeasure
+            requestLayout();
+        }
         invalidate();
     }
 
@@ -2595,6 +2659,7 @@ public class MessageBubbleCanvasView extends View {
 
     /** Call when the message has no link, the URL has no OG data, or the fetch failed — clears any stale card state on a recycled view. */
     public void clearLinkPreview() {
+        boolean sizeChanged = this.hasLinkPreview;
         this.hasLinkPreview = false;
         this.linkPreviewUrl = "";
         this.linkTitle = "";
@@ -2603,7 +2668,7 @@ public class MessageBubbleCanvasView extends View {
         this.linkThumbBitmap = null;
         this.linkTitleLayout = null;
         this.linkCardHeight = 0;
-        requestLayout();
+        if (sizeChanged) requestLayout();
         invalidate();
     }
 
