@@ -2626,7 +2626,8 @@ public class MessageBubbleCanvasView extends View {
             if (mediaHasCaption) {
                 float captionFooterReserve = footerPaint.measureText(footerTimeText)
                         + (sent ? (TICK_SIZE_DP + TICK_GAP_DP) * density : 0)
-                        + FOOTER_GAP_DP * density;
+                        + FOOTER_GAP_DP * density
+                        + expiryReserveWidth();
                 textLayout = StaticLayout.Builder
                         .obtain(messageText, 0, messageText.length(), textPaint, maxTextWidth)
                         .setAlignment(Layout.Alignment.ALIGN_NORMAL)
@@ -2906,7 +2907,8 @@ public class MessageBubbleCanvasView extends View {
             // Footer (timestamp) reserved width/height
             footerReserveWidth = footerPaint.measureText(footerTimeText)
                     + (sent ? (TICK_SIZE_DP + TICK_GAP_DP) * density : 0)
-                    + FOOTER_GAP_DP * density;
+                    + FOOTER_GAP_DP * density
+                    + expiryReserveWidth();
             int footerRowH = Math.round(spToPx(FOOTER_TEXT_SP) + FOOTER_GAP_DP * density);
 
             pollTotalCardH = padTop
@@ -2964,7 +2966,8 @@ public class MessageBubbleCanvasView extends View {
             fileCardHeight  = contentH;
             footerReserveWidth = footerPaint.measureText(footerTimeText)
                     + (sent ? (TICK_SIZE_DP + TICK_GAP_DP) * density : 0)
-                    + FOOTER_GAP_DP * density;
+                    + FOOTER_GAP_DP * density
+                    + expiryReserveWidth();
             int footerH  = Math.round(spToPx(FOOTER_TEXT_SP) + FOOTER_GAP_DP * density);
             bubbleContentWidth = Math.min(Math.max(cardW, replyBoxContentWidth), maxTextWidth);
             bubbleHeight = replyBoxHeight + replyGap + vPad + Math.round(contentH) + footerH;
@@ -3087,7 +3090,8 @@ public class MessageBubbleCanvasView extends View {
                 float pillPadV = MEDIA_PILL_PADDING_V_DP * density;
                 float pillMargin = MEDIA_PILL_MARGIN_DP * density;
                 float pillTextW = mediaPillTextPaint.measureText(footerTimeText)
-                        + (sent ? (TICK_SIZE_DP + TICK_GAP_DP) * density : 0);
+                        + (sent ? (TICK_SIZE_DP + TICK_GAP_DP) * density : 0)
+                        + expiryReserveWidth();
                 float pillH = spToPx(FOOTER_TEXT_SP) + pillPadV * 2;
                 mediaPillRect.set(
                         mediaRect.right - pillMargin - pillTextW - pillPadH * 2,
@@ -3217,7 +3221,8 @@ public class MessageBubbleCanvasView extends View {
                 float pillPadV = MEDIA_PILL_PADDING_V_DP * density;
                 float pillMargin = MEDIA_PILL_MARGIN_DP * density;
                 float pillTextW = mediaPillTextPaint.measureText(footerTimeText)
-                        + (sent ? (TICK_SIZE_DP + TICK_GAP_DP) * density : 0);
+                        + (sent ? (TICK_SIZE_DP + TICK_GAP_DP) * density : 0)
+                        + expiryReserveWidth();
                 float pillH = spToPx(FOOTER_TEXT_SP) + pillPadV * 2;
                 mediaPillRect.set(
                         groupContentRect.right - pillMargin - pillTextW - pillPadH * 2,
@@ -3447,7 +3452,7 @@ public class MessageBubbleCanvasView extends View {
     // text (measured + a small gap), drawn just to the left of the
     // timestamp. Returns 0 when there's no expiry to show so callers can
     // add it unconditionally without an extra hasExpiry check.
-    private float expiryReserveWidth() {
+    float expiryReserveWidth() {
         if (!hasExpiry || expiryText == null || expiryText.isEmpty()) return 0f;
         return expiryPaint.measureText(expiryText) + EXPIRY_GAP_DP * density;
     }

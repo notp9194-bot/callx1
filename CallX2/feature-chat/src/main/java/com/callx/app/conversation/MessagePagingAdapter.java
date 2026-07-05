@@ -714,12 +714,28 @@ public class MessagePagingAdapter
         // reactions are now modeled (MessageBubbleCanvasView.setReactions) — no longer disqualifying
         // isGroup is now modeled for received messages (MessageBubbleCanvasView.setGroupSender) — no longer disqualifying
         if (m.expiresAt != null && m.expiresAt > 0) {
-            // Disappearing-message countdown (setExpiryText) is only modeled
-            // for the plain-text footer so far — a media bubble's
-            // translucent timestamp pill doesn't have room for it yet, so
-            // keep those on the old path until that's added.
+            // Disappearing-message countdown (setExpiryText) is now modeled
+            // for the plain-text footer, the captioned/captionless media
+            // pill (image/video/gif/multi_media reuse the same pill), the
+            // audio/file/poll footer row — i.e. every bubble type that
+            // actually has a footer/pill to draw it in. Contact/location/
+            // reel-share cards have no timestamp row at all (matches their
+            // legacy XML having none), so they still fall back to the old
+            // path until/unless that card gets one.
             String expiryType = m.type != null ? m.type : "text";
-            if (!"text".equals(expiryType)) return false;
+            switch (expiryType) {
+                case "text":
+                case "image":
+                case "video":
+                case "gif":
+                case "file":
+                case "audio":
+                case "multi_media":
+                case "poll":
+                    break; // eligible — footer/pill models expiry
+                default:
+                    return false;
+            }
         }
 
         String type = m.type != null ? m.type : "text";

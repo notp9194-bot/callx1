@@ -103,9 +103,11 @@ final class MediaRenderer {
                     - (host.mediaPillTextPaint.descent() - host.mediaPillTextPaint.ascent())) / 2f
                     - host.mediaPillTextPaint.descent();
             float tickReserve = host.sent ? (MessageBubbleCanvasView.TICK_SIZE_DP + MessageBubbleCanvasView.TICK_GAP_DP) * host.density : 0;
-            canvas.drawText(host.footerTimeText,
-                    host.mediaPillRect.right - pillPadH - tickReserve - host.mediaPillTextPaint.measureText(host.footerTimeText),
-                    textBaselineY, host.mediaPillTextPaint);
+            float timeX = host.mediaPillRect.right - pillPadH - tickReserve - host.mediaPillTextPaint.measureText(host.footerTimeText);
+            canvas.drawText(host.footerTimeText, timeX, textBaselineY, host.mediaPillTextPaint);
+            if (host.hasExpiry) {
+                canvas.drawText(host.expiryText, timeX - host.expiryReserveWidth(), textBaselineY, host.expiryPaint);
+            }
             if (host.sent) {
                 // Reuse the same tick paint as the text-bubble footer, but
                 // white (matches mediaPillTextPaint) so it reads on the pill.

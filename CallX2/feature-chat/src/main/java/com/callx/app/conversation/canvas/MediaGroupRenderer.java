@@ -189,9 +189,11 @@ final class MediaGroupRenderer {
                     - (host.mediaPillTextPaint.descent() - host.mediaPillTextPaint.ascent())) / 2f
                     - host.mediaPillTextPaint.descent();
             float tickReserve = host.sent ? (MessageBubbleCanvasView.TICK_SIZE_DP + MessageBubbleCanvasView.TICK_GAP_DP) * host.density : 0;
-            canvas.drawText(host.footerTimeText,
-                    host.mediaPillRect.right - pillPadH - tickReserve - host.mediaPillTextPaint.measureText(host.footerTimeText),
-                    textBaselineY, host.mediaPillTextPaint);
+            float timeX = host.mediaPillRect.right - pillPadH - tickReserve - host.mediaPillTextPaint.measureText(host.footerTimeText);
+            canvas.drawText(host.footerTimeText, timeX, textBaselineY, host.mediaPillTextPaint);
+            if (host.hasExpiry) {
+                canvas.drawText(host.expiryText, timeX - host.expiryReserveWidth(), textBaselineY, host.expiryPaint);
+            }
             if (host.sent) {
                 host.drawTick(canvas, host.mediaPillRect.right - pillPadH - MessageBubbleCanvasView.TICK_SIZE_DP * host.density, textBaselineY);
             }
