@@ -96,7 +96,7 @@ import com.callx.app.utils.ChatThemeManager;
  *
  * It intentionally does NOT (yet) handle:
  *   • audio/file cells inside a media group, or per-item captions
- *   • GIF, audio, file, poll, contact, or location bubbles
+ *   • GIF, file, poll, or location bubbles (contact is now modeled — see below)
  *   • long-press action menu (long-press itself is wired — see
  *     OnBubbleClickListener.onBubbleLongClick — the menu it opens is the
  *     caller's job)
@@ -136,6 +136,14 @@ import com.callx.app.utils.ChatThemeManager;
  *     meaningful for the plain-text bind() mode. Tapping the card fires
  *     onLinkClick(url), same as the legacy ll_link_preview click
  *     listener that opens the URL in a browser.
+ *   • a contact-share card (bindContact) — mirrors item_msg_contact.xml:
+ *     a bubbleless 165dp-wide card, circular avatar (or ic_person
+ *     placeholder) + name/phone on a dark #1C1C1E top section, a thin
+ *     divider, and a "View Contact" action row below. No timestamp/tick
+ *     footer at all (the legacy layout has none for this type). Only the
+ *     "View Contact" row is tappable (onContactViewClick()) — the rest of
+ *     the card has no click listener in the legacy path either, just
+ *     long-press for the action sheet, same as every other mode here.
  *
  * Those all still render through the existing item_message_sent/received.xml
  * + MessagePagingAdapter path.
@@ -381,6 +389,35 @@ public class MessageBubbleCanvasView extends View {
     private static final int   REEL_CARD_BG_COLOR        = 0xFF1A1A1A; // matches thumbnail's #1A1A1A placeholder bg
     private static final int   REEL_AVATAR_PLACEHOLDER_COLOR = 0xFF3A3A3A;
 
+    // ── Contact-share card — mirrors item_msg_contact.xml exactly: a
+    // bubbleless 165dp-wide, wrap_content-height card (no chat-bubble
+    // background, same precedent as the reel-share card) with a dark
+    // (#1C1C1E) top section holding a circular avatar + name/phone, a
+    // thin divider, and a "View Contact" action row below. No timestamp/
+    // tick footer at all — item_msg_contact.xml has none, unlike the reel
+    // card's always-shown pill. ──
+    private static final float CONTACT_CARD_WIDTH_DP    = 165f;
+    private static final float CONTACT_TOP_HEIGHT_DP    = 88f;
+    private static final float CONTACT_DIVIDER_HEIGHT_DP = 0.5f;
+    private static final float CONTACT_BUTTON_HEIGHT_DP = 32f;
+    private static final float CONTACT_CORNER_RADIUS_DP = 12f;
+    private static final float CONTACT_AVATAR_SIZE_DP   = 38f;
+    private static final float CONTACT_PAD_H_DP         = 10f;
+    private static final float CONTACT_TEXT_GAP_DP      = 8f;
+    private static final float CONTACT_NAME_TEXT_SP     = 12f;
+    private static final float CONTACT_PHONE_TEXT_SP    = 10f;
+    private static final float CONTACT_PHONE_GAP_DP     = 2f;
+    private static final float CONTACT_BUTTON_TEXT_SP   = 11f;
+    private static final int   CONTACT_BG_COLOR         = 0xFF1C1C1E;
+    private static final int   CONTACT_DIVIDER_COLOR    = 0x33FFFFFF;
+    private static final int   CONTACT_NAME_COLOR       = 0xFFFFFFFF;
+    private static final int   CONTACT_PHONE_COLOR      = 0xCCFFFFFF;
+    private static final int   CONTACT_BUTTON_TEXT_COLOR = 0xFF4FC3F7;
+    private static final int   CONTACT_AVATAR_PLACEHOLDER_COLOR = 0xFF3A3A3A;
+    private static final int   CONTACT_TEXT_SHADOW_COLOR = 0xAA000000; // matches shadowColor on tvContactName/tvContactPhone
+    private static final String CONTACT_DEFAULT_NAME     = "Contact";
+    private static final String CONTACT_BUTTON_TEXT      = "View Contact";
+
     // ── Link-preview card — mirrors layout_msg_link_preview.xml
     // (stub_link_preview): optional OG-image thumbnail (match-width ×
     // 120dp, centerCrop) on top, then a padded text column with the
@@ -429,6 +466,8 @@ public class MessageBubbleCanvasView extends View {
         void onAudioPlayPauseClick();
         /** Dragged/tapped the waveform on an audio bubble (bindAudio only) — fraction is 0..1 of the track; caller should seek MediaPlayer to it. The view already updated its own progress bar optimistically. */
         void onAudioSeek(float fraction);
+        /** Tapped the "View Contact" row on a contact card (bindContact only) — caller should open the system Contacts app / dialer for this contact's phone number, same as the legacy btnViewContact click listener. */
+        void onContactViewClick();
     }
 
     /** Immutable per-cell descriptor for bindMediaGroup(); bitmaps are supplied
@@ -652,6 +691,24 @@ public class MessageBubbleCanvasView extends View {
     private final android.graphics.Matrix reelShaderMatrix = new android.graphics.Matrix();
     private final android.graphics.Matrix reelAvatarShaderMatrix = new android.graphics.Matrix();
 
+    // ── Contact-share card state — entirely separate mode from isMedia/
+    // isMediaGroup/isReelShare/isAudio (see CONTACT_* constants doc above). ──
+    private boolean isContact = false;
+    private String contactName = "";
+    private String contactPhone = "";
+    private Bitmap contactAvatarBitmap;
+    private final RectF contactCardRect = new RectF();
+    private final RectF contactAvatarRect = new RectF();
+    private final RectF contactButtonRect = new RectF(); // "View Contact" row — the only tappable sub-region
+    private final Paint contactCardBgPaint = new Paint();
+    private final Paint contactDividerPaint = new Paint();
+    private final Paint contactAvatarPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+    private final Paint contactAvatarPlaceholderPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final TextPaint contactNamePaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    private final TextPaint contactPhonePaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    private final TextPaint contactButtonTextPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    private final android.graphics.Matrix contactAvatarShaderMatrix = new android.graphics.Matrix();
+
     // ── Link-preview card state — only meaningful alongside the
     // plain-text bind() mode (see LINK_PREVIEW_* constants doc above).
     // hasThumb is set upfront in setLinkPreview() (from whether
@@ -784,6 +841,21 @@ public class MessageBubbleCanvasView extends View {
                 new int[]{0x99000000, 0x00000000});
         reelBottomGradient = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
                 new int[]{0x00000000, 0x99000000});
+
+        contactCardBgPaint.setColor(CONTACT_BG_COLOR);
+        contactDividerPaint.setColor(CONTACT_DIVIDER_COLOR);
+        contactAvatarPlaceholderPaint.setColor(CONTACT_AVATAR_PLACEHOLDER_COLOR);
+        contactNamePaint.setColor(CONTACT_NAME_COLOR);
+        contactNamePaint.setFakeBoldText(true);
+        contactNamePaint.setTextSize(CONTACT_NAME_TEXT_SP * density);
+        contactNamePaint.setShadowLayer(3f * density, 0f, 1f * density, CONTACT_TEXT_SHADOW_COLOR);
+        contactPhonePaint.setColor(CONTACT_PHONE_COLOR);
+        contactPhonePaint.setTextSize(CONTACT_PHONE_TEXT_SP * density);
+        contactPhonePaint.setShadowLayer(3f * density, 0f, 1f * density, CONTACT_TEXT_SHADOW_COLOR);
+        contactButtonTextPaint.setColor(CONTACT_BUTTON_TEXT_COLOR);
+        contactButtonTextPaint.setFakeBoldText(true);
+        contactButtonTextPaint.setTextSize(CONTACT_BUTTON_TEXT_SP * density);
+        contactButtonTextPaint.setTextAlign(Paint.Align.CENTER);
 
         linkThumbPlaceholderPaint.setColor(LINK_PREVIEW_THUMB_PLACEHOLDER_COLOR);
         linkDomainPaint.setColor(LINK_PREVIEW_DOMAIN_COLOR);
@@ -1213,6 +1285,44 @@ public class MessageBubbleCanvasView extends View {
             requestLayout();
             invalidate();
         }
+    }
+
+    /**
+     * Binds a contact-share card — mirrors item_msg_contact.xml exactly:
+     * a bubbleless 165dp-wide card, avatar + name/phone on a dark top
+     * section, and a "View Contact" action row below. No timestamp/tick
+     * footer (the legacy layout has none for this type), no caption, no
+     * reply-preview interplay beyond the usual reply strip above it.
+     *
+     * @param avatar  decoded contact photo (contactPhotoUrl), or null for
+     *                the placeholder ic_person glyph — pass a fresh
+     *                Bitmap via setContactAvatarBitmap() once Glide
+     *                resolves it, same async pattern as bindMedia().
+     */
+    public void bindContact(@Nullable Bitmap avatar, @Nullable String name, @Nullable String phone,
+                             boolean isSent) {
+        this.isMedia = false;
+        this.isMediaGroup = false;
+        this.isReelShare = false;
+        this.isVideoMedia = false;
+        this.isAudio = false;
+        this.isContact = true;
+        this.hasLinkPreview = false; // stale flag from a recycled view must not leak in here
+        this.mediaGated = false;
+        this.mediaDownloading = false;
+        this.contactAvatarBitmap = avatar;
+        this.contactName = (name != null && !name.isEmpty()) ? name : CONTACT_DEFAULT_NAME;
+        this.contactPhone = phone != null ? phone : "";
+        this.sent = isSent;
+
+        requestLayout();
+        invalidate();
+    }
+
+    /** Swap in a decoded contact-photo Bitmap once Glide finishes — no re-measure needed, same fixed card size. */
+    public void setContactAvatarBitmap(@Nullable Bitmap bitmap) {
+        this.contactAvatarBitmap = bitmap;
+        invalidate();
     }
 
     public void setMediaGroupBitmap(int index, @Nullable Bitmap bitmap) {
@@ -1727,6 +1837,18 @@ public class MessageBubbleCanvasView extends View {
             bubbleContentWidth = Math.max(cardW - hPad * 2, replyBoxContentWidth);
             bubbleHeight = replyBoxHeight + replyGap + cardH;
 
+        } else if (isContact) {
+            // ── Contact-share card (fixed 165dp wide, wrap_content height) ──
+            // Height = top section + divider + button row, exactly like
+            // item_msg_contact.xml's stacked LinearLayout — no vPad, no
+            // footer row (no timestamp/tick at all for this type).
+            int cardW = Math.round(CONTACT_CARD_WIDTH_DP * density);
+            int cardH = Math.round((CONTACT_TOP_HEIGHT_DP + CONTACT_DIVIDER_HEIGHT_DP
+                    + CONTACT_BUTTON_HEIGHT_DP) * density);
+
+            bubbleContentWidth = Math.max(cardW - hPad * 2, replyBoxContentWidth);
+            bubbleHeight = replyBoxHeight + replyGap + cardH;
+
         } else if (isMediaGroup) {
             // ── Media-group grid (multi-image/video) ──
             int[] dims = computeGroupGridDims(groupVisibleCount);
@@ -1840,7 +1962,6 @@ public class MessageBubbleCanvasView extends View {
         }
 
         if (isAudio) {
-            int replyGap = hasReply ? Math.round(REPLY_GAP_TO_MESSAGE_DP * density) : 0;
             float rowTop = bubbleTop + replyBoxHeight + replyGap + vPad;
             float btnSize = AUDIO_BTN_SIZE_DP * density;
             float rowGap = AUDIO_ROW_GAP_DP * density;
@@ -1907,6 +2028,30 @@ public class MessageBubbleCanvasView extends View {
                     reelCardRect.bottom - pillMargin);
         }
 
+        if (isContact) {
+            int cardW = Math.round(CONTACT_CARD_WIDTH_DP * density);
+            float topH = CONTACT_TOP_HEIGHT_DP * density;
+            float dividerH = CONTACT_DIVIDER_HEIGHT_DP * density;
+            float btnH = CONTACT_BUTTON_HEIGHT_DP * density;
+            float cardTop = bubbleTop + replyBoxHeight + replyGap;
+            // Left-aligned to the bubble's own left edge, same precedent
+            // as the reel-share card (regardless of a reply box widening
+            // bubbleWidth beyond cardW).
+            contactCardRect.set(bubbleLeft, cardTop, bubbleLeft + cardW, cardTop + topH + dividerH + btnH);
+
+            float avatarSize = CONTACT_AVATAR_SIZE_DP * density;
+            float padH = CONTACT_PAD_H_DP * density;
+            float avatarTop = contactCardRect.top + (topH - avatarSize) / 2f;
+            contactAvatarRect.set(
+                    contactCardRect.left + padH, avatarTop,
+                    contactCardRect.left + padH + avatarSize, avatarTop + avatarSize);
+
+            // "View Contact" row sits directly below the divider, full
+            // card width — the only tappable sub-region (see onTouchEvent).
+            float btnTop = contactCardRect.top + topH + dividerH;
+            contactButtonRect.set(contactCardRect.left, btnTop, contactCardRect.right, btnTop + btnH);
+        }
+
         if (isMediaGroup) {
             float gridTop = bubbleTop + replyBoxHeight + replyGap + vPad;
             layoutGroupCells(bubbleLeft + hPad, gridTop);
@@ -1928,7 +2073,7 @@ public class MessageBubbleCanvasView extends View {
             }
         }
 
-        if (hasLinkPreview && !isMedia && !isMediaGroup && !isReelShare && textLayout != null) {
+        if (hasLinkPreview && !isMedia && !isMediaGroup && !isReelShare && !isContact && textLayout != null) {
             int linkGapTop = Math.round(LINK_PREVIEW_GAP_TOP_DP * density);
             float cardTop = bubbleTop + replyBoxHeight + replyGap + textLayout.getHeight() + linkGapTop;
             linkCardRect.set(bubbleLeft + hPad, cardTop,
@@ -2038,16 +2183,17 @@ public class MessageBubbleCanvasView extends View {
     @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
-        if (!isReelShare) {
+        if (!isReelShare && !isContact) {
             if (bubbleDrawable == null) return;
             if (!isMedia && !isMediaGroup && !isAudio && textLayout == null) return;
         }
 
-        if (!isReelShare) {
-            // Reel-share cards never draw the normal chat-bubble
-            // background — the card itself (drawn in drawReelShare) is
-            // the entire visual, matching layout_msg_reel_share.xml's
-            // bg=null on the outer bubble container for this message type.
+        if (!isReelShare && !isContact) {
+            // Reel-share and contact cards never draw the normal chat-bubble
+            // background — the card itself (drawn in drawReelShare/
+            // drawContact) is the entire visual, matching
+            // layout_msg_reel_share.xml / item_msg_contact.xml's bg=null on
+            // the outer bubble container for these message types.
             bubbleDrawable.setBounds(
                     (int) bubbleRect.left, (int) bubbleRect.top,
                     (int) bubbleRect.right, (int) bubbleRect.bottom);
@@ -2075,6 +2221,8 @@ public class MessageBubbleCanvasView extends View {
 
         if (isReelShare) {
             drawReelShare(canvas);
+        } else if (isContact) {
+            drawContact(canvas);
         } else if (isMediaGroup) {
             drawMediaGroup(canvas);
         } else if (isMedia) {
@@ -2237,6 +2385,82 @@ public class MessageBubbleCanvasView extends View {
             drawTick(canvas, mediaPillRect.right - pillPadH - TICK_SIZE_DP * density, textBaselineY);
             tickPaint.set(saved);
         }
+    }
+
+    /**
+     * Draws the contact-share card — mirrors item_msg_contact.xml: one
+     * rounded 165dp-wide card (single #1C1C1E background covers both the
+     * "top section" and the "View Contact" row, since they share the same
+     * color in the legacy layout — only the divider line is visually
+     * distinct), a circular avatar (placeholder ic_person glyph if no
+     * photo), name + phone stacked beside it, and the "View Contact"
+     * label centered in its own row below a thin divider.
+     */
+    private void drawContact(Canvas canvas) {
+        float r = CONTACT_CORNER_RADIUS_DP * density;
+        canvas.save();
+        // Clip to the card's rounded shape (android:clipToOutline on the
+        // legacy ll_contact_card) so the flat divider/button-row rects
+        // drawn below don't square off the bottom corners.
+        android.graphics.Path clipPath = new android.graphics.Path();
+        clipPath.addRoundRect(contactCardRect, r, r, android.graphics.Path.Direction.CW);
+        canvas.clipPath(clipPath);
+
+        canvas.drawRect(contactCardRect, contactCardBgPaint);
+
+        // ── Avatar (photo or placeholder) ──
+        if (contactAvatarBitmap != null) {
+            float scale = Math.max(contactAvatarRect.width() / contactAvatarBitmap.getWidth(),
+                    contactAvatarRect.height() / contactAvatarBitmap.getHeight());
+            float dx = contactAvatarRect.left - (contactAvatarBitmap.getWidth() * scale - contactAvatarRect.width()) / 2f;
+            float dy = contactAvatarRect.top - (contactAvatarBitmap.getHeight() * scale - contactAvatarRect.height()) / 2f;
+            contactAvatarShaderMatrix.reset();
+            contactAvatarShaderMatrix.setScale(scale, scale);
+            contactAvatarShaderMatrix.postTranslate(dx, dy);
+
+            android.graphics.BitmapShader shader = new android.graphics.BitmapShader(
+                    contactAvatarBitmap, android.graphics.Shader.TileMode.CLAMP, android.graphics.Shader.TileMode.CLAMP);
+            shader.setLocalMatrix(contactAvatarShaderMatrix);
+            contactAvatarPaint.setShader(shader);
+            canvas.drawOval(contactAvatarRect, contactAvatarPaint);
+        } else {
+            canvas.drawOval(contactAvatarRect, contactAvatarPlaceholderPaint);
+        }
+
+        // ── Name / phone column beside the avatar ──
+        float textX = contactAvatarRect.right + CONTACT_TEXT_GAP_DP * density;
+        float textMaxW = contactCardRect.right - CONTACT_PAD_H_DP * density - textX;
+        String nameToDraw = TextUtils.ellipsize(contactName, contactNamePaint,
+                Math.max(1, textMaxW), TextUtils.TruncateAt.END).toString();
+        String phoneToDraw = TextUtils.ellipsize(contactPhone, contactPhonePaint,
+                Math.max(1, textMaxW), TextUtils.TruncateAt.END).toString();
+
+        Paint.FontMetrics nfm = contactNamePaint.getFontMetrics();
+        Paint.FontMetrics phfm = contactPhonePaint.getFontMetrics();
+        float nameH = nfm.descent - nfm.ascent;
+        float phoneH = phfm.descent - phfm.ascent;
+        boolean hasPhone = !phoneToDraw.isEmpty();
+        float phoneGap = hasPhone ? CONTACT_PHONE_GAP_DP * density : 0;
+        float blockH = nameH + (hasPhone ? phoneGap + phoneH : 0);
+        float blockTop = contactAvatarRect.centerY() - blockH / 2f;
+
+        canvas.drawText(nameToDraw, textX, blockTop - nfm.ascent, contactNamePaint);
+        if (hasPhone) {
+            float phoneBaselineY = blockTop + nameH + phoneGap - phfm.ascent;
+            canvas.drawText(phoneToDraw, textX, phoneBaselineY, contactPhonePaint);
+        }
+
+        // ── Divider ──
+        float dividerTop = contactCardRect.top + CONTACT_TOP_HEIGHT_DP * density;
+        canvas.drawRect(contactCardRect.left, dividerTop, contactCardRect.right,
+                dividerTop + CONTACT_DIVIDER_HEIGHT_DP * density, contactDividerPaint);
+
+        // ── "View Contact" row ──
+        Paint.FontMetrics bfm = contactButtonTextPaint.getFontMetrics();
+        float btnBaselineY = contactButtonRect.centerY() - (bfm.ascent + bfm.descent) / 2f;
+        canvas.drawText(CONTACT_BUTTON_TEXT, contactButtonRect.centerX(), btnBaselineY, contactButtonTextPaint);
+
+        canvas.restore();
     }
 
     private void drawMedia(Canvas canvas, int hPad, int vPad) {
@@ -2876,6 +3100,16 @@ public class MessageBubbleCanvasView extends View {
             // ll_reel_share.setOnClickListener; there's no separate
             // download-gate mode for reel cards, so this always fires.
             if (clickListener != null) clickListener.onImageClick();
+            return true;
+        }
+        if (isContact && event.getActionMasked() == MotionEvent.ACTION_UP
+                && contactButtonRect.contains(event.getX(), event.getY())) {
+            // Only the "View Contact" row is clickable — mirrors the
+            // legacy btnViewContact.setOnClickListener; the rest of the
+            // card (ll_contact_card itself) has no click listener in the
+            // legacy path either, just long-press for the action sheet
+            // (handled below by gestureDetector, same as every other mode).
+            if (clickListener != null) clickListener.onContactViewClick();
             return true;
         }
         if (isMediaGroup && event.getActionMasked() == MotionEvent.ACTION_UP) {

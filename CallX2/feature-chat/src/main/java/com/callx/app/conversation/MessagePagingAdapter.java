@@ -752,7 +752,14 @@ public class MessagePagingAdapter
             // setAudioElapsedText() instead of btnPlayPause/seekAudio/tvAudioDur.
             return true;
         }
-        return false; // gif/file/poll/contact/location — all still on the old path
+        if ("contact".equals(type)) {
+            // Contact-share card (MessageBubbleCanvasView.bindContact) —
+            // bubbleless 165dp-wide card, same shape sent and received, no
+            // timestamp/tick footer (matches item_msg_contact.xml having
+            // none). Deleted/expiry already handled above this check.
+            return true;
+        }
+        return false; // gif/file/poll/location — all still on the old path
     }
 
     @NonNull
@@ -1239,6 +1246,7 @@ public class MessagePagingAdapter
         final boolean isReelShare = "reel_share".equals(type) || "reel_link".equals(type);
         final boolean isVideo = "video".equals(type);
         final boolean isAudio = "audio".equals(type);
+        final boolean isContact = "contact".equals(type);
         final boolean isDeleted = Boolean.TRUE.equals(m.deleted);
 
         if (isDeleted) {
@@ -1554,6 +1562,35 @@ public class MessagePagingAdapter
                             public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {
                                 if (h.canvasBindToken != myToken) return;
                                 cv.setMediaBitmap(null);
+                            }
+                        });
+            }
+        } else if (isContact) {
+            // Mirrors the legacy "contact" case (ChatContactShareController.
+            // bindBubble) — same contactPhotoUrl Glide load (placeholder
+            // ic_person if absent), just pushed through
+            // cv.bindContact()/setContactAvatarBitmap() instead of
+            // CircleImageView/TextView calls. No caption, no timestamp/
+            // tick footer for this type (see MessageBubbleCanvasView's
+            // CONTACT_* doc).
+            cv.bindContact(null, m.contactName, m.contactPhone, sent);
+            cv.setDeletedStyle(false);
+
+            final String contactPhotoUrl = m.contactPhotoUrl;
+            if (contactPhotoUrl != null && !contactPhotoUrl.isEmpty()) {
+                glide(ctx).asBitmap().load(contactPhotoUrl).apply(THUMB_RGB565)
+                        .override(96, 96).circleCrop()
+                        .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
+                            @Override
+                            public void onResourceReady(@NonNull Bitmap resource,
+                                    @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
+                                if (h.canvasBindToken != myToken) return;
+                                cv.setContactAvatarBitmap(resource);
+                            }
+                            @Override
+                            public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {
+                                if (h.canvasBindToken != myToken) return;
+                                cv.setContactAvatarBitmap(null);
                             }
                         });
             }
@@ -1908,6 +1945,26 @@ public class MessagePagingAdapter
                         int durationMs = player.getDuration();
                         if (durationMs > 0) player.seekTo((int) (fraction * durationMs));
                     } catch (Exception ignored) {}
+                }
+            }
+
+            @Override
+            public void onContactViewClick() {
+                // Mirrors ChatContactShareController.bindBubble's
+                // btnViewContact click listener exactly: open the system
+                // Contacts app filtered to this phone number, falling back
+                // to the dial pad if nothing can resolve that lookup intent.
+                if (!isContact || m.contactPhone == null) return;
+                android.net.Uri uri = android.net.Uri.withAppendedPath(
+                        android.provider.ContactsContract.PhoneLookup.CONTENT_FILTER_URI,
+                        android.net.Uri.encode(m.contactPhone));
+                android.content.Intent viewIntent = new android.content.Intent(android.content.Intent.ACTION_VIEW, uri);
+                if (viewIntent.resolveActivity(ctx.getPackageManager()) != null) {
+                    ctx.startActivity(viewIntent);
+                } else {
+                    android.content.Intent dial = new android.content.Intent(
+                            android.content.Intent.ACTION_DIAL, android.net.Uri.parse("tel:" + m.contactPhone));
+                    ctx.startActivity(dial);
                 }
             }
         });
