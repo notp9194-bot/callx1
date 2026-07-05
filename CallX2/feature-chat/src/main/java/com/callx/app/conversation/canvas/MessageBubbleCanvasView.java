@@ -97,9 +97,22 @@ import com.callx.app.utils.ChatThemeManager;
  * It intentionally does NOT (yet) handle:
  *   • audio/file cells inside a media group, or per-item captions
  *   • GIF, audio, file, poll, link-preview, or reel-share bubbles
- *   • the download-progress overlay (pill/spinner/percentage) — the image
- *     slot shows a plain placeholder box until a decoded Bitmap is supplied
- *   • swipe-to-reply gesture, long-press action menu
+ *   • long-press action menu (long-press itself is wired — see
+ *     OnBubbleClickListener.onBubbleLongClick — the menu it opens is the
+ *     caller's job)
+ *
+ * It DOES now also handle:
+ *   • a live download-progress overlay for a RECEIVED single-image bubble
+ *     not yet cached locally — setMediaDownloadGate()/setMediaDownloadProgress()
+ *     draw a dim scrim + centered pill (idle "⬇ <label>" or a real
+ *     spinner/percentage ring while in flight), mirroring the legacy
+ *     fl_download_overlay/pb_download_spinner treatment. The same live
+ *     ring (drawProgressRing) also now drives the media-GROUP per-cell
+ *     badge (setGroupCellProgress) instead of the old static partial-arc.
+ *   • swipe-to-reply gesture — a horizontal drag past a threshold reveals a
+ *     reply glyph and reports the gesture back via
+ *     OnBubbleClickListener.onSwipeToReply(), same trigger point as a
+ *     long-press → "Reply" menu action, just via a gesture instead.
  *
  * Those all still render through the existing item_message_sent/received.xml
  * + MessagePagingAdapter path.
@@ -237,6 +250,15 @@ public class MessageBubbleCanvasView extends View {
     private static final int   GROUP_PLAY_CIRCLE_DP      = 36;
     private static final int   GROUP_PLAY_TRIANGLE_DP    = 20;
     private static final int   GROUP_DURATION_TEXT_SP    = 10;
+    // ── Per-item caption strip — mirrors MediaGroupLayoutHelper's per-cell
+    // caption exactly: a 22dp gradient scrim pinned to the cell's bottom
+    // edge, single-line ellipsized 10sp white text. When a video cell also
+    // has a caption, its duration badge moves to the cell's top-end corner
+    // instead (same conflict-avoidance the legacy helper uses). ──
+    private static final float GROUP_ITEM_CAPTION_STRIP_H_DP = 22f;
+    private static final float GROUP_ITEM_CAPTION_TEXT_SP    = 10f;
+    private static final float GROUP_ITEM_CAPTION_MARGIN_DP  = 4f;
+    private static final float GROUP_ITEM_CAPTION_BOTTOM_DP  = 2f;
 
     // ── Received-group manual download-gate — mirrors MediaGroupLayoutHelper's
     // addMasterDownloadOverlay()/buildCellDownloadOverlay() visuals exactly
@@ -255,6 +277,24 @@ public class MessageBubbleCanvasView extends View {
     private static final float GROUP_CELL_GATE_BADGE_DP    = 26f;
     private static final float GROUP_CELL_GATE_ICON_DP     = 14f;
 
+    // ── Live download-progress ring — shared by the single-media gate pill
+    // and the per-cell group badge (see drawProgressRing()). Determinate
+    // (percent 0-100): a clockwise arc from 12 o'clock. Indeterminate
+    // (percent < 0, no progress events yet): a short arc that rotates on
+    // wall-clock time via postInvalidateOnAnimation() — no Handler/
+    // ValueAnimator bookkeeping needed, and every visible instance across
+    // the RecyclerView stays in sync since they all read the same clock. ──
+    private static final long  INDETERMINATE_PERIOD_MS = 900L;
+    private static final float INDETERMINATE_SWEEP_DEG = 100f;
+
+    // ── Single-media manual download gate — mirrors the legacy
+    // fl_download_overlay/pb_download_spinner treatment for a RECEIVED
+    // "image" message not yet cached locally: a dim scrim over the image
+    // slot with a centered pill, idle "⬇ <label>" (tap to start) or a live
+    // spinner/percentage while a download is in flight. Visually reuses the
+    // GROUP_GATE_PILL_* constants above for parity with the group version. ──
+    private static final int MEDIA_GATE_SCRIM_COLOR = 0x2E000000;
+
     public interface OnBubbleClickListener {
         void onBubbleClick();
         void onBubbleLongClick();
@@ -264,6 +304,9 @@ public class MessageBubbleCanvasView extends View {
         void onReplyPreviewClick();
         /** Tapped the image itself (media bubbles only) — caller should open the full-screen media viewer. */
         void onImageClick();
+        /** Tapped the single-media download gate pill (setMediaDownloadGate) while idle (not yet downloading) —
+         *  caller should start the manual download and drive setMediaDownloadProgress() as it reports progress. */
+        void onMediaDownloadClick();
         /** Tapped cell `index` inside a media-group grid (bindMediaGroup only) — caller should open the gallery viewer at that index. */
         void onMediaCellClick(int index);
         /** Tapped the master "Download N photos" pill on a RECEIVED group — caller should start every pending cell's download (view has already dismissed the pill locally). */
@@ -279,9 +322,14 @@ public class MessageBubbleCanvasView extends View {
     public static final class GridItem {
         public final boolean isVideo;
         public final String duration; // e.g. "0:32"; null/empty if none or not a video
+        public final String caption;  // per-item caption; null/empty for none — see setGroupCaptions doc
         public GridItem(boolean isVideo, @Nullable String duration) {
+            this(isVideo, duration, null);
+        }
+        public GridItem(boolean isVideo, @Nullable String duration, @Nullable String caption) {
             this.isVideo = isVideo;
             this.duration = duration;
+            this.caption = caption;
         }
     }
 
@@ -333,6 +381,17 @@ public class MessageBubbleCanvasView extends View {
     private final RectF mediaRect = new RectF();
     private final RectF mediaPillRect = new RectF();
     private final android.graphics.Matrix mediaShaderMatrix = new android.graphics.Matrix();
+
+    // ── Single-media manual download gate state — see setMediaDownloadGate(). ──
+    private boolean mediaGated = false;
+    private boolean mediaDownloading = false;
+    private int mediaDownloadProgress = -1; // -1 = indeterminate, 0-100 = live percent
+    private String mediaDownloadLabel = "";
+    private final Paint mediaGateScrimPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint mediaGatePillBgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final TextPaint mediaGatePillTextPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint mediaGatePillIconPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final RectF mediaGatePillRect = new RectF();
 
     // ── Reaction badge state — independent of text/media/group mode; any
     // of the three can have reactions overlaid. ──
@@ -405,6 +464,8 @@ public class MessageBubbleCanvasView extends View {
     private final android.graphics.Matrix groupShaderMatrix = new android.graphics.Matrix();
     private final android.graphics.Path groupPlayTrianglePath = new android.graphics.Path();
     private final TextPaint groupCaptionTextPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    private final TextPaint groupItemCaptionPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint groupItemCaptionScrimPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
 
     // ── Received-group manual download-gate state — only ever set for
     // RECEIVED groups (see setGroupDownloadGate()); stays all-false/inert
@@ -415,6 +476,7 @@ public class MessageBubbleCanvasView extends View {
     private int groupGatePendingCount = 0;
     private boolean[] groupCellPending = new boolean[0];
     private boolean[] groupCellDownloading = new boolean[0];
+    private int[] groupCellProgress = new int[0]; // parallel to groupCellDownloading; -1 = indeterminate
     private final Paint groupGateScrimPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint groupGatePillBgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final TextPaint groupGatePillTextPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
@@ -476,6 +538,8 @@ public class MessageBubbleCanvasView extends View {
         groupDurationBgPaint.setColor(0x99000000);
         groupCaptionTextPaint.setColor(Color.WHITE);
         groupCaptionTextPaint.setTextSize(GROUP_CAPTION_TEXT_SP * density);
+        groupItemCaptionPaint.setColor(Color.WHITE);
+        groupItemCaptionPaint.setTextSize(GROUP_ITEM_CAPTION_TEXT_SP * density);
         for (int i = 0; i < groupRects.length; i++) groupRects[i] = new RectF();
 
         groupGateScrimPaint.setColor(GROUP_GATE_SCRIM_COLOR);
@@ -495,6 +559,17 @@ public class MessageBubbleCanvasView extends View {
         groupCellGateIconPaint.setStrokeWidth(1.4f * density);
         groupCellGateIconPaint.setStrokeCap(Paint.Cap.ROUND);
         groupCellGateIconPaint.setStrokeJoin(Paint.Join.ROUND);
+
+        mediaGateScrimPaint.setColor(MEDIA_GATE_SCRIM_COLOR);
+        mediaGatePillBgPaint.setColor(GROUP_GATE_PILL_BG);
+        mediaGatePillTextPaint.setColor(Color.WHITE);
+        mediaGatePillTextPaint.setFakeBoldText(true);
+        mediaGatePillTextPaint.setTextSize(GROUP_GATE_PILL_TEXT_SP * density);
+        mediaGatePillIconPaint.setColor(Color.WHITE);
+        mediaGatePillIconPaint.setStyle(Paint.Style.STROKE);
+        mediaGatePillIconPaint.setStrokeWidth(1.8f * density);
+        mediaGatePillIconPaint.setStrokeCap(Paint.Cap.ROUND);
+        mediaGatePillIconPaint.setStrokeJoin(Paint.Join.ROUND);
 
         setWillNotDraw(false);
 
@@ -562,6 +637,13 @@ public class MessageBubbleCanvasView extends View {
         this.isMedia = true;
         this.isMediaGroup = false;
         this.mediaBitmap = bitmap;
+        // Cleared fresh on every bind — a recycled holder must not carry a
+        // stale gate from whatever RECEIVED image the view last showed;
+        // the caller re-arms it with setMediaDownloadGate() right after this
+        // call if the new message actually needs a manual download.
+        this.mediaGated = false;
+        this.mediaDownloading = false;
+        this.mediaDownloadProgress = -1;
         this.messageText = caption != null ? caption : "";
         this.mediaHasCaption = !this.messageText.isEmpty();
         this.footerTimeText = timeText != null ? timeText : "";
@@ -593,6 +675,46 @@ public class MessageBubbleCanvasView extends View {
     }
 
     /**
+     * Arms (or updates) the manual download gate over a single-image bubble —
+     * mirrors the legacy fl_download_overlay/pb_download_spinner treatment
+     * for a RECEIVED "image" not yet cached locally. Call once right after
+     * bindMedia() for a message that still needs downloading; skip entirely
+     * (or call clearMediaDownloadGate()) for sent/already-cached images.
+     *
+     * @param downloading true once the download is actually in flight (shows
+     *                     the spinner/percentage ring); false for the idle
+     *                     "tap to download" pill state.
+     * @param progressPercent 0-100 for a live percentage, or -1 for an
+     *                        indeterminate spinner (e.g. before the first
+     *                        progress callback, or while only fetching size).
+     * @param idleLabel text shown next to the idle icon (e.g. a file-size
+     *                  string or "Photo"/"Tap to retry"); ignored while downloading.
+     */
+    public void setMediaDownloadGate(boolean downloading, int progressPercent, @Nullable String idleLabel) {
+        this.mediaGated = true;
+        this.mediaDownloading = downloading;
+        this.mediaDownloadProgress = progressPercent;
+        this.mediaDownloadLabel = idleLabel != null ? idleLabel : "";
+        invalidate();
+    }
+
+    /** Updates just the live percentage while a download is already in flight (call on every onProgress tick). */
+    public void setMediaDownloadProgress(int progressPercent) {
+        this.mediaGated = true;
+        this.mediaDownloading = true;
+        this.mediaDownloadProgress = progressPercent;
+        invalidate();
+    }
+
+    /** Dismisses the gate entirely — call once the real bitmap has been supplied via setMediaBitmap(). */
+    public void clearMediaDownloadGate() {
+        this.mediaGated = false;
+        this.mediaDownloading = false;
+        this.mediaDownloadProgress = -1;
+        invalidate();
+    }
+
+    /**
      * Bind this view to a SENT multi-image/video group (matches ll_media_group
      * + MediaGroupLayoutHelper's 1/2/3/4/5-9/10+ grid rules). Pass bitmap=null
      * per-cell placeholders first (thumbnails still loading); call
@@ -620,6 +742,8 @@ public class MessageBubbleCanvasView extends View {
         this.groupGatePendingCount = 0;
         this.groupCellPending = new boolean[groupVisibleCount];
         this.groupCellDownloading = new boolean[groupVisibleCount];
+        this.groupCellProgress = new int[groupVisibleCount];
+        java.util.Arrays.fill(this.groupCellProgress, -1);
         this.groupHasCaption = caption != null && !caption.isEmpty();
         this.messageText = groupHasCaption ? caption : "";
         this.footerTimeText = timeText != null ? timeText : "";
@@ -670,6 +794,8 @@ public class MessageBubbleCanvasView extends View {
         int n = groupVisibleCount;
         this.groupCellPending = new boolean[n];
         this.groupCellDownloading = new boolean[n];
+        this.groupCellProgress = new int[n];
+        java.util.Arrays.fill(this.groupCellProgress, -1);
         int pending = 0;
         if (cellNeedsDownload != null) {
             for (int i = 0; i < n && i < cellNeedsDownload.length; i++) {
@@ -683,10 +809,22 @@ public class MessageBubbleCanvasView extends View {
     }
 
     /** Marks one cell as actively downloading (or not) — draws a small dim+icon
-     *  badge on just that cell once the master gate has been dismissed. */
+     *  badge on just that cell once the master gate has been dismissed. Resets
+     *  its progress to indeterminate; call setGroupCellProgress() as real
+     *  percentages start arriving. */
     public void setGroupCellDownloading(int index, boolean downloading) {
         if (index < 0 || index >= groupCellDownloading.length) return;
         groupCellDownloading[index] = downloading;
+        if (downloading && index < groupCellProgress.length) groupCellProgress[index] = -1;
+        invalidate();
+    }
+
+    /** Updates the live download percentage for one in-flight group cell (call on every onProgress
+     *  tick); pass -1 for an indeterminate spinner. Implies the cell is downloading. */
+    public void setGroupCellProgress(int index, int percent) {
+        if (index < 0 || index >= groupCellDownloading.length) return;
+        groupCellDownloading[index] = true;
+        if (index < groupCellProgress.length) groupCellProgress[index] = percent;
         invalidate();
     }
 
@@ -697,6 +835,7 @@ public class MessageBubbleCanvasView extends View {
         if (index < 0 || index >= groupCellPending.length) return;
         groupCellPending[index] = false;
         if (index < groupCellDownloading.length) groupCellDownloading[index] = false;
+        if (index < groupCellProgress.length) groupCellProgress[index] = -1;
         invalidate();
     }
 
@@ -1348,6 +1487,15 @@ public class MessageBubbleCanvasView extends View {
             canvas.drawRoundRect(mediaRect, r, r, mediaPlaceholderPaint);
         }
 
+        if (mediaGated) {
+            // Manual-download gate covers the whole slot (idle pill or live
+            // spinner/percentage) — same precedent as the group gate: while
+            // it's up, the timestamp/tick pill below is skipped entirely
+            // (nothing meaningful to show over an unfetched image yet).
+            drawMediaDownloadGate(canvas);
+            return;
+        }
+
         if (mediaHasCaption && textLayout != null) {
             float captionTop = mediaRect.bottom + MEDIA_CAPTION_GAP_DP * density;
             canvas.save();
@@ -1376,6 +1524,50 @@ public class MessageBubbleCanvasView extends View {
                 drawTick(canvas, mediaPillRect.right - pillPadH - TICK_SIZE_DP * density, textBaselineY);
                 tickPaint.set(saved);
             }
+        }
+    }
+
+    /**
+     * Draws the single-media download gate: a dim scrim over mediaRect plus
+     * a centered pill — idle "⬇ <label>" (tap to start) when !mediaDownloading,
+     * or a live spinner/percentage ring while mediaDownloading is true. See
+     * setMediaDownloadGate()/setMediaDownloadProgress().
+     */
+    private void drawMediaDownloadGate(Canvas canvas) {
+        float r = MEDIA_CORNER_RADIUS_DP * density;
+        canvas.drawRoundRect(mediaRect, r, r, mediaGateScrimPaint);
+
+        String label = mediaDownloading
+                ? (mediaDownloadProgress >= 0 ? mediaDownloadProgress + "%" : "")
+                : (mediaDownloadLabel.isEmpty() ? "Photo" : mediaDownloadLabel);
+
+        float iconSize = GROUP_GATE_PILL_ICON_DP * density;
+        float iconGap = GROUP_GATE_PILL_ICON_GAP_DP * density;
+        float padH = GROUP_GATE_PILL_PAD_H_DP * density;
+        float padV = GROUP_GATE_PILL_PAD_V_DP * density;
+        float textW = label.isEmpty() ? 0 : mediaGatePillTextPaint.measureText(label);
+        float contentH = Math.max(iconSize, mediaGatePillTextPaint.descent() - mediaGatePillTextPaint.ascent());
+        float pillW = padH * 2 + iconSize + (label.isEmpty() ? 0 : iconGap + textW);
+        float pillH = padV * 2 + contentH;
+        float cx = mediaRect.centerX(), cy = mediaRect.centerY();
+        mediaGatePillRect.set(cx - pillW / 2f, cy - pillH / 2f, cx + pillW / 2f, cy + pillH / 2f);
+
+        float pillR = GROUP_GATE_PILL_CORNER_DP * density;
+        canvas.drawRoundRect(mediaGatePillRect, pillR, pillR, mediaGatePillBgPaint);
+
+        float iconCx = mediaGatePillRect.left + padH + iconSize / 2f;
+        float iconCy = mediaGatePillRect.centerY();
+
+        if (mediaDownloading) {
+            drawProgressRing(canvas, iconCx, iconCy, iconSize, mediaGatePillIconPaint, mediaDownloadProgress);
+        } else {
+            drawGateIcon(canvas, iconCx, iconCy, iconSize, mediaGatePillIconPaint);
+        }
+
+        if (!label.isEmpty()) {
+            float textBaselineY = mediaGatePillRect.centerY()
+                    - (mediaGatePillTextPaint.ascent() + mediaGatePillTextPaint.descent()) / 2f;
+            canvas.drawText(label, iconCx + iconSize / 2f + iconGap, textBaselineY, mediaGatePillTextPaint);
         }
     }
 
@@ -1416,17 +1608,50 @@ public class MessageBubbleCanvasView extends View {
                 groupPlayTrianglePath.close();
                 canvas.drawPath(groupPlayTrianglePath, groupPlayTrianglePaint);
 
+                boolean hasItemCaption = item.caption != null && !item.caption.isEmpty();
                 if (item.duration != null && !item.duration.isEmpty()) {
                     float durPadH = 3 * density, durPadV = 1 * density;
                     float textW = groupDurationTextPaint.measureText(item.duration);
                     float textH = groupDurationTextPaint.descent() - groupDurationTextPaint.ascent();
-                    float left = rect.left + 4 * density;
-                    float bottom = rect.bottom - 4 * density;
-                    RectF durBg = new RectF(left, bottom - textH - durPadV * 2, left + textW + durPadH * 2, bottom);
+                    RectF durBg;
+                    if (hasItemCaption) {
+                        // Duration moves to the top-end corner so it doesn't
+                        // collide with the caption strip pinned to the bottom
+                        // (same conflict-avoidance MediaGroupLayoutHelper uses).
+                        float right = rect.right - 4 * density;
+                        float top = rect.top + 4 * density;
+                        durBg = new RectF(right - textW - durPadH * 2, top, right, top + textH + durPadV * 2);
+                    } else {
+                        float left = rect.left + 4 * density;
+                        float bottom = rect.bottom - 4 * density;
+                        durBg = new RectF(left, bottom - textH - durPadV * 2, left + textW + durPadH * 2, bottom);
+                    }
                     canvas.drawRoundRect(durBg, 3 * density, 3 * density, groupDurationBgPaint);
-                    canvas.drawText(item.duration, left + durPadH, bottom - durPadV - groupDurationTextPaint.descent(),
-                            groupDurationTextPaint);
+                    float textBaseline = hasItemCaption
+                            ? durBg.top + durPadV - groupDurationTextPaint.ascent()
+                            : durBg.bottom - durPadV - groupDurationTextPaint.descent();
+                    canvas.drawText(item.duration, durBg.left + durPadH, textBaseline, groupDurationTextPaint);
                 }
+            }
+
+            // Per-item caption: small gradient strip + single-line ellipsized
+            // text pinned to this cell's bottom edge — mirrors
+            // MediaGroupLayoutHelper's per-item caption exactly, just Canvas-
+            // drawn. Skipped on the "+N" overflow cell (nothing legible fits
+            // under the dark overlay+count already covering it).
+            if (item != null && !isLastOverlay && item.caption != null && !item.caption.isEmpty()) {
+                float stripH = GROUP_ITEM_CAPTION_STRIP_H_DP * density;
+                float stripTop = rect.bottom - stripH;
+                android.graphics.Shader grad = new android.graphics.LinearGradient(
+                        0, stripTop, 0, rect.bottom, 0x00000000, 0x99000000, android.graphics.Shader.TileMode.CLAMP);
+                groupItemCaptionScrimPaint.setShader(grad);
+                canvas.drawRect(rect.left, stripTop, rect.right, rect.bottom, groupItemCaptionScrimPaint);
+
+                float margin = GROUP_ITEM_CAPTION_MARGIN_DP * density;
+                float maxTextW = rect.width() - margin * 2;
+                CharSequence ellipsized = TextUtils.ellipsize(item.caption, groupItemCaptionPaint, maxTextW, TextUtils.TruncateAt.END);
+                float baseline = rect.bottom - GROUP_ITEM_CAPTION_BOTTOM_DP * density - groupItemCaptionPaint.descent();
+                canvas.drawText(ellipsized, 0, ellipsized.length(), rect.left + margin, baseline, groupItemCaptionPaint);
             }
 
             if (isLastOverlay) {
@@ -1447,7 +1672,12 @@ public class MessageBubbleCanvasView extends View {
                 float badgeR = (GROUP_CELL_GATE_BADGE_DP * density) / 2f;
                 canvas.drawCircle(cx, cy, badgeR, groupCellGateBadgeBgPaint);
                 boolean downloading = i < groupCellDownloading.length && groupCellDownloading[i];
-                drawGateIcon(canvas, cx, cy, GROUP_CELL_GATE_ICON_DP * density, groupCellGateIconPaint, downloading);
+                if (downloading) {
+                    int prog = i < groupCellProgress.length ? groupCellProgress[i] : -1;
+                    drawProgressRing(canvas, cx, cy, GROUP_CELL_GATE_ICON_DP * density, groupCellGateIconPaint, prog);
+                } else {
+                    drawGateIcon(canvas, cx, cy, GROUP_CELL_GATE_ICON_DP * density, groupCellGateIconPaint);
+                }
             }
         }
 
@@ -1476,7 +1706,7 @@ public class MessageBubbleCanvasView extends View {
 
             float iconCx = groupGatePillRect.left + padH + iconSize / 2f;
             float iconCy = groupGatePillRect.centerY();
-            drawGateIcon(canvas, iconCx, iconCy, iconSize, groupGatePillIconPaint, false);
+            drawGateIcon(canvas, iconCx, iconCy, iconSize, groupGatePillIconPaint);
 
             float textBaselineY = groupGatePillRect.centerY()
                     - (groupGatePillTextPaint.ascent() + groupGatePillTextPaint.descent()) / 2f;
@@ -1575,26 +1805,42 @@ public class MessageBubbleCanvasView extends View {
     private final RectF gateIconArcRect = new RectF();
 
     /**
-     * Draws the download-gate glyph at (cx, cy) sized to `size`: a simple
-     * download arrow (vertical stroke + arrowhead + tray) when idle, or a
-     * partial ring standing in for a spinner while `downloading` is true.
-     * (Static, not animated — a deliberate simplification vs. the old
-     * View-based ProgressBar; the cell/pill still updates the instant the
-     * download finishes via markGroupCellDownloaded().)
+     * Draws the IDLE download-gate glyph at (cx, cy) sized to `size`: a
+     * simple download arrow (vertical stroke + arrowhead + tray). Used for
+     * the "tap to download" state, before anything is in flight. Once a
+     * download starts, drawProgressRing() takes over instead (live
+     * spinner/percentage) — see setMediaDownloadGate()/setGroupCellProgress().
      */
-    private void drawGateIcon(Canvas canvas, float cx, float cy, float size, Paint paint, boolean downloading) {
+    private void drawGateIcon(Canvas canvas, float cx, float cy, float size, Paint paint) {
         float r = size / 2f;
-        if (downloading) {
-            gateIconArcRect.set(cx - r, cy - r, cx + r, cy + r);
-            canvas.drawArc(gateIconArcRect, -90, 270, false, paint);
-            return;
-        }
         float shaftTop = cy - r;
         float shaftBottom = cy + r * 0.25f;
         canvas.drawLine(cx, shaftTop, cx, shaftBottom, paint);
         canvas.drawLine(cx - r * 0.5f, shaftBottom - r * 0.5f, cx, shaftBottom, paint);
         canvas.drawLine(cx + r * 0.5f, shaftBottom - r * 0.5f, cx, shaftBottom, paint);
         canvas.drawLine(cx - r, cy + r, cx + r, cy + r, paint);
+    }
+
+    /**
+     * Live download-progress ring — replaces the old static partial-arc
+     * "spinner" with one driven by real progress. percent >= 0 draws a
+     * determinate clockwise arc from 12 o'clock (e.g. 42% ⇒ ~151° swept);
+     * percent < 0 (no progress reported yet) draws a short arc that spins
+     * continuously based on wall-clock time, requesting the next frame via
+     * postInvalidateOnAnimation() — the standard technique for an
+     * indeterminate spinner on a custom View without a Handler/ValueAnimator.
+     */
+    private void drawProgressRing(Canvas canvas, float cx, float cy, float size, Paint paint, int percent) {
+        float r = size / 2f;
+        gateIconArcRect.set(cx - r, cy - r, cx + r, cy + r);
+        if (percent >= 0) {
+            canvas.drawArc(gateIconArcRect, -90, 360f * (Math.min(percent, 100) / 100f), false, paint);
+        } else {
+            long now = android.os.SystemClock.uptimeMillis();
+            float rotation = (now % INDETERMINATE_PERIOD_MS) / (float) INDETERMINATE_PERIOD_MS * 360f;
+            canvas.drawArc(gateIconArcRect, rotation - 90, INDETERMINATE_SWEEP_DEG, false, paint);
+            postInvalidateOnAnimation();
+        }
     }
 
     private void drawTick(Canvas canvas, float x, float baselineY) {
@@ -1636,7 +1882,14 @@ public class MessageBubbleCanvasView extends View {
         }
         if (isMedia && event.getActionMasked() == MotionEvent.ACTION_UP
                 && mediaRect.contains(event.getX(), event.getY())) {
-            if (clickListener != null) clickListener.onImageClick();
+            if (mediaGated) {
+                // Idle pill → start the download; already-in-flight → swallow
+                // the tap (same "ignore while downloading" precedent the
+                // group-cell gate uses).
+                if (!mediaDownloading && clickListener != null) clickListener.onMediaDownloadClick();
+            } else if (clickListener != null) {
+                clickListener.onImageClick();
+            }
             return true;
         }
         if (isMediaGroup && event.getActionMasked() == MotionEvent.ACTION_UP) {

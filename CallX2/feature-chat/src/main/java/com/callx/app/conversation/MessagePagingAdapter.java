@@ -706,27 +706,25 @@ public class MessagePagingAdapter
         String type = m.type != null ? m.type : "text";
         if ("text".equals(type)) return true;
         if ("image".equals(type)) {
-            // Received images need the manual download-overlay pill
-            // (fl_download_overlay) which this view doesn't render yet —
-            // only the sender's own already-local image is eligible.
-            return sentFlag;
+            // Manual download-overlay pill (mirrors fl_download_overlay) is
+            // now modeled (MessageBubbleCanvasView.setMediaDownloadGate) —
+            // received images are eligible too, same as sent.
+            return true;
         }
         if ("multi_media".equals(type)) {
             // Both sent and received groups are eligible now — the
             // manual per-cell download-gate + master "Download N photos"
             // pill is modeled in MessageBubbleCanvasView (setGroupDownloadGate)
             // for the received case, same as MediaGroupLayoutHelper's old
-            // View-based grid. Still only if every cell is a plain
-            // image/video (audio/file cells and per-item captions aren't
-            // modeled — see MediaGroupLayoutHelper vs.
-            // MessageBubbleCanvasView.drawMediaGroup()).
+            // View-based grid. Per-item captions are now modeled too
+            // (MessageBubbleCanvasView.GridItem.caption / drawMediaGroup's
+            // per-cell strip) — still only if every cell is a plain
+            // image/video (audio/file cells aren't modeled).
             if (m.mediaItems == null || m.mediaItems.isEmpty()) return false;
             for (java.util.Map<String, Object> item : m.mediaItems) {
                 Object mtObj = item.get("mediaType");
                 String mt = mtObj instanceof String ? (String) mtObj : "";
                 if (!"image".equals(mt) && !"video".equals(mt)) return false;
-                Object capObj = item.get("caption");
-                if (capObj instanceof String && !((String) capObj).isEmpty()) return false;
             }
             return true;
         }
@@ -1235,7 +1233,9 @@ public class MessagePagingAdapter
                 boolean isVideoCell = "video".equals(mtObj instanceof String ? mtObj : "");
                 Object durObj = item.get("duration");
                 String dur = durObj instanceof String ? (String) durObj : null;
-                gridItems.add(new com.callx.app.conversation.canvas.MessageBubbleCanvasView.GridItem(isVideoCell, dur));
+                Object capObj = item.get("caption");
+                String cap = capObj instanceof String ? (String) capObj : null;
+                gridItems.add(new com.callx.app.conversation.canvas.MessageBubbleCanvasView.GridItem(isVideoCell, dur, cap));
             }
             cv.bindMediaGroup(gridItems, m.caption, timeStr, sent, isRead, isDelivered);
             cv.setDeletedStyle(false); // clears any italic/dim state a recycled view carried from a deleted message
@@ -1311,24 +1311,55 @@ public class MessagePagingAdapter
             // "image"/"gif" case) — always captionless here.
             cv.bindMedia(null, null, timeStr, sent, isRead, isDelivered);
             cv.setDeletedStyle(false); // clears any italic/dim state a recycled view carried from a deleted message
-            if (fullUrl != null && !fullUrl.isEmpty()) {
-                glide(ctx).asBitmap()
-                        .load(fullUrl)
-                        .apply(THUMB_RGB565)
-                        .override(480, 480)
-                        .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
-                            @Override
-                            public void onResourceReady(@NonNull Bitmap resource,
-                                    @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
-                                if (h.canvasBindToken != myToken) return; // holder recycled/rebound since this load started
-                                cv.setMediaBitmap(resource);
+
+            // Mirrors bindDownloadOverlay(): sent images (and any received
+            // image already local) load straight away; a not-yet-cached
+            // RECEIVED image shows the manual download gate instead (idle
+            // pill, or a live spinner/percentage if a download from an
+            // earlier bind is still in flight) until the person taps it.
+            java.io.File cachedFile = (!sent && fullUrl != null && !fullUrl.isEmpty())
+                    ? com.callx.app.utils.MediaCache.getCached(ctx, fullUrl) : null;
+
+            if (sent || cachedFile != null) {
+                cv.clearMediaDownloadGate();
+                Object loadSrc = cachedFile != null ? cachedFile : fullUrl;
+                if (loadSrc != null) {
+                    glide(ctx).asBitmap()
+                            .load(loadSrc)
+                            .apply(THUMB_RGB565)
+                            .override(480, 480)
+                            .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
+                                @Override
+                                public void onResourceReady(@NonNull Bitmap resource,
+                                        @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
+                                    if (h.canvasBindToken != myToken) return; // holder recycled/rebound since this load started
+                                    cv.setMediaBitmap(resource);
+                                }
+                                @Override
+                                public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {
+                                    if (h.canvasBindToken != myToken) return;
+                                    cv.setMediaBitmap(null);
+                                }
+                            });
+                }
+            } else if (fullUrl != null && !fullUrl.isEmpty()) {
+                boolean isDownloading = downloadingMediaUrls.contains(fullUrl);
+                cv.setMediaDownloadGate(isDownloading, isDownloading ? -1 : Integer.MIN_VALUE, "Photo");
+                if (!isDownloading) {
+                    // Fetch just the size for the idle label — doesn't download the file.
+                    com.callx.app.utils.MediaCache.getRemoteSize(ctx, fullUrl,
+                            new com.callx.app.utils.MediaCache.SizeCallback() {
+                        @Override public void onSize(long bytes) {
+                            if (h.canvasBindToken != myToken) return; // recycled/rebound
+                            if (!downloadingMediaUrls.contains(fullUrl)) {
+                                cv.setMediaDownloadGate(false, Integer.MIN_VALUE, formatFileSize(bytes));
                             }
-                            @Override
-                            public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {
-                                if (h.canvasBindToken != myToken) return;
-                                cv.setMediaBitmap(null);
-                            }
-                        });
+                        }
+                        @Override public void onError(String reason) { /* keep "Photo" label */ }
+                    });
+                }
+            } else {
+                cv.clearMediaDownloadGate();
             }
         } else {
             cv.bind(m.text != null ? m.text : "", timeStr, sent, isRead, isDelivered);
@@ -1467,6 +1498,44 @@ public class MessagePagingAdapter
             }
 
             @Override
+            public void onMediaDownloadClick() {
+                if (!isImage) return;
+                final String fullUrl = m.mediaUrl != null ? m.mediaUrl : m.text;
+                if (fullUrl == null || fullUrl.isEmpty() || downloadingMediaUrls.contains(fullUrl)) return;
+                downloadingMediaUrls.add(fullUrl);
+                cv.setMediaDownloadGate(true, 0, null);
+
+                com.callx.app.utils.MediaCache.getWithProgress(ctx, fullUrl,
+                        new com.callx.app.utils.MediaCache.ProgressCallback() {
+                    @Override public void onProgress(int percent) {
+                        if (h.canvasBindToken != myToken) return;
+                        cv.setMediaDownloadProgress(percent);
+                    }
+                    @Override public void onReady(java.io.File file) {
+                        downloadingMediaUrls.remove(fullUrl);
+                        if (h.canvasBindToken != myToken) return;
+                        cv.clearMediaDownloadGate();
+                        glide(ctx).asBitmap().load(file).apply(THUMB_RGB565).override(480, 480)
+                                .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
+                                    @Override
+                                    public void onResourceReady(@NonNull Bitmap resource,
+                                            @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
+                                        if (h.canvasBindToken != myToken) return;
+                                        cv.setMediaBitmap(resource);
+                                    }
+                                    @Override
+                                    public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {}
+                                });
+                    }
+                    @Override public void onError(String reason) {
+                        downloadingMediaUrls.remove(fullUrl);
+                        if (h.canvasBindToken != myToken) return;
+                        cv.setMediaDownloadGate(false, Integer.MIN_VALUE, "Tap to retry");
+                    }
+                });
+            }
+
+            @Override
             public void onMediaCellClick(int index) {
                 if (!isMultiMedia || m.mediaItems == null || index < 0 || index >= m.mediaItems.size()) return;
                 java.util.Map<String, Object> item = m.mediaItems.get(index);
@@ -1535,8 +1604,10 @@ public class MessagePagingAdapter
         com.callx.app.utils.MediaCache.getWithProgress(ctx, url,
                 new com.callx.app.utils.MediaCache.ProgressCallback() {
             @Override public void onProgress(int percent) {
-                // Grid cells are too small for a "%" label — the spinner
-                // badge alone (already showing) covers this.
+                // Grid cells are too small for a "%" label, but the badge's
+                // ring itself now sweeps live with real progress instead of
+                // a static partial-arc (see MessageBubbleCanvasView.drawProgressRing).
+                if (h.canvasBindToken == myToken) cv.setGroupCellProgress(index, percent);
             }
             @Override public void onReady(java.io.File file) {
                 downloadingMediaUrls.remove(url);
