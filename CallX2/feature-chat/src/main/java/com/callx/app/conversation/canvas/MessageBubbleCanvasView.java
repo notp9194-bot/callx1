@@ -206,6 +206,31 @@ public class MessageBubbleCanvasView extends View {
     private static final int   MEDIA_PILL_TEXT         = 0xFFFFFFFF;
     private static final int   MEDIA_PLACEHOLDER_COLOR = 0xFFD9D9D9; // shown until Bitmap arrives — no theme lookup yet (see class doc)
 
+    // ── Audio (voice message) bubble — mirrors layout_msg_audio.xml
+    // exactly: a 40dp circular play/pause button (circle_primary bg,
+    // white glyph), a flexible waveform track, and a small elapsed-time
+    // label, all in one row; the usual timestamp/tick footer sits below
+    // the row (like the plain-text bubble's footer — an audio bubble is
+    // never captioned, so there's no pill-overlay mode like the image
+    // bubble has). The "waveform" itself is generated once from a stable
+    // seed (the audio URL) exactly like AudioWaveformView's placeholder
+    // bars — no real PCM amplitude extraction — so the same voice note
+    // always renders the same bar shape across rebinds/recycling. ──
+    private static final float AUDIO_CONTENT_WIDTH_DP = 200f; // fixed row content width (excludes hPad)
+    private static final float AUDIO_BTN_SIZE_DP       = 40f;
+    private static final float AUDIO_ROW_GAP_DP        = 8f;  // button↔waveform and waveform↔duration gaps
+    private static final float AUDIO_DUR_WIDTH_DP      = 36f;
+    private static final float AUDIO_DUR_TEXT_SP       = 11f;
+    private static final float AUDIO_WAVEFORM_HEIGHT_DP = 28f;
+    private static final int   AUDIO_BAR_COUNT         = 28;
+    private static final float AUDIO_BAR_GAP_RATIO     = 0.45f; // fraction of each bar's slot left as gap
+    private static final int   AUDIO_BTN_BG_COLOR      = 0xFF008069; // matches circle_primary/brand_primary
+    private static final int   AUDIO_BTN_ICON_COLOR    = 0xFFFFFFFF;
+    private static final float AUDIO_PLAY_TRIANGLE_DP  = 14f;
+    private static final float AUDIO_PAUSE_BAR_W_DP    = 3.5f;
+    private static final float AUDIO_PAUSE_BAR_H_DP    = 14f;
+    private static final float AUDIO_PAUSE_BAR_GAP_DP  = 4f;
+
     // ── Reaction badge — mirrors ll_reactions/tv_reactions in
     // item_message_sent/received.xml: a plain-emoji badge (no background
     // box) floating outside the bubble's bottom-end corner, pulled down by
@@ -400,6 +425,10 @@ public class MessageBubbleCanvasView extends View {
         void onGroupCellDownloadClick(int index);
         /** Tapped the reaction badge — caller should open the reaction-details/picker sheet (same as ll_reactions' click listener on the legacy path). */
         void onReactionsClick();
+        /** Tapped the play/pause button on an audio bubble (bindAudio only) — caller should toggle MediaPlayer playback for this message. */
+        void onAudioPlayPauseClick();
+        /** Dragged/tapped the waveform on an audio bubble (bindAudio only) — fraction is 0..1 of the track; caller should seek MediaPlayer to it. The view already updated its own progress bar optimistically. */
+        void onAudioSeek(float fraction);
     }
 
     /** Immutable per-cell descriptor for bindMediaGroup(); bitmaps are supplied
@@ -477,6 +506,22 @@ public class MessageBubbleCanvasView extends View {
     private final RectF mediaRect = new RectF();
     private final RectF mediaPillRect = new RectF();
     private final android.graphics.Matrix mediaShaderMatrix = new android.graphics.Matrix();
+
+    // ── Audio (voice message) bubble state — entirely separate mode from
+    // isMedia/isMediaGroup/isReelShare (see AUDIO_* constants doc above). ──
+    private boolean isAudio = false;
+    private float[] audioLevels = new float[0];
+    private float audioProgress = 0f;   // 0..1 played fraction, drives waveform fill + seek
+    private boolean audioPlaying = false;
+    private String audioElapsedText = ""; // "m:ss" while playing; empty when idle (mirrors legacy tv_audio_dur, which never shows a total duration upfront)
+    private final Paint audioBtnBgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint audioBtnIconPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint audioWaveformIdlePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint audioWaveformPlayedPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final TextPaint audioDurPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    private final RectF audioBtnRect = new RectF();
+    private final RectF audioWaveformRect = new RectF();
+    private final android.graphics.Path audioPlayTrianglePath = new android.graphics.Path();
 
     // ── Single-media manual download gate state — see setMediaDownloadGate(). ──
     private boolean mediaGated = false;
@@ -747,6 +792,12 @@ public class MessageBubbleCanvasView extends View {
         linkTitlePaint.setTextSize(LINK_PREVIEW_TITLE_SP * density);
         linkTitlePaint.setFakeBoldText(true);
 
+        audioBtnBgPaint.setColor(AUDIO_BTN_BG_COLOR);
+        audioBtnIconPaint.setColor(AUDIO_BTN_ICON_COLOR);
+        audioBtnIconPaint.setStyle(Paint.Style.FILL);
+        audioDurPaint.setTextSize(AUDIO_DUR_TEXT_SP * density);
+        audioDurPaint.setTextAlign(Paint.Align.RIGHT);
+
         setWillNotDraw(false);
 
         gestureDetector = new GestureDetector(ctx, new GestureDetector.SimpleOnGestureListener() {
@@ -773,6 +824,7 @@ public class MessageBubbleCanvasView extends View {
         this.isMediaGroup = false;
         this.isReelShare = false;
         this.isVideoMedia = false;
+        this.isAudio = false;
         this.mediaBitmap = null;
         this.messageText = text != null ? text : "";
         this.footerTimeText = timeText != null ? timeText : "";
@@ -816,6 +868,7 @@ public class MessageBubbleCanvasView extends View {
         this.isMediaGroup = false;
         this.isReelShare = false;
         this.isVideoMedia = false;
+        this.isAudio = false;
         this.videoDuration = null;
         this.mediaBitmap = bitmap;
         this.hasLinkPreview = false; // link-preview card is text-mode-only; a stale flag from a recycled view must not leak in here
@@ -876,6 +929,107 @@ public class MessageBubbleCanvasView extends View {
     }
 
     /**
+     * Bind this view to an "audio" (voice message) message — mirrors
+     * layout_msg_audio.xml: a play/pause circle button, a waveform track,
+     * and an elapsed-time label, all inside the normal chat-bubble shape
+     * (unlike the image/reel/group modes, an audio bubble is never
+     * captioned so it just falls back to the same footer row a plain-text
+     * bubble uses). `seed` should be something stable per message (the
+     * audio URL works well) so the waveform's bar heights stay identical
+     * across rebinds/recycling — mirrors AudioWaveformView.setSeed().
+     * Always starts idle (not playing, 0 progress, no elapsed label);
+     * the caller drives setAudioPlaying()/setAudioProgress()/
+     * setAudioElapsedText() as MediaPlayer reports state, exactly as it
+     * used to push into btnPlayPause/seekAudio/tvAudioDur.
+     */
+    public void bindAudio(@Nullable String seed, String timeText,
+                           boolean isSent, boolean isRead, boolean isDelivered) {
+        this.isMedia = false;
+        this.isMediaGroup = false;
+        this.isReelShare = false;
+        this.isVideoMedia = false;
+        this.isAudio = true;
+        this.videoDuration = null;
+        this.mediaBitmap = null;
+        this.hasLinkPreview = false; // link-preview card is text-mode-only; a stale flag from a recycled view must not leak in here
+        this.messageText = "";
+        this.footerTimeText = timeText != null ? timeText : "";
+        this.sent = isSent;
+        this.read = isRead;
+        this.delivered = isDelivered;
+        this.audioLevels = generateAudioLevels(seed, AUDIO_BAR_COUNT);
+        this.audioProgress = 0f;
+        this.audioPlaying = false;
+        this.audioElapsedText = "";
+
+        Context ctx = getContext();
+        textPaint.setColor(ChatThemeManager.get(ctx).getTextColor(ctx, sent));
+        footerPaint.setColor(textPaint.getColor());
+        tickPaint.setColor(ChatThemeManager.get(ctx).getTickColor(read));
+        // Waveform colors derive from the bubble's own text color so they
+        // stay readable on both a colored sent bubble and a light received
+        // one (the legacy AudioWaveformView hardcoded white-based colors,
+        // which only worked on the sent/dark side — this fixes that).
+        audioWaveformIdlePaint.setColor(textPaint.getColor());
+        audioWaveformIdlePaint.setAlpha(90);
+        audioWaveformPlayedPaint.setColor(textPaint.getColor());
+        audioWaveformPlayedPaint.setAlpha(255);
+        audioDurPaint.setColor(textPaint.getColor());
+        audioDurPaint.setAlpha(180);
+
+        int cacheKey = (sent ? 1 : 0) << 1 | (hasReply ? 1 : 0);
+        if (cacheKey != lastCacheKey || bubbleDrawable == null) {
+            bubbleDrawable = buildBubbleDrawable(ctx, sent);
+            lastCacheKey = cacheKey;
+        }
+        resolveReplyColors(ctx);
+
+        textLayout = null;
+        requestLayout();
+        invalidate();
+    }
+
+    /** Toggles the play/pause glyph drawn inside the circle button — call whenever MediaPlayer actually starts/pauses/stops for this bubble. */
+    public void setAudioPlaying(boolean playing) {
+        if (this.audioPlaying == playing) return;
+        this.audioPlaying = playing;
+        invalidate();
+    }
+
+    /** Cheap path — called every playback tick (e.g. every 250ms). No layout/measure work, draw-only, same precedent as AudioWaveformView.setProgress(). */
+    public void setAudioProgress(float fraction) {
+        float clamped = Math.max(0f, Math.min(1f, fraction));
+        if (clamped == audioProgress) return;
+        audioProgress = clamped;
+        invalidate();
+    }
+
+    /** Elapsed "m:ss" label shown next to the waveform while playing; pass "" to clear it back to idle (mirrors legacy tv_audio_dur, which never shows a total duration upfront — only the live elapsed time once playback starts). */
+    public void setAudioElapsedText(@Nullable String text) {
+        this.audioElapsedText = text != null ? text : "";
+        invalidate();
+    }
+
+    /** Resets the bubble to its idle state (button back to ▶, progress to 0, elapsed label cleared) — call when playback stops/completes/errors, or right before rebinding a recycled holder to a different message. */
+    public void resetAudioPlayback() {
+        this.audioPlaying = false;
+        this.audioProgress = 0f;
+        this.audioElapsedText = "";
+        invalidate();
+    }
+
+    /** Same bar-height generation AudioWaveformView.generateLevels() uses — a stable seed always produces the same "waveform" shape. */
+    private static float[] generateAudioLevels(@Nullable String seed, int count) {
+        long s = (seed == null || seed.isEmpty()) ? 0L : seed.hashCode();
+        java.util.Random r = new java.util.Random(s);
+        float[] out = new float[count];
+        for (int i = 0; i < count; i++) {
+            out[i] = 0.25f + r.nextFloat() * 0.7f;
+        }
+        return out;
+    }
+
+    /**
      * Arms (or updates) the manual download gate over a single-image bubble —
      * mirrors the legacy fl_download_overlay/pb_download_spinner treatment
      * for a RECEIVED "image" not yet cached locally. Call once right after
@@ -931,6 +1085,7 @@ public class MessageBubbleCanvasView extends View {
         this.isMediaGroup = true;
         this.isReelShare = false;
         this.isVideoMedia = false;
+        this.isAudio = false;
         this.videoDuration = null;
         this.hasLinkPreview = false; // link-preview card is text-mode-only; a stale flag from a recycled view must not leak in here
         this.groupItems = items != null ? items : java.util.Collections.emptyList();
@@ -994,6 +1149,7 @@ public class MessageBubbleCanvasView extends View {
         this.isMediaGroup = false;
         this.isReelShare = true;
         this.isVideoMedia = false;
+        this.isAudio = false;
         this.videoDuration = null;
         this.hasLinkPreview = false; // link-preview card is text-mode-only; a stale flag from a recycled view must not leak in here
         this.reelThumbBitmap = thumb;
@@ -1593,6 +1749,21 @@ public class MessageBubbleCanvasView extends View {
             bubbleContentWidth = Math.min(Math.max(gridW, replyBoxContentWidth), maxTextWidth);
             bubbleHeight = replyBoxHeight + replyGap + vPad + gridH + vPad;
 
+        } else if (isAudio) {
+            // ── Audio row (fixed-width, like the legacy ll_audio row) —
+            // no caption, so bubbleHeight is just the row itself plus the
+            // normal text-bubble footer below it. ──
+            footerReserveWidth = footerPaint.measureText(footerTimeText)
+                    + (sent ? (TICK_SIZE_DP + TICK_GAP_DP) * density : 0)
+                    + FOOTER_GAP_DP * density
+                    + expiryReserveWidth();
+            int audioRowWidth = Math.round(AUDIO_CONTENT_WIDTH_DP * density);
+            int audioRowHeight = Math.round(AUDIO_BTN_SIZE_DP * density);
+            bubbleContentWidth = Math.min(
+                    Math.max(audioRowWidth, Math.max(replyBoxContentWidth, (int) footerReserveWidth)),
+                    maxTextWidth);
+            bubbleHeight = replyBoxHeight + replyGap + vPad + audioRowHeight + vPad + footerHeight;
+
         } else {
             // ── Plain text bubble ──
             footerReserveWidth = footerPaint.measureText(footerTimeText)
@@ -1666,6 +1837,21 @@ public class MessageBubbleCanvasView extends View {
                     bubbleTop + replyMargin,
                     bubbleLeft + bubbleWidth - replyMargin,
                     bubbleTop + replyBoxHeight - replyMargin);
+        }
+
+        if (isAudio) {
+            int replyGap = hasReply ? Math.round(REPLY_GAP_TO_MESSAGE_DP * density) : 0;
+            float rowTop = bubbleTop + replyBoxHeight + replyGap + vPad;
+            float btnSize = AUDIO_BTN_SIZE_DP * density;
+            float rowGap = AUDIO_ROW_GAP_DP * density;
+            float durWidth = AUDIO_DUR_WIDTH_DP * density;
+            audioBtnRect.set(bubbleLeft + hPad, rowTop, bubbleLeft + hPad + btnSize, rowTop + btnSize);
+            float waveformTop = rowTop + (btnSize - AUDIO_WAVEFORM_HEIGHT_DP * density) / 2f;
+            audioWaveformRect.set(
+                    audioBtnRect.right + rowGap,
+                    waveformTop,
+                    bubbleLeft + bubbleWidth - hPad - rowGap - durWidth,
+                    waveformTop + AUDIO_WAVEFORM_HEIGHT_DP * density);
         }
 
         if (isMedia) {
@@ -1854,7 +2040,7 @@ public class MessageBubbleCanvasView extends View {
         super.onDraw(canvas);
         if (!isReelShare) {
             if (bubbleDrawable == null) return;
-            if (!isMedia && !isMediaGroup && textLayout == null) return;
+            if (!isMedia && !isMediaGroup && !isAudio && textLayout == null) return;
         }
 
         if (!isReelShare) {
@@ -1893,6 +2079,8 @@ public class MessageBubbleCanvasView extends View {
             drawMediaGroup(canvas);
         } else if (isMedia) {
             drawMedia(canvas, hPad, vPad);
+        } else if (isAudio) {
+            drawAudio(canvas, hPad, vPad);
         } else {
             int replyGap = hasReply ? Math.round(REPLY_GAP_TO_MESSAGE_DP * density) : 0;
             canvas.save();
@@ -2154,6 +2342,70 @@ public class MessageBubbleCanvasView extends View {
             float textBaseline = durBg.bottom - durPadV - groupDurationTextPaint.descent();
             canvas.drawText(videoDuration, durBg.left + durPadH, textBaseline, groupDurationTextPaint);
         }
+    }
+
+    /**
+     * Draws the audio row — play/pause circle button, waveform track
+     * (idle-colored bars, with the played fraction re-drawn in the
+     * played color, clipped to audioProgress), elapsed-time label, and
+     * finally the normal text-bubble footer (time/tick) below the whole
+     * row, since an audio bubble is never captioned.
+     */
+    private void drawAudio(Canvas canvas, int hPad, int vPad) {
+        // ── Play/pause button ──
+        canvas.drawCircle(audioBtnRect.centerX(), audioBtnRect.centerY(),
+                audioBtnRect.width() / 2f, audioBtnBgPaint);
+        float cx = audioBtnRect.centerX(), cy = audioBtnRect.centerY();
+        if (audioPlaying) {
+            float barW = AUDIO_PAUSE_BAR_W_DP * density;
+            float barH = AUDIO_PAUSE_BAR_H_DP * density;
+            float gap = AUDIO_PAUSE_BAR_GAP_DP * density;
+            canvas.drawRoundRect(cx - gap / 2f - barW, cy - barH / 2f, cx - gap / 2f, cy + barH / 2f,
+                    barW / 3f, barW / 3f, audioBtnIconPaint);
+            canvas.drawRoundRect(cx + gap / 2f, cy - barH / 2f, cx + gap / 2f + barW, cy + barH / 2f,
+                    barW / 3f, barW / 3f, audioBtnIconPaint);
+        } else {
+            float triR = (AUDIO_PLAY_TRIANGLE_DP * density) / 2f;
+            audioPlayTrianglePath.reset();
+            audioPlayTrianglePath.moveTo(cx - triR * 0.5f, cy - triR * 0.85f);
+            audioPlayTrianglePath.lineTo(cx - triR * 0.5f, cy + triR * 0.85f);
+            audioPlayTrianglePath.lineTo(cx + triR * 0.95f, cy);
+            audioPlayTrianglePath.close();
+            canvas.drawPath(audioPlayTrianglePath, audioBtnIconPaint);
+        }
+
+        // ── Waveform ── same shape/placement logic as AudioWaveformView's
+        // drawBars(): fixed bar count, rounded bars centered vertically in
+        // the track, drawn once per onDraw (cheap enough — only the
+        // currently-playing bubble redraws every 250ms tick).
+        int n = audioLevels.length;
+        if (n > 0) {
+            float slot = audioWaveformRect.width() / n;
+            float barWidth = slot * (1f - AUDIO_BAR_GAP_RATIO);
+            float radius = barWidth / 2f;
+            float centerY = audioWaveformRect.centerY();
+            float trackH = audioWaveformRect.height();
+            float playedRightEdge = audioWaveformRect.left + audioWaveformRect.width() * audioProgress;
+            float x = audioWaveformRect.left;
+            for (float lvl : audioLevels) {
+                float barHeight = Math.max(barWidth, lvl * trackH);
+                boolean played = (x + barWidth / 2f) <= playedRightEdge;
+                canvas.drawRoundRect(x, centerY - barHeight / 2f, x + barWidth, centerY + barHeight / 2f,
+                        radius, radius, played ? audioWaveformPlayedPaint : audioWaveformIdlePaint);
+                x += slot;
+            }
+        }
+
+        // ── Elapsed-time label ── right-aligned in its fixed slot just
+        // past the waveform; empty (idle) until playback actually starts,
+        // same as the legacy tv_audio_dur.
+        if (!audioElapsedText.isEmpty()) {
+            float baselineY = audioWaveformRect.centerY()
+                    - (audioDurPaint.ascent() + audioDurPaint.descent()) / 2f;
+            canvas.drawText(audioElapsedText, bubbleRect.right - hPad, baselineY, audioDurPaint);
+        }
+
+        drawFooter(canvas, bubbleRect.bottom - vPad * 0.4f, bubbleRect.right - hPad);
     }
 
     /**
@@ -2585,6 +2837,26 @@ public class MessageBubbleCanvasView extends View {
                 && reactionsRect.contains(event.getX(), event.getY())) {
             if (clickListener != null) clickListener.onReactionsClick();
             return true;
+        }
+        if (isAudio) {
+            int action = event.getActionMasked();
+            if (action == MotionEvent.ACTION_UP && audioBtnRect.contains(event.getX(), event.getY())) {
+                if (clickListener != null) clickListener.onAudioPlayPauseClick();
+                return true;
+            }
+            // Scrub the waveform like AudioWaveformView.onTouchEvent — live
+            // drag, not just a tap-to-seek, so DOWN and MOVE both count.
+            if ((action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_MOVE)
+                    && audioWaveformRect.contains(event.getX(), event.getY())) {
+                float fraction = Math.max(0f, Math.min(1f,
+                        (event.getX() - audioWaveformRect.left) / audioWaveformRect.width()));
+                setAudioProgress(fraction);
+                if (clickListener != null) clickListener.onAudioSeek(fraction);
+                return true;
+            }
+            if (action == MotionEvent.ACTION_UP && audioWaveformRect.contains(event.getX(), event.getY())) {
+                return true; // already handled by the DOWN/MOVE branch above
+            }
         }
         if (isMedia && event.getActionMasked() == MotionEvent.ACTION_UP
                 && mediaRect.contains(event.getX(), event.getY())) {

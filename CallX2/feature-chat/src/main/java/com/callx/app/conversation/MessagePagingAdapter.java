@@ -743,7 +743,16 @@ public class MessagePagingAdapter
             // same as the legacy fl_video case.
             return true;
         }
-        return false; // gif/audio/file/poll/link/contact/location — all still on the old path
+        if ("audio".equals(type)) {
+            // Voice-message row (MessageBubbleCanvasView.bindAudio) — play/
+            // pause button + waveform + elapsed-time label, same visual as
+            // layout_msg_audio.xml. Playback itself is still driven by the
+            // adapter's shared MediaPlayer (toggleAudio/playAudioFromPath),
+            // just pushed through cv.setAudioPlaying()/setAudioProgress()/
+            // setAudioElapsedText() instead of btnPlayPause/seekAudio/tvAudioDur.
+            return true;
+        }
+        return false; // gif/file/poll/contact/location — all still on the old path
     }
 
     @NonNull
@@ -1229,6 +1238,7 @@ public class MessagePagingAdapter
         final boolean isMultiMedia = "multi_media".equals(type);
         final boolean isReelShare = "reel_share".equals(type) || "reel_link".equals(type);
         final boolean isVideo = "video".equals(type);
+        final boolean isAudio = "audio".equals(type);
         final boolean isDeleted = Boolean.TRUE.equals(m.deleted);
 
         if (isDeleted) {
@@ -1547,6 +1557,29 @@ public class MessagePagingAdapter
                             }
                         });
             }
+        } else if (isAudio) {
+            // Mirrors the legacy "audio" case (ll_audio/btn_play_pause/
+            // seek_audio) — same MediaStreamCache preload-partial-first
+            // trick so tapping play starts instantly, just pushed through
+            // cv.bindAudio()/setAudioPlaying()/setAudioProgress()/
+            // setAudioElapsedText() (see toggleAudio/playAudioFromPath)
+            // instead of ImageButton/AudioWaveformView/TextView calls.
+            // Always starts idle on a fresh bind — same as the legacy
+            // seekAudio.setProgress(0f) — even if this message happens to
+            // be the one currently playing (a rare rebind-mid-playback
+            // edge case the legacy View path doesn't handle either).
+            final String aUrl = m.mediaUrl != null ? m.mediaUrl : m.text;
+            cv.bindAudio(aUrl, timeStr, sent, isRead, isDelivered);
+            cv.setDeletedStyle(false);
+            java.io.File cachedAudio = MediaCache.getCached(ctx, aUrl);
+            if (cachedAudio == null && aUrl != null && !aUrl.isEmpty()) {
+                com.callx.app.cache.MediaStreamCache.getInstance(ctx)
+                    .preloadPartial(aUrl, new com.callx.app.cache.MediaStreamCache.DownloadCallback() {
+                        @Override public void onComplete(java.io.File file) {}
+                        @Override public void onError(String error) {}
+                        @Override public void onProgress(int percent) {}
+                    });
+            }
         } else {
             cv.bind(m.text != null ? m.text : "", timeStr, sent, isRead, isDelivered);
             cv.setDeletedStyle(false); // clears any italic/dim state a recycled view carried from a deleted message
@@ -1854,6 +1887,28 @@ public class MessagePagingAdapter
             public void onGroupCellDownloadClick(int index) {
                 if (!isMultiMedia || m.mediaItems == null || index < 0 || index >= m.mediaItems.size()) return;
                 downloadGroupCell(ctx, h, cv, myToken, m.mediaItems.get(index), index);
+            }
+
+            @Override
+            public void onAudioPlayPauseClick() {
+                if (!isAudio) return;
+                String aUrl = m.mediaUrl != null ? m.mediaUrl : m.text;
+                toggleAudio(h, aUrl, h.getAdapterPosition());
+            }
+
+            @Override
+            public void onAudioSeek(float fraction) {
+                if (!isAudio) return;
+                // Only meaningful if THIS bubble is the one actually
+                // playing right now — mirrors seekAudio.setOnSeekListener's
+                // player.seekTo() call, just resolved dynamically here
+                // since the canvas click callback doesn't capture durationMs.
+                if (playingPos == h.getAdapterPosition() && player != null) {
+                    try {
+                        int durationMs = player.getDuration();
+                        if (durationMs > 0) player.seekTo((int) (fraction * durationMs));
+                    } catch (Exception ignored) {}
+                }
             }
         });
     }
@@ -3091,7 +3146,7 @@ public class MessagePagingAdapter
     private void toggleAudio(@NonNull VH h, String url, int position) {
         if (playingPos == position && player != null && player.isPlaying()) {
             player.pause();
-            if (h.btnPlayPause != null) h.btnPlayPause.setImageResource(R.drawable.ic_play);
+            setPlayPauseIcon(h, false);
             notifyPlaybackChanged(getItem(position), false);
             return;
         }
@@ -3106,7 +3161,7 @@ public class MessagePagingAdapter
             player = null;
         }
         playingPos = position;
-        if (h.btnPlayPause != null) h.btnPlayPause.setImageResource(R.drawable.ic_pause);
+        setPlayPauseIcon(h, true);
 
         // Pehle local cache check — cached hai to seedha play (zero data use)
         java.io.File cached = MediaCache.getCached(h.itemView.getContext(), url);
@@ -3135,14 +3190,31 @@ public class MessagePagingAdapter
             });
     }
 
+    /** Sets the play/pause glyph on whichever UI this holder actually uses — the Canvas audio bubble (setAudioPlaying) if bound to one, else the legacy ImageButton. */
+    private void setPlayPauseIcon(@NonNull VH h, boolean playing) {
+        if (h.canvasView != null) {
+            h.canvasView.setAudioPlaying(playing);
+        } else if (h.btnPlayPause != null) {
+            h.btnPlayPause.setImageResource(playing ? R.drawable.ic_pause : R.drawable.ic_play);
+        }
+    }
+
+    /** Resets whichever UI this holder uses back to idle (icon → play, progress/elapsed → 0/blank) — mirrors the old per-field reset for both the legacy View path and the Canvas audio bubble. */
+    private void resetAudioUi(@NonNull VH h) {
+        if (h.canvasView != null) {
+            h.canvasView.resetAudioPlayback();
+        } else {
+            if (h.btnPlayPause != null) h.btnPlayPause.setImageResource(R.drawable.ic_play);
+            if (h.seekAudio != null) h.seekAudio.setProgress(0f);
+        }
+    }
+
     private void playAudioFromPath(@NonNull VH h, String path, int position) {
         try {
             // FIX [P3-1]: Reset previous VH UI so two bubbles don't show "pause" at the same time
             if (playingVH != null && playingVH != h) {
                 seekHandler.removeCallbacks(seekUpdater);
-                if (playingVH.btnPlayPause != null)
-                    playingVH.btnPlayPause.setImageResource(R.drawable.ic_play);
-                if (playingVH.seekAudio != null) playingVH.seekAudio.setProgress(0f);
+                resetAudioUi(playingVH);
             }
             if (player != null) { try { player.release(); } catch (Exception ignored) {} }
             player = new MediaPlayer();
@@ -3167,40 +3239,45 @@ public class MessagePagingAdapter
             player.prepareAsync();
             player.setOnPreparedListener(mp -> {
                 mp.start();
-                if (h.btnPlayPause != null) h.btnPlayPause.setImageResource(R.drawable.ic_pause);
+                setPlayPauseIcon(h, true);
                 notifyPlaybackChanged(getItem(position), true);
                 // FIX: SeekBar live progress update — runs every 250ms while playing
-                if (h.seekAudio != null) {
+                if (h.seekAudio != null || h.canvasView != null) {
                     final int durationMs = mp.getDuration();
                     seekHandler.removeCallbacks(seekUpdater);
                     seekUpdater = new Runnable() {
                         @Override public void run() {
                             if (player != null && player.isPlaying()) {
                                 int cur = player.getCurrentPosition();
-                                if (durationMs > 0) h.seekAudio.setProgress((float) cur / durationMs);
-                                // Update duration label if present
-                                if (h.tvAudioDur != null) {
-                                    long sec = cur / 1000;
-                                    h.tvAudioDur.setText(String.format(
-                                        java.util.Locale.getDefault(), "%d:%02d", sec / 60, sec % 60));
+                                String elapsed = String.format(java.util.Locale.getDefault(),
+                                        "%d:%02d", (cur / 1000) / 60, (cur / 1000) % 60);
+                                if (h.canvasView != null) {
+                                    if (durationMs > 0) h.canvasView.setAudioProgress((float) cur / durationMs);
+                                    h.canvasView.setAudioElapsedText(elapsed);
+                                } else {
+                                    if (durationMs > 0) h.seekAudio.setProgress((float) cur / durationMs);
+                                    if (h.tvAudioDur != null) h.tvAudioDur.setText(elapsed);
                                 }
                                 seekHandler.postDelayed(this, 250);
                             }
                         }
                     };
                     seekHandler.post(seekUpdater);
-                    // Allow user to scrub
-                    h.seekAudio.setOnSeekListener(fraction -> {
-                        if (player != null && durationMs > 0) player.seekTo((int) (fraction * durationMs));
-                    });
+                    // Allow user to scrub — canvas bubbles report seeks via
+                    // OnBubbleClickListener.onAudioSeek() instead (wired in
+                    // bindCanvasMessage), so this listener is legacy-only.
+                    if (h.seekAudio != null) {
+                        h.seekAudio.setOnSeekListener(fraction -> {
+                            if (player != null && durationMs > 0) player.seekTo((int) (fraction * durationMs));
+                        });
+                    }
                 }
             });
             player.setOnCompletionListener(mp -> {
                 notifyPlaybackChanged(getItem(position), false);
                 playingPos = -1;
                 seekHandler.removeCallbacks(seekUpdater);
-                if (h.btnPlayPause != null) h.btnPlayPause.setImageResource(R.drawable.ic_play);
-                if (h.seekAudio != null) h.seekAudio.setProgress(0f);
+                resetAudioUi(h);
                 try { mp.release(); } catch (Exception ignored) {}
                 player = null;
             });
@@ -3208,7 +3285,7 @@ public class MessagePagingAdapter
                 android.util.Log.e("AudioPlay", "Error: " + what + " extra: " + extra + " path: " + path);
                 notifyPlaybackChanged(getItem(position), false);
                 playingPos = -1;
-                if (h.btnPlayPause != null) h.btnPlayPause.setImageResource(R.drawable.ic_play);
+                setPlayPauseIcon(h, false);
                 return true;
             });
         } catch (Exception e) {
