@@ -4100,16 +4100,35 @@ public class MessageBubbleCanvasView extends View {
         canvas.drawLine(x + size * 0.35f, y + size * 0.8f, x + size, y + size * 0.1f, tickPaint);
     }
 
+    /**
+     * The rect-specific branches below (reply box, link card, reactions,
+     * audio buttons, file/gif/media taps, poll options, contact/location
+     * buttons, media-group cells) intercept and consume a specific
+     * MotionEvent directly, WITHOUT ever feeding it to gestureDetector.
+     * The matching ACTION_DOWN for that same tap, though, almost always
+     * DID reach gestureDetector first (none of these branches match on
+     * DOWN, only UP — the lone exception being the audio-waveform
+     * scrub), which means gestureDetector already scheduled its internal
+     * long-press timer. If the ACTION_UP that follows is swallowed here
+     * instead of reaching gestureDetector, that timer is never cancelled
+     * and onLongPress() fires ~500ms later — ON TOP OF the click action
+     * we just fired — which is exactly the "select fires along with the
+     * click on non-text bubbles" bug. Feeding a synthetic ACTION_CANCEL
+     * into gestureDetector resets its internal state and kills that
+     * pending timer without triggering any click/tap callback itself.
+     */
+    private void cancelPendingLongPress(MotionEvent source) {
+        MotionEvent cancel = MotionEvent.obtain(source);
+        cancel.setAction(MotionEvent.ACTION_CANCEL);
+        gestureDetector.onTouchEvent(cancel);
+        cancel.recycle();
+    }
+
     @Override
     public boolean onTouchEvent(MotionEvent event) {
-        // NOTE (known simplification): reply-box/image hit-tests intercept
-        // ACTION_UP directly without feeding it back through gestureDetector,
-        // so GestureDetector's internal down/up bookkeeping is slightly out
-        // of sync after such a tap. Harmless in practice (each tap is a
-        // fresh down/up pair) but worth revisiting if double-tap-to-zoom or
-        // similar multi-event gestures are added to this view later.
         if (hasReply && event.getActionMasked() == MotionEvent.ACTION_UP
                 && replyBoxRect.contains(event.getX(), event.getY())) {
+            cancelPendingLongPress(event);
             if (clickListener != null) clickListener.onReplyPreviewClick();
             return true;
         }
@@ -4117,17 +4136,20 @@ public class MessageBubbleCanvasView extends View {
                 && linkCardRect.contains(event.getX(), event.getY())) {
             // Whole card opens the link — mirrors the legacy
             // ll_link_preview.setOnClickListener (ACTION_VIEW browser intent).
+            cancelPendingLongPress(event);
             if (clickListener != null) clickListener.onLinkClick(linkPreviewUrl);
             return true;
         }
         if (hasReactions && event.getActionMasked() == MotionEvent.ACTION_UP
                 && reactionsRect.contains(event.getX(), event.getY())) {
+            cancelPendingLongPress(event);
             if (clickListener != null) clickListener.onReactionsClick();
             return true;
         }
         if (isAudio) {
             int action = event.getActionMasked();
             if (action == MotionEvent.ACTION_UP && audioBtnRect.contains(event.getX(), event.getY())) {
+                cancelPendingLongPress(event);
                 if (clickListener != null) clickListener.onAudioPlayPauseClick();
                 return true;
             }
@@ -4135,6 +4157,7 @@ public class MessageBubbleCanvasView extends View {
             // drag, not just a tap-to-seek, so DOWN and MOVE both count.
             if ((action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_MOVE)
                     && audioWaveformRect.contains(event.getX(), event.getY())) {
+                cancelPendingLongPress(event);
                 float fraction = Math.max(0f, Math.min(1f,
                         (event.getX() - audioWaveformRect.left) / audioWaveformRect.width()));
                 setAudioProgress(fraction);
@@ -4142,12 +4165,14 @@ public class MessageBubbleCanvasView extends View {
                 return true;
             }
             if (action == MotionEvent.ACTION_UP && audioWaveformRect.contains(event.getX(), event.getY())) {
+                cancelPendingLongPress(event);
                 return true; // already handled by the DOWN/MOVE branch above
             }
         }
         // ── File bubble action-button tap ────────────────────────────────────
         if (isFileBubble && event.getActionMasked() == MotionEvent.ACTION_UP
                 && fileActionRect.contains(event.getX(), event.getY())) {
+            cancelPendingLongPress(event);
             if (clickListener != null) {
                 if (fileIsCached) {
                     clickListener.onFileOpenClick();
@@ -4160,11 +4185,13 @@ public class MessageBubbleCanvasView extends View {
         // ── GIF tap — whole image opens the GIF viewer ───────────────────────
         if (isGifBubble && !mediaGated && event.getActionMasked() == MotionEvent.ACTION_UP
                 && mediaRect.contains(event.getX(), event.getY())) {
+            cancelPendingLongPress(event);
             if (clickListener != null) clickListener.onGifClick();
             return true;
         }
         if (isMedia && event.getActionMasked() == MotionEvent.ACTION_UP
                 && mediaRect.contains(event.getX(), event.getY())) {
+            cancelPendingLongPress(event);
             if (mediaGated) {
                 // Idle pill → start the download; already-in-flight → swallow
                 // the tap (same "ignore while downloading" precedent the
@@ -4180,6 +4207,7 @@ public class MessageBubbleCanvasView extends View {
             // Whole card opens the reel — mirrors the legacy
             // ll_reel_share.setOnClickListener; there's no separate
             // download-gate mode for reel cards, so this always fires.
+            cancelPendingLongPress(event);
             if (clickListener != null) clickListener.onImageClick();
             return true;
         }
@@ -4190,6 +4218,7 @@ public class MessageBubbleCanvasView extends View {
             // card (ll_contact_card itself) has no click listener in the
             // legacy path either, just long-press for the action sheet
             // (handled below by gestureDetector, same as every other mode).
+            cancelPendingLongPress(event);
             if (clickListener != null) clickListener.onContactViewClick();
             return true;
         }
@@ -4197,6 +4226,7 @@ public class MessageBubbleCanvasView extends View {
             float ex = event.getX(), ey = event.getY();
             for (int i = 0; i < pollOptionRects.size(); i++) {
                 if (pollOptionRects.get(i).contains(ex, ey)) {
+                    cancelPendingLongPress(event);
                     if (clickListener != null) clickListener.onPollOptionClick(i);
                     return true;
                 }
@@ -4209,6 +4239,7 @@ public class MessageBubbleCanvasView extends View {
             // has no click listener in the legacy path either, just
             // long-press for the action sheet (handled below by
             // gestureDetector, same as every other mode).
+            cancelPendingLongPress(event);
             if (clickListener != null) clickListener.onLocationOpenMapsClick();
             return true;
         }
@@ -4222,6 +4253,7 @@ public class MessageBubbleCanvasView extends View {
                 // adapter's onGroupDownloadAllClick() then kicks off each
                 // pending cell's actual download.
                 if (groupContentRect.contains(x, y)) {
+                    cancelPendingLongPress(event);
                     groupGateActive = false;
                     invalidate();
                     if (clickListener != null) clickListener.onGroupDownloadAllClick();
@@ -4230,6 +4262,7 @@ public class MessageBubbleCanvasView extends View {
             } else {
                 for (int i = 0; i < groupVisibleCount; i++) {
                     if (groupRects[i].contains(x, y)) {
+                        cancelPendingLongPress(event);
                         boolean pending = i < groupCellPending.length && groupCellPending[i];
                         boolean downloading = i < groupCellDownloading.length && groupCellDownloading[i];
                         if (pending && !downloading) {

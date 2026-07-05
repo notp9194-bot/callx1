@@ -1999,8 +1999,16 @@ public class MessagePagingAdapter
                     if (id != null) {
                         if (selectedMessageIds.contains(id)) selectedMessageIds.remove(id);
                         else selectedMessageIds.add(id);
-                        notifyItemChanged(h.getAdapterPosition());
+                        // FIX: don't rely on h.getAdapterPosition() here — it can
+                        // return NO_POSITION right after a long-press-triggered
+                        // notifyItemRangeChanged (ViewHolder in a transient
+                        // state), silently dropping the highlight refresh so the
+                        // bubble LOOKS still-selected even though it was removed
+                        // from selectedMessageIds. h/m are already in scope, so
+                        // update this row's highlight directly instead.
+                        applySelectionHighlight(h, m);
                         if (multiSelectListener != null) multiSelectListener.onSelectionChanged(selectedMessageIds.size());
+                        if (selectedMessageIds.isEmpty()) exitMultiSelectMode();
                     }
                 }
             }
@@ -3268,7 +3276,10 @@ public class MessagePagingAdapter
                     } else {
                         selectedMessageIds.add(id);
                     }
-                    notifyItemChanged(h.getAdapterPosition());
+                    // FIX: same NO_POSITION race as the canvas path — update
+                    // this row's highlight directly instead of going through
+                    // notifyItemChanged(h.getAdapterPosition()).
+                    applySelectionHighlight(h, m);
                     if (multiSelectListener != null)
                         multiSelectListener.onSelectionChanged(selectedMessageIds.size());
                     if (selectedMessageIds.isEmpty()) exitMultiSelectMode();
