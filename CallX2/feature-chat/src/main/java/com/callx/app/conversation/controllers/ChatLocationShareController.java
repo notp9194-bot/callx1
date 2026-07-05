@@ -48,6 +48,12 @@ public class ChatLocationShareController {
 
     public static void setMapsApiKey(@Nullable String key) { sMapsApiKey = key; }
 
+    /** @return the configured Static Maps API key, or null if none was set — used by
+     *  MessagePagingAdapter's Canvas path (bindCanvasMessage) to build the same
+     *  thumbnail URL bindBubble() does below, without duplicating the key storage. */
+    @Nullable
+    public static String getMapsApiKey() { return sMapsApiKey; }
+
     public interface BuildOutgoing { Message build(); }
     public interface PushMessage   { void push(Message m, String preview); }
 

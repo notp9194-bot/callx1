@@ -96,7 +96,7 @@ import com.callx.app.utils.ChatThemeManager;
  *
  * It intentionally does NOT (yet) handle:
  *   • audio/file cells inside a media group, or per-item captions
- *   • GIF, file, poll, or location bubbles (contact is now modeled — see below)
+ *   • GIF, file, or poll bubbles (contact and location are now modeled — see below)
  *   • long-press action menu (long-press itself is wired — see
  *     OnBubbleClickListener.onBubbleLongClick — the menu it opens is the
  *     caller's job)
@@ -144,6 +144,15 @@ import com.callx.app.utils.ChatThemeManager;
  *     "View Contact" row is tappable (onContactViewClick()) — the rest of
  *     the card has no click listener in the legacy path either, just
  *     long-press for the action sheet, same as every other mode here.
+ *   • a location-share card (bindLocation) — mirrors item_msg_location.xml:
+ *     a bubbleless 165dp-wide card, same shape family as the contact card —
+ *     a purple map-thumbnail header (Google Static Maps bitmap if supplied,
+ *     else a placeholder pin drawn straight on the Canvas), a translucent
+ *     purple address strip (up to 2 lines), and an "Open in Maps" action
+ *     row. No timestamp/tick footer at all (matches item_msg_location.xml
+ *     having none). Only the "Open in Maps" row is tappable
+ *     (onLocationOpenMapsClick()) — same precedent as bindContact()'s
+ *     "View Contact" row.
  *
  * Those all still render through the existing item_message_sent/received.xml
  * + MessagePagingAdapter path.
@@ -418,6 +427,32 @@ public class MessageBubbleCanvasView extends View {
     private static final String CONTACT_DEFAULT_NAME     = "Contact";
     private static final String CONTACT_BUTTON_TEXT      = "View Contact";
 
+    // ── Location-share card — mirrors item_msg_location.xml exactly: same
+    // bubbleless 165dp-wide card shape family as the contact card, but with
+    // a purple map-thumbnail header (Google Static Maps bitmap if supplied,
+    // else a placeholder pin drawn straight on the Canvas), a translucent
+    // purple address strip (up to 2 lines), and an "Open in Maps" action
+    // row. No timestamp/tick footer, same precedent as the contact card. ──
+    private static final float LOCATION_CARD_WIDTH_DP        = 165f;
+    private static final float LOCATION_MAP_HEIGHT_DP        = 110f;
+    private static final float LOCATION_DIVIDER_HEIGHT_DP    = 0.5f;
+    private static final float LOCATION_BUTTON_HEIGHT_DP     = 32f;
+    private static final float LOCATION_CORNER_RADIUS_DP     = 12f;
+    private static final float LOCATION_PIN_SIZE_DP          = 28f;
+    private static final float LOCATION_ADDRESS_PAD_H_DP     = 10f;
+    private static final float LOCATION_ADDRESS_PAD_TOP_DP   = 6f;
+    private static final float LOCATION_ADDRESS_PAD_BOTTOM_DP = 4f;
+    private static final float LOCATION_ADDRESS_TEXT_SP      = 10f;
+    private static final float LOCATION_BUTTON_TEXT_SP       = 11f;
+    private static final int   LOCATION_MAP_BG_COLOR         = 0xFF4A148C;
+    private static final int   LOCATION_PIN_COLOR            = 0xFFEF9A9A;
+    private static final int   LOCATION_DIVIDER_COLOR        = 0xFF7B1FA2;
+    private static final int   LOCATION_ADDRESS_BG_COLOR     = 0xFF6A1B9A;
+    private static final int   LOCATION_ADDRESS_TEXT_COLOR   = 0xFFF3E5F5;
+    private static final int   LOCATION_BUTTON_TEXT_COLOR    = 0xFFCE93D8;
+    private static final String LOCATION_DEFAULT_ADDRESS     = "Location";
+    private static final String LOCATION_BUTTON_TEXT         = "Open in Maps";
+
     // ── Link-preview card — mirrors layout_msg_link_preview.xml
     // (stub_link_preview): optional OG-image thumbnail (match-width ×
     // 120dp, centerCrop) on top, then a padded text column with the
@@ -468,6 +503,8 @@ public class MessageBubbleCanvasView extends View {
         void onAudioSeek(float fraction);
         /** Tapped the "View Contact" row on a contact card (bindContact only) — caller should open the system Contacts app / dialer for this contact's phone number, same as the legacy btnViewContact click listener. */
         void onContactViewClick();
+        /** Tapped the "Open in Maps" row on a location card (bindLocation only) — caller should launch a maps app (or geo: intent) for this location's coordinates, same as the legacy btnOpenMaps click listener. */
+        void onLocationOpenMapsClick();
     }
 
     /** Immutable per-cell descriptor for bindMediaGroup(); bitmaps are supplied
@@ -709,6 +746,24 @@ public class MessageBubbleCanvasView extends View {
     private final TextPaint contactButtonTextPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
     private final android.graphics.Matrix contactAvatarShaderMatrix = new android.graphics.Matrix();
 
+    private boolean isLocation = false;
+    private String locationAddress = "";
+    private Bitmap locationMapBitmap;
+    private StaticLayout locationAddressLayout;
+    private final RectF locationCardRect = new RectF();
+    private final RectF locationMapRect = new RectF();
+    private final RectF locationButtonRect = new RectF(); // "Open in Maps" row — the only tappable sub-region
+    private final Paint locationMapBgPaint = new Paint();
+    private final Paint locationMapBitmapPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+    private final Paint locationPinPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint locationDividerPaint = new Paint();
+    private final Paint locationAddressBgPaint = new Paint();
+    private final Paint locationButtonBgPaint = new Paint();
+    private final TextPaint locationAddressTextPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    private final TextPaint locationButtonTextPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    private final android.graphics.Path locationPinPath = new android.graphics.Path();
+    private final android.graphics.Matrix locationMapShaderMatrix = new android.graphics.Matrix();
+
     // ── Link-preview card state — only meaningful alongside the
     // plain-text bind() mode (see LINK_PREVIEW_* constants doc above).
     // hasThumb is set upfront in setLinkPreview() (from whether
@@ -857,6 +912,18 @@ public class MessageBubbleCanvasView extends View {
         contactButtonTextPaint.setTextSize(CONTACT_BUTTON_TEXT_SP * density);
         contactButtonTextPaint.setTextAlign(Paint.Align.CENTER);
 
+        locationMapBgPaint.setColor(LOCATION_MAP_BG_COLOR);
+        locationPinPaint.setColor(LOCATION_PIN_COLOR);
+        locationDividerPaint.setColor(LOCATION_DIVIDER_COLOR);
+        locationAddressBgPaint.setColor(LOCATION_ADDRESS_BG_COLOR);
+        locationButtonBgPaint.setColor(LOCATION_ADDRESS_BG_COLOR); // same #6A1B9A bg as the address strip, matches the legacy layout
+        locationAddressTextPaint.setColor(LOCATION_ADDRESS_TEXT_COLOR);
+        locationAddressTextPaint.setTextSize(LOCATION_ADDRESS_TEXT_SP * density);
+        locationButtonTextPaint.setColor(LOCATION_BUTTON_TEXT_COLOR);
+        locationButtonTextPaint.setFakeBoldText(true);
+        locationButtonTextPaint.setTextSize(LOCATION_BUTTON_TEXT_SP * density);
+        locationButtonTextPaint.setTextAlign(Paint.Align.CENTER);
+
         linkThumbPlaceholderPaint.setColor(LINK_PREVIEW_THUMB_PLACEHOLDER_COLOR);
         linkDomainPaint.setColor(LINK_PREVIEW_DOMAIN_COLOR);
         linkDomainPaint.setTextSize(LINK_PREVIEW_DOMAIN_SP * density);
@@ -897,6 +964,8 @@ public class MessageBubbleCanvasView extends View {
         this.isReelShare = false;
         this.isVideoMedia = false;
         this.isAudio = false;
+        this.isContact = false;
+        this.isLocation = false;
         this.mediaBitmap = null;
         this.messageText = text != null ? text : "";
         this.footerTimeText = timeText != null ? timeText : "";
@@ -941,6 +1010,8 @@ public class MessageBubbleCanvasView extends View {
         this.isReelShare = false;
         this.isVideoMedia = false;
         this.isAudio = false;
+        this.isContact = false;
+        this.isLocation = false;
         this.videoDuration = null;
         this.mediaBitmap = bitmap;
         this.hasLinkPreview = false; // link-preview card is text-mode-only; a stale flag from a recycled view must not leak in here
@@ -1021,6 +1092,8 @@ public class MessageBubbleCanvasView extends View {
         this.isReelShare = false;
         this.isVideoMedia = false;
         this.isAudio = true;
+        this.isContact = false;
+        this.isLocation = false;
         this.videoDuration = null;
         this.mediaBitmap = null;
         this.hasLinkPreview = false; // link-preview card is text-mode-only; a stale flag from a recycled view must not leak in here
@@ -1158,6 +1231,8 @@ public class MessageBubbleCanvasView extends View {
         this.isReelShare = false;
         this.isVideoMedia = false;
         this.isAudio = false;
+        this.isContact = false;
+        this.isLocation = false;
         this.videoDuration = null;
         this.hasLinkPreview = false; // link-preview card is text-mode-only; a stale flag from a recycled view must not leak in here
         this.groupItems = items != null ? items : java.util.Collections.emptyList();
@@ -1222,6 +1297,8 @@ public class MessageBubbleCanvasView extends View {
         this.isReelShare = true;
         this.isVideoMedia = false;
         this.isAudio = false;
+        this.isContact = false;
+        this.isLocation = false;
         this.videoDuration = null;
         this.hasLinkPreview = false; // link-preview card is text-mode-only; a stale flag from a recycled view must not leak in here
         this.reelThumbBitmap = thumb;
@@ -1307,6 +1384,7 @@ public class MessageBubbleCanvasView extends View {
         this.isVideoMedia = false;
         this.isAudio = false;
         this.isContact = true;
+        this.isLocation = false;
         this.hasLinkPreview = false; // stale flag from a recycled view must not leak in here
         this.mediaGated = false;
         this.mediaDownloading = false;
@@ -1322,6 +1400,51 @@ public class MessageBubbleCanvasView extends View {
     /** Swap in a decoded contact-photo Bitmap once Glide finishes — no re-measure needed, same fixed card size. */
     public void setContactAvatarBitmap(@Nullable Bitmap bitmap) {
         this.contactAvatarBitmap = bitmap;
+        invalidate();
+    }
+
+    /**
+     * Binds a location-share card — mirrors item_msg_location.xml exactly:
+     * a bubbleless 165dp-wide card (same shape family as bindContact()),
+     * a purple map-thumbnail header, a translucent purple address strip
+     * (up to 2 lines), and an "Open in Maps" action row. No timestamp/
+     * tick footer (the legacy layout has none for this type), no caption,
+     * no reply-preview interplay beyond the usual reply strip above it.
+     *
+     * @param mapThumb decoded Google Static Maps bitmap, or null to draw
+     *                 the placeholder pin on the plain purple header —
+     *                 pass a fresh Bitmap via setLocationMapBitmap() once
+     *                 Glide resolves it (only when a Maps API key is
+     *                 configured, same as ChatLocationShareController.
+     *                 bindBubble's ivMap.setImageResource() fallback),
+     *                 same async pattern as bindContact()/bindMedia().
+     * @param address  formatted address string, or a "lat, lng" fallback —
+     *                 caller does the same formatting
+     *                 ChatLocationShareController.bindBubble() does.
+     */
+    public void bindLocation(@Nullable Bitmap mapThumb, @Nullable String address, boolean isSent) {
+        this.isMedia = false;
+        this.isMediaGroup = false;
+        this.isReelShare = false;
+        this.isVideoMedia = false;
+        this.isAudio = false;
+        this.isContact = false;
+        this.isLocation = true;
+        this.hasLinkPreview = false; // stale flag from a recycled view must not leak in here
+        this.mediaGated = false;
+        this.mediaDownloading = false;
+        this.locationMapBitmap = mapThumb;
+        this.locationAddress = (address != null && !address.isEmpty()) ? address : LOCATION_DEFAULT_ADDRESS;
+        this.sent = isSent;
+
+        locationAddressLayout = null; // recomputed in onMeasure
+        requestLayout();
+        invalidate();
+    }
+
+    /** Swap in a decoded Google Static Maps Bitmap once Glide finishes — no re-measure needed, same fixed card size. */
+    public void setLocationMapBitmap(@Nullable Bitmap bitmap) {
+        this.locationMapBitmap = bitmap;
         invalidate();
     }
 
@@ -1849,6 +1972,33 @@ public class MessageBubbleCanvasView extends View {
             bubbleContentWidth = Math.max(cardW - hPad * 2, replyBoxContentWidth);
             bubbleHeight = replyBoxHeight + replyGap + cardH;
 
+        } else if (isLocation) {
+            // ── Location-share card (fixed 165dp wide, wrap_content height) ──
+            // Height = map header + divider + address strip (up to 2
+            // lines) + divider + button row, exactly like
+            // item_msg_location.xml's stacked LinearLayout — no vPad, no
+            // footer row (no timestamp/tick at all for this type, same
+            // as the contact card).
+            int cardW = Math.round(LOCATION_CARD_WIDTH_DP * density);
+            float mapH = LOCATION_MAP_HEIGHT_DP * density;
+            float dividerH = LOCATION_DIVIDER_HEIGHT_DP * density;
+            float btnH = LOCATION_BUTTON_HEIGHT_DP * density;
+            float addrPadH = LOCATION_ADDRESS_PAD_H_DP * density;
+            int addrMaxW = Math.max(1, cardW - Math.round(addrPadH * 2));
+            locationAddressLayout = StaticLayout.Builder
+                    .obtain(locationAddress, 0, locationAddress.length(), locationAddressTextPaint, addrMaxW)
+                    .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                    .setMaxLines(2)
+                    .setEllipsize(TextUtils.TruncateAt.END)
+                    .setIncludePad(false)
+                    .build();
+            float addrBlockH = LOCATION_ADDRESS_PAD_TOP_DP * density + locationAddressLayout.getHeight()
+                    + LOCATION_ADDRESS_PAD_BOTTOM_DP * density;
+            int cardH = Math.round(mapH + dividerH + addrBlockH + dividerH + btnH);
+
+            bubbleContentWidth = Math.max(cardW - hPad * 2, replyBoxContentWidth);
+            bubbleHeight = replyBoxHeight + replyGap + cardH;
+
         } else if (isMediaGroup) {
             // ── Media-group grid (multi-image/video) ──
             int[] dims = computeGroupGridDims(groupVisibleCount);
@@ -2052,6 +2202,31 @@ public class MessageBubbleCanvasView extends View {
             contactButtonRect.set(contactCardRect.left, btnTop, contactCardRect.right, btnTop + btnH);
         }
 
+        if (isLocation) {
+            int cardW = Math.round(LOCATION_CARD_WIDTH_DP * density);
+            float mapH = LOCATION_MAP_HEIGHT_DP * density;
+            float dividerH = LOCATION_DIVIDER_HEIGHT_DP * density;
+            float btnH = LOCATION_BUTTON_HEIGHT_DP * density;
+            float addrBlockH = locationAddressLayout != null
+                    ? LOCATION_ADDRESS_PAD_TOP_DP * density + locationAddressLayout.getHeight()
+                            + LOCATION_ADDRESS_PAD_BOTTOM_DP * density
+                    : 0f;
+            float cardTop = bubbleTop + replyBoxHeight + replyGap;
+            // Left-aligned to the bubble's own left edge, same precedent
+            // as the contact/reel-share cards.
+            locationCardRect.set(bubbleLeft, cardTop, bubbleLeft + cardW,
+                    cardTop + mapH + dividerH + addrBlockH + dividerH + btnH);
+
+            locationMapRect.set(locationCardRect.left, locationCardRect.top,
+                    locationCardRect.right, locationCardRect.top + mapH);
+
+            // "Open in Maps" row sits at the very bottom of the card, full
+            // card width — the only tappable sub-region (see
+            // onTouchEvent), mirrors btnOpenMaps in item_msg_location.xml.
+            float locBtnTop = locationCardRect.bottom - btnH;
+            locationButtonRect.set(locationCardRect.left, locBtnTop, locationCardRect.right, locationCardRect.bottom);
+        }
+
         if (isMediaGroup) {
             float gridTop = bubbleTop + replyBoxHeight + replyGap + vPad;
             layoutGroupCells(bubbleLeft + hPad, gridTop);
@@ -2073,7 +2248,7 @@ public class MessageBubbleCanvasView extends View {
             }
         }
 
-        if (hasLinkPreview && !isMedia && !isMediaGroup && !isReelShare && !isContact && textLayout != null) {
+        if (hasLinkPreview && !isMedia && !isMediaGroup && !isReelShare && !isContact && !isLocation && textLayout != null) {
             int linkGapTop = Math.round(LINK_PREVIEW_GAP_TOP_DP * density);
             float cardTop = bubbleTop + replyBoxHeight + replyGap + textLayout.getHeight() + linkGapTop;
             linkCardRect.set(bubbleLeft + hPad, cardTop,
@@ -2183,17 +2358,18 @@ public class MessageBubbleCanvasView extends View {
     @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
-        if (!isReelShare && !isContact) {
+        if (!isReelShare && !isContact && !isLocation) {
             if (bubbleDrawable == null) return;
             if (!isMedia && !isMediaGroup && !isAudio && textLayout == null) return;
         }
 
-        if (!isReelShare && !isContact) {
-            // Reel-share and contact cards never draw the normal chat-bubble
-            // background — the card itself (drawn in drawReelShare/
-            // drawContact) is the entire visual, matching
-            // layout_msg_reel_share.xml / item_msg_contact.xml's bg=null on
-            // the outer bubble container for these message types.
+        if (!isReelShare && !isContact && !isLocation) {
+            // Reel-share, contact, and location cards never draw the normal
+            // chat-bubble background — the card itself (drawn in
+            // drawReelShare/drawContact/drawLocation) is the entire visual,
+            // matching layout_msg_reel_share.xml / item_msg_contact.xml /
+            // item_msg_location.xml's bg=null on the outer bubble container
+            // for these message types.
             bubbleDrawable.setBounds(
                     (int) bubbleRect.left, (int) bubbleRect.top,
                     (int) bubbleRect.right, (int) bubbleRect.bottom);
@@ -2223,6 +2399,8 @@ public class MessageBubbleCanvasView extends View {
             drawReelShare(canvas);
         } else if (isContact) {
             drawContact(canvas);
+        } else if (isLocation) {
+            drawLocation(canvas);
         } else if (isMediaGroup) {
             drawMediaGroup(canvas);
         } else if (isMedia) {
@@ -2459,6 +2637,82 @@ public class MessageBubbleCanvasView extends View {
         Paint.FontMetrics bfm = contactButtonTextPaint.getFontMetrics();
         float btnBaselineY = contactButtonRect.centerY() - (bfm.ascent + bfm.descent) / 2f;
         canvas.drawText(CONTACT_BUTTON_TEXT, contactButtonRect.centerX(), btnBaselineY, contactButtonTextPaint);
+
+        canvas.restore();
+    }
+
+    /**
+     * Draws the location-share card — mirrors item_msg_location.xml: a
+     * purple map-thumbnail header (Google Static Maps bitmap if supplied,
+     * centerCrop-scaled the same way drawMedia()'s bitmap fill works;
+     * else a placeholder pin drawn straight on the flat purple
+     * background), a translucent purple address strip (up to 2 lines,
+     * via StaticLayout), and a bottom "Open in Maps" row — same
+     * rounded-card clip treatment as drawContact().
+     */
+    private void drawLocation(Canvas canvas) {
+        float r = LOCATION_CORNER_RADIUS_DP * density;
+        canvas.save();
+        android.graphics.Path clipPath = new android.graphics.Path();
+        clipPath.addRoundRect(locationCardRect, r, r, android.graphics.Path.Direction.CW);
+        canvas.clipPath(clipPath);
+
+        // ── Map header ──
+        canvas.drawRect(locationMapRect, locationMapBgPaint);
+        if (locationMapBitmap != null) {
+            float scale = Math.max(locationMapRect.width() / locationMapBitmap.getWidth(),
+                    locationMapRect.height() / locationMapBitmap.getHeight());
+            float dx = locationMapRect.left - (locationMapBitmap.getWidth() * scale - locationMapRect.width()) / 2f;
+            float dy = locationMapRect.top - (locationMapBitmap.getHeight() * scale - locationMapRect.height()) / 2f;
+            locationMapShaderMatrix.reset();
+            locationMapShaderMatrix.setScale(scale, scale);
+            locationMapShaderMatrix.postTranslate(dx, dy);
+
+            android.graphics.BitmapShader shader = new android.graphics.BitmapShader(
+                    locationMapBitmap, android.graphics.Shader.TileMode.CLAMP, android.graphics.Shader.TileMode.CLAMP);
+            shader.setLocalMatrix(locationMapShaderMatrix);
+            locationMapBitmapPaint.setShader(shader);
+            canvas.drawRect(locationMapRect, locationMapBitmapPaint);
+        } else {
+            // Placeholder pin — teardrop + circular head, matches
+            // ic_location_pin's silhouette closely enough at this size.
+            float pinSize = LOCATION_PIN_SIZE_DP * density;
+            float cx = locationMapRect.centerX();
+            float cy = locationMapRect.centerY() - pinSize * 0.15f;
+            locationPinPath.reset();
+            locationPinPath.addCircle(cx, cy, pinSize * 0.32f, android.graphics.Path.Direction.CW);
+            locationPinPath.moveTo(cx - pinSize * 0.32f, cy + pinSize * 0.08f);
+            locationPinPath.lineTo(cx, cy + pinSize * 0.62f);
+            locationPinPath.lineTo(cx + pinSize * 0.32f, cy + pinSize * 0.08f);
+            locationPinPath.close();
+            canvas.drawPath(locationPinPath, locationPinPaint);
+        }
+
+        // ── Divider under the map ──
+        float dividerH = LOCATION_DIVIDER_HEIGHT_DP * density;
+        float divTop1 = locationMapRect.bottom;
+        canvas.drawRect(locationCardRect.left, divTop1, locationCardRect.right, divTop1 + dividerH, locationDividerPaint);
+
+        // ── Address strip ──
+        float addrTop = divTop1 + dividerH;
+        float addrBottom = locationButtonRect.top - dividerH;
+        canvas.drawRect(locationCardRect.left, addrTop, locationCardRect.right, addrBottom, locationAddressBgPaint);
+        if (locationAddressLayout != null) {
+            canvas.save();
+            canvas.translate(locationCardRect.left + LOCATION_ADDRESS_PAD_H_DP * density,
+                    addrTop + LOCATION_ADDRESS_PAD_TOP_DP * density);
+            locationAddressLayout.draw(canvas);
+            canvas.restore();
+        }
+
+        // ── Divider above the button row ──
+        canvas.drawRect(locationCardRect.left, addrBottom, locationCardRect.right, addrBottom + dividerH, locationDividerPaint);
+
+        // ── "Open in Maps" row ──
+        canvas.drawRect(locationButtonRect, locationButtonBgPaint);
+        Paint.FontMetrics lbfm = locationButtonTextPaint.getFontMetrics();
+        float locBtnBaselineY = locationButtonRect.centerY() - (lbfm.ascent + lbfm.descent) / 2f;
+        canvas.drawText(LOCATION_BUTTON_TEXT, locationButtonRect.centerX(), locBtnBaselineY, locationButtonTextPaint);
 
         canvas.restore();
     }
@@ -3110,6 +3364,16 @@ public class MessageBubbleCanvasView extends View {
             // legacy path either, just long-press for the action sheet
             // (handled below by gestureDetector, same as every other mode).
             if (clickListener != null) clickListener.onContactViewClick();
+            return true;
+        }
+        if (isLocation && event.getActionMasked() == MotionEvent.ACTION_UP
+                && locationButtonRect.contains(event.getX(), event.getY())) {
+            // Only the "Open in Maps" row is clickable — mirrors the
+            // legacy btnOpenMaps.setOnClickListener; the rest of the card
+            // has no click listener in the legacy path either, just
+            // long-press for the action sheet (handled below by
+            // gestureDetector, same as every other mode).
+            if (clickListener != null) clickListener.onLocationOpenMapsClick();
             return true;
         }
         if (isMediaGroup && event.getActionMasked() == MotionEvent.ACTION_UP) {

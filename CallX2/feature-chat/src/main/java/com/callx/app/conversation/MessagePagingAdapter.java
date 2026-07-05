@@ -759,7 +759,14 @@ public class MessagePagingAdapter
             // none). Deleted/expiry already handled above this check.
             return true;
         }
-        return false; // gif/file/poll/location — all still on the old path
+        if ("location".equals(type)) {
+            // Location-share card (MessageBubbleCanvasView.bindLocation) —
+            // bubbleless 165dp-wide card, same shape family as the contact
+            // card, no timestamp/tick footer (matches item_msg_location.xml
+            // having none). Deleted/expiry already handled above this check.
+            return true;
+        }
+        return false; // gif/file/poll — all still on the old path
     }
 
     @NonNull
@@ -1247,6 +1254,7 @@ public class MessagePagingAdapter
         final boolean isVideo = "video".equals(type);
         final boolean isAudio = "audio".equals(type);
         final boolean isContact = "contact".equals(type);
+        final boolean isLocation = "location".equals(type);
         final boolean isDeleted = Boolean.TRUE.equals(m.deleted);
 
         if (isDeleted) {
@@ -1591,6 +1599,43 @@ public class MessagePagingAdapter
                             public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {
                                 if (h.canvasBindToken != myToken) return;
                                 cv.setContactAvatarBitmap(null);
+                            }
+                        });
+            }
+        } else if (isLocation) {
+            // Mirrors the legacy "location" case (ChatLocationShareController.
+            // bindBubble) — same address-or-"lat, lng" fallback text and the
+            // same Google Static Maps thumbnail Glide load when an API key
+            // is configured, just pushed through cv.bindLocation()/
+            // setLocationMapBitmap() instead of ImageView/TextView calls.
+            // No caption, no timestamp/tick footer for this type (see
+            // MessageBubbleCanvasView's LOCATION_* doc).
+            final double lat = m.locationLat != null ? m.locationLat : 0;
+            final double lng = m.locationLng != null ? m.locationLng : 0;
+            final String addr = (m.locationAddress != null && !m.locationAddress.isEmpty())
+                    ? m.locationAddress
+                    : String.format(java.util.Locale.getDefault(), "%.5f, %.5f", lat, lng);
+            cv.bindLocation(null, addr, sent);
+            cv.setDeletedStyle(false);
+
+            String mapsKey = com.callx.app.conversation.controllers.ChatLocationShareController.getMapsApiKey();
+            if (mapsKey != null && !mapsKey.isEmpty() && lat != 0) {
+                String thumbUrl = String.format(java.util.Locale.US,
+                        "https://maps.googleapis.com/maps/api/staticmap"
+                        + "?center=%.6f,%.6f&zoom=15&size=400x200&markers=%.6f,%.6f&key=%s",
+                        lat, lng, lat, lng, mapsKey);
+                glide(ctx).asBitmap().load(thumbUrl).apply(THUMB_RGB565)
+                        .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
+                            @Override
+                            public void onResourceReady(@NonNull Bitmap resource,
+                                    @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
+                                if (h.canvasBindToken != myToken) return;
+                                cv.setLocationMapBitmap(resource);
+                            }
+                            @Override
+                            public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {
+                                if (h.canvasBindToken != myToken) return;
+                                cv.setLocationMapBitmap(null);
                             }
                         });
             }
@@ -1965,6 +2010,29 @@ public class MessagePagingAdapter
                     android.content.Intent dial = new android.content.Intent(
                             android.content.Intent.ACTION_DIAL, android.net.Uri.parse("tel:" + m.contactPhone));
                     ctx.startActivity(dial);
+                }
+            }
+
+            @Override
+            public void onLocationOpenMapsClick() {
+                // Mirrors ChatLocationShareController.bindBubble's
+                // btnOpenMaps click listener exactly: try the Google Maps
+                // app via a geo: intent first, falling back to a plain
+                // maps.google.com URL if it isn't installed/resolvable.
+                if (!isLocation) return;
+                double lat = m.locationLat != null ? m.locationLat : 0;
+                double lng = m.locationLng != null ? m.locationLng : 0;
+                String geoUri = String.format(java.util.Locale.US, "geo:%.6f,%.6f?q=%.6f,%.6f", lat, lng, lat, lng);
+                android.content.Intent mapIntent = new android.content.Intent(
+                        android.content.Intent.ACTION_VIEW, android.net.Uri.parse(geoUri));
+                mapIntent.setPackage("com.google.android.apps.maps");
+                if (mapIntent.resolveActivity(ctx.getPackageManager()) != null) {
+                    ctx.startActivity(mapIntent);
+                } else {
+                    android.content.Intent fallback = new android.content.Intent(android.content.Intent.ACTION_VIEW,
+                            android.net.Uri.parse(String.format(java.util.Locale.US,
+                                    "https://maps.google.com/?q=%.6f,%.6f", lat, lng)));
+                    ctx.startActivity(fallback);
                 }
             }
         });
