@@ -49,16 +49,33 @@ final class MediaGroupRenderer {
                 float baseline = rect.bottom - 4 * host.density - host.groupFileLabelPaint.descent();
                 canvas.drawText(ellipsized, 0, ellipsized.length(), rect.centerX(), baseline, host.groupFileLabelPaint);
             } else if (bmp != null) {
-                float scale = Math.max(rect.width() / bmp.getWidth(), rect.height() / bmp.getHeight());
-                float dx = rect.left - (bmp.getWidth() * scale - rect.width()) / 2f;
-                float dy = rect.top - (bmp.getHeight() * scale - rect.height()) / 2f;
-                host.groupShaderMatrix.reset();
-                host.groupShaderMatrix.setScale(scale, scale);
-                host.groupShaderMatrix.postTranslate(dx, dy);
-                android.graphics.BitmapShader shader = new android.graphics.BitmapShader(
-                        bmp, android.graphics.Shader.TileMode.CLAMP, android.graphics.Shader.TileMode.CLAMP);
-                shader.setLocalMatrix(host.groupShaderMatrix);
-                host.groupBitmapPaint.setShader(shader);
+                // Rebuild the BitmapShader+matrix only when this cell's bitmap
+                // identity or on-screen rect actually changed since the last
+                // draw — cached per-cell in groupCellShaders/groupCellShaderBitmap/
+                // groupCellShaderRect on the host. Reuses the same shader object
+                // on every other frame (e.g. plain re-invalidate, unrelated
+                // countdown/waveform tick) instead of allocating a new
+                // BitmapShader (and re-touching the matrix) every draw() call.
+                RectF cachedRect = host.groupCellShaderRect[i];
+                boolean needsRebuild = host.groupCellShaders[i] == null
+                        || host.groupCellShaderBitmap[i] != bmp
+                        || cachedRect.left != rect.left || cachedRect.top != rect.top
+                        || cachedRect.right != rect.right || cachedRect.bottom != rect.bottom;
+                if (needsRebuild) {
+                    float scale = Math.max(rect.width() / bmp.getWidth(), rect.height() / bmp.getHeight());
+                    float dx = rect.left - (bmp.getWidth() * scale - rect.width()) / 2f;
+                    float dy = rect.top - (bmp.getHeight() * scale - rect.height()) / 2f;
+                    host.groupShaderMatrix.reset();
+                    host.groupShaderMatrix.setScale(scale, scale);
+                    host.groupShaderMatrix.postTranslate(dx, dy);
+                    android.graphics.BitmapShader shader = new android.graphics.BitmapShader(
+                            bmp, android.graphics.Shader.TileMode.CLAMP, android.graphics.Shader.TileMode.CLAMP);
+                    shader.setLocalMatrix(host.groupShaderMatrix);
+                    host.groupCellShaders[i] = shader;
+                    host.groupCellShaderBitmap[i] = bmp;
+                    cachedRect.set(rect);
+                }
+                host.groupBitmapPaint.setShader(host.groupCellShaders[i]);
                 canvas.drawRoundRect(rect, cellR, cellR, host.groupBitmapPaint);
             } else {
                 canvas.drawRoundRect(rect, cellR, cellR, host.groupCellBgPaint);
@@ -82,18 +99,18 @@ final class MediaGroupRenderer {
                     float durPadH = 3 * host.density, durPadV = 1 * host.density;
                     float textW = host.groupDurationTextPaint.measureText(item.duration);
                     float textH = host.groupDurationTextPaint.descent() - host.groupDurationTextPaint.ascent();
-                    RectF durBg;
+                    RectF durBg = host.groupDurationBgRect; // reused scratch rect, no per-frame alloc
                     if (hasItemCaption) {
                         // Duration moves to the top-end corner so it doesn't
                         // collide with the caption strip pinned to the bottom
                         // (same conflict-avoidance MediaGroupLayoutHelper uses).
                         float right = rect.right - 4 * host.density;
                         float top = rect.top + 4 * host.density;
-                        durBg = new RectF(right - textW - durPadH * 2, top, right, top + textH + durPadV * 2);
+                        durBg.set(right - textW - durPadH * 2, top, right, top + textH + durPadV * 2);
                     } else {
                         float left = rect.left + 4 * host.density;
                         float bottom = rect.bottom - 4 * host.density;
-                        durBg = new RectF(left, bottom - textH - durPadV * 2, left + textW + durPadH * 2, bottom);
+                        durBg.set(left, bottom - textH - durPadV * 2, left + textW + durPadH * 2, bottom);
                     }
                     canvas.drawRoundRect(durBg, 3 * host.density, 3 * host.density, host.groupDurationBgPaint);
                     float textBaseline = hasItemCaption

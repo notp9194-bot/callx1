@@ -702,6 +702,17 @@ public class MessageBubbleCanvasView extends View {
     final RectF mediaRect = new RectF();
     final RectF mediaPillRect = new RectF();
     final android.graphics.Matrix mediaShaderMatrix = new android.graphics.Matrix();
+    // Cached single-media shader — rebuilt only when mediaBitmap identity or
+    // mediaRect changes, not on every draw() (see MediaRenderer#draw).
+    android.graphics.BitmapShader mediaCachedShader;
+    Bitmap mediaCachedShaderBitmap;
+    final RectF mediaCachedShaderRect = new RectF();
+    // Scratch paint/rect reused by MediaRenderer's GIF badge + video-duration
+    // badge, and by MediaRenderer/ReelShareRenderer's tick-color save/restore
+    // (avoids `new Paint()`/`new RectF()` per frame).
+    final Paint mediaGifBadgeBgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    final RectF mediaGifBadgeRect = new RectF();
+    final RectF mediaVideoDurationRect = new RectF();
 
     // ── Audio (voice message) bubble state — entirely separate mode from
     // isMedia/isMediaGroup/isReelShare (see AUDIO_* constants doc above). ──
@@ -799,6 +810,14 @@ public class MessageBubbleCanvasView extends View {
     final TextPaint groupDurationTextPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
     final Paint groupDurationBgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     final android.graphics.Matrix groupShaderMatrix = new android.graphics.Matrix();
+    // Per-cell BitmapShader cache — rebuilt only when a cell's bitmap
+    // identity or on-screen rect actually changes, instead of every draw()
+    // (perf: shader+matrix construction is comparatively expensive and was
+    // previously happening on every single frame while scrolling/animating).
+    final android.graphics.BitmapShader[] groupCellShaders = new android.graphics.BitmapShader[GROUP_MAX_VISIBLE];
+    final Bitmap[] groupCellShaderBitmap = new Bitmap[GROUP_MAX_VISIBLE];
+    final RectF[] groupCellShaderRect = new RectF[GROUP_MAX_VISIBLE];
+    final RectF groupDurationBgRect = new RectF(); // reused scratch rect for video-duration badge
     final android.graphics.Path groupPlayTrianglePath = new android.graphics.Path();
     final TextPaint groupCaptionTextPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
     final TextPaint groupItemCaptionPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
@@ -908,6 +927,12 @@ public class MessageBubbleCanvasView extends View {
     float pollHeaderRowH  = 0f;
     float pollSubtitleH   = 0f;
     float pollTotalCardH  = 0f;
+    // Scratch rect/path reused by PollRenderer's header chip, per-option fill
+    // bar, and fill-clip path — avoids `new RectF()`/`new Path()` per option
+    // per draw() (perf: was allocating on every frame for every poll row).
+    final RectF pollChipRect = new RectF();
+    final RectF pollFillRect = new RectF();
+    final android.graphics.Path pollFillClipPath = new android.graphics.Path();
     // Paints (initialised in constructor)
     final Paint     pollOptionBgPaint    = new Paint(Paint.ANTI_ALIAS_FLAG);
     final Paint     pollFillPaint        = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -938,6 +963,15 @@ public class MessageBubbleCanvasView extends View {
     int     fileDownloadPercent = 0;
     float   fileCardHeight      = 0f;
     final RectF fileActionRect  = new RectF(); // tap target for ⬇/⬗ button
+    // Pre-allocated paint/path objects for FileBubbleRenderer — reused every
+    // draw() instead of being `new`'d per frame (perf: avoids GC churn while
+    // fast-scrolling a list full of file bubbles).
+    final Paint fileIconBgPaint    = new Paint(Paint.ANTI_ALIAS_FLAG);
+    final Paint fileGlyphPaint     = new Paint(Paint.ANTI_ALIAS_FLAG);
+    final Paint fileActionBgPaint  = new Paint(Paint.ANTI_ALIAS_FLAG);
+    final Paint fileActionIconPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    final android.graphics.Path fileGlyphPath = new android.graphics.Path();
+    final android.graphics.Path fileActionIconPath = new android.graphics.Path();
     static final float FILE_CARD_W_DP     = 240f;
     static final float FILE_ICON_COL_DP   = 52f;
     static final float FILE_ACTION_COL_DP = 44f;
@@ -1091,6 +1125,7 @@ public class MessageBubbleCanvasView extends View {
         groupFileLabelPaint.setTextSize(9f * density); // sp≈dp here, matches legacy tvLabel.setTextSize(9f)
         groupFileLabelPaint.setTextAlign(Paint.Align.CENTER);
         for (int i = 0; i < groupRects.length; i++) groupRects[i] = new RectF();
+        for (int i = 0; i < groupCellShaderRect.length; i++) groupCellShaderRect[i] = new RectF();
 
         groupGateScrimPaint.setColor(GROUP_GATE_SCRIM_COLOR);
         groupGatePillBgPaint.setColor(GROUP_GATE_PILL_BG);
@@ -3511,7 +3546,8 @@ public class MessageBubbleCanvasView extends View {
         float pillW = textW + padH * 2;
         float right = anchorRect.right - inset;
         float top = anchorRect.top + inset;
-        RectF pillRect = new RectF(right - pillW, top, right, top + pillH);
+        RectF pillRect = cornerExpiryPillRect;
+        pillRect.set(right - pillW, top, right, top + pillH);
         canvas.drawRoundRect(pillRect, pillH / 2f, pillH / 2f, mediaPillBgPaint);
         float baseline = pillRect.centerY() - (efm.ascent + efm.descent) / 2f;
         canvas.drawText(expiryText, pillRect.left + padH, baseline, expiryPaint);
@@ -3578,6 +3614,7 @@ public class MessageBubbleCanvasView extends View {
     }
 
     final RectF gateIconArcRect = new RectF();
+    final RectF cornerExpiryPillRect = new RectF(); // reused scratch rect for drawCornerExpiryPill()
 
     /**
      * Draws the IDLE download-gate glyph at (cx, cy) sized to `size`: a

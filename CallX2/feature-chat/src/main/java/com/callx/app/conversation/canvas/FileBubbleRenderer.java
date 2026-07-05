@@ -31,14 +31,19 @@ final class FileBubbleRenderer {
         float contentW = host.bubbleRect.width() - hPad * 2f;
 
         // ── Icon circle ────────────────────────────────────────────────────────
+        // Paints/paths below are pre-allocated fields on the host view
+        // (fileIconBgPaint/fileGlyphPaint/fileActionBgPaint/fileActionIconPaint/
+        // fileGlyphPath/fileActionIconPath) and reset+reused every draw()
+        // instead of `new`'d per frame — avoids GC churn while fast-scrolling.
         float cx = left + iconCol / 2f;
         float cy = top  + host.fileCardHeight / 2f;
         float cr = iconCol * 0.38f;
-        Paint iconBg = new Paint(Paint.ANTI_ALIAS_FLAG);
+        Paint iconBg = host.fileIconBgPaint;
         iconBg.setColor(host.fileIconColor);
         canvas.drawCircle(cx, cy, cr, iconBg);
         // File glyph — simple dog-ear rectangle
-        android.graphics.Path fp = new android.graphics.Path();
+        android.graphics.Path fp = host.fileGlyphPath;
+        fp.reset();
         float fw = cr * 0.55f, fh = cr * 0.72f;
         float fx = cx - fw / 2f, fy = cy - fh / 2f;
         float fold = fw * 0.30f;
@@ -52,7 +57,7 @@ final class FileBubbleRenderer {
         fp.moveTo(fx, fy + fold);
         fp.lineTo(fx + fw - fold, fy + fold);
         fp.lineTo(fx + fw - fold, fy);
-        Paint glyphPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        Paint glyphPaint = host.fileGlyphPaint;
         glyphPaint.setColor(0xFFFFFFFF);
         glyphPaint.setStyle(Paint.Style.FILL);
         canvas.drawPath(fp, glyphPaint);
@@ -63,41 +68,41 @@ final class FileBubbleRenderer {
         float actCx  = aLeft + actCol / 2f;
         float actCy  = cy;
         float actR   = actCol * 0.38f;
-        Paint actBg = new Paint(Paint.ANTI_ALIAS_FLAG);
+        Paint actBg = host.fileActionBgPaint;
         actBg.setColor(0x22000000);
         canvas.drawCircle(actCx, actCy, actR, actBg);
         // Store tap rect
         host.fileActionRect.set(actCx - actR, actCy - actR, actCx + actR, actCy + actR);
 
         // Draw icon glyph: ⬇ (download arrow) or ⬗ (open/share square)
-        Paint actIcon = new Paint(Paint.ANTI_ALIAS_FLAG);
+        Paint actIcon = host.fileActionIconPaint;
         actIcon.setColor(host.sent ? 0xFF555555 : 0xFF008069);
         actIcon.setStyle(Paint.Style.FILL);
+        android.graphics.Path actPath = host.fileActionIconPath;
+        actPath.reset();
         if (host.fileIsDownloading) {
             // Progress ring
             host.drawProgressRing(canvas, actCx, actCy, actR * 1.4f, actIcon, host.fileDownloadPercent);
         } else if (host.fileIsCached) {
             // Open icon — simple right-pointing arrow
-            android.graphics.Path arr = new android.graphics.Path();
             float as = actR * 0.45f;
-            arr.moveTo(actCx - as, actCy - as * 0.7f);
-            arr.lineTo(actCx + as, actCy);
-            arr.lineTo(actCx - as, actCy + as * 0.7f);
+            actPath.moveTo(actCx - as, actCy - as * 0.7f);
+            actPath.lineTo(actCx + as, actCy);
+            actPath.lineTo(actCx - as, actCy + as * 0.7f);
             actIcon.setStyle(Paint.Style.STROKE);
             actIcon.setStrokeWidth(host.density * 2f);
-            canvas.drawPath(arr, actIcon);
+            canvas.drawPath(actPath, actIcon);
         } else {
             // Download arrow
-            android.graphics.Path dl = new android.graphics.Path();
             float as = actR * 0.42f;
-            dl.moveTo(actCx, actCy - as);
-            dl.lineTo(actCx, actCy + as * 0.5f);
-            dl.moveTo(actCx - as * 0.7f, actCy + as * 0.2f);
-            dl.lineTo(actCx, actCy + as * 0.9f);
-            dl.lineTo(actCx + as * 0.7f, actCy + as * 0.2f);
+            actPath.moveTo(actCx, actCy - as);
+            actPath.lineTo(actCx, actCy + as * 0.5f);
+            actPath.moveTo(actCx - as * 0.7f, actCy + as * 0.2f);
+            actPath.lineTo(actCx, actCy + as * 0.9f);
+            actPath.lineTo(actCx + as * 0.7f, actCy + as * 0.2f);
             actIcon.setStyle(Paint.Style.STROKE);
             actIcon.setStrokeWidth(host.density * 2f);
-            canvas.drawPath(dl, actIcon);
+            canvas.drawPath(actPath, actIcon);
         }
 
         // ── Name + meta text (centre column) ──────────────────────────────────

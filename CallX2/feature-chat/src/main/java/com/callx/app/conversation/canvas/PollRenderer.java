@@ -60,7 +60,8 @@ final class PollRenderer {
         float chipLeft  = right - chipW;
         float chipTop   = top + (host.pollHeaderRowH - chipH) / 2f;
         host.pollOptionBgPaint.setColor(host.pollClosed ? MessageBubbleCanvasView.POLL_CHIP_CLOSED_BG : MessageBubbleCanvasView.POLL_CHIP_NEUTRAL_BG);
-        RectF chipRect = new RectF(chipLeft, chipTop, right, chipTop + chipH);
+        RectF chipRect = host.pollChipRect;
+        chipRect.set(chipLeft, chipTop, right, chipTop + chipH);
         float chipR = MessageBubbleCanvasView.POLL_CHIP_CORNER_DP * host.density;
         canvas.drawRoundRect(chipRect, chipR, chipR, host.pollOptionBgPaint);
         Paint.FontMetrics cfm = host.pollChipPaint.getFontMetrics();
@@ -94,8 +95,13 @@ final class PollRenderer {
         float innerW   = right - left;
 
         float rowTop = subTop + host.pollSubtitleH + MessageBubbleCanvasView.POLL_OPTIONS_GAP_DP * host.density;
-        host.pollOptionRects.clear();
         int n = host.pollOptions.length;
+        // Keep pollOptionRects sized to the option count, reusing the same
+        // RectF objects across frames (touch-hit-testing reads this list
+        // too) instead of clear()+`new RectF()` per option per draw() —
+        // only grows/shrinks the list when the option count itself changes.
+        while (host.pollOptionRects.size() < n) host.pollOptionRects.add(new RectF());
+        while (host.pollOptionRects.size() > n) host.pollOptionRects.remove(host.pollOptionRects.size() - 1);
         // Compute fill widths
         for (int i = 0; i < n; i++) {
             float pct = (host.pollTotal > 0) ? (host.pollCounts[i] * 1f / host.pollTotal) : 0f;
@@ -106,8 +112,8 @@ final class PollRenderer {
             StaticLayout optLayout = (i < host.pollOptionLayouts.length) ? host.pollOptionLayouts[i] : null;
             float txtH = optLayout != null ? optLayout.getHeight() : 0f;
             float rowH = Math.max(txtH, optIconSz) + optPadV * 2;
-            RectF rowRect = new RectF(left, rowTop, right, rowTop + rowH);
-            host.pollOptionRects.add(new RectF(rowRect));
+            RectF rowRect = host.pollOptionRects.get(i);
+            rowRect.set(left, rowTop, right, rowTop + rowH);
 
             boolean isMyVote = (i < host.pollMyVote.length) && host.pollMyVote[i];
             boolean isLeader = (i < host.pollIsLeader.length) && host.pollIsLeader[i];
@@ -121,10 +127,12 @@ final class PollRenderer {
             if (fillW > 0f) {
                 int fillColor = isMyVote ? (isLeader ? MessageBubbleCanvasView.POLL_OPTION_FILL_LEADER : MessageBubbleCanvasView.POLL_OPTION_FILL_COLOR) : MessageBubbleCanvasView.POLL_OPTION_FILL_NEUTRAL;
                 host.pollFillPaint.setColor(fillColor);
-                RectF fillRect = new RectF(left, rowTop, left + fillW, rowTop + rowH);
+                RectF fillRect = host.pollFillRect;
+                fillRect.set(left, rowTop, left + fillW, rowTop + rowH);
                 // Clip fill to row's rounded rect path
                 canvas.save();
-                android.graphics.Path fp = new android.graphics.Path();
+                android.graphics.Path fp = host.pollFillClipPath;
+                fp.reset();
                 fp.addRoundRect(rowRect, optCorner, optCorner, android.graphics.Path.Direction.CW);
                 canvas.clipPath(fp);
                 canvas.drawRect(fillRect, host.pollFillPaint);

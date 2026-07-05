@@ -118,10 +118,12 @@ final class ReelShareRenderer {
             canvas.drawText(host.expiryText, timeX - host.expiryReserveWidth(), textBaselineY, host.expiryPaint);
         }
         if (host.sent) {
-            Paint saved = new Paint(host.tickPaint);
+            // Only the color needs to be swapped and restored — no need to
+            // allocate a whole extra Paint object just to remember it.
+            int savedColor = host.tickPaint.getColor();
             host.tickPaint.setColor(MessageBubbleCanvasView.MEDIA_PILL_TEXT);
             host.drawTick(canvas, host.mediaPillRect.right - pillPadH - MessageBubbleCanvasView.TICK_SIZE_DP * host.density, textBaselineY);
-            host.tickPaint.set(saved);
+            host.tickPaint.setColor(savedColor);
         }
     }
 }
