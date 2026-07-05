@@ -530,30 +530,30 @@ public class MessageBubbleCanvasView extends View {
         void onBubbleClick();
         void onBubbleLongClick();
         /** Returns true if a link at (x,y) was hit and handled — caller should not treat as a normal click. */
-        boolean onLinkClick(String url);
+        default boolean onLinkClick(String url) { return false; }
         /** Tapped the reply-preview strip — caller should scroll/jump to the quoted message. */
-        void onReplyPreviewClick();
+        default void onReplyPreviewClick() {}
         /** Tapped the image itself (media bubbles only) — caller should open the full-screen media viewer. */
-        void onImageClick();
+        default void onImageClick() {}
         /** Tapped the single-media download gate pill (setMediaDownloadGate) while idle (not yet downloading) —
          *  caller should start the manual download and drive setMediaDownloadProgress() as it reports progress. */
-        void onMediaDownloadClick();
+        default void onMediaDownloadClick() {}
         /** Tapped cell `index` inside a media-group grid (bindMediaGroup only) — caller should open the gallery viewer at that index. */
-        void onMediaCellClick(int index);
+        default void onMediaCellClick(int index) {}
         /** Tapped the master "Download N photos" pill on a RECEIVED group — caller should start every pending cell's download (view has already dismissed the pill locally). */
-        void onGroupDownloadAllClick();
+        default void onGroupDownloadAllClick() {}
         /** Tapped an individual still-pending cell directly (gate already dismissed) — caller should start that one cell's download. */
-        void onGroupCellDownloadClick(int index);
+        default void onGroupCellDownloadClick(int index) {}
         /** Tapped the reaction badge — caller should open the reaction-details/picker sheet (same as ll_reactions' click listener on the legacy path). */
-        void onReactionsClick();
+        default void onReactionsClick() {}
         /** Tapped the play/pause button on an audio bubble (bindAudio only) — caller should toggle MediaPlayer playback for this message. */
-        void onAudioPlayPauseClick();
+        default void onAudioPlayPauseClick() {}
         /** Dragged/tapped the waveform on an audio bubble (bindAudio only) — fraction is 0..1 of the track; caller should seek MediaPlayer to it. The view already updated its own progress bar optimistically. */
-        void onAudioSeek(float fraction);
+        default void onAudioSeek(float fraction) {}
         /** Tapped the "View Contact" row on a contact card (bindContact only) — caller should open the system Contacts app / dialer for this contact's phone number, same as the legacy btnViewContact click listener. */
-        void onContactViewClick();
+        default void onContactViewClick() {}
         /** Tapped the "Open in Maps" row on a location card (bindLocation only) — caller should launch a maps app (or geo: intent) for this location's coordinates, same as the legacy btnOpenMaps click listener. */
-        void onLocationOpenMapsClick();
+        default void onLocationOpenMapsClick() {}
         /** Tapped a GIF thumbnail — caller should open the full-screen GIF viewer / start GIF playback. */
         default void onGifClick() {}
         /** Tapped the ⬇ download button on an uncached file bubble — caller should start the file download. */
@@ -1596,10 +1596,10 @@ public class MessageBubbleCanvasView extends View {
      * Binds a GIF message bubble. Delegates to bindMedia() for layout/draw;
      * sets isGifBubble so drawMedia() adds the "GIF" badge.
      */
-    public void bindGif(@Nullable String gifUrl, boolean isSent, boolean isRead, boolean isDelivered) {
+    public void bindGif(@Nullable String gifUrl, String timeText, boolean isSent, boolean isRead, boolean isDelivered) {
         isGifBubble = true;
         isFileBubble = false;
-        bindMedia(null, isSent, isRead, isDelivered);
+        bindMedia(null, null, timeText != null ? timeText : "", isSent, isRead, isDelivered);
     }
 
     /** Swaps in the decoded GIF first-frame bitmap. Same pattern as setMediaBitmap(). */

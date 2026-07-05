@@ -1679,12 +1679,12 @@ public class MessagePagingAdapter
             // Reuses the single-image slot (same 180dp square, same download-gate)
             // with a "GIF" badge pill. Mirrors the legacy GifDrawable/Glide path.
             final String gifUrl = m.mediaUrl != null ? m.mediaUrl : "";
-            cv.bindGif(gifUrl, sent, isRead, isDelivered);
+            cv.bindGif(gifUrl, timeStr, sent, isRead, isDelivered);
             cv.setDeletedStyle(false);
 
             java.io.File gifCached = MediaCache.getCached(ctx, gifUrl);
             if (gifCached != null) {
-                // Already on disk — decode and display immediately.
+                // Already on disk — decode first-frame and display immediately.
                 glide(ctx).asBitmap().load(gifCached).apply(THUMB_RGB565)
                         .into(new com.bumptech.glide.request.target.CustomTarget<android.graphics.Bitmap>() {
                             @Override
@@ -1697,56 +1697,64 @@ public class MessagePagingAdapter
                             public void onLoadCleared(@Nullable android.graphics.drawable.Drawable p) {}
                         });
             } else if (!gifUrl.isEmpty()) {
-                // Not cached — show download gate, fetch remote size for the label.
-                cv.setMediaDownloadGate(false, 0, "GIF");
-                MediaCache.getRemoteSize(gifUrl, sizeBytes -> {
-                    if (h.canvasBindToken != myToken) return;
-                    String lbl = sizeBytes > 0
-                            ? android.text.format.Formatter.formatShortFileSize(ctx, sizeBytes)
-                            : "GIF";
-                    cv.setMediaDownloadGate(false, 0, lbl);
+                // Not cached — show download gate; fetch remote size for the pill label.
+                cv.setMediaDownloadGate(false, Integer.MIN_VALUE, "GIF");
+                com.callx.app.utils.MediaCache.getRemoteSize(ctx, gifUrl,
+                        new com.callx.app.utils.MediaCache.SizeCallback() {
+                    @Override public void onSize(long bytes) {
+                        if (h.canvasBindToken != myToken) return;
+                        if (!downloadingMediaUrls.contains(gifUrl))
+                            cv.setMediaDownloadGate(false, Integer.MIN_VALUE, formatFileSize(bytes));
+                    }
+                    @Override public void onError(String reason) { /* keep "GIF" label */ }
                 });
             }
 
             cv.setOnBubbleClickListener(new com.callx.app.conversation.canvas.MessageBubbleCanvasView.OnBubbleClickListener() {
-                @Override public void onBubbleClick()      { if (actionListener != null) actionListener.onMessageClick(m); }
-                @Override public void onBubbleLongClick()  { if (actionListener != null) showActionBottomSheet(ctx, m); }
-                @Override public boolean onLinkClick(String url) { return false; }
-                @Override public void onReplyPreviewClick() {}
-                @Override public void onImageClick()        {}
+                @Override public void onBubbleClick()     {}
+                @Override public void onBubbleLongClick() { if (actionListener != null) showActionBottomSheet(ctx, m); }
                 @Override public void onGifClick() {
-                    // Open GIF in the full-screen media viewer — same intent as
-                    // tapping a GIF image in the legacy path.
-                    if (actionListener != null) actionListener.onMediaClick(m, 0);
+                    // Open GIF in the full-screen media viewer — same intent as the legacy path.
+                    android.content.Intent i = new android.content.Intent().setClassName(
+                            ctx.getPackageName(), "com.callx.app.activities.MediaViewerActivity");
+                    i.putExtra("url", gifUrl);
+                    i.putExtra("type", "gif");
+                    if (chatId != null) i.putExtra("chatId", chatId);
+                    String mid = m.messageId != null ? m.messageId : m.id;
+                    if (mid != null) i.putExtra("messageId", mid);
+                    i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                    try { ctx.startActivity(i); } catch (Exception ignored) {}
                 }
                 @Override public void onMediaDownloadClick() {
-                    if (!downloadingMediaUrls.add(gifUrl)) return;
-                    cv.setMediaDownloadGate(true, 0, "GIF");
-                    MediaCache.getWithProgress(ctx, gifUrl,
-                            pct  -> { if (h.canvasBindToken == myToken) cv.setMediaDownloadProgress(pct); },
-                            file -> {
-                                if (h.canvasBindToken != myToken) return;
-                                glide(ctx).asBitmap().load(file).apply(THUMB_RGB565)
-                                        .into(new com.bumptech.glide.request.target.CustomTarget<android.graphics.Bitmap>() {
-                                            @Override public void onResourceReady(@NonNull android.graphics.Bitmap bmp,
-                                                    @Nullable com.bumptech.glide.request.transition.Transition<? super android.graphics.Bitmap> t) {
-                                                if (h.canvasBindToken != myToken) return;
-                                                cv.setGifBitmap(bmp); cv.clearMediaDownloadGate();
-                                                downloadingMediaUrls.remove(gifUrl);
-                                            }
-                                            @Override public void onLoadCleared(@Nullable android.graphics.drawable.Drawable p) {}
-                                        });
-                            },
-                            err  -> { cv.setMediaDownloadGate(false, -1, "Tap to retry"); downloadingMediaUrls.remove(gifUrl); });
+                    if (gifUrl.isEmpty() || !downloadingMediaUrls.add(gifUrl)) return;
+                    cv.setMediaDownloadGate(true, 0, null);
+                    com.callx.app.utils.MediaCache.getWithProgress(ctx, gifUrl,
+                            new com.callx.app.utils.MediaCache.ProgressCallback() {
+                        @Override public void onProgress(int percent) {
+                            if (h.canvasBindToken != myToken) return;
+                            cv.setMediaDownloadProgress(percent);
+                        }
+                        @Override public void onReady(java.io.File file) {
+                            downloadingMediaUrls.remove(gifUrl);
+                            if (h.canvasBindToken != myToken) return;
+                            cv.clearMediaDownloadGate();
+                            glide(ctx).asBitmap().load(file).apply(THUMB_RGB565)
+                                    .into(new com.bumptech.glide.request.target.CustomTarget<android.graphics.Bitmap>() {
+                                        @Override public void onResourceReady(@NonNull android.graphics.Bitmap bmp,
+                                                @Nullable com.bumptech.glide.request.transition.Transition<? super android.graphics.Bitmap> t) {
+                                            if (h.canvasBindToken != myToken) return;
+                                            cv.setGifBitmap(bmp);
+                                        }
+                                        @Override public void onLoadCleared(@Nullable android.graphics.drawable.Drawable p) {}
+                                    });
+                        }
+                        @Override public void onError(String reason) {
+                            downloadingMediaUrls.remove(gifUrl);
+                            if (h.canvasBindToken != myToken) return;
+                            cv.setMediaDownloadGate(false, Integer.MIN_VALUE, "Tap to retry");
+                        }
+                    });
                 }
-                @Override public void onMediaCellClick(int i)   {}
-                @Override public void onGroupDownloadAllClick()  {}
-                @Override public void onGroupCellDownloadClick(int i) {}
-                @Override public void onReactionsClick()         {}
-                @Override public void onAudioPlayPauseClick()    {}
-                @Override public void onAudioSeek(float f)       {}
-                @Override public void onContactViewClick()       {}
-                @Override public void onLocationOpenMapsClick()  {}
             });
 
         } else if (isFile) {
@@ -1755,7 +1763,8 @@ public class MessagePagingAdapter
             // download/open button, footer. Mirrors the legacy ll_file row.
             final String fileUrl  = m.mediaUrl != null ? m.mediaUrl : "";
             final String fileName = m.fileName != null ? m.fileName : "File";
-            final String mime     = m.mimeType != null ? m.mimeType : "";
+            // Derive MIME type from file extension — Message has no mimeType field.
+            final String mime     = guessMimeFromFileName(fileName);
             final long   sizeRaw  = m.fileSize != null ? m.fileSize : 0L;
             final String sizeStr  = sizeRaw > 0
                     ? android.text.format.Formatter.formatShortFileSize(ctx, sizeRaw) : "";
@@ -1765,30 +1774,28 @@ public class MessagePagingAdapter
             cv.setDeletedStyle(false);
 
             cv.setOnBubbleClickListener(new com.callx.app.conversation.canvas.MessageBubbleCanvasView.OnBubbleClickListener() {
-                @Override public void onBubbleClick()      { if (actionListener != null) actionListener.onMessageClick(m); }
-                @Override public void onBubbleLongClick()  { if (actionListener != null) showActionBottomSheet(ctx, m); }
-                @Override public boolean onLinkClick(String url) { return false; }
-                @Override public void onReplyPreviewClick() {}
-                @Override public void onImageClick()        {}
-                @Override public void onMediaDownloadClick() {}
-                @Override public void onMediaCellClick(int i) {}
-                @Override public void onGroupDownloadAllClick() {}
-                @Override public void onGroupCellDownloadClick(int i) {}
-                @Override public void onReactionsClick() {}
-                @Override public void onAudioPlayPauseClick() {}
-                @Override public void onAudioSeek(float f) {}
-                @Override public void onContactViewClick() {}
-                @Override public void onLocationOpenMapsClick() {}
+                @Override public void onBubbleClick()     {}
+                @Override public void onBubbleLongClick() { if (actionListener != null) showActionBottomSheet(ctx, m); }
                 @Override public void onFileDownloadClick() {
                     if (fileUrl.isEmpty() || !downloadingMediaUrls.add(fileUrl)) return;
                     cv.setFileDownloadState(true, -1);
-                    MediaCache.getWithProgress(ctx, fileUrl,
-                            pct  -> { if (h.canvasBindToken == myToken) cv.setFileDownloadState(true, pct); },
-                            file -> { if (h.canvasBindToken == myToken) cv.setFileCached(true); downloadingMediaUrls.remove(fileUrl); },
-                            err  -> { if (h.canvasBindToken == myToken) cv.setFileDownloadState(false, 0);  downloadingMediaUrls.remove(fileUrl); });
+                    com.callx.app.utils.MediaCache.getWithProgress(ctx, fileUrl,
+                            new com.callx.app.utils.MediaCache.ProgressCallback() {
+                        @Override public void onProgress(int percent) {
+                            if (h.canvasBindToken == myToken) cv.setFileDownloadState(true, percent);
+                        }
+                        @Override public void onReady(java.io.File file) {
+                            downloadingMediaUrls.remove(fileUrl);
+                            if (h.canvasBindToken == myToken) cv.setFileCached(true);
+                        }
+                        @Override public void onError(String reason) {
+                            downloadingMediaUrls.remove(fileUrl);
+                            if (h.canvasBindToken == myToken) cv.setFileDownloadState(false, 0);
+                        }
+                    });
                 }
                 @Override public void onFileOpenClick() {
-                    // Open the cached file via FileProvider — same as the legacy ivFileAction click.
+                    // Open the cached file via FileProvider — same as legacy ivFileAction click.
                     java.io.File cached = MediaCache.getCached(ctx, fileUrl);
                     if (cached == null) return;
                     try {
@@ -1799,7 +1806,7 @@ public class MessagePagingAdapter
                         intent.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
                                 | android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
                         ctx.startActivity(intent);
-                    } catch (Exception e) { /* no app to handle this type */ }
+                    } catch (Exception ignored) { /* no app handles this type */ }
                 }
             });
 
@@ -3679,6 +3686,33 @@ public class MessagePagingAdapter
             h.iv_download_icon.setVisibility(View.VISIBLE);
             h.pb_download_spinner.setVisibility(View.GONE);
             if (idleLabel != null) h.tv_download_size.setText(idleLabel);
+        }
+    }
+
+    
+    /** Derives a best-guess MIME type from a filename extension — used for file
+     *  bubbles since Message does not carry a mimeType field. */
+    private static String guessMimeFromFileName(@Nullable String name) {
+        if (name == null) return "*/*";
+        int dot = name.lastIndexOf('.');
+        if (dot < 0) return "*/*";
+        switch (name.substring(dot + 1).toLowerCase(java.util.Locale.ROOT)) {
+            case "pdf":  return "application/pdf";
+            case "doc":  return "application/msword";
+            case "docx": return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+            case "xls":  return "application/vnd.ms-excel";
+            case "xlsx": return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+            case "ppt":  return "application/vnd.ms-powerpoint";
+            case "pptx": return "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+            case "zip":  return "application/zip";
+            case "rar":  return "application/x-rar-compressed";
+            case "mp3":  return "audio/mpeg";
+            case "mp4":  return "video/mp4";
+            case "jpg": case "jpeg": return "image/jpeg";
+            case "png":  return "image/png";
+            case "gif":  return "image/gif";
+            case "txt":  return "text/plain";
+            default:     return "*/*";
         }
     }
 
