@@ -113,12 +113,8 @@ final class FileBubbleRenderer {
         host.textPaint.setTextSize(host.spToPx(13f));
         host.textPaint.setTypeface(Typeface.DEFAULT_BOLD);
         host.textPaint.setColor(host.sent ? 0xFF1A1A1A : 0xFF1A1A1A);
-        float nameTruncW = host.textPaint.measureText(host.fileNameText);
-        String displayName = host.fileNameText;
-        if (nameTruncW > textColW) {
-            displayName = android.text.TextUtils.ellipsize(
-                    host.fileNameText, host.textPaint, textColW, android.text.TextUtils.TruncateAt.MIDDLE).toString();
-        }
+        String displayName = host.fileNameEllipsizeCache.get(
+                host.fileNameText, host.textPaint, textColW, android.text.TextUtils.TruncateAt.MIDDLE);
         float nameLineH = host.textPaint.getFontSpacing();
         float metaLineH;
         {
@@ -136,11 +132,8 @@ final class FileBubbleRenderer {
         host.textPaint.setTypeface(Typeface.DEFAULT);
         host.textPaint.setColor(0xFF888888);
         float metaY = nameY + 2f * host.density + metaLineH * 0.85f;
-        String displayMeta = host.fileSizeMimeText;
-        if (host.textPaint.measureText(displayMeta) > textColW) {
-            displayMeta = android.text.TextUtils.ellipsize(
-                    displayMeta, host.textPaint, textColW, android.text.TextUtils.TruncateAt.END).toString();
-        }
+        String displayMeta = host.fileMetaEllipsizeCache.get(
+                host.fileSizeMimeText, host.textPaint, textColW, android.text.TextUtils.TruncateAt.END);
         canvas.drawText(displayMeta, textLeft, metaY, host.textPaint);
 
         // ── Footer ─────────────────────────────────────────────────────────────

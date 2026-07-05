@@ -729,6 +729,10 @@ public class MessageBubbleCanvasView extends View {
     final RectF audioBtnRect = new RectF();
     final RectF audioWaveformRect = new RectF();
     final android.graphics.Path audioPlayTrianglePath = new android.graphics.Path();
+    // Scratch int Rect reused by invalidateAudioRow() (see setAudioProgress()
+    // etc.) — dirty-region invalidate() for playback ticks instead of
+    // repainting the whole item view every ~250ms.
+    private final android.graphics.Rect audioInvalidateRect = new android.graphics.Rect();
 
     // ── Single-media manual download gate state — see setMediaDownloadGate(). ──
     boolean mediaGated = false;
@@ -788,6 +792,10 @@ public class MessageBubbleCanvasView extends View {
     boolean hasExpiry = false;
     String expiryText = "";
     final TextPaint expiryPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    // Scratch int Rect reused by invalidateExpiryRegion() (see
+    // setExpiryText()) — dirty-region invalidate() for the once-a-second
+    // countdown tick instead of repainting the whole item view.
+    private final android.graphics.Rect expiryInvalidateRect = new android.graphics.Rect();
 
     // ── Media GROUP (multi-image/video grid) state — entirely separate
     // from the single-image `isMedia` state above. ──
@@ -818,6 +826,11 @@ public class MessageBubbleCanvasView extends View {
     final Bitmap[] groupCellShaderBitmap = new Bitmap[GROUP_MAX_VISIBLE];
     final RectF[] groupCellShaderRect = new RectF[GROUP_MAX_VISIBLE];
     final RectF groupDurationBgRect = new RectF(); // reused scratch rect for video-duration badge
+    // Per-cell memoized ellipsize results (see EllipsizeCache) — one slot
+    // per grid cell for its audio/file label, one per cell for its
+    // per-item caption strip.
+    final EllipsizeCache[] groupCellLabelEllipsizeCache = new EllipsizeCache[GROUP_MAX_VISIBLE];
+    final EllipsizeCache[] groupItemCaptionEllipsizeCache = new EllipsizeCache[GROUP_MAX_VISIBLE];
     final android.graphics.Path groupPlayTrianglePath = new android.graphics.Path();
     final TextPaint groupCaptionTextPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
     final TextPaint groupItemCaptionPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
@@ -883,6 +896,10 @@ public class MessageBubbleCanvasView extends View {
     final RectF contactCardRect = new RectF();
     final RectF contactAvatarRect = new RectF();
     final RectF contactButtonRect = new RectF(); // "View Contact" row — the only tappable sub-region
+    // Memoized ellipsize results (see EllipsizeCache) — draw() no longer
+    // re-measures/re-ellipsizes name+phone on every frame.
+    final EllipsizeCache contactNameEllipsizeCache = new EllipsizeCache();
+    final EllipsizeCache contactPhoneEllipsizeCache = new EllipsizeCache();
     final Paint contactCardBgPaint = new Paint();
     final Paint contactDividerPaint = new Paint();
     final Paint contactAvatarPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
@@ -972,6 +989,8 @@ public class MessageBubbleCanvasView extends View {
     final Paint fileActionIconPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     final android.graphics.Path fileGlyphPath = new android.graphics.Path();
     final android.graphics.Path fileActionIconPath = new android.graphics.Path();
+    final EllipsizeCache fileNameEllipsizeCache = new EllipsizeCache();
+    final EllipsizeCache fileMetaEllipsizeCache = new EllipsizeCache();
     static final float FILE_CARD_W_DP     = 240f;
     static final float FILE_ICON_COL_DP   = 52f;
     static final float FILE_ACTION_COL_DP = 44f;
@@ -1126,6 +1145,8 @@ public class MessageBubbleCanvasView extends View {
         groupFileLabelPaint.setTextAlign(Paint.Align.CENTER);
         for (int i = 0; i < groupRects.length; i++) groupRects[i] = new RectF();
         for (int i = 0; i < groupCellShaderRect.length; i++) groupCellShaderRect[i] = new RectF();
+        for (int i = 0; i < groupCellLabelEllipsizeCache.length; i++) groupCellLabelEllipsizeCache[i] = new EllipsizeCache();
+        for (int i = 0; i < groupItemCaptionEllipsizeCache.length; i++) groupItemCaptionEllipsizeCache[i] = new EllipsizeCache();
 
         groupGateScrimPaint.setColor(GROUP_GATE_SCRIM_COLOR);
         groupGatePillBgPaint.setColor(GROUP_GATE_PILL_BG);
@@ -1524,7 +1545,7 @@ public class MessageBubbleCanvasView extends View {
     public void setAudioPlaying(boolean playing) {
         if (this.audioPlaying == playing) return;
         this.audioPlaying = playing;
-        invalidate();
+        invalidateAudioRow();
     }
 
     /** Cheap path — called every playback tick (e.g. every 250ms). No layout/measure work, draw-only, same precedent as AudioWaveformView.setProgress(). */
@@ -1532,13 +1553,13 @@ public class MessageBubbleCanvasView extends View {
         float clamped = Math.max(0f, Math.min(1f, fraction));
         if (clamped == audioProgress) return;
         audioProgress = clamped;
-        invalidate();
+        invalidateAudioRow();
     }
 
     /** Elapsed "m:ss" label shown next to the waveform while playing; pass "" to clear it back to idle (mirrors legacy tv_audio_dur, which never shows a total duration upfront — only the live elapsed time once playback starts). */
     public void setAudioElapsedText(@Nullable String text) {
         this.audioElapsedText = text != null ? text : "";
-        invalidate();
+        invalidateAudioRow();
     }
 
     /** Resets the bubble to its idle state (button back to ▶, progress to 0, elapsed label cleared) — call when playback stops/completes/errors, or right before rebinding a recycled holder to a different message. */
@@ -1546,7 +1567,27 @@ public class MessageBubbleCanvasView extends View {
         this.audioPlaying = false;
         this.audioProgress = 0f;
         this.audioElapsedText = "";
-        invalidate();
+        invalidateAudioRow();
+    }
+
+    /**
+     * Dirty-region invalidate() for the audio row (button + waveform +
+     * elapsed-time label) — used by the playback setters above, which fire
+     * every ~250ms while a voice message is playing. Repainting just this
+     * row instead of the whole item view (invalidate()) noticeably cuts
+     * per-tick draw cost when several audio bubbles / a long list is on
+     * screen. Falls back harmlessly to an empty rect before the first
+     * measure() pass has run (rects default to (0,0,0,0)).
+     */
+    private void invalidateAudioRow() {
+        float pad = 4f * density;
+        float left = Math.min(audioBtnRect.left, audioWaveformRect.left) - pad;
+        float top = Math.min(audioBtnRect.top, audioWaveformRect.top) - pad;
+        float right = Math.max(bubbleRect.right, audioWaveformRect.right) + pad;
+        float bottom = Math.max(audioBtnRect.bottom, audioWaveformRect.bottom) + pad;
+        audioInvalidateRect.set((int) Math.floor(left), (int) Math.floor(top),
+                (int) Math.ceil(right), (int) Math.ceil(bottom));
+        invalidate(audioInvalidateRect);
     }
 
     /** Same bar-height generation AudioWaveformView.generateLevels() uses — a stable seed always produces the same "waveform" shape. */
@@ -2460,10 +2501,48 @@ public class MessageBubbleCanvasView extends View {
      * formatting, same as formatRemaining() does for the legacy TextView).
      */
     public void setExpiryText(@Nullable String text) {
-        this.hasExpiry = text != null && !text.isEmpty();
-        this.expiryText = text != null ? text : "";
-        requestLayout();
-        invalidate();
+        String newText = text != null ? text : "";
+        boolean hadExpiry = this.hasExpiry;
+        boolean willHaveExpiry = !newText.isEmpty();
+        // Most ticks just decrement the same "mm:ss" digit count (e.g.
+        // "12:34" -> "12:33"), so the reserved footer width — and therefore
+        // the bubble's measured size — doesn't actually change. Only pay for
+        // a full requestLayout()+invalidate() when the reserve width (or
+        // the has-expiry/no-expiry state itself) really changed; otherwise
+        // just repaint the small region the countdown is drawn in.
+        float oldReserve = measureExpiryReserve(this.expiryText);
+        float newReserve = measureExpiryReserve(newText);
+        this.hasExpiry = willHaveExpiry;
+        this.expiryText = newText;
+        if (hadExpiry != willHaveExpiry || oldReserve != newReserve) {
+            requestLayout();
+            invalidate();
+        } else {
+            invalidateExpiryRegion();
+        }
+    }
+
+    /** Text-only width of the "⏳ mm:ss" countdown for the given string, independent of the current expiryText/hasExpiry fields — used by setExpiryText() to detect whether an incoming tick actually changes the reserved footer width. */
+    private float measureExpiryReserve(@Nullable String text) {
+        if (text == null || text.isEmpty()) return 0f;
+        return expiryPaint.measureText(text) + EXPIRY_GAP_DP * density;
+    }
+
+    /**
+     * Dirty-region invalidate() for the once-a-second expiry countdown tick
+     * — covers the whole bubble rect (footer row, corner pill, or captionless
+     * media pill all live within it depending on bubble type) rather than
+     * the full item view, which also includes the avatar column/reactions
+     * row/group-sender label that never change on a countdown tick.
+     */
+    private void invalidateExpiryRegion() {
+        float pad = 2f * density;
+        expiryInvalidateRect.set(
+                (int) Math.floor(bubbleRect.left - pad),
+                (int) Math.floor(bubbleRect.top - pad),
+                (int) Math.ceil(bubbleRect.right + pad),
+                (int) Math.ceil(bubbleRect.bottom + pad));
+        invalidate(expiryInvalidateRect);
     }
 
     /** Call once the countdown finishes, or for a message with no expiry at all. */

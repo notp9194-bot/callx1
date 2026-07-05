@@ -44,7 +44,7 @@ final class MediaGroupRenderer {
                 String label = (item.label != null && !item.label.isEmpty())
                         ? item.label : (item.isAudio ? "Audio" : "File");
                 float maxTextW = rect.width() - 4 * host.density;
-                CharSequence ellipsized = TextUtils.ellipsize(
+                CharSequence ellipsized = host.groupCellLabelEllipsizeCache[i].get(
                         label, host.groupFileLabelPaint, maxTextW, TextUtils.TruncateAt.MIDDLE);
                 float baseline = rect.bottom - 4 * host.density - host.groupFileLabelPaint.descent();
                 canvas.drawText(ellipsized, 0, ellipsized.length(), rect.centerX(), baseline, host.groupFileLabelPaint);
@@ -135,7 +135,8 @@ final class MediaGroupRenderer {
 
                 float margin = MessageBubbleCanvasView.GROUP_ITEM_CAPTION_MARGIN_DP * host.density;
                 float maxTextW = rect.width() - margin * 2;
-                CharSequence ellipsized = TextUtils.ellipsize(item.caption, host.groupItemCaptionPaint, maxTextW, TextUtils.TruncateAt.END);
+                CharSequence ellipsized = host.groupItemCaptionEllipsizeCache[i].get(
+                        item.caption, host.groupItemCaptionPaint, maxTextW, TextUtils.TruncateAt.END);
                 float baseline = rect.bottom - MessageBubbleCanvasView.GROUP_ITEM_CAPTION_BOTTOM_DP * host.density - host.groupItemCaptionPaint.descent();
                 canvas.drawText(ellipsized, 0, ellipsized.length(), rect.left + margin, baseline, host.groupItemCaptionPaint);
             }

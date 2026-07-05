@@ -59,10 +59,10 @@ final class ContactRenderer {
         // ── Name / phone column beside the avatar ──
         float textX = host.contactAvatarRect.right + MessageBubbleCanvasView.CONTACT_TEXT_GAP_DP * host.density;
         float textMaxW = host.contactCardRect.right - MessageBubbleCanvasView.CONTACT_PAD_H_DP * host.density - textX;
-        String nameToDraw = TextUtils.ellipsize(host.contactName, host.contactNamePaint,
-                Math.max(1, textMaxW), TextUtils.TruncateAt.END).toString();
-        String phoneToDraw = TextUtils.ellipsize(host.contactPhone, host.contactPhonePaint,
-                Math.max(1, textMaxW), TextUtils.TruncateAt.END).toString();
+        String nameToDraw = host.contactNameEllipsizeCache.get(host.contactName, host.contactNamePaint,
+                textMaxW, TextUtils.TruncateAt.END);
+        String phoneToDraw = host.contactPhoneEllipsizeCache.get(host.contactPhone, host.contactPhonePaint,
+                textMaxW, TextUtils.TruncateAt.END);
 
         Paint.FontMetrics nfm = host.contactNamePaint.getFontMetrics();
         Paint.FontMetrics phfm = host.contactPhonePaint.getFontMetrics();
