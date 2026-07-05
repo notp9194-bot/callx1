@@ -648,23 +648,34 @@ public class MessagePagingAdapter
         Message m = getItem(position);
         if (m == null) return TYPE_RECEIVED;
         if ("date_separator".equals(m.type)) return TYPE_DATE_SEPARATOR;
-        if ("status_seen".equals(m.type)) return TYPE_STATUS_SEEN;
+        // status_seen / reel_seen — now rendered on Canvas (always the
+        // "received" shape, left-aligned) instead of item_status_seen_
+        // bubble.xml / item_reel_seen_bubble.xml. TYPE_STATUS_SEEN/
+        // TYPE_REEL_SEEN + their legacy bind*Bubble() methods are kept
+        // only as an unused fallback.
+        if ("status_seen".equals(m.type)) return TYPE_CANVAS_RECEIVED;
         if ("reel_seen".equals(m.type)) {
             // Bubble must show ONLY to the reel's owner (the person who got
             // watched), never to the viewer who did the watching — otherwise
             // both sides see "watched your reel" for every reel view.
-            return currentUid.equals(m.reelOwnerUid) ? TYPE_REEL_SEEN : TYPE_HIDDEN;
+            return currentUid.equals(m.reelOwnerUid) ? TYPE_CANVAS_RECEIVED : TYPE_HIDDEN;
         }
         if ("call_entry".equals(m.type))  return TYPE_CALL_ENTRY;
-        // Feature 13: View Once — intercept before generic sent/received
+        // Feature 13: View Once — now rendered on Canvas (all 3 states)
+        // instead of item_view_once_bubble/sent_waiting/expired.xml.
+        // TYPE_VIEW_ONCE_* + their legacy bind methods are kept only as
+        // an unused fallback.
         if (Boolean.TRUE.equals(m.viewOnce)) {
             if (com.callx.app.conversation.controllers.ChatViewOnceController.isExpired(m)) {
-                return TYPE_VIEW_ONCE_EXPIRED;
+                // Opened/expired/removed card follows the actual sender/
+                // receiver of the message, same alignment the legacy
+                // TYPE_VIEW_ONCE_EXPIRED row always had either way.
+                return currentUid.equals(m.senderId) ? TYPE_CANVAS_SENT : TYPE_CANVAS_RECEIVED;
             }
             // Sender sees their own un-opened message as "Waiting to be opened" (lock state)
-            // Only after receiver actually opens it does it become TYPE_VIEW_ONCE_EXPIRED
-            if (currentUid.equals(m.senderId)) return TYPE_VIEW_ONCE_SENT_WAITING;
-            return TYPE_VIEW_ONCE_SENT;
+            // Only after receiver actually opens it does it become the expired/opened card
+            if (currentUid.equals(m.senderId)) return TYPE_CANVAS_SENT;
+            return TYPE_CANVAS_RECEIVED;
         }
         boolean sentFlag = currentUid.equals(m.senderId);
         if (isCanvasEligible(m, sentFlag)) {
@@ -898,12 +909,23 @@ public class MessagePagingAdapter
             if (tvLabel != null) tvLabel.setText(m.text != null ? m.text : "");
             return;
         }
-        // ── STATUS SEEN BUBBLE — special system event row ─────────────────
+        // ── CANVAS PATH — text/media/contact/location/poll/view-once/
+        // seen-system-rows etc. all render through MessageBubbleCanvasView
+        // now; checked before any of the legacy per-type branches below so
+        // getItemViewType's TYPE_CANVAS_SENT/RECEIVED routing actually
+        // takes effect for them (status_seen/reel_seen/view_once included).
+        if (h.canvasView != null) {
+            bindCanvasMessage(h, m);
+            return;
+        }
+        // ── STATUS SEEN BUBBLE — special system event row (legacy fallback,
+        // unreachable now that getItemViewType() routes these to Canvas) ──
         if ("status_seen".equals(m.type)) {
             bindStatusSeenBubble(h, m);
             return;
         }
-        // ── REEL SEEN BUBBLE — special system event row ───────────────────
+        // ── REEL SEEN BUBBLE — special system event row (legacy fallback,
+        // unreachable now that getItemViewType() routes these to Canvas) ──
         if ("reel_seen".equals(m.type)) {
             if (!currentUid.equals(m.reelOwnerUid)) return; // hidden for the viewer side
             bindReelSeenBubble(h, m);
@@ -914,7 +936,8 @@ public class MessagePagingAdapter
             bindCallEntryBubble(h, m);
             return;
         }
-        // ── VIEW ONCE BUBBLES — Feature 13 ────────────────────────────────
+        // ── VIEW ONCE BUBBLES — Feature 13 (legacy fallback, unreachable
+        // now that getItemViewType() routes these to Canvas) ─────────────
         if (Boolean.TRUE.equals(m.viewOnce)) {
             if (com.callx.app.conversation.controllers.ChatViewOnceController.isExpired(m)) {
                 bindViewOnceExpired(h, m);
@@ -925,10 +948,6 @@ public class MessagePagingAdapter
                 return;
             }
             bindViewOnceSent(h, m);
-            return;
-        }
-        if (h.canvasView != null) {
-            bindCanvasMessage(h, m);
             return;
         }
         bindMessage(h, m, position);
@@ -1286,6 +1305,13 @@ public class MessagePagingAdapter
         final boolean isFile = "file".equals(type);
         final boolean isPoll = "poll".equals(type);
         final boolean isDeleted = Boolean.TRUE.equals(m.deleted);
+        final boolean isStatusSeen = "status_seen".equals(m.type);
+        final boolean isReelSeen = "reel_seen".equals(m.type);
+        final boolean isSeen = isStatusSeen || isReelSeen;
+        final boolean isViewOnceMsg = Boolean.TRUE.equals(m.viewOnce);
+        final boolean isViewOnceExpiredState = isViewOnceMsg
+                && com.callx.app.conversation.controllers.ChatViewOnceController.isExpired(m);
+        final boolean isViewOnceWaiting = isViewOnceMsg && !isViewOnceExpiredState && sent;
 
         if (isDeleted) {
             // Mirrors bindMessage()'s deleted-message branch: always the
@@ -1294,6 +1320,93 @@ public class MessagePagingAdapter
             String placeholder = sent ? "You deleted this message" : "This message was deleted";
             cv.bind(placeholder, timeStr, sent, isRead, isDelivered);
             cv.setDeletedStyle(true);
+        } else if (isViewOnceMsg) {
+            // Mirrors the legacy bindViewOnceSentWaiting/bindViewOnceSent/
+            // bindViewOnceExpired trio (Feature 13) — same 3 states, just
+            // pushed through cv.bindViewOnce() instead of item_view_once_*
+            // .xml inflate. Time text always plain "h:mm a" here (no
+            // "edited" suffix — view-once messages can't be edited).
+            String voTime = (m.timestamp != null && m.timestamp > 0) ? formatTime(m.timestamp) : "";
+            if (isViewOnceExpiredState) {
+                String expiredLabel;
+                boolean showOpenedAt;
+                String openedAtText = "";
+                if (com.callx.app.conversation.controllers.ChatViewOnceController.isTimerExpired(m)) {
+                    expiredLabel = "Expired";
+                    showOpenedAt = false;
+                } else if (com.callx.app.conversation.controllers.ChatViewOnceController.isRevoked(m)) {
+                    expiredLabel = "Removed";
+                    showOpenedAt = false;
+                } else {
+                    expiredLabel = "Opened";
+                    showOpenedAt = sent && m.openedAt != null;
+                    if (showOpenedAt) {
+                        java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat(
+                                "h:mm a", java.util.Locale.getDefault());
+                        openedAtText = "Opened \u00b7 " + sdf.format(new java.util.Date(m.openedAt));
+                    }
+                }
+                cv.bindViewOnce(com.callx.app.conversation.canvas.MessageBubbleCanvasView.VIEW_ONCE_EXPIRED,
+                        null, expiredLabel, openedAtText, showOpenedAt, voTime, sent);
+            } else if (isViewOnceWaiting) {
+                cv.bindViewOnce(com.callx.app.conversation.canvas.MessageBubbleCanvasView.VIEW_ONCE_WAITING,
+                        null, null, null, false, voTime, true);
+            } else {
+                cv.bindViewOnce(com.callx.app.conversation.canvas.MessageBubbleCanvasView.VIEW_ONCE_RECEIVED,
+                        buildTypeHint(m.type), null, null, false, voTime, false);
+            }
+            cv.setDeletedStyle(false);
+        } else if (isSeen) {
+            // Mirrors the legacy bindStatusSeenBubble/bindReelSeenBubble
+            // pair (system event rows) — same avatar + optional thumbnail
+            // + sender-name-in-groups + time, just pushed through
+            // cv.bindSeenBubble()/setSeenAvatarBitmap()/setSeenThumbBitmap()
+            // instead of CircleImageView/ImageView/TextView calls.
+            String seenTime = (m.timestamp != null && m.timestamp > 0) ? formatTime(m.timestamp) : "";
+            final String thumbUrl = isReelSeen
+                    ? (m.reelThumbUrl != null ? m.reelThumbUrl : "")
+                    : (m.statusThumbUrl != null ? m.statusThumbUrl : "");
+            final boolean hasThumb = !thumbUrl.isEmpty();
+            final String senderNameForSeen = (isGroup && m.senderName != null && !m.senderName.isEmpty())
+                    ? m.senderName : null;
+            cv.bindSeenBubble(isReelSeen, null, null, hasThumb, senderNameForSeen, seenTime);
+            cv.setDeletedStyle(false);
+
+            final String avatarUrl = m.senderPhoto != null ? m.senderPhoto : "";
+            if (!avatarUrl.isEmpty()) {
+                glide(ctx).asBitmap().load(avatarUrl).apply(THUMB_RGB565)
+                        .override(96, 96).circleCrop()
+                        .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
+                            @Override
+                            public void onResourceReady(@NonNull Bitmap resource,
+                                    @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
+                                if (h.canvasBindToken != myToken) return;
+                                cv.setSeenAvatarBitmap(resource);
+                            }
+                            @Override
+                            public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {
+                                if (h.canvasBindToken != myToken) return;
+                                cv.setSeenAvatarBitmap(null);
+                            }
+                        });
+            }
+            if (hasThumb) {
+                glide(ctx).asBitmap().load(thumbUrl).apply(THUMB_RGB565)
+                        .override(240, 240).centerCrop()
+                        .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
+                            @Override
+                            public void onResourceReady(@NonNull Bitmap resource,
+                                    @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
+                                if (h.canvasBindToken != myToken) return;
+                                cv.setSeenThumbBitmap(resource);
+                            }
+                            @Override
+                            public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {
+                                if (h.canvasBindToken != myToken) return;
+                                cv.setSeenThumbBitmap(null);
+                            }
+                        });
+            }
         } else if (isMultiMedia) {
             final java.util.List<java.util.Map<String, Object>> items = m.mediaItems;
             final int total = items != null ? items.size() : 0;
@@ -2209,6 +2322,55 @@ public class MessagePagingAdapter
                             android.net.Uri.parse(String.format(java.util.Locale.US,
                                     "https://maps.google.com/?q=%.6f,%.6f", lat, lng)));
                     ctx.startActivity(fallback);
+                }
+            }
+
+            @Override
+            public void onViewOnceClick() {
+                // Fires for every variant — mirrors the legacy path's null
+                // click listener on WAITING/EXPIRED (nothing happens) and
+                // only actually opens the viewer for the RECEIVED
+                // tap-to-open state, with the same 800ms debounce tag
+                // bindViewOnceSent() used to guard against a rebind/
+                // rapid-multi-tap double-fire.
+                if (!isViewOnceMsg || isViewOnceExpiredState || isViewOnceWaiting) return;
+                Object lastClick = cv.getTag(com.callx.app.chat.R.id.ll_bubble);
+                long now = System.currentTimeMillis();
+                if (lastClick instanceof Long && now - (Long) lastClick < 800) return;
+                cv.setTag(com.callx.app.chat.R.id.ll_bubble, now);
+                if (viewOnceOpenListener != null) viewOnceOpenListener.onOpenViewOnce(m);
+            }
+
+            @Override
+            public void onSeenBubbleClick() {
+                // Mirrors bindStatusSeenBubble/bindReelSeenBubble's
+                // openStatus/openReel click listeners exactly — same
+                // deep-link intents, just fired from the canvas card tap.
+                if (!isSeen) return;
+                if (isReelSeen) {
+                    if (m.reelId == null || m.reelId.isEmpty()) return;
+                    android.content.Intent intent = new android.content.Intent(
+                            com.callx.app.utils.Constants.ACTION_OPEN_REEL);
+                    intent.putExtra("reelId", m.reelId);
+                    intent.setPackage(ctx.getPackageName());
+                    ctx.startActivity(intent);
+                } else {
+                    String ownerUid = (m.statusOwnerUid != null && !m.statusOwnerUid.isEmpty())
+                            ? m.statusOwnerUid : m.senderId;
+                    String ownerName = m.statusOwnerName != null ? m.statusOwnerName
+                            : (m.senderName != null ? m.senderName : "");
+                    if (ownerUid == null || ownerUid.isEmpty()) return;
+                    android.content.Intent intent = new android.content.Intent(
+                            com.callx.app.utils.Constants.ACTION_OPEN_STATUS);
+                    intent.putExtra("ownerUid", ownerUid);
+                    intent.putExtra("ownerName", ownerName);
+                    intent.setPackage(ctx.getPackageName());
+                    try {
+                        ctx.startActivity(intent);
+                    } catch (android.content.ActivityNotFoundException e) {
+                        android.widget.Toast.makeText(ctx, "Status viewer not available",
+                                android.widget.Toast.LENGTH_SHORT).show();
+                    }
                 }
             }
 

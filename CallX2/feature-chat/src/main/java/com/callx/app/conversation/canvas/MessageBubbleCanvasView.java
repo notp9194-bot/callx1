@@ -453,6 +453,95 @@ public class MessageBubbleCanvasView extends View {
     private static final String LOCATION_DEFAULT_ADDRESS     = "Location";
     private static final String LOCATION_BUTTON_TEXT         = "Open in Maps";
 
+    // ── View-once bubbles — mirrors item_view_once_bubble.xml /
+    // item_view_once_sent_waiting.xml / item_view_once_expired.xml: a
+    // normal chat-bubble-shaped solid-color card (reuses the standard
+    // bubbleDrawable auto-draw path, just with a per-state colour instead
+    // of the sent/received theme colour), icon glyph + label/sublabel
+    // stacked start-aligned, and a small timestamp bottom-end. Three
+    // variants share this one mode via viewOnceVariant. ──
+    public static final int VIEW_ONCE_RECEIVED = 0; // receiver, not yet opened — "🔒 View Once / Tap to open"
+    public static final int VIEW_ONCE_WAITING  = 1; // sender, receiver hasn't opened yet — "🔒 Waiting to be opened"
+    public static final int VIEW_ONCE_EXPIRED  = 2; // opened/expired/removed — "👁 Opened|Expired|Removed"
+    private static final float VO_CORNER_RADIUS_DP     = 16f;
+    private static final float VO_WIDTH_RECEIVED_DP    = 200f;
+    private static final float VO_WIDTH_WAITING_DP     = 200f;
+    private static final float VO_WIDTH_EXPIRED_DP     = 220f;
+    private static final float VO_PAD_RECEIVED_DP      = 12f;
+    private static final float VO_PAD_WAITING_DP       = 10f;
+    private static final float VO_PAD_EXPIRED_DP       = 10f;
+    private static final float VO_ICON_TEXT_SP         = 22f;
+    private static final float VO_ICON_WAITING_SP      = 18f;
+    private static final float VO_ICON_EXPIRED_SP      = 18f;
+    private static final float VO_LABEL_TEXT_SP        = 15f;
+    private static final float VO_SUBLABEL_TEXT_SP     = 12f;
+    private static final float VO_WAITING_LABEL_SP     = 13f;
+    private static final float VO_EXPIRED_LABEL_SP     = 14f;
+    private static final float VO_OPENED_AT_SP         = 10f;
+    private static final float VO_TIME_SP              = 9f;
+    private static final float VO_ICON_TEXT_GAP_DP     = 10f;
+    private static final float VO_LABEL_SUBLABEL_GAP_DP = 2f;
+    private static final float VO_ROW_GAP_TOP_DP       = 8f;
+    private static final float VO_OPENED_AT_GAP_DP     = 2f;
+    private static final int   VO_COLOR_RECEIVED       = 0xFF00897B;
+    private static final int   VO_COLOR_WAITING        = 0xFF1A5C4A;
+    private static final int   VO_COLOR_EXPIRED        = 0xFF555555;
+    private static final int   VO_LABEL_COLOR          = 0xFFFFFFFF;
+    private static final int   VO_SUBLABEL_COLOR       = 0xCCFFFFFF;
+    private static final int   VO_WAITING_LABEL_COLOR  = 0xCCFFFFFF;
+    private static final int   VO_EXPIRED_LABEL_COLOR  = 0x99FFFFFF;
+    private static final int   VO_OPENED_AT_COLOR      = 0x77FFFFFF;
+    private static final int   VO_TIME_COLOR           = 0xAAFFFFFF;
+    private static final int   VO_TIME_WAITING_COLOR   = 0x88FFFFFF;
+    private static final String VO_LOCK_GLYPH          = "\uD83D\uDD12"; // 🔒
+    private static final String VO_EYE_GLYPH           = "\uD83D\uDC41"; // 👁
+    private static final String VO_LABEL_TEXT          = "View Once";
+    private static final String VO_WAITING_LABEL_TEXT  = "Waiting to be opened";
+
+    // ── "Watched your reel" / "Seen your status" system bubbles — mirrors
+    // item_reel_seen_bubble.xml / item_status_seen_bubble.xml: unlike every
+    // other mode this view supports, these have a circular avatar sitting
+    // OUTSIDE/left of the bubble itself (not a card-internal avatar like
+    // reelAvatarBitmap/contactAvatarBitmap), always left-aligned (these
+    // system rows only ever render on the "received" side — the reel/
+    // status owner's side). The bubble that follows is a normal rounded
+    // card (own solid colour, not the sent/received theme) containing an
+    // optional thumbnail + play/eye overlay, an icon+label row, an
+    // optional sender name (groups), and a time line. ──
+    private static final float SEEN_AVATAR_SIZE_DP       = 36f;
+    private static final float SEEN_AVATAR_GAP_DP        = 8f;
+    private static final float SEEN_CARD_CORNER_DP       = 14f;
+    private static final float SEEN_CARD_PAD_H_DP        = 12f;
+    private static final float SEEN_CARD_PAD_END_DP      = 14f;
+    private static final float SEEN_CARD_PAD_TOP_DP      = 8f;
+    private static final float SEEN_CARD_PAD_BOTTOM_DP   = 6f;
+    private static final float SEEN_CARD_MIN_WIDTH_DP    = 160f;
+    private static final float SEEN_THUMB_W_DP           = 120f;
+    private static final float SEEN_THUMB_H_DP           = 80f;
+    private static final float SEEN_THUMB_MARGIN_BOTTOM_DP = 6f;
+    private static final float SEEN_OVERLAY_ICON_SP      = 22f;
+    private static final float SEEN_ICON_TEXT_SP         = 14f;
+    private static final float SEEN_ICON_LABEL_GAP_DP    = 5f;
+    private static final float SEEN_LABEL_TEXT_SP        = 14f;
+    private static final float SEEN_NAME_TEXT_SP         = 11f;
+    private static final float SEEN_NAME_GAP_TOP_DP      = 1f;
+    private static final float SEEN_TIME_TEXT_SP         = 10f;
+    private static final float SEEN_TIME_GAP_TOP_DP      = 3f;
+    private static final int   SEEN_REEL_BG_COLOR        = 0xFF7F1D1D;
+    private static final int   SEEN_STATUS_BG_COLOR      = 0xFF4C1D95;
+    private static final int   SEEN_THUMB_BG_COLOR       = 0xFF2A2A2A;
+    private static final int   SEEN_LABEL_COLOR          = 0xFFFFFFFF;
+    private static final int   SEEN_NAME_COLOR           = 0xFF4FC3F7; // brand_primary-ish accent
+    private static final int   SEEN_TIME_COLOR           = 0xB3CCCCCC;
+    private static final int   SEEN_AVATAR_PLACEHOLDER_COLOR = 0xFF3A3A3A;
+    private static final int   SEEN_OVERLAY_ICON_COLOR   = 0xFFFFFFFF;
+    private static final String SEEN_REEL_ICON_GLYPH     = "\uD83C\uDFAC"; // 🎬
+    private static final String SEEN_STATUS_ICON_GLYPH   = "\uD83D\uDC41"; // 👁
+    private static final String SEEN_REEL_LABEL_TEXT     = "Watched your reel";
+    private static final String SEEN_STATUS_LABEL_TEXT   = "Seen your status";
+    private static final String SEEN_REEL_PLAY_GLYPH     = "\u25B6";
+    private static final String SEEN_STATUS_EYE_GLYPH    = "\uD83D\uDC41"; // 👁
+
     // ── Poll-card — mirrors layout_msg_poll.xml exactly: a dark card
     // rendered inside the normal bubble background. Header row (poll icon
     // + "POLL" label + open/closed chip), question StaticLayout, subtitle,
@@ -563,6 +652,14 @@ public class MessageBubbleCanvasView extends View {
         default void onPollOptionClick(int optionIndex) {}
         /** Tapped the "✏️ edited" tag inside the footer timestamp — caller should show the edit-history sheet for this message. */
         default void onEditedTagClick() {}
+        /** Tapped a view-once bubble (bindViewOnce only). Fires for every variant — the caller should
+         *  ignore it for VIEW_ONCE_WAITING/VIEW_ONCE_EXPIRED (mirrors the legacy path's null click
+         *  listener on those two states) and open the view-once viewer only for VIEW_ONCE_RECEIVED. */
+        default void onViewOnceClick() {}
+        /** Tapped a "watched your reel" / "seen your status" system bubble (bindSeenBubble only) —
+         *  caller should open the reel or the status viewer, same as the legacy tap listeners on
+         *  ll_bubble/fl_reel_seen_thumb / fl_status_seen_thumb (whole card and thumbnail both open it). */
+        default void onSeenBubbleClick() {}
     }
 
     /** Immutable per-cell descriptor for bindMediaGroup(); bitmaps are supplied
@@ -888,6 +985,44 @@ public class MessageBubbleCanvasView extends View {
     // LinkPreviewFetcher.Result.imageUrl was non-empty) so the card's
     // reserved height is correct even before the Bitmap itself arrives
     // via setLinkPreviewThumbBitmap(). ──
+    // ── View-once bubble state (Feature 13's 3 special layouts) ──
+    private boolean isViewOnce = false;
+    private int viewOnceVariant = VIEW_ONCE_RECEIVED;
+    private String viewOnceSublabel = "";
+    private String viewOnceExpiredLabel = "Opened";
+    private String viewOnceOpenedAtText = "";
+    private boolean viewOnceShowOpenedAt = false;
+    private final RectF viewOnceCardRect = new RectF();
+    private final Paint viewOnceBgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final TextPaint viewOnceIconPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    private final TextPaint viewOnceLabelPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    private final TextPaint viewOnceSublabelPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    private final TextPaint viewOnceTimePaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+
+    // ── Reel-seen / Status-seen "watched/seen" system bubbles ──
+    private boolean isSeenBubble = false;
+    private boolean seenIsReel = false; // true = reel_seen (🎬), false = status_seen (👁)
+    private Bitmap seenAvatarBitmap;
+    private Bitmap seenThumbBitmap;
+    private boolean seenHasThumb = false;
+    private String seenName = "";
+    private boolean seenHasName = false;
+    private final RectF seenAvatarRect = new RectF();
+    private final RectF seenCardRect = new RectF();
+    private final RectF seenThumbRect = new RectF();
+    private final Paint seenCardBgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint seenAvatarPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+    private final Paint seenAvatarPlaceholderPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint seenThumbPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+    private final Paint seenThumbBgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final TextPaint seenOverlayIconPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    private final TextPaint seenIconPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    private final TextPaint seenLabelPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    private final TextPaint seenNamePaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    private final TextPaint seenTimePaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    private final android.graphics.Matrix seenAvatarShaderMatrix = new android.graphics.Matrix();
+    private final android.graphics.Matrix seenThumbShaderMatrix = new android.graphics.Matrix();
+
     private boolean hasLinkPreview = false;
     private String linkPreviewUrl = "";
     private String linkTitle = "";
@@ -1078,6 +1213,33 @@ public class MessageBubbleCanvasView extends View {
         pollFooterPaint.setColor(POLL_FOOTER_TEXT_COLOR);
         pollFooterPaint.setTextSize(POLL_FOOTER_TEXT_SP * density);
 
+        // ── View-once bubble paints ──
+        viewOnceIconPaint.setTextSize(VO_ICON_TEXT_SP * density);
+        viewOnceLabelPaint.setColor(VO_LABEL_COLOR);
+        viewOnceLabelPaint.setFakeBoldText(true);
+        viewOnceLabelPaint.setTextSize(VO_LABEL_TEXT_SP * density);
+        viewOnceSublabelPaint.setColor(VO_SUBLABEL_COLOR);
+        viewOnceSublabelPaint.setTextSize(VO_SUBLABEL_TEXT_SP * density);
+        viewOnceTimePaint.setColor(VO_TIME_COLOR);
+        viewOnceTimePaint.setTextSize(VO_TIME_SP * density);
+        viewOnceTimePaint.setTextAlign(Paint.Align.RIGHT);
+
+        // ── Reel-seen / Status-seen paints ──
+        seenAvatarPlaceholderPaint.setColor(SEEN_AVATAR_PLACEHOLDER_COLOR);
+        seenThumbBgPaint.setColor(SEEN_THUMB_BG_COLOR);
+        seenOverlayIconPaint.setColor(SEEN_OVERLAY_ICON_COLOR);
+        seenOverlayIconPaint.setTextSize(SEEN_OVERLAY_ICON_SP * density);
+        seenOverlayIconPaint.setTextAlign(Paint.Align.CENTER);
+        seenIconPaint.setTextSize(SEEN_ICON_TEXT_SP * density);
+        seenLabelPaint.setColor(SEEN_LABEL_COLOR);
+        seenLabelPaint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.ITALIC));
+        seenLabelPaint.setTextSize(SEEN_LABEL_TEXT_SP * density);
+        seenNamePaint.setColor(SEEN_NAME_COLOR);
+        seenNamePaint.setFakeBoldText(true);
+        seenNamePaint.setTextSize(SEEN_NAME_TEXT_SP * density);
+        seenTimePaint.setColor(SEEN_TIME_COLOR);
+        seenTimePaint.setTextSize(SEEN_TIME_TEXT_SP * density);
+
         setWillNotDraw(false);
 
         gestureDetector = new GestureDetector(ctx, new GestureDetector.SimpleOnGestureListener() {
@@ -1142,6 +1304,8 @@ public class MessageBubbleCanvasView extends View {
         this.isContact = false;
         this.isLocation = false;
         this.isPoll = false;
+        this.isViewOnce = false;
+        this.isSeenBubble = false;
         this.mediaBitmap = null;
         this.messageText = text != null ? text : "";
         this.footerTimeText = timeText != null ? timeText : "";
@@ -1189,6 +1353,8 @@ public class MessageBubbleCanvasView extends View {
         this.isContact = false;
         this.isLocation = false;
         this.isPoll = false;
+        this.isViewOnce = false;
+        this.isSeenBubble = false;
         this.videoDuration = null;
         this.mediaBitmap = bitmap;
         this.hasLinkPreview = false; // link-preview card is text-mode-only; a stale flag from a recycled view must not leak in here
@@ -1272,6 +1438,8 @@ public class MessageBubbleCanvasView extends View {
         this.isContact = false;
         this.isLocation = false;
         this.isPoll = false;
+        this.isViewOnce = false;
+        this.isSeenBubble = false;
         this.videoDuration = null;
         this.mediaBitmap = null;
         this.hasLinkPreview = false; // link-preview card is text-mode-only; a stale flag from a recycled view must not leak in here
@@ -1412,6 +1580,8 @@ public class MessageBubbleCanvasView extends View {
         this.isContact = false;
         this.isLocation = false;
         this.isPoll = false;
+        this.isViewOnce = false;
+        this.isSeenBubble = false;
         this.videoDuration = null;
         this.hasLinkPreview = false; // link-preview card is text-mode-only; a stale flag from a recycled view must not leak in here
         this.groupItems = items != null ? items : java.util.Collections.emptyList();
@@ -1479,6 +1649,8 @@ public class MessageBubbleCanvasView extends View {
         this.isContact = false;
         this.isLocation = false;
         this.isPoll = false;
+        this.isViewOnce = false;
+        this.isSeenBubble = false;
         this.videoDuration = null;
         this.hasLinkPreview = false; // link-preview card is text-mode-only; a stale flag from a recycled view must not leak in here
         this.reelThumbBitmap = thumb;
@@ -1566,6 +1738,8 @@ public class MessageBubbleCanvasView extends View {
         this.isContact = true;
         this.isLocation = false;
         this.isPoll = false;
+        this.isViewOnce = false;
+        this.isSeenBubble = false;
         this.hasLinkPreview = false; // stale flag from a recycled view must not leak in here
         this.mediaGated = false;
         this.mediaDownloading = false;
@@ -1603,6 +1777,106 @@ public class MessageBubbleCanvasView extends View {
      *                 caller does the same formatting
      *                 ChatLocationShareController.bindBubble() does.
      */
+    /**
+     * Binds one of the 3 "View Once" (Feature 13) bubble variants — mirrors
+     * item_view_once_bubble.xml (VIEW_ONCE_RECEIVED), item_view_once_sent_waiting.xml
+     * (VIEW_ONCE_WAITING), and item_view_once_expired.xml (VIEW_ONCE_EXPIRED). Reuses
+     * the standard chat-bubble background shape (rounded rect) but with its own
+     * per-variant solid colour instead of the sent/received theme colour, so it does
+     * NOT go through buildBubbleDrawable()/bubbleDrawable at all — drawViewOnce()
+     * paints its own background directly, same precedent as the contact/location cards.
+     *
+     * @param variant       one of VIEW_ONCE_RECEIVED / VIEW_ONCE_WAITING / VIEW_ONCE_EXPIRED
+     * @param sublabel      only used for VIEW_ONCE_RECEIVED — the media-type hint under "View Once"
+     * @param expiredLabel  only used for VIEW_ONCE_EXPIRED — "Opened" / "Expired" / "Removed"
+     * @param openedAtText  only used for VIEW_ONCE_EXPIRED — e.g. "Opened · 3:45 PM"; pass null/empty when not shown
+     * @param showOpenedAt  only used for VIEW_ONCE_EXPIRED — whether the openedAtText line is visible (sender + normal "Opened" state only)
+     * @param isSent        VIEW_ONCE_WAITING is always sent-side (right-aligned, 200dp); RECEIVED/EXPIRED are always received-side (left-aligned)
+     */
+    public void bindViewOnce(int variant, @Nullable String sublabel, @Nullable String expiredLabel,
+                              @Nullable String openedAtText, boolean showOpenedAt,
+                              String timeText, boolean isSent) {
+        this.isMedia = false;
+        this.isMediaGroup = false;
+        this.isReelShare = false;
+        this.isVideoMedia = false;
+        this.isAudio = false;
+        this.isContact = false;
+        this.isLocation = false;
+        this.isPoll = false;
+        this.isGifBubble = false;
+        this.isFileBubble = false;
+        this.hasLinkPreview = false;
+        this.mediaGated = false;
+        this.mediaDownloading = false;
+        this.isViewOnce = true;
+        this.isSeenBubble = false;
+        this.viewOnceVariant = variant;
+        this.viewOnceSublabel = sublabel != null ? sublabel : "";
+        this.viewOnceExpiredLabel = (expiredLabel != null && !expiredLabel.isEmpty()) ? expiredLabel : "Opened";
+        this.viewOnceOpenedAtText = openedAtText != null ? openedAtText : "";
+        this.viewOnceShowOpenedAt = showOpenedAt;
+        this.footerTimeText = timeText != null ? timeText : "";
+        this.sent = isSent;
+
+        requestLayout();
+        invalidate();
+    }
+
+    /**
+     * Binds a "watched your reel" (isReel=true) or "seen your status" (isReel=false)
+     * system bubble — mirrors item_reel_seen_bubble.xml / item_status_seen_bubble.xml.
+     * These always render on the "received" (left) side, never sent. Pass avatar/thumb
+     * as null if not yet decoded — setSeenAvatarBitmap()/setSeenThumbBitmap() swap them
+     * in later (Glide callbacks) without a full rebind, same precedent as bindReelShare.
+     *
+     * @param isReel      true = reel_seen bubble (🎬 clapperboard + play overlay), false = status_seen (👁 eye overlay)
+     * @param hasThumb    whether a thumbnail URL exists at all — sizes the reserved thumb area upfront
+     *                    (matches fl_reel_seen_thumb/fl_status_seen_thumb's GONE-until-loaded visibility)
+     * @param senderName  optional sender name shown in groups; null/empty to hide (tv_..._name GONE)
+     */
+    public void bindSeenBubble(boolean isReel, @Nullable Bitmap avatar, @Nullable Bitmap thumb,
+                                boolean hasThumb, @Nullable String senderName, String timeText) {
+        this.isMedia = false;
+        this.isMediaGroup = false;
+        this.isReelShare = false;
+        this.isVideoMedia = false;
+        this.isAudio = false;
+        this.isContact = false;
+        this.isLocation = false;
+        this.isPoll = false;
+        this.isGifBubble = false;
+        this.isFileBubble = false;
+        this.hasLinkPreview = false;
+        this.mediaGated = false;
+        this.mediaDownloading = false;
+        this.isViewOnce = false;
+        this.isSeenBubble = true;
+        this.seenIsReel = isReel;
+        this.seenAvatarBitmap = avatar;
+        this.seenThumbBitmap = thumb;
+        this.seenHasThumb = hasThumb;
+        this.seenName = senderName != null ? senderName : "";
+        this.seenHasName = !this.seenName.isEmpty();
+        this.footerTimeText = timeText != null ? timeText : "";
+        this.sent = false;
+
+        requestLayout();
+        invalidate();
+    }
+
+    /** Swap in a decoded avatar Bitmap once Glide finishes — no re-measure needed (bindSeenBubble only). */
+    public void setSeenAvatarBitmap(@Nullable Bitmap bitmap) {
+        this.seenAvatarBitmap = bitmap;
+        invalidate();
+    }
+
+    /** Swap in a decoded reel/status thumbnail Bitmap once Glide finishes (bindSeenBubble only). */
+    public void setSeenThumbBitmap(@Nullable Bitmap bitmap) {
+        this.seenThumbBitmap = bitmap;
+        invalidate();
+    }
+
     public void bindLocation(@Nullable Bitmap mapThumb, @Nullable String address, boolean isSent) {
         this.isMedia = false;
         this.isMediaGroup = false;
@@ -1612,6 +1886,8 @@ public class MessageBubbleCanvasView extends View {
         this.isContact = false;
         this.isLocation = true;
         this.isPoll = false;
+        this.isViewOnce = false;
+        this.isSeenBubble = false;
         this.hasLinkPreview = false; // stale flag from a recycled view must not leak in here
         this.mediaGated = false;
         this.mediaDownloading = false;
@@ -1682,6 +1958,8 @@ public class MessageBubbleCanvasView extends View {
         this.isContact      = false;
         this.isLocation     = false;
         this.isPoll         = false;
+        this.isViewOnce     = false;
+        this.isSeenBubble   = false;
         this.isGifBubble    = false;
         this.isFileBubble   = true;
         this.hasLinkPreview = false;
@@ -1795,6 +2073,8 @@ public class MessageBubbleCanvasView extends View {
         this.isContact     = false;
         this.isLocation    = false;
         this.isPoll        = true;
+        this.isViewOnce    = false;
+        this.isSeenBubble  = false;
         this.hasLinkPreview = false;
         this.mediaBitmap   = null;
         this.messageText   = "";
@@ -2406,6 +2686,99 @@ public class MessageBubbleCanvasView extends View {
             bubbleContentWidth = Math.max(cardW - hPad * 2, replyBoxContentWidth);
             bubbleHeight = replyBoxHeight + replyGap + cardH;
 
+        } else if (isViewOnce) {
+            // ── View-once card — bubbleless, own solid colour, sized per
+            // variant to roughly match the legacy fixed-width layouts. ──
+            float cardW;
+            float pad;
+            switch (viewOnceVariant) {
+                case VIEW_ONCE_WAITING:
+                    cardW = VO_WIDTH_WAITING_DP * density;
+                    pad = VO_PAD_WAITING_DP * density;
+                    viewOnceIconPaint.setTextSize(VO_ICON_WAITING_SP * density);
+                    viewOnceLabelPaint.setTextSize(VO_WAITING_LABEL_SP * density);
+                    viewOnceLabelPaint.setColor(VO_WAITING_LABEL_COLOR);
+                    viewOnceTimePaint.setColor(VO_TIME_WAITING_COLOR);
+                    break;
+                case VIEW_ONCE_EXPIRED:
+                    cardW = VO_WIDTH_EXPIRED_DP * density;
+                    pad = VO_PAD_EXPIRED_DP * density;
+                    viewOnceIconPaint.setTextSize(VO_ICON_EXPIRED_SP * density);
+                    viewOnceLabelPaint.setTextSize(VO_EXPIRED_LABEL_SP * density);
+                    viewOnceLabelPaint.setColor(VO_EXPIRED_LABEL_COLOR);
+                    viewOnceTimePaint.setColor(VO_TIME_COLOR);
+                    break;
+                default:
+                    cardW = VO_WIDTH_RECEIVED_DP * density;
+                    pad = VO_PAD_RECEIVED_DP * density;
+                    viewOnceIconPaint.setTextSize(VO_ICON_TEXT_SP * density);
+                    viewOnceLabelPaint.setTextSize(VO_LABEL_TEXT_SP * density);
+                    viewOnceLabelPaint.setColor(VO_LABEL_COLOR);
+                    viewOnceTimePaint.setColor(VO_TIME_COLOR);
+                    break;
+            }
+
+            Paint.FontMetrics iconFm = viewOnceIconPaint.getFontMetrics();
+            float iconH = iconFm.descent - iconFm.ascent;
+            Paint.FontMetrics lfm = viewOnceLabelPaint.getFontMetrics();
+            float labelH = lfm.descent - lfm.ascent;
+            float rowH;
+            if (viewOnceVariant == VIEW_ONCE_RECEIVED) {
+                Paint.FontMetrics sfm = viewOnceSublabelPaint.getFontMetrics();
+                float textColH = labelH + VO_LABEL_SUBLABEL_GAP_DP * density + (sfm.descent - sfm.ascent);
+                rowH = Math.max(iconH, textColH);
+            } else {
+                rowH = Math.max(iconH, labelH);
+            }
+
+            float openedAtH = 0f;
+            if (viewOnceVariant == VIEW_ONCE_EXPIRED && viewOnceShowOpenedAt && !viewOnceOpenedAtText.isEmpty()) {
+                openedAtH = VO_OPENED_AT_GAP_DP * density + VO_OPENED_AT_SP * density * 1.3f;
+            }
+
+            Paint.FontMetrics tfm = viewOnceTimePaint.getFontMetrics();
+            float timeH = tfm.descent - tfm.ascent;
+            float cardH = pad * 2 + rowH + openedAtH + VO_ROW_GAP_TOP_DP * density + timeH;
+
+            bubbleContentWidth = Math.max(Math.round(cardW) - hPad * 2, replyBoxContentWidth);
+            bubbleHeight = replyBoxHeight + replyGap + Math.round(cardH);
+
+        } else if (isSeenBubble) {
+            // ── Reel-seen / status-seen card — a 36dp circular avatar sits
+            // OUTSIDE the card, to its left; the card itself is a small
+            // bubbleless rounded rect (own solid colour) with an optional
+            // thumbnail, an icon+italic-label row, an optional sender
+            // name, and a small time line. Always received-side. ──
+            float avatarSize = SEEN_AVATAR_SIZE_DP * density;
+            float avatarGap = SEEN_AVATAR_GAP_DP * density;
+            float padH = SEEN_CARD_PAD_H_DP * density;
+            float padEnd = SEEN_CARD_PAD_END_DP * density;
+            float padTop = SEEN_CARD_PAD_TOP_DP * density;
+            float padBottom = SEEN_CARD_PAD_BOTTOM_DP * density;
+            float thumbW = SEEN_THUMB_W_DP * density;
+            float thumbH = SEEN_THUMB_H_DP * density;
+            float minCardW = SEEN_CARD_MIN_WIDTH_DP * density;
+
+            float cardW = seenHasThumb ? Math.max(minCardW, thumbW + padH + padEnd) : minCardW;
+
+            Paint.FontMetrics ifm = seenIconPaint.getFontMetrics();
+            Paint.FontMetrics slfm = seenLabelPaint.getFontMetrics();
+            float iconLabelRowH = Math.max(ifm.descent - ifm.ascent, slfm.descent - slfm.ascent);
+
+            float nameH = 0f;
+            if (seenHasName) {
+                Paint.FontMetrics nfm2 = seenNamePaint.getFontMetrics();
+                nameH = SEEN_NAME_GAP_TOP_DP * density + (nfm2.descent - nfm2.ascent);
+            }
+            Paint.FontMetrics stfm = seenTimePaint.getFontMetrics();
+            float timeRowH = SEEN_TIME_GAP_TOP_DP * density + (stfm.descent - stfm.ascent);
+
+            float thumbBlockH = seenHasThumb ? thumbH + SEEN_THUMB_MARGIN_BOTTOM_DP * density : 0f;
+            float cardH = padTop + thumbBlockH + iconLabelRowH + nameH + timeRowH + padBottom;
+
+            bubbleContentWidth = Math.max(Math.round(avatarSize + avatarGap + cardW) - hPad * 2, replyBoxContentWidth);
+            bubbleHeight = replyBoxHeight + replyGap + Math.round(Math.max(avatarSize, cardH));
+
         } else if (isPoll) {
             // ── Poll card — uses normal bubble bg (unlike contact/location).
             // Width = POLL_CARD_WIDTH_DP; height = padding + header row +
@@ -2738,6 +3111,33 @@ public class MessageBubbleCanvasView extends View {
             locationButtonRect.set(locationCardRect.left, locBtnTop, locationCardRect.right, locationCardRect.bottom);
         }
 
+        if (isViewOnce) {
+            float cardTop = bubbleTop + replyBoxHeight + replyGap;
+            viewOnceCardRect.set(bubbleLeft, cardTop, bubbleLeft + bubbleWidth, bubbleTop + bubbleHeight);
+        }
+
+        if (isSeenBubble) {
+            float avatarSize = SEEN_AVATAR_SIZE_DP * density;
+            float avatarGap = SEEN_AVATAR_GAP_DP * density;
+            float rowTop = bubbleTop + replyBoxHeight + replyGap;
+            float rowH = bubbleHeight - replyBoxHeight - replyGap;
+
+            seenAvatarRect.set(bubbleLeft, rowTop, bubbleLeft + avatarSize, rowTop + avatarSize);
+            seenCardRect.set(bubbleLeft + avatarSize + avatarGap, rowTop,
+                    bubbleLeft + bubbleWidth, rowTop + rowH);
+
+            if (seenHasThumb) {
+                float padH = SEEN_CARD_PAD_H_DP * density;
+                float padTop = SEEN_CARD_PAD_TOP_DP * density;
+                float thumbW = SEEN_THUMB_W_DP * density;
+                float thumbH = SEEN_THUMB_H_DP * density;
+                seenThumbRect.set(seenCardRect.left + padH, seenCardRect.top + padTop,
+                        seenCardRect.left + padH + thumbW, seenCardRect.top + padTop + thumbH);
+            } else {
+                seenThumbRect.setEmpty();
+            }
+        }
+
         if (isMediaGroup) {
             float gridTop = bubbleTop + replyBoxHeight + replyGap + vPad;
             layoutGroupCells(bubbleLeft + hPad, gridTop);
@@ -2869,14 +3269,15 @@ public class MessageBubbleCanvasView extends View {
     @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
-        if (!isReelShare && !isContact && !isLocation) {
+        if (!isReelShare && !isContact && !isLocation && !isViewOnce && !isSeenBubble) {
             if (bubbleDrawable == null) return;
             if (!isMedia && !isMediaGroup && !isAudio && !isPoll && textLayout == null) return;
         }
 
-        if (!isReelShare && !isContact && !isLocation && !isFileBubble) {
-            // Reel-share, contact, location, and file cards never draw the
-            // normal chat-bubble background — the card itself is the visual.
+        if (!isReelShare && !isContact && !isLocation && !isFileBubble && !isViewOnce && !isSeenBubble) {
+            // Reel-share, contact, location, file, view-once, and seen
+            // cards never draw the normal chat-bubble background — the
+            // card itself is the visual.
             bubbleDrawable.setBounds(
                     (int) bubbleRect.left, (int) bubbleRect.top,
                     (int) bubbleRect.right, (int) bubbleRect.bottom);
@@ -2908,6 +3309,10 @@ public class MessageBubbleCanvasView extends View {
             drawContact(canvas);
         } else if (isLocation) {
             drawLocation(canvas);
+        } else if (isViewOnce) {
+            drawViewOnce(canvas);
+        } else if (isSeenBubble) {
+            drawSeenBubble(canvas);
         } else if (isPoll) {
             drawPoll(canvas);
         } else if (isMediaGroup) {
@@ -3391,6 +3796,194 @@ public class MessageBubbleCanvasView extends View {
         Paint.FontMetrics lbfm = locationButtonTextPaint.getFontMetrics();
         float locBtnBaselineY = locationButtonRect.centerY() - (lbfm.ascent + lbfm.descent) / 2f;
         canvas.drawText(LOCATION_BUTTON_TEXT, locationButtonRect.centerX(), locBtnBaselineY, locationButtonTextPaint);
+
+        canvas.restore();
+    }
+
+    /**
+     * Draws one of the 3 view-once bubble variants — mirrors
+     * item_view_once_bubble.xml / item_view_once_sent_waiting.xml /
+     * item_view_once_expired.xml: a rounded solid-colour card (own
+     * colour per state, drawn directly instead of via bubbleDrawable),
+     * an icon glyph beside a label(+sublabel) column, and a small
+     * bottom-end timestamp.
+     */
+    private void drawViewOnce(Canvas canvas) {
+        float r = VO_CORNER_RADIUS_DP * density;
+        int bg;
+        float pad;
+        switch (viewOnceVariant) {
+            case VIEW_ONCE_WAITING:
+                bg = VO_COLOR_WAITING;
+                pad = VO_PAD_WAITING_DP * density;
+                break;
+            case VIEW_ONCE_EXPIRED:
+                bg = VO_COLOR_EXPIRED;
+                pad = VO_PAD_EXPIRED_DP * density;
+                break;
+            default:
+                bg = VO_COLOR_RECEIVED;
+                pad = VO_PAD_RECEIVED_DP * density;
+                break;
+        }
+        viewOnceBgPaint.setColor(bg);
+        canvas.drawRoundRect(viewOnceCardRect, r, r, viewOnceBgPaint);
+
+        float left = viewOnceCardRect.left + pad;
+        float right = viewOnceCardRect.right - pad;
+        float top = viewOnceCardRect.top + pad;
+
+        Paint.FontMetrics iconFm = viewOnceIconPaint.getFontMetrics();
+        float iconH = iconFm.descent - iconFm.ascent;
+
+        if (viewOnceVariant == VIEW_ONCE_RECEIVED) {
+            Paint.FontMetrics lfm = viewOnceLabelPaint.getFontMetrics();
+            Paint.FontMetrics sfm = viewOnceSublabelPaint.getFontMetrics();
+            float labelH = lfm.descent - lfm.ascent;
+            float sublabelH = sfm.descent - sfm.ascent;
+            float textColH = labelH + VO_LABEL_SUBLABEL_GAP_DP * density + sublabelH;
+            float rowH = Math.max(iconH, textColH);
+            float rowCenterY = top + rowH / 2f;
+
+            canvas.drawText(VO_LOCK_GLYPH, left, rowCenterY - (iconFm.ascent + iconFm.descent) / 2f, viewOnceIconPaint);
+            float textX = left + viewOnceIconPaint.measureText(VO_LOCK_GLYPH) + VO_ICON_TEXT_GAP_DP * density;
+            float blockTop = rowCenterY - textColH / 2f;
+            canvas.drawText(VO_LABEL_TEXT, textX, blockTop - lfm.ascent, viewOnceLabelPaint);
+            if (!viewOnceSublabel.isEmpty()) {
+                canvas.drawText(viewOnceSublabel, textX, blockTop + labelH + VO_LABEL_SUBLABEL_GAP_DP * density - sfm.ascent,
+                        viewOnceSublabelPaint);
+            }
+        } else if (viewOnceVariant == VIEW_ONCE_WAITING) {
+            Paint.FontMetrics lfm = viewOnceLabelPaint.getFontMetrics();
+            float labelH = lfm.descent - lfm.ascent;
+            float rowH = Math.max(iconH, labelH);
+            float rowCenterY = top + rowH / 2f;
+            canvas.drawText(VO_LOCK_GLYPH, left, rowCenterY - (iconFm.ascent + iconFm.descent) / 2f, viewOnceIconPaint);
+            float textX = left + viewOnceIconPaint.measureText(VO_LOCK_GLYPH) + VO_ICON_TEXT_GAP_DP * density;
+            canvas.drawText(VO_WAITING_LABEL_TEXT, textX, rowCenterY - (lfm.ascent + lfm.descent) / 2f, viewOnceLabelPaint);
+        } else { // VIEW_ONCE_EXPIRED
+            Paint.FontMetrics lfm = viewOnceLabelPaint.getFontMetrics();
+            float labelH = lfm.descent - lfm.ascent;
+            float rowH = Math.max(iconH, labelH);
+            float rowCenterY = top + rowH / 2f;
+            canvas.drawText(VO_EYE_GLYPH, left, rowCenterY - (iconFm.ascent + iconFm.descent) / 2f, viewOnceIconPaint);
+            float textX = left + viewOnceIconPaint.measureText(VO_EYE_GLYPH) + VO_ICON_TEXT_GAP_DP * density;
+            canvas.drawText(viewOnceExpiredLabel, textX, rowCenterY - (lfm.ascent + lfm.descent) / 2f, viewOnceLabelPaint);
+
+            if (viewOnceShowOpenedAt && !viewOnceOpenedAtText.isEmpty()) {
+                Paint openedAtPaint = viewOnceSublabelPaint;
+                float savedSize = openedAtPaint.getTextSize();
+                int savedColor = openedAtPaint.getColor();
+                openedAtPaint.setTextSize(VO_OPENED_AT_SP * density);
+                openedAtPaint.setColor(VO_OPENED_AT_COLOR);
+                Paint.FontMetrics ofm = openedAtPaint.getFontMetrics();
+                float openedAtTop = top + rowH + VO_OPENED_AT_GAP_DP * density;
+                canvas.drawText(viewOnceOpenedAtText, textX, openedAtTop - ofm.ascent, openedAtPaint);
+                openedAtPaint.setTextSize(savedSize);
+                openedAtPaint.setColor(savedColor);
+            }
+        }
+
+        Paint.FontMetrics tfm = viewOnceTimePaint.getFontMetrics();
+        float timeBaselineY = viewOnceCardRect.bottom - pad - tfm.descent;
+        canvas.drawText(footerTimeText, right, timeBaselineY, viewOnceTimePaint);
+    }
+
+    /**
+     * Draws a "watched your reel" / "seen your status" system bubble —
+     * mirrors item_reel_seen_bubble.xml / item_status_seen_bubble.xml: a
+     * circular avatar (photo or placeholder) sitting to the LEFT of the
+     * card, then a small rounded card (own solid colour per type) with
+     * an optional thumbnail + play/eye overlay glyph, an icon + italic
+     * label row, an optional sender name, and a small time line.
+     */
+    private void drawSeenBubble(Canvas canvas) {
+        // ── Avatar (outside/left of the card) ──
+        if (seenAvatarBitmap != null) {
+            float scale = Math.max(seenAvatarRect.width() / seenAvatarBitmap.getWidth(),
+                    seenAvatarRect.height() / seenAvatarBitmap.getHeight());
+            float dx = seenAvatarRect.left - (seenAvatarBitmap.getWidth() * scale - seenAvatarRect.width()) / 2f;
+            float dy = seenAvatarRect.top - (seenAvatarBitmap.getHeight() * scale - seenAvatarRect.height()) / 2f;
+            seenAvatarShaderMatrix.reset();
+            seenAvatarShaderMatrix.setScale(scale, scale);
+            seenAvatarShaderMatrix.postTranslate(dx, dy);
+
+            android.graphics.BitmapShader shader = new android.graphics.BitmapShader(
+                    seenAvatarBitmap, android.graphics.Shader.TileMode.CLAMP, android.graphics.Shader.TileMode.CLAMP);
+            shader.setLocalMatrix(seenAvatarShaderMatrix);
+            seenAvatarPaint.setShader(shader);
+            canvas.drawOval(seenAvatarRect, seenAvatarPaint);
+        } else {
+            canvas.drawOval(seenAvatarRect, seenAvatarPlaceholderPaint);
+        }
+
+        // ── Card ──
+        float r = SEEN_CARD_CORNER_DP * density;
+        seenCardBgPaint.setColor(seenIsReel ? SEEN_REEL_BG_COLOR : SEEN_STATUS_BG_COLOR);
+        canvas.save();
+        android.graphics.Path clipPath = new android.graphics.Path();
+        clipPath.addRoundRect(seenCardRect, r, r, android.graphics.Path.Direction.CW);
+        canvas.clipPath(clipPath);
+        canvas.drawRect(seenCardRect, seenCardBgPaint);
+
+        float padH = SEEN_CARD_PAD_H_DP * density;
+        float padEnd = SEEN_CARD_PAD_END_DP * density;
+        float left = seenCardRect.left + padH;
+        float right = seenCardRect.right - padEnd;
+        float cursorY = seenCardRect.top + SEEN_CARD_PAD_TOP_DP * density;
+
+        // ── Optional thumbnail + play/eye overlay ──
+        if (seenHasThumb) {
+            canvas.drawRect(seenThumbRect, seenThumbBgPaint);
+            if (seenThumbBitmap != null) {
+                float scale = Math.max(seenThumbRect.width() / seenThumbBitmap.getWidth(),
+                        seenThumbRect.height() / seenThumbBitmap.getHeight());
+                float dx = seenThumbRect.left - (seenThumbBitmap.getWidth() * scale - seenThumbRect.width()) / 2f;
+                float dy = seenThumbRect.top - (seenThumbBitmap.getHeight() * scale - seenThumbRect.height()) / 2f;
+                seenThumbShaderMatrix.reset();
+                seenThumbShaderMatrix.setScale(scale, scale);
+                seenThumbShaderMatrix.postTranslate(dx, dy);
+                android.graphics.BitmapShader shader = new android.graphics.BitmapShader(
+                        seenThumbBitmap, android.graphics.Shader.TileMode.CLAMP, android.graphics.Shader.TileMode.CLAMP);
+                shader.setLocalMatrix(seenThumbShaderMatrix);
+                seenThumbPaint.setShader(shader);
+                canvas.drawRect(seenThumbRect, seenThumbPaint);
+            }
+            String overlayGlyph = seenIsReel ? SEEN_REEL_PLAY_GLYPH : SEEN_STATUS_EYE_GLYPH;
+            canvas.drawText(overlayGlyph, seenThumbRect.centerX(),
+                    seenThumbRect.centerY() - (seenOverlayIconPaint.ascent() + seenOverlayIconPaint.descent()) / 2f,
+                    seenOverlayIconPaint);
+            cursorY = seenThumbRect.bottom + SEEN_THUMB_MARGIN_BOTTOM_DP * density;
+        }
+
+        // ── Icon + italic label row ──
+        Paint.FontMetrics ifm = seenIconPaint.getFontMetrics();
+        Paint.FontMetrics lfm = seenLabelPaint.getFontMetrics();
+        float rowH = Math.max(ifm.descent - ifm.ascent, lfm.descent - lfm.ascent);
+        float rowCenterY = cursorY + rowH / 2f;
+        String iconGlyph = seenIsReel ? SEEN_REEL_ICON_GLYPH : SEEN_STATUS_ICON_GLYPH;
+        canvas.drawText(iconGlyph, left, rowCenterY - (ifm.ascent + ifm.descent) / 2f, seenIconPaint);
+        float labelX = left + seenIconPaint.measureText(iconGlyph) + SEEN_ICON_LABEL_GAP_DP * density;
+        String labelText = seenIsReel ? SEEN_REEL_LABEL_TEXT : SEEN_STATUS_LABEL_TEXT;
+        String labelToDraw = TextUtils.ellipsize(labelText, seenLabelPaint,
+                Math.max(1, right - labelX), TextUtils.TruncateAt.END).toString();
+        canvas.drawText(labelToDraw, labelX, rowCenterY - (lfm.ascent + lfm.descent) / 2f, seenLabelPaint);
+        cursorY += rowH;
+
+        // ── Optional sender name (groups) ──
+        if (seenHasName) {
+            Paint.FontMetrics nfm = seenNamePaint.getFontMetrics();
+            cursorY += SEEN_NAME_GAP_TOP_DP * density;
+            String nameToDraw = TextUtils.ellipsize(seenName, seenNamePaint,
+                    Math.max(1, right - left), TextUtils.TruncateAt.END).toString();
+            canvas.drawText(nameToDraw, left, cursorY - nfm.ascent, seenNamePaint);
+            cursorY += (nfm.descent - nfm.ascent);
+        }
+
+        // ── Time line ──
+        Paint.FontMetrics tfm = seenTimePaint.getFontMetrics();
+        cursorY += SEEN_TIME_GAP_TOP_DP * density;
+        canvas.drawText(footerTimeText, left, cursorY - tfm.ascent, seenTimePaint);
 
         canvas.restore();
     }
@@ -4275,6 +4868,28 @@ public class MessageBubbleCanvasView extends View {
             // gestureDetector, same as every other mode).
             cancelPendingLongPress(event);
             if (clickListener != null) clickListener.onLocationOpenMapsClick();
+            return true;
+        }
+        if (isViewOnce && event.getActionMasked() == MotionEvent.ACTION_UP
+                && viewOnceCardRect.contains(event.getX(), event.getY())) {
+            // Whole card is clickable for every variant — mirrors the
+            // legacy ll_bubble.setOnClickListener; the caller decides
+            // (via onViewOnceClick()) whether tapping WAITING/EXPIRED
+            // should actually do anything (legacy left those listeners
+            // null / a no-op toast).
+            cancelPendingLongPress(event);
+            if (clickListener != null) clickListener.onViewOnceClick();
+            return true;
+        }
+        if (isSeenBubble && event.getActionMasked() == MotionEvent.ACTION_UP
+                && (seenCardRect.contains(event.getX(), event.getY())
+                    || seenAvatarRect.contains(event.getX(), event.getY()))) {
+            // Whole card (and the avatar) open the reel/status viewer —
+            // mirrors the legacy ll_bubble / fl_reel_seen_thumb /
+            // fl_status_seen_thumb click listeners, which all fire the
+            // same action.
+            cancelPendingLongPress(event);
+            if (clickListener != null) clickListener.onSeenBubbleClick();
             return true;
         }
         if (isMediaGroup && event.getActionMasked() == MotionEvent.ACTION_UP) {
