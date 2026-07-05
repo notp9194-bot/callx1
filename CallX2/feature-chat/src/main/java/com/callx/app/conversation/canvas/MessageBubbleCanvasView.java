@@ -1358,8 +1358,14 @@ public class MessageBubbleCanvasView extends View {
         }
         resolveReplyColors(ctx);
 
-        textLayout = null; // recomputed in onMeasure
-        requestLayoutIfSizeChanged();
+        // Only drop the cached StaticLayout when a relayout is actually
+        // about to run — it's onMeasure() that rebuilds it, so nulling it
+        // unconditionally while requestLayoutIfSizeChanged() skips the
+        // relayout would leave onDraw() drawing a stale null and the
+        // bubble would render blank until something else forces a layout.
+        if (requestLayoutIfSizeChanged()) {
+            textLayout = null;
+        }
         invalidate();
     }
 
@@ -1415,8 +1421,9 @@ public class MessageBubbleCanvasView extends View {
         }
         resolveReplyColors(ctx);
 
-        textLayout = null; // recomputed in onMeasure (only used if mediaHasCaption)
-        requestLayoutIfSizeChanged();
+        if (requestLayoutIfSizeChanged()) {
+            textLayout = null; // recomputed in onMeasure (only used if mediaHasCaption)
+        }
         invalidate();
     }
 
@@ -1679,9 +1686,10 @@ public class MessageBubbleCanvasView extends View {
         }
         resolveReplyColors(ctx);
 
-        groupCaptionLayout = null; // recomputed in onMeasure
-        textLayout = null;
-        requestLayoutIfSizeChanged();
+        textLayout = null; // not read in media-group mode, safe to clear unconditionally
+        if (requestLayoutIfSizeChanged()) {
+            groupCaptionLayout = null; // recomputed in onMeasure
+        }
         invalidate();
     }
 
@@ -1731,8 +1739,9 @@ public class MessageBubbleCanvasView extends View {
         Context ctx = getContext();
         tickPaint.setColor(ChatThemeManager.get(ctx).getTickColor(read));
 
-        reelCaptionLayout = null; // recomputed in onMeasure
-        requestLayoutIfSizeChanged();
+        if (requestLayoutIfSizeChanged()) {
+            reelCaptionLayout = null; // recomputed in onMeasure
+        }
         invalidate();
     }
 
@@ -1770,8 +1779,9 @@ public class MessageBubbleCanvasView extends View {
         if (caption != null && !caption.isEmpty() && !reelHasCaption) {
             this.reelCaptionText = caption;
             this.reelHasCaption = true;
-            reelCaptionLayout = null; // recomputed in onMeasure
-            requestLayoutIfSizeChanged();
+            if (requestLayoutIfSizeChanged()) {
+                reelCaptionLayout = null; // recomputed in onMeasure
+            }
             invalidate();
         }
     }
@@ -1997,8 +2007,9 @@ public class MessageBubbleCanvasView extends View {
         this.locationAddress = (address != null && !address.isEmpty()) ? address : LOCATION_DEFAULT_ADDRESS;
         this.sent = isSent;
 
-        locationAddressLayout = null; // recomputed in onMeasure
-        requestLayoutIfSizeChanged();
+        if (requestLayoutIfSizeChanged()) {
+            locationAddressLayout = null; // recomputed in onMeasure
+        }
         invalidate();
     }
 
@@ -2196,7 +2207,6 @@ public class MessageBubbleCanvasView extends View {
         this.pollMyVote   = myVote  != null && myVote.length  >= n ? myVote  : new boolean[n];
         this.pollIsLeader = new boolean[n];
         this.pollFillWidths = new float[n];
-        this.pollOptionLayouts = new StaticLayout[n];
         for (int i = 0; i < n; i++) {
             this.pollOptions[i] = options.get(i) != null ? options.get(i) : "";
         }
@@ -2226,8 +2236,18 @@ public class MessageBubbleCanvasView extends View {
         }
         resolveReplyColors(ctx);
 
-        pollQuestionLayout = null; // recomputed in onMeasure
-        requestLayoutIfSizeChanged();
+        if (requestLayoutIfSizeChanged()) {
+            // Question/options text (or something else size-relevant)
+            // changed — onMeasure() is about to rebuild both from scratch.
+            pollQuestionLayout = null;
+            this.pollOptionLayouts = new StaticLayout[n];
+        } else if (pollOptionLayouts == null || pollOptionLayouts.length != n) {
+            // Shouldn't happen (options count is part of the size
+            // signature), but guard against a stale/mismatched array
+            // rather than risk an ArrayIndexOutOfBounds in onDraw.
+            pollOptionLayouts = new StaticLayout[n];
+            requestLayout();
+        }
         invalidate();
     }
 
@@ -2334,9 +2354,10 @@ public class MessageBubbleCanvasView extends View {
             bubbleDrawable = buildBubbleDrawable(getContext(), sent);
             lastCacheKey = cacheKey;
         }
-        replySenderLayout = null; // recomputed in onMeasure
-        replyTextLayout = null;
-        requestLayoutIfSizeChanged();
+        if (requestLayoutIfSizeChanged()) {
+            replySenderLayout = null; // recomputed in onMeasure
+            replyTextLayout = null;
+        }
         invalidate();
     }
 
@@ -2464,8 +2485,9 @@ public class MessageBubbleCanvasView extends View {
         this.isDeletedStyle = deleted;
         textPaint.setTypeface(deleted ? Typeface.create(Typeface.DEFAULT, Typeface.ITALIC) : Typeface.DEFAULT);
         textPaint.setAlpha(deleted ? DELETED_TEXT_ALPHA : 255);
-        textLayout = null; // rebuild with the new typeface/alpha before the next draw
-        requestLayoutIfSizeChanged();
+        if (requestLayoutIfSizeChanged()) {
+            textLayout = null; // rebuild with the new typeface/alpha before the next draw
+        }
         invalidate();
     }
 
@@ -2566,8 +2588,9 @@ public class MessageBubbleCanvasView extends View {
         this.linkDomain = domain != null ? domain : "";
         this.linkHasThumb = hasThumb;
         this.linkThumbBitmap = null; // any bitmap from a previously-bound URL no longer applies
-        this.linkTitleLayout = null; // recomputed in onMeasure
-        requestLayoutIfSizeChanged();
+        if (requestLayoutIfSizeChanged()) {
+            this.linkTitleLayout = null; // recomputed in onMeasure
+        }
         invalidate();
     }
 
@@ -3664,13 +3687,23 @@ public class MessageBubbleCanvasView extends View {
      * right after this so the new content — even content that doesn't
      * change the bubble's size, like a poll vote or a same-width expiry
      * tick — still gets drawn.
+     *
+     * Returns whether a relayout was actually requested. Callers MUST use
+     * this to decide whether it's safe to null out a cached StaticLayout
+     * field (textLayout, replySenderLayout, pollQuestionLayout, etc.) —
+     * those are only rebuilt inside onMeasure(), so nulling one while this
+     * returns false would leave onDraw() dereferencing a stale null on a
+     * bubble whose measure pass never comes (this was gap #5's regression:
+     * messages intermittently rendering blank on a same-size rebind).
      */
-    private void requestLayoutIfSizeChanged() {
+    private boolean requestLayoutIfSizeChanged() {
         String sig = computeSizeSignature();
-        if (lastSizeSignature == null || getMeasuredWidth() == 0 || !lastSizeSignature.equals(sig)) {
+        boolean changed = lastSizeSignature == null || getMeasuredWidth() == 0 || !lastSizeSignature.equals(sig);
+        if (changed) {
             requestLayout();
         }
         lastSizeSignature = sig;
+        return changed;
     }
 
     void drawFooter(Canvas canvas, float footerBaselineY, float footerRightX) {
