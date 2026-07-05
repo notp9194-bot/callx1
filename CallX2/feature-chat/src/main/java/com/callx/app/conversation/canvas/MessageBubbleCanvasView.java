@@ -658,6 +658,22 @@ public class MessageBubbleCanvasView extends View {
     GradientDrawable bubbleDrawable;
     int lastCacheKey = -1;
 
+    // ── Perf gap #5: requestLayout() skip-if-unchanged ──────────────────
+    // Every bind*/set* method used to call requestLayout() unconditionally,
+    // even when the new content measures to the exact same bubble size as
+    // what's already laid out (e.g. bindMediaGroup() rebinding the same
+    // grid, bindPoll() only refreshing vote counts, or setExpiryText()'s
+    // once-a-second countdown tick where the "mm:ss" text's pixel width
+    // rarely changes). That forced a full RecyclerView measure/layout pass
+    // on every single tick/rebind. lastSizeSignature caches a compact key
+    // of exactly the inputs onMeasure() actually reads to size the bubble
+    // (see computeSizeSignature()) so requestLayoutIfSizeChanged() can
+    // skip the requestLayout() call — and the measure pass it triggers —
+    // whenever that key hasn't moved, while still always invalidate()-ing
+    // so the new content actually draws. null means "never measured yet",
+    // which always forces the first layout pass.
+    String lastSizeSignature = null;
+
     float density;
     int bubbleLeft, bubbleTop;
     float footerReserveWidth;
@@ -1343,7 +1359,7 @@ public class MessageBubbleCanvasView extends View {
         resolveReplyColors(ctx);
 
         textLayout = null; // recomputed in onMeasure
-        requestLayout();
+        requestLayoutIfSizeChanged();
         invalidate();
     }
 
@@ -1400,7 +1416,7 @@ public class MessageBubbleCanvasView extends View {
         resolveReplyColors(ctx);
 
         textLayout = null; // recomputed in onMeasure (only used if mediaHasCaption)
-        requestLayout();
+        requestLayoutIfSizeChanged();
         invalidate();
     }
 
@@ -1491,7 +1507,7 @@ public class MessageBubbleCanvasView extends View {
         resolveReplyColors(ctx);
 
         textLayout = null;
-        requestLayout();
+        requestLayoutIfSizeChanged();
         invalidate();
     }
 
@@ -1665,7 +1681,7 @@ public class MessageBubbleCanvasView extends View {
 
         groupCaptionLayout = null; // recomputed in onMeasure
         textLayout = null;
-        requestLayout();
+        requestLayoutIfSizeChanged();
         invalidate();
     }
 
@@ -1716,7 +1732,7 @@ public class MessageBubbleCanvasView extends View {
         tickPaint.setColor(ChatThemeManager.get(ctx).getTickColor(read));
 
         reelCaptionLayout = null; // recomputed in onMeasure
-        requestLayout();
+        requestLayoutIfSizeChanged();
         invalidate();
     }
 
@@ -1755,7 +1771,7 @@ public class MessageBubbleCanvasView extends View {
             this.reelCaptionText = caption;
             this.reelHasCaption = true;
             reelCaptionLayout = null; // recomputed in onMeasure
-            requestLayout();
+            requestLayoutIfSizeChanged();
             invalidate();
         }
     }
@@ -1792,7 +1808,7 @@ public class MessageBubbleCanvasView extends View {
         this.contactPhone = phone != null ? phone : "";
         this.sent = isSent;
 
-        requestLayout();
+        requestLayoutIfSizeChanged();
         invalidate();
     }
 
@@ -1863,7 +1879,7 @@ public class MessageBubbleCanvasView extends View {
         this.footerTimeText = timeText != null ? timeText : "";
         this.sent = isSent;
 
-        requestLayout();
+        requestLayoutIfSizeChanged();
         invalidate();
     }
 
@@ -1905,7 +1921,7 @@ public class MessageBubbleCanvasView extends View {
         this.footerTimeText = timeText != null ? timeText : "";
         this.sent = false;
 
-        requestLayout();
+        requestLayoutIfSizeChanged();
         invalidate();
     }
 
@@ -1959,7 +1975,7 @@ public class MessageBubbleCanvasView extends View {
         this.callEntryTime = timeText != null ? timeText : "";
         this.sent = iAmCaller;
 
-        requestLayout();
+        requestLayoutIfSizeChanged();
         invalidate();
     }
 
@@ -1982,7 +1998,7 @@ public class MessageBubbleCanvasView extends View {
         this.sent = isSent;
 
         locationAddressLayout = null; // recomputed in onMeasure
-        requestLayout();
+        requestLayoutIfSizeChanged();
         invalidate();
     }
 
@@ -2065,7 +2081,7 @@ public class MessageBubbleCanvasView extends View {
         this.read        = isRead;
         this.delivered   = isDelivered;
         this.footerTimeText = "";  // set separately via bind() footer — caller must call setFooterTime() after bindFile() if needed; or we use the existing footerTimeText field
-        requestLayout();
+        requestLayoutIfSizeChanged();
         invalidate();
     }
 
@@ -2211,7 +2227,7 @@ public class MessageBubbleCanvasView extends View {
         resolveReplyColors(ctx);
 
         pollQuestionLayout = null; // recomputed in onMeasure
-        requestLayout();
+        requestLayoutIfSizeChanged();
         invalidate();
     }
 
@@ -2320,7 +2336,7 @@ public class MessageBubbleCanvasView extends View {
         }
         replySenderLayout = null; // recomputed in onMeasure
         replyTextLayout = null;
-        requestLayout();
+        requestLayoutIfSizeChanged();
         invalidate();
     }
 
@@ -2333,7 +2349,7 @@ public class MessageBubbleCanvasView extends View {
         this.replySenderLayout = null;
         this.replyTextLayout = null;
         this.replyBoxHeight = 0;
-        requestLayout();
+        requestLayoutIfSizeChanged();
         invalidate();
     }
 
@@ -2355,7 +2371,7 @@ public class MessageBubbleCanvasView extends View {
     public void setReactions(@Nullable String text) {
         this.hasReactions = text != null && !text.isEmpty();
         this.reactionsText = text != null ? text : "";
-        requestLayout();
+        requestLayoutIfSizeChanged();
         invalidate();
     }
 
@@ -2363,7 +2379,7 @@ public class MessageBubbleCanvasView extends View {
     public void clearReactions() {
         this.hasReactions = false;
         this.reactionsText = "";
-        requestLayout();
+        requestLayoutIfSizeChanged();
         invalidate();
     }
 
@@ -2375,7 +2391,7 @@ public class MessageBubbleCanvasView extends View {
      */
     public void setPinned(boolean pinned) {
         this.isPinned = pinned;
-        requestLayout();
+        requestLayoutIfSizeChanged();
         invalidate();
     }
 
@@ -2396,7 +2412,7 @@ public class MessageBubbleCanvasView extends View {
             groupSenderPaint.setColor(androidx.core.content.ContextCompat.getColor(
                     getContext(), com.callx.app.core.R.color.brand_primary));
         }
-        requestLayout();
+        requestLayoutIfSizeChanged();
         invalidate();
     }
 
@@ -2404,7 +2420,7 @@ public class MessageBubbleCanvasView extends View {
     public void clearGroupSender() {
         this.hasGroupSender = false;
         this.groupSenderName = "";
-        requestLayout();
+        requestLayoutIfSizeChanged();
         invalidate();
     }
 
@@ -2424,7 +2440,7 @@ public class MessageBubbleCanvasView extends View {
         boolean fwd = originalSenderName != null && !originalSenderName.isEmpty();
         this.hasForwarded = fwd;
         this.forwardedText = fwd ? ("\u21AA Forwarded from " + originalSenderName) : "";
-        requestLayout();
+        requestLayoutIfSizeChanged();
         invalidate();
     }
 
@@ -2449,7 +2465,7 @@ public class MessageBubbleCanvasView extends View {
         textPaint.setTypeface(deleted ? Typeface.create(Typeface.DEFAULT, Typeface.ITALIC) : Typeface.DEFAULT);
         textPaint.setAlpha(deleted ? DELETED_TEXT_ALPHA : 255);
         textLayout = null; // rebuild with the new typeface/alpha before the next draw
-        requestLayout();
+        requestLayoutIfSizeChanged();
         invalidate();
     }
 
@@ -2466,7 +2482,7 @@ public class MessageBubbleCanvasView extends View {
     public void setExpiryText(@Nullable String text) {
         this.hasExpiry = text != null && !text.isEmpty();
         this.expiryText = text != null ? text : "";
-        requestLayout();
+        requestLayoutIfSizeChanged();
         invalidateExpiryRegion();
     }
 
@@ -2551,7 +2567,7 @@ public class MessageBubbleCanvasView extends View {
         this.linkHasThumb = hasThumb;
         this.linkThumbBitmap = null; // any bitmap from a previously-bound URL no longer applies
         this.linkTitleLayout = null; // recomputed in onMeasure
-        requestLayout();
+        requestLayoutIfSizeChanged();
         invalidate();
     }
 
@@ -2571,7 +2587,7 @@ public class MessageBubbleCanvasView extends View {
         this.linkThumbBitmap = null;
         this.linkTitleLayout = null;
         this.linkCardHeight = 0;
-        requestLayout();
+        requestLayoutIfSizeChanged();
         invalidate();
     }
 
@@ -3551,6 +3567,110 @@ public class MessageBubbleCanvasView extends View {
     float expiryReserveWidth() {
         if (!hasExpiry || expiryText == null || expiryText.isEmpty()) return 0f;
         return expiryPaint.measureText(expiryText) + EXPIRY_GAP_DP * density;
+    }
+
+    /**
+     * Builds a compact key from exactly the inputs onMeasure() reads to
+     * size the bubble (bubbleContentWidth/bubbleHeight) plus the couple of
+     * measure-time position rects (mediaPillRect for a captionless
+     * media/media-group/reel corner pill) that don't get a chance to
+     * recompute unless onMeasure() actually runs. Two binds/updates that
+     * produce the same key are guaranteed to lay out identically, so
+     * requestLayoutIfSizeChanged() can safely skip requestLayout() between
+     * them.
+     *
+     * Deliberately mirrors the isMedia/isReelShare/.../else if-chain in
+     * onMeasure() — each branch includes only the fields that branch
+     * actually reads. Per-tick/per-vote fields that never affect layout
+     * (audioProgress, pollCounts/pollMyVote/pollIsLeader, mediaDownload*,
+     * etc.) are intentionally left out so e.g. a poll vote or an audio
+     * playback tick doesn't churn this key.
+     *
+     * The footer/expiry reserve is folded in as a *rounded pixel width*
+     * rather than the raw text — "0:59" -> "0:58" re-measures to the same
+     * width almost always (tabular digits), so this stays stable tick to
+     * tick and only actually changes (forcing a relayout) on the rarer
+     * digit-count flip, e.g. "9:59" -> "10:00".
+     */
+    private String computeSizeSignature() {
+        float footerReserve = footerPaint.measureText(footerTimeText)
+                + (sent ? (TICK_SIZE_DP + TICK_GAP_DP) * density : 0)
+                + FOOTER_GAP_DP * density
+                + expiryReserveWidth();
+
+        StringBuilder sb = new StringBuilder(96);
+        sb.append(sent ? '1' : '0').append(isPinned ? 'P' : '_');
+        if (hasGroupSender) sb.append("|G").append(groupSenderName);
+        if (hasForwarded) sb.append("|F").append(forwardedText);
+        if (hasReply) {
+            sb.append("|R").append(replySenderName).append('\u0001').append(replyText)
+                    .append('\u0001').append(replyThumb != null ? '1' : '0');
+        }
+        sb.append("|fr").append(Math.round(footerReserve));
+        // Reaction badge floats past the bubble's bottom edge and grows
+        // the view's total measured height to fit it (see the
+        // "totalHeight"/setMeasuredDimension tail of onMeasure()) — not
+        // just a draw-time overlay, so it must be part of the key.
+        if (hasReactions) sb.append("|X").append(reactionsText);
+
+        if (isMedia) {
+            sb.append("|M").append(mediaHasCaption ? messageText : "");
+        } else if (isReelShare) {
+            sb.append("|RE").append(reelHasCaption ? reelCaptionText : "");
+        } else if (isContact) {
+            sb.append("|C");
+        } else if (isLocation) {
+            sb.append("|L").append(locationAddress);
+        } else if (isViewOnce) {
+            sb.append("|V").append(viewOnceVariant).append('\u0001')
+                    .append(viewOnceShowOpenedAt ? '1' : '0').append('\u0001').append(viewOnceOpenedAtText);
+        } else if (isSeenBubble) {
+            sb.append("|S").append(seenHasThumb ? '1' : '0').append(seenHasName ? '1' : '0');
+        } else if (isCallEntry) {
+            sb.append("|CE").append(callEntryIcon).append('\u0001')
+                    .append(callEntryLabel).append('\u0001').append(callEntryTime);
+        } else if (isPoll) {
+            sb.append("|PL").append(pollQuestion);
+            if (pollOptions != null) {
+                for (String opt : pollOptions) sb.append('\u0001').append(opt);
+            }
+        } else if (isMediaGroup) {
+            sb.append("|MG").append(groupVisibleCount).append('\u0001')
+                    .append(groupHasCaption ? messageText : "");
+        } else if (isFileBubble) {
+            sb.append("|FB");
+        } else if (isAudio) {
+            sb.append("|A");
+        } else {
+            // isDeletedStyle switches textPaint to an italic typeface (see
+            // setDeletedStyle()), which re-measures the same messageText
+            // to a slightly different width, so it has to be part of the
+            // key even though the string itself didn't change.
+            sb.append("|T").append(isDeletedStyle ? '1' : '0').append(messageText);
+            if (hasLinkPreview) {
+                sb.append("|LP").append(linkTitle).append('\u0001')
+                        .append(linkPreviewUrl).append('\u0001')
+                        .append(linkDomain).append('\u0001').append(linkHasThumb ? '1' : '0');
+            }
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Replaces a bare requestLayout() call in every bind()/set() method:
+     * only actually requests a new measure/layout pass when the bubble's
+     * size-relevant content has changed since the last one (see
+     * computeSizeSignature()). Callers still invalidate() unconditionally
+     * right after this so the new content — even content that doesn't
+     * change the bubble's size, like a poll vote or a same-width expiry
+     * tick — still gets drawn.
+     */
+    private void requestLayoutIfSizeChanged() {
+        String sig = computeSizeSignature();
+        if (lastSizeSignature == null || getMeasuredWidth() == 0 || !lastSizeSignature.equals(sig)) {
+            requestLayout();
+        }
+        lastSizeSignature = sig;
     }
 
     void drawFooter(Canvas canvas, float footerBaselineY, float footerRightX) {
