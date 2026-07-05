@@ -96,7 +96,7 @@ import com.callx.app.utils.ChatThemeManager;
  *
  * It intentionally does NOT (yet) handle:
  *   • audio/file cells inside a media group, or per-item captions
- *   • GIF, audio, file, poll, or link-preview bubbles
+ *   • GIF, audio, file, poll, contact, or location bubbles
  *   • long-press action menu (long-press itself is wired — see
  *     OnBubbleClickListener.onBubbleLongClick — the menu it opens is the
  *     caller's job)
@@ -129,6 +129,13 @@ import com.callx.app.utils.ChatThemeManager;
  *     the legacy fl_video/iv_video_thumb bubble. Never has a caption, same
  *     as that legacy case. Tapping the thumbnail fires onImageClick(),
  *     same trigger point as tapping an image bubble.
+ *   • a link-preview card (setLinkPreview/setLinkPreviewThumbBitmap/
+ *     clearLinkPreview) — mirrors layout_msg_link_preview.xml
+ *     (stub_link_preview): optional OG-image thumbnail, domain label,
+ *     and bold 2-line title, stacked below the message text. Only
+ *     meaningful for the plain-text bind() mode. Tapping the card fires
+ *     onLinkClick(url), same as the legacy ll_link_preview click
+ *     listener that opens the URL in a browser.
  *
  * Those all still render through the existing item_message_sent/received.xml
  * + MessagePagingAdapter path.
@@ -348,6 +355,29 @@ public class MessageBubbleCanvasView extends View {
     private static final int   REEL_SHADOW_COLOR         = 0xAA000000;
     private static final int   REEL_CARD_BG_COLOR        = 0xFF1A1A1A; // matches thumbnail's #1A1A1A placeholder bg
     private static final int   REEL_AVATAR_PLACEHOLDER_COLOR = 0xFF3A3A3A;
+
+    // ── Link-preview card — mirrors layout_msg_link_preview.xml
+    // (stub_link_preview): optional OG-image thumbnail (match-width ×
+    // 120dp, centerCrop) on top, then a padded text column with the
+    // domain (10sp, caps, gold) and a bold 2-line title below it. Only
+    // meaningful alongside the plain-text bind() mode — stacks directly
+    // below the message text, above the footer row (see onMeasure's
+    // plain-text branch and drawLinkPreview). Unlike the legacy
+    // ViewStub's fixed 280dp (@dimen/msg_bubble_max_width) width, the
+    // card here is sized to this view's own maxTextWidth column so it
+    // never forces the bubble wider than the screen actually allows. ──
+    private static final float LINK_PREVIEW_GAP_TOP_DP      = 6f; // gap between message text and the card
+    private static final float LINK_PREVIEW_CORNER_DP       = 6f; // matches bg_reply_preview_sent/received's 6dp radius
+    private static final float LINK_PREVIEW_THUMB_HEIGHT_DP = 120f;
+    private static final float LINK_PREVIEW_PAD_H_DP        = 10f;
+    private static final float LINK_PREVIEW_PAD_TOP_DP      = 8f;
+    private static final float LINK_PREVIEW_PAD_BOTTOM_DP   = 8f;
+    private static final float LINK_PREVIEW_DOMAIN_SP       = 10f;
+    private static final float LINK_PREVIEW_TITLE_SP        = 13f;
+    private static final float LINK_PREVIEW_TITLE_GAP_DP    = 2f; // gap between domain and title lines
+    private static final int   LINK_PREVIEW_DOMAIN_COLOR    = 0xFFFFD54F;
+    private static final int   LINK_PREVIEW_TITLE_COLOR     = 0xFFFFFFFF;
+    private static final int   LINK_PREVIEW_THUMB_PLACEHOLDER_COLOR = 0xFF2A2A2A;
 
     public interface OnBubbleClickListener {
 
@@ -577,6 +607,29 @@ public class MessageBubbleCanvasView extends View {
     private final android.graphics.Matrix reelShaderMatrix = new android.graphics.Matrix();
     private final android.graphics.Matrix reelAvatarShaderMatrix = new android.graphics.Matrix();
 
+    // ── Link-preview card state — only meaningful alongside the
+    // plain-text bind() mode (see LINK_PREVIEW_* constants doc above).
+    // hasThumb is set upfront in setLinkPreview() (from whether
+    // LinkPreviewFetcher.Result.imageUrl was non-empty) so the card's
+    // reserved height is correct even before the Bitmap itself arrives
+    // via setLinkPreviewThumbBitmap(). ──
+    private boolean hasLinkPreview = false;
+    private String linkPreviewUrl = "";
+    private String linkTitle = "";
+    private String linkDomain = "";
+    private boolean linkHasThumb = false;
+    private Bitmap linkThumbBitmap;
+    private StaticLayout linkTitleLayout;
+    private int linkCardHeight = 0;
+    private final RectF linkCardRect = new RectF();
+    private final RectF linkThumbRect = new RectF();
+    private final Paint linkCardBgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint linkThumbPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+    private final Paint linkThumbPlaceholderPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final TextPaint linkDomainPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    private final TextPaint linkTitlePaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    private final android.graphics.Matrix linkThumbShaderMatrix = new android.graphics.Matrix();
+
     private OnBubbleClickListener clickListener;
     private final GestureDetector gestureDetector;
 
@@ -687,6 +740,13 @@ public class MessageBubbleCanvasView extends View {
         reelBottomGradient = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
                 new int[]{0x00000000, 0x99000000});
 
+        linkThumbPlaceholderPaint.setColor(LINK_PREVIEW_THUMB_PLACEHOLDER_COLOR);
+        linkDomainPaint.setColor(LINK_PREVIEW_DOMAIN_COLOR);
+        linkDomainPaint.setTextSize(LINK_PREVIEW_DOMAIN_SP * density);
+        linkTitlePaint.setColor(LINK_PREVIEW_TITLE_COLOR);
+        linkTitlePaint.setTextSize(LINK_PREVIEW_TITLE_SP * density);
+        linkTitlePaint.setFakeBoldText(true);
+
         setWillNotDraw(false);
 
         gestureDetector = new GestureDetector(ctx, new GestureDetector.SimpleOnGestureListener() {
@@ -758,6 +818,7 @@ public class MessageBubbleCanvasView extends View {
         this.isVideoMedia = false;
         this.videoDuration = null;
         this.mediaBitmap = bitmap;
+        this.hasLinkPreview = false; // link-preview card is text-mode-only; a stale flag from a recycled view must not leak in here
         // Cleared fresh on every bind — a recycled holder must not carry a
         // stale gate from whatever RECEIVED image the view last showed;
         // the caller re-arms it with setMediaDownloadGate() right after this
@@ -871,6 +932,7 @@ public class MessageBubbleCanvasView extends View {
         this.isReelShare = false;
         this.isVideoMedia = false;
         this.videoDuration = null;
+        this.hasLinkPreview = false; // link-preview card is text-mode-only; a stale flag from a recycled view must not leak in here
         this.groupItems = items != null ? items : java.util.Collections.emptyList();
         int total = this.groupItems.size();
         this.groupVisibleCount = Math.min(total, GROUP_MAX_VISIBLE);
@@ -933,6 +995,7 @@ public class MessageBubbleCanvasView extends View {
         this.isReelShare = true;
         this.isVideoMedia = false;
         this.videoDuration = null;
+        this.hasLinkPreview = false; // link-preview card is text-mode-only; a stale flag from a recycled view must not leak in here
         this.reelThumbBitmap = thumb;
         this.reelAvatarBitmap = avatar;
         this.reelUsername = (username != null && !username.isEmpty()) ? "@" + username : REEL_DEFAULT_USERNAME;
@@ -1250,18 +1313,80 @@ public class MessageBubbleCanvasView extends View {
         setExpiryText(null);
     }
 
+    /**
+     * Show a link-preview card below the message text — mirrors
+     * layout_msg_link_preview.xml (stub_link_preview): domain label,
+     * bold title (max 2 lines), and an optional OG-image thumbnail on
+     * top. Only meaningful alongside the plain-text bind() mode (mirrors
+     * LinkPreviewFetcher only ever being invoked for text messages in
+     * the legacy adapter). Caller detects the URL via
+     * LinkPreviewFetcher.extractFirstUrl(text), fetches async via
+     * LinkPreviewFetcher.fetch() exactly as before, and pushes the
+     * result through this setter instead of the ll_link_preview View
+     * group. Known simplification vs. the legacy path: the card only
+     * appears once the fetch resolves (no reserved "loading" space) —
+     * call clearLinkPreview() up front and this only from onResult().
+     *
+     * @param url      the resolved preview URL (LinkPreviewFetcher.Result.url);
+     *                 also used as the click-target and as this view's own
+     *                 staleness-guard tag by the caller.
+     * @param title    OG title; required in practice (LinkPreviewFetcher never
+     *                 returns a Result with an empty title) but null-safe here.
+     * @param domain   bare hostname (e.g. "youtube.com"); null/empty just
+     *                 skips that row.
+     * @param hasThumb whether Result.imageUrl was non-empty — reserves the
+     *                 120dp thumbnail band up front so the card doesn't
+     *                 resize again once setLinkPreviewThumbBitmap() lands.
+     */
+    public void setLinkPreview(String url, @Nullable String title, @Nullable String domain, boolean hasThumb) {
+        this.hasLinkPreview = url != null && !url.isEmpty();
+        this.linkPreviewUrl = url != null ? url : "";
+        this.linkTitle = title != null ? title : "";
+        this.linkDomain = domain != null ? domain : "";
+        this.linkHasThumb = hasThumb;
+        this.linkThumbBitmap = null; // any bitmap from a previously-bound URL no longer applies
+        this.linkTitleLayout = null; // recomputed in onMeasure
+        requestLayout();
+        invalidate();
+    }
+
+    /** Swap in the OG-image thumbnail once Glide decodes it — no full rebind needed. Pass null while still loading / on load failure (placeholder box stays up). */
+    public void setLinkPreviewThumbBitmap(@Nullable Bitmap bitmap) {
+        this.linkThumbBitmap = bitmap;
+        invalidate();
+    }
+
+    /** Call when the message has no link, the URL has no OG data, or the fetch failed — clears any stale card state on a recycled view. */
+    public void clearLinkPreview() {
+        this.hasLinkPreview = false;
+        this.linkPreviewUrl = "";
+        this.linkTitle = "";
+        this.linkDomain = "";
+        this.linkHasThumb = false;
+        this.linkThumbBitmap = null;
+        this.linkTitleLayout = null;
+        this.linkCardHeight = 0;
+        requestLayout();
+        invalidate();
+    }
+
     private void resolveReplyColors(Context ctx) {
         if (sent) {
             replyBgPaint.setColor(SENT_REPLY_BG);
             replyBarPaint.setColor(SENT_REPLY_BAR);
             replySenderPaint.setColor(SENT_REPLY_SENDER);
             replyTextPaint.setColor(SENT_REPLY_TEXT);
+            // bg_reply_preview_sent — same #33000000 6dp-radius card background the
+            // link-preview card reuses (see LINK_PREVIEW_* constants doc).
+            linkCardBgPaint.setColor(SENT_REPLY_BG);
         } else {
             replyBgPaint.setColor(RECEIVED_REPLY_BG);
             int brand = androidx.core.content.ContextCompat.getColor(ctx, com.callx.app.core.R.color.brand_primary);
             replyBarPaint.setColor(brand);
             replySenderPaint.setColor(brand);
             replyTextPaint.setColor(androidx.core.content.ContextCompat.getColor(ctx, com.callx.app.core.R.color.bubble_received_text));
+            // bg_reply_preview_received — same #22000000 card background.
+            linkCardBgPaint.setColor(RECEIVED_REPLY_BG);
         }
     }
 
@@ -1486,8 +1611,46 @@ public class MessageBubbleCanvasView extends View {
             int lastLineWidth = (int) Math.ceil(textLayout.getLineWidth(textLayout.getLineCount() - 1));
             int neededWidth = Math.max(textWidth, (int) (lastLineWidth + footerReserveWidth));
 
-            bubbleContentWidth = Math.min(Math.max(neededWidth, replyBoxContentWidth), maxTextWidth);
-            bubbleHeight = replyBoxHeight + replyGap + textLayout.getHeight() + vPad * 2 + footerHeight;
+            // ── Link-preview card — stacks below the text, above the
+            // footer. Sized to the full maxTextWidth column (like the
+            // legacy stub's fixed 280dp width), so a bubble with a link
+            // preview always grows to that width regardless of how short
+            // the message text itself is. ──
+            int linkGapTop = 0;
+            linkCardHeight = 0;
+            if (hasLinkPreview) {
+                linkGapTop = Math.round(LINK_PREVIEW_GAP_TOP_DP * density);
+                int cardPadH = Math.round(LINK_PREVIEW_PAD_H_DP * density);
+                int cardPadTop = Math.round(LINK_PREVIEW_PAD_TOP_DP * density);
+                int cardPadBottom = Math.round(LINK_PREVIEW_PAD_BOTTOM_DP * density);
+                int titleMaxWidth = Math.max(1, maxTextWidth - cardPadH * 2);
+                String titleSrc = !linkTitle.isEmpty() ? linkTitle : linkPreviewUrl;
+                linkTitleLayout = StaticLayout.Builder
+                        .obtain(titleSrc, 0, titleSrc.length(), linkTitlePaint, titleMaxWidth)
+                        .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                        .setMaxLines(2)
+                        .setEllipsize(TextUtils.TruncateAt.END)
+                        .setIncludePad(false)
+                        .build();
+                int domainHeight = 0;
+                int domainGap = 0;
+                if (!linkDomain.isEmpty()) {
+                    Paint.FontMetrics dfm = linkDomainPaint.getFontMetrics();
+                    domainHeight = Math.round(dfm.descent - dfm.ascent);
+                    domainGap = Math.round(LINK_PREVIEW_TITLE_GAP_DP * density);
+                }
+                int thumbHeight = linkHasThumb ? Math.round(LINK_PREVIEW_THUMB_HEIGHT_DP * density) : 0;
+                linkCardHeight = thumbHeight + cardPadTop + domainHeight + domainGap
+                        + linkTitleLayout.getHeight() + cardPadBottom;
+            } else {
+                linkTitleLayout = null;
+            }
+            int linkCardContentWidth = hasLinkPreview ? maxTextWidth : 0;
+
+            bubbleContentWidth = Math.min(
+                    Math.max(Math.max(neededWidth, replyBoxContentWidth), linkCardContentWidth), maxTextWidth);
+            bubbleHeight = replyBoxHeight + replyGap + textLayout.getHeight()
+                    + linkGapTop + linkCardHeight + vPad * 2 + footerHeight;
         }
 
         int bubbleWidth = bubbleContentWidth + hPad * 2;
@@ -1577,6 +1740,23 @@ public class MessageBubbleCanvasView extends View {
                         groupContentRect.right - pillMargin,
                         groupContentRect.bottom - pillMargin);
             }
+        }
+
+        if (hasLinkPreview && !isMedia && !isMediaGroup && !isReelShare && textLayout != null) {
+            int linkGapTop = Math.round(LINK_PREVIEW_GAP_TOP_DP * density);
+            float cardTop = bubbleTop + replyBoxHeight + replyGap + textLayout.getHeight() + linkGapTop;
+            linkCardRect.set(bubbleLeft + hPad, cardTop,
+                    bubbleLeft + bubbleWidth - hPad, cardTop + linkCardHeight);
+            if (linkHasThumb) {
+                float thumbH = LINK_PREVIEW_THUMB_HEIGHT_DP * density;
+                linkThumbRect.set(linkCardRect.left, linkCardRect.top,
+                        linkCardRect.right, linkCardRect.top + thumbH);
+            } else {
+                linkThumbRect.setEmpty();
+            }
+        } else {
+            linkCardRect.setEmpty();
+            linkThumbRect.setEmpty();
         }
 
         // ── Reaction badge — floats past the bubble's bottom edge, so the
@@ -1719,6 +1899,10 @@ public class MessageBubbleCanvasView extends View {
             canvas.translate(bubbleLeft + hPad, bubbleTop + replyBoxHeight + replyGap + vPad);
             textLayout.draw(canvas);
             canvas.restore();
+
+            if (hasLinkPreview) {
+                drawLinkPreview(canvas);
+            }
 
             drawFooter(canvas, bubbleRect.bottom - vPad * 0.4f, bubbleRect.right - hPad);
         }
@@ -2197,6 +2381,76 @@ public class MessageBubbleCanvasView extends View {
         return hasExpiry ? expiryPaint.measureText(expiryText) + FOOTER_GAP_DP * density : 0f;
     }
 
+    /**
+     * Draws the link-preview card computed in onMeasure — rounded card
+     * background (same #33000000/#22000000 sent/received treatment as
+     * the reply-preview strip), an optional top thumbnail band
+     * (centerCrop bitmap, or a plain placeholder box while it's still
+     * loading), then the domain row and bold title underneath. Card tap
+     * handling lives in onTouchEvent (linkCardRect hit-test).
+     */
+    private void drawLinkPreview(Canvas canvas) {
+        float r = LINK_PREVIEW_CORNER_DP * density;
+        canvas.drawRoundRect(linkCardRect, r, r, linkCardBgPaint);
+
+        float textLeft = linkCardRect.left + LINK_PREVIEW_PAD_H_DP * density;
+        float textRight = linkCardRect.right - LINK_PREVIEW_PAD_H_DP * density;
+        float cursorY;
+
+        if (linkHasThumb) {
+            if (linkThumbBitmap != null) {
+                // Rounded-top-corner centerCrop, same BitmapShader technique
+                // drawMedia() uses for the single-image bubble — clipped to
+                // the card's own round-rect so only the top two corners
+                // actually round (bottom corners are covered by the text
+                // column below, so a full round-rect clip reads correctly).
+                float scale = Math.max(linkThumbRect.width() / linkThumbBitmap.getWidth(),
+                        linkThumbRect.height() / linkThumbBitmap.getHeight());
+                float dx = linkThumbRect.left - (linkThumbBitmap.getWidth() * scale - linkThumbRect.width()) / 2f;
+                float dy = linkThumbRect.top - (linkThumbBitmap.getHeight() * scale - linkThumbRect.height()) / 2f;
+                linkThumbShaderMatrix.reset();
+                linkThumbShaderMatrix.setScale(scale, scale);
+                linkThumbShaderMatrix.postTranslate(dx, dy);
+
+                android.graphics.BitmapShader shader = new android.graphics.BitmapShader(
+                        linkThumbBitmap, android.graphics.Shader.TileMode.CLAMP, android.graphics.Shader.TileMode.CLAMP);
+                shader.setLocalMatrix(linkThumbShaderMatrix);
+                linkThumbPaint.setShader(shader);
+                int saveCount = canvas.save();
+                android.graphics.Path clip = new android.graphics.Path();
+                clip.addRoundRect(linkCardRect, r, r, android.graphics.Path.Direction.CW);
+                canvas.clipPath(clip);
+                canvas.drawRect(linkThumbRect, linkThumbPaint);
+                canvas.restoreToCount(saveCount);
+            } else {
+                // Not decoded yet — plain placeholder band, same rounded-top shape.
+                int saveCount = canvas.save();
+                android.graphics.Path clip = new android.graphics.Path();
+                clip.addRoundRect(linkCardRect, r, r, android.graphics.Path.Direction.CW);
+                canvas.clipPath(clip);
+                canvas.drawRect(linkThumbRect, linkThumbPlaceholderPaint);
+                canvas.restoreToCount(saveCount);
+            }
+            cursorY = linkThumbRect.bottom + LINK_PREVIEW_PAD_TOP_DP * density;
+        } else {
+            cursorY = linkCardRect.top + LINK_PREVIEW_PAD_TOP_DP * density;
+        }
+
+        if (!linkDomain.isEmpty()) {
+            Paint.FontMetrics dfm = linkDomainPaint.getFontMetrics();
+            float baselineY = cursorY - dfm.ascent;
+            canvas.drawText(linkDomain.toUpperCase(java.util.Locale.getDefault()), textLeft, baselineY, linkDomainPaint);
+            cursorY = baselineY + dfm.descent + LINK_PREVIEW_TITLE_GAP_DP * density;
+        }
+
+        if (linkTitleLayout != null) {
+            canvas.save();
+            canvas.translate(textLeft, cursorY);
+            linkTitleLayout.draw(canvas);
+            canvas.restore();
+        }
+    }
+
     private void drawFooter(Canvas canvas, float footerBaselineY, float footerRightX) {
         float timeX = footerRightX - footerPaint.measureText(footerTimeText)
                 - (sent ? (TICK_SIZE_DP + TICK_GAP_DP) * density : 0);
@@ -2318,6 +2572,13 @@ public class MessageBubbleCanvasView extends View {
         if (hasReply && event.getActionMasked() == MotionEvent.ACTION_UP
                 && replyBoxRect.contains(event.getX(), event.getY())) {
             if (clickListener != null) clickListener.onReplyPreviewClick();
+            return true;
+        }
+        if (hasLinkPreview && event.getActionMasked() == MotionEvent.ACTION_UP
+                && linkCardRect.contains(event.getX(), event.getY())) {
+            // Whole card opens the link — mirrors the legacy
+            // ll_link_preview.setOnClickListener (ACTION_VIEW browser intent).
+            if (clickListener != null) clickListener.onLinkClick(linkPreviewUrl);
             return true;
         }
         if (hasReactions && event.getActionMasked() == MotionEvent.ACTION_UP

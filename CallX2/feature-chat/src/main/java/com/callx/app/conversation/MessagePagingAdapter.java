@@ -1550,6 +1550,55 @@ public class MessagePagingAdapter
         } else {
             cv.bind(m.text != null ? m.text : "", timeStr, sent, isRead, isDelivered);
             cv.setDeletedStyle(false); // clears any italic/dim state a recycled view carried from a deleted message
+
+            // ── Link-preview card ─────────────────────────────────────
+            // Mirrors the legacy ll_link_preview ViewStub path (same
+            // LinkPreviewFetcher cache/fetch, same URL-detected-once
+            // guard) — pushed through setLinkPreview()/
+            // setLinkPreviewThumbBitmap() instead of TextView/ImageView
+            // calls. Known simplification vs. the legacy path: the card
+            // only appears once the fetch resolves — no reserved
+            // "loading" space (legacy shows an INVISIBLE placeholder of
+            // final size while fetching; a cache hit here is effectively
+            // instant anyway, same as it is on the legacy path).
+            // cv's own tag doubles as the staleness guard (equivalent to
+            // h.llLinkPreview.getTag() there), since MessageBubbleCanvasView
+            // has no ViewStub-backed child views to tag instead.
+            final String previewUrl = m.text != null
+                    ? com.callx.app.utils.LinkPreviewFetcher.extractFirstUrl(m.text) : null;
+            cv.setTag(previewUrl);
+            if (previewUrl == null) {
+                cv.clearLinkPreview();
+            } else {
+                cv.clearLinkPreview(); // no stale card from a recycled view while this fetch is in flight
+                com.callx.app.utils.LinkPreviewFetcher.fetch(previewUrl,
+                        new com.callx.app.utils.LinkPreviewFetcher.Callback() {
+                    @Override public void onResult(com.callx.app.utils.LinkPreviewFetcher.Result r) {
+                        if (!previewUrl.equals(cv.getTag())) return; // recycled/rebound since this fetch started
+                        boolean hasThumb = r.imageUrl != null && !r.imageUrl.isEmpty();
+                        cv.setLinkPreview(r.url, r.title, r.domain, hasThumb);
+                        if (hasThumb) {
+                            glide(ctx).asBitmap().load(r.imageUrl).apply(THUMB_RGB565)
+                                    .override(480, 240).centerCrop()
+                                    .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
+                                        @Override public void onResourceReady(@NonNull Bitmap resource,
+                                                @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
+                                            if (!previewUrl.equals(cv.getTag())) return;
+                                            cv.setLinkPreviewThumbBitmap(resource);
+                                        }
+                                        @Override public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {
+                                            if (!previewUrl.equals(cv.getTag())) return;
+                                            cv.setLinkPreviewThumbBitmap(null);
+                                        }
+                                    });
+                        }
+                    }
+                    @Override public void onError(String url) {
+                        if (!previewUrl.equals(cv.getTag())) return;
+                        cv.clearLinkPreview();
+                    }
+                });
+            }
         }
 
         // ── Reply preview ──
@@ -1660,7 +1709,18 @@ public class MessagePagingAdapter
 
             @Override
             public boolean onLinkClick(String url) {
-                return false; // link-tap-inside-text not modeled yet — falls through to onBubbleClick
+                // Tapping the link-preview CARD (setLinkPreview/drawLinkPreview)
+                // fires here — mirrors the legacy ll_link_preview click
+                // listener that opens the URL in a browser. Tap-on-a-URL-
+                // SPAN-inside-the-text-itself (Linkify-equivalent) is still
+                // not modeled — this method is only ever invoked for the
+                // card's whole-card tap right now, never for an in-text span.
+                if (url == null || url.isEmpty()) return false;
+                android.content.Intent browserIntent = new android.content.Intent(
+                        android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url));
+                browserIntent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                ctx.startActivity(browserIntent);
+                return true;
             }
 
             @Override
