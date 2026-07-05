@@ -728,7 +728,15 @@ public class MessagePagingAdapter
             }
             return true;
         }
-        return false; // gif/video/audio/file/poll/link/reel_share/contact/location — all still on the old path
+        if ("reel_share".equals(type) || "reel_link".equals(type)) {
+            // Reel-share card (MessageBubbleCanvasView.bindReelShare) —
+            // bubbleless 165×237dp Instagram-style card, same shape sent
+            // and received. Deleted/expiry are already handled above this
+            // check (deleted always wins; expiry disqualifies non-text
+            // types including this one, same as image/multi_media).
+            return true;
+        }
+        return false; // gif/video/audio/file/poll/link/contact/location — all still on the old path
     }
 
     @NonNull
@@ -1212,6 +1220,7 @@ public class MessagePagingAdapter
         final String type = m.type != null ? m.type : "text";
         final boolean isImage = "image".equals(type);
         final boolean isMultiMedia = "multi_media".equals(type);
+        final boolean isReelShare = "reel_share".equals(type) || "reel_link".equals(type);
         final boolean isDeleted = Boolean.TRUE.equals(m.deleted);
 
         if (isDeleted) {
@@ -1361,6 +1370,141 @@ public class MessagePagingAdapter
             } else {
                 cv.clearMediaDownloadGate();
             }
+        } else if (isReelShare) {
+            // Mirrors the legacy ViewHolder's "reel_share"/"reel_link"
+            // case (bindReelShareBubble) — same in-memory caches
+            // (reelOwnerAvatarCache/reelThumbCache) and Firebase
+            // "reels/{id}" fallback, just pushed through the canvas
+            // setters instead of ImageView/TextView calls.
+            final String rUsername = m.reelShareUsername != null ? m.reelShareUsername : "";
+            cv.bindReelShare(null, null, rUsername.isEmpty() ? null : rUsername,
+                    m.reelShareCaption, timeStr, sent, isRead, isDelivered);
+            cv.setDeletedStyle(false);
+
+            // Avatar
+            String avatarUrl = m.reelShareOwnerPhoto != null ? m.reelShareOwnerPhoto : "";
+            if (avatarUrl.isEmpty() && !rUsername.isEmpty()) {
+                String cachedAvatar = reelOwnerAvatarCache.get(rUsername);
+                if (cachedAvatar != null) avatarUrl = cachedAvatar;
+            }
+            if (!avatarUrl.isEmpty()) {
+                glide(ctx).asBitmap().load(avatarUrl).apply(THUMB_RGB565).override(96, 96).circleCrop()
+                        .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
+                            @Override
+                            public void onResourceReady(@NonNull Bitmap resource,
+                                    @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
+                                if (h.canvasBindToken != myToken) return;
+                                cv.setReelShareAvatarBitmap(resource);
+                            }
+                            @Override
+                            public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {}
+                        });
+            } else if (!rUsername.isEmpty() && reelAvatarFetchInFlight.add(rUsername)) {
+                final String fUKey = rUsername;
+                final android.content.Context fCtxA = ctx.getApplicationContext();
+                com.google.firebase.database.FirebaseDatabase.getInstance()
+                        .getReference("users").orderByChild("username").equalTo(rUsername).limitToFirst(1)
+                        .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
+                            @Override public void onDataChange(@androidx.annotation.NonNull com.google.firebase.database.DataSnapshot snap) {
+                                reelAvatarFetchInFlight.remove(fUKey);
+                                if (!snap.exists() || h.canvasBindToken != myToken) return;
+                                String photo = null;
+                                for (com.google.firebase.database.DataSnapshot child : snap.getChildren()) {
+                                    photo = child.child("profileImage").getValue(String.class);
+                                    if (photo == null || photo.isEmpty()) photo = child.child("photoUrl").getValue(String.class);
+                                    if (photo == null || photo.isEmpty()) photo = child.child("profilePhoto").getValue(String.class);
+                                    break;
+                                }
+                                if (photo == null || photo.isEmpty()) return;
+                                reelOwnerAvatarCache.put(fUKey, photo);
+                                glide(fCtxA).asBitmap().load(photo).apply(THUMB_RGB565).override(96, 96).circleCrop()
+                                        .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
+                                            @Override
+                                            public void onResourceReady(@NonNull Bitmap resource,
+                                                    @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
+                                                if (h.canvasBindToken != myToken) return;
+                                                cv.setReelShareAvatarBitmap(resource);
+                                            }
+                                            @Override
+                                            public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {}
+                                        });
+                            }
+                            @Override public void onCancelled(@androidx.annotation.NonNull com.google.firebase.database.DatabaseError e) {
+                                reelAvatarFetchInFlight.remove(fUKey);
+                            }
+                        });
+            }
+
+            // Thumbnail
+            String thumb = m.reelShareThumb != null ? m.reelShareThumb : "";
+            final String rKey = m.reelId != null ? m.reelId : "";
+            if (thumb.isEmpty() && !rKey.isEmpty()) {
+                String cachedThumb = reelThumbCache.get(rKey);
+                if (cachedThumb != null) thumb = cachedThumb;
+            }
+            if (!thumb.isEmpty()) {
+                glide(ctx).asBitmap().load(thumb).apply(THUMB_RGB565).override(330, 474).centerCrop()
+                        .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
+                            @Override
+                            public void onResourceReady(@NonNull Bitmap resource,
+                                    @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
+                                if (h.canvasBindToken != myToken) return;
+                                cv.setReelShareThumbBitmap(resource);
+                            }
+                            @Override
+                            public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {}
+                        });
+            } else if (!rKey.isEmpty() && reelThumbFetchInFlight.add(rKey)) {
+                final android.content.Context fCtxT = ctx.getApplicationContext();
+                com.google.firebase.database.FirebaseDatabase.getInstance()
+                        .getReference("reels").child(rKey)
+                        .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
+                            @Override public void onDataChange(@androidx.annotation.NonNull com.google.firebase.database.DataSnapshot snap) {
+                                reelThumbFetchInFlight.remove(rKey);
+                                if (!snap.exists() || h.canvasBindToken != myToken) return;
+                                String t = snap.child("thumbUrl").getValue(String.class);
+                                if (t == null || t.isEmpty()) t = snap.child("thumbnailUrl").getValue(String.class);
+                                if (t != null && !t.isEmpty()) {
+                                    reelThumbCache.put(rKey, t);
+                                    glide(fCtxT).asBitmap().load(t).apply(THUMB_RGB565).override(330, 474).centerCrop()
+                                            .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
+                                                @Override
+                                                public void onResourceReady(@NonNull Bitmap resource,
+                                                        @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
+                                                    if (h.canvasBindToken != myToken) return;
+                                                    cv.setReelShareThumbBitmap(resource);
+                                                }
+                                                @Override
+                                                public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {}
+                                            });
+                                }
+                                String u = snap.child("ownerName").getValue(String.class);
+                                if (u == null || u.isEmpty()) u = snap.child("username").getValue(String.class);
+                                if (u != null && !u.isEmpty()) cv.setReelShareUsername(u);
+                                String ap = snap.child("ownerPhoto").getValue(String.class);
+                                if (ap == null || ap.isEmpty()) ap = snap.child("profileImage").getValue(String.class);
+                                if (ap != null && !ap.isEmpty()) {
+                                    if (u != null && !u.isEmpty()) reelOwnerAvatarCache.put(u, ap);
+                                    glide(fCtxT).asBitmap().load(ap).apply(THUMB_RGB565).override(96, 96).circleCrop()
+                                            .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
+                                                @Override
+                                                public void onResourceReady(@NonNull Bitmap resource,
+                                                        @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
+                                                    if (h.canvasBindToken != myToken) return;
+                                                    cv.setReelShareAvatarBitmap(resource);
+                                                }
+                                                @Override
+                                                public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {}
+                                            });
+                                }
+                                String c = snap.child("caption").getValue(String.class);
+                                if (c != null && !c.isEmpty()) cv.setReelShareCaption(c);
+                            }
+                            @Override public void onCancelled(@androidx.annotation.NonNull com.google.firebase.database.DatabaseError e) {
+                                reelThumbFetchInFlight.remove(rKey);
+                            }
+                        });
+            }
         } else {
             cv.bind(m.text != null ? m.text : "", timeStr, sent, isRead, isDelivered);
             cv.setDeletedStyle(false); // clears any italic/dim state a recycled view carried from a deleted message
@@ -1494,6 +1638,24 @@ public class MessagePagingAdapter
                 if (isImage) {
                     String fullUrl = m.mediaUrl != null ? m.mediaUrl : m.text;
                     showImageActionSheet(ctx, m, fullUrl, fullUrl);
+                } else if (isReelShare) {
+                    // Mirrors the legacy ll_reel_share.setOnClickListener —
+                    // deep-link into the reel by ID, falling back to the
+                    // raw share URL if no reelId was stored on the message.
+                    String reelId = m.reelId != null ? m.reelId : "";
+                    String reelUrl = m.reelShareUrl != null ? m.reelShareUrl : "";
+                    String deepLink = !reelId.isEmpty()
+                            ? com.callx.app.utils.Constants.DEEP_LINK_BASE_URL + "/reel/" + reelId
+                            : reelUrl;
+                    if (!deepLink.isEmpty()) {
+                        try {
+                            android.content.Intent ri = new android.content.Intent(
+                                    android.content.Intent.ACTION_VIEW, android.net.Uri.parse(deepLink));
+                            ri.setPackage(ctx.getPackageName());
+                            ri.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                            ctx.startActivity(ri);
+                        } catch (Exception ignored) {}
+                    }
                 }
             }
 

@@ -96,7 +96,7 @@ import com.callx.app.utils.ChatThemeManager;
  *
  * It intentionally does NOT (yet) handle:
  *   • audio/file cells inside a media group, or per-item captions
- *   • GIF, audio, file, poll, link-preview, or reel-share bubbles
+ *   • GIF, audio, file, poll, or link-preview bubbles
  *   • long-press action menu (long-press itself is wired — see
  *     OnBubbleClickListener.onBubbleLongClick — the menu it opens is the
  *     caller's job)
@@ -113,6 +113,15 @@ import com.callx.app.utils.ChatThemeManager;
  *     reply glyph and reports the gesture back via
  *     OnBubbleClickListener.onSwipeToReply(), same trigger point as a
  *     long-press → "Reply" menu action, just via a gesture instead.
+ *   • a reel-share card (bindReelShare) — mirrors layout_msg_reel_share.xml
+ *     exactly: a bubbleless 165×237dp Instagram-style card (no chat-bubble
+ *     background at all — the only mode this view has that skips
+ *     bubbleDrawable entirely), with an avatar+username header over a top
+ *     gradient, a centered play glyph, a caption + "⬡ Reels" label over a
+ *     bottom gradient, and the usual timestamp/tick pill in the bottom-end
+ *     corner (always shown here, unlike the image bubble's caption-gated
+ *     version). Tapping anywhere on the card fires onImageClick(), same as
+ *     the legacy ll_reel_share click listener.
  *
  * Those all still render through the existing item_message_sent/received.xml
  * + MessagePagingAdapter path.
@@ -295,7 +304,46 @@ public class MessageBubbleCanvasView extends View {
     // GROUP_GATE_PILL_* constants above for parity with the group version. ──
     private static final int MEDIA_GATE_SCRIM_COLOR = 0x2E000000;
 
+    // ── Reel-share card — mirrors layout_msg_reel_share.xml exactly: a
+    // bubbleless 165×237dp Instagram-style reel card (NOT the normal chat
+    // bubble shape — no bubbleDrawable is drawn for this mode at all, just
+    // the card itself), with a header (avatar+username) over a top
+    // gradient, a centered play glyph, and a caption + "⬡ Reels" label
+    // over a bottom gradient. The timestamp/tick pill reuses the same
+    // translucent-pill treatment as a captionless image
+    // (MEDIA_PILL_*/mediaPillRect), pinned to the card's bottom-end corner
+    // exactly like ll_msg_footer's bottom|end FrameLayout gravity in the
+    // legacy layout — always shown regardless of caption presence, since
+    // the caption is a separate overlay inside the bottom gradient. ──
+    private static final float REEL_CARD_WIDTH_DP        = 165f;
+    private static final float REEL_CARD_HEIGHT_DP       = 237f;
+    private static final float REEL_CORNER_RADIUS_DP     = 12f;
+    private static final float REEL_TOP_GRADIENT_DP      = 60f;
+    private static final float REEL_BOTTOM_GRADIENT_DP   = 80f;
+    private static final float REEL_HEADER_PAD_H_DP      = 8f;
+    private static final float REEL_HEADER_PAD_TOP_DP    = 7f;
+    private static final float REEL_AVATAR_SIZE_DP       = 24f;
+    private static final float REEL_AVATAR_TEXT_GAP_DP   = 5f;
+    private static final float REEL_USERNAME_TEXT_SP     = 10f;
+    private static final float REEL_PLAY_ICON_SP         = 28f;
+    private static final int   REEL_PLAY_ICON_COLOR      = 0xDDFFFFFF;
+    private static final float REEL_BOTTOM_PAD_H_DP      = 8f;
+    private static final float REEL_BOTTOM_PAD_END_DP    = 36f; // room for the footer pill, matches legacy paddingEnd
+    private static final float REEL_BOTTOM_PAD_BOTTOM_DP = 7f;
+    private static final float REEL_CAPTION_TEXT_SP      = 10f;
+    private static final float REEL_LABEL_TEXT_SP        = 9f;
+    private static final float REEL_LABEL_GAP_TOP_DP     = 2f;
+    private static final int   REEL_CAPTION_COLOR        = 0xEEFFFFFF;
+    private static final int   REEL_LABEL_COLOR          = 0xCCFFFFFF;
+    private static final String REEL_LABEL_TEXT          = "\u2B21  Reels";
+    private static final String REEL_PLAY_GLYPH          = "\u25B6";
+    private static final String REEL_DEFAULT_USERNAME    = "@callx_reel";
+    private static final int   REEL_SHADOW_COLOR         = 0xAA000000;
+    private static final int   REEL_CARD_BG_COLOR        = 0xFF1A1A1A; // matches thumbnail's #1A1A1A placeholder bg
+    private static final int   REEL_AVATAR_PLACEHOLDER_COLOR = 0xFF3A3A3A;
+
     public interface OnBubbleClickListener {
+
         void onBubbleClick();
         void onBubbleLongClick();
         /** Returns true if a link at (x,y) was hit and handled — caller should not treat as a normal click. */
@@ -487,8 +535,33 @@ public class MessageBubbleCanvasView extends View {
     private final RectF groupGatePillRect = new RectF();
     private final android.graphics.Path groupGateIconPath = new android.graphics.Path();
 
+    // ── Reel-share card state — entirely separate mode from isMedia/
+    // isMediaGroup (see REEL_* constants doc above). ──
+    private boolean isReelShare = false;
+    private String reelUsername = REEL_DEFAULT_USERNAME;
+    private Bitmap reelThumbBitmap;
+    private Bitmap reelAvatarBitmap;
+    private boolean reelHasCaption = false;
+    private String reelCaptionText = "";
+    private StaticLayout reelCaptionLayout;
+    private final RectF reelCardRect = new RectF();
+    private final RectF reelAvatarRect = new RectF();
+    private final Paint reelCardBgPaint = new Paint();
+    private final Paint reelThumbPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+    private final Paint reelAvatarPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+    private final Paint reelAvatarPlaceholderPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final TextPaint reelUsernamePaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    private final TextPaint reelPlayIconPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    private final TextPaint reelCaptionPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    private final TextPaint reelLabelPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    private GradientDrawable reelTopGradient;
+    private GradientDrawable reelBottomGradient;
+    private final android.graphics.Matrix reelShaderMatrix = new android.graphics.Matrix();
+    private final android.graphics.Matrix reelAvatarShaderMatrix = new android.graphics.Matrix();
+
     private OnBubbleClickListener clickListener;
     private final GestureDetector gestureDetector;
+
 
     public MessageBubbleCanvasView(Context ctx) {
         this(ctx, null);
@@ -570,6 +643,31 @@ public class MessageBubbleCanvasView extends View {
         mediaGatePillIconPaint.setStrokeWidth(1.8f * density);
         mediaGatePillIconPaint.setStrokeCap(Paint.Cap.ROUND);
         mediaGatePillIconPaint.setStrokeJoin(Paint.Join.ROUND);
+
+        reelCardBgPaint.setColor(REEL_CARD_BG_COLOR);
+        reelAvatarPlaceholderPaint.setColor(REEL_AVATAR_PLACEHOLDER_COLOR);
+        reelUsernamePaint.setColor(Color.WHITE);
+        reelUsernamePaint.setFakeBoldText(true);
+        reelUsernamePaint.setTextSize(REEL_USERNAME_TEXT_SP * density);
+        reelUsernamePaint.setShadowLayer(3f * density, 0f, 1f * density, REEL_SHADOW_COLOR);
+        reelPlayIconPaint.setColor(REEL_PLAY_ICON_COLOR);
+        reelPlayIconPaint.setTextSize(REEL_PLAY_ICON_SP * density);
+        reelPlayIconPaint.setTextAlign(Paint.Align.CENTER);
+        reelPlayIconPaint.setShadowLayer(6f * density, 0f, 1f * density, REEL_SHADOW_COLOR);
+        reelCaptionPaint.setColor(REEL_CAPTION_COLOR);
+        reelCaptionPaint.setTextSize(REEL_CAPTION_TEXT_SP * density);
+        reelCaptionPaint.setShadowLayer(3f * density, 0f, 1f * density, REEL_SHADOW_COLOR);
+        reelLabelPaint.setColor(REEL_LABEL_COLOR);
+        reelLabelPaint.setFakeBoldText(true);
+        reelLabelPaint.setTextSize(REEL_LABEL_TEXT_SP * density);
+        reelLabelPaint.setShadowLayer(3f * density, 0f, 1f * density, REEL_SHADOW_COLOR);
+        // Gradients mirror gradient_reel_top/gradient_reel_bottom exactly
+        // (dark → transparent at top, transparent → dark at bottom) so the
+        // header/caption overlays stay readable over any thumbnail.
+        reelTopGradient = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[]{0x99000000, 0x00000000});
+        reelBottomGradient = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[]{0x00000000, 0x99000000});
 
         setWillNotDraw(false);
 
@@ -770,6 +868,87 @@ public class MessageBubbleCanvasView extends View {
     }
 
     /** Swap in a decoded per-cell thumbnail once its Glide load finishes — no re-measure needed. */
+    /**
+     * Bind this view to a "reel_share"/"reel_link" message — mirrors
+     * layout_msg_reel_share.xml exactly: a bubbleless 165×237dp card (no
+     * chat-bubble background at all, unlike every other mode this view
+     * supports), with a header (avatar+username) over a top gradient, a
+     * centered play glyph, and a caption + "⬡ Reels" label over a bottom
+     * gradient. Pass bitmaps=null if not yet decoded — setReelShareThumbBitmap/
+     * setReelShareAvatarBitmap swap them in later (Glide callbacks) without a
+     * full rebind, same precedent as setMediaBitmap(). username is the raw
+     * handle without "@" (this method adds it); pass null/empty to fall back
+     * to REEL_DEFAULT_USERNAME, same as the legacy ViewHolder path.
+     */
+    public void bindReelShare(@Nullable Bitmap thumb, @Nullable Bitmap avatar,
+                               @Nullable String username, @Nullable String caption,
+                               String timeText, boolean isSent, boolean isRead, boolean isDelivered) {
+        this.isMedia = false;
+        this.isMediaGroup = false;
+        this.isReelShare = true;
+        this.reelThumbBitmap = thumb;
+        this.reelAvatarBitmap = avatar;
+        this.reelUsername = (username != null && !username.isEmpty()) ? "@" + username : REEL_DEFAULT_USERNAME;
+        this.reelCaptionText = caption != null ? caption : "";
+        this.reelHasCaption = !this.reelCaptionText.isEmpty();
+        this.footerTimeText = timeText != null ? timeText : "";
+        this.sent = isSent;
+        this.read = isRead;
+        this.delivered = isDelivered;
+        // Reel cards never show the manual single-media download gate —
+        // full-res video streams directly once tapped, same precedent as
+        // video cells inside a media group never gating.
+        this.mediaGated = false;
+        this.mediaDownloading = false;
+
+        Context ctx = getContext();
+        tickPaint.setColor(ChatThemeManager.get(ctx).getTickColor(read));
+
+        reelCaptionLayout = null; // recomputed in onMeasure
+        requestLayout();
+        invalidate();
+    }
+
+    /** Swap in a decoded reel-thumbnail Bitmap once Glide finishes — no re-measure needed, same fixed card size. */
+    public void setReelShareThumbBitmap(@Nullable Bitmap bitmap) {
+        this.reelThumbBitmap = bitmap;
+        invalidate();
+    }
+
+    /** Swap in a decoded reel-owner avatar Bitmap once Glide (or the Firebase fallback) resolves it. */
+    public void setReelShareAvatarBitmap(@Nullable Bitmap bitmap) {
+        this.reelAvatarBitmap = bitmap;
+        invalidate();
+    }
+
+    /**
+     * Updates the username shown in the header — mirrors the legacy path's
+     * async Firebase "reels/{id}" fallback resolving a username after the
+     * initial bind. No-op for null/empty (keeps whatever's already shown).
+     */
+    public void setReelShareUsername(@Nullable String username) {
+        if (username != null && !username.isEmpty()) {
+            this.reelUsername = "@" + username;
+            invalidate();
+        }
+    }
+
+    /**
+     * Updates the caption shown in the bottom overlay — mirrors the legacy
+     * path's async Firebase fallback resolving a caption after the initial
+     * bind. Only applies if this bind didn't already have one (matches the
+     * legacy tv_reelShareCaption's "only fill in if still empty" guard).
+     */
+    public void setReelShareCaption(@Nullable String caption) {
+        if (caption != null && !caption.isEmpty() && !reelHasCaption) {
+            this.reelCaptionText = caption;
+            this.reelHasCaption = true;
+            reelCaptionLayout = null; // recomputed in onMeasure
+            requestLayout();
+            invalidate();
+        }
+    }
+
     public void setMediaGroupBitmap(int index, @Nullable Bitmap bitmap) {
         if (index < 0 || index >= groupBitmaps.length) return;
         groupBitmaps[index] = bitmap;
@@ -1191,6 +1370,35 @@ public class MessageBubbleCanvasView extends View {
             // — see onDraw — matching the text-bubble footer placement).
             bubbleHeight = replyBoxHeight + replyGap + vPad + mediaSize + vPad + captionBlockHeight;
 
+        } else if (isReelShare) {
+            // ── Reel-share card (fixed 165×237dp, bubbleless) ── caption
+            // is an overlay INSIDE the card (bottom gradient), not an
+            // extra block below it, so bubbleHeight is just replyBox +
+            // the card itself — no vPad, no footer row (the timestamp
+            // pill floats over the card, same as a captionless image).
+            int cardW = Math.round(REEL_CARD_WIDTH_DP * density);
+            int cardH = Math.round(REEL_CARD_HEIGHT_DP * density);
+
+            if (reelHasCaption) {
+                int captionMaxW = Math.max(1, cardW
+                        - Math.round((REEL_BOTTOM_PAD_H_DP + REEL_BOTTOM_PAD_END_DP) * density));
+                reelCaptionLayout = StaticLayout.Builder
+                        .obtain(reelCaptionText, 0, reelCaptionText.length(), reelCaptionPaint, captionMaxW)
+                        .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                        .setMaxLines(2)
+                        .setEllipsize(TextUtils.TruncateAt.END)
+                        .setIncludePad(false)
+                        .build();
+            } else {
+                reelCaptionLayout = null;
+            }
+
+            // No chat-bubble padding around the card — bubbleContentWidth
+            // is sized so bubbleWidth (= bubbleContentWidth + hPad*2)
+            // comes out to exactly cardW once hPad is added back below.
+            bubbleContentWidth = Math.max(cardW - hPad * 2, replyBoxContentWidth);
+            bubbleHeight = replyBoxHeight + replyGap + cardH;
+
         } else if (isMediaGroup) {
             // ── Media-group grid (multi-image/video) ──
             int[] dims = computeGroupGridDims(groupVisibleCount);
@@ -1268,6 +1476,39 @@ public class MessageBubbleCanvasView extends View {
                         mediaRect.right - pillMargin,
                         mediaRect.bottom - pillMargin);
             }
+        }
+
+        if (isReelShare) {
+            int cardW = Math.round(REEL_CARD_WIDTH_DP * density);
+            int cardH = Math.round(REEL_CARD_HEIGHT_DP * density);
+            float cardTop = bubbleTop + replyBoxHeight + replyGap;
+            // Card is always exactly cardW wide, left-aligned to the
+            // bubble's own left edge — matches image/group's sent-right/
+            // received-left alignment via bubbleLeft, regardless of
+            // whether a reply box widened bubbleWidth beyond cardW.
+            reelCardRect.set(bubbleLeft, cardTop, bubbleLeft + cardW, cardTop + cardH);
+
+            float avatarSize = REEL_AVATAR_SIZE_DP * density;
+            float headerPadH = REEL_HEADER_PAD_H_DP * density;
+            float headerPadTop = REEL_HEADER_PAD_TOP_DP * density;
+            reelAvatarRect.set(
+                    reelCardRect.left + headerPadH, reelCardRect.top + headerPadTop,
+                    reelCardRect.left + headerPadH + avatarSize, reelCardRect.top + headerPadTop + avatarSize);
+
+            // Timestamp/tick pill — always shown (unlike the image path's
+            // "!mediaHasCaption" gate), since the caption here is a
+            // separate bottom-gradient overlay, not a below-the-card block.
+            float pillPadH = MEDIA_PILL_PADDING_H_DP * density;
+            float pillPadV = MEDIA_PILL_PADDING_V_DP * density;
+            float pillMargin = MEDIA_PILL_MARGIN_DP * density;
+            float pillTextW = mediaPillTextPaint.measureText(footerTimeText)
+                    + (sent ? (TICK_SIZE_DP + TICK_GAP_DP) * density : 0);
+            float pillH = spToPx(FOOTER_TEXT_SP) + pillPadV * 2;
+            mediaPillRect.set(
+                    reelCardRect.right - pillMargin - pillTextW - pillPadH * 2,
+                    reelCardRect.bottom - pillMargin - pillH,
+                    reelCardRect.right - pillMargin,
+                    reelCardRect.bottom - pillMargin);
         }
 
         if (isMediaGroup) {
@@ -1384,13 +1625,21 @@ public class MessageBubbleCanvasView extends View {
     @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
-        if (bubbleDrawable == null) return;
-        if (!isMedia && !isMediaGroup && textLayout == null) return;
+        if (!isReelShare) {
+            if (bubbleDrawable == null) return;
+            if (!isMedia && !isMediaGroup && textLayout == null) return;
+        }
 
-        bubbleDrawable.setBounds(
-                (int) bubbleRect.left, (int) bubbleRect.top,
-                (int) bubbleRect.right, (int) bubbleRect.bottom);
-        bubbleDrawable.draw(canvas);
+        if (!isReelShare) {
+            // Reel-share cards never draw the normal chat-bubble
+            // background — the card itself (drawn in drawReelShare) is
+            // the entire visual, matching layout_msg_reel_share.xml's
+            // bg=null on the outer bubble container for this message type.
+            bubbleDrawable.setBounds(
+                    (int) bubbleRect.left, (int) bubbleRect.top,
+                    (int) bubbleRect.right, (int) bubbleRect.bottom);
+            bubbleDrawable.draw(canvas);
+        }
 
         if (isPinned) {
             drawPinnedLabel(canvas);
@@ -1411,7 +1660,9 @@ public class MessageBubbleCanvasView extends View {
             drawReplyPreview(canvas);
         }
 
-        if (isMediaGroup) {
+        if (isReelShare) {
+            drawReelShare(canvas);
+        } else if (isMediaGroup) {
             drawMediaGroup(canvas);
         } else if (isMedia) {
             drawMedia(canvas, hPad, vPad);
@@ -1459,6 +1710,114 @@ public class MessageBubbleCanvasView extends View {
         // constraintTop_toBottomOf tv_sender_name + constraintStart_toEndOf
         // the (unused) avatar in item_message_received.xml.
         canvas.drawText(forwardedText, bubbleRect.left, forwardedBaselineY, forwardedPaint);
+    }
+
+    /**
+     * Draws the reel-share card — mirrors layout_msg_reel_share.xml:
+     * rounded 165×237dp thumbnail (or #1A1A1A placeholder), top gradient +
+     * avatar/username header, centered play glyph, bottom gradient +
+     * caption + "⬡ Reels" label, and the timestamp/tick pill in the
+     * bottom-end corner (always shown, same as ll_msg_footer there).
+     */
+    private void drawReelShare(Canvas canvas) {
+        float r = REEL_CORNER_RADIUS_DP * density;
+
+        // ── Thumbnail (or placeholder), clipped to the card's rounded shape ──
+        if (reelThumbBitmap != null) {
+            float scale = Math.max(reelCardRect.width() / reelThumbBitmap.getWidth(),
+                    reelCardRect.height() / reelThumbBitmap.getHeight());
+            float dx = reelCardRect.left - (reelThumbBitmap.getWidth() * scale - reelCardRect.width()) / 2f;
+            float dy = reelCardRect.top - (reelThumbBitmap.getHeight() * scale - reelCardRect.height()) / 2f;
+            reelShaderMatrix.reset();
+            reelShaderMatrix.setScale(scale, scale);
+            reelShaderMatrix.postTranslate(dx, dy);
+
+            android.graphics.BitmapShader shader = new android.graphics.BitmapShader(
+                    reelThumbBitmap, android.graphics.Shader.TileMode.CLAMP, android.graphics.Shader.TileMode.CLAMP);
+            shader.setLocalMatrix(reelShaderMatrix);
+            reelThumbPaint.setShader(shader);
+            canvas.drawRoundRect(reelCardRect, r, r, reelThumbPaint);
+        } else {
+            canvas.drawRoundRect(reelCardRect, r, r, reelCardBgPaint);
+        }
+
+        // ── Top gradient (fades thumbnail so the header reads clearly) ──
+        reelTopGradient.setBounds(
+                (int) reelCardRect.left, (int) reelCardRect.top,
+                (int) reelCardRect.right, (int) (reelCardRect.top + REEL_TOP_GRADIENT_DP * density));
+        reelTopGradient.draw(canvas);
+
+        // ── Bottom gradient (fades thumbnail so caption/label reads clearly) ──
+        reelBottomGradient.setBounds(
+                (int) reelCardRect.left, (int) (reelCardRect.bottom - REEL_BOTTOM_GRADIENT_DP * density),
+                (int) reelCardRect.right, (int) reelCardRect.bottom);
+        reelBottomGradient.draw(canvas);
+
+        // ── Header: avatar + username ──
+        if (reelAvatarBitmap != null) {
+            float scale = Math.max(reelAvatarRect.width() / reelAvatarBitmap.getWidth(),
+                    reelAvatarRect.height() / reelAvatarBitmap.getHeight());
+            float dx = reelAvatarRect.left - (reelAvatarBitmap.getWidth() * scale - reelAvatarRect.width()) / 2f;
+            float dy = reelAvatarRect.top - (reelAvatarBitmap.getHeight() * scale - reelAvatarRect.height()) / 2f;
+            reelAvatarShaderMatrix.reset();
+            reelAvatarShaderMatrix.setScale(scale, scale);
+            reelAvatarShaderMatrix.postTranslate(dx, dy);
+
+            android.graphics.BitmapShader shader = new android.graphics.BitmapShader(
+                    reelAvatarBitmap, android.graphics.Shader.TileMode.CLAMP, android.graphics.Shader.TileMode.CLAMP);
+            shader.setLocalMatrix(reelAvatarShaderMatrix);
+            reelAvatarPaint.setShader(shader);
+            canvas.drawOval(reelAvatarRect, reelAvatarPaint);
+        } else {
+            canvas.drawOval(reelAvatarRect, reelAvatarPlaceholderPaint);
+        }
+
+        float usernameX = reelAvatarRect.right + REEL_AVATAR_TEXT_GAP_DP * density;
+        Paint.FontMetrics ufm = reelUsernamePaint.getFontMetrics();
+        float usernameBaselineY = reelAvatarRect.centerY() - (ufm.ascent + ufm.descent) / 2f;
+        float usernameMaxW = reelCardRect.right - REEL_HEADER_PAD_H_DP * density - usernameX;
+        String usernameToDraw = TextUtils.ellipsize(reelUsername, reelUsernamePaint,
+                Math.max(1, usernameMaxW), TextUtils.TruncateAt.END).toString();
+        canvas.drawText(usernameToDraw, usernameX, usernameBaselineY, reelUsernamePaint);
+
+        // ── Centered play glyph ──
+        Paint.FontMetrics pfm = reelPlayIconPaint.getFontMetrics();
+        float playBaselineY = reelCardRect.centerY() - (pfm.ascent + pfm.descent) / 2f;
+        canvas.drawText(REEL_PLAY_GLYPH, reelCardRect.centerX(), playBaselineY, reelPlayIconPaint);
+
+        // ── Bottom: caption + "⬡ Reels" label ──
+        float bottomPadH = REEL_BOTTOM_PAD_H_DP * density;
+        float bottomPadBottom = REEL_BOTTOM_PAD_BOTTOM_DP * density;
+        Paint.FontMetrics lfm = reelLabelPaint.getFontMetrics();
+        float labelHeight = lfm.descent - lfm.ascent;
+        float labelBaselineY = reelCardRect.bottom - bottomPadBottom - lfm.descent;
+        canvas.drawText(REEL_LABEL_TEXT, reelCardRect.left + bottomPadH, labelBaselineY, reelLabelPaint);
+
+        if (reelHasCaption && reelCaptionLayout != null) {
+            float captionBottom = labelBaselineY + lfm.ascent - REEL_LABEL_GAP_TOP_DP * density;
+            canvas.save();
+            canvas.translate(reelCardRect.left + bottomPadH, captionBottom - reelCaptionLayout.getHeight());
+            reelCaptionLayout.draw(canvas);
+            canvas.restore();
+        }
+
+        // ── Timestamp/tick pill — always shown, bottom-end corner ──
+        float rr = MEDIA_PILL_CORNER_DP * density;
+        canvas.drawRoundRect(mediaPillRect, rr, rr, mediaPillBgPaint);
+        float pillPadH = MEDIA_PILL_PADDING_H_DP * density;
+        float textBaselineY = mediaPillRect.bottom - (mediaPillRect.height()
+                - (mediaPillTextPaint.descent() - mediaPillTextPaint.ascent())) / 2f
+                - mediaPillTextPaint.descent();
+        float tickReserve = sent ? (TICK_SIZE_DP + TICK_GAP_DP) * density : 0;
+        canvas.drawText(footerTimeText,
+                mediaPillRect.right - pillPadH - tickReserve - mediaPillTextPaint.measureText(footerTimeText),
+                textBaselineY, mediaPillTextPaint);
+        if (sent) {
+            Paint saved = new Paint(tickPaint);
+            tickPaint.setColor(MEDIA_PILL_TEXT);
+            drawTick(canvas, mediaPillRect.right - pillPadH - TICK_SIZE_DP * density, textBaselineY);
+            tickPaint.set(saved);
+        }
     }
 
     private void drawMedia(Canvas canvas, int hPad, int vPad) {
@@ -1890,6 +2249,14 @@ public class MessageBubbleCanvasView extends View {
             } else if (clickListener != null) {
                 clickListener.onImageClick();
             }
+            return true;
+        }
+        if (isReelShare && event.getActionMasked() == MotionEvent.ACTION_UP
+                && reelCardRect.contains(event.getX(), event.getY())) {
+            // Whole card opens the reel — mirrors the legacy
+            // ll_reel_share.setOnClickListener; there's no separate
+            // download-gate mode for reel cards, so this always fires.
+            if (clickListener != null) clickListener.onImageClick();
             return true;
         }
         if (isMediaGroup && event.getActionMasked() == MotionEvent.ACTION_UP) {
