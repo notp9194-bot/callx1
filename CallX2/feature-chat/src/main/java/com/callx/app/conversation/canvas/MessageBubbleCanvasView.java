@@ -290,6 +290,7 @@ public class MessageBubbleCanvasView extends View {
     // the footer row just before the timestamp. ──
     static final float EXPIRY_TEXT_SP = 9f;
     static final int   EXPIRY_COLOR   = 0xFFFFCC00;
+    static final float EXPIRY_GAP_DP  = 4f;
 
     // ── Media GROUP (multi-image/video grid) — mirrors MediaGroupLayoutHelper's
     // layout rules/constants exactly for visual parity, but is an entirely
@@ -3325,6 +3326,15 @@ public class MessageBubbleCanvasView extends View {
         // constraintTop_toBottomOf tv_sender_name + constraintStart_toEndOf
         // the (unused) avatar in item_message_received.xml.
         canvas.drawText(forwardedText, bubbleRect.left, forwardedBaselineY, forwardedPaint);
+    }
+
+    // Width to reserve in the footer row for the "⏳ mm:ss" expiry countdown
+    // text (measured + a small gap), drawn just to the left of the
+    // timestamp. Returns 0 when there's no expiry to show so callers can
+    // add it unconditionally without an extra hasExpiry check.
+    private float expiryReserveWidth() {
+        if (!hasExpiry || expiryText == null || expiryText.isEmpty()) return 0f;
+        return expiryPaint.measureText(expiryText) + EXPIRY_GAP_DP * density;
     }
 
     void drawFooter(Canvas canvas, float footerBaselineY, float footerRightX) {
