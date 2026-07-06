@@ -69,6 +69,31 @@ public interface MessageDao {
     List<MessageEntity> getAllMessagesForExport(String chatId);
 
     /**
+     * In-chat text search (ChatSearchController). Uses a DB-side LIKE match
+     * instead of pulling every row into memory and filtering in Java —
+     * scales fine even on chats with tens of thousands of messages since it
+     * hits the (chatId, timestamp) index for the chatId filter and only has
+     * to scan `text` for the LIKE, all inside SQLite.
+     *
+     * `pattern` must already be wildcard-escaped by the caller (see
+     * ChatSearchController#buildLikePattern) and wrapped in %...% —
+     * this method does no escaping itself.
+     *
+     * No COLLATE NOCASE needed: SQLite's LIKE operator is already
+     * case-insensitive for ASCII by default (which covers the Latin-script
+     * Hinglish text this app mostly deals with) — COLLATE binds tighter
+     * than LIKE...ESCAPE, so tacking it onto the end here would actually
+     * apply to the escape-character literal, not the comparison.
+     * Soft-deleted messages (deleted=1, text already blanked) are excluded.
+     * Results are ASC (oldest → newest) so "Next"/"Prev" navigation moves
+     * through the chat in reading order.
+     */
+    @WorkerThread
+    @Query("SELECT * FROM messages WHERE chatId = :chatId AND (deleted IS NULL OR deleted != 1) " +
+           "AND text LIKE :pattern ESCAPE '\\' ORDER BY timestamp ASC LIMIT :limit")
+    List<MessageEntity> searchMessagesByText(String chatId, String pattern, int limit);
+
+    /**
      * PERF: used by LastMessagesCache priming — fetches just the most recent
      * `limit` rows but returns them ASC (oldest→newest), matching the order
      * Room/Paging/RecyclerView already use. Inner query does DESC+LIMIT

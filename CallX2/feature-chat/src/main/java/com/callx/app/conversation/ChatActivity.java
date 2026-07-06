@@ -957,9 +957,6 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // Feature: clean up search highlights + mention watcher
         if (searchController  != null) searchController.onDestroy();
         if (mentionController != null) mentionController.onDestroy();
-        // v111: release shared RecycledViewPool reference; triggers deferred
-        // pool.clear() if no other chat screen opens within 2 s.
-        com.callx.app.conversation.SharedChatRecycledViewPool.release();
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -1002,6 +999,11 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     @Override public void launchContactSharePicker()         { contactShareController.launch(); }
     @Override public void launchLocationSharePicker()        { locationShareController.launch(); }
     @Override public void navigateToOriginal(String messageId) { navigateToOriginalMsg(messageId); }
+    // ChatSearchController.SearchDelegate — search jumps to a match the same
+    // way reply-tap jumps to the original: navigateToOriginalMsg() already
+    // handles "not currently loaded" via the Room + approximate-position
+    // fallback (see its own doc comment), so search gets that for free.
+    @Override public void navigateToMessage(String messageId)  { navigateToOriginalMsg(messageId); }
     @Override public String getCurrentReplyTargetId() {
         if (replyingTo == null) return null;
         return replyingTo.messageId != null ? replyingTo.messageId : replyingTo.id;
@@ -1731,11 +1733,10 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         llm.setStackFromEnd(true);
         llm.setReverseLayout(false);
         // PERF #3: Tell LinearLayoutManager how many items to prefetch.
-        // v111: bumped 8 → 12. At 12 the prefetch thread stays ahead of even
-        // the fastest Telegram-speed flings on a 6.7" high-refresh display
-        // (measured ~10 items/frame at peak velocity). Cost is negligible —
-        // prefetch runs on a separate thread during RenderThread idle time.
-        llm.setInitialPrefetchItemCount(12);
+        // Default is 2 — increasing to 8 means the next 8 items are inflated
+        // and bound during RenderThread idle time before the user scrolls to
+        // them. Matches the gap visible on a fast fling on a 6.5" display.
+        llm.setInitialPrefetchItemCount(8);
         binding.rvMessages.setLayoutManager(llm);
         // PERF: build the 4 bubble-drawable combos now, before the first
         // layout pass — see ChatThemeManager.preWarm() for why.
@@ -1757,11 +1758,34 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // recently off-screen views ready to rebind without reinflation,
         // especially at fast flings that can scroll past 20+ items instantly.
         binding.rvMessages.setItemViewCacheSize(28);
-        // v111: shared RecycledViewPool — reuse ViewHolders across ChatActivity
-        // and GroupChatActivity transitions. Canvas types bumped 18 → 25.
-        // See SharedChatRecycledViewPool for sizing rationale and memory-safety.
-        binding.rvMessages.setRecycledViewPool(
-                com.callx.app.conversation.SharedChatRecycledViewPool.acquire());
+        // FIX #2d: Tune RecycledViewPool per view type (5 types × 5 each).
+        // Default pool size is 5 already but explicit sizing prevents the pool
+        // from being exhausted on fast flings that scroll past many bubbles.
+        RecyclerView.RecycledViewPool pool = new RecyclerView.RecycledViewPool();
+        // PERF: increased TYPE_SENT/RECEIVED pool to 18 — on a fast fling
+        // (Telegram-speed flick, not just a slow drag) the visible window
+        // can blow past 12-16 bubbles before the list settles; the old
+        // pool=10 was still getting exhausted mid-fling on exactly that kind
+        // of fast fling, forcing expensive ViewHolder inflation instead of
+        // reuse. Less-common types bumped 3 → 6 for the same reason.
+        pool.setMaxRecycledViews(1 /* TYPE_SENT */,        18);
+        pool.setMaxRecycledViews(2 /* TYPE_RECEIVED */,    18);
+        pool.setMaxRecycledViews(3 /* TYPE_STATUS_SEEN */,  6);
+        pool.setMaxRecycledViews(4 /* TYPE_REEL_SEEN */,    6);
+        pool.setMaxRecycledViews(5 /* TYPE_CALL_ENTRY */,   6);
+        // PERF FIX: TYPE_CANVAS_SENT/RECEIVED (11/12) were missing here entirely,
+        // silently falling back to RecyclerView's default pool size of 5. Since
+        // isCanvasEligible() now covers text/image/video/gif/file/audio/poll/
+        // contact/location/multi_media/reel_share — i.e. almost every bubble in
+        // the chat — these two types are actually the hottest ones in the pool,
+        // not the coldest. A fast Telegram-speed fling was blowing past 5
+        // recycled canvas views almost immediately, forcing a fresh
+        // MessageBubbleCanvasView allocation (+ full Paint/StaticLayout setup)
+        // instead of reuse. Sized same as TYPE_SENT/RECEIVED since canvas has
+        // fully replaced them as the primary bubble path.
+        pool.setMaxRecycledViews(11 /* TYPE_CANVAS_SENT */,     18);
+        pool.setMaxRecycledViews(12 /* TYPE_CANVAS_RECEIVED */, 18);
+        binding.rvMessages.setRecycledViewPool(pool);
         // PERF: scroll-ahead image preloading — fast fling ke dauran agli
         // ~8 items ki thumbnail Glide cache mein pehle se fetch ho jaati
         // hai, taaki late-load blank image na dikhe. Size (200,200) wahi

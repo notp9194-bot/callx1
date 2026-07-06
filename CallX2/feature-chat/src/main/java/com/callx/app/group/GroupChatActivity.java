@@ -521,8 +521,6 @@ public class GroupChatActivity extends AppCompatActivity
         // Feature: clean up search highlights + mention watcher
         if (searchController       != null) searchController.onDestroy();
         if (groupMentionController != null) groupMentionController.onDestroy();
-        // v111: release shared RecycledViewPool reference.
-        com.callx.app.conversation.SharedChatRecycledViewPool.release();
         super.onDestroy();
     }
 
@@ -745,9 +743,7 @@ public class GroupChatActivity extends AppCompatActivity
             }
         };
         llm.setStackFromEnd(true);
-        // v111: bumped 6 → 12 (matches 1:1 ChatActivity — group chats are
-        // even taller on average so 12 covers the same fling velocity).
-        llm.setInitialPrefetchItemCount(12);
+        llm.setInitialPrefetchItemCount(6);
         binding.rvMessages.setLayoutManager(llm);
         // PERF: build the 4 bubble-drawable combos now, before the first
         // layout pass — see ChatThemeManager.preWarm() for why.
@@ -761,10 +757,22 @@ public class GroupChatActivity extends AppCompatActivity
         // PERF: fixed-size RV, large view cache, shared RecycledViewPool
         binding.rvMessages.setHasFixedSize(true);
         binding.rvMessages.setItemViewCacheSize(20);
-        // v111: shared pool with ChatActivity — canvas types bumped 10 → 25.
-        // See SharedChatRecycledViewPool for sizing rationale and memory-safety.
-        binding.rvMessages.setRecycledViewPool(
-                com.callx.app.conversation.SharedChatRecycledViewPool.acquire());
+        androidx.recyclerview.widget.RecyclerView.RecycledViewPool groupPool =
+                new androidx.recyclerview.widget.RecyclerView.RecycledViewPool();
+        // PERF: pool sizes 5→10 for sent/received — same reasoning as 1:1 chat.
+        groupPool.setMaxRecycledViews(1, 10);
+        groupPool.setMaxRecycledViews(2, 10);
+        groupPool.setMaxRecycledViews(3,  3);
+        groupPool.setMaxRecycledViews(4,  3);
+        groupPool.setMaxRecycledViews(5,  3);
+        // PERF FIX: TYPE_CANVAS_SENT/RECEIVED (11/12) were missing here too —
+        // same gap as 1:1 ChatActivity. isCanvasEligible() covers almost every
+        // bubble type now, so these two were silently falling back to the
+        // RecyclerView default pool size of 5 despite being the hottest types
+        // in a group chat's fast-scroll path. Sized same as sent/received.
+        groupPool.setMaxRecycledViews(11 /* TYPE_CANVAS_SENT */,     10);
+        groupPool.setMaxRecycledViews(12 /* TYPE_CANVAS_RECEIVED */, 10);
+        binding.rvMessages.setRecycledViewPool(groupPool);
         // PERF: scroll-ahead image preloading — same helper/size as 1:1
         // ChatActivity, keeps cache-key size consistent with bind().
         com.callx.app.utils.ChatMediaPreloader.attach(this, binding.rvMessages, 200, 200,
@@ -862,17 +870,16 @@ public class GroupChatActivity extends AppCompatActivity
                 // PERF: Glide pause during fling — avoids decoding images for items
                 // that scroll past before becoming visible; resume on idle/drag so
                 // images load as soon as the user stops or slows down.
-                // v111: pause on SETTLING (fling) AND DRAGGING (finger moving),
-                // resume ONLY on IDLE — mirrors ChatActivity's strategy.
-                // OLD: only paused on SETTLING, so fast finger drags still
-                // triggered mid-scroll decodes. Now matches ChatActivity exactly.
-                if (newState == RecyclerView.SCROLL_STATE_SETTLING
-                        || newState == RecyclerView.SCROLL_STATE_DRAGGING) {
-                    com.bumptech.glide.Glide.with(GroupChatActivity.this).pauseRequestsRecursive();
+                if (newState == RecyclerView.SCROLL_STATE_SETTLING) {
+                    // SETTLING = user released, list is flinging — pause Glide.
+                    com.bumptech.glide.Glide.with(GroupChatActivity.this).pauseRequests();
                     com.callx.app.utils.LinkPreviewFetcher.setScrolling(true);
-                } else if (newState == RecyclerView.SCROLL_STATE_IDLE) {
-                    com.bumptech.glide.Glide.with(GroupChatActivity.this).resumeRequestsRecursive();
-                    com.callx.app.utils.LinkPreviewFetcher.setScrolling(false);
+                } else if (newState == RecyclerView.SCROLL_STATE_IDLE
+                        || newState == RecyclerView.SCROLL_STATE_DRAGGING) {
+                    // IDLE/DRAGGING = stopped or slow drag — resume Glide.
+                    com.bumptech.glide.Glide.with(GroupChatActivity.this).resumeRequests();
+                    com.callx.app.utils.LinkPreviewFetcher.setScrolling(
+                            newState == RecyclerView.SCROLL_STATE_DRAGGING);
                 }
                 if (newState != RecyclerView.SCROLL_STATE_IDLE) return;
                 if (watchingController == null) return;
@@ -3065,6 +3072,11 @@ public class GroupChatActivity extends AppCompatActivity
                         @Override public String getChatId() { return groupId; }
                         @Override public void runOnMain(Runnable r) { runOnUiThread(r); }
                         @Override public com.callx.app.conversation.MessagePagingAdapter getPagingAdapter() { return pagingAdapter; }
+                        // Reuse the same loaded-window-first / Room-fallback
+                        // jump logic already used for reply-tap and
+                        // "jump to where they're reading" navigation —
+                        // see scrollToMessageId's own doc comment.
+                        @Override public void navigateToMessage(String messageId) { scrollToMessageId(messageId); }
                     };
                 searchController = new com.callx.app.conversation.controllers.ChatSearchController(sd);
             }

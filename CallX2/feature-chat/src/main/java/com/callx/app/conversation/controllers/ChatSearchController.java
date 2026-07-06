@@ -20,19 +20,32 @@ import com.callx.app.db.entity.MessageEntity;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.concurrent.Executor;
 
 import static android.content.Context.INPUT_METHOD_SERVICE;
 
 /**
- * ChatSearchController — Production-grade in-chat full-text search.
+ * ChatSearchController — in-chat full-text search.
  *
  * Features:
  *   • 300 ms debounce — no DB hit on every keystroke.
- *   • Adapter highlight — yellow BackgroundColorSpan on matched text.
- *   • Smooth LinearSmoothScroller scroll to result.
- *   • Prev / Next navigation with "M of N" counter.
+ *   • DB-side search via {@code MessageDao#searchMessagesByText} — a LIKE
+ *     query on (chatId, text), not a full-chat load filtered in Java, so
+ *     cost doesn't grow unbounded with chat history size.
+ *   • Adapter highlight — yellow BackgroundColorSpan on matched text,
+ *     applied by {@code MessagePagingAdapter#setSearchQuery} to whichever
+ *     rows are actually bound (works regardless of which page is loaded).
+ *   • Navigation by messageId via {@link SearchDelegate#navigateToMessage},
+ *     NOT by adapter position. The chat screen keyset-paginates through
+ *     {@code MessageKeysetPagingSource} — only a small window of the chat
+ *     is ever loaded into the adapter, so a match's index in the full
+ *     search-result list has no relationship to any adapter position.
+ *     navigateToMessage() reuses each activity's existing reply-jump /
+ *     notification-jump logic (checks the loaded window first, falls back
+ *     to a Room lookup + approximate scroll otherwise), so a match anywhere
+ *     in chat history — not just the currently loaded page — is reachable.
+ *   • Prev / Next navigation with "M of N" counter; lands on the most
+ *     recent match first.
  *   • "No results" label when nothing found.
  *   • ≥ 2 char query guard — no flicker on single keystroke.
  *   • Animated slide-in / slide-out for the search bar.
@@ -58,16 +71,46 @@ public class ChatSearchController {
         String               getChatId();
         void                 runOnMain(Runnable r);
         MessagePagingAdapter getPagingAdapter();
+
+        /**
+         * Jump to the message with this ID and flash-highlight it once
+         * visible. MUST NOT assume the message is anywhere near the
+         * currently loaded paging window — the chat screen loads messages
+         * via {@code MessageKeysetPagingSource} (see that class), which only
+         * keeps a small keyset-paged slice of the full history in the
+         * adapter at any time. A correct implementation:
+         *   1. Checks the loaded window first (pagingAdapter.peek(i) loop) —
+         *      cheap, no DB hit, covers the common case of searching
+         *      something already on screen.
+         *   2. Falls back to a Room lookup (getMessageById +
+         *      countMessagesAfterTimestamp) to compute an approximate
+         *      position and scroll there when the match isn't loaded.
+         * ChatActivity and GroupChatActivity already implement exactly this
+         * for reply-tap-to-jump and notification-tap navigation
+         * (navigateToOriginalMsg / scrollToMessageId) — search reuses those,
+         * it does not reimplement its own (broken) position math.
+         */
+        void navigateToMessage(String messageId);
     }
 
     // ─────────────────────────────────────────────────────────────────────
 
     private static final long DEBOUNCE_MS      = 300L;
     private static final long ANIM_DURATION_MS = 180L;
+    /** Hard cap on how many hits a single search pulls back — plenty for
+     *  "find the message", keeps a giant chat from building a huge list. */
+    private static final int  MAX_RESULTS      = 500;
 
     private final SearchDelegate delegate;
 
-    private final List<Integer> matchPositions = new ArrayList<>();
+    // Matches are stored as message IDs (in chat order, oldest→newest), not
+    // adapter positions — the chat screen keyset-paginates (see
+    // MessageKeysetPagingSource), so only a small window of messages is ever
+    // loaded into the adapter at once. A match found deep in chat history
+    // has no adapter position at all until its page gets loaded, so
+    // navigation goes through delegate.navigateToMessage(id) instead of any
+    // position math done here.
+    private final List<String> matchIds = new ArrayList<>();
     private int currentIndex = -1;
 
     private final Handler debounceHandler = new Handler(Looper.getMainLooper());
@@ -171,55 +214,48 @@ public class ChatSearchController {
         delegate.getIoExecutor().execute(() -> {
             AppDatabase db = delegate.getDb();
             if (db == null) return;
-            List<MessageEntity> all =
-                    db.messageDao().getMessagesPaged(delegate.getChatId(), 10000, 0);
-            String lq = query.toLowerCase(Locale.getDefault());
-            List<Integer> hits = new ArrayList<>();
-            for (int i = 0; i < all.size(); i++) {
-                MessageEntity me = all.get(i);
-                if (me.text != null && me.text.toLowerCase(Locale.getDefault()).contains(lq))
-                    hits.add(i);
-            }
+            String pattern = buildLikePattern(query);
+            List<MessageEntity> hits = db.messageDao()
+                    .searchMessagesByText(delegate.getChatId(), pattern, MAX_RESULTS);
+            List<String> ids = new ArrayList<>(hits.size());
+            for (MessageEntity me : hits) ids.add(me.id);
             delegate.runOnMain(() -> {
-                if (!searchOpen) return;
-                matchPositions.clear();
-                matchPositions.addAll(hits);
-                currentIndex = hits.isEmpty() ? -1 : hits.size() - 1;
+                if (!searchOpen || !query.equals(lastQuery)) return; // stale result, a newer query already superseded this one
+                matchIds.clear();
+                matchIds.addAll(ids);
+                // Land on the most recent match first (closest to where the
+                // chat is usually scrolled to), same convention WhatsApp uses.
+                currentIndex = matchIds.isEmpty() ? -1 : matchIds.size() - 1;
                 refreshCountUI();
                 MessagePagingAdapter adapter = delegate.getPagingAdapter();
                 if (adapter != null) adapter.setSearchQuery(query);
-                if (!hits.isEmpty()) smoothScrollTo(matchPositions.get(currentIndex));
+                if (currentIndex >= 0) delegate.navigateToMessage(matchIds.get(currentIndex));
             });
         });
+    }
+
+    /**
+     * Turns a raw user query into a SQLite LIKE pattern, escaping the LIKE
+     * wildcard characters (% and _) and the escape character itself so a
+     * literal search for e.g. "50% off" or "file_name" matches literally
+     * instead of being interpreted as a wildcard.
+     */
+    private static String buildLikePattern(String raw) {
+        String escaped = raw.replace("\\", "\\\\")
+                             .replace("%", "\\%")
+                             .replace("_", "\\_");
+        return "%" + escaped + "%";
     }
 
     // ── Navigate ──────────────────────────────────────────────────────────
 
     private void step(boolean forward) {
-        if (matchPositions.isEmpty()) return;
+        if (matchIds.isEmpty()) return;
         currentIndex = forward
-                ? (currentIndex + 1) % matchPositions.size()
-                : (currentIndex - 1 + matchPositions.size()) % matchPositions.size();
+                ? (currentIndex + 1) % matchIds.size()
+                : (currentIndex - 1 + matchIds.size()) % matchIds.size();
         refreshCountUI();
-        smoothScrollTo(matchPositions.get(currentIndex));
-    }
-
-    private void smoothScrollTo(int position) {
-        ActivityChatBinding b = delegate.getBinding();
-        if (b == null || b.rvMessages == null) return;
-        androidx.recyclerview.widget.LinearLayoutManager lm =
-                (androidx.recyclerview.widget.LinearLayoutManager)
-                        b.rvMessages.getLayoutManager();
-        if (lm == null) { b.rvMessages.scrollToPosition(position); return; }
-        androidx.recyclerview.widget.LinearSmoothScroller sc =
-                new androidx.recyclerview.widget.LinearSmoothScroller(delegate.getActivity()) {
-                    @Override protected int getVerticalSnapPreference() { return SNAP_TO_START; }
-                    @Override protected float calculateSpeedPerPixel(android.util.DisplayMetrics dm) {
-                        return 80f / dm.densityDpi;
-                    }
-                };
-        sc.setTargetPosition(position);
-        lm.startSmoothScroll(sc);
+        delegate.navigateToMessage(matchIds.get(currentIndex));
     }
 
     // ── UI ────────────────────────────────────────────────────────────────
@@ -227,9 +263,9 @@ public class ChatSearchController {
     private void refreshCountUI() {
         ActivityChatBinding b = delegate.getBinding();
         if (b == null || b.tvSearchCount == null) return;
-        boolean hasResults = !matchPositions.isEmpty();
+        boolean hasResults = !matchIds.isEmpty();
         if (hasResults) {
-            b.tvSearchCount.setText((currentIndex + 1) + " of " + matchPositions.size());
+            b.tvSearchCount.setText((currentIndex + 1) + " of " + matchIds.size());
             b.tvSearchCount.setVisibility(View.VISIBLE);
             if (b.btnSearchPrev != null) b.btnSearchPrev.setVisibility(View.VISIBLE);
             if (b.btnSearchNext != null) b.btnSearchNext.setVisibility(View.VISIBLE);
@@ -245,7 +281,7 @@ public class ChatSearchController {
 
     private void clearResults() {
         cancelPending();
-        matchPositions.clear();
+        matchIds.clear();
         currentIndex = -1;
         lastQuery = "";
         refreshCountUI();
@@ -254,7 +290,7 @@ public class ChatSearchController {
     }
 
     private void resetState() {
-        matchPositions.clear();
+        matchIds.clear();
         currentIndex = -1;
         lastQuery = "";
     }

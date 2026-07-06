@@ -659,6 +659,61 @@ public class MessageBubbleCanvasView extends View {
     final Paint tickPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     final RectF bubbleRect = new RectF();
 
+    // ── In-chat search highlight (ChatSearchController) ─────────────────
+    // Drawn straight on this Canvas behind the message glyphs — no child
+    // TextView, no Spannable, no extra measure/layout pass. Set via
+    // setSearchHighlight() from MessagePagingAdapter's PAYLOAD_SEARCH fast
+    // path, which only touches currently-bound (visible) holders and just
+    // calls invalidate() here, never notifyDataSetChanged()/requestLayout()
+    // — so typing in the search box costs a few repaints of on-screen
+    // bubbles, not a rebind of the whole chat or a scroll-position jump.
+    private String searchHighlightQuery = null;
+    private final Paint searchHighlightPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final android.graphics.Path searchHighlightPathScratch = new android.graphics.Path();
+    {
+        searchHighlightPaint.setColor(0xFFFFEB3B); // same yellow as the old TextView BackgroundColorSpan
+        searchHighlightPaint.setStyle(Paint.Style.FILL);
+    }
+
+    /**
+     * Sets (or clears, with null/empty) the search query whose occurrences
+     * in this bubble's plain text should be painted with a yellow highlight
+     * behind the glyphs. No-ops (skips the invalidate()) when the query
+     * hasn't actually changed, so re-binding an already-highlighted row
+     * during Prev/Next navigation doesn't repaint it for nothing.
+     */
+    public void setSearchHighlight(@Nullable String query) {
+        String norm = (query != null && !query.isEmpty()) ? query : null;
+        if (java.util.Objects.equals(norm, searchHighlightQuery)) return;
+        searchHighlightQuery = norm;
+        invalidate();
+    }
+
+    /**
+     * Paints one yellow rectangle (per line, for wrapped matches) behind
+     * every occurrence of the active search query in {@code messageText}.
+     * Uses {@link StaticLayout#getSelectionPath} against the already-built
+     * {@link #textLayout} — the same primitive TextView itself uses to draw
+     * text selection — so a match that wraps across two lines gets two
+     * correctly-split rectangles for free, no manual line math needed.
+     * MUST be called from inside the same canvas.translate() the text
+     * itself draws in, and BEFORE textLayout.draw(canvas), so the glyphs
+     * paint on top of the highlight instead of being covered by it.
+     */
+    private void drawSearchHighlight(Canvas canvas) {
+        if (searchHighlightQuery == null || textLayout == null || messageText.isEmpty()) return;
+        String lq = searchHighlightQuery.toLowerCase(java.util.Locale.getDefault());
+        String lt = messageText.toLowerCase(java.util.Locale.getDefault());
+        int idx = 0;
+        while ((idx = lt.indexOf(lq, idx)) != -1) {
+            int end = idx + lq.length();
+            searchHighlightPathScratch.reset();
+            textLayout.getSelectionPath(idx, end, searchHighlightPathScratch);
+            canvas.drawPath(searchHighlightPathScratch, searchHighlightPaint);
+            idx = end;
+        }
+    }
+
     // ── PERF: background-precomputed plain-text StaticLayout cache ─────
     //
     // ChatActivity#entityToModel() runs on ioExecutor (see
@@ -718,24 +773,6 @@ public class MessageBubbleCanvasView extends View {
     // -1 (precompute disabled) until at least one real bubble has been
     // measured this process.
     private static volatile int sLastKnownMaxTextWidth = -1;
-
-    // ── v111: onMeasure height cache ──────────────────────────────────────────
-    // Key  : computeSizeSignature() + "|W" + parentWidth
-    //         — covers every field that affects measured height including
-    //           reply box, forwarded label, group sender, reactions badge,
-    //           media aspect ratio, poll question, expiry, footer reserve, etc.
-    // Value: the totalHeight int passed to setMeasuredDimension().
-    //
-    // On cache hit onMeasure() exits in ~1 µs instead of ~100–300 µs (full
-    // StaticLayout + text-measurement path). Hit rate in a scrolling list is
-    // very high — most bubbles are seen more than once per scroll direction.
-    //
-    // Cache is invalidated automatically: a content change calls a setter →
-    // setter calls requestLayoutIfSizeChanged() → new computeSizeSignature()
-    // → different key → cache miss → full measure runs → new entry stored.
-    private static final int HEIGHT_CACHE_CAPACITY = 400;
-    private static final android.util.LruCache<String, Integer> sHeightCache =
-            new android.util.LruCache<>(HEIGHT_CACHE_CAPACITY);
 
     /**
      * Call off the UI thread — see the cache javadoc above. Safe to call
@@ -3148,21 +3185,6 @@ public class MessageBubbleCanvasView extends View {
         // cache javadoc near the textPaint fields above.
         sLastKnownMaxTextWidth = maxTextWidth;
 
-        // ── v111: height cache — fast exit if this bubble was measured before ─
-        // computeSizeSignature() encodes every field that affects bubble size
-        // (message text, reply box, forwarded label, group sender, media ratio,
-        // reactions badge, expiry, footer reserve — see its javadoc).
-        // On hit: return in ~1 µs. On miss: run full measure and store result.
-        final String heightCacheKey = computeSizeSignature() + "|W" + parentWidth;
-        {
-            Integer cachedTotalHeight = sHeightCache.get(heightCacheKey);
-            if (cachedTotalHeight != null) {
-                setMeasuredDimension(parentWidth, cachedTotalHeight);
-                return;
-            }
-        }
-        // ── end height cache lookup ───────────────────────────────────────────
-
         // ── Pinned label / group sender-name (+ broadcast badge, which
         // reuses the same row via setGroupSender) / forwarded label — all
         // sit above the bubble entirely, so they shift bubbleTop down
@@ -3958,9 +3980,6 @@ public class MessageBubbleCanvasView extends View {
             reactionsRect.setEmpty();
         }
 
-        // v111: store computed height so the next onMeasure with the same
-        // content + width returns instantly from the cache above.
-        sHeightCache.put(heightCacheKey, totalHeight);
         setMeasuredDimension(parentWidth, totalHeight);
     }
 
@@ -4144,6 +4163,7 @@ public class MessageBubbleCanvasView extends View {
             int replyGap = hasReply ? Math.round(REPLY_GAP_TO_MESSAGE_DP * density) : 0;
             canvas.save();
             canvas.translate(bubbleLeft + hPad, bubbleTop + replyBoxHeight + replyGap + vPad);
+            drawSearchHighlight(canvas);
             textLayout.draw(canvas);
             canvas.restore();
 
