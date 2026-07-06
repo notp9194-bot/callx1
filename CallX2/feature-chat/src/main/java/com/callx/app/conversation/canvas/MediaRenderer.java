@@ -24,7 +24,37 @@ final class MediaRenderer {
 
     MediaRenderer(MessageBubbleCanvasView host) {
         this.host = host;
+        gifBadgeBgPaint.setColor(0xCC000000);
     }
+
+    // ── PERF: BitmapShader cache ─────────────────────────────────────────
+    // This instance is created once per MessageBubbleCanvasView and reused
+    // across every rebind while the view is recycled (same lifetime as
+    // MediaGroupRenderer, which already caches its per-cell shaders this
+    // way — see that class's javadoc). Before this fix, draw() built a
+    // brand-new BitmapShader (including the scale/translate matrix setup)
+    // on literally every single call, which matters a lot during an
+    // indeterminate download/upload spinner: that redraws the whole bubble
+    // at up to 60fps (throttled to ~30fps as of v108) for as long as
+    // progress is unknown, so this shader was being rebuilt 30+ times/sec
+    // for a bitmap and rect that hadn't changed at all.
+    //
+    // Rebuild trigger is simple and easy to verify: the cached shader is
+    // reused only while both the bitmap *reference* and mediaRect's exact
+    // bounds are unchanged since it was built. Any bitmap swap (new image
+    // loaded) or rect change (bubble resized/rebound) naturally falls
+    // through to a fresh build — same safety shape as the text-layout
+    // cache in this class: correct-by-construction cache invalidation,
+    // not a manually-tracked dirty flag that could be forgotten somewhere.
+    private android.graphics.Bitmap cachedShaderBitmap;
+    private android.graphics.BitmapShader cachedShader;
+    private float cachedRectLeft = Float.NaN, cachedRectTop = Float.NaN,
+            cachedRectRight = Float.NaN, cachedRectBottom = Float.NaN;
+
+    // Reused GIF-badge background paint — draw() previously allocated a
+    // fresh `new Paint()` for this on every call (only its color ever
+    // changes, and it never actually changes at that — always 0xCC000000).
+    private final Paint gifBadgeBgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
 
     void draw(Canvas canvas, int hPad, int vPad) {
         float r = MessageBubbleCanvasView.MEDIA_CORNER_RADIUS_DP * host.density;
@@ -34,21 +64,42 @@ final class MediaRenderer {
             // centerCrop), then clip to a round rect with drawRoundRect —
             // avoids clipPath (which can force a software layer on some
             // Android versions) while still giving true rounded corners.
-            float scale = Math.max(host.mediaRect.width() / host.mediaBitmap.getWidth(),
-                    host.mediaRect.height() / host.mediaBitmap.getHeight());
-            float dx = host.mediaRect.left - (host.mediaBitmap.getWidth() * scale - host.mediaRect.width()) / 2f;
-            float dy = host.mediaRect.top - (host.mediaBitmap.getHeight() * scale - host.mediaRect.height()) / 2f;
-            host.mediaShaderMatrix.reset();
-            host.mediaShaderMatrix.setScale(scale, scale);
-            host.mediaShaderMatrix.postTranslate(dx, dy);
+            boolean rectMatches = host.mediaRect.left == cachedRectLeft
+                    && host.mediaRect.top == cachedRectTop
+                    && host.mediaRect.right == cachedRectRight
+                    && host.mediaRect.bottom == cachedRectBottom;
+            if (cachedShader != null && cachedShaderBitmap == host.mediaBitmap && rectMatches) {
+                host.mediaBitmapPaint.setShader(cachedShader);
+            } else {
+                float scale = Math.max(host.mediaRect.width() / host.mediaBitmap.getWidth(),
+                        host.mediaRect.height() / host.mediaBitmap.getHeight());
+                float dx = host.mediaRect.left - (host.mediaBitmap.getWidth() * scale - host.mediaRect.width()) / 2f;
+                float dy = host.mediaRect.top - (host.mediaBitmap.getHeight() * scale - host.mediaRect.height()) / 2f;
+                host.mediaShaderMatrix.reset();
+                host.mediaShaderMatrix.setScale(scale, scale);
+                host.mediaShaderMatrix.postTranslate(dx, dy);
 
-            android.graphics.BitmapShader shader = new android.graphics.BitmapShader(
-                    host.mediaBitmap, android.graphics.Shader.TileMode.CLAMP, android.graphics.Shader.TileMode.CLAMP);
-            shader.setLocalMatrix(host.mediaShaderMatrix);
-            host.mediaBitmapPaint.setShader(shader);
+                android.graphics.BitmapShader shader = new android.graphics.BitmapShader(
+                        host.mediaBitmap, android.graphics.Shader.TileMode.CLAMP, android.graphics.Shader.TileMode.CLAMP);
+                shader.setLocalMatrix(host.mediaShaderMatrix);
+                host.mediaBitmapPaint.setShader(shader);
+
+                cachedShader = shader;
+                cachedShaderBitmap = host.mediaBitmap;
+                cachedRectLeft = host.mediaRect.left;
+                cachedRectTop = host.mediaRect.top;
+                cachedRectRight = host.mediaRect.right;
+                cachedRectBottom = host.mediaRect.bottom;
+            }
             canvas.drawRoundRect(host.mediaRect, r, r, host.mediaBitmapPaint);
         } else {
             // Not decoded yet — plain placeholder box, same rounded shape.
+            // Also drop any stale cached shader so a bitmap arriving later
+            // is guaranteed to take the fresh-build path above (cachedShaderBitmap
+            // would otherwise still reference the old bitmap only by luck of
+            // object identity never colliding — clearing is the safe explicit choice).
+            cachedShader = null;
+            cachedShaderBitmap = null;
             canvas.drawRoundRect(host.mediaRect, r, r, host.mediaPlaceholderPaint);
         }
 
@@ -64,10 +115,8 @@ final class MediaRenderer {
             float bh = badgeTsz + badgePad * 2f;
             float bx = host.mediaRect.left + 6f * host.density;
             float by = host.mediaRect.top  + 6f * host.density;
-            Paint gifBadgeBg = new Paint(Paint.ANTI_ALIAS_FLAG);
-            gifBadgeBg.setColor(0xCC000000);
             RectF gifBadgeRF = new RectF(bx, by, bx + bw, by + bh);
-            canvas.drawRoundRect(gifBadgeRF, badgeR, badgeR, gifBadgeBg);
+            canvas.drawRoundRect(gifBadgeRF, badgeR, badgeR, gifBadgeBgPaint);
             host.textPaint.setColor(0xFFFFFFFF);
             canvas.drawText(MessageBubbleCanvasView.GIF_BADGE_TEXT, bx + badgePad, by + badgePad + badgeTsz * 0.85f, host.textPaint);
             host.textPaint.setTypeface(Typeface.DEFAULT); // restore
