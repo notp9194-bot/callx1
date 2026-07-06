@@ -887,6 +887,27 @@ public class MessageBubbleCanvasView extends View {
     // Reused scratch output for computeMediaSize() — {width, height} in
     // px — avoids allocating a new int[2] on every onMeasure()/layout pass.
     private final int[] mediaSizeOut = new int[2];
+    // Process-wide cache of already-decoded images' aspect ratios, keyed by
+    // the same URL/File-path string the adapter uses to load the media.
+    // Without this, every RecyclerView rebind (fast scrolling constantly
+    // recycles+rebinds views) would reset mediaAspectRatio to 0f/"unknown"
+    // in bindMedia(), size the bubble as the square placeholder for one
+    // frame, then relayout to the real size the moment Glide's (memory-
+    // cache-hit, effectively instant) callback fires — two layout passes
+    // per bind, which is what caused the scroll jank/"blinking" and the
+    // pop on send/receive after the aspect-ratio bubble-sizing change.
+    // Caching the ratio lets bindMedia() restore it immediately for any
+    // image already seen once, so the common rebind case needs zero extra
+    // layout passes; only a message's very first-ever appearance still
+    // pays the one-time square→real transition.
+    private static final android.util.LruCache<String, Float> MEDIA_ASPECT_CACHE =
+            new android.util.LruCache<>(1000);
+    // Cache key for the media currently bound to this view (mediaUrl for
+    // images, video-thumbnail URL for videos) — set by bindMedia()/
+    // bindVideo(), read by setMediaBitmap() to know where to store the
+    // ratio once decoded. Null when unknown (caller passed no key) —
+    // setMediaBitmap() simply skips the cache write in that case.
+    private String mediaAspectKey;
     // Reused by drawCornerExpiryPill() below — avoids a `new RectF()` on
     // every draw() for cards (contact/location) that show the floating
     // expiry badge instead of a regular footer.
@@ -1620,12 +1641,22 @@ public class MessageBubbleCanvasView extends View {
      * decoding yet; a placeholder box is drawn instead and setMediaBitmap()
      * can swap in the real bitmap later without a full rebind.
      *
-     * @param caption optional caption text below the image; null/empty for
-     *                a captionless image (timestamp/tick then overlay the
-     *                image itself as a translucent pill, WhatsApp-style)
+     * @param caption  optional caption text below the image; null/empty for
+     *                 a captionless image (timestamp/tick then overlay the
+     *                 image itself as a translucent pill, WhatsApp-style)
+     * @param aspectKey stable identifier for this image (the same URL/File
+     *                  path the caller loads via Glide) used to look up a
+     *                  previously-decoded aspect ratio in MEDIA_ASPECT_CACHE
+     *                  so a rebind of an already-seen image (e.g. scrolling
+     *                  back over it) sizes correctly on the very first
+     *                  layout pass instead of flashing the square
+     *                  placeholder first — pass null if no stable key is
+     *                  available (falls back to the old placeholder→real
+     *                  transition for this bind).
      */
     public void bindMedia(@Nullable Bitmap bitmap, @Nullable String caption, String timeText,
-                           boolean isSent, boolean isRead, boolean isDelivered) {
+                           boolean isSent, boolean isRead, boolean isDelivered,
+                           @Nullable String aspectKey) {
         this.isMedia = true;
         // PERF: a recycled view must never replay a Picture cached for
         // whatever message it showed before this bind — see the field
@@ -1642,13 +1673,26 @@ public class MessageBubbleCanvasView extends View {
         this.isSeenBubble = false;
         this.videoDuration = null;
         this.mediaBitmap = bitmap;
+        this.mediaAspectKey = aspectKey;
         // A recycled view must never keep the previous message's aspect
-        // ratio — reset to "unknown" every bind. If a Bitmap is already
-        // available at bind time (e.g. rebinding a view that already had
-        // one), derive the real ratio immediately instead of waiting for
-        // a setMediaBitmap() call that may never come.
-        this.mediaAspectRatio = (bitmap != null && bitmap.getHeight() > 0)
-                ? (float) bitmap.getWidth() / bitmap.getHeight() : 0f;
+        // ratio — reset every bind, then immediately try to restore it
+        // from three sources, in priority order: (1) a Bitmap already
+        // available at bind time, (2) the process-wide MEDIA_ASPECT_CACHE
+        // if this exact image was decoded before (the common case while
+        // scrolling — RecyclerView constantly recycles/rebinds views for
+        // images Glide already has in memory cache, and without this the
+        // bubble would flash the square placeholder on every single
+        // rebind), or (3) 0f/"unknown" if this is truly the first time
+        // this image is being shown, in which case setMediaBitmap() will
+        // still do the one-time placeholder→real relayout once decoded.
+        Float cachedRatio = aspectKey != null ? MEDIA_ASPECT_CACHE.get(aspectKey) : null;
+        if (bitmap != null && bitmap.getHeight() > 0) {
+            this.mediaAspectRatio = (float) bitmap.getWidth() / bitmap.getHeight();
+        } else if (cachedRatio != null) {
+            this.mediaAspectRatio = cachedRatio;
+        } else {
+            this.mediaAspectRatio = 0f;
+        }
         this.hasLinkPreview = false; // link-preview card is text-mode-only; a stale flag from a recycled view must not leak in here
         // Cleared fresh on every bind — a recycled holder must not carry a
         // stale gate from whatever RECEIVED image the view last showed;
@@ -1700,6 +1744,13 @@ public class MessageBubbleCanvasView extends View {
         if (bitmap != null && bitmap.getHeight() > 0) {
             boolean hadKnownRatio = mediaAspectRatio > 0f;
             mediaAspectRatio = (float) bitmap.getWidth() / bitmap.getHeight();
+            // Remember it for next time (scroll-back, or another cell that
+            // happens to share this exact URL) so future bindMedia()/
+            // bindVideo() calls can restore it synchronously and skip the
+            // square-placeholder flash entirely — see MEDIA_ASPECT_CACHE doc.
+            if (mediaAspectKey != null) {
+                MEDIA_ASPECT_CACHE.put(mediaAspectKey, mediaAspectRatio);
+            }
             if (!hadKnownRatio) {
                 requestLayoutIfSizeChanged();
             }
@@ -1719,8 +1770,9 @@ public class MessageBubbleCanvasView extends View {
      * cells inside a media group (see setMediaDownloadGate() doc).
      */
     public void bindVideo(@Nullable Bitmap thumb, @Nullable String duration, String timeText,
-                          boolean isSent, boolean isRead, boolean isDelivered) {
-        bindMedia(thumb, null, timeText, isSent, isRead, isDelivered);
+                          boolean isSent, boolean isRead, boolean isDelivered,
+                          @Nullable String aspectKey) {
+        bindMedia(thumb, null, timeText, isSent, isRead, isDelivered, aspectKey);
         this.isVideoMedia = true;
         this.videoDuration = duration;
         invalidate();

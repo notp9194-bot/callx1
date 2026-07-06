@@ -1606,7 +1606,7 @@ public class MessagePagingAdapter
             // No caption support for single "image" messages in this codebase
             // (m.text/m.mediaUrl is the URL, not a caption — see bindMessage()'s
             // "image"/"gif" case) — always captionless here.
-            cv.bindMedia(null, null, timeStr, sent, isRead, isDelivered);
+            cv.bindMedia(null, null, timeStr, sent, isRead, isDelivered, fullUrl);
             cv.setDeletedStyle(false); // clears any italic/dim state a recycled view carried from a deleted message
 
             // Mirrors bindDownloadOverlay(): sent images (and any received
@@ -1805,7 +1805,7 @@ public class MessagePagingAdapter
                 long secs = m.duration / 1000;
                 durText = String.format(java.util.Locale.US, "%d:%02d", secs / 60, secs % 60);
             }
-            cv.bindVideo(null, durText, timeStr, sent, isRead, isDelivered);
+            cv.bindVideo(null, durText, timeStr, sent, isRead, isDelivered, vThumbUrl);
             cv.setDeletedStyle(false);
             if (vThumbUrl != null && !vThumbUrl.isEmpty()) {
                 glide(ctx).asBitmap()
