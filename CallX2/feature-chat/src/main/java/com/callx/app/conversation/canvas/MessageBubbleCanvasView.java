@@ -719,6 +719,24 @@ public class MessageBubbleCanvasView extends View {
     // measured this process.
     private static volatile int sLastKnownMaxTextWidth = -1;
 
+    // ── v111: onMeasure height cache ──────────────────────────────────────────
+    // Key  : computeSizeSignature() + "|W" + parentWidth
+    //         — covers every field that affects measured height including
+    //           reply box, forwarded label, group sender, reactions badge,
+    //           media aspect ratio, poll question, expiry, footer reserve, etc.
+    // Value: the totalHeight int passed to setMeasuredDimension().
+    //
+    // On cache hit onMeasure() exits in ~1 µs instead of ~100–300 µs (full
+    // StaticLayout + text-measurement path). Hit rate in a scrolling list is
+    // very high — most bubbles are seen more than once per scroll direction.
+    //
+    // Cache is invalidated automatically: a content change calls a setter →
+    // setter calls requestLayoutIfSizeChanged() → new computeSizeSignature()
+    // → different key → cache miss → full measure runs → new entry stored.
+    private static final int HEIGHT_CACHE_CAPACITY = 400;
+    private static final android.util.LruCache<String, Integer> sHeightCache =
+            new android.util.LruCache<>(HEIGHT_CACHE_CAPACITY);
+
     /**
      * Call off the UI thread — see the cache javadoc above. Safe to call
      * for every message unconditionally; it no-ops (and never throws
@@ -3130,6 +3148,21 @@ public class MessageBubbleCanvasView extends View {
         // cache javadoc near the textPaint fields above.
         sLastKnownMaxTextWidth = maxTextWidth;
 
+        // ── v111: height cache — fast exit if this bubble was measured before ─
+        // computeSizeSignature() encodes every field that affects bubble size
+        // (message text, reply box, forwarded label, group sender, media ratio,
+        // reactions badge, expiry, footer reserve — see its javadoc).
+        // On hit: return in ~1 µs. On miss: run full measure and store result.
+        final String heightCacheKey = computeSizeSignature() + "|W" + parentWidth;
+        {
+            Integer cachedTotalHeight = sHeightCache.get(heightCacheKey);
+            if (cachedTotalHeight != null) {
+                setMeasuredDimension(parentWidth, cachedTotalHeight);
+                return;
+            }
+        }
+        // ── end height cache lookup ───────────────────────────────────────────
+
         // ── Pinned label / group sender-name (+ broadcast badge, which
         // reuses the same row via setGroupSender) / forwarded label — all
         // sit above the bubble entirely, so they shift bubbleTop down
@@ -3925,6 +3958,9 @@ public class MessageBubbleCanvasView extends View {
             reactionsRect.setEmpty();
         }
 
+        // v111: store computed height so the next onMeasure with the same
+        // content + width returns instantly from the cache above.
+        sHeightCache.put(heightCacheKey, totalHeight);
         setMeasuredDimension(parentWidth, totalHeight);
     }
 

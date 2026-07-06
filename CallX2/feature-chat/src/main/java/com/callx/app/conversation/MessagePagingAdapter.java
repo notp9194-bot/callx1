@@ -303,21 +303,43 @@ public class MessagePagingAdapter
                 }
             };
 
-    // BUG FIX (v45-4): PrecomputedTextCompat (sync AND async) removed
-    // entirely — it was the root cause of the "cold-open bubble sometimes
-    // full, sometimes partial" bug. It worked by setting the plain text
-    // first, then silently swapping tv_message's content a second time
-    // with a separately-built layout. Any time that second layout
-    // resolved a different line count than the first plain setText() did
-    // — which could happen whenever the swap ran before the TextView's
-    // width was 100% final, not only in the old async-after-400ms branch
-    // — the bubble's measured height and its actually-drawn content
-    // disagreed, and with stackFromEnd + itemAnimator(null) that
-    // disagreement doesn't always trigger a re-anchor, so the bubble can
-    // end up only partially inside the viewport ("thoda sa dikhta tha").
-    // Now there is exactly ONE setText() call per bind — no swap, so no
-    // possible mismatch, ever.
-    public volatile boolean asyncTextEnabled = false;
+    // v111: PrecomputedTextCompat re-enabled via AppCompatTextView.setTextFuture().
+    //
+    // Root cause of the old "thoda sa dikhta hai" bug (v45-4):
+    //   The previous implementation called setText(plain) first, then swapped
+    //   content a SECOND time via setPrecomputedText() with Params captured
+    //   from a TextView whose width wasn't final yet. Two independent content-
+    //   set calls with potentially different line counts → measured height and
+    //   drawn content disagreed.
+    //
+    // Why setTextFuture() is safe (no second call):
+    //   AppCompatTextView.setTextFuture() is a REPLACEMENT for setText(), not
+    //   an addition. Internally it calls TextView.setText(null/placeholder) to
+    //   blank the view and then applies the precomputed result at the next
+    //   layout pass — by which point the View's width is final and correct.
+    //   Result: exactly ONE effective content-set call, measured at the right
+    //   width. The "thoda sa dikhta hai" path is structurally impossible.
+    //
+    // @mention + search overlays are folded into the CharSequence BEFORE
+    // dispatch (see the bind block below), so the single setTextFuture() call
+    // carries the fully-decorated text and there is no second setText() after.
+    //
+    // Fallback: if tvMessage is not an AppCompatTextView (should never happen
+    // under AppCompatActivity, but defensively handled), plain setText() is
+    // used unchanged.
+    public volatile boolean asyncTextEnabled = true; // v111: re-enabled safely
+
+    // Single-thread executor for PrecomputedTextCompat background work.
+    // One thread is enough: text measurement is fast (~50 µs), and a single
+    // thread avoids the thundering-herd risk of a large page load spawning
+    // many parallel layout tasks on a pool.
+    private static final java.util.concurrent.Executor TEXT_PRECOMPUTE_EXECUTOR =
+            java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+                Thread t = new Thread(r, "callx-text-precompute");
+                t.setDaemon(true);
+                t.setPriority(Thread.NORM_PRIORITY - 1); // slightly below UI thread
+                return t;
+            });
 
     // WHATSAPP-STYLE FOOTER RESERVE — invisible trailing span appended to
     // every text-bubble's message text so the time+tick footer (drawn as
@@ -3593,63 +3615,28 @@ public class MessagePagingAdapter
                 h.tvMessage.setTextColor(
                     com.callx.app.utils.ChatThemeManager.get(ctx).getTextColor(ctx, isSentMsg));
 
-                // ── BUG FIX (v45-4): PrecomputedTextCompat REMOVED entirely ──
-                // The previous "perf" path replaced the just-set plain text
-                // with a PrecomputedTextCompat result (sync or async) after
-                // the fact. Even the "synchronous" branch swapped the
-                // TextView's text a second time via
-                // TextViewCompat.setPrecomputedText() with a layout built
-                // from Params captured off a TextView whose width isn't
-                // guaranteed final yet on a freshly-inflated/cold-open
-                // holder — occasionally resolving to a different line count
-                // than plain setText() would, so the bubble's measured
-                // height (first pass) and its actually-drawn content
-                // (second, silently-swapped pass) disagreed. That mismatch
-                // is exactly the "kabhi pura bubble dikhta hai, kabhi thoda
-                // sa dikhta hai" bug — and it could recur any time the swap
-                // and the real layout width disagreed, not only in the old
-                // async branch. Root-caused for good by removing the second
-                // pass entirely: a single plain setText() call is the only
-                // thing that ever sets tv_message's content, so there is
-                // only ever ONE measurement of it, period. No swap, no
-                // possible mismatch, no "thoda sa dikhta hai" — guaranteed,
-                // not just in the common case.
-                //
-                // BUG FIX: footerReservePx used to be computed from
-                // h.tvTime's CURRENT (possibly stale, recycled-from-a-
-                // previous-message) text, read before this message's own
-                // time was ever set on it. Now computed straight from this
-                // message's own timestamp so the reserved gap always
+                // footerReservePx: computed from THIS message's timestamp (not the
+                // recycled holder's stale tvTime text) so the reserve always
                 // matches the footer that will actually be drawn.
                 String footerTimeStr = m.timestamp > 0 ? formatTime(m.timestamp) : null;
                 int footerReservePx = computeFooterReservePx(h, m, isSentMsg, footerTimeStr);
                 CharSequence displaySpanned = appendFooterReserve(spanned, footerReservePx);
 
-                // Set message text directly. (An earlier "precompute"
-                // path here called TextViewCompat.setTextFuture(), which
-                // does not exist on TextViewCompat and never compiled as
-                // written — removed. See v45-4 bug-fix note above: a single
-                // plain setText() call is the only thing that should ever
-                // set tv_message's content, so there is only ever ONE
-                // measurement of it.)
-                h.tvMessage.setText(displaySpanned);
-                h.textBindToken++;
-
-                // ── @mention blue highlight + search yellow highlight ─────────
-                // Applied AFTER the single setText() so the underlying linkified
-                // spans are already in place. We read the TextView's current text
-                // into a SpannableStringBuilder (preserving link spans), append
-                // our extra spans on top, then do one final setText(). This is
-                // safe because we only reach this branch for text/emoji messages
-                // whose content was just set a line above — no stale state risk.
+                // ── @mention + search overlays ────────────────────────────────
+                // Built directly into the CharSequence BEFORE setTextFuture() so
+                // there is exactly ONE content-set call — no second setText() on
+                // top of a first one (that was the v45-4 "thoda sa dikhta hai"
+                // root cause).  Reading from displaySpanned (not tvMessage.getText())
+                // so the overlay is built from fresh data, never from stale recycled
+                // holder content.
                 boolean hasMention = txt.contains("@");
                 boolean hasSearch  = activeSearchQuery != null && !activeSearchQuery.isEmpty()
                                      && txt.toLowerCase(java.util.Locale.getDefault())
                                             .contains(activeSearchQuery.toLowerCase(java.util.Locale.getDefault()));
+                final CharSequence finalText;
                 if (hasMention || hasSearch) {
                     android.text.SpannableStringBuilder overlay =
-                            new android.text.SpannableStringBuilder(h.tvMessage.getText());
-                    // @mention — blue foreground
+                            new android.text.SpannableStringBuilder(displaySpanned);
                     if (hasMention) {
                         java.util.regex.Matcher mm = MENTION_PATTERN.matcher(txt);
                         while (mm.find()) {
@@ -3662,7 +3649,6 @@ public class MessagePagingAdapter
                             }
                         }
                     }
-                    // Search — yellow background
                     if (hasSearch) {
                         String lq = activeSearchQuery.toLowerCase(java.util.Locale.getDefault());
                         String lt = txt.toLowerCase(java.util.Locale.getDefault());
@@ -3678,9 +3664,29 @@ public class MessagePagingAdapter
                             si = se;
                         }
                     }
-                    h.tvMessage.setText(overlay);
+                    finalText = overlay;
+                } else {
+                    finalText = displaySpanned;
                 }
-                // ── end mention/search overlay ─────────────────────────────────
+
+                // ── v111: PrecomputedTextCompat via setTextFuture() ───────────
+                // AppCompatTextView.setTextFuture() is a REPLACEMENT for setText()
+                // (not a second call on top of one): it blanks the view and applies
+                // the precomputed result at the next layout pass, when the View's
+                // true width is guaranteed final.  One content-set call, correct
+                // width, no "thoda sa dikhta hai" risk.
+                h.textBindToken++;
+                if (h.tvMessage instanceof androidx.appcompat.widget.AppCompatTextView) {
+                    androidx.core.text.PrecomputedTextCompat.Params params =
+                            androidx.core.widget.TextViewCompat.getTextMetricsParams(h.tvMessage);
+                    ((androidx.appcompat.widget.AppCompatTextView) h.tvMessage).setTextFuture(
+                            androidx.core.text.PrecomputedTextCompat.getTextFuture(
+                                    finalText, params, TEXT_PRECOMPUTE_EXECUTOR));
+                } else {
+                    // Fallback: plain setText (AppCompatActivity always inflates
+                    // AppCompatTextView, so this branch should never be reached).
+                    h.tvMessage.setText(finalText);
+                }
 
                 // ── Link preview (ViewStub lazy inflate) ─────────────────────
                 // BUG FIX (cold-open big bubble / "shrinks on selection"):

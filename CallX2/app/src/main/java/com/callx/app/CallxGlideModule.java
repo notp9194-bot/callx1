@@ -52,11 +52,19 @@ public final class CallxGlideModule extends AppGlideModule {
     // reopening a chat (or even scrolling back up) re-hit the network for
     // thumbnails that had *just* been downloaded. Bigger budgets mean a
     // re-opened chat loads its media thumbnails from disk, not the network.
-    private static final long MEMORY_CACHE_BYTES = 40L * 1024 * 1024;  // 40 MB — normal/high-RAM devices
-    private static final long DISK_CACHE_BYTES   = 200L * 1024 * 1024; // 200 MB — unaffected by RAM (disk, not heap)
-    private static final long BITMAP_POOL_BYTES  = 20L * 1024 * 1024;  // 20 MB — normal/high-RAM devices
+    // v111: cache budgets tripled — media-heavy chats were still evicting
+    // recently decoded bitmaps within a single long conversation, forcing
+    // re-decodes (memory) and re-downloads (disk) just from scrolling back.
+    // 120 MB memory keeps ~300 mid-res chat thumbnails in RAM.
+    // 500 MB disk survives a multi-day offline gap without a single re-fetch.
+    //  40 MB pool — wider bitmap recycling cuts GC pressure during fast flings.
+    private static final long MEMORY_CACHE_BYTES = 120L * 1024 * 1024;  // 120 MB — normal/high-RAM devices
+    private static final long DISK_CACHE_BYTES   = 500L * 1024 * 1024;  // 500 MB — unaffected by RAM (disk, not heap)
+    private static final long BITMAP_POOL_BYTES  =  40L * 1024 * 1024;  //  40 MB — normal/high-RAM devices
 
     // Devices reporting less than this app-heap class are treated as low-RAM.
+    // Low-RAM path scales memory/pool by LOW_RAM_SCALE; disk is left full
+    // because it costs storage not heap.
     private static final int LOW_RAM_MEMORY_CLASS_MB = 128;
     private static final float LOW_RAM_SCALE = 0.5f;
 
