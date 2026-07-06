@@ -238,7 +238,7 @@ public class ChatScheduledSendController {
                 .setTitle("Scheduled messages")
                 .setView(scroll)
                 .setPositiveButton("Close", null)
-        .create());
+        .create(), com.callx.app.utils.AlertDialogStyler.DialogSize.WIDE);
     }
 
     private View buildManageRow(Context ctx, ScheduledMessage sm, SimpleDateFormat fmt) {

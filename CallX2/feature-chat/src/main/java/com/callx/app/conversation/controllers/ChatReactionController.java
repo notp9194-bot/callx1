@@ -152,7 +152,7 @@ public class ChatReactionController {
                 .setTitle("Reactions")
                 .setView(scroll)
                 .setPositiveButton("Close", null)
-        .create());
+        .create(), com.callx.app.utils.AlertDialogStyler.DialogSize.WIDE);
     }
 
     private android.view.View buildReactorRow(Context ctx, String emoji, String name) {

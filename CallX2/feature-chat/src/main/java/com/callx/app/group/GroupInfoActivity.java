@@ -561,7 +561,7 @@ public class GroupInfoActivity extends AppCompatActivity {
                     Toast.makeText(this, finalName + " removed", Toast.LENGTH_SHORT).show();
                 })
                 .setNegativeButton("Cancel", null)
-        .create());
+        .create(), com.callx.app.utils.AlertDialogStyler.DialogSize.COMPACT);
     }
 
     // ── Admin: Rename group ───────────────────────────────────────────────
@@ -584,7 +584,7 @@ public class GroupInfoActivity extends AppCompatActivity {
                     Toast.makeText(this, "Group renamed", Toast.LENGTH_SHORT).show();
                 })
                 .setNegativeButton("Cancel", null)
-        .create());
+        .create(), com.callx.app.utils.AlertDialogStyler.DialogSize.COMPACT);
     }
 
     // ── Admin: Save description ───────────────────────────────────────────
@@ -636,7 +636,7 @@ public class GroupInfoActivity extends AppCompatActivity {
                     addMemberByUid(uid);
                 })
                 .setNegativeButton("Cancel", null)
-        .create());
+        .create(), com.callx.app.utils.AlertDialogStyler.DialogSize.COMPACT);
     }
 
     private void addMemberByUid(String uid) {
@@ -699,7 +699,7 @@ public class GroupInfoActivity extends AppCompatActivity {
                     Toast.makeText(this, "Invite link reset", Toast.LENGTH_SHORT).show();
                 })
                 .setNegativeButton("Cancel", null)
-        .create());
+        .create(), com.callx.app.utils.AlertDialogStyler.DialogSize.COMPACT);
     }
 
     // ── Report group ──────────────────────────────────────────────────────
@@ -731,7 +731,7 @@ public class GroupInfoActivity extends AppCompatActivity {
                 .setMessage("You will no longer receive messages from this group.")
                 .setPositiveButton("Leave", (d, w) -> doLeaveGroup())
                 .setNegativeButton("Cancel", null)
-        .create());
+        .create(), com.callx.app.utils.AlertDialogStyler.DialogSize.COMPACT);
     }
 
     private void doLeaveGroup() {
@@ -755,7 +755,7 @@ public class GroupInfoActivity extends AppCompatActivity {
                 .setMessage("All messages and members will be permanently removed. This cannot be undone.")
                 .setPositiveButton("Delete", (d, w) -> doDeleteGroup())
                 .setNegativeButton("Cancel", null)
-        .create());
+        .create(), com.callx.app.utils.AlertDialogStyler.DialogSize.COMPACT);
     }
 
     private void doDeleteGroup() {

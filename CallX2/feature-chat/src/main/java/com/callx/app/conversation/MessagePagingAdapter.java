@@ -4595,7 +4595,8 @@ public class MessagePagingAdapter
             actionListener.onReact(m, ALL_EMOJIS[pos]);
             dialog.dismiss();
         });
-        com.callx.app.utils.AlertDialogStyler.showRounded(dialog);
+        com.callx.app.utils.AlertDialogStyler.showRounded(dialog,
+                com.callx.app.utils.AlertDialogStyler.DialogSize.WIDE);
     }
 
     // ══════════════════════════════════════════════════════════════════════════

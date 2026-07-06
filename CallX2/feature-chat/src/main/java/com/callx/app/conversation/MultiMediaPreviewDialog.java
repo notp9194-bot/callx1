@@ -290,6 +290,6 @@ public class MultiMediaPreviewDialog {
                     refresh.run();
                 })
                 .setNegativeButton("Cancel", null)
-        .create());
+        .create(), com.callx.app.utils.AlertDialogStyler.DialogSize.WIDE);
     }
 }

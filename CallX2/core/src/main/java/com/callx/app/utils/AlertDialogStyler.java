@@ -62,13 +62,35 @@ public final class AlertDialogStyler {
         return bg;
     }
 
+    /**
+     * Width variant for the dialog window — controls whether it looks
+     * "chota"/compact, normal (system default), or wide. Button layout
+     * (horizontal row vs stacked-vertical) itself is decided by Android
+     * based on button count/text length — this only controls the dialog's
+     * width, which is what actually pushes buttons onto their own line.
+     */
+    public enum DialogSize { DEFAULT, COMPACT, WIDE }
+
+    private static final int COMPACT_WIDTH_DP = 260;
+    private static final int WIDE_WIDTH_PERCENT = 92; // % of screen width
+
     /** Show the dialog with the default shared rounded background. */
     public static void showRounded(Dialog dialog) {
-        showRounded(dialog, com.callx.app.core.R.drawable.bg_rounded_alert_dialog);
+        showRounded(dialog, com.callx.app.core.R.drawable.bg_rounded_alert_dialog, DialogSize.DEFAULT);
     }
 
     /** Show the dialog with a custom rounded background drawable. */
     public static void showRounded(Dialog dialog, @DrawableRes int backgroundRes) {
+        showRounded(dialog, backgroundRes, DialogSize.DEFAULT);
+    }
+
+    /** Show the dialog with the default background at a given width variant. */
+    public static void showRounded(Dialog dialog, DialogSize size) {
+        showRounded(dialog, com.callx.app.core.R.drawable.bg_rounded_alert_dialog, size);
+    }
+
+    /** Show the dialog with a custom background AND a given width variant. */
+    public static void showRounded(Dialog dialog, @DrawableRes int backgroundRes, DialogSize size) {
         if (dialog == null) return;
 
         Window window = dialog.getWindow();
@@ -86,7 +108,21 @@ public final class AlertDialogStyler {
         if (window != null) {
             Drawable bg = getCachedDrawable(dialog.getContext(), backgroundRes);
             window.getDecorView().setBackground(bg);
+            applySize(window, size);
         }
+    }
+
+    private static void applySize(Window window, DialogSize size) {
+        if (size == null || size == DialogSize.DEFAULT) return;
+        Context ctx = window.getContext();
+        int widthPx;
+        if (size == DialogSize.COMPACT) {
+            widthPx = Math.round(COMPACT_WIDTH_DP * ctx.getResources().getDisplayMetrics().density);
+        } else { // WIDE
+            int screenWidth = ctx.getResources().getDisplayMetrics().widthPixels;
+            widthPx = screenWidth * WIDE_WIDTH_PERCENT / 100;
+        }
+        window.setLayout(widthPx, android.view.WindowManager.LayoutParams.WRAP_CONTENT);
     }
 
     /**

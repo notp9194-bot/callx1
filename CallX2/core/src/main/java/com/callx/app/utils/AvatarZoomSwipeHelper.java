@@ -34,12 +34,6 @@ public final class AvatarZoomSwipeHelper {
     private static final float MIN_DOWN_VELOCITY = 800f;
 
     /**
-     * Agar scale isse zyada hai, matlab user ne zoom kiya hua hai —
-     * tab swipe-to-close ko ignore karte hain taaki pan gesture na toote.
-     */
-    private static final float ZOOMED_IN_THRESHOLD = 1.05f;
-
-    /**
      * PhotoView par swipe-down-to-close attach karta hai.
      *
      * @param photoView jis par gesture detect karna hai
@@ -51,7 +45,7 @@ public final class AvatarZoomSwipeHelper {
         photoView.setOnSingleFlingListener(
             (MotionEvent e1, MotionEvent e2, float velocityX, float velocityY) -> {
                 // Zoomed in hai toh swipe ko ignore karo — pinch/pan priority par hai.
-                if (photoView.getScale() > ZOOMED_IN_THRESHOLD) return false;
+                if (PhotoViewZoomUtils.isZoomedIn(photoView)) return false;
 
                 float absX = Math.abs(velocityX);
                 float absY = Math.abs(velocityY);

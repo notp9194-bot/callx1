@@ -188,7 +188,7 @@ public class ChatBlockController {
                             .child(delegate.getPartnerUid())
                             .setValue(!isBlocked))
                 .setNegativeButton("Cancel", null)
-        .create());
+        .create(), com.callx.app.utils.AlertDialogStyler.DialogSize.COMPACT);
     }
 
     // ── Confirm permanent block ───────────────────────────────────────────
@@ -212,7 +212,7 @@ public class ChatBlockController {
                     delegate.getBinding().llBlockBanner.setVisibility(View.GONE);
                 })
                 .setNegativeButton("Cancel", null)
-        .create());
+        .create(), com.callx.app.utils.AlertDialogStyler.DialogSize.WIDE);
     }
 
     // ── Unblock joy sheet ─────────────────────────────────────────────────

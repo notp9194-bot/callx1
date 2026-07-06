@@ -1552,7 +1552,8 @@ public class GroupChatActivity extends AppCompatActivity
                     groupMessagesRef.child(m.id).child("text").setValue("");
                     ioExecutor.execute(() -> db.messageDao().softDelete(m.id));
                 })
-                .setNegativeButton("Cancel", null).create());
+                .setNegativeButton("Cancel", null).create(),
+                com.callx.app.utils.AlertDialogStyler.DialogSize.COMPACT);
     }
 
     /** GROUP REACTION FLOW — previously this only ever called .setValue(emoji),
@@ -1662,7 +1663,7 @@ public class GroupChatActivity extends AppCompatActivity
                 .setTitle("Reactions")
                 .setView(scroll)
                 .setPositiveButton("Close", null)
-        .create());
+        .create(), com.callx.app.utils.AlertDialogStyler.DialogSize.WIDE);
     }
 
     // toggleStar() moved to GroupStarredController#toggleStar — same
@@ -2393,7 +2394,8 @@ public class GroupChatActivity extends AppCompatActivity
                     FirebaseUtils.db().getReference("users")
                             .child(uid).child("groups").child(groupId).removeValue();
                 })
-                .setNegativeButton("Cancel", null).create());
+                .setNegativeButton("Cancel", null).create(),
+                com.callx.app.utils.AlertDialogStyler.DialogSize.COMPACT);
     }
 
     private void toggleMemberAdmin(String uid, String name, boolean wasAdmin) {
@@ -2420,7 +2422,8 @@ public class GroupChatActivity extends AppCompatActivity
                     FirebaseUtils.getGroupsRef().child(groupId).child("name").setValue(newName);
                     if (getSupportActionBar() != null) getSupportActionBar().setTitle(newName);
                 })
-                .setNegativeButton("Cancel", null).create());
+                .setNegativeButton("Cancel", null).create(),
+                com.callx.app.utils.AlertDialogStyler.DialogSize.COMPACT);
     }
 
     // ─────────────────────────────────────────────────────────────────────

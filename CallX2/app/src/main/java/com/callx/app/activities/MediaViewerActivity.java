@@ -21,6 +21,8 @@ import com.github.chrisbanes.photoview.PhotoView;
 import com.callx.app.databinding.ActivityMediaViewerBinding;
 import com.callx.app.utils.FirebaseUtils;
 import com.callx.app.utils.MediaCache;
+import com.callx.app.utils.MediaSwipeReplyCloseHelper;
+import com.callx.app.utils.PhotoViewZoomUtils;
 import com.google.firebase.database.DatabaseReference;
 
 import org.json.JSONArray;
@@ -59,12 +61,12 @@ public class MediaViewerActivity extends AppCompatActivity {
     private List<Map<String, Object>> galleryItems;
     private int galleryActivePos = -1;
 
-    // ── Swipe-down-to-close / swipe-up-to-reply (gallery mode only) ──────
+    // ── Swipe-down-to-close / swipe-up-to-reply (single + gallery mode) ──
+    // Common core helper — works for single-media mode now too, not just
+    // the grouped-media gallery.
     private String replyChatId;
     private String replyMessageId;
-    private float  vSwipeStartX, vSwipeStartY;
-    private boolean vSwipeDragging = false;
-    private int touchSlop;
+    private MediaSwipeReplyCloseHelper swipeHelper;
 
     // ── Video playback presence (see class doc above) ───────────────────
     private String playbackChatId;
@@ -84,7 +86,6 @@ public class MediaViewerActivity extends AppCompatActivity {
         setContentView(binding.getRoot());
 
         hideSystemUI();
-        touchSlop = android.view.ViewConfiguration.get(this).getScaledTouchSlop();
 
         String url  = getIntent().getStringExtra("url");
         String type = getIntent().getStringExtra("type");
@@ -139,6 +140,9 @@ public class MediaViewerActivity extends AppCompatActivity {
             // For video — tap player toggles top bar
             binding.player.setOnClickListener(v -> toggleUI());
 
+            // Video isn't zoomable, so no pinch-zoom guard needed here.
+            setupSwipeHelper(binding.player, null, null);
+
         } else {
             binding.ivFull.setVisibility(View.VISIBLE);
             binding.player.setVisibility(View.GONE);
@@ -148,7 +152,46 @@ public class MediaViewerActivity extends AppCompatActivity {
 
             // Tap image → toggle top bar
             binding.ivFull.setOnViewTapListener((view, x, y) -> toggleUI());
+
+            // #single-media fix — swipe-up-to-reply / swipe-down-to-close
+            // now works here too (previously gallery-mode only), guarded
+            // against pinch-zoom via the shared PhotoViewZoomUtils check.
+            setupSwipeHelper(binding.ivFull, null,
+                    () -> PhotoViewZoomUtils.isZoomedIn(binding.ivFull));
         }
+    }
+
+    /**
+     * Common wiring for MediaSwipeReplyCloseHelper — used by both
+     * single-media mode (image/video) and gallery mode.
+     *
+     * @param dragView            view that translates/fades during the drag
+     * @param viewToCancelOnDrag  horizontal-scrolling view to cancel once a
+     *                            vertical drag is confirmed (ViewPager2 in
+     *                            gallery mode, null in single-media mode)
+     * @param zoomedStateProvider guard against pinch-zoom conflicts, null
+     *                            when the content isn't zoomable (video)
+     */
+    private void setupSwipeHelper(View dragView, View viewToCancelOnDrag,
+                                   MediaSwipeReplyCloseHelper.ZoomedStateProvider zoomedStateProvider) {
+        swipeHelper = new MediaSwipeReplyCloseHelper(
+                this, dragView, binding.getRoot(), viewToCancelOnDrag, zoomedStateProvider,
+                new MediaSwipeReplyCloseHelper.Callback() {
+                    @Override public void onSwipeUpReply() {
+                        // Single-media mode has no per-item gallery index —
+                        // -1 tells GalleryReplyBridge "reply to the whole item".
+                        if (replyChatId != null && replyMessageId != null) {
+                            com.callx.app.conversation.GalleryReplyBridge
+                                    .requestReply(replyChatId, replyMessageId, galleryActivePos);
+                        }
+                        finish();
+                        overridePendingTransition(0, 0);
+                    }
+                    @Override public void onSwipeDownClose() {
+                        finish();
+                        overridePendingTransition(0, 0);
+                    }
+                });
     }
 
     // ── Gallery mode — swipeable multi-image/video viewer ────────────────
@@ -181,6 +224,31 @@ public class MediaViewerActivity extends AppCompatActivity {
         galleryActivePos = start;
         // Slight delay so RecyclerView has a bound ViewHolder to play on first open
         binding.mediaPager.post(() -> pauseAllExcept(start));
+
+        // Same shared helper as single-media mode — swipe up to reply
+        // (quoting the specific tapped item via galleryActivePos), swipe
+        // down to close. ViewPager2 is passed as viewToCancelOnDrag so it
+        // stops trying to interpret the vertical drag as a horizontal page
+        // swipe once we've claimed it.
+        setupSwipeHelper(binding.mediaPager, binding.mediaPager,
+                () -> PhotoViewZoomUtils.isZoomedIn(currentGalleryPhotoView()));
+    }
+
+    /** Currently-active page's PhotoView, or null (video page / not bound yet). */
+    private PhotoView currentGalleryPhotoView() {
+        if (binding.mediaPager.getChildCount() == 0) return null;
+        View v0 = binding.mediaPager.getChildAt(0);
+        if (!(v0 instanceof androidx.recyclerview.widget.RecyclerView)) return null;
+        androidx.recyclerview.widget.RecyclerView rv = (androidx.recyclerview.widget.RecyclerView) v0;
+        for (int i = 0; i < rv.getChildCount(); i++) {
+            androidx.recyclerview.widget.RecyclerView.ViewHolder vh =
+                    rv.getChildViewHolder(rv.getChildAt(i));
+            if (vh instanceof GalleryPagerAdapter.PageVH
+                    && vh.getAdapterPosition() == galleryActivePos) {
+                return ((GalleryPagerAdapter.PageVH) vh).photoView;
+            }
+        }
+        return null;
     }
 
     /** Plays the video on `activePos` (if it's a video page) and pauses every other bound page. */
@@ -224,82 +292,19 @@ public class MediaViewerActivity extends AppCompatActivity {
 
     private static String safeStr(Object o) { return (o instanceof String) ? (String) o : ""; }
 
-    // ── Swipe down (close) / swipe up (reply) — gallery mode only ────────
-    // ViewPager2 owns horizontal touch handling for left/right paging, so
-    // we watch for a predominantly-vertical drag at the Activity level and
-    // only take over once it's clearly vertical (avoids fighting the pager
-    // or breaking PhotoView pinch-zoom in single-media mode).
-    private static final float SWIPE_DISMISS_THRESHOLD_DP = 100f;
-
+    // ── Swipe down (close) / swipe up (reply) — single + gallery mode ────
+    // Delegates to the shared MediaSwipeReplyCloseHelper (core module) so
+    // the exact same gesture logic backs both modes instead of being
+    // duplicated. The helper internally guards against a predominantly-
+    // horizontal drag (so ViewPager2 paging isn't hijacked) and against an
+    // active pinch-zoom (so PhotoView's own gesture always wins first).
     @Override
     public boolean dispatchTouchEvent(android.view.MotionEvent ev) {
-        if (galleryItems == null || galleryItems.isEmpty()
-                || (galleryAdapter != null && galleryAdapter.isSelectMode())) {
-            return super.dispatchTouchEvent(ev);
+        boolean gallerySelecting = galleryAdapter != null && galleryAdapter.isSelectMode();
+        if (swipeHelper != null && !gallerySelecting && swipeHelper.onTouch(ev)) {
+            return true;
         }
-        switch (ev.getActionMasked()) {
-            case android.view.MotionEvent.ACTION_DOWN:
-                vSwipeStartX = ev.getRawX();
-                vSwipeStartY = ev.getRawY();
-                vSwipeDragging = false;
-                return super.dispatchTouchEvent(ev);
-
-            case android.view.MotionEvent.ACTION_MOVE: {
-                float dx = ev.getRawX() - vSwipeStartX;
-                float dy = ev.getRawY() - vSwipeStartY;
-                if (!vSwipeDragging) {
-                    if (Math.abs(dy) > touchSlop && Math.abs(dy) > Math.abs(dx) * 1.5f) {
-                        vSwipeDragging = true;
-                        // Cancel the pager's in-progress touch so it doesn't
-                        // also try to interpret this drag as a page-scroll.
-                        android.view.MotionEvent cancel = android.view.MotionEvent.obtain(ev);
-                        cancel.setAction(android.view.MotionEvent.ACTION_CANCEL);
-                        super.dispatchTouchEvent(cancel);
-                        cancel.recycle();
-                    } else {
-                        return super.dispatchTouchEvent(ev);
-                    }
-                }
-                binding.mediaPager.setTranslationY(dy);
-                float dragFraction = Math.min(1f, Math.abs(dy) / dp(this, 400));
-                binding.mediaPager.setAlpha(1f - dragFraction * 0.6f);
-                binding.getRoot().setBackgroundColor(
-                        android.graphics.Color.argb(
-                                (int) (255 * (1f - dragFraction)), 0, 0, 0));
-                return true;
-            }
-
-            case android.view.MotionEvent.ACTION_UP:
-            case android.view.MotionEvent.ACTION_CANCEL: {
-                if (!vSwipeDragging) return super.dispatchTouchEvent(ev);
-                float dy = ev.getRawY() - vSwipeStartY;
-                float thresholdPx = dp(this, (int) SWIPE_DISMISS_THRESHOLD_DP);
-                vSwipeDragging = false;
-                if (dy <= -thresholdPx) {
-                    // Swipe UP → reply, then close.
-                    // #6 fix — quote the SPECIFIC tapped image/video, not
-                    // just the group as a whole.
-                    if (replyChatId != null && replyMessageId != null) {
-                        com.callx.app.conversation.GalleryReplyBridge
-                                .requestReply(replyChatId, replyMessageId, galleryActivePos);
-                    }
-                    finish();
-                    overridePendingTransition(0, 0);
-                } else if (dy >= thresholdPx) {
-                    // Swipe DOWN → close.
-                    finish();
-                    overridePendingTransition(0, 0);
-                } else {
-                    // Not far enough — snap back.
-                    binding.mediaPager.animate().translationY(0).alpha(1f).setDuration(180).start();
-                    binding.getRoot().setBackgroundColor(android.graphics.Color.BLACK);
-                }
-                return true;
-            }
-
-            default:
-                return super.dispatchTouchEvent(ev);
-        }
+        return super.dispatchTouchEvent(ev);
     }
 
     @Override
@@ -310,11 +315,6 @@ public class MediaViewerActivity extends AppCompatActivity {
         }
         super.onBackPressed();
     }
-
-    private static int dp(android.content.Context ctx, int dp) {
-        return Math.round(dp * ctx.getResources().getDisplayMetrics().density);
-    }
-
 
     // ── #1 — Multi-select / forward from gallery ─────────────────────────
     private void enterSelectMode(int startPos) {

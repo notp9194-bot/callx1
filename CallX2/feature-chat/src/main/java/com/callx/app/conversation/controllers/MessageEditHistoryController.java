@@ -76,7 +76,7 @@ public class MessageEditHistoryController {
                     saveEdit(m, newText);
                 })
                 .setNegativeButton("Cancel", null)
-        .create());
+        .create(), com.callx.app.utils.AlertDialogStyler.DialogSize.WIDE);
     }
 
     private void saveEdit(Message m, String newText) {
@@ -158,7 +158,7 @@ public class MessageEditHistoryController {
                 .setTitle("Edit history")
                 .setView(scroll)
                 .setPositiveButton("Close", null)
-        .create());
+        .create(), com.callx.app.utils.AlertDialogStyler.DialogSize.WIDE);
     }
 
     private void addVersionRow(android.content.Context ctx, LinearLayout container,

@@ -1673,7 +1673,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                         }
                     })
                     .setNegativeButton("Cancel", null)
-                    .create());
+                    .create(), com.callx.app.utils.AlertDialogStyler.DialogSize.WIDE);
         });
 
         pagingAdapter.setActionListener(new MessagePagingAdapter.ActionListener() {
@@ -3255,7 +3255,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                         LastMessagesCache.getInstance().removeMessage(chatId, m.id);
                     });
         }
-        com.callx.app.utils.AlertDialogStyler.showRounded(builder.create());
+        com.callx.app.utils.AlertDialogStyler.showRounded(builder.create(),
+                com.callx.app.utils.AlertDialogStyler.DialogSize.WIDE);
     }
 
     private void forwardMessage(Message m) {
@@ -3438,7 +3439,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                         }
                         pagingAdapter.exitMultiSelectMode(); hideMultiSelectBar();
                     })
-                    .setNegativeButton("Cancel", null).create());
+                    .setNegativeButton("Cancel", null).create(),
+                    com.callx.app.utils.AlertDialogStyler.DialogSize.WIDE);
         });
         View btnStar = binding.getRoot().findViewById(com.callx.app.chat.R.id.btn_selection_star);
         if (btnStar != null) btnStar.setOnClickListener(v -> {
@@ -3486,7 +3488,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 + "\nType:  " + typeLabel + "\nTo:  " + (partnerName != null ? partnerName : partnerUid);
         com.callx.app.utils.AlertDialogStyler.showRounded(
             new AlertDialog.Builder(this).setTitle("\u2139 Message Info").setMessage(info)
-                .setPositiveButton("OK", null).create());
+                .setPositiveButton("OK", null).create(),
+                com.callx.app.utils.AlertDialogStyler.DialogSize.WIDE);
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -3974,7 +3977,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                     CacheManager.getInstance(this).invalidateMessages(chatId);
                     Toast.makeText(this, "Chat cleared", Toast.LENGTH_SHORT).show();
                 })
-                .setNegativeButton("Cancel", null).create());
+                .setNegativeButton("Cancel", null).create(),
+                com.callx.app.utils.AlertDialogStyler.DialogSize.COMPACT);
     }
 
     // ─────────────────────────────────────────────────────────────────────

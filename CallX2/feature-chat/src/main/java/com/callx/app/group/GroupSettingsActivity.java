@@ -511,7 +511,7 @@ public class GroupSettingsActivity extends AppCompatActivity {
                         + "Not even CallX can access your messages.\n\n"
                         + "Group ID: " + groupId)
                 .setPositiveButton("OK", null)
-        .create());
+        .create(), com.callx.app.utils.AlertDialogStyler.DialogSize.WIDE);
     }
 
     // ── Permission dialogs (admin) ─────────────────────────────────────────

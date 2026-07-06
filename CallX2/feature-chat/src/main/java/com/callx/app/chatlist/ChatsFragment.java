@@ -374,7 +374,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
             .setMessage("Selected conversations aapki chat list se remove ho jayenge.")
             .setPositiveButton("Delete", (d, w) -> deleteSelected())
             .setNegativeButton("Cancel", null)
-        .create());
+        .create(), com.callx.app.utils.AlertDialogStyler.DialogSize.COMPACT);
     }
 
     private void deleteSelected() {
@@ -435,7 +435,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
             .setMessage("Aapki saari " + contacts.size() + " conversations chat list se remove ho jayengi.\n\nYe action undo nahi ho sakti.")
             .setPositiveButton("Delete All", (d, w) -> deleteAllChats())
             .setNegativeButton("Cancel", null)
-        .create());
+        .create(), com.callx.app.utils.AlertDialogStyler.DialogSize.COMPACT);
     }
 
     private void deleteAllChats() {
