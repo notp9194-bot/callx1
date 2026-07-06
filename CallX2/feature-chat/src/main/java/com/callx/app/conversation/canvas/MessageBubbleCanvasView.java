@@ -1653,10 +1653,23 @@ public class MessageBubbleCanvasView extends View {
      *                  placeholder first — pass null if no stable key is
      *                  available (falls back to the old placeholder→real
      *                  transition for this bind).
+     * @param knownAspectRatio width/height of the media as known from the
+     *                  Message's own mediaWidth/mediaHeight metadata
+     *                  (captured once at send time — see
+     *                  ChatMediaController), or 0f if unknown. This is the
+     *                  highest-priority source: unlike a Bitmap or the
+     *                  MEDIA_ASPECT_CACHE (both only known AFTER Glide
+     *                  decodes something), it's available synchronously for
+     *                  every message that carries it — including images
+     *                  seen for the very first time during normal
+     *                  scroll-down — so the bubble is sized correctly on
+     *                  its first-ever layout pass with zero placeholder
+     *                  flash. Messages sent before this metadata existed
+     *                  pass 0f here and fall back to the bitmap/cache path.
      */
     public void bindMedia(@Nullable Bitmap bitmap, @Nullable String caption, String timeText,
                            boolean isSent, boolean isRead, boolean isDelivered,
-                           @Nullable String aspectKey) {
+                           @Nullable String aspectKey, float knownAspectRatio) {
         this.isMedia = true;
         // PERF: a recycled view must never replay a Picture cached for
         // whatever message it showed before this bind — see the field
@@ -1686,7 +1699,15 @@ public class MessageBubbleCanvasView extends View {
         // this image is being shown, in which case setMediaBitmap() will
         // still do the one-time placeholder→real relayout once decoded.
         Float cachedRatio = aspectKey != null ? MEDIA_ASPECT_CACHE.get(aspectKey) : null;
-        if (bitmap != null && bitmap.getHeight() > 0) {
+        if (knownAspectRatio > 0f) {
+            // Highest priority: dimensions carried on the Message itself
+            // (see javadoc above) — known before any decode happens, so
+            // this is correct on the very first measure/layout pass.
+            this.mediaAspectRatio = knownAspectRatio;
+            if (aspectKey != null) {
+                MEDIA_ASPECT_CACHE.put(aspectKey, knownAspectRatio);
+            }
+        } else if (bitmap != null && bitmap.getHeight() > 0) {
             this.mediaAspectRatio = (float) bitmap.getWidth() / bitmap.getHeight();
         } else if (cachedRatio != null) {
             this.mediaAspectRatio = cachedRatio;
@@ -1771,8 +1792,8 @@ public class MessageBubbleCanvasView extends View {
      */
     public void bindVideo(@Nullable Bitmap thumb, @Nullable String duration, String timeText,
                           boolean isSent, boolean isRead, boolean isDelivered,
-                          @Nullable String aspectKey) {
-        bindMedia(thumb, null, timeText, isSent, isRead, isDelivered, aspectKey);
+                          @Nullable String aspectKey, float knownAspectRatio) {
+        bindMedia(thumb, null, timeText, isSent, isRead, isDelivered, aspectKey, knownAspectRatio);
         this.isVideoMedia = true;
         this.videoDuration = duration;
         invalidate();
@@ -2356,7 +2377,7 @@ public class MessageBubbleCanvasView extends View {
     public void bindGif(@Nullable String gifUrl, String timeText, boolean isSent, boolean isRead, boolean isDelivered) {
         isGifBubble = true;
         isFileBubble = false;
-        bindMedia(null, null, timeText != null ? timeText : "", isSent, isRead, isDelivered, gifUrl);
+        bindMedia(null, null, timeText != null ? timeText : "", isSent, isRead, isDelivered, gifUrl, 0f);
     }
 
     /** Swaps in the decoded GIF first-frame bitmap. Same pattern as setMediaBitmap(). */

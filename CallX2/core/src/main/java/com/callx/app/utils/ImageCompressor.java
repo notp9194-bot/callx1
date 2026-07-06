@@ -64,13 +64,23 @@ public class ImageCompressor {
         public final long originalBytes;
         public final long thumbBytes;
         public final long fullBytes;
+        // Pixel dimensions of fullFile (post EXIF-rotation-fix, post-resize —
+        // i.e. exactly what the receiver will eventually decode) so the
+        // caller can stamp Message.mediaWidth/mediaHeight before upload and
+        // every chat bubble knows the real aspect ratio up front instead of
+        // waiting for Glide to decode the image at display time.
+        public final int fullWidth;
+        public final int fullHeight;
 
-        public Result(File thumb, File full, long orig, long thumbB, long fullB) {
+        public Result(File thumb, File full, long orig, long thumbB, long fullB,
+                      int fullW, int fullH) {
             this.thumbFile     = thumb;
             this.fullFile      = full;
             this.originalBytes = orig;
             this.thumbBytes    = thumbB;
             this.fullBytes     = fullB;
+            this.fullWidth     = fullW;
+            this.fullHeight    = fullH;
         }
 
         public String summary() {
@@ -107,6 +117,8 @@ public class ImageCompressor {
 
         // 3. Full image: resize + compress
         Bitmap fullBmp  = resize(bmp, FULL_MAX_WIDTH, FULL_MAX_HEIGHT);
+        int    fullW    = fullBmp.getWidth();
+        int    fullH    = fullBmp.getHeight();
         File   fullFile = writeWebP(ctx, fullBmp, "full_", FULL_QUALITY, FULL_TARGET_BYTES);
 
         // 4. Thumbnail: center-crop square + compress
@@ -119,7 +131,7 @@ public class ImageCompressor {
         thumbBmp.recycle();
 
         Result r = new Result(thumbFile, fullFile, originalBytes,
-            thumbFile.length(), fullFile.length());
+            thumbFile.length(), fullFile.length(), fullW, fullH);
         Log.i(TAG, r.summary());
         return r;
     }

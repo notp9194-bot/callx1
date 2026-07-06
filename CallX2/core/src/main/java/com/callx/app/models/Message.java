@@ -29,6 +29,18 @@ public class Message {
     public Long   timestamp;
     /** Legacy field kept for backward compatibility */
     public String imageUrl;
+    // Pixel dimensions of the original image/video-thumbnail, captured once
+    // at send time (see ChatMediaController's inJustDecodeBounds read) and
+    // carried in the message payload itself — lets both the sender's own
+    // bubble and the receiver's bubble size the chat bubble correctly on
+    // the very FIRST layout pass, with zero dependency on when Glide
+    // actually finishes decoding the bitmap (mirrors WhatsApp/Telegram,
+    // which always know a photo's aspect ratio up front). Null on messages
+    // sent before this field existed — those fall back to the old
+    // decode-then-relayout behavior (MessageBubbleCanvasView's
+    // MEDIA_ASPECT_CACHE path) for backward compatibility.
+    public Integer mediaWidth;
+    public Integer mediaHeight;
 
     // ── Feature 1: Read Receipts ──────────────────────────
     /** sent | delivered | read */

@@ -522,6 +522,8 @@ public class ChatMediaController {
                                                     m.imageUrl     = fullResult.secureUrl;
                                                     m.thumbnailUrl = thumbUrl;
                                                     m.fileSize     = fullResult.bytes;
+                                                    m.mediaWidth   = result.fullWidth;
+                                                    m.mediaHeight  = result.fullHeight;
                                                     delegate.pushMessage(m, "\uD83D\uDCF7 Photo");
                                                     delegate.clearReply();
                                                 }
@@ -547,6 +549,8 @@ public class ChatMediaController {
                                                     m.type     = "image";
                                                     m.mediaUrl = r.secureUrl;
                                                     m.imageUrl = r.secureUrl;
+                                                    m.mediaWidth  = result.fullWidth;
+                                                    m.mediaHeight = result.fullHeight;
                                                     delegate.pushMessage(m, "\uD83D\uDCF7 Photo");
                                                     delegate.clearReply();
                                                 }
@@ -591,6 +595,8 @@ public class ChatMediaController {
                             m.mediaUrl     = videoUrl;
                             m.thumbnailUrl = thumbUrl;
                             m.duration     = (long) durationMs;
+                            m.mediaWidth   = width;
+                            m.mediaHeight  = height;
                             delegate.pushMessage(m, "\uD83C\uDFAC Video");
                             delegate.clearReply();
                         }
