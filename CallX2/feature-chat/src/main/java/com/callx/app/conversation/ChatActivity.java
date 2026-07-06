@@ -95,6 +95,7 @@ import com.callx.app.db.AppDatabase;
 import com.callx.app.db.entity.MessageEntity;
 import com.callx.app.models.Message;
 import com.callx.app.repository.ChatRepository;
+import com.callx.app.utils.E2EEncryptionManager;
 import com.callx.app.utils.FirebaseUtils;
 import com.google.android.material.snackbar.Snackbar;
 import com.google.firebase.auth.FirebaseAuth;
@@ -2164,15 +2165,17 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 Message m = snapshot.getValue(Message.class);
                 if (m == null) return;
                 m.id = snapshot.getKey();
-                saveToRoom(m, false);
-                presenceController.markRead(m);
-                if (emojiBurstController != null) emojiBurstController.onMessageReceived(m);
+                decryptIncoming(m, () -> {
+                    saveToRoom(m, false);
+                    presenceController.markRead(m);
+                    if (emojiBurstController != null) emojiBurstController.onMessageReceived(m);
+                });
             }
             @Override public void onChildChanged(DataSnapshot snapshot, String prev) {
                 Message m = snapshot.getValue(Message.class);
                 if (m == null) return;
                 m.id = snapshot.getKey();
-                saveToRoom(m, true);
+                decryptIncoming(m, () -> saveToRoom(m, true));
             }
             @Override public void onChildRemoved(DataSnapshot snapshot) {
                 String key = snapshot.getKey();
@@ -2192,6 +2195,57 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
 
     private void saveToRoom(Message m, boolean isUpdate) {
         queueRoomWrite(m);
+    }
+
+    /**
+     * E2E DECRYPT — mirror of ChatMessageSender#sendOverWire on the receive
+     * side. Any message/caption stored on Firebase with the "enc:" prefix
+     * (see E2EEncryptionManager) is decrypted here BEFORE it ever touches
+     * Room, so every downstream consumer (adapter, search, export, starred
+     * messages, notifications) always deals in plaintext exactly like today
+     * — only the wire format changed, not the local data model.
+     *
+     * Runs the ECDH key-exchange + AES-GCM decrypt off the caller's thread
+     * (E2EEncryptionManager's own executor) and hands control back via
+     * `after`, invoked on the UI thread, so callers can safely touch
+     * Room/adapter state afterward exactly as if this were synchronous.
+     */
+    private void decryptIncoming(@NonNull Message m, @NonNull Runnable after) {
+        boolean textEncrypted    = E2EEncryptionManager.isEncrypted(m.text);
+        boolean captionEncrypted = E2EEncryptionManager.isEncrypted(m.caption);
+
+        if (!textEncrypted && !captionEncrypted) {
+            after.run();
+            return;
+        }
+        if (partnerUid == null || partnerUid.isEmpty()
+                || currentUid == null || currentUid.isEmpty()) {
+            // No identity yet (shouldn't happen once chat is open) — show a
+            // clear placeholder instead of raw ciphertext.
+            if (textEncrypted)    m.text    = "🔒 Encrypted message";
+            if (captionEncrypted) m.caption = "🔒 Encrypted message";
+            after.run();
+            return;
+        }
+
+        E2EEncryptionManager e2e = E2EEncryptionManager.getInstance(this);
+        e2e.ensureKeysExist(currentUid, partnerUid, success -> {
+            if (success) {
+                try {
+                    if (textEncrypted)    m.text    = e2e.decrypt(m.text, partnerUid);
+                    if (captionEncrypted) m.caption = e2e.decrypt(m.caption, partnerUid);
+                } catch (Exception ex) {
+                    android.util.Log.w(TAG, "E2E: decrypt failed for " + partnerUid, ex);
+                    if (textEncrypted)    m.text    = "🔒 Unable to decrypt message";
+                    if (captionEncrypted) m.caption = "🔒 Unable to decrypt message";
+                }
+            } else {
+                android.util.Log.w(TAG, "E2E: key exchange failed for " + partnerUid);
+                if (textEncrypted)    m.text    = "🔒 Encrypted message";
+                if (captionEncrypted) m.caption = "🔒 Encrypted message";
+            }
+            runOnUiThread(after);
+        });
     }
 
     /**
