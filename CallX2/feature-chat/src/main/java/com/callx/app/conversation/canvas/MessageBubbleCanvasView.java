@@ -2356,7 +2356,7 @@ public class MessageBubbleCanvasView extends View {
     public void bindGif(@Nullable String gifUrl, String timeText, boolean isSent, boolean isRead, boolean isDelivered) {
         isGifBubble = true;
         isFileBubble = false;
-        bindMedia(null, null, timeText != null ? timeText : "", isSent, isRead, isDelivered);
+        bindMedia(null, null, timeText != null ? timeText : "", isSent, isRead, isDelivered, gifUrl);
     }
 
     /** Swaps in the decoded GIF first-frame bitmap. Same pattern as setMediaBitmap(). */
