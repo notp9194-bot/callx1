@@ -179,6 +179,42 @@ public class MessagePagingAdapter
     private static final RequestOptions THUMB_RGB565 = new RequestOptions()
             .format(DecodeFormat.PREFER_RGB_565)
             .diskCacheStrategy(DiskCacheStrategy.ALL);
+
+    // ── PERF #1: In-memory decoded-Bitmap pool ────────────────────────────
+    // Independent of Glide's disk cache: stores the already-decoded Bitmap
+    // objects in RAM so a scroll-back to a message never triggers a re-decode.
+    // Keyed by URL (or local file path). Sized to 1/8 of the available heap.
+    // LruCache is internally synchronized — safe to call from any thread.
+    private static final android.util.LruCache<String, android.graphics.Bitmap> DECODED_BITMAP_CACHE;
+    static {
+        int maxMem = (int) (Runtime.getRuntime().maxMemory() / 1024); // KiB
+        DECODED_BITMAP_CACHE = new android.util.LruCache<String, android.graphics.Bitmap>(maxMem / 8) {
+            @Override
+            protected int sizeOf(String key, android.graphics.Bitmap value) {
+                return value.getByteCount() / 1024; // KiB
+            }
+        };
+    }
+
+    // ── PERF #4: Density-aware thumbnail pixel size ───────────────────────
+    // Replaces hard-coded override(480, 480) throughout.  MEDIA_MAX_WIDTH_DP
+    // in MessageBubbleCanvasView is 260dp — on an xhdpi device (2×) that is
+    // 520px, on xxhdpi (3×) 780px.  480px was UNDER-sampling on every modern
+    // mid-range phone, wasting quality without saving much RAM.  We compute
+    // the real pixel size once, adding a 10% upscale margin for the JPEG
+    // chroma sub-sampling boundary, then cap at 80% of the screen width so
+    // we don't load a massive bitmap for a narrow bubble on a tablet.
+    // volatile write is safe: worst case two threads compute the same value.
+    private static volatile int sThumbPx = 0;
+    static int thumbPx(android.content.Context ctx) {
+        if (sThumbPx > 0) return sThumbPx;
+        android.util.DisplayMetrics dm = ctx.getResources().getDisplayMetrics();
+        int computed = (int) Math.min(
+                260f * dm.density * 1.10f,          // 260dp + 10% margin
+                dm.widthPixels * 0.80f);             // cap at 80% screen width
+        sThumbPx = Math.max(computed, 320);          // never go below 320px
+        return sThumbPx;
+    }
     // ── Payload key for presence-only updates (viewing-dot / reply-glow /
     //    playing-badge) — lets setViewingMessageIds() etc. refresh just
     //    those three views instead of re-running the entire bindMessage()
@@ -1627,10 +1663,22 @@ public class MessagePagingAdapter
                 cv.clearMediaDownloadGate();
                 Object loadSrc = cachedFile != null ? cachedFile : fullUrl;
                 if (loadSrc != null) {
+                    // PERF #1: check in-memory Bitmap pool before firing a Glide decode
+                    final String poolKey = fullUrl != null ? fullUrl : "";
+                    android.graphics.Bitmap poolHit = poolKey.isEmpty() ? null
+                            : DECODED_BITMAP_CACHE.get(poolKey);
+                    if (poolHit != null && !poolHit.isRecycled()) {
+                        if (poolHit.getHeight() > 0) {
+                            com.callx.app.conversation.canvas.MessageBubbleCanvasView
+                                    .cacheAspectRatio(fullUrl, (float) poolHit.getWidth() / poolHit.getHeight());
+                        }
+                        cv.setMediaBitmap(poolHit);
+                    } else {
+                    // PERF #4: use density-aware thumb size instead of hard-coded 480px
                     glide(ctx).asBitmap()
                             .load(loadSrc)
                             .apply(THUMB_RGB565)
-                            .override(480, 480)
+                            .override(thumbPx(ctx), thumbPx(ctx))
                             .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
                                 @Override
                                 public void onResourceReady(@NonNull Bitmap resource,
@@ -1646,6 +1694,8 @@ public class MessagePagingAdapter
                                         com.callx.app.conversation.canvas.MessageBubbleCanvasView
                                                 .cacheAspectRatio(fullUrl, (float) resource.getWidth() / resource.getHeight());
                                     }
+                                    // PERF #1: store decoded bitmap in pool for scroll-back reuse
+                                    if (!poolKey.isEmpty()) DECODED_BITMAP_CACHE.put(poolKey, resource);
                                     if (h.canvasBindToken != myToken) return; // holder recycled/rebound since this load started
                                     cv.setMediaBitmap(resource);
                                 }
@@ -1655,6 +1705,7 @@ public class MessagePagingAdapter
                                     cv.setMediaBitmap(null);
                                 }
                             });
+                    }
                 }
             } else if (fullUrl != null && !fullUrl.isEmpty()) {
                 boolean isDownloading = downloadingMediaUrls.contains(fullUrl);
@@ -1828,11 +1879,22 @@ public class MessagePagingAdapter
             cv.bindVideo(null, durText, timeStr, sent, isRead, isDelivered, vThumbUrl, vKnownRatio);
             cv.setDeletedStyle(false);
             if (vThumbUrl != null && !vThumbUrl.isEmpty()) {
+                // PERF #1: check decoded-Bitmap pool before Glide decode
+                final String vPoolKey = vThumbUrl;
+                android.graphics.Bitmap vPoolHit = DECODED_BITMAP_CACHE.get(vPoolKey);
+                if (vPoolHit != null && !vPoolHit.isRecycled()) {
+                    if (vPoolHit.getHeight() > 0) {
+                        com.callx.app.conversation.canvas.MessageBubbleCanvasView
+                                .cacheAspectRatio(vThumbUrl, (float) vPoolHit.getWidth() / vPoolHit.getHeight());
+                    }
+                    cv.setMediaBitmap(vPoolHit);
+                } else {
+                // PERF #4: density-aware override size
                 glide(ctx).asBitmap()
                         .load(vThumbUrl)
                         .apply(THUMB_RGB565)
                         .thumbnail(0.1f)
-                        .override(480, 480)
+                        .override(thumbPx(ctx), thumbPx(ctx))
                         .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
                             @Override
                             public void onResourceReady(@NonNull Bitmap resource,
@@ -1846,6 +1908,8 @@ public class MessagePagingAdapter
                                     com.callx.app.conversation.canvas.MessageBubbleCanvasView
                                             .cacheAspectRatio(vThumbUrl, (float) resource.getWidth() / resource.getHeight());
                                 }
+                                // PERF #1: store in pool for scroll-back reuse
+                                DECODED_BITMAP_CACHE.put(vPoolKey, resource);
                                 if (h.canvasBindToken != myToken) return;
                                 cv.setMediaBitmap(resource);
                             }
@@ -1855,6 +1919,7 @@ public class MessagePagingAdapter
                                 cv.setMediaBitmap(null);
                             }
                         });
+                }
             }
         } else if (isContact) {
             // Mirrors the legacy "contact" case (ChatContactShareController.
@@ -2078,8 +2143,9 @@ public class MessagePagingAdapter
                         boolean hasThumb = r.imageUrl != null && !r.imageUrl.isEmpty();
                         cv.setLinkPreview(r.url, r.title, r.domain, hasThumb);
                         if (hasThumb) {
+                            // PERF #4: density-aware width; keep 2:1 aspect for link-preview card
                             glide(ctx).asBitmap().load(r.imageUrl).apply(THUMB_RGB565)
-                                    .override(480, 240).centerCrop()
+                                    .override(thumbPx(ctx), thumbPx(ctx) / 2).centerCrop()
                                     .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
                                         @Override public void onResourceReady(@NonNull Bitmap resource,
                                                 @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
@@ -2335,7 +2401,9 @@ public class MessagePagingAdapter
                         downloadingMediaUrls.remove(fullUrl);
                         if (h.canvasBindToken != myToken) return;
                         cv.clearMediaDownloadGate();
-                        glide(ctx).asBitmap().load(file).apply(THUMB_RGB565).override(480, 480)
+                        // PERF #4 + #1: density-aware size, store in pool on decode
+                        glide(ctx).asBitmap().load(file).apply(THUMB_RGB565)
+                                .override(thumbPx(ctx), thumbPx(ctx))
                                 .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
                                     @Override
                                     public void onResourceReady(@NonNull Bitmap resource,
@@ -2344,6 +2412,9 @@ public class MessagePagingAdapter
                                             com.callx.app.conversation.canvas.MessageBubbleCanvasView
                                                     .cacheAspectRatio(fullUrl, (float) resource.getWidth() / resource.getHeight());
                                         }
+                                        // PERF #1: pool the decoded bitmap
+                                        if (fullUrl != null && !fullUrl.isEmpty())
+                                            DECODED_BITMAP_CACHE.put(fullUrl, resource);
                                         if (h.canvasBindToken != myToken) return;
                                         cv.setMediaBitmap(resource);
                                     }
@@ -2605,6 +2676,21 @@ public class MessagePagingAdapter
                 if (actionListener != null) actionListener.onPollVote(m, optionIndex);
             }
         });
+
+        // PERF #8: Hardware layer — selectively promote complex bubbles to a
+        // GPU-resident RenderNode texture.  On complex items (reactions badge
+        // with shadow, image/video thumbnail, media-group grid, reel card)
+        // Android must composite many draw calls per scroll frame.  A hardware
+        // layer rasterises those calls once into an offscreen texture that the
+        // GPU reuses on every subsequent frame until the view is invalidated —
+        // cutting per-frame GPU work from O(draw-calls) to O(1) blit.
+        //
+        // Plain text / audio / call-entry bubbles stay LAYER_TYPE_NONE:
+        // on those, the overhead of allocating + uploading a texture is higher
+        // than the (few, cheap) draw calls it would replace.
+        boolean hasReactions = m.reactions != null && !m.reactions.isEmpty();
+        boolean needsHwLayer = hasReactions || isImage || isVideo || isMultiMedia || isReelShare;
+        cv.setLayerType(needsHwLayer ? View.LAYER_TYPE_HARDWARE : View.LAYER_TYPE_NONE, null);
     }
 
     /**
@@ -2933,7 +3019,7 @@ public class MessagePagingAdapter
                             .asGif()
                             .load(fullUrl)
                             .apply(THUMB_RGB565)
-                            .override(480, 480) // PERF: GIFs are heavy to decode/animate at full res
+                            .override(thumbPx(ctx), thumbPx(ctx)) // PERF #4: density-aware; GIFs are heavy at full res
                             .placeholder(R.drawable.bg_skeleton_rect)
                             .error(R.drawable.bg_skeleton_rect)
                             .into(h.ivImage);
@@ -2996,7 +3082,7 @@ public class MessagePagingAdapter
                         .load(thumbUrl)
                         .apply(THUMB_RGB565)
                         .thumbnail(0.1f) // PERF: render 10% low-res frame instantly, then upgrade
-                        .override(480, 480)
+                        .override(thumbPx(ctx), thumbPx(ctx)) // PERF #4: density-aware size
                         .placeholder(R.drawable.bg_skeleton_rect)
                         .centerCrop()
                         .into(h.ivVideoThumb);
@@ -3027,7 +3113,7 @@ public class MessagePagingAdapter
                             ? m.thumbnailUrl : vUrl;
                     glide(ctx).load(thumbUrl)
                         .apply(THUMB_RGB565)
-                        .override(480, 480)
+                        .override(thumbPx(ctx), thumbPx(ctx)) // PERF #4: density-aware size
                         .placeholder(R.drawable.bg_skeleton_rect)
                         .into(h.ivImage);
                     h.ivImage.setOnClickListener(v -> {

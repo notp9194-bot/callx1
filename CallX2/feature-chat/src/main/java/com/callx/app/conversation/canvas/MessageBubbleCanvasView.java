@@ -1312,6 +1312,31 @@ public class MessageBubbleCanvasView extends View {
     private boolean staticPictureDirty = true;
     private int cachedMediaPictureWidth = -1, cachedMediaPictureHeight = -1;
 
+    // ── PERF #5: Full-bubble Picture cache ────────────────────────────────
+    // Extends the narrow cachedMediaPicture above to cover the ENTIRE bubble
+    // draw (background drawable, group sender, reply preview, text, media,
+    // footer, reactions badge).  Saves the cost of all those draw calls on
+    // every RecyclerView scroll frame.
+    //
+    // Design:
+    //   • fullBubbleDirty starts true and is reset to true by the overridden
+    //     invalidate() / postInvalidateOnAnimation() below, so any content
+    //     change from ANY setter or bind*() automatically invalidates the
+    //     cache without per-method dirty flags.
+    //   • The cache is BYPASSED (draw directly) for two animation cases:
+    //       – indeterminate download/upload spinner (already handled by the
+    //         narrower cachedMediaPicture inside drawMediaWithOptionalCache)
+    //       – audio playback (waveform progress animates ~60fps)
+    //     For every other bubble state the cache hit path is a single
+    //     canvas.drawPicture() call — essentially free.
+    //   • Size-change detection: if the view is relaid out while the same
+    //     message is bound, the recorded Picture is at the old size and must
+    //     be discarded (same guard as cachedMediaPicture).
+    private android.graphics.Picture fullBubblePicture;
+    private boolean                   fullBubbleDirty    = true;
+    private int                       fullBubblePictureW = -1;
+    private int                       fullBubblePictureH = -1;
+
     /**
      * Draws a single-image/video bubble, using a cached Picture for
      * everything except the live spinner ring while (and only while) the
@@ -3966,14 +3991,63 @@ public class MessageBubbleCanvasView extends View {
         return w;
     }
 
+    // ── PERF #5: Intercept ALL invalidation paths so the full-bubble cache
+    // is marked stale automatically by any content-changing setter or bind.
+    // No per-method dirty flags needed — everything routes through here.
+    @Override
+    public void invalidate() {
+        fullBubbleDirty = true;
+        super.invalidate();
+    }
+    @Override
+    public void postInvalidateOnAnimation() {
+        fullBubbleDirty = true;
+        super.postInvalidateOnAnimation();
+    }
+
     @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
+        // Guard: content we need to draw must exist
         if (!isReelShare && !isContact && !isLocation && !isViewOnce && !isSeenBubble && !isCallEntry) {
             if (bubbleDrawable == null) return;
             if (!isMedia && !isMediaGroup && !isAudio && !isPoll && textLayout == null) return;
         }
 
+        // PERF #5: Full-bubble Picture cache.
+        // Bypass for animation cases that redraw every frame:
+        //   • indeterminate download/upload spinner (handled inside
+        //     drawMediaWithOptionalCache via the nested cachedMediaPicture)
+        //   • audio waveform progress bar (~60fps redraws during playback)
+        boolean indeterminate = isMedia && mediaGated && mediaDownloading && mediaDownloadProgress < 0;
+        boolean skipFullCache = isAudio || indeterminate;
+
+        int w = getWidth(), h = getHeight();
+        if (!skipFullCache && w > 0 && h > 0) {
+            if (!fullBubbleDirty && fullBubblePicture != null
+                    && w == fullBubblePictureW && h == fullBubblePictureH) {
+                // Cache hit: replay the recorded Picture — ~0 CPU cost
+                canvas.drawPicture(fullBubblePicture);
+                return;
+            }
+            // Cache miss or stale: record fresh
+            if (fullBubblePicture == null) fullBubblePicture = new android.graphics.Picture();
+            Canvas pc = fullBubblePicture.beginRecording(w, h);
+            drawBubbleContent(pc);
+            fullBubblePicture.endRecording();
+            fullBubbleDirty    = false;
+            fullBubblePictureW = w;
+            fullBubblePictureH = h;
+            canvas.drawPicture(fullBubblePicture);
+            return;
+        }
+        // Animated path — draw directly, no caching
+        drawBubbleContent(canvas);
+    }
+
+    /** All bubble drawing logic, called from onDraw. Extracted so we can draw
+     *  into either a Picture-recording canvas or the real canvas. */
+    private void drawBubbleContent(Canvas canvas) {
         if (!isReelShare && !isContact && !isLocation && !isFileBubble && !isViewOnce && !isSeenBubble && !isCallEntry) {
             // Reel-share, contact, location, file, view-once, seen, and
             // call-entry cards never draw the normal chat-bubble

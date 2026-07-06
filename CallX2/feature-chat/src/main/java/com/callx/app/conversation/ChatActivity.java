@@ -144,7 +144,13 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // enablePlaceholders=false — placeholders force Paging 3 to know total count up-front
     //   (expensive Firebase query); disabling avoids that and keeps the list growing naturally.
     private static final int    PAGE_SIZE     = 20;
-    private static final int    PREFETCH_DIST = 10;
+    // PERF #7: Increased PREFETCH_DIST 10→20 — Room starts fetching the next
+    // page when 20 items remain unscrolled, giving twice the runway for DB
+    // reads to complete before the user reaches the page boundary. Prevents
+    // the "white flash" on fast flings that exhaust the previous 10-item
+    // buffer before the page arrives. enablePlaceholders=false is already
+    // set in attachPagerWithKey(), so no total-count query is triggered.
+    private static final int    PREFETCH_DIST = 20;
     private static final int    INITIAL_LOAD  = 30;
     private static final int    MAX_MESSAGE_LENGTH = 4000;
 
@@ -1715,10 +1721,11 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         };
         llm.setStackFromEnd(true);
         llm.setReverseLayout(false);
-        // FIX #2a: Tell LinearLayoutManager how many items to prefetch.
-        // Default is 2 — increasing to 5 means the next 5 items are inflated
-        // during idle time before the user scrolls to them (no stutter).
-        llm.setInitialPrefetchItemCount(6);
+        // PERF #3: Tell LinearLayoutManager how many items to prefetch.
+        // Default is 2 — increasing to 8 means the next 8 items are inflated
+        // and bound during RenderThread idle time before the user scrolls to
+        // them. Matches the gap visible on a fast fling on a 6.5" display.
+        llm.setInitialPrefetchItemCount(8);
         binding.rvMessages.setLayoutManager(llm);
         // PERF: build the 4 bubble-drawable combos now, before the first
         // layout pass — see ChatThemeManager.preWarm() for why.
@@ -1733,12 +1740,13 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // its own size every time an item changes; valid because the RV fills
         // the screen and its own size never changes (only item content changes).
         binding.rvMessages.setHasFixedSize(true);
-        // FIX #2c: Increase view cache from default 2 → 10.
+        // PERF #3: Increase view cache from default 2 → 10.
         // With 5 view types (sent/received/status-seen/reel-seen/call) and a
         // typical visible window of ~12 items, cache=2 means almost every
-        // onBind() must pull from the recycle pool (slow). Cache=10 keeps the
-        // most recently off-screen views ready to rebind without reinflation.
-        binding.rvMessages.setItemViewCacheSize(24);
+        // onBind() must pull from the recycle pool (slow). 28 keeps more
+        // recently off-screen views ready to rebind without reinflation,
+        // especially at fast flings that can scroll past 20+ items instantly.
+        binding.rvMessages.setItemViewCacheSize(28);
         // FIX #2d: Tune RecycledViewPool per view type (5 types × 5 each).
         // Default pool size is 5 already but explicit sizing prevents the pool
         // from being exhausted on fast flings that scroll past many bubbles.
