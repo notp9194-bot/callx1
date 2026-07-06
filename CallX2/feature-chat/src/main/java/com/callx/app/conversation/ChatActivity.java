@@ -1713,10 +1713,16 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             protected void calculateExtraLayoutSpace(@NonNull RecyclerView.State state,
                                                      @NonNull int[] extraLayoutSpace) {
                 int screenHeight = getResources().getDisplayMetrics().heightPixels;
-                // Pre-layout one full screen in both directions.
-                // [0] = extra space before first item, [1] = after last item.
-                extraLayoutSpace[0] = screenHeight;
-                extraLayoutSpace[1] = screenHeight;
+                // Pre-layout 1.5× the screen height off both edges.
+                // At 1× a 60fps fling on a 6.7" display (~900px/frame) could
+                // exhaust the pre-laid buffer in ~1.1 frames — visible as a
+                // flash of blank rows at the leading edge of a fast fling.
+                // 1.5× adds a comfortable margin (≈1.7 frames of headroom)
+                // without the memory cost of a full 2× pre-layout.
+                // [0] = extra before first visible item, [1] = after last.
+                int extra = (int)(screenHeight * 1.5f);
+                extraLayoutSpace[0] = extra;
+                extraLayoutSpace[1] = extra;
             }
         };
         llm.setStackFromEnd(true);

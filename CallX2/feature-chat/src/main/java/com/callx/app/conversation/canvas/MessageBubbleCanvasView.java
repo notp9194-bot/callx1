@@ -984,6 +984,10 @@ public class MessageBubbleCanvasView extends View {
     String reactionsText = "";
     final TextPaint reactionsTextPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
     final RectF reactionsRect = new RectF();
+    // PERF ADV: cached FontMetrics — getFontMetrics() allocates a new object
+    // every call.  Since reactionsTextPaint's size/style never changes after
+    // init, we compute once and reuse.  Nulled out only on text-size change.
+    private android.graphics.Paint.FontMetrics reactionsTextFM = null;
 
     // ── Pinned label state ────────────────────────────────────────────
     boolean isPinned = false;
@@ -1402,6 +1406,7 @@ public class MessageBubbleCanvasView extends View {
 
         reactionsTextPaint.setTextSize(spToPx(REACTIONS_TEXT_SP));
         reactionsTextPaint.setShadowLayer(2f * density, 0f, 1f * density, REACTIONS_SHADOW_COLOR);
+        reactionsTextFM = null; // PERF ADV: invalidate cached FM after size change
 
         pinnedLabelPaint.setTextSize(spToPx(PINNED_LABEL_TEXT_SP));
         pinnedLabelPaint.setColor(PINNED_LABEL_COLOR);
@@ -4119,7 +4124,10 @@ public class MessageBubbleCanvasView extends View {
     }
 
     private void drawReactionsBadge(Canvas canvas) {
-        float baselineY = reactionsRect.bottom - reactionsTextPaint.getFontMetrics().descent;
+        // PERF ADV: reuse cached FontMetrics — getFontMetrics() allocates a new
+        // object on every call, adding GC pressure at 60fps during scroll.
+        if (reactionsTextFM == null) reactionsTextFM = reactionsTextPaint.getFontMetrics();
+        float baselineY = reactionsRect.bottom - reactionsTextFM.descent;
         canvas.drawText(reactionsText, reactionsRect.left, baselineY, reactionsTextPaint);
     }
 

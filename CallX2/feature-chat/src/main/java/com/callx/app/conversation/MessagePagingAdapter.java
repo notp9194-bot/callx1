@@ -124,6 +124,31 @@ public class MessagePagingAdapter
                         !reactionsEqual(a.reactions, b.reactions);
                 if (onlyReactionsChanged) return PAYLOAD_REACTIONS;
 
+                // Only poll votes changed — return PAYLOAD_POLL so onBind
+                // skips full rebind (Glide reloads, text Linkify, etc.) and
+                // only re-renders vote bars + percentages.
+                boolean onlyPollChanged =
+                        safeEquals(a.text, b.text) &&
+                        safeEquals(a.type, b.type) &&
+                        safeEquals(a.status, b.status) &&
+                        a.timestamp == b.timestamp &&
+                        a.edited == b.edited &&
+                        reactionsEqual(a.reactions, b.reactions) &&
+                        safeEquals(asStr(a.pollClosed), asStr(b.pollClosed)) &&
+                        !pollVotesEqual(a.pollVotes, b.pollVotes);
+                if (onlyPollChanged) return PAYLOAD_POLL;
+
+                // Only edited flag changed — update footer timestamp suffix only.
+                boolean onlyEditedChanged =
+                        safeEquals(a.text, b.text) &&
+                        safeEquals(a.type, b.type) &&
+                        safeEquals(a.status, b.status) &&
+                        a.timestamp == b.timestamp &&
+                        a.edited != b.edited &&
+                        reactionsEqual(a.reactions, b.reactions) &&
+                        pollVotesEqual(a.pollVotes, b.pollVotes);
+                if (onlyEditedChanged) return PAYLOAD_EDITED;
+
                 return null; // null → full rebind
             }
         };
@@ -171,6 +196,12 @@ public class MessagePagingAdapter
     // countdown restart) just to update a 1-line TextView. Dedicated
     // payload skips straight to bindReactionsOnly().
     static final String PAYLOAD_REACTIONS  = "reactions";
+    // PERF ADV: poll-vote-only change — only vote bars/% update; no media
+    // reload, no text Linkify, no full canvas rebind.
+    static final String PAYLOAD_POLL       = "poll";
+    // PERF ADV: edited-flag-only change — only the footer timestamp suffix
+    // ("✏️ edited") needs updating; no content change at all.
+    static final String PAYLOAD_EDITED     = "edited";
 
     // PERF: RGB_565 for thumbnail-sized images — half the memory of ARGB_8888.
     // Thumbnails (avatars, video covers, reply previews, status/reel chips) have
@@ -179,6 +210,19 @@ public class MessagePagingAdapter
     private static final RequestOptions THUMB_RGB565 = new RequestOptions()
             .format(DecodeFormat.PREFER_RGB_565)
             .diskCacheStrategy(DiskCacheStrategy.ALL);
+
+    // ── PERF ADV: Shared avatar bitmap LruCache ───────────────────────────
+    // In group chats the same sender photo URL appears for every message from
+    // that person.  Without this cache every cell makes a separate Glide
+    // decode of the same URL; with it the first decode is stored here and
+    // every subsequent cell delivers the result instantly via setX(poolHit)
+    // with zero network/disk/decode overhead.
+    // Sized to 60 entries — avatar bitmaps are small (96×96 circle-cropped,
+    // ~36 KiB each at RGB_565) so all 60 together cost < 2 MB RAM, far less
+    // than a single full-resolution media thumbnail.
+    // LruCache is internally thread-safe (synchronized get/put).
+    private static final android.util.LruCache<String, android.graphics.Bitmap> AVATAR_BITMAP_CACHE =
+            new android.util.LruCache<>(60);
 
     // ── PERF #1: In-memory decoded-Bitmap pool ────────────────────────────
     // Independent of Glide's disk cache: stores the already-decoded Bitmap
@@ -976,6 +1020,19 @@ public class MessagePagingAdapter
             }
             return;
         }
+        if (!payloads.isEmpty() && PAYLOAD_POLL.equals(payloads.get(0))) {
+            // Fast path: only poll votes changed — re-render vote bars only.
+            Message m = getItem(position);
+            if (m != null) bindPollOnly(h, m);
+            return;
+        }
+        if (!payloads.isEmpty() && PAYLOAD_EDITED.equals(payloads.get(0))) {
+            // Fast path: only the "✏️ edited" flag changed — update the
+            // footer timestamp suffix without touching any other view.
+            Message m = getItem(position);
+            if (m != null) bindEditedOnly(h, m);
+            return;
+        }
         // Full bind
         onBindViewHolder(h, position);
     }
@@ -1464,21 +1521,30 @@ public class MessagePagingAdapter
 
             final String avatarUrl = m.senderPhoto != null ? m.senderPhoto : "";
             if (!avatarUrl.isEmpty()) {
-                glide(ctx).asBitmap().load(avatarUrl).apply(THUMB_RGB565)
-                        .override(96, 96).circleCrop()
-                        .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
-                            @Override
-                            public void onResourceReady(@NonNull Bitmap resource,
-                                    @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
-                                if (h.canvasBindToken != myToken) return;
-                                cv.setSeenAvatarBitmap(resource);
-                            }
-                            @Override
-                            public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {
-                                if (h.canvasBindToken != myToken) return;
-                                cv.setSeenAvatarBitmap(null);
-                            }
-                        });
+                // PERF ADV: check shared avatar pool first — same sender appears in
+                // every message in a group chat; without the pool each cell triggers
+                // a separate Glide decode of the identical URL.
+                android.graphics.Bitmap avatarHit = AVATAR_BITMAP_CACHE.get(avatarUrl);
+                if (avatarHit != null && !avatarHit.isRecycled()) {
+                    cv.setSeenAvatarBitmap(avatarHit);
+                } else {
+                    glide(ctx).asBitmap().load(avatarUrl).apply(THUMB_RGB565)
+                            .override(96, 96).circleCrop()
+                            .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
+                                @Override
+                                public void onResourceReady(@NonNull Bitmap resource,
+                                        @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
+                                    AVATAR_BITMAP_CACHE.put(avatarUrl, resource);
+                                    if (h.canvasBindToken != myToken) return;
+                                    cv.setSeenAvatarBitmap(resource);
+                                }
+                                @Override
+                                public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {
+                                    if (h.canvasBindToken != myToken) return;
+                                    cv.setSeenAvatarBitmap(null);
+                                }
+                            });
+                }
             }
             if (hasThumb) {
                 glide(ctx).asBitmap().load(thumbUrl).apply(THUMB_RGB565)
@@ -1744,17 +1810,25 @@ public class MessagePagingAdapter
                 if (cachedAvatar != null) avatarUrl = cachedAvatar;
             }
             if (!avatarUrl.isEmpty()) {
-                glide(ctx).asBitmap().load(avatarUrl).apply(THUMB_RGB565).override(96, 96).circleCrop()
+                // PERF ADV: check shared avatar pool — reel-share owners repeat
+                final String finalAvatarUrl = avatarUrl;
+                android.graphics.Bitmap reelAvatarHit = AVATAR_BITMAP_CACHE.get(finalAvatarUrl);
+                if (reelAvatarHit != null && !reelAvatarHit.isRecycled()) {
+                    cv.setReelShareAvatarBitmap(reelAvatarHit);
+                } else {
+                glide(ctx).asBitmap().load(finalAvatarUrl).apply(THUMB_RGB565).override(96, 96).circleCrop()
                         .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
                             @Override
                             public void onResourceReady(@NonNull Bitmap resource,
                                     @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
+                                AVATAR_BITMAP_CACHE.put(finalAvatarUrl, resource);
                                 if (h.canvasBindToken != myToken) return;
                                 cv.setReelShareAvatarBitmap(resource);
                             }
                             @Override
                             public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {}
                         });
+                }
             } else if (!rUsername.isEmpty() && reelAvatarFetchInFlight.add(rUsername)) {
                 final String fUKey = rUsername;
                 final android.content.Context fCtxA = ctx.getApplicationContext();
@@ -4557,6 +4631,72 @@ public class MessagePagingAdapter
         h.ivLinkThumb   = h.itemView.findViewById(R.id.iv_link_thumb);
     }
 
+    /**
+     * PAYLOAD_POLL fast path — re-renders only the poll vote bars / percentages
+     * inside an already-bound canvas or legacy poll bubble without touching
+     * text, media, Glide loads, Linkify, or any other part of the bind.
+     *
+     * Canvas path: delegates to cv.bindPoll() which re-measures and invalidates
+     * only the poll card section.  Legacy ViewStub path: re-calls bindPoll()
+     * which updates the existing inflated option rows in place.
+     */
+    private void bindPollOnly(@NonNull VH h, @NonNull Message m) {
+        if (!"poll".equals(m.type)) return;
+        boolean sent = m.senderId != null && m.senderId.equals(currentUid);
+        if (h.canvasView != null) {
+            // Reconstruct full poll parameters — same logic as the isPoll branch
+            // in bindCanvasMessage() but only called for vote-count changes, so
+            // text/media/Glide paths are never touched.
+            java.util.List<String> opts = m.pollOptions != null
+                    ? m.pollOptions : java.util.Collections.emptyList();
+            java.util.Map<String, java.util.List<Integer>> votesMap = m.pollVotes != null
+                    ? m.pollVotes : java.util.Collections.emptyMap();
+            int[] counts = com.callx.app.utils.PollJsonUtil.countVotes(votesMap, opts.size());
+            int total    = com.callx.app.utils.PollJsonUtil.totalVotes(votesMap);
+            boolean[] myVote = new boolean[opts.size()];
+            if (currentUid != null) {
+                java.util.List<Integer> mine = votesMap.get(currentUid);
+                if (mine != null) {
+                    for (int idx : mine) {
+                        if (idx >= 0 && idx < myVote.length) myVote[idx] = true;
+                    }
+                }
+            }
+            String timeStr = (m.timestamp != null && m.timestamp > 0) ? formatTime(m.timestamp) : "";
+            if (Boolean.TRUE.equals(m.edited)) timeStr = timeStr + "  \u270F\uFE0F edited";
+            boolean isRead      = "read".equals(m.status);
+            boolean isDelivered = isRead || "delivered".equals(m.status);
+            h.canvasView.bindPoll(
+                    m.pollQuestion, opts, counts, myVote, total,
+                    Boolean.TRUE.equals(m.pollClosed),
+                    Boolean.TRUE.equals(m.pollMultiChoice),
+                    sent, timeStr, isRead, isDelivered);
+            return;
+        }
+        // Legacy non-canvas path — defer to the full poll bind helper.
+        bindPoll(h, m, sent);
+    }
+
+    /**
+     * PAYLOAD_EDITED fast path — updates only the "✏️ edited" suffix on the
+     * footer timestamp view.  No text re-layout, no Glide, no full rebind.
+     *
+     * Canvas path: calls cv.setEdited() which only flips a flag and triggers
+     * an invalidate (no measure).  Legacy path: appends/strips the suffix on
+     * tv_time.
+     */
+    private void bindEditedOnly(@NonNull VH h, @NonNull Message m) {
+        boolean isEdited = Boolean.TRUE.equals(m.edited);
+        if (h.canvasView != null) {
+            h.canvasView.setEdited(isEdited);
+            return;
+        }
+        if (h.tvTime == null) return;
+        long ts = m.timestamp != null ? m.timestamp : 0;
+        String base = ts > 0 ? formatTime(ts) : "";
+        h.tvTime.setText(isEdited ? base + "  \u270F\uFE0F edited" : base);
+    }
+
     @Override
     public void onViewRecycled(@NonNull VH holder) {
         super.onViewRecycled(holder);
@@ -4593,6 +4733,13 @@ public class MessagePagingAdapter
         // any such result a guaranteed no-op even if it lands while the
         // holder is sitting unused in the pool.
         holder.textBindToken++;
+        // PERF ADV: reset hardware layer type on recycle so the view sitting
+        // in the RecycledViewPool doesn't keep an allocated GPU texture alive
+        // for content that may never be displayed again.  The next bindCanvasMessage()
+        // call will set the correct layer type based on the new message's complexity.
+        if (holder.canvasView != null) {
+            holder.canvasView.setLayerType(android.view.View.LAYER_TYPE_NONE, null);
+        }
     }
 
     // PERF: onViewDetachedFromWindow — called when the ViewHolder scrolls off
