@@ -1,10 +1,14 @@
 package com.callx.app.group;
 
+import android.animation.Animator;
+import android.animation.AnimatorListenerAdapter;
+import android.app.Activity;
 import android.text.Editable;
 import android.text.Spanned;
 import android.text.TextWatcher;
 import android.text.style.ForegroundColorSpan;
 import android.view.View;
+import android.view.animation.DecelerateInterpolator;
 
 import androidx.recyclerview.widget.LinearLayoutManager;
 
@@ -12,56 +16,58 @@ import com.callx.app.chat.databinding.ActivityChatBinding;
 import com.callx.app.chat.ui.MentionSuggestAdapter;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
 /**
- * GroupMentionController — @mention support for group chat.
+ * GroupMentionController — Production-grade @mention for group chat.
  *
- * How it works:
- *   1. Watches etMessage for "@" triggers.
- *   2. Shows rv_mention_suggest above the input bar, filtered by
- *      what the user has typed after "@" (prefix-matched against all members).
- *   3. Tap → inserts "@MemberName " with blue ForegroundColorSpan.
- *   4. Dismiss when "@" token removed or a mention is inserted.
- *   5. Fires a Firebase notification to mentioned user (optional — server-side
- *      processing recommended; client-side fire-and-forget here).
+ * Features:
+ *   • Watches {@code etMessage} for "@" trigger.
+ *   • Shows animated suggestion list above the input capsule.
+ *   • Members sorted alphabetically; self excluded.
+ *   • Tap → inserts "@Name " with blue ForegroundColorSpan.
+ *   • {@link #updateMembers(Map, Map)} — call whenever membership changes
+ *     (Firebase membersListener or subscribePresence fires).
+ *   • {@link #dismissSuggestions()} — call on send / back press.
+ *   • Sends mention UIDs in {@code m.mentionedUids} for server-side
+ *     push routing (see extractMentions / GroupChatActivity.sendText).
  *
- * Usage in GroupChatActivity:
- *   groupMentionController = new GroupMentionController(this, binding, memberNames, memberPhotos);
+ * Usage in GroupChatActivity.setupInputBar():
+ * <pre>
+ *   groupMentionController = new GroupMentionController(
+ *       this, binding, groupId, currentUid, currentName,
+ *       memberNames, memberPhotos);
  *   groupMentionController.attach();
- *   // When members change:
- *   groupMentionController.updateMembers(memberNames, memberPhotos);
+ * </pre>
  */
 public class GroupMentionController {
 
-    private static final int MENTION_COLOR = 0xFF1DA1F2;
+    public static final int MENTION_COLOR = 0xFF1DA1F2;
 
-    private final android.app.Activity      activity;
-    private final ActivityChatBinding       binding;
-    private final String                    groupId;
-    private final String                    currentUid;
-    private final String                    currentName;
+    private final Activity              activity;
+    private final ActivityChatBinding   binding;
+    private final String                currentUid;
 
     private MentionSuggestAdapter suggestAdapter;
-    private int mentionStart = -1;
+    private TextWatcher           textWatcher;
+    private boolean               attached = false;
 
-    // Mutable — updated when group membership changes
+    // Kept as references — updated live when membership changes
     private Map<String, String> memberNames;
     private Map<String, String> memberPhotos;
 
-    public GroupMentionController(android.app.Activity activity,
+    public GroupMentionController(Activity activity,
                                   ActivityChatBinding binding,
                                   String groupId,
                                   String currentUid,
                                   String currentName,
                                   Map<String, String> memberNames,
                                   Map<String, String> memberPhotos) {
-        this.activity    = activity;
-        this.binding     = binding;
-        this.groupId     = groupId;
-        this.currentUid  = currentUid;
-        this.currentName = currentName != null ? currentName : "";
+        this.activity     = activity;
+        this.binding      = binding;
+        this.currentUid   = currentUid;
         this.memberNames  = memberNames;
         this.memberPhotos = memberPhotos;
     }
@@ -69,87 +75,101 @@ public class GroupMentionController {
     // ── Public API ────────────────────────────────────────────────────────
 
     public void attach() {
-        if (binding == null || binding.rvMentionSuggest == null) return;
-
+        if (attached || binding == null
+                || binding.rvMentionSuggest == null
+                || binding.etMessage == null) return;
+        attached = true;
         setupRecyclerView();
-        rebuildSuggestions();
-
-        binding.etMessage.addTextChangedListener(new TextWatcher() {
-            @Override public void beforeTextChanged(CharSequence s, int st, int c, int a) {}
-            @Override public void afterTextChanged(Editable s) {}
-
-            @Override
-            public void onTextChanged(CharSequence s, int start, int before, int count) {
-                handleTextChange(s, start, before, count);
-            }
-        });
+        rebuildItems();
+        textWatcher = buildWatcher();
+        binding.etMessage.addTextChangedListener(textWatcher);
     }
 
-    /** Call whenever the member list changes (e.g. someone joins/leaves). */
-    public void updateMembers(Map<String, String> memberNames,
-                              Map<String, String> memberPhotos) {
-        this.memberNames  = memberNames;
-        this.memberPhotos = memberPhotos;
-        rebuildSuggestions();
+    /**
+     * Call from GroupChatActivity whenever Firebase membership/presence fires.
+     * Safe to call from the main thread.
+     */
+    public void updateMembers(Map<String, String> names, Map<String, String> photos) {
+        this.memberNames  = names;
+        this.memberPhotos = photos;
+        if (attached) rebuildItems();
+    }
+
+    /** Hides the suggestion list. Call on send, back-press, or onStop. */
+    public void dismissSuggestions() {
+        if (binding.rvMentionSuggest != null
+                && binding.rvMentionSuggest.getVisibility() == View.VISIBLE) {
+            animateHide(binding.rvMentionSuggest);
+        }
+    }
+
+    /** True when the dropdown is currently visible. */
+    public boolean isShowing() {
+        return binding.rvMentionSuggest != null
+                && binding.rvMentionSuggest.getVisibility() == View.VISIBLE;
+    }
+
+    public void onDestroy() {
+        if (attached && binding.etMessage != null && textWatcher != null) {
+            binding.etMessage.removeTextChangedListener(textWatcher);
+        }
+        attached = false;
     }
 
     // ── Setup ─────────────────────────────────────────────────────────────
 
     private void setupRecyclerView() {
         suggestAdapter = new MentionSuggestAdapter(activity, item -> insertMention(item.name));
-
         binding.rvMentionSuggest.setLayoutManager(new LinearLayoutManager(activity));
         binding.rvMentionSuggest.setAdapter(suggestAdapter);
+        binding.rvMentionSuggest.setNestedScrollingEnabled(false);
         binding.rvMentionSuggest.setVisibility(View.GONE);
     }
 
-    private void rebuildSuggestions() {
+    private void rebuildItems() {
         if (suggestAdapter == null || memberNames == null) return;
         List<MentionSuggestAdapter.MentionItem> items = new ArrayList<>();
-        for (Map.Entry<String, String> entry : memberNames.entrySet()) {
-            String uid  = entry.getKey();
-            String name = entry.getValue();
-            if (uid.equals(currentUid)) continue;  // Don't suggest self
-            String photo = memberPhotos != null ? memberPhotos.get(uid) : null;
+        for (Map.Entry<String, String> e : memberNames.entrySet()) {
+            String uid = e.getKey();
+            if (uid.equals(currentUid)) continue;   // Don't suggest self
+            String name  = e.getValue();
+            String photo = (memberPhotos != null) ? memberPhotos.get(uid) : null;
             items.add(new MentionSuggestAdapter.MentionItem(uid, name, photo));
         }
-        // Sort alphabetically
-        items.sort((a, b) -> a.name.compareToIgnoreCase(b.name));
+        // Alphabetical
+        Collections.sort(items, (a, b) -> a.name.compareToIgnoreCase(b.name));
         suggestAdapter.setItems(items);
     }
 
-    // ── Text change ──────────────────────────────────────────────────────
+    // ── Text watcher ──────────────────────────────────────────────────────
 
-    private void handleTextChange(CharSequence s, int start, int before, int count) {
-        if (binding == null || binding.rvMentionSuggest == null) return;
-
-        String text = s.toString();
-        int cursorPos = start + count;
-
-        int atIdx = findAtBefore(text, cursorPos);
-        if (atIdx < 0) {
-            mentionStart = -1;
-            hideSuggestions();
-            return;
-        }
-
-        mentionStart = atIdx;
-        String prefix = text.substring(atIdx + 1, cursorPos);
-
-        suggestAdapter.filter(prefix);
-        if (suggestAdapter.getItemCount() > 0) {
-            binding.rvMentionSuggest.setVisibility(View.VISIBLE);
-        } else {
-            hideSuggestions();
-        }
+    private TextWatcher buildWatcher() {
+        return new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int st, int c, int a) {}
+            @Override public void afterTextChanged(Editable s) {}
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
+                if (binding.rvMentionSuggest == null) return;
+                int cursor = start + count;
+                int atIdx  = findAtBefore(s.toString(), cursor);
+                if (atIdx < 0) { dismissSuggestions(); return; }
+                String prefix = s.subSequence(atIdx + 1, cursor).toString();
+                suggestAdapter.filter(prefix);
+                if (suggestAdapter.getItemCount() > 0) {
+                    animateShow(binding.rvMentionSuggest);
+                } else {
+                    dismissSuggestions();
+                }
+            }
+        };
     }
+
+    // ── Detect @-token ────────────────────────────────────────────────────
 
     private int findAtBefore(String text, int cursorPos) {
         for (int i = cursorPos - 1; i >= 0; i--) {
             char c = text.charAt(i);
             if (c == '@') {
-                if (i == 0 || Character.isWhitespace(text.charAt(i - 1))) return i;
-                return -1;
+                return (i == 0 || Character.isWhitespace(text.charAt(i - 1))) ? i : -1;
             }
             if (Character.isWhitespace(c)) return -1;
         }
@@ -159,17 +179,15 @@ public class GroupMentionController {
     // ── Insert mention ────────────────────────────────────────────────────
 
     private void insertMention(String name) {
-        if (binding == null || binding.etMessage == null) return;
-        hideSuggestions();
-        mentionStart = -1;
-
-        Editable editable = binding.etMessage.getText();
-        if (editable == null) return;
-
+        dismissSuggestions();
+        if (binding.etMessage == null) return;
+        Editable ed = binding.etMessage.getText();
+        if (ed == null) return;
         int cursor = binding.etMessage.getSelectionEnd();
-        if (cursor < 0) cursor = editable.length();
+        if (cursor < 0) cursor = ed.length();
 
-        String current = editable.toString();
+        // Walk back to find the @ that triggered this
+        String current = ed.toString();
         int atIdx = -1;
         for (int i = cursor - 1; i >= 0; i--) {
             if (current.charAt(i) == '@') { atIdx = i; break; }
@@ -178,23 +196,39 @@ public class GroupMentionController {
 
         String insertion = "@" + name + " ";
         if (atIdx >= 0) {
-            editable.replace(atIdx, cursor, insertion);
-            int end = atIdx + name.length() + 1;
-            editable.setSpan(new ForegroundColorSpan(MENTION_COLOR),
-                    atIdx, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            ed.replace(atIdx, cursor, insertion);
+            ed.setSpan(new ForegroundColorSpan(MENTION_COLOR),
+                    atIdx, atIdx + name.length() + 1,
+                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         } else {
-            int pos = editable.length();
-            editable.append(insertion);
-            editable.setSpan(new ForegroundColorSpan(MENTION_COLOR),
-                    pos, pos + name.length() + 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            int pos = ed.length();
+            ed.append(insertion);
+            ed.setSpan(new ForegroundColorSpan(MENTION_COLOR),
+                    pos, pos + name.length() + 1,
+                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         }
     }
 
-    // ── Visibility ────────────────────────────────────────────────────────
+    // ── Animation ─────────────────────────────────────────────────────────
 
-    private void hideSuggestions() {
-        if (binding != null && binding.rvMentionSuggest != null) {
-            binding.rvMentionSuggest.setVisibility(View.GONE);
-        }
+    private void animateShow(View v) {
+        if (v.getVisibility() == View.VISIBLE) return;
+        v.setVisibility(View.VISIBLE);
+        v.setAlpha(0f);
+        v.setTranslationY(40f);
+        v.animate().alpha(1f).translationY(0f)
+                .setDuration(160).setInterpolator(new DecelerateInterpolator()).start();
+    }
+
+    private void animateHide(View v) {
+        v.animate().alpha(0f).translationY(40f)
+                .setDuration(120).setInterpolator(new DecelerateInterpolator())
+                .setListener(new AnimatorListenerAdapter() {
+                    @Override public void onAnimationEnd(Animator a) {
+                        v.setVisibility(View.GONE);
+                        v.setAlpha(1f);
+                        v.setTranslationY(0f);
+                    }
+                }).start();
     }
 }

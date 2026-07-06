@@ -518,6 +518,9 @@ public class GroupChatActivity extends AppCompatActivity
         if (connMgr != null && netCallback != null) {
             try { connMgr.unregisterNetworkCallback(netCallback); } catch (Exception ignored) {}
         }
+        // Feature: clean up search highlights + mention watcher
+        if (searchController       != null) searchController.onDestroy();
+        if (groupMentionController != null) groupMentionController.onDestroy();
         super.onDestroy();
     }
 
@@ -1296,6 +1299,7 @@ public class GroupChatActivity extends AppCompatActivity
                 this, binding, groupId, currentUid, currentName,
                 memberNames, memberPhotos);
         groupMentionController.attach();
+        setupGroupBackPressHandler();
 
         // GIF support: Google Keyboard se GIF aane par handle karo
         if (binding.etMessage instanceof GifAwareEditText) {
@@ -1317,6 +1321,8 @@ public class GroupChatActivity extends AppCompatActivity
             Toast.makeText(this, "Message too long! Max " + MAX_MESSAGE_LENGTH + " characters.", Toast.LENGTH_SHORT).show();
             return;
         }
+        // Dismiss @mention suggestions before clearing the field
+        if (groupMentionController != null) groupMentionController.dismissSuggestions();
         binding.etMessage.setText("");
         // setText ke baad post() se style re-apply karo — setText typeface disturb karta hai
         typingHandler.removeCallbacks(stopTyping);
@@ -1973,6 +1979,9 @@ public class GroupChatActivity extends AppCompatActivity
                         subscribePresence(uid);
                 }
                 refreshSubtitle();
+                // Keep @mention suggestion list in sync with live membership
+                if (groupMentionController != null)
+                    groupMentionController.updateMembers(memberNames, memberPhotos);
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         };
@@ -1988,11 +1997,39 @@ public class GroupChatActivity extends AppCompatActivity
                 String photo = snap.child("photoUrl").getValue(String.class);
                 if (photo != null) memberPhotos.put(uid, photo);
                 refreshSubtitle();
+                // Update @mention photos live (avatar loads asynchronously)
+                if (groupMentionController != null)
+                    groupMentionController.updateMembers(memberNames, memberPhotos);
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         };
         presenceListeners.put(uid, l);
         FirebaseUtils.getUserRef(uid).addValueEventListener(l);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // BACK PRESS — close search / mention before finishing
+    // ─────────────────────────────────────────────────────────────────────
+
+    private void setupGroupBackPressHandler() {
+        getOnBackPressedDispatcher().addCallback(this,
+                new androidx.activity.OnBackPressedCallback(true) {
+                    @Override public void handleOnBackPressed() {
+                        // 1. Close search if open
+                        if (searchController != null && searchController.isOpen()) {
+                            searchController.closeSearch();
+                            return;
+                        }
+                        // 2. Dismiss @mention dropdown if visible
+                        if (groupMentionController != null && groupMentionController.isShowing()) {
+                            groupMentionController.dismissSuggestions();
+                            return;
+                        }
+                        // 3. Normal back
+                        setEnabled(false);
+                        getOnBackPressedDispatcher().onBackPressed();
+                    }
+                });
     }
 
     // ── "Watching banner" (overlapping avatars for in-chat-screen members) ──

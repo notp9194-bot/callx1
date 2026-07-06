@@ -655,18 +655,42 @@
                  Shown by ChatMentionController / GroupMentionController.
                  visibility=gone by default; controller shows/hides it.
                  ═══════════════════════════════════════════════════════════ -->
-            <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/rv_mention_suggest"
+            <!--
+                @MENTION SUGGESTION LIST — slides in above the input capsule when the
+                user types "@" in the message field.  The MaterialCardView provides
+                rounded corners + elevation; it collapses to 0 height automatically
+                when its only child (rv_mention_suggest) is GONE (wrap_content).
+                Controllers only manage rv_mention_suggest visibility.
+            -->
+            <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:maxHeight="180dp"
-                android:overScrollMode="never"
-                android:background="@color/surface_input"
-                android:elevation="4dp"
-                android:visibility="gone"
                 android:layout_marginStart="10dp"
                 android:layout_marginEnd="10dp"
-                android:layout_marginBottom="2dp"/>
+                android:layout_marginBottom="4dp"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="8dp"
+                app:cardBackgroundColor="@color/surface_input"
+                app:strokeColor="@color/divider"
+                app:strokeWidth="0.5dp"
+                xmlns:app="http://schemas.android.com/apk/res-auto">
+
+                <!--
+                    visibility="gone" here — controllers call
+                    binding.rvMentionSuggest.setVisibility(VISIBLE/GONE).
+                    When GONE, the parent card collapses to 0 height (wrap_content).
+                -->
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/rv_mention_suggest"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:maxHeight="192dp"
+                    android:overScrollMode="never"
+                    android:nestedScrollingEnabled="false"
+                    android:clipToPadding="false"
+                    android:visibility="gone"/>
+
+            </com.google.android.material.card.MaterialCardView>
 
             <com.google.android.material.card.MaterialCardView
                 android:id="@+id/cv_input_capsule"

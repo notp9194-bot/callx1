@@ -497,6 +497,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         setupPagingRecyclerView();   // RecyclerView + adapter ready (no Room yet)
         setupInputBar();
         setupMentionController();
+        setupBackPressHandler();
         setupSwipeToReply();
         setupFabBackToLatest();
         setupHeaderAutoHide();
@@ -946,6 +947,10 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         if (scheduledSendController != null) scheduledSendController.release();
         if (viewOnceController != null) viewOnceController.release();
         if (screenshotNotifier != null) screenshotNotifier.release();
+
+        // Feature: clean up search highlights + mention watcher
+        if (searchController  != null) searchController.onDestroy();
+        if (mentionController != null) mentionController.onDestroy();
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -2835,6 +2840,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             Toast.makeText(this, "Message too long!", Toast.LENGTH_SHORT).show();
             return;
         }
+        // Dismiss @mention suggestions before clearing the field
+        if (mentionController != null) mentionController.dismissSuggestions();
         binding.etMessage.setText("");
         if (presenceController != null) presenceController.clearOurTypingStatus();
         if (liveTypingController != null) liveTypingController.clearOurPreview();
@@ -3599,6 +3606,31 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         mentionController = new com.callx.app.conversation.controllers.ChatMentionController(
                 this, partnerUid, partnerName, partnerPhoto);
         mentionController.attach();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // BACK PRESS — close search/mention before finishing activity
+    // ─────────────────────────────────────────────────────────────────────
+
+    private void setupBackPressHandler() {
+        getOnBackPressedDispatcher().addCallback(this,
+                new androidx.activity.OnBackPressedCallback(true) {
+                    @Override public void handleOnBackPressed() {
+                        // 1. Search open → close it first
+                        if (searchController != null && searchController.isOpen()) {
+                            searchController.closeSearch();
+                            return;
+                        }
+                        // 2. Mention suggestions visible → dismiss them
+                        if (mentionController != null && mentionController.isShowing()) {
+                            mentionController.dismissSuggestions();
+                            return;
+                        }
+                        // 3. Normal back
+                        setEnabled(false);
+                        getOnBackPressedDispatcher().onBackPressed();
+                    }
+                });
     }
 
     private void setupSwipeToReply() {

@@ -1,36 +1,50 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+    item_mention_suggest.xml
+    Row layout for the @mention suggestion dropdown.
+    Height: 48dp — comfortable tap target, fits 4 rows in 192dp max height.
+    Avatar: 32dp circle | Name: bold 13sp | "@" badge: muted hint
+-->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="44dp"
+    android:layout_height="48dp"
     android:orientation="horizontal"
     android:gravity="center_vertical"
-    android:paddingStart="12dp"
-    android:paddingEnd="12dp"
+    android:paddingStart="14dp"
+    android:paddingEnd="14dp"
     android:background="?attr/selectableItemBackground">
 
-    <de.hdodenhof.circleimageview.CircleImageView
+    <!-- Circular avatar -->
+    <ImageView
         android:id="@+id/iv_mention_avatar"
-        android:layout_width="28dp"
-        android:layout_height="28dp"
-        android:src="@drawable/ic_person"/>
+        android:layout_width="32dp"
+        android:layout_height="32dp"
+        android:src="@drawable/ic_person"
+        android:scaleType="centerCrop"
+        android:background="@drawable/bg_circle_surface"/>
 
+    <!-- Name -->
     <TextView
         android:id="@+id/tv_mention_name"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_weight="1"
-        android:layout_marginStart="10dp"
+        android:layout_marginStart="12dp"
         android:textColor="@color/text_primary"
         android:textSize="13sp"
         android:textStyle="bold"
         android:maxLines="1"
         android:ellipsize="end"/>
 
+    <!-- @ badge — subtle hint that this is a mention -->
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="@"
-        android:textColor="@color/text_muted"
-        android:textSize="12sp"/>
+        android:textColor="@color/colorPrimary"
+        android:textSize="13sp"
+        android:textStyle="bold"
+        android:alpha="0.6"
+        android:layout_marginStart="8dp"/>
 
 </LinearLayout>

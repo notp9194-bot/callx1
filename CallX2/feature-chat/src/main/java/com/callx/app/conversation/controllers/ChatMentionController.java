@@ -1,11 +1,13 @@
 package com.callx.app.conversation.controllers;
 
+import android.animation.Animator;
+import android.animation.AnimatorListenerAdapter;
 import android.text.Editable;
-import android.text.SpannableString;
 import android.text.Spanned;
 import android.text.TextWatcher;
 import android.text.style.ForegroundColorSpan;
 import android.view.View;
+import android.view.animation.DecelerateInterpolator;
 
 import androidx.recyclerview.widget.LinearLayoutManager;
 
@@ -16,31 +18,35 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * ChatMentionController — @mention support for 1:1 (personal) chat.
+ * ChatMentionController — Production-grade @mention for 1:1 (personal) chat.
  *
- * How it works:
- *   1. Watches etMessage for "@" triggers.
- *   2. Shows rv_mention_suggest above the input bar with the partner's name.
- *   3. Tap → inserts "@PartnerName " with blue ForegroundColorSpan into etMessage.
- *   4. Dismiss suggestion list once a mention is inserted or "@" is deleted.
+ * Features:
+ *   • Watches {@code etMessage} for "@" trigger in real time.
+ *   • Filters suggestions by contains-match (not just prefix) on name.
+ *   • Shows animated slide-up suggestion list above the input capsule.
+ *   • Tap → inserts "@Name " with blue {@link ForegroundColorSpan} into the EditText.
+ *   • {@link #dismissSuggestions()} — call from send / activity back-press.
+ *   • Properly cleans up in {@link #onDestroy()}.
  *
- * Usage in ChatActivity:
- *   mentionController = new ChatMentionController(this, partnerUid, partnerName, partnerPhoto);
+ * Usage in ChatActivity.setupMentionController():
+ * <pre>
+ *   mentionController = new ChatMentionController(
+ *       this, partnerUid, partnerName, partnerPhoto);
  *   mentionController.attach();
+ * </pre>
  */
 public class ChatMentionController {
 
-    private static final int MENTION_COLOR = 0xFF1DA1F2;
+    public static final int MENTION_COLOR = 0xFF1DA1F2;
 
     private final ChatActivityDelegate delegate;
-    private final String partnerUid;
-    private final String partnerName;
-    private final String partnerPhoto;
+    private final String               partnerUid;
+    private final String               partnerName;
+    private final String               partnerPhoto;
 
     private MentionSuggestAdapter suggestAdapter;
-
-    /** Index in etMessage where the current "@token" started (-1 = no active mention). */
-    private int mentionStart = -1;
+    private TextWatcher           textWatcher;
+    private boolean               attached = false;
 
     public ChatMentionController(ChatActivityDelegate delegate,
                                  String partnerUid,
@@ -52,116 +58,117 @@ public class ChatMentionController {
         this.partnerPhoto = partnerPhoto;
     }
 
-    // ── Attach ───────────────────────────────────────────────────────────
+    // ── Public API ────────────────────────────────────────────────────────
 
     public void attach() {
-        ActivityChatBinding binding = delegate.getBinding();
-        if (binding == null || binding.rvMentionSuggest == null) return;
-
-        setupRecyclerView();
-
-        binding.etMessage.addTextChangedListener(new TextWatcher() {
-            @Override public void beforeTextChanged(CharSequence s, int st, int c, int a) {}
-            @Override public void afterTextChanged(Editable s) {}
-
-            @Override
-            public void onTextChanged(CharSequence s, int start, int before, int count) {
-                handleTextChange(s, start, before, count);
-            }
-        });
+        ActivityChatBinding b = delegate.getBinding();
+        if (attached || b == null || b.rvMentionSuggest == null || b.etMessage == null) return;
+        attached = true;
+        setupRecyclerView(b);
+        textWatcher = buildWatcher(b);
+        b.etMessage.addTextChangedListener(textWatcher);
     }
 
-    // ── RV setup ─────────────────────────────────────────────────────────
+    /** Hides the suggestion list. Call on send, back press, or fragment stop. */
+    public void dismissSuggestions() {
+        ActivityChatBinding b = delegate.getBinding();
+        if (b != null && b.rvMentionSuggest != null
+                && b.rvMentionSuggest.getVisibility() == View.VISIBLE) {
+            animateHide(b.rvMentionSuggest);
+        }
+    }
 
-    private void setupRecyclerView() {
-        ActivityChatBinding binding = delegate.getBinding();
+    /** True if the suggestion dropdown is currently visible. */
+    public boolean isShowing() {
+        ActivityChatBinding b = delegate.getBinding();
+        return b != null && b.rvMentionSuggest != null
+                && b.rvMentionSuggest.getVisibility() == View.VISIBLE;
+    }
+
+    public void onDestroy() {
+        ActivityChatBinding b = delegate.getBinding();
+        if (attached && b != null && b.etMessage != null && textWatcher != null) {
+            b.etMessage.removeTextChangedListener(textWatcher);
+        }
+        attached = false;
+    }
+
+    // ── Setup ─────────────────────────────────────────────────────────────
+
+    private void setupRecyclerView(ActivityChatBinding b) {
         suggestAdapter = new MentionSuggestAdapter(
                 delegate.getActivity(),
-                item -> insertMention(item.name));
+                item -> insertMention(b, item.name));
 
         List<MentionSuggestAdapter.MentionItem> items = new ArrayList<>();
         items.add(new MentionSuggestAdapter.MentionItem(
                 partnerUid, partnerName, partnerPhoto));
         suggestAdapter.setItems(items);
 
-        binding.rvMentionSuggest.setLayoutManager(
+        b.rvMentionSuggest.setLayoutManager(
                 new LinearLayoutManager(delegate.getActivity()));
-        binding.rvMentionSuggest.setAdapter(suggestAdapter);
-        binding.rvMentionSuggest.setVisibility(View.GONE);
+        b.rvMentionSuggest.setAdapter(suggestAdapter);
+        b.rvMentionSuggest.setNestedScrollingEnabled(false);
+        b.rvMentionSuggest.setVisibility(View.GONE);
     }
 
-    // ── Text change handling ──────────────────────────────────────────────
+    // ── Text watcher ──────────────────────────────────────────────────────
 
-    private void handleTextChange(CharSequence s, int start, int before, int count) {
-        ActivityChatBinding binding = delegate.getBinding();
-        if (binding == null || binding.rvMentionSuggest == null) return;
-
-        String text = s.toString();
-        int cursorPos = start + count;
-
-        // Detect if we're inside an @word (walk back from cursor)
-        int atIdx = findAtBefore(text, cursorPos);
-        if (atIdx < 0) {
-            // No active @token
-            mentionStart = -1;
-            hideSuggestions();
-            return;
-        }
-
-        mentionStart = atIdx;
-        String prefix = text.substring(atIdx + 1, cursorPos);  // text after "@"
-
-        // Filter suggestion list
-        suggestAdapter.filter(prefix);
-
-        if (suggestAdapter.getItemCount() > 0) {
-            binding.rvMentionSuggest.setVisibility(View.VISIBLE);
-        } else {
-            hideSuggestions();
-        }
+    private TextWatcher buildWatcher(ActivityChatBinding b) {
+        return new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int st, int c, int a) {}
+            @Override public void afterTextChanged(Editable s) {}
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
+                if (b.rvMentionSuggest == null) return;
+                int cursor = start + count;
+                int atIdx  = findAtBefore(s.toString(), cursor);
+                if (atIdx < 0) {
+                    dismissSuggestions();
+                    return;
+                }
+                String prefix = s.subSequence(atIdx + 1, cursor).toString();
+                suggestAdapter.filter(prefix);
+                if (suggestAdapter.getItemCount() > 0) {
+                    animateShow(b.rvMentionSuggest);
+                } else {
+                    dismissSuggestions();
+                }
+            }
+        };
     }
+
+    // ── Detect @-token ────────────────────────────────────────────────────
 
     /**
-     * Walk back from cursorPos to find the most recent "@" that:
-     *   - has no space between it and cursorPos
-     *   - is preceded by start-of-string or a space/newline
-     * Returns the index of "@", or -1 if not in an @word.
+     * Walk backwards from {@code cursorPos} to find a valid {@code @word} start.
+     * Returns the index of {@code @}, or -1 if the cursor is not inside an @word.
+     * Valid: @ is at start-of-string, or preceded by whitespace.
      */
     private int findAtBefore(String text, int cursorPos) {
         for (int i = cursorPos - 1; i >= 0; i--) {
             char c = text.charAt(i);
             if (c == '@') {
-                // Valid start: beginning of string OR preceded by whitespace
-                if (i == 0 || Character.isWhitespace(text.charAt(i - 1))) {
-                    return i;
-                }
-                return -1;
+                return (i == 0 || Character.isWhitespace(text.charAt(i - 1))) ? i : -1;
             }
-            if (Character.isWhitespace(c)) {
-                return -1;   // Space found before reaching "@"
-            }
+            if (Character.isWhitespace(c)) return -1;
         }
         return -1;
     }
 
     // ── Insert mention ────────────────────────────────────────────────────
 
-    private void insertMention(String name) {
-        ActivityChatBinding binding = delegate.getBinding();
-        if (binding == null || binding.etMessage == null) return;
+    private void insertMention(ActivityChatBinding b, String name) {
+        dismissSuggestions();
+        if (b.etMessage == null) return;
 
-        hideSuggestions();
-        mentionStart = -1;
+        Editable ed = b.etMessage.getText();
+        if (ed == null) return;
+        int cursor = b.etMessage.getSelectionEnd();
+        if (cursor < 0) cursor = ed.length();
 
-        Editable editable = binding.etMessage.getText();
-        if (editable == null) return;
-
-        int cursor = binding.etMessage.getSelectionEnd();
-        if (cursor < 0) cursor = editable.length();
-
-        // Find the "@" we started from
-        String current = editable.toString();
+        // Walk back to find the @ that triggered this
         int atIdx = -1;
+        String current = ed.toString();
         for (int i = cursor - 1; i >= 0; i--) {
             if (current.charAt(i) == '@') { atIdx = i; break; }
             if (Character.isWhitespace(current.charAt(i))) break;
@@ -169,29 +176,48 @@ public class ChatMentionController {
 
         String insertion = "@" + name + " ";
         if (atIdx >= 0) {
-            editable.replace(atIdx, cursor, insertion);
-            // Apply blue color span
-            int end = atIdx + name.length() + 1; // +1 for "@"
-            editable.setSpan(
-                    new ForegroundColorSpan(MENTION_COLOR),
-                    atIdx, end,
+            ed.replace(atIdx, cursor, insertion);
+            // Blue span covers "@Name" (not the trailing space)
+            ed.setSpan(new ForegroundColorSpan(MENTION_COLOR),
+                    atIdx, atIdx + name.length() + 1,   // +1 for '@'
                     Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         } else {
-            int pos = editable.length();
-            editable.append(insertion);
-            editable.setSpan(
-                    new ForegroundColorSpan(MENTION_COLOR),
+            int pos = ed.length();
+            ed.append(insertion);
+            ed.setSpan(new ForegroundColorSpan(MENTION_COLOR),
                     pos, pos + name.length() + 1,
                     Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         }
     }
 
-    // ── Visibility ────────────────────────────────────────────────────────
+    // ── Animation ─────────────────────────────────────────────────────────
 
-    private void hideSuggestions() {
-        ActivityChatBinding binding = delegate.getBinding();
-        if (binding != null && binding.rvMentionSuggest != null) {
-            binding.rvMentionSuggest.setVisibility(View.GONE);
-        }
+    private void animateShow(View v) {
+        if (v.getVisibility() == View.VISIBLE) return;
+        v.setVisibility(View.VISIBLE);
+        v.setAlpha(0f);
+        v.setTranslationY(40f);
+        v.animate()
+                .alpha(1f)
+                .translationY(0f)
+                .setDuration(160)
+                .setInterpolator(new DecelerateInterpolator())
+                .start();
+    }
+
+    private void animateHide(View v) {
+        v.animate()
+                .alpha(0f)
+                .translationY(40f)
+                .setDuration(120)
+                .setInterpolator(new DecelerateInterpolator())
+                .setListener(new AnimatorListenerAdapter() {
+                    @Override public void onAnimationEnd(Animator animation) {
+                        v.setVisibility(View.GONE);
+                        v.setAlpha(1f);
+                        v.setTranslationY(0f);
+                    }
+                })
+                .start();
     }
 }
