@@ -4028,6 +4028,32 @@ public class MessageBubbleCanvasView extends View {
      * postInvalidateOnAnimation() — the standard technique for an
      * indeterminate spinner on a custom View without a Handler/ValueAnimator.
      */
+    /**
+     * PERF: the indeterminate spinner's postInvalidateOnAnimation() forces a
+     * *full* onDraw() re-execution of the whole bubble (grid cells, borders,
+     * captions — everything, not just this arc) at up to 60fps for as long
+     * as a download/upload's progress is unknown. Investigated caching this
+     * bubble's static content to a Picture so only the arc redraws live, but
+     * MediaGroupRenderer/MediaRenderer/FileBubbleRenderer would each need
+     * splitting into "static part" + "spinner part" — a real refactor across
+     * three renderer classes that draw the spinner interleaved with their
+     * normal content, not as a separable last step. That's not something to
+     * do blind without a build to verify against, and the most expensive
+     * piece per redraw (BitmapShader/gradient construction) is already
+     * cached at the renderer level per the class javadocs, so the remaining
+     * win is smaller than a full cache would suggest.
+     *
+     * What's safe and still real: a spinner doesn't need 60 redraws/sec to
+     * read as smooth — 30fps is visually indistinguishable for a simple
+     * rotating arc. This field throttles the full-bubble invalidate to
+     * ~30fps, halving how often every other draw call in the bubble
+     * (shaders, captions, borders, all of it) gets re-issued while a
+     * download/upload of unknown progress is in flight. Per-instance (not
+     * static) since each bubble's spinner phase is independent.
+     */
+    private long lastIndeterminateInvalidateUptimeMs = 0L;
+    private static final long INDETERMINATE_INVALIDATE_MIN_INTERVAL_MS = 32L; // ~30fps
+
     void drawProgressRing(Canvas canvas, float cx, float cy, float size, Paint paint, int percent) {
         float r = size / 2f;
         gateIconArcRect.set(cx - r, cy - r, cx + r, cy + r);
@@ -4037,7 +4063,16 @@ public class MessageBubbleCanvasView extends View {
             long now = android.os.SystemClock.uptimeMillis();
             float rotation = (now % INDETERMINATE_PERIOD_MS) / (float) INDETERMINATE_PERIOD_MS * 360f;
             canvas.drawArc(gateIconArcRect, rotation - 90, INDETERMINATE_SWEEP_DEG, false, paint);
-            postInvalidateOnAnimation();
+            long elapsed = now - lastIndeterminateInvalidateUptimeMs;
+            if (elapsed >= INDETERMINATE_INVALIDATE_MIN_INTERVAL_MS) {
+                lastIndeterminateInvalidateUptimeMs = now;
+                postInvalidateOnAnimation();
+            } else {
+                // Not enough time has passed since the last full-bubble
+                // redraw — schedule the next one for exactly when the
+                // throttle window ends, instead of every vsync (~16ms).
+                postInvalidateDelayed(INDETERMINATE_INVALIDATE_MIN_INTERVAL_MS - elapsed);
+            }
         }
     }
 
