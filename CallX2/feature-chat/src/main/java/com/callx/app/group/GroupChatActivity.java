@@ -163,6 +163,8 @@ public class GroupChatActivity extends AppCompatActivity
     //    have this group's chat screen open & foregrounded ────────────────
     private GroupWatchingController watchingController;
     private GroupStarredController  starredController;
+    private com.callx.app.conversation.controllers.ChatSearchController searchController;
+    private com.callx.app.group.GroupMentionController groupMentionController;
 
     // ── Handlers ───────────────────────────────────────────────────────────
     private final android.os.Handler typingHandler  = new android.os.Handler(android.os.Looper.getMainLooper());
@@ -1288,6 +1290,12 @@ public class GroupChatActivity extends AppCompatActivity
         binding.btnCamera.setOnClickListener(v -> imagePicker.launch("image/*"));
         binding.btnSend.setOnClickListener(v -> sendText());
         attachMicGesture();
+
+        // ── @Mention suggest (group) ───────────────────────────────────────
+        groupMentionController = new com.callx.app.group.GroupMentionController(
+                this, binding, groupId, currentUid, currentName,
+                memberNames, memberPhotos);
+        groupMentionController.attach();
 
         // GIF support: Google Keyboard se GIF aane par handle karo
         if (binding.etMessage instanceof GifAwareEditText) {
@@ -2981,7 +2989,9 @@ public class GroupChatActivity extends AppCompatActivity
                 .setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
         menu.add(0, R.id.menu_group_settings, 1, "⚙ Group Settings")
                 .setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
-        menu.add(0, R.id.menu_invite, 2, "🔗 Invite Link")
+        menu.add(0, R.id.action_search, 2, "🔍 Search Messages")
+                .setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
+        menu.add(0, R.id.menu_invite, 3, "🔗 Invite Link")
                 .setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
         menu.add(0, R.id.menu_starred, 3, "⭐ Starred Messages")
                 .setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
@@ -3011,6 +3021,13 @@ public class GroupChatActivity extends AppCompatActivity
             i.putExtra(GroupSettingsActivity.EXTRA_GROUP_ID,   groupId);
             i.putExtra(GroupSettingsActivity.EXTRA_GROUP_NAME, groupName);
             startActivity(i); return true;
+        }
+        if (id == R.id.action_search) {
+            if (searchController == null) {
+                searchController = new com.callx.app.conversation.controllers.ChatSearchController(this);
+            }
+            searchController.openSearch();
+            return true;
         }
         if (id == R.id.menu_invite)      { shareInviteLink(); return true; }
         if (id == R.id.menu_starred) {

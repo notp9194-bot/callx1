@@ -648,6 +648,26 @@
                  FLOATING CAPSULE INPUT BAR — pill shape, subtle elevation,
                  floats above the bottom safe-area over the chat area.
                  ═══════════════════════════════════════════════════════════ -->
+
+            <!-- ═══════════════════════════════════════════════════════════
+                 @MENTION SUGGESTION LIST — slides in above the input capsule
+                 when the user types "@" in the message field.
+                 Shown by ChatMentionController / GroupMentionController.
+                 visibility=gone by default; controller shows/hides it.
+                 ═══════════════════════════════════════════════════════════ -->
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/rv_mention_suggest"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:maxHeight="180dp"
+                android:overScrollMode="never"
+                android:background="@color/surface_input"
+                android:elevation="4dp"
+                android:visibility="gone"
+                android:layout_marginStart="10dp"
+                android:layout_marginEnd="10dp"
+                android:layout_marginBottom="2dp"/>
+
             <com.google.android.material.card.MaterialCardView
                 android:id="@+id/cv_input_capsule"
                 android:layout_width="match_parent"

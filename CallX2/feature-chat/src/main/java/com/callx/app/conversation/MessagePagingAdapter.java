@@ -187,6 +187,24 @@ public class MessagePagingAdapter
     //    bindPresenceOnly() and the payload check in onBindViewHolder().
     static final String PAYLOAD_PRESENCE = "presence";
 
+    // ── Mention pattern — used for @Name blue highlight rendering ────────────
+    private static final java.util.regex.Pattern MENTION_PATTERN =
+            java.util.regex.Pattern.compile("@([\\w.]+)");
+    private static final int MENTION_COLOR = 0xFF1DA1F2;
+
+    // ── Search query — set by ChatSearchController; null = no active search ──
+    private volatile String activeSearchQuery = null;
+
+    /**
+     * Set the current search query so that matching text in visible message
+     * bubbles is highlighted with a yellow background.
+     * Pass null to clear all highlights.
+     */
+    public void setSearchQuery(String query) {
+        activeSearchQuery = (query != null && !query.isEmpty()) ? query : null;
+        notifyDataSetChanged();
+    }
+
     // PERF: Linkify.addLinks() runs several regex passes (URL/phone/email)
     // over the full message text — a real cost on every onBindViewHolder,
     // paid again and again for the very common "scroll away, scroll back"
@@ -3423,6 +3441,53 @@ public class MessagePagingAdapter
                 // measurement of it.)
                 h.tvMessage.setText(displaySpanned);
                 h.textBindToken++;
+
+                // ── @mention blue highlight + search yellow highlight ─────────
+                // Applied AFTER the single setText() so the underlying linkified
+                // spans are already in place. We read the TextView's current text
+                // into a SpannableStringBuilder (preserving link spans), append
+                // our extra spans on top, then do one final setText(). This is
+                // safe because we only reach this branch for text/emoji messages
+                // whose content was just set a line above — no stale state risk.
+                boolean hasMention = txt.contains("@");
+                boolean hasSearch  = activeSearchQuery != null && !activeSearchQuery.isEmpty()
+                                     && txt.toLowerCase(java.util.Locale.getDefault())
+                                            .contains(activeSearchQuery.toLowerCase(java.util.Locale.getDefault()));
+                if (hasMention || hasSearch) {
+                    android.text.SpannableStringBuilder overlay =
+                            new android.text.SpannableStringBuilder(h.tvMessage.getText());
+                    // @mention — blue foreground
+                    if (hasMention) {
+                        java.util.regex.Matcher mm = MENTION_PATTERN.matcher(txt);
+                        while (mm.find()) {
+                            int ms = mm.start(), me = mm.end();
+                            if (ms < overlay.length() && me <= overlay.length()) {
+                                overlay.setSpan(
+                                    new android.text.style.ForegroundColorSpan(MENTION_COLOR),
+                                    ms, me,
+                                    android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                            }
+                        }
+                    }
+                    // Search — yellow background
+                    if (hasSearch) {
+                        String lq = activeSearchQuery.toLowerCase(java.util.Locale.getDefault());
+                        String lt = txt.toLowerCase(java.util.Locale.getDefault());
+                        int si = 0;
+                        while ((si = lt.indexOf(lq, si)) != -1) {
+                            int se = si + lq.length();
+                            if (se <= overlay.length()) {
+                                overlay.setSpan(
+                                    new android.text.style.BackgroundColorSpan(0xFFFFEB3B),
+                                    si, se,
+                                    android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                            }
+                            si = se;
+                        }
+                    }
+                    h.tvMessage.setText(overlay);
+                }
+                // ── end mention/search overlay ─────────────────────────────────
 
                 // ── Link preview (ViewStub lazy inflate) ─────────────────────
                 // BUG FIX (cold-open big bubble / "shrinks on selection"):

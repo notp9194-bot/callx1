@@ -337,6 +337,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     /** Feature 13: View Once / Secret Message controller. */
     private ChatViewOnceController viewOnceController;
     private ChatSearchController   searchController;
+    private com.callx.app.conversation.controllers.ChatMentionController mentionController;
     private ChatThemeController    themeController;
     private ChatExportController   exportController;
     private ChatMediaController    mediaController;
@@ -485,6 +486,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
 
         searchController   = new ChatSearchController(this);
         themeController    = new ChatThemeController(this);
+        // mentionController is initialized later in setupMentionController() once
+        // partnerUid / partnerName / partnerPhoto are known (after profile load).
         exportController   = new ChatExportController(this);
         messageSender      = new ChatMessageSender(this);
         screenshotNotifier = new ChatScreenshotNotifier(this);
@@ -493,6 +496,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         themeController.applyScreenTheme();
         setupPagingRecyclerView();   // RecyclerView + adapter ready (no Room yet)
         setupInputBar();
+        setupMentionController();
         setupSwipeToReply();
         setupFabBackToLatest();
         setupHeaderAutoHide();
@@ -3580,6 +3584,22 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // dismiss the "Replying to X…" snackbar immediately instead of leaving
     // it on screen for a reply that's no longer actually queued up.
     private Snackbar pendingReplySnackbar;
+
+    // ─────────────────────────────────────────────────────────────────────
+    // @MENTION CONTROLLER — 1:1 chat
+    // ─────────────────────────────────────────────────────────────────────
+
+    /**
+     * Initialize and attach the ChatMentionController.
+     * Called after setupInputBar() — partnerUid/partnerName/partnerPhoto are
+     * already populated by readIntentExtras() earlier in onCreate.
+     */
+    private void setupMentionController() {
+        if (partnerUid == null || partnerUid.isEmpty()) return;
+        mentionController = new com.callx.app.conversation.controllers.ChatMentionController(
+                this, partnerUid, partnerName, partnerPhoto);
+        mentionController.attach();
+    }
 
     private void setupSwipeToReply() {
         SwipeReplyHandler handler = new SwipeReplyHandler(this,
