@@ -1635,6 +1635,17 @@ public class MessagePagingAdapter
                                 @Override
                                 public void onResourceReady(@NonNull Bitmap resource,
                                         @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
+                                    // Record the real aspect ratio regardless of
+                                    // whether this holder still shows this image —
+                                    // fast scrolling recycles/rebinds the view long
+                                    // before Glide's callback fires, and without this
+                                    // unconditional write the square-placeholder flash
+                                    // was repeating on every single scroll-past
+                                    // instead of only the image's very first view.
+                                    if (resource.getHeight() > 0) {
+                                        com.callx.app.conversation.canvas.MessageBubbleCanvasView
+                                                .cacheAspectRatio(fullUrl, (float) resource.getWidth() / resource.getHeight());
+                                    }
                                     if (h.canvasBindToken != myToken) return; // holder recycled/rebound since this load started
                                     cv.setMediaBitmap(resource);
                                 }
@@ -1826,6 +1837,15 @@ public class MessagePagingAdapter
                             @Override
                             public void onResourceReady(@NonNull Bitmap resource,
                                     @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
+                                // Same reasoning as the "image" case above: cache
+                                // the real ratio unconditionally so a fast-scroll
+                                // rebind doesn't silently drop this decode's result
+                                // and force the square placeholder to flash again
+                                // next time this video thumb scrolls into view.
+                                if (resource.getHeight() > 0) {
+                                    com.callx.app.conversation.canvas.MessageBubbleCanvasView
+                                            .cacheAspectRatio(vThumbUrl, (float) resource.getWidth() / resource.getHeight());
+                                }
                                 if (h.canvasBindToken != myToken) return;
                                 cv.setMediaBitmap(resource);
                             }
@@ -2320,6 +2340,10 @@ public class MessagePagingAdapter
                                     @Override
                                     public void onResourceReady(@NonNull Bitmap resource,
                                             @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
+                                        if (resource.getHeight() > 0) {
+                                            com.callx.app.conversation.canvas.MessageBubbleCanvasView
+                                                    .cacheAspectRatio(fullUrl, (float) resource.getWidth() / resource.getHeight());
+                                        }
                                         if (h.canvasBindToken != myToken) return;
                                         cv.setMediaBitmap(resource);
                                     }

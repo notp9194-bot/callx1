@@ -902,6 +902,32 @@ public class MessageBubbleCanvasView extends View {
     // pays the one-time square→real transition.
     private static final android.util.LruCache<String, Float> MEDIA_ASPECT_CACHE =
             new android.util.LruCache<>(1000);
+    /**
+     * Lets the adapter's Glide callback record a decoded image/video-thumb's
+     * aspect ratio into MEDIA_ASPECT_CACHE even when the ViewHolder that
+     * started the load has since been recycled/rebound to a different
+     * message (canvasBindToken mismatch) — call this UNCONDITIONALLY from
+     * onResourceReady, before the token check that guards setMediaBitmap().
+     *
+     * Without this, a decode that finishes after its view was recycled
+     * (common during fast scrolling, since Glide's CustomTarget isn't tied
+     * to a View and keeps running after rebind) was being silently
+     * discarded — including the cache write — because the old code only
+     * cached the ratio inside setMediaBitmap(), which itself only runs
+     * when the token still matches. The next time that same image scrolled
+     * back into view, its ratio was "unknown" all over again, so the
+     * square placeholder flashed before correcting itself — every single
+     * time, not just on first-ever view. Decoupling the cache write from
+     * the token check means any successful decode — regardless of which
+     * view happens to still want it — permanently records the ratio, so a
+     * later bind of the same URL/key sizes correctly on its very first
+     * layout pass.
+     */
+    public static void cacheAspectRatio(@Nullable String key, float ratio) {
+        if (key != null && ratio > 0f) {
+            MEDIA_ASPECT_CACHE.put(key, ratio);
+        }
+    }
     // Cache key for the media currently bound to this view (mediaUrl for
     // images, video-thumbnail URL for videos) — set by bindMedia()/
     // bindVideo(), read by setMediaBitmap() to know where to store the
