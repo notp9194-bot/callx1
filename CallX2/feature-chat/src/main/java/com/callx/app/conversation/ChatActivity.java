@@ -2448,7 +2448,25 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     }
 
     static Message entityToModel(MessageEntity e) {
-        return com.callx.app.utils.MessageEntityMapper.toModel(e);
+        Message m = com.callx.app.utils.MessageEntityMapper.toModel(e);
+        // PERF: kick off background StaticLayout precompute here — this
+        // method already runs on ioExecutor (see PagingDataTransforms.map
+        // in attachPagerWithKey()), off the UI thread, before `m` ever
+        // reaches the adapter/paging list. See the cache javadoc in
+        // MessageBubbleCanvasView for the full safety reasoning. Cheap and
+        // safe to call unconditionally — it no-ops for anything not a
+        // plain, non-deleted text message.
+        if (m != null && "text".equals(m.type)) {
+            com.callx.app.conversation.canvas.MessageBubbleCanvasView
+                    .precomputeTextLayoutIfPossible(m.text, Boolean.TRUE.equals(m.deleted));
+        }
+        if (m != null && "poll".equals(m.type) && m.pollOptions != null) {
+            for (String opt : m.pollOptions) {
+                com.callx.app.conversation.canvas.MessageBubbleCanvasView
+                        .precomputePollOptionLayoutIfPossible(opt);
+            }
+        }
+        return m;
     }
 
     private MessageEntity modelToEntity(Message m) {

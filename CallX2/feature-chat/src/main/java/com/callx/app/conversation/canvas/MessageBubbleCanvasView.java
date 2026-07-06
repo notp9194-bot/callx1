@@ -641,6 +641,152 @@ public class MessageBubbleCanvasView extends View {
     final Paint tickPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     final RectF bubbleRect = new RectF();
 
+    // ── PERF: background-precomputed plain-text StaticLayout cache ─────
+    //
+    // ChatActivity#entityToModel() runs on ioExecutor (see
+    // PagingDataTransforms.map(...) in attachPagerWithKey()) — i.e. off
+    // the UI thread, before a message ever reaches the adapter. That's a
+    // free window to build a plain-text message's StaticLayout ahead of
+    // time so onMeasure() below can skip StaticLayout.Builder...build()
+    // (the actual text-shaping/line-breaking cost) during a fast fling
+    // and just reuse the cached result — a plain synchronized HashMap
+    // lookup instead.
+    //
+    // SAFETY — this deliberately avoids the exact bug class described in
+    // MessagePagingAdapter's `asyncTextEnabled` javadoc (a swapped-in
+    // layout disagreeing with what was already on screen): the cache is
+    // only ever populated BEFORE a message reaches the adapter, never
+    // after a view has been bound/shown, and onMeasure() makes exactly
+    // one synchronous choice per bind — cache hit or a fresh build — with
+    // no second pass, ever. The key includes the exact target width, so
+    // a stale/mismatched entry (e.g. the screen rotated between
+    // precompute and bind) is simply a cache miss, which falls back to
+    // the identical StaticLayout.Builder call this code has always used.
+    // Worst case is "no speedup," never wrong content.
+    //
+    // The cache doesn't key on message ID at all — two different messages
+    // with identical text and identical width legitimately produce the
+    // identical StaticLayout, so keying purely on (text, width) is both
+    // simpler and correct, and sidesteps ever having to thread a message
+    // ID through bind()'s signature.
+    //
+    // Each entry owns its own dedicated TextPaint (built fresh, never the
+    // view's shared per-instance `textPaint` field, which elsewhere in
+    // this class doubles as scratch space for file-card name/meta
+    // measurement and the deleted-message italic override) so a cached
+    // layout's appearance can never be affected by an unrelated Paint
+    // mutation happening on some other view or some other code path.
+    // Only plain, non-deleted text bubbles use this cache.
+    private static final int TEXT_LAYOUT_CACHE_CAPACITY = 150;
+    private static final Object sTextLayoutCacheLock = new Object();
+    private static final java.util.LinkedHashMap<String, CachedTextLayout> sTextLayoutCache =
+            new java.util.LinkedHashMap<String, CachedTextLayout>(64, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(
+                        java.util.Map.Entry<String, CachedTextLayout> eldest) {
+                    return size() > TEXT_LAYOUT_CACHE_CAPACITY;
+                }
+            };
+
+    private static final class CachedTextLayout {
+        final StaticLayout layout;
+        CachedTextLayout(StaticLayout layout) { this.layout = layout; }
+    }
+
+    // Self-calibrating: updated from the real onMeasure() below every time
+    // any canvas bubble is actually measured, so background precompute
+    // always targets the width real bubbles are really being built at —
+    // no guessing at padding/margin math from raw display metrics. Stays
+    // -1 (precompute disabled) until at least one real bubble has been
+    // measured this process.
+    private static volatile int sLastKnownMaxTextWidth = -1;
+
+    /**
+     * Call off the UI thread — see the cache javadoc above. Safe to call
+     * for every message unconditionally; it no-ops (and never throws
+     * outward) for anything not eligible.
+     */
+    public static void precomputeTextLayoutIfPossible(String text, boolean deleted) {
+        if (deleted || text == null || text.isEmpty()) return;
+        int width = sLastKnownMaxTextWidth;
+        if (width <= 0) return; // no real bubble measured yet this session
+        String key = text.length() + "_" + text.hashCode() + "_" + width;
+        synchronized (sTextLayoutCacheLock) {
+            if (sTextLayoutCache.containsKey(key)) return;
+        }
+        TextPaint paint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+        paint.setTextSize(sp2pxStatic(TEXT_SIZE_SP));
+        StaticLayout layout;
+        try {
+            layout = StaticLayout.Builder
+                    .obtain(text, 0, text.length(), paint, width)
+                    .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                    .setLineSpacing(0f, 1f)
+                    .setIncludePad(false)
+                    .build();
+        } catch (Exception ex) {
+            // Never let a background precompute failure affect anything —
+            // onMeasure() below simply won't find a cache entry and will
+            // build synchronously exactly as before.
+            return;
+        }
+        synchronized (sTextLayoutCacheLock) {
+            sTextLayoutCache.put(key, new CachedTextLayout(layout));
+        }
+    }
+
+    private static float sp2pxStatic(float sp) {
+        return sp * android.content.res.Resources.getSystem().getDisplayMetrics().scaledDensity;
+    }
+
+    // ── PERF: same idea as the plain-text cache above, for poll option
+    // labels. Even lower-risk than the text-bubble case: pollOptionTextPaint
+    // uses fixed, message-direction-independent colors (POLL_OPTION_TEXT_COLOR),
+    // so a cached layout's appearance never needs any per-bind color fixup —
+    // it's correct as built. The vote percentage/count next to each option
+    // is drawn separately from this cached label layout, so caching the
+    // label text can never show a stale vote count. ──
+    private static final int POLL_OPTION_LAYOUT_CACHE_CAPACITY = 200;
+    private static final Object sPollOptionLayoutCacheLock = new Object();
+    private static final java.util.LinkedHashMap<String, StaticLayout> sPollOptionLayoutCache =
+            new java.util.LinkedHashMap<String, StaticLayout>(64, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(
+                        java.util.Map.Entry<String, StaticLayout> eldest) {
+                    return size() > POLL_OPTION_LAYOUT_CACHE_CAPACITY;
+                }
+            };
+    private static volatile int sLastKnownPollOptionWidth = -1;
+
+    /** Call off the UI thread, same contract as precomputeTextLayoutIfPossible(). */
+    public static void precomputePollOptionLayoutIfPossible(String optionText) {
+        if (optionText == null || optionText.isEmpty()) return;
+        int width = sLastKnownPollOptionWidth;
+        if (width <= 0) return;
+        String key = optionText.length() + "_" + optionText.hashCode() + "_" + width;
+        synchronized (sPollOptionLayoutCacheLock) {
+            if (sPollOptionLayoutCache.containsKey(key)) return;
+        }
+        TextPaint paint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+        paint.setColor(POLL_OPTION_TEXT_COLOR);
+        paint.setTextSize(sp2pxStatic(POLL_OPTION_TEXT_SP));
+        StaticLayout layout;
+        try {
+            layout = StaticLayout.Builder
+                    .obtain(optionText, 0, optionText.length(), paint, width)
+                    .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                    .setMaxLines(2)
+                    .setEllipsize(TextUtils.TruncateAt.END)
+                    .setIncludePad(false)
+                    .build();
+        } catch (Exception ex) {
+            return;
+        }
+        synchronized (sPollOptionLayoutCacheLock) {
+            sPollOptionLayoutCache.put(key, layout);
+        }
+    }
+
     String messageText = "";
     String footerTimeText = "";
     boolean sent = false;
@@ -2657,6 +2803,10 @@ public class MessageBubbleCanvasView extends View {
         int vPad = Math.round(V_PADDING_DP * density);
         int footerHeight = Math.round(spToPx(FOOTER_TEXT_SP) + FOOTER_GAP_DP * density);
         int maxTextWidth = Math.max(1, maxBubbleWidth - hPad * 2);
+        // PERF: keep the background-precompute cache's target width in sync
+        // with what real bubbles are actually being measured at — see the
+        // cache javadoc near the textPaint fields above.
+        sLastKnownMaxTextWidth = maxTextWidth;
 
         // ── Pinned label / group sender-name (+ broadcast badge, which
         // reuses the same row via setGroupSender) / forwarded label — all
@@ -3014,14 +3164,27 @@ public class MessageBubbleCanvasView extends View {
             float iconMar  = POLL_OPTION_ICON_MARGIN_DP * density;
             float pctW     = pollOptionPctPaint.measureText("100%") + iconMar;
             int optTextW   = Math.max(1, innerW - Math.round(POLL_OPTION_PAD_H_DP * density * 2 + iconSz + iconMar + pctW));
+            // PERF: keep the poll-option precompute cache's target width in
+            // sync with what's actually being measured — see the cache
+            // javadoc above.
+            sLastKnownPollOptionWidth = optTextW;
             for (int i = 0; i < n; i++) {
-                pollOptionLayouts[i] = StaticLayout.Builder
-                        .obtain(pollOptions[i], 0, pollOptions[i].length(), pollOptionTextPaint, optTextW)
-                        .setAlignment(Layout.Alignment.ALIGN_NORMAL)
-                        .setMaxLines(2)
-                        .setEllipsize(TextUtils.TruncateAt.END)
-                        .setIncludePad(false)
-                        .build();
+                StaticLayout cachedOption;
+                String optKey = pollOptions[i].length() + "_" + pollOptions[i].hashCode() + "_" + optTextW;
+                synchronized (sPollOptionLayoutCacheLock) {
+                    cachedOption = sPollOptionLayoutCache.get(optKey);
+                }
+                if (cachedOption != null) {
+                    pollOptionLayouts[i] = cachedOption;
+                } else {
+                    pollOptionLayouts[i] = StaticLayout.Builder
+                            .obtain(pollOptions[i], 0, pollOptions[i].length(), pollOptionTextPaint, optTextW)
+                            .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                            .setMaxLines(2)
+                            .setEllipsize(TextUtils.TruncateAt.END)
+                            .setIncludePad(false)
+                            .build();
+                }
             }
 
             // Total height of option rows
@@ -3128,12 +3291,37 @@ public class MessageBubbleCanvasView extends View {
                     + FOOTER_GAP_DP * density
                     + expiryReserveWidth();
 
-            textLayout = StaticLayout.Builder
-                    .obtain(messageText, 0, messageText.length(), textPaint, maxTextWidth)
-                    .setAlignment(Layout.Alignment.ALIGN_NORMAL)
-                    .setLineSpacing(0f, 1f)
-                    .setIncludePad(false)
-                    .build();
+            // PERF: try the background-precomputed cache first (see its
+            // javadoc near the textPaint fields) — skips the
+            // StaticLayout.Builder...build() line-breaking cost entirely
+            // on a hit. Never used for the deleted-message italic style;
+            // that path always builds fresh, exactly as before.
+            CachedTextLayout cachedLayout = null;
+            if (!isDeletedStyle && !messageText.isEmpty()) {
+                String cacheKey = messageText.length() + "_" + messageText.hashCode()
+                        + "_" + maxTextWidth;
+                synchronized (sTextLayoutCacheLock) {
+                    cachedLayout = sTextLayoutCache.get(cacheKey);
+                }
+            }
+            if (cachedLayout != null) {
+                textLayout = cachedLayout.layout;
+                // The cached layout owns its own dedicated TextPaint (never
+                // the shared per-instance `textPaint` field), so it can't
+                // have picked up this message's actual color yet — apply it
+                // once here, before the very first draw. Layout.draw() reads
+                // color live from this same paint reference every frame, so
+                // this one assignment is all that's needed for the lifetime
+                // of this bind.
+                textLayout.getPaint().setColor(textPaint.getColor());
+            } else {
+                textLayout = StaticLayout.Builder
+                        .obtain(messageText, 0, messageText.length(), textPaint, maxTextWidth)
+                        .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                        .setLineSpacing(0f, 1f)
+                        .setIncludePad(false)
+                        .build();
+            }
 
             int textWidth = maxLineWidth(textLayout);
             int lastLineWidth = (int) Math.ceil(textLayout.getLineWidth(textLayout.getLineCount() - 1));

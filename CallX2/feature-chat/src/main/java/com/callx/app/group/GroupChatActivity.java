@@ -1187,6 +1187,19 @@ public class GroupChatActivity extends AppCompatActivity
         m.contactName = e.contactName; m.contactPhone = e.contactPhone;
         m.contactPhone2 = e.contactPhone2; m.contactPhotoUrl = e.contactPhotoUrl;
         m.locationLat = e.locationLat; m.locationLng = e.locationLng; m.locationAddress = e.locationAddress;
+        // PERF: same background StaticLayout precompute as 1:1 ChatActivity
+        // — see MessageBubbleCanvasView's cache javadoc. Safe no-op for
+        // anything not a plain, non-deleted text message.
+        if ("text".equals(m.type)) {
+            com.callx.app.conversation.canvas.MessageBubbleCanvasView
+                    .precomputeTextLayoutIfPossible(m.text, Boolean.TRUE.equals(m.deleted));
+        }
+        if ("poll".equals(m.type) && m.pollOptions != null) {
+            for (String opt : m.pollOptions) {
+                com.callx.app.conversation.canvas.MessageBubbleCanvasView
+                        .precomputePollOptionLayoutIfPossible(opt);
+            }
+        }
         return m;
     }
 
