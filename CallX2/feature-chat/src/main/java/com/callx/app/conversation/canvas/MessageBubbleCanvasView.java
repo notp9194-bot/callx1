@@ -209,9 +209,21 @@ public class MessageBubbleCanvasView extends View {
     static final int SENT_REPLY_TEXT   = 0xDDFFFFFF;
     static final int RECEIVED_REPLY_BG = 0x22000000;
 
-    // ── Image media bubble — mirrors iv_image (180×180dp, centerCrop,
-    // bg_media_card 12dp corner radius) in item_message_sent/received.xml ──
+    // ── Image media bubble — mirrors iv_image (bg_media_card 12dp corner
+    // radius) in item_message_sent/received.xml. As of the WhatsApp/
+    // Telegram-style sizing fix, the slot is no longer a fixed square: its
+    // width/height are derived from the real image's aspect ratio (see
+    // mediaAspectRatio + computeMediaSize()) and only clamped between
+    // MEDIA_MIN_*_DP/MEDIA_MAX_*_DP. MEDIA_SIZE_DP is kept only as the
+    // placeholder square shown before the real dimensions are known (i.e.
+    // before setMediaBitmap() delivers the first decoded Bitmap for this
+    // bind) — matches the old behavior for that brief window instead of
+    // guessing a wrong aspect ratio. ──
     static final float MEDIA_SIZE_DP           = 180f;
+    static final float MEDIA_MAX_WIDTH_DP      = 260f;  // WhatsApp-style cap so a wide landscape photo doesn't swallow the whole row
+    static final float MEDIA_MIN_WIDTH_DP      = 120f;  // floor for a very tall/narrow portrait photo
+    static final float MEDIA_MAX_HEIGHT_DP     = 300f;  // cap for a very tall portrait photo
+    static final float MEDIA_MIN_HEIGHT_DP     = 120f;  // floor for a very wide/short landscape photo
     static final float MEDIA_CORNER_RADIUS_DP  = 12f;
     static final float MEDIA_MARGIN_DP         = 2f;   // gap between media edge and bubble edge
     static final float MEDIA_CAPTION_GAP_DP    = 6f;   // gap between image and caption text
@@ -864,6 +876,17 @@ public class MessageBubbleCanvasView extends View {
     final RectF mediaRect = new RectF();
     final RectF mediaPillRect = new RectF();
     final android.graphics.Matrix mediaShaderMatrix = new android.graphics.Matrix();
+    // Real image width/height ratio (width / height) of the currently bound
+    // media bitmap, used to size mediaRect like WhatsApp/Telegram instead of
+    // a fixed 180dp square. 0f means "unknown yet" (bindMedia() always
+    // resets this — a recycled view must never carry over the previous
+    // message's ratio) — onMeasure()/layout fall back to the legacy square
+    // (MEDIA_SIZE_DP) until setMediaBitmap() supplies the first decoded
+    // Bitmap for this bind and computes the real ratio from it.
+    float mediaAspectRatio = 0f;
+    // Reused scratch output for computeMediaSize() — {width, height} in
+    // px — avoids allocating a new int[2] on every onMeasure()/layout pass.
+    private final int[] mediaSizeOut = new int[2];
     // Reused by drawCornerExpiryPill() below — avoids a `new RectF()` on
     // every draw() for cards (contact/location) that show the floating
     // expiry badge instead of a regular footer.
@@ -1619,6 +1642,13 @@ public class MessageBubbleCanvasView extends View {
         this.isSeenBubble = false;
         this.videoDuration = null;
         this.mediaBitmap = bitmap;
+        // A recycled view must never keep the previous message's aspect
+        // ratio — reset to "unknown" every bind. If a Bitmap is already
+        // available at bind time (e.g. rebinding a view that already had
+        // one), derive the real ratio immediately instead of waiting for
+        // a setMediaBitmap() call that may never come.
+        this.mediaAspectRatio = (bitmap != null && bitmap.getHeight() > 0)
+                ? (float) bitmap.getWidth() / bitmap.getHeight() : 0f;
         this.hasLinkPreview = false; // link-preview card is text-mode-only; a stale flag from a recycled view must not leak in here
         // Cleared fresh on every bind — a recycled holder must not carry a
         // stale gate from whatever RECEIVED image the view last showed;
@@ -1652,10 +1682,28 @@ public class MessageBubbleCanvasView extends View {
         invalidate();
     }
 
-    /** Swap in a decoded Bitmap once an async (Glide) load finishes — no re-measure needed, same fixed image size. */
+    /**
+     * Swap in a decoded Bitmap once an async (Glide) load finishes. Unlike
+     * the old fixed-square slot, the bubble's size now depends on the
+     * image's real aspect ratio, so this recomputes mediaAspectRatio from
+     * the bitmap and — if that's the first time this bind learns the real
+     * ratio (it was still the 0f/"unknown" placeholder) — requests a
+     * relayout so the bubble grows/shrinks from the square placeholder to
+     * its correct WhatsApp-style width/height. A null bitmap (load
+     * cleared/cancelled) intentionally leaves mediaAspectRatio alone so a
+     * recycled cell doesn't snap back to the square placeholder while a
+     * new load for the same rebind is still in flight.
+     */
     public void setMediaBitmap(@Nullable Bitmap bitmap) {
         this.mediaBitmap = bitmap;
         this.staticPictureDirty = true;
+        if (bitmap != null && bitmap.getHeight() > 0) {
+            boolean hadKnownRatio = mediaAspectRatio > 0f;
+            mediaAspectRatio = (float) bitmap.getWidth() / bitmap.getHeight();
+            if (!hadKnownRatio) {
+                requestLayoutIfSizeChanged();
+            }
+        }
         invalidate();
     }
 
@@ -2878,6 +2926,56 @@ public class MessageBubbleCanvasView extends View {
         return gd;
     }
 
+    /**
+     * Computes the image-media slot's width/height in px, WhatsApp/
+     * Telegram-style: derived from the real image's aspect ratio
+     * (mediaAspectRatio) instead of a fixed square, then clamped to
+     * MEDIA_MIN_WIDTH_DP..min(MEDIA_MAX_WIDTH_DP, maxWidthPx) and
+     * MEDIA_MIN_HEIGHT_DP..MEDIA_MAX_HEIGHT_DP. While the ratio is still
+     * unknown (mediaAspectRatio <= 0f — bitmap not decoded yet for this
+     * bind), falls back to the legacy MEDIA_SIZE_DP square so the
+     * placeholder box looks exactly like it always did.
+     *
+     * @param maxWidthPx the bubble's own available content width (same cap
+     *                   text/caption content already respects) — a very
+     *                   wide landscape photo must not force the bubble
+     *                   wider than the chat column allows.
+     * @param outWH      {width, height} written in px.
+     */
+    private void computeMediaSize(int maxWidthPx, int[] outWH) {
+        if (mediaAspectRatio <= 0f) {
+            int square = Math.round(MEDIA_SIZE_DP * density);
+            outWH[0] = square;
+            outWH[1] = square;
+            return;
+        }
+        int maxW = Math.min(Math.round(MEDIA_MAX_WIDTH_DP * density), Math.max(1, maxWidthPx));
+        int minW = Math.min(Math.round(MEDIA_MIN_WIDTH_DP * density), maxW);
+        int minH = Math.round(MEDIA_MIN_HEIGHT_DP * density);
+        int maxH = Math.round(MEDIA_MAX_HEIGHT_DP * density);
+
+        int w, h;
+        if (mediaAspectRatio >= 1f) {
+            // Landscape or square — lead with width, capped at maxW.
+            w = maxW;
+            h = Math.round(w / mediaAspectRatio);
+            if (h < minH) {
+                h = minH;
+                w = Math.round(h * mediaAspectRatio);
+            }
+        } else {
+            // Portrait — lead with height, capped at maxH.
+            h = maxH;
+            w = Math.round(h * mediaAspectRatio);
+            if (w < minW) {
+                w = minW;
+                h = Math.round(w / mediaAspectRatio);
+            }
+        }
+        outWH[0] = Math.max(minW, Math.min(maxW, w));
+        outWH[1] = Math.max(minH, Math.min(maxH, h));
+    }
+
     @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
         int parentWidth = MeasureSpec.getSize(widthMeasureSpec);
@@ -2985,8 +3083,15 @@ public class MessageBubbleCanvasView extends View {
         int bubbleHeight;
 
         if (isMedia) {
-            // ── Image bubble (fixed 180dp square) ──
-            int mediaSize = Math.round(MEDIA_SIZE_DP * density);
+            // ── Image bubble — WhatsApp/Telegram-style dynamic size: the
+            // slot's width/height come from the real image's aspect ratio
+            // (clamped between MEDIA_MIN_*_DP/MEDIA_MAX_*_DP) instead of a
+            // fixed 180dp square, so a portrait photo gets a tall bubble, a
+            // landscape photo gets a wide one, and neither is centerCrop'd
+            // away — see computeMediaSize(). ──
+            computeMediaSize(maxTextWidth, mediaSizeOut);
+            int mediaW = mediaSizeOut[0];
+            int mediaH = mediaSizeOut[1];
             int captionWidth = 0;
             int captionBlockHeight = 0;
 
@@ -3012,13 +3117,13 @@ public class MessageBubbleCanvasView extends View {
             }
 
             bubbleContentWidth = Math.min(
-                    Math.max(mediaSize, Math.max(replyBoxContentWidth, captionWidth)), maxTextWidth);
+                    Math.max(mediaW, Math.max(replyBoxContentWidth, captionWidth)), maxTextWidth);
 
-            // Captionless images get a tight vPad margin around the square;
+            // Captionless images get a tight vPad margin around the image;
             // captioned images get the same margin plus the caption+footer
             // block below (footer overlay is skipped when there's a caption
             // — see onDraw — matching the text-bubble footer placement).
-            bubbleHeight = replyBoxHeight + replyGap + vPad + mediaSize + vPad + captionBlockHeight;
+            bubbleHeight = replyBoxHeight + replyGap + vPad + mediaH + vPad + captionBlockHeight;
 
         } else if (isReelShare) {
             // ── Reel-share card (fixed 165×237dp, bubbleless) ── caption
@@ -3486,9 +3591,14 @@ public class MessageBubbleCanvasView extends View {
         }
 
         if (isMedia) {
-            int mediaSize = Math.round(MEDIA_SIZE_DP * density);
+            // Must mirror onMeasure()'s computeMediaSize() call exactly
+            // (same maxWidthPx input) so mediaRect's size here matches the
+            // width/height the bubble was actually measured for above.
+            computeMediaSize(bubbleContentWidth, mediaSizeOut);
+            int mediaW = mediaSizeOut[0];
+            int mediaH = mediaSizeOut[1];
             float mediaTop = bubbleTop + replyBoxHeight + replyGap + vPad;
-            mediaRect.set(bubbleLeft + hPad, mediaTop, bubbleLeft + hPad + mediaSize, mediaTop + mediaSize);
+            mediaRect.set(bubbleLeft + hPad, mediaTop, bubbleLeft + hPad + mediaW, mediaTop + mediaH);
 
             if (!mediaHasCaption) {
                 float pillPadH = MEDIA_PILL_PADDING_H_DP * density;
@@ -3908,7 +4018,15 @@ public class MessageBubbleCanvasView extends View {
         if (hasReactions) sb.append("|X").append(reactionsText);
 
         if (isMedia) {
-            sb.append("|M").append(mediaHasCaption ? messageText : "");
+            // mediaAspectRatio must be part of the key: it starts at 0f
+            // (unknown, square placeholder) and setMediaBitmap() updates it
+            // in place once the real Bitmap decodes, without any other
+            // field in this signature changing — omitting it here would
+            // make requestLayoutIfSizeChanged() wrongly think nothing
+            // changed and skip the relayout that grows/shrinks the bubble
+            // from the placeholder square to its real WhatsApp-style size.
+            sb.append("|M").append(mediaHasCaption ? messageText : "")
+                    .append('\u0001').append(Math.round(mediaAspectRatio * 1000));
         } else if (isReelShare) {
             sb.append("|RE").append(reelHasCaption ? reelCaptionText : "");
         } else if (isContact) {

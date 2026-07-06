@@ -1,6 +1,5 @@
 package com.callx.app.conversation.controllers;
 
-import android.util.Log;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
@@ -9,7 +8,6 @@ import com.callx.app.db.AppDatabase;
 import com.callx.app.db.entity.MessageEntity;
 import com.callx.app.models.Message;
 import com.callx.app.utils.ChatPrivacyManager;
-import com.callx.app.utils.E2EEncryptionManager;
 import com.callx.app.utils.FirebaseUtils;
 import com.callx.app.utils.PushNotify;
 import com.google.firebase.database.DataSnapshot;
@@ -24,20 +22,8 @@ import java.util.concurrent.Executors;
 /**
  * Handles text-message sending, Firebase push, local-first Room insert,
  * and retry of pending messages on reconnect.
- *
- * E2E ENCRYPTION WIRING:
- * The Room copy of every message (used for the sender's own UI, search,
- * export, etc.) is ALWAYS kept in plaintext — it never leaves the device.
- * Only the copy that goes over the wire to Firebase (`m.text`, `m.caption`,
- * `previewText` used for the contacts "lastMessage" node) is replaced with
- * ciphertext produced by {@link E2EEncryptionManager}. This mirrors the
- * "enc:" prefix / backward-compat design documented on that class: older
- * clients (or a failed key exchange) simply see plaintext, newer clients on
- * both ends see it encrypted end-to-end.
  */
 public class ChatMessageSender {
-
-    private static final String TAG = "ChatMessageSender";
 
     private final ChatActivityDelegate delegate;
 
@@ -108,64 +94,11 @@ public class ChatMessageSender {
         });
 
         if (delegate.isOnline()) {
-            sendOverWire(m, key, previewText);
+            firebasePushMessage(m, key, previewText);
         } else {
             Toast.makeText(delegate.getActivity(),
                     "No connection — message queued", Toast.LENGTH_SHORT).show();
         }
-    }
-
-    // ── E2E encryption gate ────────────────────────────────────────────────
-
-    /**
-     * Encrypts the wire copy of a message (text/caption + the chat-list
-     * preview) with {@link E2EEncryptionManager} before it ever reaches
-     * Firebase, then hands off to {@link #firebasePushMessage}.
-     *
-     * IMPORTANT: this must run BEFORE {@link #firebasePushMessage}, and
-     * AFTER {@link #messageToEntity} has already captured the plaintext for
-     * the local Room row — {@code m} is mutated in place here, which is
-     * safe because the Room entity for this send was built from {@code m}
-     * earlier in {@link #pushMessage} while it was still plaintext.
-     *
-     * Key exchange (ensureKeysExist) is async (first contact does a Firebase
-     * round-trip to fetch the partner's public key; every call after that is
-     * served from the in-memory shared-key cache — see
-     * E2EEncryptionManager#fetchAndCacheSharedKey). If the key exchange or
-     * the encryption itself fails for any reason, we deliberately fall back
-     * to sending plaintext rather than silently dropping the message — the
-     * "enc:" prefix scheme means the receiver handles both cases correctly.
-     */
-    private void sendOverWire(Message m, String key, String previewText) {
-        String currentUid = delegate.getCurrentUid();
-        String partnerUid = delegate.getPartnerUid();
-
-        boolean hasText    = m.text != null && !m.text.isEmpty()
-                && !E2EEncryptionManager.isEncrypted(m.text);
-        boolean hasCaption = m.caption != null && !m.caption.isEmpty()
-                && !E2EEncryptionManager.isEncrypted(m.caption);
-
-        if ((!hasText && !hasCaption)
-                || currentUid == null || currentUid.isEmpty()
-                || partnerUid == null || partnerUid.isEmpty()) {
-            firebasePushMessage(m, key, previewText);
-            return;
-        }
-
-        E2EEncryptionManager e2e = E2EEncryptionManager.getInstance(delegate.getActivity());
-        e2e.ensureKeysExist(currentUid, partnerUid, success -> {
-            if (success) {
-                try {
-                    if (hasText)    m.text    = e2e.encrypt(m.text, partnerUid);
-                    if (hasCaption) m.caption = e2e.encrypt(m.caption, partnerUid);
-                } catch (Exception ex) {
-                    Log.w(TAG, "E2E: encrypt failed, sending plaintext fallback for " + partnerUid, ex);
-                }
-            } else {
-                Log.w(TAG, "E2E: key exchange failed for " + partnerUid + " — sending plaintext fallback");
-            }
-            delegate.runOnMain(() -> firebasePushMessage(m, key, previewText));
-        });
     }
 
     /** Push to Firebase and update Room status to "sent". */
@@ -190,35 +123,13 @@ public class ChatMessageSender {
         String currentUid = delegate.getCurrentUid();
         String partnerUid = delegate.getPartnerUid();
 
-        // E2E: the contacts "lastMessage" node is a preview shown in the
-        // chat list and is stored on Firebase just like the message body,
-        // so encrypt it too — but only opportunistically, using whatever is
-        // ALREADY in the shared-key cache. By the time we get here from
-        // sendOverWire() the key exchange has already completed, so this is
-        // a synchronous, non-blocking, already-cached AES-GCM call. If no
-        // key is cached (e.g. a direct forward path that skipped
-        // sendOverWire, or first-ever contact with this partner) we fall
-        // back to plaintext preview rather than block the send.
-        String wirePreview = previewText;
-        if (previewText != null && !previewText.isEmpty()
-                && !E2EEncryptionManager.isEncrypted(previewText)
-                && currentUid != null && !currentUid.isEmpty()
-                && partnerUid != null && !partnerUid.isEmpty()) {
-            try {
-                E2EEncryptionManager e2e = E2EEncryptionManager.getInstance(delegate.getActivity());
-                wirePreview = e2e.encrypt(previewText, partnerUid);
-            } catch (Exception ex) {
-                // No cached key yet — send the plaintext preview, unchanged.
-            }
-        }
-
         Map<String, Object> myUpd = new HashMap<>();
-        myUpd.put("lastMessage", wirePreview);
+        myUpd.put("lastMessage", previewText);
         myUpd.put("lastTs", ts);
         FirebaseUtils.getContactsRef(currentUid).child(partnerUid).updateChildren(myUpd);
 
         Map<String, Object> theirUpd = new HashMap<>();
-        theirUpd.put("lastMessage", wirePreview);
+        theirUpd.put("lastMessage", previewText);
         theirUpd.put("lastTs", ts);
         FirebaseUtils.getContactsRef(partnerUid).child(currentUid).updateChildren(theirUpd);
 
@@ -232,18 +143,8 @@ public class ChatMessageSender {
                 });
 
         if (!delegate.isMuted()) {
-            // E2E PRIVACY FIX: notifications go through our own HTTP relay
-            // server (Constants.SERVER_URL/notify → FCM), which is NOT part
-            // of the E2E trust boundary — it's a plaintext third-party hop.
-            // Sending the real message text/caption there would defeat the
-            // whole point of encrypting it for Firebase. WhatsApp-style
-            // production behavior: the relay only ever learns a generic,
-            // content-free label (sender name + message "kind"), never the
-            // actual text. The real content is only ever decrypted on the
-            // recipient's device once it reads it from Firebase.
             PushNotify.notifyMessage(partnerUid, currentUid, delegate.getCurrentName(),
-                    delegate.getChatId(), m.id,
-                    PushNotify.contentFreePreview(m.type != null ? m.type : "text"),
+                    delegate.getChatId(), m.id, previewText,
                     m.type != null ? m.type : "text",
                     m.mediaUrl != null ? m.mediaUrl : "");
         }
@@ -298,10 +199,7 @@ public class ChatMessageSender {
                 m.reelShareOwnerPhoto = pe.reelShareOwnerPhoto;
                 String preview = "reel_share".equals(pe.type) ? "📹 Reel"
                                : pe.text != null ? pe.text : "[" + pe.type + "]";
-                // Route through sendOverWire (not firebasePushMessage directly)
-                // so retried messages get E2E-encrypted the same as a fresh
-                // send — pe.text/m.text here is the plaintext Room copy.
-                delegate.runOnMain(() -> sendOverWire(m, pe.id, preview));
+                delegate.runOnMain(() -> firebasePushMessage(m, pe.id, preview));
             }
         });
     }

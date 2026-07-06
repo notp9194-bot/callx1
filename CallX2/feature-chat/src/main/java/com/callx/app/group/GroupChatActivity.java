@@ -1469,13 +1469,8 @@ public class GroupChatActivity extends AppCompatActivity
         upd.put("lastMessageAt", m.timestamp);
         FirebaseUtils.getGroupsRef().child(groupId).updateChildren(upd);
 
-        // E2E PRIVACY FIX: same treatment as 1:1 chat — the notify relay
-        // server is a plaintext third-party hop, so it only ever gets a
-        // generic "kind of message" label, never the real text/caption.
         PushNotify.notifyGroupMessage(groupId, currentUid, currentName,
-                groupName, key,
-                PushNotify.contentFreePreview(m.type != null ? m.type : "text"),
-                m.type != null ? m.type : "text");
+                groupName, key, preview, m.type != null ? m.type : "text");
     }
 
     // v17: Send button offline hone par disable

@@ -77,34 +77,6 @@ public class PushNotify {
         notifyMessage(toUid, fromUid, fromName, chatId, "", "typing…", "typing", "");
     }
 
-    /**
-     * E2E PRIVACY: /notify (and /notify/group) is our own HTTP relay server,
-     * NOT part of the end-to-end trust boundary — it's a plaintext hop
-     * between the sender's device and FCM. Real message text/caption must
-     * never be sent here, or encrypting it for Firebase is pointless.
-     * Callers should pass one of these content-free, type-only labels
-     * instead of the actual message body — mirrors how WhatsApp's servers
-     * only ever see "kind of message", never its content.
-     */
-    public static String contentFreePreview(String type) {
-        if (type == null) return "\uD83D\uDD12 New message";
-        switch (type) {
-            case "image":       return "\uD83D\uDCF7 Photo";
-            case "gif":         return "\uD83C\uDFAC GIF";
-            case "video":       return "\uD83C\uDFA5 Video";
-            case "audio":       return "\uD83C\uDFA4 Voice message";
-            case "file":        return "\uD83D\uDCCE Document";
-            case "poll":        return "\uD83D\uDCCA Poll";
-            case "multi_media": return "\uD83D\uDCF7 Media";
-            case "contact":     return "\uD83D\uDC64 Contact";
-            case "location":    return "\uD83D\uDCCD Location";
-            case "reel_share":
-            case "reel_link":   return "\uD83D\uDCF9 Reel";
-            case "typing":      return "typing…";
-            default:            return "\uD83D\uDD12 New message";
-        }
-    }
-
     // ── Group notify ──────────────────────────────────────────────────────
 
     public static void notifyGroup(String groupId, String fromUid, String fromName,
