@@ -12,8 +12,12 @@ import java.util.concurrent.Executor;
  * Delegate interface exposed by ChatActivity to all controller classes.
  * Controllers call back into the Activity via this interface instead of
  * holding a direct hard reference to ChatActivity.
+ *
+ * Extends {@link ChatSearchController.SearchDelegate} so that any object
+ * already implementing ChatActivityDelegate automatically satisfies the
+ * minimal interface needed by ChatSearchController — no extra wiring needed.
  */
-public interface ChatActivityDelegate {
+public interface ChatActivityDelegate extends ChatSearchController.SearchDelegate {
 
     // ── Binding ────────────────────────────────────────────────────────────
     ActivityChatBinding getBinding();

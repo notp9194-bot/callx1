@@ -3024,7 +3024,19 @@ public class GroupChatActivity extends AppCompatActivity
         }
         if (id == R.id.action_search) {
             if (searchController == null) {
-                searchController = new com.callx.app.conversation.controllers.ChatSearchController(this);
+                // GroupChatActivity does not implement ChatActivityDelegate, so we
+                // supply a minimal SearchDelegate wrapper inline.
+                com.callx.app.conversation.controllers.ChatSearchController.SearchDelegate sd =
+                    new com.callx.app.conversation.controllers.ChatSearchController.SearchDelegate() {
+                        @Override public com.callx.app.chat.databinding.ActivityChatBinding getBinding() { return binding; }
+                        @Override public android.app.Activity getActivity() { return GroupChatActivity.this; }
+                        @Override public com.callx.app.db.AppDatabase getDb() { return db; }
+                        @Override public java.util.concurrent.Executor getIoExecutor() { return ioExecutor; }
+                        @Override public String getChatId() { return groupId; }
+                        @Override public void runOnMain(Runnable r) { runOnUiThread(r); }
+                        @Override public com.callx.app.conversation.MessagePagingAdapter getPagingAdapter() { return pagingAdapter; }
+                    };
+                searchController = new com.callx.app.conversation.controllers.ChatSearchController(sd);
             }
             searchController.openSearch();
             return true;

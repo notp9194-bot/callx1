@@ -1,5 +1,6 @@
 package com.callx.app.conversation.controllers;
 
+import android.app.Activity;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.Editable;
@@ -9,40 +10,72 @@ import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
 
 import com.callx.app.chat.databinding.ActivityChatBinding;
+import com.callx.app.conversation.MessagePagingAdapter;
+import com.callx.app.db.AppDatabase;
 import com.callx.app.db.entity.MessageEntity;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.Executor;
 
 import static android.content.Context.INPUT_METHOD_SERVICE;
 
 /**
  * ChatSearchController — Production-grade in-chat search.
  *
- * Improvements over basic version:
+ * Works for both ChatActivity (1:1) and GroupChatActivity.
+ * Uses a minimal {@link SearchDelegate} so neither activity needs to implement
+ * the full ChatActivityDelegate to get search support.
+ *
+ * Improvements over original:
  *   1. 300ms debounce — no query fired on every keystroke.
  *   2. Bubble highlighting — adapter highlights matched text in yellow.
- *   3. smoothScrollToPosition — adapter scrollToPosition uses LinearSmoothScroller.
- *   4. Works for both ChatActivity (1:1) and GroupChatActivity.
- *   5. Close clears adapter highlights.
- *   6. Minimum 2-char query guard (no flicker on single char).
+ *   3. LinearSmoothScroller — animated scroll to matched message.
+ *   4. Close clears adapter highlights.
+ *   5. Minimum 2-char query guard (no flicker on single char).
  */
 public class ChatSearchController {
 
+    // ── Minimal delegate — only what search actually needs ────────────────
+
+    /**
+     * Minimum surface needed by ChatSearchController.
+     * Both ChatActivity (via ChatActivityDelegate) and GroupChatActivity
+     * implement this directly.
+     */
+    public interface SearchDelegate {
+        ActivityChatBinding  getBinding();
+        Activity             getActivity();
+        AppDatabase          getDb();
+        Executor             getIoExecutor();
+        String               getChatId();
+        void                 runOnMain(Runnable r);
+        MessagePagingAdapter getPagingAdapter();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+
     private static final long DEBOUNCE_MS = 300L;
 
-    private final ChatActivityDelegate delegate;
+    private final SearchDelegate delegate;
 
-    private final List<Integer>  searchMatchPositions = new ArrayList<>();
+    private final List<Integer> searchMatchPositions = new ArrayList<>();
     private int searchCurrentIndex = -1;
 
-    private final Handler   debounceHandler = new Handler(Looper.getMainLooper());
-    private Runnable        pendingSearch   = null;
-    private String          lastQuery       = "";
-    private boolean         searchOpen      = false;
+    private final Handler debounceHandler = new Handler(Looper.getMainLooper());
+    private Runnable      pendingSearch   = null;
+    private String        lastQuery       = "";
+    private boolean       searchOpen      = false;
 
+    /** Constructor that takes the full ChatActivityDelegate (used by ChatActivity). */
     public ChatSearchController(ChatActivityDelegate delegate) {
+        // ChatActivityDelegate extends SearchDelegate so this is safe.
+        this.delegate = delegate;
+    }
+
+    /** Constructor that takes any SearchDelegate (used by GroupChatActivity). */
+    public ChatSearchController(SearchDelegate delegate) {
         this.delegate = delegate;
     }
 
@@ -50,7 +83,7 @@ public class ChatSearchController {
 
     public void openSearch() {
         ActivityChatBinding binding = delegate.getBinding();
-        if (binding.llSearchBar == null) return;
+        if (binding == null || binding.llSearchBar == null) return;
         searchOpen = true;
 
         binding.llSearchBar.setVisibility(View.VISIBLE);
@@ -64,8 +97,7 @@ public class ChatSearchController {
                 @Override public void beforeTextChanged(CharSequence s, int st, int c, int a) {}
                 @Override public void afterTextChanged(Editable s) {}
                 @Override public void onTextChanged(CharSequence s, int st, int b, int c) {
-                    String query = s.toString().trim();
-                    scheduleSearch(query);
+                    scheduleSearch(s.toString().trim());
                 }
             });
 
@@ -93,10 +125,7 @@ public class ChatSearchController {
 
     private void scheduleSearch(String query) {
         cancelPendingSearch();
-        if (query.length() < 2) {
-            clearResults();
-            return;
-        }
+        if (query.length() < 2) { clearResults(); return; }
         if (query.equals(lastQuery)) return;
         pendingSearch = () -> runSearchQuery(query);
         debounceHandler.postDelayed(pendingSearch, DEBOUNCE_MS);
@@ -115,8 +144,10 @@ public class ChatSearchController {
         if (!searchOpen) return;
         lastQuery = query;
         delegate.getIoExecutor().execute(() -> {
+            AppDatabase db = delegate.getDb();
+            if (db == null) return;
             List<MessageEntity> all =
-                    delegate.getDb().messageDao().getMessagesPaged(delegate.getChatId(), 5000, 0);
+                    db.messageDao().getMessagesPaged(delegate.getChatId(), 5000, 0);
             List<Integer> matches = new ArrayList<>();
             String lq = query.toLowerCase(Locale.getDefault());
             for (int i = 0; i < all.size(); i++) {
@@ -132,12 +163,9 @@ public class ChatSearchController {
                 searchMatchPositions.addAll(matches);
                 searchCurrentIndex = matches.isEmpty() ? -1 : matches.size() - 1;
                 updateSearchUI();
-
-                // Tell the adapter to highlight matching text in all bubbles
                 if (delegate.getPagingAdapter() != null) {
                     delegate.getPagingAdapter().setSearchQuery(query);
                 }
-
                 if (!matches.isEmpty()) {
                     smoothScrollToMatch(searchMatchPositions.get(searchCurrentIndex));
                 }
@@ -160,12 +188,9 @@ public class ChatSearchController {
 
     public void navigateSearch(boolean forward) {
         if (searchMatchPositions.isEmpty()) return;
-        if (forward) {
-            searchCurrentIndex = (searchCurrentIndex + 1) % searchMatchPositions.size();
-        } else {
-            searchCurrentIndex = (searchCurrentIndex - 1 + searchMatchPositions.size())
-                                  % searchMatchPositions.size();
-        }
+        searchCurrentIndex = forward
+                ? (searchCurrentIndex + 1) % searchMatchPositions.size()
+                : (searchCurrentIndex - 1 + searchMatchPositions.size()) % searchMatchPositions.size();
         updateSearchUI();
         smoothScrollToMatch(searchMatchPositions.get(searchCurrentIndex));
     }
@@ -179,16 +204,11 @@ public class ChatSearchController {
         if (lm == null) { binding.rvMessages.scrollToPosition(position); return; }
 
         androidx.recyclerview.widget.LinearSmoothScroller scroller =
-                new androidx.recyclerview.widget.LinearSmoothScroller(
-                        delegate.getActivity()) {
-                    @Override
-                    protected int getVerticalSnapPreference() {
-                        return SNAP_TO_START;
-                    }
-                    @Override
-                    protected float calculateSpeedPerPixel(
-                            android.util.DisplayMetrics displayMetrics) {
-                        return 80f / displayMetrics.densityDpi;
+                new androidx.recyclerview.widget.LinearSmoothScroller(delegate.getActivity()) {
+                    @Override protected int getVerticalSnapPreference() { return SNAP_TO_START; }
+                    @Override protected float calculateSpeedPerPixel(
+                            android.util.DisplayMetrics dm) {
+                        return 80f / dm.densityDpi;
                     }
                 };
         scroller.setTargetPosition(position);
@@ -207,8 +227,8 @@ public class ChatSearchController {
             if (binding.btnSearchPrev != null) binding.btnSearchPrev.setVisibility(View.GONE);
             if (binding.btnSearchNext != null) binding.btnSearchNext.setVisibility(View.GONE);
         } else {
-            String label = (searchCurrentIndex + 1) + " / " + searchMatchPositions.size();
-            binding.tvSearchCount.setText(label);
+            binding.tvSearchCount.setText(
+                    (searchCurrentIndex + 1) + " / " + searchMatchPositions.size());
             binding.tvSearchCount.setVisibility(View.VISIBLE);
             if (binding.btnSearchPrev != null) binding.btnSearchPrev.setVisibility(View.VISIBLE);
             if (binding.btnSearchNext != null) binding.btnSearchNext.setVisibility(View.VISIBLE);
