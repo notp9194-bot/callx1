@@ -57,6 +57,22 @@ final class MediaRenderer {
     private final Paint gifBadgeBgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
 
     void draw(Canvas canvas, int hPad, int vPad) {
+        draw(canvas, hPad, vPad, false);
+    }
+
+    /**
+     * @param spinnerHandledSeparately when true, this skips drawing the
+     *        live indeterminate spinner ring itself — the caller is
+     *        recording everything else into a cached Picture and will
+     *        draw just the ring, every frame, via
+     *        drawIndeterminateSpinnerOnly() on top of it. Determinate
+     *        progress (0-100%) is never affected by this flag — it only
+     *        changes on real progress events rather than every frame, so
+     *        it's always drawn here directly, cache or no cache. See
+     *        MessageBubbleCanvasView#drawMediaWithOptionalCache() for the
+     *        full picture (pun intended).
+     */
+    void draw(Canvas canvas, int hPad, int vPad, boolean spinnerHandledSeparately) {
         float r = MessageBubbleCanvasView.MEDIA_CORNER_RADIUS_DP * host.density;
         if (host.mediaBitmap != null) {
             // Rounded-corner centerCrop: scale a BitmapShader so the source
@@ -131,7 +147,7 @@ final class MediaRenderer {
             // spinner/percentage) — same precedent as the group gate: while
             // it's up, the timestamp/tick pill below is skipped entirely
             // (nothing meaningful to show over an unfetched image yet).
-            drawMediaDownloadGate(canvas);
+            drawMediaDownloadGate(canvas, spinnerHandledSeparately);
             return;
         }
 
@@ -209,7 +225,7 @@ final class MediaRenderer {
      * or a live spinner/percentage ring while mediaDownloading is true. See
      * setMediaDownloadGate()/setMediaDownloadProgress().
      */
-    private void drawMediaDownloadGate(Canvas canvas) {
+    private void drawMediaDownloadGate(Canvas canvas, boolean spinnerHandledSeparately) {
         float r = MessageBubbleCanvasView.MEDIA_CORNER_RADIUS_DP * host.density;
         canvas.drawRoundRect(host.mediaRect, r, r, host.mediaGateScrimPaint);
 
@@ -235,7 +251,16 @@ final class MediaRenderer {
         float iconCy = host.mediaGatePillRect.centerY();
 
         if (host.mediaDownloading) {
-            host.drawProgressRing(canvas, iconCx, iconCy, iconSize, host.mediaGatePillIconPaint, host.mediaDownloadProgress);
+            // Determinate progress (>=0) is always drawn here directly —
+            // it only changes on real progress events, not every frame, so
+            // there's no repeated-redraw problem for the cache to solve.
+            // Indeterminate (<0) is skipped here ONLY when the caller is
+            // recording this into a cached Picture (spinnerHandledSeparately);
+            // it will draw the ring itself, live, every frame, via
+            // drawIndeterminateSpinnerOnly() on top of that cached Picture.
+            if (host.mediaDownloadProgress >= 0 || !spinnerHandledSeparately) {
+                host.drawProgressRing(canvas, iconCx, iconCy, iconSize, host.mediaGatePillIconPaint, host.mediaDownloadProgress);
+            }
         } else {
             host.drawGateIcon(canvas, iconCx, iconCy, iconSize, host.mediaGatePillIconPaint);
         }
@@ -245,5 +270,28 @@ final class MediaRenderer {
                     - (host.mediaGatePillTextPaint.ascent() + host.mediaGatePillTextPaint.descent()) / 2f;
             canvas.drawText(label, iconCx + iconSize / 2f + iconGap, textBaselineY, host.mediaGatePillTextPaint);
         }
+    }
+
+    /**
+     * Draws ONLY the live indeterminate spinner ring, at the exact position
+     * the last drawMediaDownloadGate(canvas, true) call computed and stored
+     * in host.mediaGatePillRect. Meant to be called every frame on top of a
+     * cached Picture that has everything else already baked in — see
+     * MessageBubbleCanvasView#drawMediaWithOptionalCache().
+     *
+     * No-ops (draws nothing) unless still actually in the indeterminate-
+     * gated-downloading state — if that state has changed since the cached
+     * Picture was recorded, the caller's own state check already routes
+     * around this method entirely, but the guard here costs nothing and
+     * means this method can never draw a stray ring over content it
+     * doesn't belong on.
+     */
+    void drawIndeterminateSpinnerOnly(Canvas canvas) {
+        if (!host.mediaGated || !host.mediaDownloading || host.mediaDownloadProgress >= 0) return;
+        float iconSize = MessageBubbleCanvasView.GROUP_GATE_PILL_ICON_DP * host.density;
+        float padH = MessageBubbleCanvasView.GROUP_GATE_PILL_PAD_H_DP * host.density;
+        float iconCx = host.mediaGatePillRect.left + padH + iconSize / 2f;
+        float iconCy = host.mediaGatePillRect.centerY();
+        host.drawProgressRing(canvas, iconCx, iconCy, iconSize, host.mediaGatePillIconPaint, host.mediaDownloadProgress);
     }
 }

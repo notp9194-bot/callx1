@@ -1206,6 +1206,81 @@ public class MessageBubbleCanvasView extends View {
     private final FileBubbleRenderer fileBubbleRenderer = new FileBubbleRenderer(this);
     private final LinkPreviewRenderer linkPreviewRenderer = new LinkPreviewRenderer(this);
 
+    // ── PERF: Picture-based static-content cache — scoped narrowly to the
+    // one confirmed repeated-full-redraw case: a single-image/video
+    // bubble's indeterminate download/upload spinner (mediaGated &&
+    // mediaDownloading && mediaDownloadProgress < 0), which calls
+    // postInvalidateOnAnimation() every frame via drawProgressRing(). See
+    // v108/v109's upgrade notes for the investigation that led here —
+    // MediaGroupRenderer's per-cell shaders were already cached, and the
+    // remaining full-bubble redraw during that spinner loop is the actual
+    // cost left to cut.
+    //
+    // Deliberately NOT applied outside that state: RecyclerView doesn't
+    // call onDraw() repeatedly for a bubble with no pending animation on
+    // its own, so there's nothing to gain — or risk — from caching there.
+    // Determinate progress (a real 0-100% value) is excluded from the
+    // cache entirely and always draws directly, since it only changes on
+    // genuine progress events rather than every frame.
+    //
+    // staticPictureDirty defaults true (correct-content-not-yet-cached) and
+    // is explicitly set at every bind*()/setter call site that can change
+    // what this cache would capture (bindMedia, setMediaBitmap,
+    // setMediaDownloadGate, setMediaDownloadProgress,
+    // clearMediaDownloadGate) — cheap enough to over-call everywhere in
+    // doubt. It's also reset to true every time drawMediaWithOptionalCache()
+    // runs in the *non*-cached branch, so the very next indeterminate-spinner
+    // episode always starts from a fresh capture rather than a Picture left
+    // over from whatever the view last showed before recycling.
+    private android.graphics.Picture cachedMediaPicture;
+    private boolean staticPictureDirty = true;
+    private int cachedMediaPictureWidth = -1, cachedMediaPictureHeight = -1;
+
+    /**
+     * Draws a single-image/video bubble, using a cached Picture for
+     * everything except the live spinner ring while (and only while) the
+     * indeterminate download/upload spinner is actively animating. See the
+     * field javadoc above for the full invalidation contract.
+     */
+    private void drawMediaWithOptionalCache(Canvas canvas, int hPad, int vPad) {
+        boolean indeterminateSpinnerActive =
+                mediaGated && mediaDownloading && mediaDownloadProgress < 0;
+        if (!indeterminateSpinnerActive) {
+            mediaRenderer.draw(canvas, hPad, vPad);
+            // Next indeterminate-spinner episode (this bind or a future
+            // one, same or different message after recycling) must always
+            // start from a fresh capture, never reuse whatever was cached
+            // before this non-cached draw happened.
+            staticPictureDirty = true;
+            return;
+        }
+        int w = getWidth(), h = getHeight();
+        if (w <= 0 || h <= 0) {
+            // Not laid out yet — fall back to a direct draw rather than
+            // recording a zero-size Picture.
+            mediaRenderer.draw(canvas, hPad, vPad, true);
+            mediaRenderer.drawIndeterminateSpinnerOnly(canvas);
+            return;
+        }
+        // Extra safety net beyond the explicit dirty-flag call sites: if
+        // this view's own size changed since the Picture was recorded
+        // (e.g. an unrelated relayout mid-download), that's also grounds
+        // to rebuild — a Picture recorded at the old size would either
+        // clip or leave a stale border at the new size.
+        boolean sizeChanged = w != cachedMediaPictureWidth || h != cachedMediaPictureHeight;
+        if (staticPictureDirty || cachedMediaPicture == null || sizeChanged) {
+            if (cachedMediaPicture == null) cachedMediaPicture = new android.graphics.Picture();
+            Canvas pictureCanvas = cachedMediaPicture.beginRecording(w, h);
+            mediaRenderer.draw(pictureCanvas, hPad, vPad, true /* spinnerHandledSeparately */);
+            cachedMediaPicture.endRecording();
+            staticPictureDirty = false;
+            cachedMediaPictureWidth = w;
+            cachedMediaPictureHeight = h;
+        }
+        canvas.drawPicture(cachedMediaPicture);
+        mediaRenderer.drawIndeterminateSpinnerOnly(canvas);
+    }
+
     public MessageBubbleCanvasView(Context ctx) {
         this(ctx, null);
     }
@@ -1529,6 +1604,10 @@ public class MessageBubbleCanvasView extends View {
     public void bindMedia(@Nullable Bitmap bitmap, @Nullable String caption, String timeText,
                            boolean isSent, boolean isRead, boolean isDelivered) {
         this.isMedia = true;
+        // PERF: a recycled view must never replay a Picture cached for
+        // whatever message it showed before this bind — see the field
+        // javadoc near cachedMediaPicture.
+        this.staticPictureDirty = true;
         this.isMediaGroup = false;
         this.isReelShare = false;
         this.isVideoMedia = false;
@@ -1576,6 +1655,7 @@ public class MessageBubbleCanvasView extends View {
     /** Swap in a decoded Bitmap once an async (Glide) load finishes — no re-measure needed, same fixed image size. */
     public void setMediaBitmap(@Nullable Bitmap bitmap) {
         this.mediaBitmap = bitmap;
+        this.staticPictureDirty = true;
         invalidate();
     }
 
@@ -1754,6 +1834,7 @@ public class MessageBubbleCanvasView extends View {
         this.mediaDownloading = downloading;
         this.mediaDownloadProgress = progressPercent;
         this.mediaDownloadLabel = idleLabel != null ? idleLabel : "";
+        this.staticPictureDirty = true;
         invalidate();
     }
 
@@ -1762,6 +1843,7 @@ public class MessageBubbleCanvasView extends View {
         this.mediaGated = true;
         this.mediaDownloading = true;
         this.mediaDownloadProgress = progressPercent;
+        this.staticPictureDirty = true;
         invalidate();
     }
 
@@ -1770,6 +1852,7 @@ public class MessageBubbleCanvasView extends View {
         this.mediaGated = false;
         this.mediaDownloading = false;
         this.mediaDownloadProgress = -1;
+        this.staticPictureDirty = true;
         invalidate();
     }
 
@@ -3716,7 +3799,7 @@ public class MessageBubbleCanvasView extends View {
         } else if (isMediaGroup) {
             mediaGroupRenderer.draw(canvas);
         } else if (isMedia) {
-            mediaRenderer.draw(canvas, hPad, vPad);
+            drawMediaWithOptionalCache(canvas, hPad, vPad);
         } else if (isAudio) {
             audioRenderer.draw(canvas, hPad, vPad);
         } else if (isFileBubble) {
