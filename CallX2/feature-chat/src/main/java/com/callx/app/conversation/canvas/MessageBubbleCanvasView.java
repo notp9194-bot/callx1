@@ -214,11 +214,17 @@ public class MessageBubbleCanvasView extends View {
     // Telegram-style sizing fix, the slot is no longer a fixed square: its
     // width/height are derived from the real image's aspect ratio (see
     // mediaAspectRatio + computeMediaSize()) and only clamped between
-    // MEDIA_MIN_*_DP/MEDIA_MAX_*_DP. MEDIA_SIZE_DP is kept only as the
-    // placeholder square shown before the real dimensions are known (i.e.
-    // before setMediaBitmap() delivers the first decoded Bitmap for this
-    // bind) — matches the old behavior for that brief window instead of
-    // guessing a wrong aspect ratio. ──
+    // MEDIA_MIN_*_DP/MEDIA_MAX_*_DP. The real ratio is now known
+    // synchronously for every message carrying Message.mediaWidth/
+    // mediaHeight (captured once at send time — see ChatMediaController /
+    // ImageCompressor / VideoCompressor), so the vast majority of binds —
+    // including a message's very first-ever appearance — size correctly on
+    // the first layout pass with zero placeholder flash. Only messages
+    // sent before that metadata existed, whose image also isn't already in
+    // MEDIA_ASPECT_CACHE, fall back to FALLBACK_ASPECT_RATIO (4:3, see
+    // computeMediaSize()) for one layout pass until setMediaBitmap()
+    // supplies the real decoded Bitmap. MEDIA_SIZE_DP is no longer read by
+    // computeMediaSize() and is kept only for reference/back-compat.
     static final float MEDIA_SIZE_DP           = 180f;
     static final float MEDIA_MAX_WIDTH_DP      = 260f;  // WhatsApp-style cap so a wide landscape photo doesn't swallow the whole row
     static final float MEDIA_MIN_WIDTH_DP      = 120f;  // floor for a very tall/narrow portrait photo
@@ -3041,34 +3047,40 @@ public class MessageBubbleCanvasView extends View {
      *                   wider than the chat column allows.
      * @param outWH      {width, height} written in px.
      */
+    // Fallback aspect for the rare case where mediaAspectRatio is truly
+    // unknown (a message sent before mediaWidth/mediaHeight metadata
+    // existed, AND this exact URL has never been decoded before in this
+    // process — so MEDIA_ASPECT_CACHE has nothing either). 4:3 is a much
+    // closer average-photo guess than a hard 1:1 square, so even this
+    // last-resort placeholder doesn't look like a generic box. Once the
+    // real bitmap decodes, setMediaBitmap() relayouts to the true ratio
+    // exactly as before — this only changes what the one-time fallback
+    // looks like, not the underlying flow.
+    private static final float FALLBACK_ASPECT_RATIO = 4f / 3f;
+
     private void computeMediaSize(int maxWidthPx, int[] outWH) {
-        if (mediaAspectRatio <= 0f) {
-            int square = Math.round(MEDIA_SIZE_DP * density);
-            outWH[0] = square;
-            outWH[1] = square;
-            return;
-        }
+        float ratio = mediaAspectRatio > 0f ? mediaAspectRatio : FALLBACK_ASPECT_RATIO;
         int maxW = Math.min(Math.round(MEDIA_MAX_WIDTH_DP * density), Math.max(1, maxWidthPx));
         int minW = Math.min(Math.round(MEDIA_MIN_WIDTH_DP * density), maxW);
         int minH = Math.round(MEDIA_MIN_HEIGHT_DP * density);
         int maxH = Math.round(MEDIA_MAX_HEIGHT_DP * density);
 
         int w, h;
-        if (mediaAspectRatio >= 1f) {
+        if (ratio >= 1f) {
             // Landscape or square — lead with width, capped at maxW.
             w = maxW;
-            h = Math.round(w / mediaAspectRatio);
+            h = Math.round(w / ratio);
             if (h < minH) {
                 h = minH;
-                w = Math.round(h * mediaAspectRatio);
+                w = Math.round(h * ratio);
             }
         } else {
             // Portrait — lead with height, capped at maxH.
             h = maxH;
-            w = Math.round(h * mediaAspectRatio);
+            w = Math.round(h * ratio);
             if (w < minW) {
                 w = minW;
-                h = Math.round(w / mediaAspectRatio);
+                h = Math.round(w / ratio);
             }
         }
         outWH[0] = Math.max(minW, Math.min(maxW, w));
