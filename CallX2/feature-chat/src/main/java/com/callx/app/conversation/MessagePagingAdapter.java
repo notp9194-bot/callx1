@@ -2078,15 +2078,28 @@ public class MessagePagingAdapter
 
             String mapsKey = com.callx.app.conversation.controllers.ChatLocationShareController.getMapsApiKey();
             if (mapsKey != null && !mapsKey.isEmpty() && lat != 0) {
-                String thumbUrl = String.format(java.util.Locale.US,
+                final String thumbUrl = String.format(java.util.Locale.US,
                         "https://maps.googleapis.com/maps/api/staticmap"
                         + "?center=%.6f,%.6f&zoom=15&size=400x200&markers=%.6f,%.6f&key=%s",
                         lat, lng, lat, lng, mapsKey);
+                // PERF: same in-memory decoded-Bitmap pool used for media/reel
+                // thumbnails above — a Glide disk-cache hit still pays a
+                // decode + host-lookup cost, so check the pool first. The
+                // static-map URL is a stable, unique key per lat/lng (fixed
+                // zoom/size), so scroll-back to the same location bubble is
+                // an instant pool hit with zero network/disk/decode work.
+                Bitmap locPoolHit = DECODED_BITMAP_CACHE.get(thumbUrl);
+                if (locPoolHit != null && !locPoolHit.isRecycled()) {
+                    cv.setLocationMapBitmap(locPoolHit);
+                } else {
                 glide(ctx).asBitmap().load(thumbUrl).apply(THUMB_RGB565)
                         .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
                             @Override
                             public void onResourceReady(@NonNull Bitmap resource,
                                     @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
+                                // PERF: store for scroll-back reuse regardless
+                                // of whether this holder still shows this bubble
+                                DECODED_BITMAP_CACHE.put(thumbUrl, resource);
                                 if (h.canvasBindToken != myToken) return;
                                 cv.setLocationMapBitmap(resource);
                             }
@@ -2096,6 +2109,7 @@ public class MessagePagingAdapter
                                 cv.setLocationMapBitmap(null);
                             }
                         });
+                }
             }
         } else if (isAudio) {
             // Mirrors the legacy "audio" case (ll_audio/btn_play_pause/

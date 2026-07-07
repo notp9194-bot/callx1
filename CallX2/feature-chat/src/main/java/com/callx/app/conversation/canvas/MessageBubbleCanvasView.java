@@ -1232,6 +1232,12 @@ public class MessageBubbleCanvasView extends View {
     float pollHeaderRowH  = 0f;
     float pollSubtitleH   = 0f;
     float pollTotalCardH  = 0f;
+    // PERF: scratch objects reused every PollRenderer.draw() call instead of
+    // `new RectF()`/`new Path()` per option per frame — draw() runs on every
+    // onDraw(), so these used to allocate on every scroll frame a poll
+    // bubble was visible for. See PollRenderer.draw()'s option-row loop.
+    final RectF pollFillRectScratch = new RectF();
+    final android.graphics.Path pollFillClipPath = new android.graphics.Path();
     // Paints (initialised in constructor)
     final Paint     pollOptionBgPaint    = new Paint(Paint.ANTI_ALIAS_FLAG);
     final Paint     pollFillPaint        = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -2070,13 +2076,38 @@ public class MessageBubbleCanvasView extends View {
         invalidate(audioDirtyRect);
     }
 
-    /** Same bar-height generation AudioWaveformView.generateLevels() uses — a stable seed always produces the same "waveform" shape. */
+    // ── PERF: audio-waveform bar-height cache ───────────────────────────
+    // generateAudioLevels() is deterministic (same seed → same bars), so a
+    // voice-message bubble scrolled off-screen and back used to redo the
+    // exact same Random-loop every single bindAudio() for no reason. Same
+    // pattern as sTextLayoutCache/sPollOptionLayoutCache above: a capped
+    // LinkedHashMap keyed on (seed, count) so a different bar-count request
+    // can never collide with a cached array built for another count.
+    private static final int AUDIO_LEVELS_CACHE_CAPACITY = 120;
+    private static final Object sAudioLevelsCacheLock = new Object();
+    private static final java.util.LinkedHashMap<String, float[]> sAudioLevelsCache =
+            new java.util.LinkedHashMap<String, float[]>(48, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(java.util.Map.Entry<String, float[]> eldest) {
+                    return size() > AUDIO_LEVELS_CACHE_CAPACITY;
+                }
+            };
+
+    /** Same bar-height generation AudioWaveformView.generateLevels() uses — a stable seed always produces the same "waveform" shape. Cached by (seed, count) so scroll-back reuses the array instead of regenerating it. */
     private static float[] generateAudioLevels(@Nullable String seed, int count) {
+        String key = (seed == null ? "" : seed) + "_" + count;
+        synchronized (sAudioLevelsCacheLock) {
+            float[] hit = sAudioLevelsCache.get(key);
+            if (hit != null) return hit;
+        }
         long s = (seed == null || seed.isEmpty()) ? 0L : seed.hashCode();
         java.util.Random r = new java.util.Random(s);
         float[] out = new float[count];
         for (int i = 0; i < count; i++) {
             out[i] = 0.25f + r.nextFloat() * 0.7f;
+        }
+        synchronized (sAudioLevelsCacheLock) {
+            sAudioLevelsCache.put(key, out);
         }
         return out;
     }

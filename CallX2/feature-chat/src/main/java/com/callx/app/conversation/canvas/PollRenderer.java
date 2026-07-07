@@ -94,8 +94,21 @@ final class PollRenderer {
         float innerW   = right - left;
 
         float rowTop = subTop + host.pollSubtitleH + MessageBubbleCanvasView.POLL_OPTIONS_GAP_DP * host.density;
-        host.pollOptionRects.clear();
         int n = host.pollOptions.length;
+
+        // ── PERF: reuse RectF objects instead of clear()+new every draw() ──
+        // draw() runs on every onDraw() (i.e. every scroll frame a poll
+        // bubble is on-screen), not just on measure/bind. The old
+        // clear()+add(new RectF(...)) allocated n fresh RectF objects per
+        // frame per visible poll — real GC churn during a fling with
+        // several polls on screen. host.pollOptionRects now keeps one RectF
+        // per option and this just mutates them in place; the list is only
+        // grown/shrunk (never per-frame-reallocated) when the option count
+        // itself changes, which bindPoll() already gates behind a
+        // requestLayoutIfSizeChanged() check.
+        while (host.pollOptionRects.size() < n) host.pollOptionRects.add(new RectF());
+        while (host.pollOptionRects.size() > n) host.pollOptionRects.remove(host.pollOptionRects.size() - 1);
+
         // Compute fill widths
         for (int i = 0; i < n; i++) {
             float pct = (host.pollTotal > 0) ? (host.pollCounts[i] * 1f / host.pollTotal) : 0f;
@@ -106,8 +119,8 @@ final class PollRenderer {
             StaticLayout optLayout = (i < host.pollOptionLayouts.length) ? host.pollOptionLayouts[i] : null;
             float txtH = optLayout != null ? optLayout.getHeight() : 0f;
             float rowH = Math.max(txtH, optIconSz) + optPadV * 2;
-            RectF rowRect = new RectF(left, rowTop, right, rowTop + rowH);
-            host.pollOptionRects.add(new RectF(rowRect));
+            RectF rowRect = host.pollOptionRects.get(i);
+            rowRect.set(left, rowTop, right, rowTop + rowH);
 
             boolean isMyVote = (i < host.pollMyVote.length) && host.pollMyVote[i];
             boolean isLeader = (i < host.pollIsLeader.length) && host.pollIsLeader[i];
@@ -121,13 +134,15 @@ final class PollRenderer {
             if (fillW > 0f) {
                 int fillColor = isMyVote ? (isLeader ? MessageBubbleCanvasView.POLL_OPTION_FILL_LEADER : MessageBubbleCanvasView.POLL_OPTION_FILL_COLOR) : MessageBubbleCanvasView.POLL_OPTION_FILL_NEUTRAL;
                 host.pollFillPaint.setColor(fillColor);
-                RectF fillRect = new RectF(left, rowTop, left + fillW, rowTop + rowH);
-                // Clip fill to row's rounded rect path
+                // PERF: reuse host's scratch RectF/Path instead of `new` per
+                // option per frame (was 2 allocations × option-count × every
+                // draw() call while any poll bubble was on screen/fling).
+                host.pollFillRectScratch.set(left, rowTop, left + fillW, rowTop + rowH);
                 canvas.save();
-                android.graphics.Path fp = new android.graphics.Path();
-                fp.addRoundRect(rowRect, optCorner, optCorner, android.graphics.Path.Direction.CW);
-                canvas.clipPath(fp);
-                canvas.drawRect(fillRect, host.pollFillPaint);
+                host.pollFillClipPath.reset();
+                host.pollFillClipPath.addRoundRect(rowRect, optCorner, optCorner, android.graphics.Path.Direction.CW);
+                canvas.clipPath(host.pollFillClipPath);
+                canvas.drawRect(host.pollFillRectScratch, host.pollFillPaint);
                 canvas.restore();
             }
 
