@@ -147,8 +147,19 @@ public final class AlertDialogStyler {
         if (btn == null) return;
 
         btn.setBackground(new CanvasButtonDrawable(colorForButtonText(btn.getText())));
+        // Material/AppCompat auto-applies a backgroundTintList to every
+        // Button inflated inside an AppCompatActivity (even framework
+        // AlertDialog buttons — the activity's LayoutInflater intercepts
+        // them). That tint recolors whatever background we set via a
+        // PorterDuff filter, which is why the canvas drawable's color
+        // wasn't visibly changing. Clearing it lets our color through.
+        btn.setBackgroundTintList(null);
+        btn.setStateListAnimator(null);
         btn.setTextColor(Color.WHITE);
         btn.setAllCaps(false);
+        int padH = Math.round(20 * btn.getResources().getDisplayMetrics().density);
+        int padV = Math.round(8 * btn.getResources().getDisplayMetrics().density);
+        btn.setPadding(padH, padV, padH, padV);
 
         android.view.ViewGroup.LayoutParams lp = btn.getLayoutParams();
         if (lp instanceof android.widget.LinearLayout.LayoutParams) {
