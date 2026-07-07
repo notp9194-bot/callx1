@@ -295,7 +295,7 @@ public class MessageBubbleCanvasView extends View {
     // Stacked directly below the pinned-label/group-sender row (same
     // constraintTop_toBottomOf relationship the legacy layout uses). ──
     static final float FORWARDED_LABEL_TEXT_SP = 11f;
-    static final int   FORWARDED_LABEL_COLOR   = 0xFF888888;
+    static final int   FORWARDED_LABEL_COLOR   = 0xFF4A9B8E; // COLOR: soft brand-teal tint (was flat 0xFF888888 grey)
 
     // ── Deleted-message placeholder — mirrors bindMessage()'s
     // tvMessage.setAlpha(0.6f) treatment for "This message was deleted" /
@@ -617,7 +617,8 @@ public class MessageBubbleCanvasView extends View {
     static final int   POLL_OPTION_BG             = 0x1AFFFFFF;
     static final int   POLL_OPTION_VOTED_BG       = 0x1F5B5BF6;
     static final int   POLL_OPTION_FILL_COLOR     = 0x3D5B5BF6;
-    static final int   POLL_OPTION_FILL_LEADER    = 0x5C5B5BF6;
+    static final int   POLL_OPTION_FILL_LEADER    = 0x662FA843; // COLOR: distinct green accent for the leading option (was a darker shade of the same indigo — indistinguishable at a glance)
+    static final int   POLL_LEADER_STROKE_COLOR   = 0xFF2FA843; // COLOR: matching stroke so the leading option's border pops too
     static final int   POLL_OPTION_FILL_NEUTRAL   = 0x26FFFFFF;
     static final int   POLL_OPTION_TEXT_COLOR     = 0xFFFFFFFF;
     static final int   POLL_OPTION_PCT_COLOR      = 0xCCFFFFFF;
@@ -1487,12 +1488,15 @@ public class MessageBubbleCanvasView extends View {
         // just statically drawn since Canvas has no ripple drawable) +
         // stroked double-chevron glyph, same visual family as the legacy
         // ic_forward_msg drawable.
-        forwardBtnBgPaint.setColor(0x14000000);
+        // COLOR: icon now uses the brand teal (same family as the audio
+        // play button/waveform) instead of flat grey — set once here in the
+        // constructor, so it's still zero per-bind/per-frame cost.
+        forwardBtnBgPaint.setColor(0x1F008069);
         forwardBtnIconPaint.setStyle(Paint.Style.STROKE);
         forwardBtnIconPaint.setStrokeWidth(1.6f * density);
         forwardBtnIconPaint.setStrokeCap(Paint.Cap.ROUND);
         forwardBtnIconPaint.setStrokeJoin(Paint.Join.ROUND);
-        forwardBtnIconPaint.setColor(0xFF757575);
+        forwardBtnIconPaint.setColor(0xFF008069);
 
 
         reactionsTextPaint.setTextSize(spToPx(REACTIONS_TEXT_SP));
@@ -1505,6 +1509,9 @@ public class MessageBubbleCanvasView extends View {
         groupSenderPaint.setTextSize(spToPx(GROUP_SENDER_TEXT_SP));
         groupSenderPaint.setFakeBoldText(true);
 
+        // COLOR: forwarded label gets a soft brand-teal tint instead of
+        // plain grey, so "↪ Forwarded from X" reads as a distinct, on-brand
+        // signal rather than blending into disabled/muted-looking grey text.
         forwardedPaint.setTextSize(spToPx(FORWARDED_LABEL_TEXT_SP));
         forwardedPaint.setColor(FORWARDED_LABEL_COLOR);
         forwardedPaint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.ITALIC));
@@ -1995,13 +2002,18 @@ public class MessageBubbleCanvasView extends View {
         textPaint.setColor(ChatThemeManager.get(ctx).getTextColor(ctx, sent));
         footerPaint.setColor(textPaint.getColor());
         tickPaint.setColor(ChatThemeManager.get(ctx).getTickColor(read));
-        // Waveform colors derive from the bubble's own text color so they
+        // Waveform idle bars derive from the bubble's own text color so they
         // stay readable on both a colored sent bubble and a light received
         // one (the legacy AudioWaveformView hardcoded white-based colors,
         // which only worked on the sent/dark side — this fixes that).
         audioWaveformIdlePaint.setColor(textPaint.getColor());
         audioWaveformIdlePaint.setAlpha(90);
-        audioWaveformPlayedPaint.setColor(textPaint.getColor());
+        // COLOR: played portion now uses the same brand teal as the
+        // play/pause button (AUDIO_BTN_BG_COLOR) instead of a plain opaque
+        // version of the idle color — matches WhatsApp's own played-progress
+        // treatment and reads clearly against both the light-green/white and
+        // dark-teal/charcoal bubble backgrounds.
+        audioWaveformPlayedPaint.setColor(AUDIO_BTN_BG_COLOR);
         audioWaveformPlayedPaint.setAlpha(255);
         audioDurPaint.setColor(textPaint.getColor());
         audioDurPaint.setAlpha(180);

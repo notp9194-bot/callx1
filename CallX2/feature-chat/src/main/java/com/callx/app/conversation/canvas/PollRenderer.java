@@ -132,7 +132,12 @@ final class PollRenderer {
             // Fill bar (progress)
             float fillW = (i < host.pollFillWidths.length) ? host.pollFillWidths[i] : 0f;
             if (fillW > 0f) {
-                int fillColor = isMyVote ? (isLeader ? MessageBubbleCanvasView.POLL_OPTION_FILL_LEADER : MessageBubbleCanvasView.POLL_OPTION_FILL_COLOR) : MessageBubbleCanvasView.POLL_OPTION_FILL_NEUTRAL;
+                // COLOR: leading option now always gets the accent fill (was
+                // only shown when it was also *your* vote — most votes were
+                // rendered in the same flat indigo as everything else, so
+                // the leader was invisible at a glance).
+                int fillColor = isLeader ? MessageBubbleCanvasView.POLL_OPTION_FILL_LEADER
+                        : (isMyVote ? MessageBubbleCanvasView.POLL_OPTION_FILL_COLOR : MessageBubbleCanvasView.POLL_OPTION_FILL_NEUTRAL);
                 host.pollFillPaint.setColor(fillColor);
                 // PERF: reuse host's scratch RectF/Path instead of `new` per
                 // option per frame (was 2 allocations × option-count × every
@@ -146,8 +151,17 @@ final class PollRenderer {
                 canvas.restore();
             }
 
-            // Stroke
-            host.pollStrokePaint.setColor(isMyVote ? MessageBubbleCanvasView.POLL_VOTED_STROKE_COLOR : MessageBubbleCanvasView.POLL_STROKE_COLOR);
+            // Stroke — COLOR: leading option gets its own green accent
+            // border (still overridden by the voted-green when it's also
+            // your vote, so a mine+leading option isn't drawn twice-green
+            // in two slightly different shades).
+            if (isMyVote) {
+                host.pollStrokePaint.setColor(MessageBubbleCanvasView.POLL_VOTED_STROKE_COLOR);
+            } else if (isLeader) {
+                host.pollStrokePaint.setColor(MessageBubbleCanvasView.POLL_LEADER_STROKE_COLOR);
+            } else {
+                host.pollStrokePaint.setColor(MessageBubbleCanvasView.POLL_STROKE_COLOR);
+            }
             canvas.drawRoundRect(rowRect, optCorner, optCorner, host.pollStrokePaint);
 
             // Radio / check icon (simple circle outline for radio, filled dot for selected)
