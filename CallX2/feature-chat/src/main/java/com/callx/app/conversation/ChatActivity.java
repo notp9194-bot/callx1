@@ -2003,6 +2003,23 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     private MediatorLiveData<PagingData<Message>> pagingMediator;
     private LiveData<PagingData<Message>> currentPagingLiveSource;
 
+    // LIVE-UPDATE FIX: reference to whichever MessageKeysetPagingSource
+    // instance is CURRENTLY backing the live Pager (see attachPagerWithKey's
+    // factory lambda, which updates this on every new instance Paging3
+    // creates — including the ones it creates internally after a prior
+    // invalidate()). severPagingIfAtBottom()/reanchorPagingToBottom() call
+    // .invalidate() on this instead of tearing down/rebuilding the whole
+    // Pager — invalidate() is the correct, lightweight Paging3 API for
+    // "the data changed, please reload," and (unlike a full Pager rebuild)
+    // it does NOT reset the RemoteMediator or the LiveData/Transformations
+    // pipeline, so the adapter's AsyncPagingDataDiffer just quietly diffs
+    // the refreshed page against what's already on screen — no visible
+    // "whole list rebuilding" moment, and messages actually show up live
+    // again (a bare no-op here — the previous fix — silenced the flicker
+    // by never refreshing anything at all, which is why sends/receives
+    // stopped appearing until the chat was reopened).
+    private volatile com.callx.app.db.paging.MessageKeysetPagingSource currentKeysetSource;
+
     // PERF FIX: guards startPostponedContentTransition() so it only ever
     // actually resumes the transition once, no matter how many of the
     // trigger points below fire (warm-cache hit, first real Paging load,
@@ -2078,7 +2095,17 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 new PagingConfig(PAGE_SIZE, PREFETCH_DIST, false, INITIAL_LOAD),
                 initialKey,
                 new com.callx.app.db.paging.MessageRemoteMediator(chatRepository, chatId, PAGE_SIZE),
-                () -> new com.callx.app.db.paging.MessageKeysetPagingSource(db.messageDao(), chatId, PAGE_SIZE)
+                () -> {
+                    com.callx.app.db.paging.MessageKeysetPagingSource src =
+                            new com.callx.app.db.paging.MessageKeysetPagingSource(db.messageDao(), chatId, PAGE_SIZE);
+                    // Paging3 calls this factory again on its own every time
+                    // the previous source is invalidated (manually via
+                    // reanchorPagingToBottom() below, or from any other
+                    // invalidation path) — always keep the reference pointed
+                    // at whichever instance is actually live right now.
+                    currentKeysetSource = src;
+                    return src;
+                }
         );
         currentPagingLiveSource = Transformations.map(
                 PagingLiveData.getLiveData(pager),
@@ -2110,46 +2137,42 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     }
 
     /**
-     * FLICKER FIX (root cause of "whole chat re-renders on every send/
-     * receive"): this used to tear down the entire Pager/LiveData/
-     * transform pipeline (attachPagerWithKey → new Pager → new
-     * PagingSource → re-run map()+insertSeparators() → submitData()) on
-     * literally every single write — every message you send does BOTH an
-     * insertMessage("pending") write AND a later updateStatus("sent")
-     * write, and every incoming message does one via
-     * flushPendingRoomWrites(). That's 2–3 full Pager rebuilds per
-     * message, each one presenting an entirely new PagingData generation
-     * to the adapter — visually that reads as the whole RecyclerView
-     * rebinding at once, even though the actual message content barely
-     * changed.
+     * FLICKER FIX + LIVE-UPDATE FIX (see currentKeysetSource's field doc for
+     * the full story): this used to tear down the entire Pager/LiveData/
+     * transform pipeline on every single write (2–3 times per message —
+     * insertMessage("pending"), updateStatus("sent"), and every incoming
+     * flushPendingRoomWrites()), which is what made the whole chat look
+     * like it was rebuilding on every send/receive. A bare no-op fixed
+     * that but silently broke live updates entirely, since
+     * MessageKeysetPagingSource is a hand-written RxPagingSource (not a
+     * Room-generated one) — Room's InvalidationTracker never automatically
+     * refreshes it, so NOTHING was telling Paging3 to reload after a write
+     * once the manual teardown was removed. New messages only appeared
+     * after leaving and reopening the chat, which rebuilds the whole
+     * pipeline fresh in onCreate().
      *
-     * That teardown/rebuild dance was only ever needed to force REFRESH to
-     * land on the newest page instead of wherever Room's default
-     * anchor-preserving getRefreshKey() would land. MessageKeysetPagingSource
-     * no longer has that problem — its getRefreshKey() unconditionally
-     * returns null, so REFRESH always means "most recent page" (see its
-     * class doc), REGARDLESS of whether that refresh comes from us
-     * rebuilding the Pager or from Room's own InvalidationTracker firing
-     * automatically on the SAME PagingSource. So the manual sever+rebuild
-     * is now pure overhead with no correctness benefit — removing it lets
-     * Room's normal (cheap, incremental) auto-refresh do the same job
-     * without nuking the whole pipeline every message.
-     *
-     * Kept as a no-op (rather than deleted) since ChatActivityDelegate /
-     * ChatMessageSender still call these around every write; returning
-     * false here just means "don't rebuild anything," which is now always
-     * the right answer.
+     * The actual fix: call invalidate() on the specific PagingSource
+     * instance that's currently live (see reanchorPagingToBottom() below)
+     * instead of severing/rebuilding anything. invalidate() is exactly the
+     * API Paging3 expects for "the underlying data changed, please
+     * reload" — it reuses the SAME Pager/RemoteMediator/LiveData chain
+     * (no visible reset), and MessageKeysetPagingSource.getRefreshKey()
+     * unconditionally returns null, so the reload this triggers always
+     * lands on the newest page regardless of what triggered it.
      */
     @Override
     public boolean severPagingIfAtBottom() {
-        return false;
+        return isUserAtBottom;
     }
 
-    /** No-op — see severPagingIfAtBottom() above. Room's own invalidation
-     *  refresh already lands on the latest page every time. */
+    /** Call from ANY thread, AFTER a live write commits, when
+     *  severPagingIfAtBottom() returned true for that same write. See its
+     *  doc above — this just invalidates the current PagingSource instance
+     *  instead of rebuilding the whole Pager. */
     @Override
     public void reanchorPagingToBottom() {
-        // Intentionally empty.
+        com.callx.app.db.paging.MessageKeysetPagingSource src = currentKeysetSource;
+        if (src != null) src.invalidate();
     }
 
     private void startRealtimeListenerEarly() {

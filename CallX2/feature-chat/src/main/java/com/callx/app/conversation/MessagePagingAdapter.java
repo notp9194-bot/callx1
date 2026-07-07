@@ -1484,6 +1484,18 @@ public class MessagePagingAdapter
                 && com.callx.app.conversation.controllers.ChatViewOnceController.isExpired(m);
         final boolean isViewOnceWaiting = isViewOnceMsg && !isViewOnceExpiredState && sent;
 
+        // ── Quick Forward Button — media/link messages pe dikhao ──────────
+        // Mirrors the legacy btnQuickForward.setVisibility() rule (see
+        // bindMessage() above) — same message types, plus "gif" (canvas-only
+        // type, added after that legacy list was written). Never shown for
+        // deleted placeholders, view-once cards, seen-bubbles, or call-entry
+        // pills — none of those were forwardable in the legacy path either.
+        boolean showFwd = !isDeleted && !isViewOnceMsg && !isSeen && !isCallEntry
+                && (isImage || isVideo || isAudio || isFile || isReelShare || isMultiMedia || isGif
+                    || ("text".equals(type) && m.text != null
+                        && (m.text.contains("http://") || m.text.contains("https://"))));
+        cv.setQuickForwardVisible(showFwd);
+
         if (isDeleted) {
             // Mirrors bindMessage()'s deleted-message branch: always the
             // plain-text placeholder, regardless of the message's original
@@ -2406,6 +2418,11 @@ public class MessagePagingAdapter
             @Override
             public void onReactionsClick() {
                 if (actionListener != null) actionListener.onReactionTap(m);
+            }
+
+            @Override
+            public void onForwardClick() {
+                if (actionListener != null) actionListener.onForward(m);
             }
 
             @Override

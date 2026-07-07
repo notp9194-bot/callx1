@@ -1075,6 +1075,23 @@ public class MessageBubbleCanvasView extends View {
     float groupSenderBaselineY = 0;
     float forwardedBaselineY = 0;
 
+    // ── Quick-forward icon button — mirrors legacy btn_quick_forward
+    // (item_message_sent/received.xml): a small circular tap target that
+    // sits just OUTSIDE the bubble — to the LEFT of a sent bubble, to the
+    // RIGHT of a received one — vertically centered against it. Adapter
+    // decides visibility (media/link messages only, same rule as the
+    // legacy btnQuickForward.setVisibility() check) via
+    // setQuickForwardVisible(); position is recomputed every onMeasure()
+    // pass from bubbleRect/bubbleLeft, same as every other overlay here. ──
+    boolean showForwardBtn = false;
+    final RectF forwardBtnRect = new RectF();
+    static final float FORWARD_BTN_SIZE_DP   = 30f;
+    static final float FORWARD_BTN_MARGIN_DP = 2f;
+    final Paint forwardBtnBgPaint   = new Paint(Paint.ANTI_ALIAS_FLAG);
+    final Paint forwardBtnIconPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    final android.graphics.Path forwardIconPath = new android.graphics.Path();
+
+
     // ── Deleted-message placeholder style — only affects the plain-text
     // path (bind()); caller substitutes the placeholder string itself. ──
     boolean isDeletedStyle = false;
@@ -1458,6 +1475,19 @@ public class MessageBubbleCanvasView extends View {
         mediaPillBgPaint.setColor(MEDIA_PILL_BG);
         mediaPillTextPaint.setColor(MEDIA_PILL_TEXT);
         mediaPillTextPaint.setTextSize(spToPx(FOOTER_TEXT_SP));
+
+        // Quick-forward icon button — faint circular tap-target background
+        // (mirrors selectableItemBackgroundBorderless's ripple footprint,
+        // just statically drawn since Canvas has no ripple drawable) +
+        // stroked double-chevron glyph, same visual family as the legacy
+        // ic_forward_msg drawable.
+        forwardBtnBgPaint.setColor(0x14000000);
+        forwardBtnIconPaint.setStyle(Paint.Style.STROKE);
+        forwardBtnIconPaint.setStrokeWidth(1.6f * density);
+        forwardBtnIconPaint.setStrokeCap(Paint.Cap.ROUND);
+        forwardBtnIconPaint.setStrokeJoin(Paint.Join.ROUND);
+        forwardBtnIconPaint.setColor(0xFF757575);
+
 
         reactionsTextPaint.setTextSize(spToPx(REACTIONS_TEXT_SP));
         reactionsTextPaint.setShadowLayer(2f * density, 0f, 1f * density, REACTIONS_SHADOW_COLOR);
@@ -2955,6 +2985,25 @@ public class MessageBubbleCanvasView extends View {
     }
 
     /**
+     * Shows/hides the quick-forward icon button that sits just outside the
+     * bubble (see forwardBtnRect's field doc). Adapter should pass the same
+     * "media/link message" condition the legacy btnQuickForward.setVisibility()
+     * check used — this method only toggles/repositions, it doesn't decide
+     * eligibility itself. Position is recomputed from bubbleRect on the
+     * very next onMeasure() pass, same as every other overlay in this view.
+     * Always call this every bind (true or false) — a recycled view
+     * otherwise keeps the previous message's button state.
+     */
+    public void setQuickForwardVisible(boolean visible) {
+        // Always invalidate (not just on a boolean flip) — this is a fresh
+        // bind for a (possibly) different message, and the button's
+        // position depends on bubbleRect, which can move even when
+        // showForwardBtn itself stays true across binds.
+        this.showForwardBtn = visible;
+        invalidate();
+    }
+
+    /**
      * Switch the plain-text bubble into the deleted-message placeholder
      * look — italic + 60% alpha, matching bindMessage()'s
      * tvMessage.setAlpha(0.6f) treatment for "This message was deleted" /
@@ -4147,6 +4196,10 @@ public class MessageBubbleCanvasView extends View {
             drawForwardedLabel(canvas);
         }
 
+        if (showForwardBtn) {
+            drawForwardButton(canvas);
+        }
+
         int hPad = Math.round(H_PADDING_DP * density);
         int vPad = Math.round(V_PADDING_DP * density);
 
@@ -4228,6 +4281,50 @@ public class MessageBubbleCanvasView extends View {
         // constraintTop_toBottomOf tv_sender_name + constraintStart_toEndOf
         // the (unused) avatar in item_message_received.xml.
         canvas.drawText(forwardedText, bubbleRect.left, forwardedBaselineY, forwardedPaint);
+    }
+
+    /**
+     * Draws the quick-forward icon button in the gutter just outside the
+     * bubble — LEFT of a sent bubble, RIGHT of a received one, vertically
+     * centered against bubbleRect — mirroring legacy btn_quick_forward's
+     * layout_constraintEnd_toStartOf/layout_constraintStart_toEndOf
+     * @id/ll_bubble + top/bottom-constrained-to-ll_bubble centering.
+     * Recomputed from the current bubbleRect on every draw (rather than
+     * only in onMeasure) so it always tracks the latest completed layout
+     * pass regardless of whether THIS particular bind triggered a fresh
+     * relayout (see requestLayoutIfSizeChanged()'s doc — a same-size
+     * rebind skips onMeasure entirely, and this button's visibility can
+     * change independently of bubble size).
+     */
+    private void drawForwardButton(Canvas canvas) {
+        float btnSize = FORWARD_BTN_SIZE_DP * density;
+        float btnMargin = FORWARD_BTN_MARGIN_DP * density;
+        float cy = bubbleRect.top + bubbleRect.height() / 2f;
+        if (sent) {
+            float right = bubbleRect.left - btnMargin;
+            forwardBtnRect.set(right - btnSize, cy - btnSize / 2f, right, cy + btnSize / 2f);
+        } else {
+            float left = bubbleRect.right + btnMargin;
+            forwardBtnRect.set(left, cy - btnSize / 2f, left + btnSize, cy + btnSize / 2f);
+        }
+
+        float cx = forwardBtnRect.centerX();
+        float r = forwardBtnRect.width() / 2f;
+        canvas.drawCircle(cx, cy, r, forwardBtnBgPaint);
+
+        // Double-chevron "forward" glyph (»), same visual family as the
+        // legacy ic_forward_msg drawable — always points the same
+        // direction regardless of which side the button sits on, since
+        // forwarding isn't spatially tied to sent/received.
+        float w = r * 0.9f, h = r * 0.95f;
+        forwardIconPath.reset();
+        forwardIconPath.moveTo(cx - w * 0.6f, cy - h * 0.5f);
+        forwardIconPath.lineTo(cx - w * 0.1f, cy);
+        forwardIconPath.lineTo(cx - w * 0.6f, cy + h * 0.5f);
+        forwardIconPath.moveTo(cx, cy - h * 0.5f);
+        forwardIconPath.lineTo(cx + w * 0.5f, cy);
+        forwardIconPath.lineTo(cx, cy + h * 0.5f);
+        canvas.drawPath(forwardIconPath, forwardBtnIconPaint);
     }
 
     // Width to reserve in the footer row for the "⏳ mm:ss" expiry countdown
@@ -4588,6 +4685,12 @@ public class MessageBubbleCanvasView extends View {
 
     @Override
     public boolean onTouchEvent(MotionEvent event) {
+        if (showForwardBtn && event.getActionMasked() == MotionEvent.ACTION_UP
+                && forwardBtnRect.contains(event.getX(), event.getY())) {
+            cancelPendingLongPress(event);
+            if (clickListener != null) clickListener.onForwardClick();
+            return true;
+        }
         if (isEdited && event.getActionMasked() == MotionEvent.ACTION_UP
                 && footerTextRect.contains(event.getX(), event.getY())) {
             // Tapped the "✏️ edited" tag inside the footer timestamp —

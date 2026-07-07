@@ -54,4 +54,8 @@ public interface OnBubbleClickListener {
      *  caller should open the reel or the status viewer, same as the legacy tap listeners on
      *  ll_bubble/fl_reel_seen_thumb / fl_status_seen_thumb (whole card and thumbnail both open it). */
     default void onSeenBubbleClick() {}
+    /** Tapped the quick-forward icon button that sits just outside the bubble
+     *  (setQuickForwardVisible only) — caller should forward this message,
+     *  same as the legacy btn_quick_forward click listener. */
+    default void onForwardClick() {}
 }
