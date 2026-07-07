@@ -3575,38 +3575,16 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
 
     private void showMessageInfoDialog(Message m) {
         if (m == null) return;
-        // Launch dedicated MessageInfoActivity instead of an alert dialog.
-        Intent info = new Intent(this, MessageInfoActivity.class);
-        info.putExtra(MessageInfoActivity.EXTRA_TEXT,           m.text           != null ? m.text           : "");
-        info.putExtra(MessageInfoActivity.EXTRA_TYPE,           m.type           != null ? m.type           : "text");
-        info.putExtra(MessageInfoActivity.EXTRA_STATUS,         m.status         != null ? m.status         : "sent");
-        info.putExtra(MessageInfoActivity.EXTRA_TIMESTAMP,      m.timestamp      != null ? m.timestamp      : 0L);
-        info.putExtra(MessageInfoActivity.EXTRA_DELIVERED_AT,   m.deliveredAt    != null ? m.deliveredAt    : 0L);
-        info.putExtra(MessageInfoActivity.EXTRA_READ_AT,        m.readAt         != null ? m.readAt         : 0L);
-        String mediaUrl = m.mediaUrl != null ? m.mediaUrl : (m.imageUrl != null ? m.imageUrl : "");
-        info.putExtra(MessageInfoActivity.EXTRA_MEDIA_URL,      mediaUrl);
-        info.putExtra(MessageInfoActivity.EXTRA_THUMBNAIL_URL,  m.thumbnailUrl   != null ? m.thumbnailUrl   : "");
-        info.putExtra(MessageInfoActivity.EXTRA_FORWARDED_FROM, m.forwardedFrom  != null ? m.forwardedFrom  : "");
-        int mediaCount = (m.mediaItems != null) ? m.mediaItems.size() : 0;
-        info.putExtra(MessageInfoActivity.EXTRA_MEDIA_COUNT, mediaCount);
-        startActivity(info);
-        // ─── PERF FIX: TRANSITION DECOUPLING ───────────────────────────────
-        // ChatActivity has setExitTransition(Slide(END)) which, without this
-        // override, fires on EVERY startActivity() call — including here.
-        // That Slide animation runs at the same time the RecyclerView's
-        // LAYER_TYPE_HARDWARE fling optimisation is active, causing two
-        // competing GPU-layer compositing operations on a single frame →
-        // visible jank / flicker in the chat list.
-        //
-        // overridePendingTransition(incoming=slide_up, outgoing=0):
-        //   • MessageInfoActivity slides in from the bottom (bottom-sheet feel)
-        //   • THIS window (ChatActivity) does NOT animate — it stays frozen
-        //   • No Slide(END) fires, no hardware-layer conflict, no jank
-        //
-        // The mirror call (incoming=0, outgoing=slide_down) lives in
-        // MessageInfoActivity.finishWithAnimation(), so the return trip is
-        // equally jank-free.
-        overridePendingTransition(R.anim.msg_info_slide_in_bottom, 0);
+        java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("dd MMM yyyy, hh:mm a", java.util.Locale.getDefault());
+        String sentTime = (m.timestamp != null && m.timestamp > 0) ? sdf.format(new java.util.Date(m.timestamp)) : "Unknown";
+        String statusLabel = m.status != null ? m.status : "unknown";
+        String typeLabel   = m.type   != null ? m.type   : "text";
+        String info = "Sent:  " + sentTime + "\nStatus:  " + statusLabel
+                + "\nType:  " + typeLabel + "\nTo:  " + (partnerName != null ? partnerName : partnerUid);
+        com.callx.app.utils.AlertDialogStyler.showRounded(
+            new AlertDialog.Builder(this).setTitle("\u2139 Message Info").setMessage(info)
+                .setPositiveButton("OK", null).create(),
+                com.callx.app.utils.AlertDialogStyler.DialogSize.WIDE);
     }
 
     // ─────────────────────────────────────────────────────────────────────
