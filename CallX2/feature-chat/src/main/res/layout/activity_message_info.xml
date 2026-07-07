@@ -1,0 +1,363 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  activity_message_info.xml
+  Dedicated "Message info" screen for 1-on-1 chat messages.
+  Shows the message preview (text bubble / image / video / media-group / audio / file)
+  and below it the per-status rows:
+      ✓  Sent        — grey single tick  (always visible)
+      ✓✓ Delivered   — grey double tick  (visible when delivered or read)
+      ✓✓ Seen        — blue double tick  (visible when read)
+-->
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/surface_bg">
+
+    <!-- ── Toolbar ─────────────────────────────────────────────── -->
+    <androidx.appcompat.widget.Toolbar
+        android:id="@+id/toolbar_msg_info"
+        android:layout_width="match_parent"
+        android:layout_height="?attr/actionBarSize"
+        android:background="@color/bar_background"
+        android:elevation="4dp"
+        app:title="Message info"
+        app:titleTextColor="@color/bar_on_background"
+        app:navigationIcon="@drawable/ic_back"
+        app:navigationContentDescription="Back" />
+
+    <!-- ── Scrollable body ────────────────────────────────────── -->
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:fillViewport="true">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <!-- ── Message preview (chat-wallpaper area) ────── -->
+            <FrameLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@color/surface_chat_bg"
+                android:paddingTop="24dp"
+                android:paddingBottom="24dp"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:minHeight="140dp">
+
+                <!-- Text / Audio / File bubble — shown for non-media types -->
+                <LinearLayout
+                    android:id="@+id/ll_text_bubble"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="end"
+                    android:maxWidth="280dp"
+                    android:orientation="vertical"
+                    android:background="@drawable/bg_msg_info_text_bubble"
+                    android:paddingStart="12dp"
+                    android:paddingEnd="12dp"
+                    android:paddingTop="8dp"
+                    android:paddingBottom="8dp"
+                    android:visibility="gone">
+
+                    <!-- Forwarded label -->
+                    <TextView
+                        android:id="@+id/tv_forwarded_label"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="↪ Forwarded"
+                        android:textSize="11sp"
+                        android:textStyle="italic"
+                        android:textColor="#888888"
+                        android:layout_marginBottom="4dp"
+                        android:visibility="gone" />
+
+                    <!-- File / Audio icon row -->
+                    <LinearLayout
+                        android:id="@+id/ll_file_row"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginBottom="6dp"
+                        android:visibility="gone">
+
+                        <TextView
+                            android:id="@+id/tv_file_icon"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="📎"
+                            android:textSize="28sp" />
+
+                        <TextView
+                            android:id="@+id/tv_file_label"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="8dp"
+                            android:textColor="@color/bubble_sent_text"
+                            android:textSize="13sp"
+                            android:maxWidth="200dp"
+                            android:ellipsize="end"
+                            android:maxLines="1" />
+
+                    </LinearLayout>
+
+                    <!-- Message text -->
+                    <TextView
+                        android:id="@+id/tv_msg_text"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textColor="@color/bubble_sent_text"
+                        android:textSize="15sp"
+                        android:lineSpacingExtra="2dp"
+                        android:visibility="gone" />
+
+                </LinearLayout>
+
+                <!-- Image / Video / Sticker / Media-group preview -->
+                <FrameLayout
+                    android:id="@+id/fl_media_preview"
+                    android:layout_width="220dp"
+                    android:layout_height="220dp"
+                    android:layout_gravity="end"
+                    android:background="@drawable/bg_media_card"
+                    android:clipToOutline="true"
+                    android:visibility="gone">
+
+                    <ImageView
+                        android:id="@+id/iv_msg_media"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:scaleType="centerCrop"
+                        android:contentDescription="Media preview" />
+
+                    <!-- Video play icon overlay -->
+                    <ImageView
+                        android:id="@+id/iv_play_overlay"
+                        android:layout_width="52dp"
+                        android:layout_height="52dp"
+                        android:layout_gravity="center"
+                        android:src="@drawable/ic_play"
+                        android:alpha="0.85"
+                        android:visibility="gone"
+                        android:contentDescription="Play video" />
+
+                    <!-- Media-group count badge -->
+                    <TextView
+                        android:id="@+id/tv_media_count_badge"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="bottom|end"
+                        android:layout_margin="8dp"
+                        android:background="@drawable/bg_media_timestamp"
+                        android:paddingStart="8dp"
+                        android:paddingEnd="8dp"
+                        android:paddingTop="2dp"
+                        android:paddingBottom="2dp"
+                        android:textColor="#FFFFFF"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:visibility="gone" />
+
+                    <!-- Forwarded badge over media -->
+                    <TextView
+                        android:id="@+id/tv_media_forwarded"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="top|start"
+                        android:layout_margin="8dp"
+                        android:background="@drawable/bg_media_timestamp"
+                        android:paddingStart="8dp"
+                        android:paddingEnd="8dp"
+                        android:paddingTop="2dp"
+                        android:paddingBottom="2dp"
+                        android:text="↪ Forwarded"
+                        android:textColor="#FFFFFF"
+                        android:textSize="11sp"
+                        android:textStyle="italic"
+                        android:visibility="gone" />
+
+                </FrameLayout>
+
+            </FrameLayout>
+
+            <!-- Top divider -->
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="@color/divider" />
+
+            <!-- ── Status rows card ────────────────────────── -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:background="@color/surface_card">
+
+                <!-- ── Seen row (blue ✓✓) — visible when read ── -->
+                <LinearLayout
+                    android:id="@+id/ll_row_seen"
+                    android:layout_width="match_parent"
+                    android:layout_height="64dp"
+                    android:orientation="horizontal"
+                    android:paddingStart="20dp"
+                    android:paddingEnd="20dp"
+                    android:gravity="center_vertical"
+                    android:visibility="gone">
+
+                    <ImageView
+                        android:layout_width="22dp"
+                        android:layout_height="22dp"
+                        android:src="@drawable/ic_info_double_tick_blue"
+                        android:contentDescription="Seen" />
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:layout_marginStart="18dp">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Seen"
+                            android:textColor="@color/text_primary"
+                            android:textSize="15sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:id="@+id/tv_seen_time"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:textColor="@color/text_secondary"
+                            android:textSize="12sp"
+                            android:layout_marginTop="1dp" />
+
+                    </LinearLayout>
+
+                </LinearLayout>
+
+                <!-- Seen / Delivered divider -->
+                <View
+                    android:id="@+id/divider_seen_delivered"
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:layout_marginStart="60dp"
+                    android:background="@color/divider"
+                    android:visibility="gone" />
+
+                <!-- ── Delivered row (grey ✓✓) ── -->
+                <LinearLayout
+                    android:id="@+id/ll_row_delivered"
+                    android:layout_width="match_parent"
+                    android:layout_height="64dp"
+                    android:orientation="horizontal"
+                    android:paddingStart="20dp"
+                    android:paddingEnd="20dp"
+                    android:gravity="center_vertical"
+                    android:visibility="gone">
+
+                    <ImageView
+                        android:layout_width="22dp"
+                        android:layout_height="22dp"
+                        android:src="@drawable/ic_info_double_tick_grey"
+                        android:contentDescription="Delivered" />
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:layout_marginStart="18dp">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Delivered"
+                            android:textColor="@color/text_primary"
+                            android:textSize="15sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:id="@+id/tv_delivered_time"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:textColor="@color/text_secondary"
+                            android:textSize="12sp"
+                            android:layout_marginTop="1dp" />
+
+                    </LinearLayout>
+
+                </LinearLayout>
+
+                <!-- Delivered / Sent divider -->
+                <View
+                    android:id="@+id/divider_delivered_sent"
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:layout_marginStart="60dp"
+                    android:background="@color/divider"
+                    android:visibility="gone" />
+
+                <!-- ── Sent row (grey ✓) — always visible ── -->
+                <LinearLayout
+                    android:id="@+id/ll_row_sent"
+                    android:layout_width="match_parent"
+                    android:layout_height="64dp"
+                    android:orientation="horizontal"
+                    android:paddingStart="20dp"
+                    android:paddingEnd="20dp"
+                    android:gravity="center_vertical">
+
+                    <ImageView
+                        android:layout_width="22dp"
+                        android:layout_height="22dp"
+                        android:src="@drawable/ic_info_single_tick_grey"
+                        android:contentDescription="Sent" />
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:layout_marginStart="18dp">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Sent"
+                            android:textColor="@color/text_primary"
+                            android:textSize="15sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:id="@+id/tv_sent_time"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:textColor="@color/text_secondary"
+                            android:textSize="12sp"
+                            android:layout_marginTop="1dp" />
+
+                    </LinearLayout>
+
+                </LinearLayout>
+
+            </LinearLayout>
+
+            <!-- Bottom divider -->
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="@color/divider" />
+
+        </LinearLayout>
+
+    </ScrollView>
+
+</LinearLayout>

@@ -88,6 +88,9 @@
                       android:host="callx-server.onrender.com"/>
             </intent-filter>
         </activity>
+        <activity android:name="com.callx.app.conversation.MessageInfoActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
         <activity android:name=".activities.ChatActivity"     android:exported="false"
             android:resizeableActivity="true"
             android:supportsPictureInPicture="true"

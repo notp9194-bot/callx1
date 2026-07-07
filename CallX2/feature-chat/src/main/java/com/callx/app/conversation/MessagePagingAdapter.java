@@ -1027,9 +1027,16 @@ public class MessagePagingAdapter
                     bindStatusTick(h, m);
                 }
                 if (h.canvasView != null) {
-                    boolean isRead = "read".equals(m.status);
-                    boolean isDelivered = isRead || "delivered".equals(m.status);
-                    h.canvasView.setDeliveryStatus(isRead, isDelivered);
+                    String s = m.status != null ? m.status : "sent";
+                    if (("read".equals(s) || "seen".equals(s))
+                            && !new com.callx.app.utils.SecurityManager(h.itemView.getContext()).isReadReceiptsEnabled()) {
+                        s = "delivered";
+                    }
+                    boolean isRead = "read".equals(s) || "seen".equals(s);
+                    boolean isDelivered = isRead || "delivered".equals(s);
+                    boolean isPending = "pending".equals(m.status) || "sending".equals(m.status);
+                    boolean isFailed = "failed".equals(m.status);
+                    h.canvasView.setDeliveryStatus(isRead, isDelivered, isPending, isFailed);
                 }
             }
             return;
@@ -1465,8 +1472,25 @@ public class MessagePagingAdapter
         final com.callx.app.conversation.canvas.MessageBubbleCanvasView cv = h.canvasView;
         final int myToken = ++h.canvasBindToken;
         final boolean sent = currentUid != null && currentUid.equals(m.senderId);
-        final boolean isRead = "read".equals(m.status);
-        final boolean isDelivered = isRead || "delivered".equals(m.status);
+        // TICK ADVANCE #4 parity: same read-receipts-off downgrade the
+        // legacy tv_status path applies (see bindMessage()) — without this,
+        // canvas bubbles kept showing a blue tick even after the user
+        // turned their own read receipts off.
+        String canvasStatus = m.status != null ? m.status : "sent";
+        if (("read".equals(canvasStatus) || "seen".equals(canvasStatus))
+                && !new com.callx.app.utils.SecurityManager(ctx).isReadReceiptsEnabled()) {
+            canvasStatus = "delivered";
+        }
+        final boolean isRead = "read".equals(canvasStatus) || "seen".equals(canvasStatus);
+        final boolean isDelivered = isRead || "delivered".equals(canvasStatus);
+        // TICK ADVANCE (media bubbles): pending (queued, not on Firebase
+        // yet) and failed (Firebase push rejected) previously had no
+        // visual on canvas-rendered bubbles at all — they silently drew a
+        // plain single tick, looking indistinguishable from "sent". Same
+        // two states the legacy tv_status path already handles.
+        final boolean isPending = "pending".equals(m.status) || "sending".equals(m.status);
+        final boolean isFailed = "failed".equals(m.status);
+        cv.setPendingFailedState(isPending, isFailed);
         // Same "  ✏️ edited" suffix bindMessage() appends to tv_time — flows
         // through into whichever bind*() call below via this one string, so
         // it shows up for text/image/multi_media/deleted-placeholder alike.
@@ -2452,6 +2476,11 @@ public class MessagePagingAdapter
             @Override
             public void onForwardClick() {
                 if (actionListener != null) actionListener.onForward(m);
+            }
+
+            @Override
+            public void onRetryClick() {
+                if (actionListener != null) actionListener.onRetry(m);
             }
 
             @Override
