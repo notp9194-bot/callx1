@@ -1,15 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="brand_primary">#4CAF50</color>
-    <color name="brand_primary_dark">#388E3C</color>
-    <color name="brand_accent">#22D3A6</color>
-    <color name="brand_gradient_start">#4CAF50</color>
-    <color name="brand_gradient_end">#2E7D32</color>
+    <color name="brand_primary">#0F4C3A</color>
+    <color name="brand_primary_dark">#0A3327</color>
+    <color name="brand_accent">#D4AF37</color>
+    <color name="brand_gradient_start">#145C46</color>
+    <color name="brand_gradient_end">#0A3327</color>
     <color name="surface_bg">#F5F6FA</color>
     <color name="surface_card">#FFFFFF</color>
     <color name="surface_chat_bg">#ECE5DD</color>
     <color name="surface_input">#F1F3F8</color>
-    <color name="bar_background">#4CAF50</color>
+    <color name="bar_background">#0F4C3A</color>
     <color name="bar_on_background">#FFFFFF</color>
     <color name="text_primary">#0F172A</color>
     <color name="chat_input_text">#000000</color>
@@ -17,15 +17,15 @@
     <color name="text_muted">#94A3B8</color>
     <color name="chat_time_color">#FFFFFF</color>
     <color name="text_on_primary">#FFFFFF</color>
-    <color name="bubble_sent">#DCF8C6</color>
-    <color name="bubble_sent_end">#C5E8B0</color>
+    <color name="bubble_sent">#E7F0EA</color>
+    <color name="bubble_sent_end">#D8E8DE</color>
     <color name="bubble_sent_text">#111B21</color>
     <color name="bubble_time_sent">#99000000</color>
     <color name="bubble_time_received">#99000000</color>
-    <color name="bubble_received">#FFFFFF</color>
-    <color name="bubble_received_end">#F5F5F5</color>
+    <color name="bubble_received">#FFFDF8</color>
+    <color name="bubble_received_end">#F7F4EE</color>
     <color name="bubble_received_text">#111B21</color>
-    <color name="forward_icon_tint">#000000</color>
+    <color name="forward_icon_tint">#D4AF37</color>
     <color name="theme_ocean_sent_s">#0EA5E9</color>
     <color name="theme_ocean_sent_e">#6366F1</color>
     <color name="theme_ocean_recv_s">#38BDF8</color>

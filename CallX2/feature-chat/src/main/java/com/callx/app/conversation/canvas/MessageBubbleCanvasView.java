@@ -259,7 +259,7 @@ public class MessageBubbleCanvasView extends View {
     static final float AUDIO_WAVEFORM_HEIGHT_DP = 28f;
     static final int   AUDIO_BAR_COUNT         = 28;
     static final float AUDIO_BAR_GAP_RATIO     = 0.45f; // fraction of each bar's slot left as gap
-    static final int   AUDIO_BTN_BG_COLOR      = 0xFF008069; // matches circle_primary/brand_primary
+    static final int   AUDIO_BTN_BG_COLOR      = 0xFFD4AF37; // COLOR/SIGNATURE: champagne-gold play button (was WhatsApp teal 0xFF008069) — waveform played-portion shares this same constant, so both stay in lockstep
     static final int   AUDIO_BTN_ICON_COLOR    = 0xFFFFFFFF;
     static final float AUDIO_PLAY_TRIANGLE_DP  = 14f;
     static final float AUDIO_PAUSE_BAR_W_DP    = 3.5f;
@@ -295,7 +295,7 @@ public class MessageBubbleCanvasView extends View {
     // Stacked directly below the pinned-label/group-sender row (same
     // constraintTop_toBottomOf relationship the legacy layout uses). ──
     static final float FORWARDED_LABEL_TEXT_SP = 11f;
-    static final int   FORWARDED_LABEL_COLOR   = 0xFF4A9B8E; // COLOR: soft brand-teal tint (was flat 0xFF888888 grey)
+    static final int   FORWARDED_LABEL_COLOR   = 0xFFB89B4A; // COLOR: muted champagne-gold tint (ties into the gold signature, softer than the full-strength accent so it doesn't compete with ticks/waveform)
 
     // ── Deleted-message placeholder — mirrors bindMessage()'s
     // tvMessage.setAlpha(0.6f) treatment for "This message was deleted" /
@@ -617,8 +617,8 @@ public class MessageBubbleCanvasView extends View {
     static final int   POLL_OPTION_BG             = 0x1AFFFFFF;
     static final int   POLL_OPTION_VOTED_BG       = 0x1F5B5BF6;
     static final int   POLL_OPTION_FILL_COLOR     = 0x3D5B5BF6;
-    static final int   POLL_OPTION_FILL_LEADER    = 0x662FA843; // COLOR: distinct green accent for the leading option (was a darker shade of the same indigo — indistinguishable at a glance)
-    static final int   POLL_LEADER_STROKE_COLOR   = 0xFF2FA843; // COLOR: matching stroke so the leading option's border pops too
+    static final int   POLL_OPTION_FILL_LEADER    = 0x59D4AF37; // COLOR/SIGNATURE: gold "leading option" accent — ties to the same gold used for read-ticks/waveform, reads as a trophy/winner cue
+    static final int   POLL_LEADER_STROKE_COLOR   = 0xFFD4AF37; // COLOR: matching gold border for the leading option
     static final int   POLL_OPTION_FILL_NEUTRAL   = 0x26FFFFFF;
     static final int   POLL_OPTION_TEXT_COLOR     = 0xFFFFFFFF;
     static final int   POLL_OPTION_PCT_COLOR      = 0xCCFFFFFF;
@@ -1488,15 +1488,15 @@ public class MessageBubbleCanvasView extends View {
         // just statically drawn since Canvas has no ripple drawable) +
         // stroked double-chevron glyph, same visual family as the legacy
         // ic_forward_msg drawable.
-        // COLOR: icon now uses the brand teal (same family as the audio
-        // play button/waveform) instead of flat grey — set once here in the
-        // constructor, so it's still zero per-bind/per-frame cost.
-        forwardBtnBgPaint.setColor(0x1F008069);
+        // COLOR: emerald accent (secondary brand color) — kept distinct from
+        // the gold signature (ticks/waveform/poll-leader) so gold reads as
+        // one deliberate premium "tell" rather than every accent in the app.
+        forwardBtnBgPaint.setColor(0x1F0F4C3A);
         forwardBtnIconPaint.setStyle(Paint.Style.STROKE);
         forwardBtnIconPaint.setStrokeWidth(1.6f * density);
         forwardBtnIconPaint.setStrokeCap(Paint.Cap.ROUND);
         forwardBtnIconPaint.setStrokeJoin(Paint.Join.ROUND);
-        forwardBtnIconPaint.setColor(0xFF008069);
+        forwardBtnIconPaint.setColor(0xFF0F4C3A);
 
 
         reactionsTextPaint.setTextSize(spToPx(REACTIONS_TEXT_SP));

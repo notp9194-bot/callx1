@@ -131,12 +131,13 @@ public class ChatThemeManager {
     }
 
     public int getPrimaryColor() {
-        // Used only for reply accent tint — WhatsApp green
-        return 0xFF008069;
+        // COLOR: premium deep-emerald (was WhatsApp green 0xFF008069)
+        return 0xFF0F4C3A;
     }
 
     public int getSecondaryColor() {
-        return 0xFF25D366;
+        // COLOR: champagne-gold accent (was WhatsApp light-green 0xFF25D366)
+        return 0xFFD4AF37;
     }
 
     public int getChatBgColor(Context ctx) {
@@ -196,7 +197,12 @@ public class ChatThemeManager {
     }
 
     public int getTickColor(boolean isRead) {
-        return isRead ? 0xFF34B7F1 : 0xFF8FAF9F;
+        // COLOR / SIGNATURE: read ticks are champagne-gold instead of the
+        // usual WhatsApp blue (0xFF34B7F1) — the one deliberate premium
+        // "tell" of this app, echoed by the same gold in the waveform
+        // played-progress and the poll's leading-option accent so it reads
+        // as one consistent signature rather than a random recolor.
+        return isRead ? 0xFFD4AF37 : 0xFF8FAF9F;
     }
 
     private boolean isDarkMode(Context ctx) {
