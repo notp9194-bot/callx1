@@ -288,27 +288,6 @@ final class MediaGroupRenderer {
                     host.groupContentRect.bottom - host.groupCaptionLayout.getHeight() - 4 * host.density);
             host.groupCaptionLayout.draw(canvas);
             canvas.restore();
-
-            // TICK ADVANCE (media-group bubbles): the caption scrim used to
-            // stop at the caption text itself — a captioned group never drew
-            // its timestamp/tick at all (the captionless branch below
-            // already did, and so does MediaRenderer's captioned branch for
-            // a single image/video). Reuses the same mediaPillTextPaint/
-            // tickPaint styling as the captionless pill, just without a
-            // separate pill background since the caption scrim already
-            // darkens this corner.
-            float pillPadH = MessageBubbleCanvasView.MEDIA_PILL_PADDING_H_DP * host.density;
-            float textBaselineY = host.groupContentRect.bottom - pillPadH
-                    - host.mediaPillTextPaint.descent();
-            float tickReserve = host.sent ? (MessageBubbleCanvasView.TICK_SIZE_DP + MessageBubbleCanvasView.TICK_GAP_DP) * host.density : 0;
-            float timeX = host.groupContentRect.right - pillPadH - tickReserve - host.mediaPillTextPaint.measureText(host.footerTimeText);
-            canvas.drawText(host.footerTimeText, timeX, textBaselineY, host.mediaPillTextPaint);
-            if (host.hasExpiry) {
-                canvas.drawText(host.expiryText, timeX - host.expiryReserveWidth(), textBaselineY, host.expiryPaint);
-            }
-            if (host.sent) {
-                host.drawTick(canvas, host.groupContentRect.right - pillPadH - MessageBubbleCanvasView.TICK_SIZE_DP * host.density, textBaselineY);
-            }
         } else {
             // Captionless group: translucent timestamp/tick pill overlaid
             // on the grid's bottom-right corner — same treatment as the

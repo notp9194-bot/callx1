@@ -866,17 +866,6 @@ public class MessageBubbleCanvasView extends View {
     boolean sent = false;
     boolean read = false;
     boolean delivered = false;
-    // TICK ADVANCE (media bubbles): pending = queued locally, not yet on
-    // Firebase (clock icon); failed = Firebase push rejected (warning icon,
-    // tap-to-retry via tickHitRect below). Mirrors the legacy tv_status
-    // "🕐"/"⚠" states — canvas-rendered bubbles (image/video/audio/gif/
-    // file/poll/contact/location/media-group/reel-share) previously only
-    // ever drew single/double ticks and silently looked "sent" while
-    // actually still pending or failed.
-    boolean pending = false;
-    boolean failed = false;
-    /** Hit-rect for the tick icon, refreshed every drawTick() — tapping it while `failed` is true fires onRetryClick(). */
-    final RectF tickHitRect = new RectF();
     // ── "✏️ edited" tag hit-testing ──────────────────────────────────
     // footerTimeText already has the "  ✏️ edited" suffix baked in by the
     // caller when applicable; this flag just gates whether the footer's
@@ -1777,36 +1766,11 @@ public class MessageBubbleCanvasView extends View {
      * method directly on that same fast path.
      */
     public void setDeliveryStatus(boolean isRead, boolean isDelivered) {
-        setDeliveryStatus(isRead, isDelivered, this.pending, this.failed);
-    }
-
-    /** Same cheap draw-only path as the 2-arg overload, plus pending/failed — used by the adapter's PAYLOAD_STATUS fast path so a sent→pending→failed→sent→delivered→read transition all stay in sync without a full re-bind. */
-    public void setDeliveryStatus(boolean isRead, boolean isDelivered, boolean isPending, boolean isFailed) {
-        if (this.read == isRead && this.delivered == isDelivered
-                && this.pending == isPending && this.failed == isFailed) return; // no-op
+        if (this.read == isRead && this.delivered == isDelivered) return; // no-op
         this.read = isRead;
         this.delivered = isDelivered;
-        this.pending = isPending;
-        this.failed = isFailed;
         tickPaint.setColor(ChatThemeManager.get(getContext()).getTickColor(isRead));
         invalidateExpiryRegion(); // reuses the footer-band dirty rect the tick lives inside
-    }
-
-    /**
-     * TICK ADVANCE (media bubbles): sets pending/failed independently of
-     * bind() — mirrors how setEdited()/setQuickForwardVisible() are bolted
-     * on separately after whichever bind*() ran, instead of adding two more
-     * params to every one of bind()/bindMedia()/bindVideo()/bindAudio()/
-     * bindGif()/bindFile()/bindMediaGroup()/bindReelShare()/bindContact()/
-     * bindLocation()/bindPoll(). Call once per full bind, right alongside
-     * setEdited(); bind*() themselves don't touch these two flags, so a
-     * recycled holder would otherwise keep a stale pending/failed icon.
-     */
-    public void setPendingFailedState(boolean isPending, boolean isFailed) {
-        if (this.pending == isPending && this.failed == isFailed) return;
-        this.pending = isPending;
-        this.failed = isFailed;
-        invalidateExpiryRegion();
     }
 
     /**
@@ -4749,30 +4713,9 @@ public class MessageBubbleCanvasView extends View {
         // Simple two-stroke check mark; double check mark for delivered/read.
         float size = TICK_SIZE_DP * density;
         float y = baselineY - size * 0.4f;
-
-        // Reserve a padded rect around whichever icon we're about to draw so
-        // onTouchEvent can hit-test a tap-to-retry on the failed state —
-        // recomputed every draw, same precedent as footerTextRect above.
-        float hitPad = density * 6f;
-        tickHitRect.set(x - hitPad, y - hitPad, x + size + hitPad, y + size * 0.8f + hitPad);
-
-        // TICK ADVANCE (media bubbles): pending/failed take over the whole
-        // icon slot — mirrors the legacy tv_status "🕐"/"⚠" states, which
-        // canvas bubbles never had; they used to silently draw a plain
-        // single tick (looking "sent") for both of these.
-        if (failed) {
-            drawFailedTick(canvas, x, y, size);
-            return;
-        }
-        if (pending) {
-            drawPendingTick(canvas, x, y, size);
-            return;
-        }
-
         tickPaint.setStyle(Paint.Style.STROKE);
         tickPaint.setStrokeWidth(density * 1.2f);
         tickPaint.setStrokeCap(Paint.Cap.ROUND);
-        tickPaint.setColor(ChatThemeManager.get(getContext()).getTickColor(read));
 
         drawSingleTick(canvas, x, y, size);
         if (delivered || read) {
@@ -4783,37 +4726,6 @@ public class MessageBubbleCanvasView extends View {
     private void drawSingleTick(Canvas canvas, float x, float y, float size) {
         canvas.drawLine(x, y + size * 0.5f, x + size * 0.35f, y + size * 0.8f, tickPaint);
         canvas.drawLine(x + size * 0.35f, y + size * 0.8f, x + size, y + size * 0.1f, tickPaint);
-    }
-
-    /** TICK ADVANCE (media bubbles): clock icon — message queued locally, hasn't reached Firebase yet. Same grey as the legacy "🕐" glyph. */
-    private void drawPendingTick(Canvas canvas, float x, float y, float size) {
-        tickPaint.setStyle(Paint.Style.STROKE);
-        tickPaint.setStrokeWidth(density * 1.2f);
-        tickPaint.setStrokeCap(Paint.Cap.ROUND);
-        tickPaint.setColor(0xFFAAAAAA);
-        float cx = x + size * 0.5f;
-        float cy = y + size * 0.45f;
-        float r = size * 0.42f;
-        canvas.drawCircle(cx, cy, r, tickPaint);
-        canvas.drawLine(cx, cy, cx, cy - r * 0.55f, tickPaint);
-        canvas.drawLine(cx, cy, cx + r * 0.45f, cy + r * 0.05f, tickPaint);
-    }
-
-    /** TICK ADVANCE (media bubbles): warning icon — Firebase push failed. Tappable via tickHitRect in onTouchEvent to retry, same as the legacy "⚠" tv_status onClickListener. */
-    private void drawFailedTick(Canvas canvas, float x, float y, float size) {
-        tickPaint.setStyle(Paint.Style.FILL);
-        tickPaint.setColor(0xFFFF5555);
-        float cx = x + size * 0.5f;
-        float cy = y + size * 0.45f;
-        float r = size * 0.42f;
-        canvas.drawCircle(cx, cy, r, tickPaint);
-
-        tickPaint.setStyle(Paint.Style.STROKE);
-        tickPaint.setStrokeWidth(density * 1.4f);
-        tickPaint.setStrokeCap(Paint.Cap.ROUND);
-        tickPaint.setColor(0xFFFFFFFF);
-        canvas.drawLine(cx, cy - r * 0.5f, cx, cy + r * 0.05f, tickPaint);
-        canvas.drawPoint(cx, cy + r * 0.45f, tickPaint);
     }
 
     /**
@@ -4846,16 +4758,6 @@ public class MessageBubbleCanvasView extends View {
                 && forwardBtnRect.contains(event.getX(), event.getY())) {
             cancelPendingLongPress(event);
             if (clickListener != null) clickListener.onForwardClick();
-            return true;
-        }
-        // TICK ADVANCE (media bubbles): tapping the ⚠ failed-tick retries
-        // the send — mirrors the legacy tv_status "⚠" onClickListener,
-        // which canvas bubbles never had (their tick was never anything
-        // but a plain single/double checkmark before).
-        if (sent && failed && event.getActionMasked() == MotionEvent.ACTION_UP
-                && tickHitRect.contains(event.getX(), event.getY())) {
-            cancelPendingLongPress(event);
-            if (clickListener != null) clickListener.onRetryClick();
             return true;
         }
         if (isEdited && event.getActionMasked() == MotionEvent.ACTION_UP

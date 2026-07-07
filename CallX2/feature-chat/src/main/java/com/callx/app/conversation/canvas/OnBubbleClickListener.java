@@ -58,6 +58,4 @@ public interface OnBubbleClickListener {
      *  (setQuickForwardVisible only) — caller should forward this message,
      *  same as the legacy btn_quick_forward click listener. */
     default void onForwardClick() {}
-    /** TICK ADVANCE (media bubbles): tapped the ⚠ failed-send tick — caller should retry sending this message, same as the legacy tv_status "⚠" click listener (only fires while the bubble's status is "failed"). */
-    default void onRetryClick() {}
 }
