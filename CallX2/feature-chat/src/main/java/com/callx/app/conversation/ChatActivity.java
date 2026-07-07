@@ -189,6 +189,16 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // ── Firebase ───────────────────────────────────────────────────────────
     private DatabaseReference  messagesRef;
     private ChildEventListener messageListener;
+    // TICK FIX: dedicated status-sync listener — see attachFirebaseListener()
+    // doc comment below for why this is needed alongside messageListener.
+    private ChildEventListener statusSyncListener;
+    // How many of the most-recent messages stay "live" for delivered/read
+    // tick updates. Wider than INITIAL_LOAD on purpose: INITIAL_LOAD is only
+    // the first-open page size, but a message can sit around a while before
+    // the partner's "delivered"/"read" write lands, so this window needs
+    // enough headroom that a normal back-and-forth conversation still has
+    // its ticks tracked live.
+    private static final int STATUS_SYNC_WINDOW = 100;
 
     // ── PERF FIX: write-coalescing buffer for Firebase → Room sync ─────────
     // Root cause of the "chat opens with 3-4s delay + up/down jump" bug:
@@ -931,6 +941,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
 
         if (messagesRef != null && messageListener != null)
             messagesRef.removeEventListener(messageListener);
+        if (messagesRef != null && statusSyncListener != null)
+            messagesRef.removeEventListener(statusSyncListener);
 
         // PERF FIX: flush any buffered Firebase→Room writes immediately
         // instead of losing them if the debounce window hadn't fired yet.
@@ -2238,6 +2250,49 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             @Override public void onCancelled(DatabaseError error) {}
         };
         query.addChildEventListener(messageListener);
+
+        // ── TICK FIX ─────────────────────────────────────────────────────
+        // BUG: messageListener above is attached to a DELTA query —
+        // startAfter(lastTs) on every reopen after the first. A brand-new
+        // Firebase Query only reports onChildChanged for children that are
+        // INSIDE its own filtered result set; a message whose timestamp is
+        // <= lastTs was never part of this query's window, so once the
+        // sender leaves the chat and comes back later, Firebase never
+        // tells this listener about a "sent" -> "delivered" -> "read"
+        // update that happens on that already-synced message. Net effect:
+        // ticks silently freeze at "sent" (one grey tick) forever, because
+        // nothing is watching that message for changes any more — exactly
+        // what was reported ("only the sent single tick ever shows").
+        //
+        // FIX: a second, small ChildEventListener scoped to the last
+        // STATUS_SYNC_WINDOW messages (by timestamp), same as the very
+        // first page load would be. Its onChildAdded is a no-op — new/
+        // already-loaded messages are fully handled by messageListener and
+        // the initial Room cache, so we don't want to double-process them
+        // here. Its onChildChanged reuses the exact same saveToRoom() path,
+        // which upserts the FULL message row via Room REPLACE — cheap,
+        // since PagingDataAdapter's DiffUtil.ItemCallback already detects
+        // "only status changed" and returns PAYLOAD_STATUS (see
+        // MessagePagingAdapter), so the UI does a draw-only tick update
+        // instead of a full rebind. No effect on scroll/paging performance:
+        // this listener never touches the Pager, only the messages table.
+        com.google.firebase.database.Query statusQuery =
+                messagesRef.orderByChild("timestamp").limitToLast(STATUS_SYNC_WINDOW);
+        statusSyncListener = new ChildEventListener() {
+            @Override public void onChildAdded(DataSnapshot snapshot, String prev) {
+                // Handled by messageListener / initial Room load — ignore here.
+            }
+            @Override public void onChildChanged(DataSnapshot snapshot, String prev) {
+                Message m = snapshot.getValue(Message.class);
+                if (m == null) return;
+                m.id = snapshot.getKey();
+                saveToRoom(m, true);
+            }
+            @Override public void onChildRemoved(DataSnapshot snapshot) {}
+            @Override public void onChildMoved(DataSnapshot s, String p) {}
+            @Override public void onCancelled(DatabaseError error) {}
+        };
+        statusQuery.addChildEventListener(statusSyncListener);
     }
 
     private void saveToRoom(Message m, boolean isUpdate) {
