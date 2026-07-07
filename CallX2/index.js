@@ -45,6 +45,72 @@ try {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
+// TICK ADVANCE #3 — server-side delivery fallback (safety net)
+// ══════════════════════════════════════════════════════════════════════════════
+// WHY: the client marks "delivered" itself (GlobalDeliveryAckManager / the
+// FCM push handler / ChatActivity's own listener). All three are still
+// client-side though — if the recipient's app never runs at all after the
+// send (force-stopped, notif permission revoked, battery-killed before any
+// of those paths fire), the tick stays stuck on "sent" forever with no
+// server-side backstop. This job is that backstop.
+//
+// HOW: the client drops a tiny index entry at deliveryPending/{msgId} =
+// {chatId, toUid, ts} right after a message is written as "sent" (see
+// MessageStatusSync.markPendingDelivery on the Android side), and removes
+// it once delivered/read is confirmed client-side. This job only ever
+// scans that small index — never the full messages tree — so cost stays
+// flat regardless of total message volume.
+//
+// HEURISTIC: if the recipient's users/{toUid}/lastSeen is newer than the
+// message's ts (i.e. they were reachable/online at some point after the
+// message was sent), we treat that as an implicit delivery ACK — this is
+// not a true low-level transport receipt, but it is a reasonable and safe
+// approximation, and it only ever moves status forward via the same
+// transaction pattern the client uses, so it can never downgrade a "read".
+const DELIVERY_FALLBACK_INTERVAL_MS = 5 * 60 * 1000; // every 5 min
+const DELIVERY_FALLBACK_MIN_AGE_MS  = 2 * 60 * 1000;  // don't race the client — give it 2 min first
+
+async function runDeliveryFallbackJob() {
+  if (!firebaseReady) return;
+  try {
+    const db = admin.database();
+    const snap = await db.ref("deliveryPending").once("value");
+    if (!snap.exists()) return;
+    const now = Date.now();
+    const entries = snap.val();
+
+    for (const msgId of Object.keys(entries)) {
+      const entry = entries[msgId];
+      if (!entry || !entry.chatId || !entry.toUid || !entry.ts) continue;
+      if (now - entry.ts < DELIVERY_FALLBACK_MIN_AGE_MS) continue; // too soon, let client win
+
+      try {
+        const userSnap = await db.ref(`users/${entry.toUid}/lastSeen`).once("value");
+        const lastSeen = userSnap.val();
+        if (!lastSeen || lastSeen < entry.ts) continue; // recipient never came online since send
+
+        const statusRef = db.ref(`messages/${entry.chatId}/${msgId}/status`);
+        await statusRef.transaction(cur => {
+          if (cur === "read" || cur === "seen" || cur === "delivered") return cur; // no downgrade, no dupe write
+          return "delivered";
+        });
+        await db.ref(`messages/${entry.chatId}/${msgId}/deliveredAt`)
+                .set(admin.database.ServerValue.TIMESTAMP);
+        await db.ref(`deliveryPending/${msgId}`).remove();
+      } catch (innerErr) {
+        console.warn("[delivery-fallback] entry failed:", msgId, innerErr.message);
+      }
+    }
+  } catch (e) {
+    console.warn("[delivery-fallback] job failed:", e.message);
+  }
+}
+
+if (process.env.NODE_ENV !== "test") {
+  setInterval(runDeliveryFallbackJob, DELIVERY_FALLBACK_INTERVAL_MS);
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 // Cloudinary config
 // ══════════════════════════════════════════════════════════════════════════════
 const CLOUD_NAME = process.env.CLOUDINARY_CLOUD_NAME || "dvqqgqdls";

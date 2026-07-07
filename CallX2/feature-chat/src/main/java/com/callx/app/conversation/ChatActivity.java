@@ -2227,6 +2227,15 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 if (m == null) return;
                 m.id = snapshot.getKey();
                 saveToRoom(m, false);
+                // TICK FIX v19: this listener firing IS the delivery ACK — the
+                // message has reached this device's Firebase connection, no
+                // FCM push needed. Mark delivered before markRead() so the
+                // atomic rank-check in MessageStatusSync still lets the
+                // immediate "read" (chat is open) win right after.
+                if (m.senderId != null && !m.senderId.equals(getCurrentUid())) {
+                    com.callx.app.utils.MessageStatusSync.upgradeStatus(
+                            getApplicationContext(), messagesRef, chatId, m.id, "delivered");
+                }
                 presenceController.markRead(m);
                 if (emojiBurstController != null) emojiBurstController.onMessageReceived(m);
             }

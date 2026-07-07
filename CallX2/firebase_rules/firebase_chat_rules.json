@@ -258,6 +258,14 @@
           ".validate": "!newData.exists() || (newData.hasChildren(['senderId','chatId','sendAt']) && newData.child('sendAt').val() > now)"
         }
       }
+    },
+    "deliveryPending": {
+      "_comment": "TICK ADVANCE #3 — MessageStatusSync.markPendingDelivery() index, {chatId, toUid, ts}. Written by the sender right after a message becomes 'sent'; read + cleaned up by the backend delivery-fallback cron (index.js) and by the client once delivered/read is confirmed. Only the sender (write) or the recipient (cleanup after reading) ever touch a given entry — both are always one of the two chat participants.",
+      "$msgId": {
+        ".read": "auth != null && (!data.exists() || data.child('chatId').val().contains(auth.uid))",
+        ".write": "auth != null && ((!data.exists() && newData.child('chatId').val().contains(auth.uid)) || (data.exists() && data.child('chatId').val().contains(auth.uid) && !newData.exists()))",
+        ".validate": "!newData.exists() || (newData.hasChildren(['chatId','toUid','ts']) && newData.child('chatId').val().contains(auth.uid))"
+      }
     }
   }
 }

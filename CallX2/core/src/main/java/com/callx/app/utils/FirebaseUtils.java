@@ -360,7 +360,14 @@ public class FirebaseUtils {
      * Per-user repost history: userReposts/{uid}/{reelId} = timestamp
      * Written alongside reelReposts for fast user-level "what did I repost?" queries.
      */
-    public static DatabaseReference getReelRepostsByUserRef(String uid) {
-        return db().getReference("userReposts").child(uid);
+    /**
+     * Delivery-pending index: deliveryPending/{msgId} = {chatId, toUid, ts}
+     * Written by MessageStatusSync right after a message becomes "sent";
+     * removed once "delivered"/"read" is confirmed. The backend server
+     * (index.js cron) scans this small index — not the whole messages
+     * tree — as a fallback for messages that never get a client-side ACK.
+     */
+    public static DatabaseReference getDeliveryPendingRef() {
+        return db().getReference("deliveryPending");
     }
 }

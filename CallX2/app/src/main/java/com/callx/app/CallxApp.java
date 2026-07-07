@@ -169,6 +169,7 @@ public class CallxApp extends Application {
         com.callx.app.notifications.YouTubeNotificationWorker.schedule(this);
 
         // Activity lifecycle + AppLock wiring — must be main thread
+        com.callx.app.utils.PresenceManager.getInstance().init(this);
         registerForegroundTracking();
 
         // Sync privacy settings to Firebase (if user already logged in)

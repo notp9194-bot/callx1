@@ -3842,6 +3842,14 @@ public class MessagePagingAdapter
         if (sent && h.tvStatus != null) {
             h.tvStatus.setVisibility(View.VISIBLE);
             String status = m.status != null ? m.status : "sent";
+            // TICK ADVANCE #4: WhatsApp-style symmetry — if I've turned OFF
+            // read receipts myself, I don't get to see the other person's
+            // blue tick either, even though the real Firebase status is
+            // "read". Display-only downgrade; the real status is untouched.
+            if (("read".equals(status) || "seen".equals(status))
+                    && !new com.callx.app.utils.SecurityManager(ctx).isReadReceiptsEnabled()) {
+                status = "delivered";
+            }
             switch (status) {
                 case "seen":
                 case "read":
@@ -4911,6 +4919,10 @@ public class MessagePagingAdapter
         }
         h.tvStatus.setVisibility(View.VISIBLE);
         String s = m.status == null ? "" : m.status;
+        if (("read".equals(s) || "seen".equals(s))
+                && !new com.callx.app.utils.SecurityManager(h.itemView.getContext()).isReadReceiptsEnabled()) {
+            s = "delivered";
+        }
         switch (s) {
             case "read":
                 h.tvStatus.setText("✓✓");

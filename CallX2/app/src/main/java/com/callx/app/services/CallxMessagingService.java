@@ -821,18 +821,17 @@ public class CallxMessagingService extends FirebaseMessagingService {
             if (!currentUid.isEmpty() && !currentUid.equals(fromUid)) {
                 Executors.newSingleThreadExecutor().execute(() -> {
                     try {
-                        // Sirf "sent" → "delivered" upgrade karo; "read" downgrade nahi hona chahiye
-                        com.google.firebase.database.DatabaseReference msgRef =
-                                FirebaseUtils.db().getReference("chats")
-                                        .child(chatId).child("messages").child(msgId);
-                        msgRef.child("status").addListenerForSingleValueEvent(new ValueEventListener() {
-                            @Override public void onDataChange(DataSnapshot s) {
-                                String cur = s.getValue(String.class);
-                                if ("read".equals(cur)) return; // already better, skip
-                                msgRef.child("status").setValue("delivered");
-                            }
-                            @Override public void onCancelled(DatabaseError e) {}
-                        });
+                        // TICK FIX v19: atomic transaction instead of read-then-write —
+                        // see MessageStatusSync for why (race with a concurrent "read"
+                        // write could previously downgrade the tick).
+                        // Also fixes a pre-existing path bug: messages actually live
+                        // under "messages/{chatId}/{msgId}" (see FirebaseUtils.getMessagesRef),
+                        // not "chats/{chatId}/messages/{msgId}" — the old code was
+                        // silently writing "delivered" to a node nobody ever reads.
+                        com.google.firebase.database.DatabaseReference chatMessagesRef =
+                                FirebaseUtils.getMessagesRef(chatId);
+                        com.callx.app.utils.MessageStatusSync.upgradeStatus(
+                                getApplicationContext(), chatMessagesRef, chatId, msgId, "delivered");
                     } catch (Exception ignored) {}
                 });
             }

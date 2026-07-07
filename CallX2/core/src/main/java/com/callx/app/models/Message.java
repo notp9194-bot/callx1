@@ -45,6 +45,11 @@ public class Message {
     // ── Feature 1: Read Receipts ──────────────────────────
     /** sent | delivered | read */
     public String status;
+    /** TICK ADVANCE #5: server timestamps for status transitions — set by
+     *  MessageStatusSync (and the batched read-flush in ChatPresenceController).
+     *  Nullable: absent for messages sent before this field existed. */
+    public Long deliveredAt;
+    public Long readAt;
 
     // ── Feature 2: Reply / Quote ──────────────────────────
     public String replyToId;

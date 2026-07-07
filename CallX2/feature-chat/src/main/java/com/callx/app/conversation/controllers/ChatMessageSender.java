@@ -105,6 +105,14 @@ public class ChatMessageSender {
     public void firebasePushMessage(Message m, String key, String previewText) {
         delegate.getMessagesRef().child(key).setValue(m)
                 .addOnSuccessListener(unused -> {
+                    // TICK ADVANCE #3: drop a small index entry the backend
+                    // cron can scan as a fallback for messages that never get
+                    // a client-side delivered/read ACK at all (see index.js).
+                    try {
+                        com.callx.app.utils.MessageStatusSync.markPendingDelivery(
+                                delegate.getChatId(), key, delegate.getPartnerUid());
+                    } catch (Exception ignored) {}
+
                     // BUG FIX: same direct-write issue as insertMessage()
                     // above — this status update bypasses the buffered
                     // flush path too.

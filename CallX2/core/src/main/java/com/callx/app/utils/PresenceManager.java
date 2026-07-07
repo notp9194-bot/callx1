@@ -34,12 +34,18 @@ public class PresenceManager {
 
     private boolean isOnline = false;
     private String  cachedUid = null;
+    private Context appContext = null;
 
     private PresenceManager() {}
 
     public static PresenceManager getInstance() {
         if (sInstance == null) sInstance = new PresenceManager();
         return sInstance;
+    }
+
+    /** Call once from CallxApp.onCreate() so goOnline() can start GlobalDeliveryAckManager. */
+    public void init(Context context) {
+        this.appContext = context.getApplicationContext();
     }
 
     // ──────────────────────────────────────────────────────────────────────
@@ -72,6 +78,12 @@ public class PresenceManager {
         userRef.updateChildren(onlineUpdate)
             .addOnFailureListener(ex -> Log.w(TAG, "goOnline write failed: " + ex.getMessage()));
 
+        // TICK ADVANCE: app-wide delivery ACK — see GlobalDeliveryAckManager.
+        // Started here so it tracks the exact same foreground window as presence.
+        if (appContext != null) {
+            try { GlobalDeliveryAckManager.getInstance().start(appContext); } catch (Exception ignored) {}
+        }
+
         Log.d(TAG, "goOnline: " + uid);
     }
 
@@ -96,6 +108,8 @@ public class PresenceManager {
         offlineUpdate.put("lastSeen", ServerValue.TIMESTAMP);
         userRef.updateChildren(offlineUpdate)
             .addOnFailureListener(ex -> Log.w(TAG, "goOffline write failed: " + ex.getMessage()));
+
+        try { GlobalDeliveryAckManager.getInstance().stop(); } catch (Exception ignored) {}
 
         Log.d(TAG, "goOffline: " + uid);
     }

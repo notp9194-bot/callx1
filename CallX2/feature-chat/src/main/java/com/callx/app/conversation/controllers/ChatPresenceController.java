@@ -871,10 +871,22 @@ public class ChatPresenceController {
         Map<String, Object> updates = new HashMap<>();
         for (String id : pendingReadFirebaseIds) {
             updates.put(id + "/status", "read");
+            // TICK ADVANCE #5: readAt timestamp, same field MessageStatusSync
+            // stamps on the single-message transaction path — lets a future
+            // "message info" screen show exactly when each message was read.
+            updates.put(id + "/readAt", com.google.firebase.database.ServerValue.TIMESTAMP);
         }
         pendingReadFirebaseIds.clear();
         // ONE network round-trip for the whole batch instead of one per message.
-        messagesRef.updateChildren(updates);
+        messagesRef.updateChildren(updates)
+                .addOnSuccessListener(unused -> {
+                    for (String id : updates.keySet()) {
+                        if (!id.endsWith("/status")) continue;
+                        String msgId = id.substring(0, id.indexOf("/status"));
+                        com.callx.app.utils.FirebaseUtils.getDeliveryPendingRef()
+                                .child(msgId).removeValue();
+                    }
+                });
     }
 
     // ── Cleanup ───────────────────────────────────────────────────────────
