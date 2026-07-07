@@ -2206,6 +2206,15 @@ public class MessageBubbleCanvasView extends View {
         Context ctx = getContext();
         tickPaint.setColor(ChatThemeManager.get(ctx).getTickColor(read));
 
+        // Reel-share now sits inside a normal chat bubble (same cache
+        // scheme as the text/media bind methods) instead of floating
+        // bubbleless.
+        int cacheKey = (sent ? 1 : 0) << 1 | (hasReply ? 1 : 0);
+        if (cacheKey != lastCacheKey || bubbleDrawable == null) {
+            bubbleDrawable = buildBubbleDrawable(ctx, sent);
+            lastCacheKey = cacheKey;
+        }
+
         if (requestLayoutIfSizeChanged()) {
             reelCaptionLayout = null; // recomputed in onMeasure
         }
@@ -3322,11 +3331,11 @@ public class MessageBubbleCanvasView extends View {
             bubbleHeight = replyBoxHeight + replyGap + vPad + mediaH + vPad + captionBlockHeight;
 
         } else if (isReelShare) {
-            // ── Reel-share card (fixed 165×237dp, bubbleless) ── caption
-            // is an overlay INSIDE the card (bottom gradient), not an
-            // extra block below it, so bubbleHeight is just replyBox +
-            // the card itself — no vPad, no footer row (the timestamp
-            // pill floats over the card, same as a captionless image).
+            // ── Reel-share card, now inside a normal chat bubble ──
+            // caption is an overlay INSIDE the card (bottom gradient), so
+            // bubbleHeight is replyBox + real vPad top/bottom + the card —
+            // same padding scheme as image/video, unlike the old
+            // exact-fit-to-card sizing.
             int cardW = Math.round(REEL_CARD_WIDTH_DP * density);
             int cardH = Math.round(REEL_CARD_HEIGHT_DP * density);
 
@@ -3344,11 +3353,8 @@ public class MessageBubbleCanvasView extends View {
                 reelCaptionLayout = null;
             }
 
-            // No chat-bubble padding around the card — bubbleContentWidth
-            // is sized so bubbleWidth (= bubbleContentWidth + hPad*2)
-            // comes out to exactly cardW once hPad is added back below.
-            bubbleContentWidth = Math.max(cardW - hPad * 2, replyBoxContentWidth);
-            bubbleHeight = replyBoxHeight + replyGap + cardH;
+            bubbleContentWidth = Math.max(cardW, replyBoxContentWidth);
+            bubbleHeight = replyBoxHeight + replyGap + vPad + cardH + vPad;
 
         } else if (isContact) {
             // ── Contact-share card (fixed 165dp wide, wrap_content height) ──
@@ -3815,12 +3821,10 @@ public class MessageBubbleCanvasView extends View {
         if (isReelShare) {
             int cardW = Math.round(REEL_CARD_WIDTH_DP * density);
             int cardH = Math.round(REEL_CARD_HEIGHT_DP * density);
-            float cardTop = bubbleTop + replyBoxHeight + replyGap;
-            // Card is always exactly cardW wide, left-aligned to the
-            // bubble's own left edge — matches image/group's sent-right/
-            // received-left alignment via bubbleLeft, regardless of
-            // whether a reply box widened bubbleWidth beyond cardW.
-            reelCardRect.set(bubbleLeft, cardTop, bubbleLeft + cardW, cardTop + cardH);
+            float cardTop = bubbleTop + replyBoxHeight + replyGap + vPad;
+            // Card now sits inset inside the bubble by the normal hPad/vPad,
+            // same as image/media — bubbleDrawable shows as a frame around it.
+            reelCardRect.set(bubbleLeft + hPad, cardTop, bubbleLeft + hPad + cardW, cardTop + cardH);
 
             float avatarSize = REEL_AVATAR_SIZE_DP * density;
             float headerPadH = REEL_HEADER_PAD_H_DP * density;
@@ -4108,10 +4112,11 @@ public class MessageBubbleCanvasView extends View {
     /** All bubble drawing logic, called from onDraw. Extracted so we can draw
      *  into either a Picture-recording canvas or the real canvas. */
     private void drawBubbleContent(Canvas canvas) {
-        if (!isReelShare && !isContact && !isLocation && !isFileBubble && !isViewOnce && !isSeenBubble && !isCallEntry) {
-            // Reel-share, contact, location, file, view-once, seen, and
-            // call-entry cards never draw the normal chat-bubble
-            // background — the card/pill itself is the visual.
+        if (!isContact && !isLocation && !isFileBubble && !isViewOnce && !isSeenBubble && !isCallEntry) {
+            // Contact, location, file, view-once, seen, and call-entry
+            // cards still never draw the normal chat-bubble background —
+            // the card/pill itself is the visual for those. Reel-share now
+            // DOES get the normal bubble behind it (see bindReelShare).
             bubbleDrawable.setBounds(
                     (int) bubbleRect.left, (int) bubbleRect.top,
                     (int) bubbleRect.right, (int) bubbleRect.bottom);
