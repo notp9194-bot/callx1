@@ -118,8 +118,9 @@ public final class AlertDialogStyler {
     // (COMPACT/WIDE/DEFAULT) isi style ko use karta hai — consistency.
 
     private static final int COLOR_DESTRUCTIVE = Color.parseColor("#E53935"); // red
-    private static final int COLOR_NEUTRAL     = Color.parseColor("#757575"); // grey
-    private static final int COLOR_PRIMARY     = Color.parseColor("#2979FF"); // blue
+    private static final int COLOR_NEUTRAL     = Color.parseColor("#8E24AA"); // purple
+    private static final int COLOR_PRIMARY     = Color.parseColor("#2E7D32"); // green
+    private static final float BUTTON_RADIUS_DP = 10f; // tight corners, not a full pill
 
     private static void styleActionButtons(Dialog dialog) {
         android.widget.Button pos = null, neg = null, neu = null;
@@ -146,7 +147,8 @@ public final class AlertDialogStyler {
     private static void applyCanvasButtonStyle(android.widget.Button btn, int gapPx) {
         if (btn == null) return;
 
-        btn.setBackground(new CanvasButtonDrawable(colorForButtonText(btn.getText())));
+        btn.setBackground(new CanvasButtonDrawable(colorForButtonText(btn.getText()),
+                BUTTON_RADIUS_DP * btn.getResources().getDisplayMetrics().density));
         // Material/AppCompat auto-applies a backgroundTintList to every
         // Button inflated inside an AppCompatActivity (even framework
         // AlertDialog buttons — the activity's LayoutInflater intercepts
@@ -186,21 +188,22 @@ public final class AlertDialogStyler {
         return COLOR_PRIMARY;
     }
 
-    /** Rounded-pill button background, drawn directly on Canvas (no XML drawable). */
+    /** Rounded-rect button background, drawn directly on Canvas (no XML drawable). */
     private static class CanvasButtonDrawable extends Drawable {
         private final android.graphics.Paint paint;
+        private final float radiusPx;
 
-        CanvasButtonDrawable(int color) {
+        CanvasButtonDrawable(int color, float radiusPx) {
             paint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
             paint.setColor(color);
             paint.setStyle(android.graphics.Paint.Style.FILL);
+            this.radiusPx = radiusPx;
         }
 
         @Override
         public void draw(android.graphics.Canvas canvas) {
             android.graphics.RectF bounds = new android.graphics.RectF(getBounds());
-            float radius = bounds.height() / 2f; // pill shape
-            canvas.drawRoundRect(bounds, radius, radius, paint);
+            canvas.drawRoundRect(bounds, radiusPx, radiusPx, paint);
         }
 
         @Override public void setAlpha(int alpha) { paint.setAlpha(alpha); }
