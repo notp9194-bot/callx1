@@ -55,8 +55,17 @@
             android:name="com.callx.app.conversation.MessageInfoActivity"
             android:exported="false"
             android:excludeFromRecents="true"
-            android:noHistory="true"
-            android:windowSoftInputMode="stateHidden" />
+            android:noHistory="true" />
+        <!--
+          NOTE: windowSoftInputMode is intentionally omitted here.
+          The app-module AndroidManifest.xml already declares
+          MessageInfoActivity with windowSoftInputMode="adjustResize".
+          Defining it again here with a different value causes a
+          manifest-merger conflict (two modules cannot disagree on the
+          same attribute without tools:replace).  Since MessageInfoActivity
+          has no text-input field, adjustResize is harmless and stateHidden
+          provides no visible benefit, so we defer to the app manifest.
+        -->
 
         <!-- Contact share picker — launched via startActivityForResult from ChatActivity / GroupChatActivity -->
         <activity android:name="com.callx.app.chat.ContactSharePickerActivity"
