@@ -1012,10 +1012,25 @@ public class MessagePagingAdapter
     public void onBindViewHolder(@NonNull VH h, int position,
                                  @NonNull java.util.List<Object> payloads) {
         if (!payloads.isEmpty() && PAYLOAD_STATUS.equals(payloads.get(0))) {
-            // Fast path: only tick changed — update tv_status only, skip full bind
+            // Fast path: only tick changed — skip full bind.
             Message m = getItem(position);
-            if (m != null && h.tvStatus != null) {
-                bindStatusTick(h, m);
+            if (m != null) {
+                // FIX: this used to only update the legacy tv_status
+                // TextView (bindStatusTick below) — but canvas-eligible
+                // bubbles (the common case: plain text, images, etc., see
+                // isCanvasEligible()) don't have a tv_status at all, so
+                // their tick silently never updated on a sent→delivered→
+                // read transition. bindStatusTick still runs for the
+                // legacy/non-canvas fallback views; the canvas view now
+                // gets its own cheap, draw-only update alongside it.
+                if (h.tvStatus != null) {
+                    bindStatusTick(h, m);
+                }
+                if (h.canvasView != null) {
+                    boolean isRead = "read".equals(m.status);
+                    boolean isDelivered = isRead || "delivered".equals(m.status);
+                    h.canvasView.setDeliveryStatus(isRead, isDelivered);
+                }
             }
             return;
         }

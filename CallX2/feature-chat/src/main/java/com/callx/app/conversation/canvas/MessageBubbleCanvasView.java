@@ -1748,6 +1748,32 @@ public class MessageBubbleCanvasView extends View {
     }
 
     /**
+     * Cheap draw-only status update — call when only a message's
+     * delivery/read status changed (no text/type/timestamp change). Skips a
+     * full re-bind: just updates the tick color + local read/delivered
+     * flags and repaints the footer band, same "cheap path" precedent as
+     * setAudioPlaying()/setExpiryText() elsewhere in this class. The tick
+     * icon occupies a fixed reserved width regardless of read/delivered
+     * (see footerReserveWidth's unconditional TICK_SIZE_DP add for any
+     * sent bubble), so this never needs a relayout — draw-only, same as
+     * the audio waveform's progress updates.
+     *
+     * FIX: this is the actual cause of ticks not updating — the adapter's
+     * PAYLOAD_STATUS fast path only ever touched the legacy tv_status
+     * TextView, which canvas-eligible bubbles (the common case — plain
+     * text, images, etc.) don't have, so a sent→delivered→read transition
+     * silently never reached this view at all. The adapter now calls this
+     * method directly on that same fast path.
+     */
+    public void setDeliveryStatus(boolean isRead, boolean isDelivered) {
+        if (this.read == isRead && this.delivered == isDelivered) return; // no-op
+        this.read = isRead;
+        this.delivered = isDelivered;
+        tickPaint.setColor(ChatThemeManager.get(getContext()).getTickColor(isRead));
+        invalidateExpiryRegion(); // reuses the footer-band dirty rect the tick lives inside
+    }
+
+    /**
      * Bind this view to a message. Call from the adapter's onBindViewHolder
      * in place of the old setText()/Glide/etc. calls for the plain-text case.
      */
