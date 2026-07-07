@@ -2110,38 +2110,46 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     }
 
     /**
-     * Call on the MAIN thread, BEFORE any direct write to the `messages`
-     * table that's part of the live send/receive flow (not just the
-     * buffered Firebase path — ChatMessageSender's local-first
-     * insertMessage() and its later updateStatus("sent") call are separate
-     * write paths that bypass flushPendingRoomWrites() entirely, and need
-     * the same protection). Returns true if it severed the old Pager
-     * (meaning the caller must call reanchorPagingToBottom() once the
-     * write completes); false if the user isn't at the bottom, in which
-     * case nothing is touched and Paging's own anchor-preserving refresh
-     * handles things as before.
+     * FLICKER FIX (root cause of "whole chat re-renders on every send/
+     * receive"): this used to tear down the entire Pager/LiveData/
+     * transform pipeline (attachPagerWithKey → new Pager → new
+     * PagingSource → re-run map()+insertSeparators() → submitData()) on
+     * literally every single write — every message you send does BOTH an
+     * insertMessage("pending") write AND a later updateStatus("sent")
+     * write, and every incoming message does one via
+     * flushPendingRoomWrites(). That's 2–3 full Pager rebuilds per
+     * message, each one presenting an entirely new PagingData generation
+     * to the adapter — visually that reads as the whole RecyclerView
+     * rebinding at once, even though the actual message content barely
+     * changed.
+     *
+     * That teardown/rebuild dance was only ever needed to force REFRESH to
+     * land on the newest page instead of wherever Room's default
+     * anchor-preserving getRefreshKey() would land. MessageKeysetPagingSource
+     * no longer has that problem — its getRefreshKey() unconditionally
+     * returns null, so REFRESH always means "most recent page" (see its
+     * class doc), REGARDLESS of whether that refresh comes from us
+     * rebuilding the Pager or from Room's own InvalidationTracker firing
+     * automatically on the SAME PagingSource. So the manual sever+rebuild
+     * is now pure overhead with no correctness benefit — removing it lets
+     * Room's normal (cheap, incremental) auto-refresh do the same job
+     * without nuking the whole pipeline every message.
+     *
+     * Kept as a no-op (rather than deleted) since ChatActivityDelegate /
+     * ChatMessageSender still call these around every write; returning
+     * false here just means "don't rebuild anything," which is now always
+     * the right answer.
      */
     @Override
     public boolean severPagingIfAtBottom() {
-        if (!isUserAtBottom) return false;
-        if (currentPagingLiveSource != null && pagingMediator != null) {
-            pagingMediator.removeSource(currentPagingLiveSource);
-            currentPagingLiveSource = null;
-        }
-        return true;
+        return false;
     }
 
-    /**
-     * Call from ANY thread, AFTER a live write commits, when
-     * severPagingIfAtBottom() returned true for that same write. With
-     * keyset pagination, REFRESH always means "the most recent page" (see
-     * MessageKeysetPagingSource) — no count lookup needed anymore, just
-     * attach fresh on the main thread.
-     */
+    /** No-op — see severPagingIfAtBottom() above. Room's own invalidation
+     *  refresh already lands on the latest page every time. */
     @Override
     public void reanchorPagingToBottom() {
-        if (db == null || chatId == null) return;
-        runOnUiThread(() -> attachPagerWithKey(null));
+        // Intentionally empty.
     }
 
     private void startRealtimeListenerEarly() {

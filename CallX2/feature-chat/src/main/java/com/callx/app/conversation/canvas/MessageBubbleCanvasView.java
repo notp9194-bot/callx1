@@ -2568,6 +2568,14 @@ public class MessageBubbleCanvasView extends View {
         this.read        = isRead;
         this.delivered   = isDelivered;
         this.footerTimeText = "";  // set separately via bind() footer — caller must call setFooterTime() after bindFile() if needed; or we use the existing footerTimeText field
+
+        Context ctx = getContext();
+        int cacheKey = (sent ? 1 : 0) << 1 | (hasReply ? 1 : 0);
+        if (cacheKey != lastCacheKey || bubbleDrawable == null) {
+            bubbleDrawable = buildBubbleDrawable(ctx, sent);
+            lastCacheKey = cacheKey;
+        }
+
         requestLayoutIfSizeChanged();
         invalidate();
     }
@@ -4073,7 +4081,7 @@ public class MessageBubbleCanvasView extends View {
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
         // Guard: content we need to draw must exist
-        if (!isReelShare && !isContact && !isLocation && !isViewOnce && !isSeenBubble && !isCallEntry) {
+        if (!isReelShare && !isContact && !isLocation && !isFileBubble && !isViewOnce && !isSeenBubble && !isCallEntry) {
             if (bubbleDrawable == null) return;
             if (!isMedia && !isMediaGroup && !isAudio && !isPoll && textLayout == null) return;
         }
@@ -4112,11 +4120,15 @@ public class MessageBubbleCanvasView extends View {
     /** All bubble drawing logic, called from onDraw. Extracted so we can draw
      *  into either a Picture-recording canvas or the real canvas. */
     private void drawBubbleContent(Canvas canvas) {
-        if (!isContact && !isLocation && !isFileBubble && !isViewOnce && !isSeenBubble && !isCallEntry) {
-            // Contact, location, file, view-once, seen, and call-entry
-            // cards still never draw the normal chat-bubble background —
-            // the card/pill itself is the visual for those. Reel-share now
-            // DOES get the normal bubble behind it (see bindReelShare).
+        if (!isContact && !isLocation && !isViewOnce && !isSeenBubble && !isCallEntry) {
+            // Contact and location cards are bubbleless again (matches
+            // WhatsApp/Instagram — the card itself is the full visual,
+            // an extra bubble frame just adds wasted padding). View-once
+            // (own per-variant solid colour, self-painted), seen-
+            // notification, and call-entry stay bubbleless too — system-
+            // style pills/cards, not regular message content.
+            // Reel-share and file still draw the normal bubble behind them
+            // (file was a genuine missing-background bug fix).
             bubbleDrawable.setBounds(
                     (int) bubbleRect.left, (int) bubbleRect.top,
                     (int) bubbleRect.right, (int) bubbleRect.bottom);
