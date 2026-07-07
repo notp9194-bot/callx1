@@ -1,0 +1,34 @@
+{
+  "rules": {
+    ".read": "auth != null",
+    ".write": "auth != null",
+
+    "reelSeenDedup": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid"
+      }
+    },
+
+    "broadcast_lists": {
+      "$ownerUid": {
+        ".read":  "auth != null && auth.uid === $ownerUid",
+        ".write": "auth != null && auth.uid === $ownerUid"
+      }
+    },
+
+    "broadcast_messages": {
+      "$ownerUid": {
+        ".read":  "auth != null && auth.uid === $ownerUid",
+        ".write": "auth != null && auth.uid === $ownerUid"
+      }
+    },
+
+    "deliveryPending": {
+      "_comment": "TICK ADVANCE #3 — MessageStatusSync.markPendingDelivery() index: {chatId, toUid, ts}. Sender writes it right after a message becomes 'sent'; backend delivery-fallback cron (index.js) and the client itself remove it once delivered/read is confirmed.",
+      "$msgId": {
+        ".validate": "!newData.exists() || (newData.hasChildren(['chatId','toUid','ts']) && newData.child('chatId').val().contains(auth.uid))"
+      }
+    }
+  }
+}

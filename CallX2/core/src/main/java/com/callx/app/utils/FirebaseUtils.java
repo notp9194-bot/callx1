@@ -360,6 +360,10 @@ public class FirebaseUtils {
      * Per-user repost history: userReposts/{uid}/{reelId} = timestamp
      * Written alongside reelReposts for fast user-level "what did I repost?" queries.
      */
+    public static DatabaseReference getReelRepostsByUserRef(String uid) {
+        return db().getReference("userReposts").child(uid);
+    }
+
     /**
      * Delivery-pending index: deliveryPending/{msgId} = {chatId, toUid, ts}
      * Written by MessageStatusSync right after a message becomes "sent";

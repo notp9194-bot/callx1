@@ -1,0 +1,33 @@
+{
+  "rules": {
+    ".read": "auth != null",
+    ".write": "auth != null",
+
+    "reelSeenDedup": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid"
+      }
+    },
+
+    "broadcast_lists": {
+      "$ownerUid": {
+        ".read":  "auth != null && auth.uid === $ownerUid",
+        ".write": "auth != null && auth.uid === $ownerUid"
+      }
+    },
+
+    "broadcast_messages": {
+      "$ownerUid": {
+        ".read":  "auth != null && auth.uid === $ownerUid",
+        ".write": "auth != null && auth.uid === $ownerUid"
+      }
+    },
+
+    "deliveryPending": {
+      "$msgId": {
+        ".validate": "!newData.exists() || (newData.hasChildren(['chatId','toUid','ts']) && newData.child('chatId').val().contains(auth.uid))"
+      }
+    }
+  }
+}
