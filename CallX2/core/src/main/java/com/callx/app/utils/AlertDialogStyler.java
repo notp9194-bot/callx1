@@ -109,7 +109,92 @@ public final class AlertDialogStyler {
             Drawable bg = getCachedDrawable(dialog.getContext(), backgroundRes);
             window.getDecorView().setBackground(bg);
             applySize(window, size);
+            styleActionButtons(dialog);
         }
+    }
+
+    // ── Action-button styling (Canvas-rendered, spaced, color-by-action) ──
+    // Pehle sirf COMPACT dialogs pe tha, ab har showRounded() dialog
+    // (COMPACT/WIDE/DEFAULT) isi style ko use karta hai — consistency.
+
+    private static final int COLOR_DESTRUCTIVE = Color.parseColor("#E53935"); // red
+    private static final int COLOR_NEUTRAL     = Color.parseColor("#757575"); // grey
+    private static final int COLOR_PRIMARY     = Color.parseColor("#2979FF"); // blue
+
+    private static void styleActionButtons(Dialog dialog) {
+        android.widget.Button pos = null, neg = null, neu = null;
+        if (dialog instanceof androidx.appcompat.app.AlertDialog) {
+            androidx.appcompat.app.AlertDialog ad = (androidx.appcompat.app.AlertDialog) dialog;
+            pos = ad.getButton(android.content.DialogInterface.BUTTON_POSITIVE);
+            neg = ad.getButton(android.content.DialogInterface.BUTTON_NEGATIVE);
+            neu = ad.getButton(android.content.DialogInterface.BUTTON_NEUTRAL);
+        } else if (dialog instanceof android.app.AlertDialog) {
+            android.app.AlertDialog ad = (android.app.AlertDialog) dialog;
+            pos = ad.getButton(android.content.DialogInterface.BUTTON_POSITIVE);
+            neg = ad.getButton(android.content.DialogInterface.BUTTON_NEGATIVE);
+            neu = ad.getButton(android.content.DialogInterface.BUTTON_NEUTRAL);
+        } else {
+            return; // unknown dialog type — leave default look
+        }
+
+        int gapPx = Math.round(10 * dialog.getContext().getResources().getDisplayMetrics().density);
+        applyCanvasButtonStyle(pos, gapPx);
+        applyCanvasButtonStyle(neg, gapPx);
+        applyCanvasButtonStyle(neu, gapPx);
+    }
+
+    private static void applyCanvasButtonStyle(android.widget.Button btn, int gapPx) {
+        if (btn == null) return;
+
+        btn.setBackground(new CanvasButtonDrawable(colorForButtonText(btn.getText())));
+        btn.setTextColor(Color.WHITE);
+        btn.setAllCaps(false);
+
+        android.view.ViewGroup.LayoutParams lp = btn.getLayoutParams();
+        if (lp instanceof android.widget.LinearLayout.LayoutParams) {
+            android.widget.LinearLayout.LayoutParams llp = (android.widget.LinearLayout.LayoutParams) lp;
+            llp.leftMargin = gapPx;
+            llp.rightMargin = gapPx;
+            llp.weight = 0; // stop equal-width stretch so buttons hug their own text
+            llp.width = android.widget.LinearLayout.LayoutParams.WRAP_CONTENT;
+            btn.setLayoutParams(llp);
+        }
+    }
+
+    /** Delete/Remove/Block/Clear/Leave → destructive red; Cancel → grey; sab kuch else → primary blue. */
+    private static int colorForButtonText(CharSequence text) {
+        if (text == null) return COLOR_PRIMARY;
+        String t = text.toString().toLowerCase();
+        if (t.contains("delete") || t.contains("remove") || t.contains("block")
+                || t.contains("clear") || t.contains("leave")) {
+            return COLOR_DESTRUCTIVE;
+        }
+        if (t.contains("cancel")) {
+            return COLOR_NEUTRAL;
+        }
+        return COLOR_PRIMARY;
+    }
+
+    /** Rounded-pill button background, drawn directly on Canvas (no XML drawable). */
+    private static class CanvasButtonDrawable extends Drawable {
+        private final android.graphics.Paint paint;
+
+        CanvasButtonDrawable(int color) {
+            paint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+            paint.setColor(color);
+            paint.setStyle(android.graphics.Paint.Style.FILL);
+        }
+
+        @Override
+        public void draw(android.graphics.Canvas canvas) {
+            android.graphics.RectF bounds = new android.graphics.RectF(getBounds());
+            float radius = bounds.height() / 2f; // pill shape
+            canvas.drawRoundRect(bounds, radius, radius, paint);
+        }
+
+        @Override public void setAlpha(int alpha) { paint.setAlpha(alpha); }
+        @Override public void setColorFilter(android.graphics.ColorFilter colorFilter) { paint.setColorFilter(colorFilter); }
+        @Override public int getOpacity() { return android.graphics.PixelFormat.TRANSLUCENT; }
     }
 
     private static void applySize(Window window, DialogSize size) {
