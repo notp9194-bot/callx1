@@ -338,6 +338,8 @@ public class ChatRepository {
         e.duration        = m.duration;
         e.timestamp       = m.timestamp;
         e.status          = m.status;
+        e.deliveredAt     = m.deliveredAt;
+        e.readAt          = m.readAt;
         e.replyToId       = m.replyToId;
         e.replyToText     = m.replyToText;
         e.replyToSenderName = m.replyToSenderName;

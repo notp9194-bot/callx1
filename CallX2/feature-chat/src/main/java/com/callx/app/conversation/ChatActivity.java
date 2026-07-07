@@ -2599,6 +2599,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         e.type = m.type != null ? m.type : "text"; e.mediaUrl = m.mediaUrl != null ? m.mediaUrl : m.imageUrl;
         e.thumbnailUrl = m.thumbnailUrl; e.fileName = m.fileName; e.fileSize = m.fileSize;
         e.duration = m.duration; e.timestamp = m.timestamp; e.status = m.status;
+        e.deliveredAt = m.deliveredAt; e.readAt = m.readAt;
         e.replyToId = m.replyToId; e.replyToText = m.replyToText;
         e.replyToSenderName = m.replyToSenderName; e.replyToType = m.replyToType;
         e.replyToMediaUrl = m.replyToMediaUrl; e.edited = m.edited; e.editedAt = m.editedAt; e.deleted = m.deleted;

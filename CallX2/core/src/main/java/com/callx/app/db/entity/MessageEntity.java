@@ -42,6 +42,11 @@ public class MessageEntity {
     public Long   duration;
     public Long   timestamp;
     public String status;         // sent | delivered | read
+    /** Server timestamps for status transitions — mirrors Message.deliveredAt/readAt
+     *  (TICK ADVANCE #5 / v25 fix). Needed so the Message Info dialog and read-receipt
+     *  ticks survive the Room cache round-trip instead of always reading null. */
+    public Long   deliveredAt;
+    public Long   readAt;
     public String replyToId;
     public String replyToText;
     public String replyToSenderName;

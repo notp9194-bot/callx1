@@ -24,6 +24,7 @@ public final class MessageEntityMapper {
         m.imageUrl = "image".equals(e.type) ? e.mediaUrl : null; m.thumbnailUrl = e.thumbnailUrl;
         m.fileName = e.fileName; m.fileSize = e.fileSize; m.duration = e.duration;
         m.timestamp = e.timestamp; m.status = e.status; m.replyToId = e.replyToId;
+        m.deliveredAt = e.deliveredAt; m.readAt = e.readAt;
         m.replyToText = e.replyToText; m.replyToSenderName = e.replyToSenderName;
         m.replyToType = e.replyToType; m.replyToMediaUrl = e.replyToMediaUrl;
         m.edited = e.edited; m.editedAt = e.editedAt; m.deleted = e.deleted; m.forwardedFrom = e.forwardedFrom;
