@@ -30,6 +30,34 @@
             android:excludeFromRecents="true"
             android:noHistory="true"/>
 
+        <!--
+          MessageInfoActivity — dedicated "Message info" screen for 1-on-1 chat.
+
+          PERFORMANCE NOTES (v2):
+          ─────────────────────────────────────────────────────────────────────
+          • excludeFromRecents="true" — prevents this utility screen from
+            appearing in the Recents/Overview list, avoiding task-history
+            pollution and the minor GC cost of keeping it in the task stack.
+          • noHistory="true" — the Back action on MessageInfoActivity must
+            return to ChatActivity, not to a stale snapshot of itself.
+            noHistory ensures Android never keeps a history entry for it, so
+            the back-stack stays clean no matter how many times the user opens
+            it in one session.
+          • windowSoftInputMode="stateHidden" — suppresses any IME pop-up
+            on entry (the screen has no text input), preventing a window-resize
+            event that would force the chat RecyclerView to re-measure.
+          • android:launchMode not set (default "standard") — intentionally
+            NOT singleTop/singleTask because we always want a fresh instance
+            with the correct message extras; deduplication is not needed here.
+          ─────────────────────────────────────────────────────────────────────
+        -->
+        <activity
+            android:name="com.callx.app.conversation.MessageInfoActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:windowSoftInputMode="stateHidden" />
+
         <!-- Contact share picker — launched via startActivityForResult from ChatActivity / GroupChatActivity -->
         <activity android:name="com.callx.app.chat.ContactSharePickerActivity"
             android:exported="false"/>

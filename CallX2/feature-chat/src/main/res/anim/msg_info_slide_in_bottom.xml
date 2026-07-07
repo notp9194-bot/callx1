@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  msg_info_slide_in_bottom.xml
+  MessageInfoActivity enter animation: slides up from the bottom of the screen.
+  ChatActivity's own window does NOT animate (overridePendingTransition passes 0
+  for the outgoing animation), so there is no conflict with the RecyclerView's
+  LAYER_TYPE_HARDWARE fling optimisation.
+-->
+<translate xmlns:android="http://schemas.android.com/apk/res/android"
+    android:fromYDelta="100%p"
+    android:toYDelta="0%p"
+    android:duration="280"
+    android:interpolator="@android:interpolator/decelerate_cubic" />

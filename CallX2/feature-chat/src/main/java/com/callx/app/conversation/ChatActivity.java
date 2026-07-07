@@ -3590,6 +3590,23 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         int mediaCount = (m.mediaItems != null) ? m.mediaItems.size() : 0;
         info.putExtra(MessageInfoActivity.EXTRA_MEDIA_COUNT, mediaCount);
         startActivity(info);
+        // ─── PERF FIX: TRANSITION DECOUPLING ───────────────────────────────
+        // ChatActivity has setExitTransition(Slide(END)) which, without this
+        // override, fires on EVERY startActivity() call — including here.
+        // That Slide animation runs at the same time the RecyclerView's
+        // LAYER_TYPE_HARDWARE fling optimisation is active, causing two
+        // competing GPU-layer compositing operations on a single frame →
+        // visible jank / flicker in the chat list.
+        //
+        // overridePendingTransition(incoming=slide_up, outgoing=0):
+        //   • MessageInfoActivity slides in from the bottom (bottom-sheet feel)
+        //   • THIS window (ChatActivity) does NOT animate — it stays frozen
+        //   • No Slide(END) fires, no hardware-layer conflict, no jank
+        //
+        // The mirror call (incoming=0, outgoing=slide_down) lives in
+        // MessageInfoActivity.finishWithAnimation(), so the return trip is
+        // equally jank-free.
+        overridePendingTransition(R.anim.msg_info_slide_in_bottom, 0);
     }
 
     // ─────────────────────────────────────────────────────────────────────
