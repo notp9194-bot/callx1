@@ -3222,8 +3222,21 @@ public class MessagePagingAdapter
                     String groupMsgId = (m.id != null && !m.id.isEmpty()) ? m.id : m.messageId;
                     MediaGroupLayoutHelper.populate(ctx, h.llMediaGroup, m.mediaItems, m.caption,
                             chatId, groupMsgId);
+                    // GAP FIX: same bug as the single-image/video bubbles —
+                    // this jumped STRAIGHT to showActionBottomSheet(), whose
+                    // option list (Reply/Copy/Star/Pin/Forward/Delete) has no
+                    // "Info" entry at all. Now mirrors every other bubble
+                    // type: first long-press enters multi-select mode (Info
+                    // button available in the selection toolbar); a second
+                    // long-press while already selecting opens the full
+                    // action sheet.
                     h.llMediaGroup.setOnLongClickListener(v -> {
-                        if (actionListener != null) showActionBottomSheet(ctx, m);
+                        v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
+                        if (!multiSelectMode) {
+                            enterMultiSelectMode(m);
+                        } else if (actionListener != null) {
+                            showActionBottomSheet(ctx, m);
+                        }
                         return true;
                     });
                 } else {
