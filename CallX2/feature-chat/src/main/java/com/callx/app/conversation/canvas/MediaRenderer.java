@@ -174,12 +174,19 @@ final class MediaRenderer {
                 canvas.drawText(host.expiryText, timeX - host.expiryReserveWidth(), textBaselineY, host.expiryPaint);
             }
             if (host.sent) {
-                // Reuse the same tick paint as the text-bubble footer, but
-                // white (matches mediaPillTextPaint) so it reads on the pill.
-                Paint saved = new Paint(host.tickPaint);
-                host.tickPaint.setColor(MessageBubbleCanvasView.MEDIA_PILL_TEXT);
+                // BUG FIX: this used to force the tick to always draw in
+                // MEDIA_PILL_TEXT (solid white) "so it reads on the pill" —
+                // but that meant the tick never visually changed color when
+                // a message went delivered -> read, because host.tickPaint
+                // already carries the correct grey/gold color (set by
+                // bind()/setDeliveryStatus() from ChatThemeManager
+                // .getTickColor(read)) and this was overwriting it with
+                // white on every single draw. Both real tick colors
+                // (0xFF8FAF9F grey, 0xFFD4AF37 gold) read perfectly fine
+                // against the pill's translucent black background — same
+                // as the WhatsApp-style pill this mirrors — so just draw
+                // with the paint as-is instead of hijacking its color.
                 host.drawTick(canvas, host.mediaPillRect.right - pillPadH - MessageBubbleCanvasView.TICK_SIZE_DP * host.density, textBaselineY);
-                host.tickPaint.set(saved);
             }
         }
     }
