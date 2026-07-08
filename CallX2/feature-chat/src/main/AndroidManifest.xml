@@ -38,5 +38,12 @@
         <activity android:name="com.callx.app.chat.LocationSharePickerActivity"
             android:exported="false"/>
 
+        <!-- GIF picker (Tenor search) — launched via ActivityResultLauncher from
+             ChatMediaController / GroupChatActivity's attach sheet "GIF" option. -->
+        <activity android:name="com.callx.app.chat.ChatGifPickerActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"
+            android:label="Choose GIF"/>
+
     </application>
 </manifest>

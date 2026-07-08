@@ -188,6 +188,7 @@ public class GroupChatActivity extends AppCompatActivity
 
     // ── Media pickers ──────────────────────────────────────────────────────
     private ActivityResultLauncher<String> imagePicker, videoPicker, audioPicker, filePicker, stickerPicker;
+    private ActivityResultLauncher<Intent> gifPickerLauncher;
     private ActivityResultLauncher<String> wallpaperPicker;
     private androidx.activity.result.ActivityResultLauncher<androidx.activity.result.PickVisualMediaRequest> multiMediaPicker;
     private static final int MAX_MULTI_PICK = 30;
@@ -2458,6 +2459,14 @@ public class GroupChatActivity extends AppCompatActivity
                 uri -> { if (uri != null) uploadAndSend(uri, "image", "image", null); });
         stickerPicker = registerForActivityResult(new ActivityResultContracts.GetContent(),
                 uri -> { if (uri != null) sendStickerMessage(uri); });
+        gifPickerLauncher = registerForActivityResult(
+                new ActivityResultContracts.StartActivityForResult(),
+                result -> {
+                    if (result.getResultCode() != android.app.Activity.RESULT_OK
+                            || result.getData() == null) return;
+                    String url = result.getData().getStringExtra("gif_url");
+                    if (url != null && !url.isEmpty()) sendTenorGif(url);
+                });
         videoPicker = registerForActivityResult(new ActivityResultContracts.GetContent(),
                 uri -> { if (uri != null) uploadAndSend(uri, "video", "video", null); });
         audioPicker = registerForActivityResult(new ActivityResultContracts.GetContent(),
@@ -2519,6 +2528,13 @@ public class GroupChatActivity extends AppCompatActivity
         View optSticker = v.findViewById(R.id.opt_sticker);
         if (optSticker != null) {
             optSticker.setOnClickListener(x -> { sheet.dismiss(); stickerPicker.launch("image/*"); });
+        }
+        View optGif = v.findViewById(R.id.opt_gif);
+        if (optGif != null) {
+            optGif.setOnClickListener(x -> {
+                sheet.dismiss();
+                gifPickerLauncher.launch(new Intent(this, com.callx.app.chat.ChatGifPickerActivity.class));
+            });
         }
         sheet.setContentView(v); sheet.show();
     }
@@ -2596,6 +2612,17 @@ public class GroupChatActivity extends AppCompatActivity
                                 Toast.LENGTH_LONG).show();
                     }
                 });
+    }
+
+    // ── GIF picker (Tenor) — direct send, no Cloudinary upload ──────────────
+
+    private void sendTenorGif(String gifUrl) {
+        if (gifUrl == null || gifUrl.isEmpty()) return;
+        Message m  = buildOutgoing();
+        m.type     = "gif";
+        m.mediaUrl = gifUrl;
+        m.imageUrl = gifUrl;
+        pushMessage(m, "🎞️ GIF");
     }
 
     /** Multi-image/video pick → uploads each sequentially, then pushes ONE

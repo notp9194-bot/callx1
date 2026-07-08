@@ -56,6 +56,7 @@ public class ChatMediaController {
 
     private ActivityResultLauncher<String>  imagePicker;
     private ActivityResultLauncher<String>  stickerPicker;
+    private ActivityResultLauncher<Intent>  gifPickerLauncher;
     private ActivityResultLauncher<String>  videoPicker;
     private ActivityResultLauncher<String>  audioPicker;
     private ActivityResultLauncher<String>  filePicker;
@@ -129,6 +130,20 @@ public class ChatMediaController {
         stickerPicker = activity.registerForActivityResult(
                 new ActivityResultContracts.GetContent(),
                 uri -> { if (uri != null) sendStickerMessage(uri); });
+
+        // GIF — in-app Tenor search picker (ChatGifPickerActivity). Unlike
+        // sendGifMessage() (fed by the keyboard's inline GIF share, which
+        // hands over a content:// URI that must be uploaded to Cloudinary),
+        // the picker returns an already-public Tenor CDN URL, so it's sent
+        // directly with no upload step.
+        gifPickerLauncher = activity.registerForActivityResult(
+                new ActivityResultContracts.StartActivityForResult(),
+                result -> {
+                    if (result.getResultCode() != android.app.Activity.RESULT_OK
+                            || result.getData() == null) return;
+                    String url = result.getData().getStringExtra("gif_url");
+                    if (url != null && !url.isEmpty()) sendTenorGif(url);
+                });
 
         videoPicker = activity.registerForActivityResult(
                 new ActivityResultContracts.GetContent(),
@@ -240,6 +255,13 @@ public class ChatMediaController {
         View optSticker = v.findViewById(R.id.opt_sticker);
         if (optSticker != null) {
             optSticker.setOnClickListener(x -> { sheet.dismiss(); stickerPicker.launch("image/*"); });
+        }
+        View optGif = v.findViewById(R.id.opt_gif);
+        if (optGif != null) {
+            optGif.setOnClickListener(x -> {
+                sheet.dismiss();
+                gifPickerLauncher.launch(new Intent(activity, com.callx.app.chat.ChatGifPickerActivity.class));
+            });
         }
         sheet.setContentView(v);
         sheet.show();
@@ -531,6 +553,21 @@ public class ChatMediaController {
                                 err != null ? err : "Sticker upload failed", Toast.LENGTH_LONG).show();
                     }
                 });
+    }
+
+    // ── GIF picker (Tenor) — direct send, no Cloudinary upload ──────────────
+    // The picker only ever hands back an already-hosted Tenor URL, so this
+    // just builds the message straight away — same "gif" type/preview text
+    // as sendGifMessage(), just skipping the upload step entirely.
+
+    public void sendTenorGif(String gifUrl) {
+        if (gifUrl == null || gifUrl.isEmpty()) return;
+        Message m = delegate.buildOutgoing();
+        m.type     = "gif";
+        m.mediaUrl = gifUrl;
+        m.imageUrl = gifUrl;
+        delegate.pushMessage(m, "\uD83C\uDEDF\uFE0F GIF");
+        delegate.clearReply();
     }
 
     // ── Upload & send ─────────────────────────────────────────────────────
