@@ -658,6 +658,14 @@ public class MessageBubbleCanvasView extends View {
     final TextPaint textPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
     final TextPaint footerPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
     final Paint tickPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    // PERF ADV: style/strokeCap never change per-bubble, and strokeWidth
+    // only depends on density (constant for the view's lifetime) — only the
+    // COLOR changes per-bind (grey/gold, set via setDeliveryStatus()/bind()).
+    // These three used to be re-set inside drawTick() on EVERY single
+    // onDraw() call for EVERY visible tick — real wasted work during fast
+    // scroll for values that never actually change. Set once in the
+    // constructor instead (needs `density`, so can't be a field initializer
+    // here — see the constructor body below).
     final RectF bubbleRect = new RectF();
 
     // ── In-chat search highlight (ChatSearchController) ─────────────────
@@ -1472,6 +1480,11 @@ public class MessageBubbleCanvasView extends View {
     public MessageBubbleCanvasView(Context ctx, @Nullable android.util.AttributeSet attrs) {
         super(ctx, attrs);
         density = ctx.getResources().getDisplayMetrics().density;
+        // PERF ADV: set once here instead of every drawTick() call — see
+        // the tickPaint field comment above.
+        tickPaint.setStyle(Paint.Style.STROKE);
+        tickPaint.setStrokeWidth(density * 1.2f);
+        tickPaint.setStrokeCap(Paint.Cap.ROUND);
         textPaint.setTextSize(spToPx(TEXT_SIZE_SP));
         footerPaint.setTextSize(spToPx(FOOTER_TEXT_SP));
         footerPaint.setAlpha(180);
@@ -1769,7 +1782,7 @@ public class MessageBubbleCanvasView extends View {
         if (this.read == isRead && this.delivered == isDelivered) return; // no-op
         this.read = isRead;
         this.delivered = isDelivered;
-        tickPaint.setColor(ChatThemeManager.get(getContext()).getTickColor(isRead));
+        tickPaint.setColor(ChatThemeManager.getTickColor(isRead));
         invalidateExpiryRegion(); // reuses the footer-band dirty rect the tick lives inside
     }
 
@@ -1798,7 +1811,7 @@ public class MessageBubbleCanvasView extends View {
         Context ctx = getContext();
         textPaint.setColor(ChatThemeManager.get(ctx).getTextColor(ctx, sent));
         footerPaint.setColor(textPaint.getColor());
-        tickPaint.setColor(ChatThemeManager.get(ctx).getTickColor(read));
+        tickPaint.setColor(ChatThemeManager.getTickColor(read));
 
         // Bubble drawable cache — same 4-combo cache key scheme as
         // ChatThemeManager's View-based bubbles (sent<<1 | hasReply).
@@ -1918,7 +1931,7 @@ public class MessageBubbleCanvasView extends View {
         Context ctx = getContext();
         textPaint.setColor(ChatThemeManager.get(ctx).getTextColor(ctx, sent));
         footerPaint.setColor(textPaint.getColor());
-        tickPaint.setColor(ChatThemeManager.get(ctx).getTickColor(read));
+        tickPaint.setColor(ChatThemeManager.getTickColor(read));
 
         int cacheKey = (sent ? 1 : 0) << 1 | (hasReply ? 1 : 0);
         if (cacheKey != lastCacheKey || bubbleDrawable == null) {
@@ -2027,7 +2040,7 @@ public class MessageBubbleCanvasView extends View {
         Context ctx = getContext();
         textPaint.setColor(ChatThemeManager.get(ctx).getTextColor(ctx, sent));
         footerPaint.setColor(textPaint.getColor());
-        tickPaint.setColor(ChatThemeManager.get(ctx).getTickColor(read));
+        tickPaint.setColor(ChatThemeManager.getTickColor(read));
         // Waveform idle bars derive from the bubble's own text color so they
         // stay readable on both a colored sent bubble and a light received
         // one (the legacy AudioWaveformView hardcoded white-based colors,
@@ -2243,7 +2256,7 @@ public class MessageBubbleCanvasView extends View {
         Context ctx = getContext();
         textPaint.setColor(ChatThemeManager.get(ctx).getTextColor(ctx, sent));
         footerPaint.setColor(textPaint.getColor());
-        tickPaint.setColor(ChatThemeManager.get(ctx).getTickColor(read));
+        tickPaint.setColor(ChatThemeManager.getTickColor(read));
 
         int cacheKey = (sent ? 1 : 0) << 1 | (hasReply ? 1 : 0);
         if (cacheKey != lastCacheKey || bubbleDrawable == null) {
@@ -2303,7 +2316,7 @@ public class MessageBubbleCanvasView extends View {
         this.mediaDownloading = false;
 
         Context ctx = getContext();
-        tickPaint.setColor(ChatThemeManager.get(ctx).getTickColor(read));
+        tickPaint.setColor(ChatThemeManager.getTickColor(read));
 
         // Reel-share now sits inside a normal chat bubble (same cache
         // scheme as the text/media bind methods) instead of floating
@@ -2809,7 +2822,7 @@ public class MessageBubbleCanvasView extends View {
         Context ctx = getContext();
         textPaint.setColor(ChatThemeManager.get(ctx).getTextColor(ctx, sent));
         footerPaint.setColor(textPaint.getColor());
-        tickPaint.setColor(ChatThemeManager.get(ctx).getTickColor(read));
+        tickPaint.setColor(ChatThemeManager.getTickColor(read));
 
         // Bubble drawable cache (poll uses normal bubble bg)
         int cacheKey = (sent ? 1 : 0) << 1 | (hasReply ? 1 : 0);
@@ -4711,11 +4724,12 @@ public class MessageBubbleCanvasView extends View {
 
     void drawTick(Canvas canvas, float x, float baselineY) {
         // Simple two-stroke check mark; double check mark for delivered/read.
+        // PERF ADV: style/strokeWidth/strokeCap are set ONCE in the
+        // constructor now (see tickPaint field) instead of being reset here
+        // on every single draw — only the color varies per-bind and that's
+        // already handled by setDeliveryStatus()/bind().
         float size = TICK_SIZE_DP * density;
         float y = baselineY - size * 0.4f;
-        tickPaint.setStyle(Paint.Style.STROKE);
-        tickPaint.setStrokeWidth(density * 1.2f);
-        tickPaint.setStrokeCap(Paint.Cap.ROUND);
 
         drawSingleTick(canvas, x, y, size);
         if (delivered || read) {

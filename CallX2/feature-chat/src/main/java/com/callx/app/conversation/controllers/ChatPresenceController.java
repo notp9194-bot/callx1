@@ -58,7 +58,15 @@ public class ChatPresenceController {
     // separate (ungated) queue because "delivered" must still happen even when
     // the user has read receipts turned OFF (WhatsApp-style: grey delivered
     // tick always shows; blue read tick is the one privacy hides).
-    private static final long READ_FLUSH_DEBOUNCE_MS = 150;
+    // PERF ADV: 150ms -> 300ms. A fast burst of incoming messages (e.g.
+    // reopening a chat with a big unread backlog, or the other side sending
+    // several messages back-to-back) was often split across 2-3 flushes
+    // instead of 1, because 150ms wasn't always enough to catch the whole
+    // burst before the timer fired. 300ms is still imperceptible to the user
+    // (ticks update well under the time it takes to notice) but comfortably
+    // covers a realistic burst window, so more messages land in a single
+    // updateChildren() call instead of triggering a second network round-trip.
+    private static final long READ_FLUSH_DEBOUNCE_MS = 300;
     private final LinkedHashSet<String> pendingDeliveredFirebaseIds = new LinkedHashSet<>();
     private final LinkedHashSet<String> pendingReadFirebaseIds = new LinkedHashSet<>();
     private final android.os.Handler readFlushHandler = new android.os.Handler(android.os.Looper.getMainLooper());

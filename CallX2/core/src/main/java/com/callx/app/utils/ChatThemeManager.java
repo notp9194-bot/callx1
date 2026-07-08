@@ -196,7 +196,14 @@ public class ChatThemeManager {
         }
     }
 
-    public int getTickColor(boolean isRead) {
+    // PERF ADV: made static — this never actually depended on dark mode or
+    // any other instance state, so every caller was paying for
+    // ChatThemeManager.get(ctx)'s singleton + isDarkMode() check just to
+    // reach a plain ternary. Callers now call this directly
+    // (ChatThemeManager.getTickColor(read)) instead of
+    // ChatThemeManager.get(ctx).getTickColor(read) — same result, no
+    // wasted per-bind work during fast scroll.
+    public static int getTickColor(boolean isRead) {
         // COLOR / SIGNATURE: read ticks are champagne-gold instead of the
         // usual WhatsApp blue (0xFF34B7F1) — the one deliberate premium
         // "tell" of this app, echoed by the same gold in the waveform

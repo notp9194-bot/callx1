@@ -63,6 +63,15 @@ public class MessagePagingAdapter
                     && safeEquals(a.text, b.text)
                     && safeEquals(a.type, b.type)
                     && safeEquals(a.status, b.status)
+                    // PERF ADV: deliveredAt/readAt weren't compared here at
+                    // all — if a message's status stayed the same but one of
+                    // these timestamps changed (e.g. a late correction, or
+                    // deliveredAt landing in a separate flush from the
+                    // status write), DiffUtil saw no difference and the row
+                    // never got rebound, so Message Info could show stale
+                    // times until something else forced a rebind.
+                    && safeEquals(asStr(a.deliveredAt), asStr(b.deliveredAt))
+                    && safeEquals(asStr(a.readAt), asStr(b.readAt))
                     && a.timestamp == b.timestamp
                     && a.edited == b.edited
                     && safeEquals(asStr(a.editedAt), asStr(b.editedAt))
@@ -102,14 +111,20 @@ public class MessagePagingAdapter
 
             @Override
             public Object getChangePayload(@NonNull Message a, @NonNull Message b) {
-                // Only status changed — return PAYLOAD_STATUS so onBind
-                // skips full rebind and only updates tv_status.
+                // Only status/deliveredAt/readAt changed — return
+                // PAYLOAD_STATUS so onBind skips full rebind and only
+                // updates the tick. PERF ADV: this used to check status
+                // alone, so a deliveredAt/readAt-only change (status
+                // unchanged) fell through to a full rebind instead of the
+                // cheap tick-only path.
                 boolean onlyStatusChanged =
                         safeEquals(a.text, b.text) &&
                         safeEquals(a.type, b.type) &&
                         a.timestamp == b.timestamp &&
                         a.edited == b.edited &&
-                        !safeEquals(a.status, b.status);
+                        !(safeEquals(a.status, b.status)
+                                && safeEquals(asStr(a.deliveredAt), asStr(b.deliveredAt))
+                                && safeEquals(asStr(a.readAt), asStr(b.readAt)));
                 if (onlyStatusChanged) return PAYLOAD_STATUS;
 
                 // Only reactions changed — return PAYLOAD_REACTIONS so onBind
@@ -649,18 +664,55 @@ public class MessagePagingAdapter
         String id = firstMessage != null ? firstMessage.messageId : null;
         if (id == null && firstMessage != null) id = firstMessage.id;
         if (id != null) selectedMessageIds.add(id);
-        // FIX: notifyDataSetChanged() kills performance — notify only the first selected item
-        // and rely on the long-press caller to refresh visible items via notifyItemRangeChanged
-        notifyItemRangeChanged(0, getItemCount());
+        // PERF ADV: was notifyItemRangeChanged(0, getItemCount()) — touches
+        // EVERY row in the whole chat just to dim the ones that aren't
+        // selected, even though only the on-screen rows are visibly
+        // affected. On a chat with thousands of messages that's a huge
+        // rebind burst for a single long-press. notifyVisibleRangeChanged()
+        // limits this to what's actually on screen (+ a small buffer for
+        // prefetched/cached rows just off-screen).
+        notifyVisibleRangeChanged();
         if (multiSelectListener != null) multiSelectListener.onSelectionChanged(selectedMessageIds.size());
     }
 
     public void exitMultiSelectMode() {
         multiSelectMode = false;
         selectedMessageIds.clear();
-        // FIX: targeted range notify instead of notifyDataSetChanged()
-        notifyItemRangeChanged(0, getItemCount());
+        // PERF ADV: see enterMultiSelectMode() above — same visible-range-only fix.
+        notifyVisibleRangeChanged();
         if (multiSelectListener != null) multiSelectListener.onSelectionChanged(0);
+    }
+
+    /**
+     * Notifies only the currently visible rows (plus a small buffer for
+     * rows RecyclerView has already prefetched/cached just off-screen), not
+     * the entire list — used when toggling multi-select mode, where every
+     * row's selection-highlight state needs to be repainted but only the
+     * ones actually on screen (or about to be) are visible to the user.
+     * Falls back to the old full-range notify if the RecyclerView isn't
+     * attached yet or isn't using a LinearLayoutManager (defensive — this
+     * chat always uses one in practice).
+     */
+    private void notifyVisibleRangeChanged() {
+        androidx.recyclerview.widget.RecyclerView.LayoutManager lm =
+                attachedRecyclerView != null ? attachedRecyclerView.getLayoutManager() : null;
+        if (lm instanceof androidx.recyclerview.widget.LinearLayoutManager) {
+            androidx.recyclerview.widget.LinearLayoutManager llm =
+                    (androidx.recyclerview.widget.LinearLayoutManager) lm;
+            int first = llm.findFirstVisibleItemPosition();
+            int last = llm.findLastVisibleItemPosition();
+            if (first != androidx.recyclerview.widget.RecyclerView.NO_POSITION
+                    && last != androidx.recyclerview.widget.RecyclerView.NO_POSITION) {
+                int bufferRows = 8; // covers RecyclerView's default prefetch/cache window
+                int start = Math.max(0, first - bufferRows);
+                int end = Math.min(getItemCount() - 1, last + bufferRows);
+                notifyItemRangeChanged(start, end - start + 1);
+                return;
+            }
+        }
+        // Defensive fallback — layout not measured yet, or a different
+        // LayoutManager type. Correct either way, just not the optimized path.
+        notifyItemRangeChanged(0, getItemCount());
     }
 
     public boolean isInMultiSelectMode() { return multiSelectMode; }
@@ -734,17 +786,23 @@ public class MessagePagingAdapter
     // clear on destroy) since it's the same underlying RequestManager Glide
     // would have handed back anyway.
     private com.bumptech.glide.RequestManager glideRequestManager;
+    // PERF ADV: needed so enterMultiSelectMode()/exitMultiSelectMode() can
+    // limit their notify to the actually-visible range instead of the whole
+    // list — see attachedRecyclerView usage below.
+    private RecyclerView attachedRecyclerView;
 
     @Override
     public void onAttachedToRecyclerView(@NonNull RecyclerView recyclerView) {
         super.onAttachedToRecyclerView(recyclerView);
         glideRequestManager = com.bumptech.glide.Glide.with(recyclerView.getContext());
+        attachedRecyclerView = recyclerView;
     }
 
     @Override
     public void onDetachedFromRecyclerView(@NonNull RecyclerView recyclerView) {
         super.onDetachedFromRecyclerView(recyclerView);
         glideRequestManager = null;
+        attachedRecyclerView = null;
     }
 
     /** Cached RequestManager if attached; falls back to glide(ctx) so callers never null-check. */
@@ -3932,12 +3990,12 @@ public class MessagePagingAdapter
                 case "read":
                     h.tvStatus.setText("✓✓");
                     h.tvStatus.setTextColor(
-                        com.callx.app.utils.ChatThemeManager.get(ctx).getTickColor(true));
+                        com.callx.app.utils.ChatThemeManager.getTickColor(true));
                     break;
                 case "delivered":
                     h.tvStatus.setText("✓✓");
                     h.tvStatus.setTextColor(
-                        com.callx.app.utils.ChatThemeManager.get(ctx).getTickColor(false));
+                        com.callx.app.utils.ChatThemeManager.getTickColor(false));
                     break;
                 case "pending":
                     // Clock icon — sent locally, not yet reached Firebase
@@ -3955,7 +4013,7 @@ public class MessagePagingAdapter
                 default: // "sent" — one grey tick
                     h.tvStatus.setText("✓");
                     h.tvStatus.setTextColor(
-                        com.callx.app.utils.ChatThemeManager.get(ctx).getTickColor(false));
+                        com.callx.app.utils.ChatThemeManager.getTickColor(false));
                     h.tvStatus.setOnClickListener(null);
                     break;
             }
