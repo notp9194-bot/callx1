@@ -18,6 +18,9 @@
         <activity android:name="com.callx.app.starred.StarredMessagesActivity"
             android:exported="false"
             android:parentActivityName="com.callx.app.conversation.ChatActivity"/>
+        <activity android:name="com.callx.app.conversation.info.MessageInfoActivity"
+            android:exported="false"
+            android:parentActivityName="com.callx.app.conversation.ChatActivity"/>
         <activity android:name="com.callx.app.settings.MutedChatsActivity"
             android:exported="false"
             android:screenOrientation="portrait"/>

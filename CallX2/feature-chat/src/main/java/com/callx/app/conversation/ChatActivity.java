@@ -3584,36 +3584,22 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
 
     private void showMessageInfoDialog(Message m) {
         if (m == null) return;
-        java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("dd MMM yyyy, hh:mm:ss a", java.util.Locale.getDefault());
-
-        String sentTime = (m.timestamp != null && m.timestamp > 0)
-                ? sdf.format(new java.util.Date(m.timestamp)) : "Unknown";
-        String deliveredTime = (m.deliveredAt != null && m.deliveredAt > 0)
-                ? sdf.format(new java.util.Date(m.deliveredAt)) : "Not delivered yet";
-        String seenTime = (m.readAt != null && m.readAt > 0)
-                ? sdf.format(new java.util.Date(m.readAt)) : "Not seen yet";
-
-        String statusLabel = m.status != null ? m.status : "unknown";
-        String typeLabel   = m.type   != null ? m.type   : "text";
         boolean isOutgoing = m.senderId != null && currentUid != null && m.senderId.equals(currentUid);
 
-        StringBuilder sb = new StringBuilder();
-        sb.append("Type:  ").append(typeLabel).append("\n\n");
-        sb.append("Sent\n").append(sentTime).append("\n\n");
+        com.callx.app.conversation.info.MessageInfoData data = new com.callx.app.conversation.info.MessageInfoData();
+        data.isGroup = false;
+        data.isOutgoing = isOutgoing;
+        data.messageType = m.type != null ? m.type : "text";
+        data.previewLabel = com.callx.app.conversation.info.MessageInfoPreviewUtil.buildPreview(m);
+        data.sentAt = m.timestamp != null ? m.timestamp : 0L;
+        data.deliveredAt = (m.deliveredAt != null && m.deliveredAt > 0) ? m.deliveredAt : null;
+        data.readAt = (m.readAt != null && m.readAt > 0) ? m.readAt : null;
+        data.incomingStatus = m.status;
 
-        // Delivered/Seen only make sense to show for messages the current user sent.
-        if (isOutgoing) {
-            sb.append("Delivered\n").append(deliveredTime).append("\n\n");
-            sb.append("Seen\n").append(seenTime);
-        } else {
-            sb.append("Status:  ").append(statusLabel);
-        }
-
-        com.callx.app.utils.AlertDialogStyler.showRounded(
-            new AlertDialog.Builder(this).setTitle("\u2139 Message Info").setMessage(sb.toString())
-                .setPositiveButton("OK", null).create(),
-                com.callx.app.utils.AlertDialogStyler.DialogSize.WIDE);
+        com.callx.app.conversation.info.MessageInfoBridge.set(data);
+        startActivity(new Intent(this, com.callx.app.conversation.info.MessageInfoActivity.class));
     }
+
 
     // ─────────────────────────────────────────────────────────────────────
     // NAVIGATION

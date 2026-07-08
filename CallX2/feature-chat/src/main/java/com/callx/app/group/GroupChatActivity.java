@@ -1899,64 +1899,47 @@ public class GroupChatActivity extends AppCompatActivity
      */
     private void showGroupMessageInfoDialog(Message m) {
         if (m == null) return;
-        java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat(
-                "dd MMM yyyy, hh:mm:ss a", java.util.Locale.getDefault());
-
         boolean isOutgoing = m.senderId != null && currentUid.equals(m.senderId);
-        String sentTime = (m.timestamp != null && m.timestamp > 0)
-                ? sdf.format(new java.util.Date(m.timestamp)) : "Unknown";
 
-        StringBuilder sb = new StringBuilder();
-        sb.append("Type:  ").append(m.type != null ? m.type : "text").append("\n\n");
-        sb.append("Sent\n").append(sentTime);
+        com.callx.app.conversation.info.MessageInfoData data = new com.callx.app.conversation.info.MessageInfoData();
+        data.isGroup = true;
+        data.isOutgoing = isOutgoing;
+        data.messageType = m.type != null ? m.type : "text";
+        data.previewLabel = com.callx.app.conversation.info.MessageInfoPreviewUtil.buildPreview(m);
+        data.sentAt = m.timestamp != null ? m.timestamp : 0L;
 
         if (!isOutgoing) {
             // Received message — mirrors 1:1's non-outgoing branch: no
             // per-member breakdown makes sense from a recipient's own view.
-            sb.append("\n\n").append("Status:  ").append(m.status != null ? m.status : "sent");
-            com.callx.app.utils.AlertDialogStyler.showRounded(
-                new AlertDialog.Builder(this).setTitle("\u2139 Message Info").setMessage(sb.toString())
-                    .setPositiveButton("OK", null).create(),
-                    com.callx.app.utils.AlertDialogStyler.DialogSize.WIDE);
+            data.incomingStatus = m.status != null ? m.status : "sent";
+            com.callx.app.conversation.info.MessageInfoBridge.set(data);
+            startActivity(new Intent(this, com.callx.app.conversation.info.MessageInfoActivity.class));
             return;
         }
 
         // Outgoing group message — every other current member, bucketed by
-        // read / delivered-only / not-yet-delivered, each with a timestamp
-        // where available. Uses the live memberNames map for display names.
+        // read / delivered-only / not-yet-delivered. Uses the live
+        // memberNames/memberPhotos maps for display name + avatar.
         java.util.List<String> otherUids = new java.util.ArrayList<>(memberNames.keySet());
         otherUids.remove(m.senderId);
+        data.totalOthers = otherUids.size();
 
-        java.util.List<String> readLines = new java.util.ArrayList<>();
-        java.util.List<String> deliveredOnlyLines = new java.util.ArrayList<>();
-        java.util.List<String> pendingNames = new java.util.ArrayList<>();
         for (String uid : otherUids) {
             String name = memberNames.getOrDefault(uid, "Member");
+            String photo = memberPhotos != null ? memberPhotos.get(uid) : null;
             Long readTs = m.readBy != null ? m.readBy.get(uid) : null;
             Long delTs  = m.deliveredBy != null ? m.deliveredBy.get(uid) : null;
             if (readTs != null) {
-                readLines.add(name + " — " + sdf.format(new java.util.Date(readTs)));
+                data.readBy.add(new com.callx.app.conversation.info.MessageInfoData.MemberReceipt(uid, name, photo, readTs));
             } else if (delTs != null) {
-                deliveredOnlyLines.add(name + " — " + sdf.format(new java.util.Date(delTs)));
+                data.deliveredOnly.add(new com.callx.app.conversation.info.MessageInfoData.MemberReceipt(uid, name, photo, delTs));
             } else {
-                pendingNames.add(name);
+                data.pending.add(new com.callx.app.conversation.info.MessageInfoData.MemberReceipt(uid, name, photo, null));
             }
         }
 
-        sb.append("\n\n").append("Read by (").append(readLines.size()).append("/").append(otherUids.size()).append(")\n");
-        sb.append(readLines.isEmpty() ? "No one yet" : android.text.TextUtils.join("\n", readLines));
-
-        sb.append("\n\n").append("Delivered to (").append(deliveredOnlyLines.size()).append(")\n");
-        sb.append(deliveredOnlyLines.isEmpty() ? "\u2014" : android.text.TextUtils.join("\n", deliveredOnlyLines));
-
-        if (!pendingNames.isEmpty()) {
-            sb.append("\n\n").append("Not delivered yet\n").append(android.text.TextUtils.join("\n", pendingNames));
-        }
-
-        com.callx.app.utils.AlertDialogStyler.showRounded(
-            new AlertDialog.Builder(this).setTitle("\u2139 Message Info").setMessage(sb.toString())
-                .setPositiveButton("OK", null).create(),
-                com.callx.app.utils.AlertDialogStyler.DialogSize.WIDE);
+        com.callx.app.conversation.info.MessageInfoBridge.set(data);
+        startActivity(new Intent(this, com.callx.app.conversation.info.MessageInfoActivity.class));
     }
 
     private void showMultiSelectBar(int count) {
