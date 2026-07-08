@@ -31,18 +31,31 @@ import java.util.Set;
  * around so the group Message Info dialog can show who has/hasn't seen it.
  */
 public final class GroupMessageStatusSync {
+    // GROUP TICK FIX v61: deliveredBy and readBy are now stamped by two
+    // separate calls (ackDelivered() then, later, ackRead()) from live
+    // message handling, instead of both being written in one call the
+    // instant the chat screen opens. See ackRead()'s doc below for why.
 
     private GroupMessageStatusSync() {}
 
     /**
-     * Called when a group member's device receives+displays a message (the
-     * group chat screen being open collapses "delivered" and "read" into the
-     * same instant, same simplification ChatActivity's 1:1 markRead() already
-     * makes when the chat is open). Stamps this member's own receipt (a
-     * transaction guard makes this a no-op if already stamped, so re-firing
-     * on listener re-attach never overwrites the true original timestamp),
-     * then checks whether every other member has now acked and, if so,
-     * advances the message's shared status.
+     * Called when a group member's device receives+displays a message.
+     *
+     * GROUP TICK FIX v61: this used to also be the call site that collapsed
+     * "delivered" and "read" into the same instant whenever the chat screen
+     * was open. It's kept around for callers that genuinely want both
+     * stamped together (e.g. bulk-marking old history read on first open,
+     * where there's no separate "delivered" moment worth showing), but
+     * GroupChatActivity's real-time listener no longer calls this for live
+     * incoming messages — it calls ackDelivered() immediately and ackRead()
+     * separately afterwards, so the grey (delivered) and blue (read) ticks
+     * are genuinely two events instead of one.
+     *
+     * Stamps this member's own receipt (a transaction guard makes this a
+     * no-op if already stamped, so re-firing on listener re-attach never
+     * overwrites the true original timestamp), then checks whether every
+     * other member has now acked and, if so, advances the message's shared
+     * status.
      *
      * @param groupMessagesRef  the group's messages ref (groupMessages/{groupId})
      * @param msgId             the message's push key
@@ -95,6 +108,39 @@ public final class GroupMessageStatusSync {
 
         stampOnce(msgRef.child("deliveredBy").child(myUid),
                 () -> checkAggregate(groupMessagesRef, msgRef, msgId, "deliveredBy", otherMemberUids, "delivered"));
+    }
+
+    /**
+     * GROUP TICK FIX v61: "read"-only ack — the counterpart to ackDelivered()
+     * above. Stamps readBy ONLY (never re-touches deliveredBy).
+     *
+     * Previously ackDeliveredAndRead() stamped deliveredBy and readBy in the
+     * very same call, so the instant a group chat screen was opened both
+     * maps got an entry together — the aggregate "delivered" and "read"
+     * checks would then both pass back-to-back on the same event loop tick,
+     * and the sender's tick would jump straight from single-grey to
+     * blue-double-tick. The grey-double-tick "everyone has received it, not
+     * everyone has read it yet" state — the one WhatsApp always shows first —
+     * never had a chance to actually render for the sender.
+     *
+     * Callers should now stamp delivered immediately (ackDelivered) when a
+     * message is received/displayed, and call this method separately, after
+     * the real "seen" moment (e.g. once the message view is actually on
+     * screen, or after a short deliberate delay), so the two aggregate
+     * checks land as genuinely separate events instead of collapsing into
+     * the same instant.
+     */
+    public static void ackRead(@NonNull DatabaseReference groupMessagesRef,
+                                @NonNull String msgId,
+                                @NonNull String myUid,
+                                @NonNull String senderId,
+                                @NonNull Set<String> otherMemberUids) {
+        if (myUid.equals(senderId)) return; // own message, nothing to ack
+
+        DatabaseReference msgRef = groupMessagesRef.child(msgId);
+
+        stampOnce(msgRef.child("readBy").child(myUid),
+                () -> checkAggregate(groupMessagesRef, msgRef, msgId, "readBy", otherMemberUids, "read"));
     }
 
     private interface OnStamped { void run(); }

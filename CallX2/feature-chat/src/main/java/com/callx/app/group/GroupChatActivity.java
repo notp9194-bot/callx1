@@ -214,6 +214,12 @@ public class GroupChatActivity extends AppCompatActivity
     private float micDownX, micDownY;
     private float cancelThresholdPx, lockThresholdPx, maxCancelDragPx, maxLockDragPx, axisDeadzonePx;
 
+    // GROUP TICK FIX v61: fires ackRead() a beat after ackDelivered(), so the
+    // grey (delivered) and blue (read) ticks are two separate Firebase writes
+    // instead of landing in the same call — see markRead() below.
+    private final android.os.Handler readAckHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private static final long READ_ACK_DELAY_MS = 900L;
+
     private final android.os.Handler recordHandler = new android.os.Handler(android.os.Looper.getMainLooper());
     private Runnable recordTickRunnable;
     private ObjectAnimator dotBlinkAnim;
@@ -495,6 +501,9 @@ public class GroupChatActivity extends AppCompatActivity
         subtitleHandler.removeCallbacks(subtitleTick);
         typingHandler.removeCallbacks(stopTyping);
         if (expiryRunnable != null) expiryHandler.removeCallbacks(expiryRunnable);
+        // GROUP TICK FIX v61: cancel any pending delayed read-acks so a
+        // postDelayed callback never fires against a destroyed activity.
+        readAckHandler.removeCallbacksAndMessages(null);
         setMyTyping(false);
         if (groupMessagesRef != null && messageListener != null)
             groupMessagesRef.removeEventListener(messageListener);
@@ -1506,19 +1515,38 @@ public class GroupChatActivity extends AppCompatActivity
         });
     }
 
-    // GROUP TICK SYSTEM: stamps this member's own delivered+read receipt
-    // (chat being open collapses both into the same instant, same
-    // simplification 1:1's ChatPresenceController#markRead makes) and, once
-    // every other member has acked, advances the message's shared `status`
-    // field — which is all MessageBubbleCanvasView#drawTick / the
-    // "delivered"/"read".equals(m.status) checks in MessagePagingAdapter
+    // GROUP TICK FIX v61: stamps this member's own delivered receipt right
+    // away, then stamps the read receipt separately after READ_ACK_DELAY_MS.
+    //
+    // Previously this called ackDeliveredAndRead() once, which wrote
+    // deliveredBy and readBy in the same call — the instant the chat screen
+    // was open, both aggregate checks would pass back-to-back and the
+    // sender's tick jumped straight to blue, skipping the grey
+    // "everyone received it, not everyone's read it yet" state that
+    // WhatsApp always shows first. Splitting the two writes apart (even by
+    // a short beat) means the sender's tick genuinely passes through
+    // grey-double-tick before going blue, matching the real WhatsApp tick
+    // sequence, same as 1:1 chats already do via MessageStatusSync.
+    //
+    // Once every other member has acked each stage, the message's shared
+    // `status` field advances — which is all MessageBubbleCanvasView#drawTick
+    // / the "delivered"/"read".equals(m.status) checks in MessagePagingAdapter
     // need to draw the grey/blue double-tick, same as 1:1.
     private void markRead(Message m) {
         if (m == null || m.id == null || currentUid.equals(m.senderId)) return;
+        final String msgId = m.id;
+        final String senderId = m.senderId;
         Set<String> others = new HashSet<>(memberNames.keySet());
-        others.remove(m.senderId);
-        com.callx.app.utils.GroupMessageStatusSync.ackDeliveredAndRead(
-                groupMessagesRef, m.id, currentUid, m.senderId, others);
+        others.remove(senderId);
+
+        com.callx.app.utils.GroupMessageStatusSync.ackDelivered(
+                groupMessagesRef, msgId, currentUid, senderId, others);
+
+        readAckHandler.postDelayed(() -> {
+            if (isFinishing() || isDestroyed()) return;
+            com.callx.app.utils.GroupMessageStatusSync.ackRead(
+                    groupMessagesRef, msgId, currentUid, senderId, others);
+        }, READ_ACK_DELAY_MS);
     }
 
     // ─────────────────────────────────────────────────────────────────────
