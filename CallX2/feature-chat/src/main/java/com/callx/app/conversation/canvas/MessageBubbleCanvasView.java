@@ -883,6 +883,12 @@ public class MessageBubbleCanvasView extends View {
     final RectF footerTextRect = new RectF();
 
     StaticLayout textLayout;
+    // WhatsApp-style trailing footer: true when the time/tick fit on the
+    // same visual row as the last text line (no separate footer row added
+    // to bubbleHeight). False falls back to the old below-text footer row
+    // (used when the last line is too full, or when a link preview card
+    // sits between text and footer).
+    boolean footerInlineWithText;
     GradientDrawable bubbleDrawable;
     int lastCacheKey = -1;
 
@@ -3327,6 +3333,7 @@ public class MessageBubbleCanvasView extends View {
         int hPad = Math.round(H_PADDING_DP * density);
         int vPad = Math.round(V_PADDING_DP * density);
         int footerHeight = Math.round(spToPx(FOOTER_TEXT_SP) + FOOTER_GAP_DP * density);
+        footerInlineWithText = false; // only the plain-text branch below may flip this on
         int maxTextWidth = Math.max(1, maxBubbleWidth - hPad * 2);
         // PERF: keep the background-precompute cache's target width in sync
         // with what real bubbles are actually being measured at — see the
@@ -3854,7 +3861,19 @@ public class MessageBubbleCanvasView extends View {
 
             int textWidth = maxLineWidth(textLayout);
             int lastLineWidth = (int) Math.ceil(textLayout.getLineWidth(textLayout.getLineCount() - 1));
-            int neededWidth = Math.max(textWidth, (int) (lastLineWidth + footerReserveWidth));
+
+            // WhatsApp-level trailing footer: only steal a below-text row
+            // for the footer when the last line + footer genuinely doesn't
+            // fit in the available width, or when a link preview card is
+            // going to sit between text and footer anyway. Otherwise the
+            // time/tick ride on the same row as the last line, just like
+            // WhatsApp's single-line bubbles.
+            footerInlineWithText = !hasLinkPreview
+                    && (lastLineWidth + FOOTER_GAP_DP * density + footerReserveWidth) <= maxTextWidth;
+
+            int neededWidth = footerInlineWithText
+                    ? Math.max(textWidth, (int) Math.ceil(lastLineWidth + FOOTER_GAP_DP * density + footerReserveWidth))
+                    : textWidth;
 
             // ── Link-preview card — stacks below the text, above the
             // footer. Sized to the full maxTextWidth column (like the
@@ -3895,7 +3914,8 @@ public class MessageBubbleCanvasView extends View {
             bubbleContentWidth = Math.min(
                     Math.max(Math.max(neededWidth, replyBoxContentWidth), linkCardContentWidth), maxTextWidth);
             bubbleHeight = replyBoxHeight + replyGap + textLayout.getHeight()
-                    + linkGapTop + linkCardHeight + vPad * 2 + footerHeight;
+                    + linkGapTop + linkCardHeight + vPad * 2
+                    + (footerInlineWithText ? 0 : footerHeight);
         }
 
         int bubbleWidth = bubbleContentWidth + hPad * 2;
@@ -4323,7 +4343,15 @@ public class MessageBubbleCanvasView extends View {
                 linkPreviewRenderer.draw(canvas);
             }
 
-            drawFooter(canvas, bubbleRect.bottom - vPad * 0.4f, bubbleRect.right - hPad);
+            if (footerInlineWithText) {
+                // Same row as the last text line — no separate footer strip,
+                // so the bubble stays as tight as the text itself.
+                float lastLineBaselineY = bubbleTop + replyBoxHeight + replyGap + vPad
+                        + textLayout.getLineBaseline(textLayout.getLineCount() - 1);
+                drawFooter(canvas, lastLineBaselineY, bubbleRect.right - hPad);
+            } else {
+                drawFooter(canvas, bubbleRect.bottom - vPad * 0.4f, bubbleRect.right - hPad);
+            }
         }
 
         if (hasReactions) {
