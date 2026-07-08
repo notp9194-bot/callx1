@@ -38,7 +38,7 @@ public class ChatPresenceController {
 
     private final ChatActivityDelegate delegate;
 
-    // ── PERF FIX: batch Firebase "status=read" writes ───────────────────────
+    // ── PERF FIX: batch Firebase "status=read"/"status=delivered" writes ────
     // markRead(m) used to fire ONE setValue("read") network call PER message
     // the instant chat opened — with 5 unread messages that's invisible, but
     // with 80-100 unread messages (a chat you haven't opened in a while) that
@@ -46,7 +46,20 @@ public class ChatPresenceController {
     // exactly what made "chat khulna slow" scale with message count. All of
     // these are now buffered into pendingReadFirebaseIds and flushed together
     // as ONE multi-path updateChildren() call.
+    //
+    // PERF FIX v25: the "delivered" half used to be a SEPARATE per-message
+    // MessageStatusSync.upgradeStatus() call fired straight from ChatActivity's
+    // onChildAdded — a real Firebase runTransaction() PLUS a synchronous
+    // SharedPreferences read-modify-write (PendingAckQueue) on the main thread,
+    // for every single incoming message. On a chat with a big unread backlog
+    // that was N transactions + N disk writes racing the very first
+    // RecyclerView layout/scroll frames. pendingDeliveredFirebaseIds folds that
+    // into the SAME batched flush as the read receipts below — kept as a
+    // separate (ungated) queue because "delivered" must still happen even when
+    // the user has read receipts turned OFF (WhatsApp-style: grey delivered
+    // tick always shows; blue read tick is the one privacy hides).
     private static final long READ_FLUSH_DEBOUNCE_MS = 150;
+    private final LinkedHashSet<String> pendingDeliveredFirebaseIds = new LinkedHashSet<>();
     private final LinkedHashSet<String> pendingReadFirebaseIds = new LinkedHashSet<>();
     private final android.os.Handler readFlushHandler = new android.os.Handler(android.os.Looper.getMainLooper());
     private final Runnable readFlushRunnable = this::flushPendingReadStatus;
@@ -843,20 +856,27 @@ public class ChatPresenceController {
 
     public void markRead(Message m) {
         if (m == null || m.id == null) return;
-        if (!delegate.getCurrentUid().equals(m.senderId) && !"read".equals(m.status)) {
-            SecurityManager secMgr = SecurityManager.get(delegate.getActivity());
-            if (!secMgr.isReadReceiptsEnabled()) return;
-            // PERF FIX: don't fire a Firebase write per message — buffer the
-            // id and flush ALL pending ids in one updateChildren() call after
-            // a short debounce. See pendingReadFirebaseIds above.
-            pendingReadFirebaseIds.add(m.id);
-            scheduleReadFlush();
-            // PERF FIX: was a per-message ioExecutor.execute(updateStatus(...))
-            // here, i.e. one Room write (→ one PagingSource invalidation) per
-            // historical unread message on chat open. Now buffered and applied
-            // together with the rest of the initial sync in one transaction.
-            delegate.queueMarkRead(m.id);
-        }
+        if (delegate.getCurrentUid().equals(m.senderId)) return; // own message, nothing to ack
+        if ("read".equals(m.status)) return; // already fully read, nothing left to do
+
+        // Delivered ack is ALWAYS queued, regardless of the read-receipts
+        // privacy toggle — matches WhatsApp-style behavior where the grey
+        // "delivered" double-tick is independent of the blue "read" tick.
+        pendingDeliveredFirebaseIds.add(m.id);
+        scheduleReadFlush();
+
+        SecurityManager secMgr = SecurityManager.get(delegate.getActivity());
+        if (!secMgr.isReadReceiptsEnabled()) return;
+
+        // PERF FIX: don't fire a Firebase write per message — buffer the
+        // id and flush ALL pending ids in one updateChildren() call after
+        // a short debounce. See pendingReadFirebaseIds above.
+        pendingReadFirebaseIds.add(m.id);
+        // PERF FIX: was a per-message ioExecutor.execute(updateStatus(...))
+        // here, i.e. one Room write (→ one PagingSource invalidation) per
+        // historical unread message on chat open. Now buffered and applied
+        // together with the rest of the initial sync in one transaction.
+        delegate.queueMarkRead(m.id);
     }
 
     private void scheduleReadFlush() {
@@ -865,17 +885,38 @@ public class ChatPresenceController {
     }
 
     private void flushPendingReadStatus() {
-        if (pendingReadFirebaseIds.isEmpty()) return;
+        if (pendingDeliveredFirebaseIds.isEmpty() && pendingReadFirebaseIds.isEmpty()) return;
         DatabaseReference messagesRef = delegate.getMessagesRef();
-        if (messagesRef == null) { pendingReadFirebaseIds.clear(); return; }
+        if (messagesRef == null) {
+            pendingDeliveredFirebaseIds.clear();
+            pendingReadFirebaseIds.clear();
+            return;
+        }
         Map<String, Object> updates = new HashMap<>();
+
+        // Delivered-only ids — read receipts are off (or the read flush just
+        // hasn't caught up yet). "read" below always wins for any id in both
+        // sets, so this never downgrades a message that's about to be marked read.
+        for (String id : pendingDeliveredFirebaseIds) {
+            if (pendingReadFirebaseIds.contains(id)) continue;
+            updates.put(id + "/status", "delivered");
+            updates.put(id + "/deliveredAt", com.google.firebase.database.ServerValue.TIMESTAMP);
+        }
+
         for (String id : pendingReadFirebaseIds) {
             updates.put(id + "/status", "read");
             // TICK ADVANCE #5: readAt timestamp, same field MessageStatusSync
             // stamps on the single-message transaction path — lets a future
             // "message info" screen show exactly when each message was read.
             updates.put(id + "/readAt", com.google.firebase.database.ServerValue.TIMESTAMP);
+            // PERF FIX v25: deliveredAt stamped in this SAME batched call —
+            // when the chat is open, delivered and read happen in the same
+            // instant anyway, so this folds what used to be two separate
+            // Firebase writes (a transaction + a setValue) into one.
+            updates.put(id + "/deliveredAt", com.google.firebase.database.ServerValue.TIMESTAMP);
         }
+
+        pendingDeliveredFirebaseIds.clear();
         pendingReadFirebaseIds.clear();
         // ONE network round-trip for the whole batch instead of one per message.
         messagesRef.updateChildren(updates)

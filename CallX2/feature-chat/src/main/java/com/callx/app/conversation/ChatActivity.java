@@ -2227,15 +2227,22 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 if (m == null) return;
                 m.id = snapshot.getKey();
                 saveToRoom(m, false);
-                // TICK FIX v19: this listener firing IS the delivery ACK — the
-                // message has reached this device's Firebase connection, no
-                // FCM push needed. Mark delivered before markRead() so the
-                // atomic rank-check in MessageStatusSync still lets the
-                // immediate "read" (chat is open) win right after.
-                if (m.senderId != null && !m.senderId.equals(getCurrentUid())) {
-                    com.callx.app.utils.MessageStatusSync.upgradeStatus(
-                            getApplicationContext(), messagesRef, chatId, m.id, "delivered");
-                }
+                // PERF FIX v25: no longer fires MessageStatusSync.upgradeStatus()
+                // (an individual Firebase runTransaction() + synchronous
+                // SharedPreferences/PendingAckQueue write) per incoming message
+                // here. That ran on the main thread for every single message in
+                // the initial burst — opening a chat with 80-100 unread messages
+                // meant 80-100 back-to-back transactions + disk writes competing
+                // with the very first frames of RecyclerView layout/scroll, which
+                // is what made "chat khulna slow" / scroll jank on open. The chat
+                // is open right now, so delivered and read happen in the same
+                // instant anyway — presenceController.markRead() below already
+                // buffers ALL of this into ONE batched updateChildren() call that
+                // now stamps status=read + deliveredAt + readAt together (see
+                // ChatPresenceController#flushPendingReadStatus()). The
+                // transaction-based upgradeStatus() path stays in place for the
+                // genuinely rare, one-off cases where the chat is NOT open —
+                // CallxMessagingService (FCM push) and GlobalDeliveryAckManager.
                 presenceController.markRead(m);
                 if (emojiBurstController != null) emojiBurstController.onMessageReceived(m);
             }
