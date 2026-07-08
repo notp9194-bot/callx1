@@ -1647,7 +1647,7 @@ public class CallxMessagingService extends FirebaseMessagingService {
                                         if (uid != null && !uid.equals(fromUid)) others.add(uid);
                                     }
                                     com.callx.app.utils.GroupMessageStatusSync.ackDelivered(
-                                            groupMessagesRef, grpMsgId, myUid, fromUid, others, groupId);
+                                            groupMessagesRef, grpMsgId, myUid, fromUid, others);
                                 }
 
                                 @Override
