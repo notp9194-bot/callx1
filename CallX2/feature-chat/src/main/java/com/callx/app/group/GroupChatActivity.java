@@ -1166,6 +1166,8 @@ public class GroupChatActivity extends AppCompatActivity
         m.duration          = e.duration;
         m.timestamp         = e.timestamp;
         m.status            = e.status;
+        m.deliveredBy       = com.callx.app.utils.GroupReceiptJsonUtil.receiptsFromJson(e.groupDeliveredByJson);
+        m.readBy            = com.callx.app.utils.GroupReceiptJsonUtil.receiptsFromJson(e.groupReadByJson);
         m.replyToId         = e.replyToId;
         m.replyToText       = e.replyToText;
         m.replyToSenderName = e.replyToSenderName;
@@ -1225,6 +1227,8 @@ public class GroupChatActivity extends AppCompatActivity
         e.duration              = m.duration;
         e.timestamp             = m.timestamp;
         e.status                = m.status;
+        e.groupDeliveredByJson   = com.callx.app.utils.GroupReceiptJsonUtil.receiptsToJson(m.deliveredBy);
+        e.groupReadByJson        = com.callx.app.utils.GroupReceiptJsonUtil.receiptsToJson(m.readBy);
         e.replyToId             = m.replyToId;
         e.replyToText           = m.replyToText;
         e.replyToSenderName     = m.replyToSenderName;
@@ -1502,10 +1506,19 @@ public class GroupChatActivity extends AppCompatActivity
         });
     }
 
+    // GROUP TICK SYSTEM: stamps this member's own delivered+read receipt
+    // (chat being open collapses both into the same instant, same
+    // simplification 1:1's ChatPresenceController#markRead makes) and, once
+    // every other member has acked, advances the message's shared `status`
+    // field — which is all MessageBubbleCanvasView#drawTick / the
+    // "delivered"/"read".equals(m.status) checks in MessagePagingAdapter
+    // need to draw the grey/blue double-tick, same as 1:1.
     private void markRead(Message m) {
         if (m == null || m.id == null || currentUid.equals(m.senderId)) return;
-        groupMessagesRef.child(m.id).child("readBy")
-                .child(currentUid).setValue(true);
+        Set<String> others = new HashSet<>(memberNames.keySet());
+        others.remove(m.senderId);
+        com.callx.app.utils.GroupMessageStatusSync.ackDeliveredAndRead(
+                groupMessagesRef, m.id, currentUid, m.senderId, others);
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -1838,6 +1851,84 @@ public class GroupChatActivity extends AppCompatActivity
             pagingAdapter.exitMultiSelectMode();
             hideMultiSelectBar();
         });
+
+        android.view.View btnInfo = binding.getRoot().findViewById(
+                com.callx.app.chat.R.id.btn_selection_info);
+        if (btnInfo != null) btnInfo.setOnClickListener(v -> {
+            java.util.List<com.callx.app.models.Message> sel = pagingAdapter.getSelectedMessages();
+            if (sel.size() == 1) showGroupMessageInfoDialog(sel.get(0));
+            pagingAdapter.exitMultiSelectMode();
+            hideMultiSelectBar();
+        });
+    }
+
+    /**
+     * Group analogue of ChatActivity#showMessageInfoDialog — for an outgoing
+     * message this breaks delivery/read down PER MEMBER (WhatsApp group
+     * Message Info style) instead of the single delivered/seen time 1:1
+     * shows, since a group has many recipients, not one. Text messages only,
+     * same scope as the tick system above.
+     */
+    private void showGroupMessageInfoDialog(Message m) {
+        if (m == null) return;
+        java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat(
+                "dd MMM yyyy, hh:mm:ss a", java.util.Locale.getDefault());
+
+        boolean isOutgoing = m.senderId != null && currentUid.equals(m.senderId);
+        String sentTime = (m.timestamp != null && m.timestamp > 0)
+                ? sdf.format(new java.util.Date(m.timestamp)) : "Unknown";
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("Type:  ").append(m.type != null ? m.type : "text").append("\n\n");
+        sb.append("Sent\n").append(sentTime);
+
+        if (!isOutgoing) {
+            // Received message — mirrors 1:1's non-outgoing branch: no
+            // per-member breakdown makes sense from a recipient's own view.
+            sb.append("\n\n").append("Status:  ").append(m.status != null ? m.status : "sent");
+            com.callx.app.utils.AlertDialogStyler.showRounded(
+                new AlertDialog.Builder(this).setTitle("\u2139 Message Info").setMessage(sb.toString())
+                    .setPositiveButton("OK", null).create(),
+                    com.callx.app.utils.AlertDialogStyler.DialogSize.WIDE);
+            return;
+        }
+
+        // Outgoing group message — every other current member, bucketed by
+        // read / delivered-only / not-yet-delivered, each with a timestamp
+        // where available. Uses the live memberNames map for display names.
+        java.util.List<String> otherUids = new java.util.ArrayList<>(memberNames.keySet());
+        otherUids.remove(m.senderId);
+
+        java.util.List<String> readLines = new java.util.ArrayList<>();
+        java.util.List<String> deliveredOnlyLines = new java.util.ArrayList<>();
+        java.util.List<String> pendingNames = new java.util.ArrayList<>();
+        for (String uid : otherUids) {
+            String name = memberNames.getOrDefault(uid, "Member");
+            Long readTs = m.readBy != null ? m.readBy.get(uid) : null;
+            Long delTs  = m.deliveredBy != null ? m.deliveredBy.get(uid) : null;
+            if (readTs != null) {
+                readLines.add(name + " — " + sdf.format(new java.util.Date(readTs)));
+            } else if (delTs != null) {
+                deliveredOnlyLines.add(name + " — " + sdf.format(new java.util.Date(delTs)));
+            } else {
+                pendingNames.add(name);
+            }
+        }
+
+        sb.append("\n\n").append("Read by (").append(readLines.size()).append("/").append(otherUids.size()).append(")\n");
+        sb.append(readLines.isEmpty() ? "No one yet" : android.text.TextUtils.join("\n", readLines));
+
+        sb.append("\n\n").append("Delivered to (").append(deliveredOnlyLines.size()).append(")\n");
+        sb.append(deliveredOnlyLines.isEmpty() ? "\u2014" : android.text.TextUtils.join("\n", deliveredOnlyLines));
+
+        if (!pendingNames.isEmpty()) {
+            sb.append("\n\n").append("Not delivered yet\n").append(android.text.TextUtils.join("\n", pendingNames));
+        }
+
+        com.callx.app.utils.AlertDialogStyler.showRounded(
+            new AlertDialog.Builder(this).setTitle("\u2139 Message Info").setMessage(sb.toString())
+                .setPositiveButton("OK", null).create(),
+                com.callx.app.utils.AlertDialogStyler.DialogSize.WIDE);
     }
 
     private void showMultiSelectBar(int count) {

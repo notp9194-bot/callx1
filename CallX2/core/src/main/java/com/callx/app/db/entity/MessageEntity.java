@@ -181,5 +181,13 @@ public class MessageEntity {
      */
     public Boolean broadcast;
 
+    // ── Group tick system (v26) ────────────────────────────────────────────
+    /** JSON object string of Message#deliveredBy (uid → epoch ms), see
+     *  GroupReceiptJsonUtil. Null outside group chats / before any member acks. */
+    public String groupDeliveredByJson;
+    /** JSON object string of Message#readBy (uid → epoch ms), see
+     *  GroupReceiptJsonUtil. Null outside group chats / before any member acks. */
+    public String groupReadByJson;
+
     public MessageEntity() {}
 }

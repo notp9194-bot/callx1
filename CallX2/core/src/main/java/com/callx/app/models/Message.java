@@ -51,6 +51,19 @@ public class Message {
     public Long deliveredAt;
     public Long readAt;
 
+    /**
+     * GROUP TICK SYSTEM: per-member receipts for group messages — uid → server
+     * timestamp when that member's device received (deliveredBy) / opened
+     * (readBy) this message. 1:1 chats keep using the single status/
+     * deliveredAt/readAt fields above since there's only one recipient;
+     * groups need one timestamp per member so the shared `status` field can
+     * only advance to "delivered"/"read" once EVERY other member has acked
+     * (WhatsApp-style group ticks). See GroupMessageStatusSync.
+     * Firebase path: groupMessages/{groupId}/{msgId}/deliveredBy|readBy/{uid}.
+     */
+    public Map<String, Long> deliveredBy;
+    public Map<String, Long> readBy;
+
     // ── Feature 2: Reply / Quote ──────────────────────────
     public String replyToId;
     public String replyToText;
