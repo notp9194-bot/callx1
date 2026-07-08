@@ -1624,6 +1624,39 @@ public class CallxMessagingService extends FirebaseMessagingService {
         // Fix 1: Self-notification guard — sender ko apna message ka notification nahi aana chahiye
         if (fromUid != null && fromUid.equals(myUid)) return;
 
+        // GROUP TICK FIX v60: background "delivered" ack — same as 1:1's FCM
+        // handler above (search upgradeStatus(...,"delivered")) stamps the
+        // moment the push arrives, chat open ho ya na ho. Pehle ye sirf
+        // GroupChatActivity's realtime listener (chat open) se hoti thi, so a
+        // member jo notification dekh ke chat kabhi open nahi karta, uska
+        // deliveredBy entry kabhi banta hi nahi tha — sender ko grey tick
+        // silently kabhi nahi milta. ackDelivered() (readBy nahi, sirf
+        // deliveredBy — push receive = delivered, na ki read) fixes that.
+        if (grpMsgId != null && !grpMsgId.isEmpty() && !groupId.isEmpty()) {
+            Executors.newSingleThreadExecutor().execute(() -> {
+                try {
+                    final com.google.firebase.database.DatabaseReference groupMessagesRef =
+                            FirebaseUtils.getGroupMessagesRef(groupId);
+                    FirebaseUtils.getGroupMembersRef(groupId)
+                            .addListenerForSingleValueEvent(new ValueEventListener() {
+                                @Override
+                                public void onDataChange(@androidx.annotation.NonNull DataSnapshot snap) {
+                                    java.util.Set<String> others = new java.util.HashSet<>();
+                                    for (DataSnapshot c : snap.getChildren()) {
+                                        String uid = c.getKey();
+                                        if (uid != null && !uid.equals(fromUid)) others.add(uid);
+                                    }
+                                    com.callx.app.utils.GroupMessageStatusSync.ackDelivered(
+                                            groupMessagesRef, grpMsgId, myUid, fromUid, others, groupId);
+                                }
+
+                                @Override
+                                public void onCancelled(@androidx.annotation.NonNull DatabaseError error) { }
+                            });
+                } catch (Exception ignored) {}
+            });
+        }
+
         // Fix 2: Firebase mute listener hata diya — server already "muted" flag bhejta hai.
         // Killed state mein addListenerForSingleValueEvent unreliable hai — server flag use karo.
         // Fix 7: Server ab history bhi bhejta hai (same as 1-1) — parse karo
