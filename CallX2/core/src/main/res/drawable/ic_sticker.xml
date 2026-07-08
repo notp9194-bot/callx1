@@ -8,16 +8,13 @@
     <path
         android:fillColor="#FFFFFFFF"
         android:pathData="M14.5,3H6.5C4.6,3 3,4.6 3,6.5v11C3,19.4 4.6,21 6.5,21h8.79c0.53,0 1.04,-0.21 1.41,-0.59l3.71,-3.71C20.79,16.33 21,15.82 21,15.29V6.5C21,4.6 19.4,3 17.5,3ZM14,18.5V15c0,-0.55 0.45,-1 1,-1h3.5L14,18.5Z"/>
-    <circle
+    <!-- Two eyes, drawn as tiny filled circles via pathData ovals (no <circle> element — not supported by VectorDrawable). -->
+    <path
         android:fillColor="#33000000"
-        android:cx="8.5"
-        android:cy="9"
-        android:radius="1.4"/>
-    <circle
+        android:pathData="M8.5,7.6c-0.77,0 -1.4,0.63 -1.4,1.4s0.63,1.4 1.4,1.4 1.4,-0.63 1.4,-1.4 -0.63,-1.4 -1.4,-1.4Z"/>
+    <path
         android:fillColor="#33000000"
-        android:cx="13.5"
-        android:cy="9"
-        android:radius="1.4"/>
+        android:pathData="M13.5,7.6c-0.77,0 -1.4,0.63 -1.4,1.4s0.63,1.4 1.4,1.4 1.4,-0.63 1.4,-1.4 -0.63,-1.4 -1.4,-1.4Z"/>
     <path
         android:fillColor="#00000000"
         android:strokeColor="#33000000"
