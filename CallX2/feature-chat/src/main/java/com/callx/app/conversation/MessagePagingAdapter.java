@@ -3262,7 +3262,22 @@ public class MessagePagingAdapter
                                 java.util.Locale.US, "%d:%02d", secs / 60, secs % 60));
                         h.tvDuration.setVisibility(View.VISIBLE);
                     }
+                    // GAP FIX: this block never had a setOnLongClickListener
+                    // at all — flVideo was only setOnClickListener (play),
+                    // which makes it clickable but NOT long-clickable, so a
+                    // long-press here did literally nothing (no multi-select,
+                    // no action sheet, no way to reach "Message Info"). Same
+                    // fix as the single-image bubble: tap opens the player
+                    // normally, but a tap while already in multi-select mode
+                    // toggles selection instead; long-press enters
+                    // multi-select (Info button in the toolbar) the first
+                    // time, and opens the full action sheet on a second
+                    // long-press while already selecting.
                     h.flVideo.setOnClickListener(v -> {
+                        if (multiSelectMode) {
+                            h.itemView.callOnClick();
+                            return;
+                        }
                         Intent i = new Intent().setClassName(ctx.getPackageName(),
                                 "com.callx.app.activities.MediaViewerActivity");
                         i.putExtra("url", vUrl);
@@ -3273,6 +3288,15 @@ public class MessagePagingAdapter
                         i.putExtra("chatId", chatId);
                         i.putExtra("messageId", vMid);
                         ctx.startActivity(i);
+                    });
+                    h.flVideo.setOnLongClickListener(v -> {
+                        v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
+                        if (!multiSelectMode) {
+                            enterMultiSelectMode(m);
+                        } else if (actionListener != null) {
+                            showActionBottomSheet(ctx, m);
+                        }
+                        return true;
                     });
                 } else if (h.ivImage != null) {
                     // Fallback: layout without fl_video — show thumbnail in ivImage
@@ -3286,6 +3310,10 @@ public class MessagePagingAdapter
                         .placeholder(R.drawable.bg_skeleton_rect)
                         .into(h.ivImage);
                     h.ivImage.setOnClickListener(v -> {
+                        if (multiSelectMode) {
+                            h.itemView.callOnClick();
+                            return;
+                        }
                         Intent i = new Intent().setClassName(ctx.getPackageName(),
                                 "com.callx.app.activities.MediaViewerActivity");
                         i.putExtra("url", vUrl);
@@ -3293,6 +3321,18 @@ public class MessagePagingAdapter
                         i.putExtra("chatId", chatId);
                         i.putExtra("messageId", vMid);
                         ctx.startActivity(i);
+                    });
+                    // GAP FIX: same missing long-press wiring as the flVideo
+                    // branch above — this fallback thumbnail had no way to
+                    // reach multi-select/Message Info either.
+                    h.ivImage.setOnLongClickListener(v -> {
+                        v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
+                        if (!multiSelectMode) {
+                            enterMultiSelectMode(m);
+                        } else if (actionListener != null) {
+                            showActionBottomSheet(ctx, m);
+                        }
+                        return true;
                     });
                 }
                 break;
