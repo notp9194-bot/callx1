@@ -10,6 +10,7 @@ import com.google.firebase.database.ServerValue;
 import com.google.firebase.database.Transaction;
 import com.google.firebase.database.ValueEventListener;
 
+import java.util.HashSet;
 import java.util.Set;
 
 /**
@@ -64,20 +65,24 @@ public final class GroupMessageStatusSync {
      * @param otherMemberUids   every OTHER group member who needs to ack for
      *                          the aggregate status to advance (i.e. all
      *                          current members minus senderId)
+     * @param groupId           the group's id — used to re-check *live* group
+     *                          membership at aggregate-check time (see
+     *                          checkAggregate's doc for why this matters)
      */
     public static void ackDeliveredAndRead(@NonNull DatabaseReference groupMessagesRef,
                                             @NonNull String msgId,
                                             @NonNull String myUid,
                                             @NonNull String senderId,
-                                            @NonNull Set<String> otherMemberUids) {
+                                            @NonNull Set<String> otherMemberUids,
+                                            @NonNull String groupId) {
         if (myUid.equals(senderId)) return; // own message, nothing to ack
 
         DatabaseReference msgRef = groupMessagesRef.child(msgId);
 
         stampOnce(msgRef.child("deliveredBy").child(myUid),
-                () -> checkAggregate(groupMessagesRef, msgRef, msgId, "deliveredBy", otherMemberUids, "delivered"));
+                () -> checkAggregate(groupMessagesRef, msgRef, msgId, "deliveredBy", otherMemberUids, "delivered", groupId));
         stampOnce(msgRef.child("readBy").child(myUid),
-                () -> checkAggregate(groupMessagesRef, msgRef, msgId, "readBy", otherMemberUids, "read"));
+                () -> checkAggregate(groupMessagesRef, msgRef, msgId, "readBy", otherMemberUids, "read", groupId));
     }
 
     /**
@@ -101,13 +106,14 @@ public final class GroupMessageStatusSync {
                                      @NonNull String msgId,
                                      @NonNull String myUid,
                                      @NonNull String senderId,
-                                     @NonNull Set<String> otherMemberUids) {
+                                     @NonNull Set<String> otherMemberUids,
+                                     @NonNull String groupId) {
         if (myUid.equals(senderId)) return; // own message, nothing to ack
 
         DatabaseReference msgRef = groupMessagesRef.child(msgId);
 
         stampOnce(msgRef.child("deliveredBy").child(myUid),
-                () -> checkAggregate(groupMessagesRef, msgRef, msgId, "deliveredBy", otherMemberUids, "delivered"));
+                () -> checkAggregate(groupMessagesRef, msgRef, msgId, "deliveredBy", otherMemberUids, "delivered", groupId));
     }
 
     /**
@@ -134,13 +140,14 @@ public final class GroupMessageStatusSync {
                                 @NonNull String msgId,
                                 @NonNull String myUid,
                                 @NonNull String senderId,
-                                @NonNull Set<String> otherMemberUids) {
+                                @NonNull Set<String> otherMemberUids,
+                                @NonNull String groupId) {
         if (myUid.equals(senderId)) return; // own message, nothing to ack
 
         DatabaseReference msgRef = groupMessagesRef.child(msgId);
 
         stampOnce(msgRef.child("readBy").child(myUid),
-                () -> checkAggregate(groupMessagesRef, msgRef, msgId, "readBy", otherMemberUids, "read"));
+                () -> checkAggregate(groupMessagesRef, msgRef, msgId, "readBy", otherMemberUids, "read", groupId));
     }
 
     private interface OnStamped { void run(); }
@@ -166,20 +173,63 @@ public final class GroupMessageStatusSync {
         });
     }
 
-    /** One-shot read of the receipt map — if every other member has an entry, bump the shared status. */
+    /**
+     * One-shot read of the receipt map — if every other member has an entry, bump the shared status.
+     *
+     * GROUP TICK FIX v62: otherMemberUids is only ever a SNAPSHOT of group
+     * membership taken at ack time — GroupChatActivity passes its local
+     * memberNames.keySet() (a cache kept live by a members listener that only
+     * ever adds uids, never removes ones that left), and CallxMessagingService
+     * passes a fresh-but-still-only-once read from the same instant a push
+     * arrived. Either way, that snapshot can go stale the moment a member
+     * LEAVES the group afterwards without having acked yet: their uid stays
+     * in otherMemberUids forever, but they can never gain a deliveredBy/readBy
+     * entry once they're gone, so the `for` loop below would find them
+     * "still pending" on every single check for the rest of the message's
+     * life — the aggregate status would never advance to delivered/read,
+     * even once everyone actually still IN the group has acked.
+     *
+     * Fix: re-read the group's *live* membership right here, at check time,
+     * and only require an ack from a uid that is BOTH in the originally
+     * requested otherMemberUids AND still currently a member. A uid that has
+     * left no longer blocks the aggregate — matching "everyone who's still
+     * here has acknowledged it", which is the only thing that's actually
+     * checkable (and the only thing that matters) once someone's left.
+     */
     private static void checkAggregate(DatabaseReference groupMessagesRef, DatabaseReference msgRef,
                                         String msgId, String childName,
-                                        Set<String> otherMemberUids, String targetStatus) {
+                                        Set<String> otherMemberUids, String targetStatus,
+                                        String groupId) {
         if (otherMemberUids.isEmpty()) return;
-        msgRef.child(childName).addListenerForSingleValueEvent(new ValueEventListener() {
+        FirebaseUtils.getGroupMembersRef(groupId).addListenerForSingleValueEvent(new ValueEventListener() {
             @Override
-            public void onDataChange(@NonNull DataSnapshot snapshot) {
+            public void onDataChange(@NonNull DataSnapshot membersSnapshot) {
+                Set<String> stillRequired = new HashSet<>();
                 for (String uid : otherMemberUids) {
-                    if (!snapshot.hasChild(uid)) return; // someone still pending — not yet
+                    if (membersSnapshot.hasChild(uid)) stillRequired.add(uid);
                 }
-                // Reuses MessageStatusSync's rank-safe transaction (sent <
-                // delivered < read, never downgrades) — same one 1:1 uses.
-                MessageStatusSync.upgradeStatus(groupMessagesRef, msgId, targetStatus);
+                if (stillRequired.isEmpty()) {
+                    // Everyone we were originally waiting on has since left
+                    // the group — vacuously "everyone remaining has acked",
+                    // so advance instead of blocking forever on ghosts.
+                    MessageStatusSync.upgradeStatus(groupMessagesRef, msgId, targetStatus);
+                    return;
+                }
+
+                msgRef.child(childName).addListenerForSingleValueEvent(new ValueEventListener() {
+                    @Override
+                    public void onDataChange(@NonNull DataSnapshot snapshot) {
+                        for (String uid : stillRequired) {
+                            if (!snapshot.hasChild(uid)) return; // someone still pending — not yet
+                        }
+                        // Reuses MessageStatusSync's rank-safe transaction (sent <
+                        // delivered < read, never downgrades) — same one 1:1 uses.
+                        MessageStatusSync.upgradeStatus(groupMessagesRef, msgId, targetStatus);
+                    }
+
+                    @Override
+                    public void onCancelled(@NonNull DatabaseError error) { /* retried on next ack anyway */ }
+                });
             }
 
             @Override

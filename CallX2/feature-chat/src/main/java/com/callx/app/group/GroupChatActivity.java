@@ -1540,12 +1540,12 @@ public class GroupChatActivity extends AppCompatActivity
         others.remove(senderId);
 
         com.callx.app.utils.GroupMessageStatusSync.ackDelivered(
-                groupMessagesRef, msgId, currentUid, senderId, others);
+                groupMessagesRef, msgId, currentUid, senderId, others, groupId);
 
         readAckHandler.postDelayed(() -> {
             if (isFinishing() || isDestroyed()) return;
             com.callx.app.utils.GroupMessageStatusSync.ackRead(
-                    groupMessagesRef, msgId, currentUid, senderId, others);
+                    groupMessagesRef, msgId, currentUid, senderId, others, groupId);
         }, READ_ACK_DELAY_MS);
     }
 
@@ -2095,6 +2095,16 @@ public class GroupChatActivity extends AppCompatActivity
                     memberNames.put(uid, name != null ? name : "Member");
                     memberRoles.put(uid, role != null ? role : "member");
                 }
+                // GROUP TICK FIX v62: memberNames/memberRoles were only ever
+                // ADDED to above, never pruned — a member who leaves the
+                // group stayed in these maps forever. Besides showing left
+                // members in @mentions, this fed markRead()'s `others` set
+                // (memberNames.keySet()), which is exactly the stale-member
+                // list checkAggregate() now separately guards against — but
+                // pruning here is the actual source fix, keeping memberNames
+                // an honest reflection of who's currently in the group.
+                memberNames.keySet().retainAll(latest);
+                memberRoles.keySet().retainAll(latest);
                 totalMembers = latest.size();
                 for (String uid : latest) {
                     if (!presenceListeners.containsKey(uid) && !uid.equals(currentUid))
