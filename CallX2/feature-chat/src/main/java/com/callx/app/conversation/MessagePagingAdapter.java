@@ -3170,12 +3170,36 @@ public class MessagePagingAdapter
                             .into(h.ivImage);
                     }
 
-                    // Click → WhatsApp-style image action bottom sheet
-                    h.ivImage.setOnClickListener(v ->
-                        showImageActionSheet(ctx, m, fullUrl, thumbUrl != null ? thumbUrl : fullUrl));
-                    // Long-press → normal message action sheet
+                    // Click → WhatsApp-style image action bottom sheet, UNLESS
+                    // we're in multi-select mode — then a tap should toggle
+                    // this item's selection (same as text bubbles), not jump
+                    // straight into the full-screen viewer.
+                    h.ivImage.setOnClickListener(v -> {
+                        if (multiSelectMode) {
+                            h.itemView.callOnClick();
+                            return;
+                        }
+                        showImageActionSheet(ctx, m, fullUrl, thumbUrl != null ? thumbUrl : fullUrl);
+                    });
+                    // Long-press → GAP FIX: this used to jump STRAIGHT to
+                    // showActionBottomSheet(), skipping multi-select mode
+                    // entirely — but that action sheet's option list (Reply/
+                    // Copy/Star/Pin/Forward/Delete) has no "Info" entry at all.
+                    // Text bubbles instead enter multi-select mode first (see
+                    // h.itemView's long-click below), which shows the selection
+                    // toolbar with an Info button wired to
+                    // showMessageInfoDialog() — that's the ONLY way "Message
+                    // Info" was reachable, and images never had a path to it.
+                    // Now mirrors text exactly: first long-press selects (Info
+                    // button available in the toolbar); a second long-press
+                    // while already selecting still opens the full action sheet.
                     h.ivImage.setOnLongClickListener(v -> {
-                        if (actionListener != null) showActionBottomSheet(ctx, m);
+                        v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
+                        if (!multiSelectMode) {
+                            enterMultiSelectMode(m);
+                        } else if (actionListener != null) {
+                            showActionBottomSheet(ctx, m);
+                        }
                         return true;
                     });
 
