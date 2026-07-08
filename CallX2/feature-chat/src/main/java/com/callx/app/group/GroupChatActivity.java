@@ -187,7 +187,7 @@ public class GroupChatActivity extends AppCompatActivity
     private String pinnedMsgId = null;
 
     // ── Media pickers ──────────────────────────────────────────────────────
-    private ActivityResultLauncher<String> imagePicker, videoPicker, audioPicker, filePicker;
+    private ActivityResultLauncher<String> imagePicker, videoPicker, audioPicker, filePicker, stickerPicker;
     private ActivityResultLauncher<String> wallpaperPicker;
     private androidx.activity.result.ActivityResultLauncher<androidx.activity.result.PickVisualMediaRequest> multiMediaPicker;
     private static final int MAX_MULTI_PICK = 30;
@@ -782,6 +782,7 @@ public class GroupChatActivity extends AppCompatActivity
                     switch (m.type) {
                         case "image":
                         case "gif":
+                        case "sticker":
                         case "video":
                             return (m.thumbnailUrl != null && !m.thumbnailUrl.isEmpty())
                                     ? m.thumbnailUrl
@@ -818,7 +819,7 @@ public class GroupChatActivity extends AppCompatActivity
                 com.callx.app.models.Message m = pagingAdapter.peek(position);
                 if (m == null) return java.util.Collections.emptyList();
                 String type = m.type != null ? m.type : "";
-                boolean isMedia = "image".equals(type) || "gif".equals(type) || "video".equals(type);
+                boolean isMedia = "image".equals(type) || "gif".equals(type) || "sticker".equals(type) || "video".equals(type);
                 if (!isMedia || (m.mediaUrl == null && m.thumbnailUrl == null))
                     return java.util.Collections.emptyList();
                 return java.util.Collections.singletonList(m);
@@ -2455,6 +2456,8 @@ public class GroupChatActivity extends AppCompatActivity
                 });
         imagePicker = registerForActivityResult(new ActivityResultContracts.GetContent(),
                 uri -> { if (uri != null) uploadAndSend(uri, "image", "image", null); });
+        stickerPicker = registerForActivityResult(new ActivityResultContracts.GetContent(),
+                uri -> { if (uri != null) sendStickerMessage(uri); });
         videoPicker = registerForActivityResult(new ActivityResultContracts.GetContent(),
                 uri -> { if (uri != null) uploadAndSend(uri, "video", "video", null); });
         audioPicker = registerForActivityResult(new ActivityResultContracts.GetContent(),
@@ -2513,6 +2516,10 @@ public class GroupChatActivity extends AppCompatActivity
         if (optLocation != null) {
             optLocation.setOnClickListener(x -> { sheet.dismiss(); locationShareController.launch(); });
         }
+        View optSticker = v.findViewById(R.id.opt_sticker);
+        if (optSticker != null) {
+            optSticker.setOnClickListener(x -> { sheet.dismiss(); stickerPicker.launch("image/*"); });
+        }
         sheet.setContentView(v); sheet.show();
     }
 
@@ -2554,6 +2561,38 @@ public class GroupChatActivity extends AppCompatActivity
                         binding.uploadProgress.setVisibility(View.GONE);
                         Toast.makeText(GroupChatActivity.this,
                                 err != null ? err : "GIF upload failed",
+                                Toast.LENGTH_LONG).show();
+                    }
+                });
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // STICKER MESSAGE — gallery se pick karke "sticker" type se bhejo
+    // ─────────────────────────────────────────────────────────────────────
+
+    private void sendStickerMessage(Uri stickerUri) {
+        if (stickerUri == null) return;
+        if (!isOnline()) {
+            Toast.makeText(this, "No connection — Sticker send nahi ho sakta", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        binding.uploadProgress.setVisibility(View.VISIBLE);
+        CloudinaryUploader.upload(this, stickerUri, "callx/sticker", "image",
+                new CloudinaryUploader.UploadCallback() {
+                    @Override
+                    public void onSuccess(CloudinaryUploader.Result r) {
+                        binding.uploadProgress.setVisibility(View.GONE);
+                        Message m  = buildOutgoing();
+                        m.type     = "sticker";
+                        m.mediaUrl = r.secureUrl;
+                        m.imageUrl = r.secureUrl;
+                        pushMessage(m, "🏷️ Sticker");
+                    }
+                    @Override
+                    public void onError(String err) {
+                        binding.uploadProgress.setVisibility(View.GONE);
+                        Toast.makeText(GroupChatActivity.this,
+                                err != null ? err : "Sticker upload failed",
                                 Toast.LENGTH_LONG).show();
                     }
                 });

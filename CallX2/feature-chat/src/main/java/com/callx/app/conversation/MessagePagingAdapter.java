@@ -908,6 +908,7 @@ public class MessagePagingAdapter
                 case "location":
                 case "reel_share":
                 case "reel_link":
+                case "sticker":
                     break; // eligible — footer/pill models expiry
                 default:
                     return false;
@@ -994,6 +995,9 @@ public class MessagePagingAdapter
         // v59: GIF and file bubbles now render on Canvas
         if ("gif".equals(type))  return true;
         if ("file".equals(type)) return true;
+        // Sticker — bubbleless-feeling single-image slot (MessageBubbleCanvasView.bindSticker),
+        // reuses the GIF layout path minus the badge pill.
+        if ("sticker".equals(type)) return true;
         return false;
     }
 
@@ -1545,6 +1549,7 @@ public class MessagePagingAdapter
         final boolean isContact = "contact".equals(type);
         final boolean isLocation = "location".equals(type);
         final boolean isGif  = "gif".equals(type);
+        final boolean isSticker = "sticker".equals(type);
         final boolean isFile = "file".equals(type);
         final boolean isPoll = "poll".equals(type);
         final boolean isDeleted = Boolean.TRUE.equals(m.deleted);
@@ -1564,7 +1569,7 @@ public class MessagePagingAdapter
         // deleted placeholders, view-once cards, seen-bubbles, or call-entry
         // pills — none of those were forwardable in the legacy path either.
         boolean showFwd = !isDeleted && !isViewOnceMsg && !isSeen && !isCallEntry
-                && (isImage || isVideo || isAudio || isFile || isReelShare || isMultiMedia || isGif
+                && (isImage || isVideo || isAudio || isFile || isReelShare || isMultiMedia || isGif || isSticker
                     || ("text".equals(type) && m.text != null
                         && (m.text.contains("http://") || m.text.contains("https://"))));
         cv.setQuickForwardVisible(showFwd);
@@ -2250,6 +2255,42 @@ public class MessagePagingAdapter
             // call at the end of this method, so tapping a GIF bubble did
             // nothing. That logic now lives in that surviving listener's
             // onGifClick()/onMediaDownloadClick() overrides (isGif-gated).
+
+        } else if (isSticker) {
+            // ── Sticker Canvas bubble ──────────────────────────────────────────
+            // Reuses the single-image slot/download-gate (same path as GIF),
+            // just no badge pill and no size label on the gate ("Sticker"
+            // instead of a byte-count string once known — matches the
+            // GIF gate's placeholder-then-size-label behavior).
+            final String stickerUrl = m.mediaUrl != null ? m.mediaUrl : "";
+            cv.bindSticker(stickerUrl, timeStr, sent, isRead, isDelivered);
+            cv.setDeletedStyle(false);
+
+            java.io.File stickerCached = MediaCache.getCached(ctx, stickerUrl);
+            if (stickerCached != null) {
+                glide(ctx).asBitmap().load(stickerCached).apply(THUMB_RGB565)
+                        .into(new com.bumptech.glide.request.target.CustomTarget<android.graphics.Bitmap>() {
+                            @Override
+                            public void onResourceReady(@NonNull android.graphics.Bitmap resource,
+                                    @Nullable com.bumptech.glide.request.transition.Transition<? super android.graphics.Bitmap> transition) {
+                                if (h.canvasBindToken != myToken) return;
+                                cv.setStickerBitmap(resource);
+                            }
+                            @Override
+                            public void onLoadCleared(@Nullable android.graphics.drawable.Drawable p) {}
+                        });
+            } else if (!stickerUrl.isEmpty()) {
+                cv.setMediaDownloadGate(false, Integer.MIN_VALUE, "Sticker");
+                com.callx.app.utils.MediaCache.getRemoteSize(ctx, stickerUrl,
+                        new com.callx.app.utils.MediaCache.SizeCallback() {
+                    @Override public void onSize(long bytes) {
+                        if (h.canvasBindToken != myToken) return;
+                        if (!downloadingMediaUrls.contains(stickerUrl))
+                            cv.setMediaDownloadGate(false, Integer.MIN_VALUE, formatFileSize(bytes));
+                    }
+                    @Override public void onError(String reason) { /* keep "Sticker" label */ }
+                });
+            }
 
         } else if (isFile) {
             // ── v59: File Canvas bubble ───────────────────────────────────────
@@ -2982,6 +3023,7 @@ public class MessagePagingAdapter
         android.view.View llBubble = h.llBubble;
         String bMsgType = m.type != null ? m.type : "text";
         boolean isMediaMsg = "image".equals(bMsgType) || "gif".equals(bMsgType)
+                || "sticker".equals(bMsgType)
                 || "video".equals(bMsgType) || "reel_share".equals(bMsgType)
                 || "multi_media".equals(bMsgType);
         try {
@@ -3161,11 +3203,12 @@ public class MessagePagingAdapter
         switch (type) {
             case "image":
             case "gif":
+            case "sticker":
                 if (h.ivImage != null) {
                     h.ivImage.setVisibility(View.VISIBLE);
                     String fullUrl  = m.mediaUrl != null ? m.mediaUrl : m.text;
                     String thumbUrl = m.thumbnailUrl;
-                    boolean isGifMsg = "gif".equals(m.type);
+                    boolean isGifMsg = "gif".equals(m.type) || "sticker".equals(m.type);
 
                     // PERF FIX (WhatsApp-style lazy media): bubble shows ONLY
                     // the thumbnail — no eager full-res load/crossfade here.
@@ -4511,6 +4554,7 @@ public class MessagePagingAdapter
             case "jpg": case "jpeg": return "image/jpeg";
             case "png":  return "image/png";
             case "gif":  return "image/gif";
+            case "sticker": return "image/webp";
             case "txt":  return "text/plain";
             default:     return "*/*";
         }
@@ -4978,6 +5022,7 @@ public class MessagePagingAdapter
         // bleed stale badge/icon/progress into the next item it's bound to.
         if (holder.canvasView != null) {
             holder.canvasView.resetGif();
+            holder.canvasView.resetSticker();
             holder.canvasView.clearFileBubble();
         }
         // Invalidate the download-overlay binding guard so an in-flight

@@ -949,6 +949,8 @@ public class CallxMessagingService extends FirebaseMessagingService {
             case "video": return "🎬 Video";
             case "audio": return "🎤 Voice message";
             case "file":  return "📎 File";
+            case "gif":        return "🎞️ GIF";
+            case "sticker":    return "🏷️ Sticker";
             case "pdf":        return "📄 PDF document";
             case "reel_share": return "🎬 Reel";
             case "reel_link":  return "🎬 Reel";
@@ -963,6 +965,7 @@ public class CallxMessagingService extends FirebaseMessagingService {
             case "audio": return R.drawable.ic_audio;
             case "file":  return R.drawable.ic_file;
             case "pdf":   return R.drawable.ic_pdf;
+            case "sticker": return R.drawable.ic_sticker;
             default:      return R.drawable.ic_message_notification;
         }
     }
@@ -2105,6 +2108,7 @@ public class CallxMessagingService extends FirebaseMessagingService {
             case "file":         return "file";
             case "document":     return "file";
             case "gif":          return "gif";
+            case "sticker":      return "sticker";
             case "group_image":  return "image";
             case "group_video":  return "video";
             case "group_audio":  return "audio";

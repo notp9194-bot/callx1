@@ -55,6 +55,7 @@ public class ChatMediaController {
     private final ChatActivityDelegate delegate;
 
     private ActivityResultLauncher<String>  imagePicker;
+    private ActivityResultLauncher<String>  stickerPicker;
     private ActivityResultLauncher<String>  videoPicker;
     private ActivityResultLauncher<String>  audioPicker;
     private ActivityResultLauncher<String>  filePicker;
@@ -120,6 +121,14 @@ public class ChatMediaController {
         imagePicker = activity.registerForActivityResult(
                 new ActivityResultContracts.GetContent(),
                 uri -> { if (uri != null) uploadAndSend(uri, "image", "image", null); });
+
+        // Sticker — picks a single image straight from the gallery (no dedicated
+        // pack UI yet) and sends it tagged "sticker" instead of "image", so it
+        // renders via MessageBubbleCanvasView.bindSticker() (no caption, no
+        // "GIF" badge).
+        stickerPicker = activity.registerForActivityResult(
+                new ActivityResultContracts.GetContent(),
+                uri -> { if (uri != null) sendStickerMessage(uri); });
 
         videoPicker = activity.registerForActivityResult(
                 new ActivityResultContracts.GetContent(),
@@ -227,6 +236,10 @@ public class ChatMediaController {
                 sheet.dismiss();
                 delegate.launchLocationSharePicker();
             });
+        }
+        View optSticker = v.findViewById(R.id.opt_sticker);
+        if (optSticker != null) {
+            optSticker.setOnClickListener(x -> { sheet.dismiss(); stickerPicker.launch("image/*"); });
         }
         sheet.setContentView(v);
         sheet.show();
@@ -482,6 +495,40 @@ public class ChatMediaController {
                         binding.uploadProgress.setVisibility(View.GONE);
                         Toast.makeText(activity,
                                 err != null ? err : "GIF upload failed", Toast.LENGTH_LONG).show();
+                    }
+                });
+    }
+
+    // ── Sticker ───────────────────────────────────────────────────────────
+    // Mirrors sendGifMessage() exactly — same Cloudinary upload path, just
+    // tagged as "sticker" so MessagePagingAdapter/MessageBubbleCanvasView
+    // render it via bindSticker() (no GIF badge, no download-gate size
+    // label other than "Sticker").
+
+    public void sendStickerMessage(Uri stickerUri) {
+        if (stickerUri == null) return;
+        if (!delegate.isOnline()) {
+            Toast.makeText(activity, "No connection — Sticker send nahi ho sakta", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        ActivityChatBinding binding = delegate.getBinding();
+        binding.uploadProgress.setVisibility(View.VISIBLE);
+
+        CloudinaryUploader.upload(activity, stickerUri, "callx/sticker", "image",
+                new CloudinaryUploader.UploadCallback() {
+                    @Override public void onSuccess(CloudinaryUploader.Result r) {
+                        binding.uploadProgress.setVisibility(View.GONE);
+                        Message m = delegate.buildOutgoing();
+                        m.type     = "sticker";
+                        m.mediaUrl = r.secureUrl;
+                        m.imageUrl = r.secureUrl;
+                        delegate.pushMessage(m, "\uD83C\uDFF7\uFE0F Sticker");
+                        delegate.clearReply();
+                    }
+                    @Override public void onError(String err) {
+                        binding.uploadProgress.setVisibility(View.GONE);
+                        Toast.makeText(activity,
+                                err != null ? err : "Sticker upload failed", Toast.LENGTH_LONG).show();
                     }
                 });
     }

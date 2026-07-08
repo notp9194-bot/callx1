@@ -678,6 +678,7 @@ public class MessageBubbleCanvasView extends View {
     // bubbles, not a rebind of the whole chat or a scroll-position jump.
     private String searchHighlightQuery = null;
     private final Paint searchHighlightPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final android.graphics.Path searchHighlightPathScratch = new android.graphics.Path();
     {
         searchHighlightPaint.setColor(0xFFFFEB3B); // same yellow as the old TextView BackgroundColorSpan
         searchHighlightPaint.setStyle(Paint.Style.FILL);
@@ -709,8 +710,17 @@ public class MessageBubbleCanvasView extends View {
      * paint on top of the highlight instead of being covered by it.
      */
     private void drawSearchHighlight(Canvas canvas) {
-        // Moved to TextBubbleRenderer#drawSearchHighlight().
-        // TextBubbleRenderer uses its own highlightPathScratch field.
+        if (searchHighlightQuery == null || textLayout == null || messageText.isEmpty()) return;
+        String lq = searchHighlightQuery.toLowerCase(java.util.Locale.getDefault());
+        String lt = messageText.toLowerCase(java.util.Locale.getDefault());
+        int idx = 0;
+        while ((idx = lt.indexOf(lq, idx)) != -1) {
+            int end = idx + lq.length();
+            searchHighlightPathScratch.reset();
+            textLayout.getSelectionPath(idx, end, searchHighlightPathScratch);
+            canvas.drawPath(searchHighlightPathScratch, searchHighlightPaint);
+            idx = end;
+        }
     }
 
     // ── PERF: background-precomputed plain-text StaticLayout cache ─────
@@ -1260,6 +1270,10 @@ public class MessageBubbleCanvasView extends View {
     // same timestamp pill) with just a "GIF" badge pill drawn in the top-start
     // corner of the thumbnail to signal the content is animated. ──
     boolean isGifBubble = false;
+    // Sticker bubble — reuses the exact same single-image slot/download-gate
+    // as bindMedia()/bindGif(), just with no "GIF" badge pill (MediaRenderer
+    // only draws that badge when isGifBubble is true). See bindSticker().
+    boolean isStickerBubble = false;
     static final String GIF_BADGE_TEXT = "GIF";
 
     // ── File bubble state — card-style bubble (240dp wide): left icon circle,
@@ -1368,14 +1382,6 @@ public class MessageBubbleCanvasView extends View {
     private final AudioRenderer audioRenderer = new AudioRenderer(this);
     private final FileBubbleRenderer fileBubbleRenderer = new FileBubbleRenderer(this);
     private final LinkPreviewRenderer linkPreviewRenderer = new LinkPreviewRenderer(this);
-
-    // ── Extracted feature renderers (split from inline methods) ──────────
-    final FooterRenderer       footerRenderer       = new FooterRenderer(this);
-    final DownloadGateRenderer downloadGateRenderer = new DownloadGateRenderer(this);
-    final OverlayRenderer      overlayRenderer      = new OverlayRenderer(this);
-    final ReplyPreviewRenderer replyPreviewRenderer = new ReplyPreviewRenderer(this);
-    final CallEntryRenderer    callEntryRenderer    = new CallEntryRenderer(this);
-    final TextBubbleRenderer   textBubbleRenderer   = new TextBubbleRenderer(this);
 
     // ── PERF: Picture-based static-content cache — scoped narrowly to the
     // one confirmed repeated-full-redraw case: a single-image/video
@@ -2467,6 +2473,7 @@ public class MessageBubbleCanvasView extends View {
         this.isLocation = false;
         this.isPoll = false;
         this.isGifBubble = false;
+        this.isStickerBubble = false;
         this.isFileBubble = false;
         this.hasLinkPreview = false;
         this.mediaGated = false;
@@ -2508,6 +2515,7 @@ public class MessageBubbleCanvasView extends View {
         this.isLocation = false;
         this.isPoll = false;
         this.isGifBubble = false;
+        this.isStickerBubble = false;
         this.isFileBubble = false;
         this.hasLinkPreview = false;
         this.mediaGated = false;
@@ -2564,6 +2572,7 @@ public class MessageBubbleCanvasView extends View {
         this.isLocation = false;
         this.isPoll = false;
         this.isGifBubble = false;
+        this.isStickerBubble = false;
         this.isFileBubble = false;
         this.isViewOnce = false;
         this.isSeenBubble = false;
@@ -2636,6 +2645,39 @@ public class MessageBubbleCanvasView extends View {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // STICKER BUBBLE — bindSticker / setStickerBitmap / resetSticker
+    // Reuses the exact same single-image layout path as bindGif() (same
+    // 180dp slot, same download-gate overlay), minus the "GIF" badge pill —
+    // MediaRenderer only draws that badge when isGifBubble is true, so a
+    // sticker just falls through to a plain borderless-looking media tap
+    // (onImageClick opens the full-size viewer, same as a photo).
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Binds a sticker message bubble. Delegates to bindMedia() for
+     * layout/draw — no caption, no GIF badge.
+     */
+    public void bindSticker(@Nullable String stickerUrl, String timeText, boolean isSent, boolean isRead, boolean isDelivered) {
+        isStickerBubble = true;
+        isGifBubble = false;
+        isFileBubble = false;
+        bindMedia(null, null, timeText != null ? timeText : "", isSent, isRead, isDelivered, stickerUrl, 0f);
+    }
+
+    /** Swaps in the decoded sticker bitmap. Same pattern as setGifBitmap(). */
+    public void setStickerBitmap(@Nullable Bitmap bmp) {
+        isStickerBubble = true;
+        setMediaBitmap(bmp);
+    }
+
+    /** Resets sticker state. Call from onViewRecycled(). */
+    public void resetSticker() {
+        isStickerBubble = false;
+        clearMediaDownloadGate();
+        setMediaBitmap(null);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // FILE BUBBLE — bindFile / setFileDownloadState / setFileCached / clearFileBubble
     // Card-style bubble: left file-type icon circle, centre name+size row,
     // right download/open action button, standard footer below.
@@ -2666,6 +2708,7 @@ public class MessageBubbleCanvasView extends View {
         this.isViewOnce     = false;
         this.isSeenBubble   = false;
         this.isGifBubble    = false;
+        this.isStickerBubble    = false;
         this.isFileBubble   = true;
         this.hasLinkPreview = false;
         this.mediaGated     = false;
@@ -4285,26 +4328,26 @@ public class MessageBubbleCanvasView extends View {
         }
 
         if (isPinned) {
-            overlayRenderer.drawPinnedLabel(canvas);
+            drawPinnedLabel(canvas);
         }
 
         if (hasGroupSender) {
-            overlayRenderer.drawGroupSenderName(canvas);
+            drawGroupSenderName(canvas);
         }
 
         if (hasForwarded) {
-            overlayRenderer.drawForwardedLabel(canvas);
+            drawForwardedLabel(canvas);
         }
 
         if (showForwardBtn) {
-            overlayRenderer.drawForwardButton(canvas);
+            drawForwardButton(canvas);
         }
 
         int hPad = Math.round(H_PADDING_DP * density);
         int vPad = Math.round(V_PADDING_DP * density);
 
         if (hasReply) {
-            replyPreviewRenderer.draw(canvas);
+            drawReplyPreview(canvas);
         }
 
         if (isReelShare) {
@@ -4318,7 +4361,7 @@ public class MessageBubbleCanvasView extends View {
         } else if (isSeenBubble) {
             seenBubbleRenderer.draw(canvas);
         } else if (isCallEntry) {
-            callEntryRenderer.draw(canvas);
+            drawCallEntry(canvas);
         } else if (isPoll) {
             pollRenderer.draw(canvas);
         } else if (isMediaGroup) {
@@ -4331,20 +4374,108 @@ public class MessageBubbleCanvasView extends View {
             fileBubbleRenderer.draw(canvas);
         } else {
             int replyGap = hasReply ? Math.round(REPLY_GAP_TO_MESSAGE_DP * density) : 0;
-            textBubbleRenderer.draw(canvas, hPad, vPad, replyGap);
+            canvas.save();
+            canvas.translate(bubbleLeft + hPad, bubbleTop + replyBoxHeight + replyGap + vPad);
+            drawSearchHighlight(canvas);
+            textLayout.draw(canvas);
+            canvas.restore();
+
+            if (hasLinkPreview) {
+                linkPreviewRenderer.draw(canvas);
+            }
+
+            if (footerInlineWithText) {
+                // Same row as the last text line — no separate footer strip,
+                // so the bubble stays as tight as the text itself.
+                float lastLineBaselineY = bubbleTop + replyBoxHeight + replyGap + vPad
+                        + textLayout.getLineBaseline(textLayout.getLineCount() - 1);
+                drawFooter(canvas, lastLineBaselineY, bubbleRect.right - hPad);
+            } else {
+                drawFooter(canvas, bubbleRect.bottom - vPad * 0.4f, bubbleRect.right - hPad);
+            }
         }
 
         if (hasReactions) {
-            overlayRenderer.drawReactionsBadge(canvas);
+            drawReactionsBadge(canvas);
         }
     }
 
-    // Overlay drawing is handled by OverlayRenderer — see OverlayRenderer.java.
+    private void drawReactionsBadge(Canvas canvas) {
+        // PERF ADV: reuse cached FontMetrics — getFontMetrics() allocates a new
+        // object on every call, adding GC pressure at 60fps during scroll.
+        if (reactionsTextFM == null) reactionsTextFM = reactionsTextPaint.getFontMetrics();
+        float baselineY = reactionsRect.bottom - reactionsTextFM.descent;
+        canvas.drawText(reactionsText, reactionsRect.left, baselineY, reactionsTextPaint);
+    }
 
+    private void drawPinnedLabel(Canvas canvas) {
+        // Sits in the [0, bubbleTop) strip reserved above the bubble in
+        // onMeasure, right-aligned to the bubble's own right edge (works
+        // for sent AND received, since each bubble's own right edge is
+        // used rather than the parent row's right edge).
+        canvas.drawText(PINNED_LABEL_TEXT, bubbleRect.right - pinnedLabelWidth, pinnedBaselineY, pinnedLabelPaint);
+    }
 
-    /** @see OverlayRenderer#drawForwardButton */
+    private void drawGroupSenderName(Canvas canvas) {
+        // Same reserved row as the pinned label, but left-aligned to the
+        // bubble's own left edge (opposite corner) — received bubbles
+        // start at bubbleLeft=0, so this sits at the row's start, matching
+        // tv_sender_name's constraintStart_toEndOf the (unused) avatar.
+        // Also used for the 📢 broadcast badge — the caller composes
+        // whichever string applies (see setGroupSender()'s doc).
+        canvas.drawText(groupSenderName, bubbleRect.left, groupSenderBaselineY, groupSenderPaint);
+    }
+
+    private void drawForwardedLabel(Canvas canvas) {
+        // Own row directly below row 1 (pinned/group-sender), left-aligned
+        // to the bubble's own left edge — mirrors tv_forwarded's
+        // constraintTop_toBottomOf tv_sender_name + constraintStart_toEndOf
+        // the (unused) avatar in item_message_received.xml.
+        canvas.drawText(forwardedText, bubbleRect.left, forwardedBaselineY, forwardedPaint);
+    }
+
+    /**
+     * Draws the quick-forward icon button in the gutter just outside the
+     * bubble — LEFT of a sent bubble, RIGHT of a received one, vertically
+     * centered against bubbleRect — mirroring legacy btn_quick_forward's
+     * layout_constraintEnd_toStartOf/layout_constraintStart_toEndOf
+     * @id/ll_bubble + top/bottom-constrained-to-ll_bubble centering.
+     * Recomputed from the current bubbleRect on every draw (rather than
+     * only in onMeasure) so it always tracks the latest completed layout
+     * pass regardless of whether THIS particular bind triggered a fresh
+     * relayout (see requestLayoutIfSizeChanged()'s doc — a same-size
+     * rebind skips onMeasure entirely, and this button's visibility can
+     * change independently of bubble size).
+     */
     private void drawForwardButton(Canvas canvas) {
-        overlayRenderer.drawForwardButton(canvas);
+        float btnSize = FORWARD_BTN_SIZE_DP * density;
+        float btnMargin = FORWARD_BTN_MARGIN_DP * density;
+        float cy = bubbleRect.top + bubbleRect.height() / 2f;
+        if (sent) {
+            float right = bubbleRect.left - btnMargin;
+            forwardBtnRect.set(right - btnSize, cy - btnSize / 2f, right, cy + btnSize / 2f);
+        } else {
+            float left = bubbleRect.right + btnMargin;
+            forwardBtnRect.set(left, cy - btnSize / 2f, left + btnSize, cy + btnSize / 2f);
+        }
+
+        float cx = forwardBtnRect.centerX();
+        float r = forwardBtnRect.width() / 2f;
+        canvas.drawCircle(cx, cy, r, forwardBtnBgPaint);
+
+        // Double-chevron "forward" glyph (»), same visual family as the
+        // legacy ic_forward_msg drawable — always points the same
+        // direction regardless of which side the button sits on, since
+        // forwarding isn't spatially tied to sent/received.
+        float w = r * 0.9f, h = r * 0.95f;
+        forwardIconPath.reset();
+        forwardIconPath.moveTo(cx - w * 0.6f, cy - h * 0.5f);
+        forwardIconPath.lineTo(cx - w * 0.1f, cy);
+        forwardIconPath.lineTo(cx - w * 0.6f, cy + h * 0.5f);
+        forwardIconPath.moveTo(cx, cy - h * 0.5f);
+        forwardIconPath.lineTo(cx + w * 0.5f, cy);
+        forwardIconPath.lineTo(cx, cy + h * 0.5f);
+        canvas.drawPath(forwardIconPath, forwardBtnIconPaint);
     }
 
     // Width to reserve in the footer row for the "⏳ mm:ss" expiry countdown
@@ -4352,7 +4483,8 @@ public class MessageBubbleCanvasView extends View {
     // timestamp. Returns 0 when there's no expiry to show so callers can
     // add it unconditionally without an extra hasExpiry check.
     float expiryReserveWidth() {
-        return footerRenderer.expiryReserveWidth();
+        if (!hasExpiry || expiryText == null || expiryText.isEmpty()) return 0f;
+        return expiryPaint.measureText(expiryText) + EXPIRY_GAP_DP * density;
     }
 
     /**
@@ -4450,26 +4582,156 @@ public class MessageBubbleCanvasView extends View {
         return sb.toString();
     }
 
-    private void drawReplyPreview(Canvas canvas) {
-        replyPreviewRenderer.draw(canvas);
+    /**
+     * Replaces a bare requestLayout() call in every bind()/set() method:
+     * only actually requests a new measure/layout pass when the bubble's
+     * size-relevant content has changed since the last one (see
+     * computeSizeSignature()). Callers still invalidate() unconditionally
+     * right after this so the new content — even content that doesn't
+     * change the bubble's size, like a poll vote or a same-width expiry
+     * tick — still gets drawn.
+     *
+     * Returns whether a relayout was actually requested. Callers MUST use
+     * this to decide whether it's safe to null out a cached StaticLayout
+     * field (textLayout, replySenderLayout, pollQuestionLayout, etc.) —
+     * those are only rebuilt inside onMeasure(), so nulling one while this
+     * returns false would leave onDraw() dereferencing a stale null on a
+     * bubble whose measure pass never comes (this was gap #5's regression:
+     * messages intermittently rendering blank on a same-size rebind).
+     */
+    private boolean requestLayoutIfSizeChanged() {
+        String sig = computeSizeSignature();
+        boolean changed = lastSizeSignature == null || getMeasuredWidth() == 0 || !lastSizeSignature.equals(sig);
+        if (changed) {
+            requestLayout();
+        }
+        lastSizeSignature = sig;
+        return changed;
     }
 
-
-    // ── Footer delegation wrappers — called by AudioRenderer, FileBubbleRenderer,
-    // MediaRenderer, PollRenderer, ContactRenderer, LocationRenderer, etc.
-    // Logic lives in FooterRenderer; these thin delegates preserve the package-
-    // private call-site convention so existing renderers need no changes.
     void drawFooter(Canvas canvas, float footerBaselineY, float footerRightX) {
-        footerRenderer.drawFooter(canvas, footerBaselineY, footerRightX);
+        float timeX = footerRightX - footerPaint.measureText(footerTimeText)
+                - (sent ? (TICK_SIZE_DP + TICK_GAP_DP) * density : 0);
+        canvas.drawText(footerTimeText, timeX, footerBaselineY, footerPaint);
+
+        // Record the footer text's bounding box so onTouchEvent can hit-test
+        // taps on the "✏️ edited" tag (baked into footerTimeText by the
+        // caller) — recomputed on every draw so it always tracks the
+        // footer's actual on-screen position for this bind.
+        Paint.FontMetrics footerFm = footerPaint.getFontMetrics();
+        footerTextRect.set(timeX, footerBaselineY + footerFm.ascent,
+                timeX + footerPaint.measureText(footerTimeText), footerBaselineY + footerFm.descent);
+
+        if (hasExpiry) {
+            canvas.drawText(expiryText, timeX - expiryReserveWidth(), footerBaselineY, expiryPaint);
+        }
+
+        if (sent) {
+            drawTick(canvas, footerRightX - TICK_SIZE_DP * density, footerBaselineY);
+        }
     }
 
-    void drawCornerExpiryPill(Canvas canvas, android.graphics.RectF anchorRect) {
-        footerRenderer.drawCornerExpiryPill(canvas, anchorRect);
+    /**
+     * Small floating "⏳ mm:ss" badge for cards that have no regular
+     * timestamp/tick footer row (contact/location) — pinned inside the
+     * given rect's top-end corner with a small inset, dark rounded
+     * background + expiryPaint text, same countdown string setExpiryText()
+     * already feeds every other footer/pill. No-op when there's nothing to
+     * show, so callers can call this unconditionally right after
+     * canvas.restore() when hasExpiry is true.
+     */
+    void drawCornerExpiryPill(Canvas canvas, RectF anchorRect) {
+        if (!hasExpiry || expiryText == null || expiryText.isEmpty()) return;
+        float padH = 6f * density, padV = 3f * density, inset = 6f * density;
+        Paint.FontMetrics efm = expiryPaint.getFontMetrics();
+        float textW = expiryPaint.measureText(expiryText);
+        float pillH = (efm.descent - efm.ascent) + padV * 2;
+        float pillW = textW + padH * 2;
+        float right = anchorRect.right - inset;
+        float top = anchorRect.top + inset;
+        cornerExpiryPillRect.set(right - pillW, top, right, top + pillH);
+        canvas.drawRoundRect(cornerExpiryPillRect, pillH / 2f, pillH / 2f, mediaPillBgPaint);
+        float baseline = cornerExpiryPillRect.centerY() - (efm.ascent + efm.descent) / 2f;
+        canvas.drawText(expiryText, cornerExpiryPillRect.left + padH, baseline, expiryPaint);
     }
 
-        /** @see DownloadGateRenderer#drawGateIcon */
-        void drawGateIcon(Canvas canvas, float cx, float cy, float size, Paint paint) {
-        downloadGateRenderer.drawGateIcon(canvas, cx, cy, size, paint);
+    private void drawCallEntry(Canvas canvas) {
+        float r = SEEN_CARD_CORNER_DP * density;
+        canvas.drawRoundRect(callEntryPillRect, r, r, callEntryBgPaint);
+
+        float padH = CALL_ENTRY_PAD_H_DP * density;
+        float gap  = CALL_ENTRY_ICON_LABEL_GAP_DP * density;
+        float left = callEntryPillRect.left + padH;
+
+        Paint.FontMetrics cifm = callEntryIconPaint.getFontMetrics();
+        Paint.FontMetrics clfm = callEntryLabelPaint.getFontMetrics();
+        Paint.FontMetrics cdfm = callEntryDotPaint.getFontMetrics();
+        Paint.FontMetrics ctfm = callEntryTimePaint.getFontMetrics();
+        float rowCenterY = callEntryPillRect.centerY();
+
+        float x = left;
+        canvas.drawText(callEntryIcon, x, rowCenterY - (cifm.ascent + cifm.descent) / 2f, callEntryIconPaint);
+        x += callEntryIconPaint.measureText(callEntryIcon) + gap;
+        canvas.drawText(callEntryLabel, x, rowCenterY - (clfm.ascent + clfm.descent) / 2f, callEntryLabelPaint);
+        x += callEntryLabelPaint.measureText(callEntryLabel);
+        canvas.drawText(CALL_ENTRY_DOT_TEXT, x, rowCenterY - (cdfm.ascent + cdfm.descent) / 2f, callEntryDotPaint);
+        x += callEntryDotPaint.measureText(CALL_ENTRY_DOT_TEXT);
+        canvas.drawText(callEntryTime, x, rowCenterY - (ctfm.ascent + ctfm.descent) / 2f, callEntryTimePaint);
+    }
+
+    private void drawReplyPreview(Canvas canvas) {
+        float r = REPLY_CORNER_RADIUS_DP * density;
+        canvas.drawRoundRect(replyBoxRect, r, r, replyBgPaint);
+
+        int replyBar = Math.round(REPLY_BAR_WIDTH_DP * density);
+        canvas.drawRect(replyBoxRect.left, replyBoxRect.top,
+                replyBoxRect.left + replyBar, replyBoxRect.bottom, replyBarPaint);
+
+        int replyPadH = Math.round(REPLY_PADDING_H_DP * density);
+        int replyPadV = Math.round(REPLY_PADDING_V_DP * density);
+        float textColLeft = replyBoxRect.left + replyBar + replyPadH;
+        float textColTop = replyBoxRect.top
+                + (replyBoxRect.height() - (replySenderLayout.getHeight() + replyTextLayout.getHeight())) / 2f;
+
+        canvas.save();
+        canvas.translate(textColLeft, Math.max(textColTop, replyBoxRect.top + replyPadV));
+        if (replySenderLayout != null) {
+            replySenderLayout.draw(canvas);
+            canvas.translate(0, replySenderLayout.getHeight());
+        }
+        if (replyTextLayout != null) {
+            replyTextLayout.draw(canvas);
+        }
+        canvas.restore();
+
+        if (replyThumb != null) {
+            int thumbSize = Math.round(REPLY_THUMB_SIZE_DP * density);
+            int thumbMargin = Math.round(REPLY_THUMB_MARGIN_DP * density);
+            float thumbLeft = replyBoxRect.right - thumbMargin - thumbSize;
+            float thumbTop = replyBoxRect.top + (replyBoxRect.height() - thumbSize) / 2f;
+            replyThumbSrcRect.set(0, 0, replyThumb.getWidth(), replyThumb.getHeight());
+            replyThumbDstRect.set(thumbLeft, thumbTop, thumbLeft + thumbSize, thumbTop + thumbSize);
+            canvas.drawBitmap(replyThumb, replyThumbSrcRect, replyThumbDstRect, null);
+        }
+    }
+
+    final RectF gateIconArcRect = new RectF();
+
+    /**
+     * Draws the IDLE download-gate glyph at (cx, cy) sized to `size`: a
+     * simple download arrow (vertical stroke + arrowhead + tray). Used for
+     * the "tap to download" state, before anything is in flight. Once a
+     * download starts, drawProgressRing() takes over instead (live
+     * spinner/percentage) — see setMediaDownloadGate()/setGroupCellProgress().
+     */
+    void drawGateIcon(Canvas canvas, float cx, float cy, float size, Paint paint) {
+        float r = size / 2f;
+        float shaftTop = cy - r;
+        float shaftBottom = cy + r * 0.25f;
+        canvas.drawLine(cx, shaftTop, cx, shaftBottom, paint);
+        canvas.drawLine(cx - r * 0.5f, shaftBottom - r * 0.5f, cx, shaftBottom, paint);
+        canvas.drawLine(cx + r * 0.5f, shaftBottom - r * 0.5f, cx, shaftBottom, paint);
+        canvas.drawLine(cx - r, cy + r, cx + r, cy + r, paint);
     }
 
     /**
@@ -4481,15 +4743,73 @@ public class MessageBubbleCanvasView extends View {
      * postInvalidateOnAnimation() — the standard technique for an
      * indeterminate spinner on a custom View without a Handler/ValueAnimator.
      */
-    /** @see DownloadGateRenderer#drawProgressRing */
-        void drawProgressRing(Canvas canvas, float cx, float cy, float size, Paint paint, int percent) {
-        downloadGateRenderer.drawProgressRing(canvas, cx, cy, size, paint, percent);
+    /**
+     * PERF: the indeterminate spinner's postInvalidateOnAnimation() forces a
+     * *full* onDraw() re-execution of the whole bubble (grid cells, borders,
+     * captions — everything, not just this arc) at up to 60fps for as long
+     * as a download/upload's progress is unknown. Investigated caching this
+     * bubble's static content to a Picture so only the arc redraws live, but
+     * MediaGroupRenderer/MediaRenderer/FileBubbleRenderer would each need
+     * splitting into "static part" + "spinner part" — a real refactor across
+     * three renderer classes that draw the spinner interleaved with their
+     * normal content, not as a separable last step. That's not something to
+     * do blind without a build to verify against, and the most expensive
+     * piece per redraw (BitmapShader/gradient construction) is already
+     * cached at the renderer level per the class javadocs, so the remaining
+     * win is smaller than a full cache would suggest.
+     *
+     * What's safe and still real: a spinner doesn't need 60 redraws/sec to
+     * read as smooth — 30fps is visually indistinguishable for a simple
+     * rotating arc. This field throttles the full-bubble invalidate to
+     * ~30fps, halving how often every other draw call in the bubble
+     * (shaders, captions, borders, all of it) gets re-issued while a
+     * download/upload of unknown progress is in flight. Per-instance (not
+     * static) since each bubble's spinner phase is independent.
+     */
+    private long lastIndeterminateInvalidateUptimeMs = 0L;
+    private static final long INDETERMINATE_INVALIDATE_MIN_INTERVAL_MS = 32L; // ~30fps
+
+    void drawProgressRing(Canvas canvas, float cx, float cy, float size, Paint paint, int percent) {
+        float r = size / 2f;
+        gateIconArcRect.set(cx - r, cy - r, cx + r, cy + r);
+        if (percent >= 0) {
+            canvas.drawArc(gateIconArcRect, -90, 360f * (Math.min(percent, 100) / 100f), false, paint);
+        } else {
+            long now = android.os.SystemClock.uptimeMillis();
+            float rotation = (now % INDETERMINATE_PERIOD_MS) / (float) INDETERMINATE_PERIOD_MS * 360f;
+            canvas.drawArc(gateIconArcRect, rotation - 90, INDETERMINATE_SWEEP_DEG, false, paint);
+            long elapsed = now - lastIndeterminateInvalidateUptimeMs;
+            if (elapsed >= INDETERMINATE_INVALIDATE_MIN_INTERVAL_MS) {
+                lastIndeterminateInvalidateUptimeMs = now;
+                postInvalidateOnAnimation();
+            } else {
+                // Not enough time has passed since the last full-bubble
+                // redraw — schedule the next one for exactly when the
+                // throttle window ends, instead of every vsync (~16ms).
+                postInvalidateDelayed(INDETERMINATE_INVALIDATE_MIN_INTERVAL_MS - elapsed);
+            }
+        }
     }
 
     void drawTick(Canvas canvas, float x, float baselineY) {
-        footerRenderer.drawTick(canvas, x, baselineY);
+        // Simple two-stroke check mark; double check mark for delivered/read.
+        // PERF ADV: style/strokeWidth/strokeCap are set ONCE in the
+        // constructor now (see tickPaint field) instead of being reset here
+        // on every single draw — only the color varies per-bind and that's
+        // already handled by setDeliveryStatus()/bind().
+        float size = TICK_SIZE_DP * density;
+        float y = baselineY - size * 0.4f;
+
+        drawSingleTick(canvas, x, y, size);
+        if (delivered || read) {
+            drawSingleTick(canvas, x + size * 0.35f, y, size);
+        }
     }
 
+    private void drawSingleTick(Canvas canvas, float x, float y, float size) {
+        canvas.drawLine(x, y + size * 0.5f, x + size * 0.35f, y + size * 0.8f, tickPaint);
+        canvas.drawLine(x + size * 0.35f, y + size * 0.8f, x + size, y + size * 0.1f, tickPaint);
+    }
 
     /**
      * The rect-specific branches below (reply box, link card, reactions,

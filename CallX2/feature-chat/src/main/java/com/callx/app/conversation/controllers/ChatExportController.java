@@ -109,6 +109,8 @@ public class ChatExportController {
                 return mediaTag("audio", m.mediaUrl, includeMedia);
             case "gif":
                 return mediaTag("GIF", m.mediaUrl, includeMedia);
+            case "sticker":
+                return mediaTag("Sticker", m.mediaUrl, includeMedia);
             case "file":
                 return mediaTag(m.fileName != null ? m.fileName : "file", m.mediaUrl, includeMedia);
             case "poll":

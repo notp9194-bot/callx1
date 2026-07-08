@@ -842,7 +842,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             int    widthPx = 200;   // thumbnail size, not bubble/full size
             int    htPx    = 200;
 
-            if ("image".equals(m.type) || "gif".equals(m.type)) {
+            if ("image".equals(m.type) || "gif".equals(m.type) || "sticker".equals(m.type)) {
                 // PERF FIX (WhatsApp-style lazy media): preload the THUMBNAIL
                 // only, not the full-resolution mediaUrl. This used to load
                 // m.mediaUrl at 720x720 for up to 10 images EVERY time the
@@ -1811,6 +1811,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                     switch (m.type) {
                         case "image":
                         case "gif":
+                        case "sticker":
                         case "video":
                             return (m.thumbnailUrl != null && !m.thumbnailUrl.isEmpty())
                                     ? m.thumbnailUrl
@@ -3959,7 +3960,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 com.callx.app.models.Message m = pagingAdapter.peek(position);
                 if (m == null) return Collections.emptyList();
                 String type = m.type != null ? m.type : "";
-                boolean isMedia = "image".equals(type) || "gif".equals(type) || "video".equals(type);
+                boolean isMedia = "image".equals(type) || "gif".equals(type) || "sticker".equals(type) || "video".equals(type);
                 if (!isMedia || (m.mediaUrl == null && m.thumbnailUrl == null))
                     return Collections.emptyList();
                 return Collections.singletonList(m);
@@ -4143,6 +4144,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         switch (m.type) {
             case "image":  return "\uD83D\uDCF7 Photo";
             case "gif":    return "\uD83C\uDEDF\uFE0F GIF";
+            case "sticker": return "\uD83C\uDFF7\uFE0F Sticker";
             case "video":  return "\uD83C\uDFAC Video";
             case "audio":  return "\uD83C\uDFA4 Voice message";
             case "file":   return "\uD83D\uDCCE " + (m.fileName != null ? m.fileName : "File");
