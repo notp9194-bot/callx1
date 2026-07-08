@@ -859,11 +859,21 @@ public class ChatPresenceController {
         if (delegate.getCurrentUid().equals(m.senderId)) return; // own message, nothing to ack
         if ("read".equals(m.status)) return; // already fully read, nothing left to do
 
-        // Delivered ack is ALWAYS queued, regardless of the read-receipts
-        // privacy toggle — matches WhatsApp-style behavior where the grey
-        // "delivered" double-tick is independent of the blue "read" tick.
-        pendingDeliveredFirebaseIds.add(m.id);
-        scheduleReadFlush();
+        // Delivered ack is ALWAYS queued the FIRST time — regardless of the
+        // read-receipts privacy toggle — matching WhatsApp-style behavior
+        // where the grey "delivered" double-tick is independent of the blue
+        // "read" tick. Guarded on m.status so a LATER markRead() call for the
+        // same message (e.g. the Firebase listener re-attaching when the chat
+        // is reopened, which re-fires onChildAdded for messages still inside
+        // the query window) doesn't re-stamp deliveredAt with a fresh
+        // timestamp — that was overwriting the true original delivered time
+        // with whatever time "read" happened to fire at, so Message Info
+        // showed identical Delivered/Seen times even though delivery had
+        // actually happened much earlier.
+        if (!"delivered".equals(m.status)) {
+            pendingDeliveredFirebaseIds.add(m.id);
+            scheduleReadFlush();
+        }
 
         SecurityManager secMgr = SecurityManager.get(delegate.getActivity());
         if (!secMgr.isReadReceiptsEnabled()) return;
@@ -872,6 +882,7 @@ public class ChatPresenceController {
         // id and flush ALL pending ids in one updateChildren() call after
         // a short debounce. See pendingReadFirebaseIds above.
         pendingReadFirebaseIds.add(m.id);
+        scheduleReadFlush();
         // PERF FIX: was a per-message ioExecutor.execute(updateStatus(...))
         // here, i.e. one Room write (→ one PagingSource invalidation) per
         // historical unread message on chat open. Now buffered and applied
@@ -894,26 +905,25 @@ public class ChatPresenceController {
         }
         Map<String, Object> updates = new HashMap<>();
 
-        // Delivered-only ids — read receipts are off (or the read flush just
-        // hasn't caught up yet). "read" below always wins for any id in both
-        // sets, so this never downgrades a message that's about to be marked read.
+        // Delivered stamp — only ever queued the first time a message leaves
+        // "sent" (see markRead()'s !"delivered".equals(m.status) guard), so
+        // this is written at most once per message and never clobbers the
+        // true original deliveredAt on a later, separate read flush.
         for (String id : pendingDeliveredFirebaseIds) {
-            if (pendingReadFirebaseIds.contains(id)) continue;
             updates.put(id + "/status", "delivered");
             updates.put(id + "/deliveredAt", com.google.firebase.database.ServerValue.TIMESTAMP);
         }
 
+        // Read stamp — the final state. Only touches "status" + "readAt";
+        // deliveredAt (already set above, either in this same flush or an
+        // earlier one) is left untouched so it keeps recording the real
+        // delivery moment instead of getting overwritten with the read time.
         for (String id : pendingReadFirebaseIds) {
             updates.put(id + "/status", "read");
             // TICK ADVANCE #5: readAt timestamp, same field MessageStatusSync
             // stamps on the single-message transaction path — lets a future
             // "message info" screen show exactly when each message was read.
             updates.put(id + "/readAt", com.google.firebase.database.ServerValue.TIMESTAMP);
-            // PERF FIX v25: deliveredAt stamped in this SAME batched call —
-            // when the chat is open, delivered and read happen in the same
-            // instant anyway, so this folds what used to be two separate
-            // Firebase writes (a transaction + a setValue) into one.
-            updates.put(id + "/deliveredAt", com.google.firebase.database.ServerValue.TIMESTAMP);
         }
 
         pendingDeliveredFirebaseIds.clear();
