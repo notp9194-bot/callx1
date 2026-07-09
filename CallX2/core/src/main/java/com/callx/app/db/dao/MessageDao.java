@@ -140,6 +140,16 @@ public interface MessageDao {
     @Query("SELECT * FROM messages WHERE chatId = :chatId AND timestamp > :afterTimestamp ORDER BY timestamp ASC LIMIT :limit")
     List<MessageEntity> getMessagesAfterAsc(String chatId, long afterTimestamp, int limit);
 
+    /**
+     * Anchor message + everything after it (INCLUSIVE), oldest-first. Used
+     * only for scroll-position-restore's anchored REFRESH — pairs with
+     * {@link #getMessagesBeforeDesc} (which is exclusive) to build a page
+     * centered on a specific saved message instead of the chat tail.
+     */
+    @WorkerThread
+    @Query("SELECT * FROM messages WHERE chatId = :chatId AND timestamp >= :atOrAfterTimestamp ORDER BY timestamp ASC LIMIT :limit")
+    List<MessageEntity> getMessagesAtOrAfterAsc(String chatId, long atOrAfterTimestamp, int limit);
+
     /** Position of a message within its chat's ASC ordering — used to seed a correct refresh key. */
     @WorkerThread
     @Query("SELECT COUNT(*) FROM messages WHERE chatId = :chatId AND timestamp <= :timestamp")

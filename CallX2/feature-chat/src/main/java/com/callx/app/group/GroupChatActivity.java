@@ -1028,8 +1028,34 @@ public class GroupChatActivity extends AppCompatActivity
         ioExecutor.execute(() -> {
             int count = db.messageDao().getMessageCount(groupId);
             Integer initialKey = (count > 0) ? Integer.valueOf(count - 1) : null;
-            runOnUiThread(() -> attachPagerWithKey(initialKey));
+
+            // WhatsApp-style scroll restore: if this group chat has a saved
+            // scroll anchor (see saveScrollState()), seed the initial load
+            // there instead of always the tail. Unlike ChatActivity's
+            // keyset-paged 1:1 chat, this offset-based Room PagingSource can
+            // anchor on any absolute row directly — but the saved anchor is
+            // a message *timestamp* (stable across sessions, unlike a raw
+            // adapter index, which is meaningless once prepend/append pages
+            // have shifted things around), so it's converted to an absolute
+            // row offset via getRankAsc() right before use.
+            long anchorTs = getSavedAnchorTimestampOrZero();
+            if (anchorTs > 0) {
+                int rank = db.messageDao().getRankAsc(groupId, anchorTs); // 1-based count
+                if (rank > 0 && rank <= count) {
+                    initialKey = Integer.valueOf(rank - 1);
+                }
+            }
+
+            Integer finalKey = initialKey;
+            runOnUiThread(() -> attachPagerWithKey(finalKey));
         });
+    }
+
+    /** Reads the saved scroll-anchor timestamp for this group chat, or 0 if none. */
+    private long getSavedAnchorTimestampOrZero() {
+        if (groupId == null) return 0L;
+        return getSharedPreferences(SCROLL_PREFS, MODE_PRIVATE)
+                .getLong("anchorTs_" + groupId, 0L);
     }
 
     /**
@@ -2278,25 +2304,43 @@ public class GroupChatActivity extends AppCompatActivity
         if (firstPos < 0) return;
         android.view.View firstView = llm.findViewByPosition(firstPos);
         int offset = (firstView != null) ? firstView.getTop() : 0;
-        long lastMsgTs = 0;
+
+        com.callx.app.models.Message firstMsg = pagingAdapter.peek(firstPos);
         int total = pagingAdapter.getItemCount();
+        int probe = firstPos;
+        while (firstMsg != null && "date_separator".equals(firstMsg.type) && probe + 1 < total) {
+            probe++;
+            firstMsg = pagingAdapter.peek(probe);
+        }
+
+        long lastMsgTs = 0;
         if (total > 0) {
             com.callx.app.models.Message last = pagingAdapter.peek(total - 1);
             if (last != null && last.timestamp != null) lastMsgTs = last.timestamp;
         }
-        getSharedPreferences(SCROLL_PREFS, MODE_PRIVATE).edit()
-                .putInt("pos_" + groupId, firstPos)
-                .putInt("off_" + groupId, offset)
-                .putLong("lastTs_" + groupId, lastMsgTs)
-                .apply();
+
+        android.content.SharedPreferences.Editor editor =
+                getSharedPreferences(SCROLL_PREFS, MODE_PRIVATE).edit()
+                        .putInt("off_" + groupId, offset)
+                        .putLong("lastTs_" + groupId, lastMsgTs);
+
+        if (firstMsg != null && firstMsg.timestamp != null) {
+            String anchorId = firstMsg.id != null ? firstMsg.id : firstMsg.messageId;
+            editor.putString("anchorId_" + groupId, anchorId)
+                  .putLong("anchorTs_" + groupId, firstMsg.timestamp);
+        }
+        editor.apply();
     }
 
     /**
      * WhatsApp-style: restore to the exact message + pixel offset the user
      * left this group chat from (saved by {@link #saveScrollState()}), same
-     * approach as ChatActivity's 1:1 version. Falls back to the bottom
-     * (stackFromEnd(true)'s own zero-scroll-call anchor) only when there's
-     * nothing saved yet for this groupId — i.e. first-ever open.
+     * approach as ChatActivity's 1:1 version. The Pager was already seeded
+     * anchored on that saved message (see attachFreshBottomAnchoredPager()),
+     * so this just has to find its position in the adapter and scroll there.
+     * Falls back to the bottom (stackFromEnd(true)'s own zero-scroll-call
+     * anchor) when there's nothing saved yet for this groupId, or the saved
+     * message no longer exists (e.g. deleted while we were away).
      */
     private void restoreScrollOrGoToUnread() {
         if (pagingAdapter == null || binding == null) return;
@@ -2306,24 +2350,38 @@ public class GroupChatActivity extends AppCompatActivity
         pendingNewMsgCount = 0;
         hideNewMessagesIndicator();
 
-        int savedPos = -1, savedOffset = 0;
+        String anchorId = null;
+        int savedOffset = 0;
         if (groupId != null) {
             android.content.SharedPreferences prefs = getSharedPreferences(SCROLL_PREFS, MODE_PRIVATE);
-            savedPos = prefs.getInt("pos_" + groupId, -1);
+            anchorId = prefs.getString("anchorId_" + groupId, null);
             savedOffset = prefs.getInt("off_" + groupId, 0);
         }
 
-        if (savedPos < 0) {
+        if (anchorId == null) {
             isUserAtBottom = true;
             return;
+        }
+
+        int targetPos = -1;
+        for (int i = 0; i < total; i++) {
+            com.callx.app.models.Message m = pagingAdapter.peek(i);
+            if (m != null && anchorId.equals(m.id != null ? m.id : m.messageId)) {
+                targetPos = i;
+                break;
+            }
         }
 
         LinearLayoutManager llm = (LinearLayoutManager) binding.rvMessages.getLayoutManager();
         if (llm == null) { isUserAtBottom = true; return; }
 
-        int clampedPos = Math.min(savedPos, total - 1);
-        llm.scrollToPositionWithOffset(clampedPos, savedOffset);
-        isUserAtBottom = (clampedPos >= total - 1);
+        if (targetPos < 0) {
+            isUserAtBottom = true;
+            return;
+        }
+
+        llm.scrollToPositionWithOffset(targetPos, savedOffset);
+        isUserAtBottom = (targetPos >= total - 1);
     }
 
     private void updateNewMessagesIndicator(int count) {
