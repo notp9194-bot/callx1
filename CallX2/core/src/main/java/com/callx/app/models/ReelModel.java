@@ -169,6 +169,22 @@ public class ReelModel {
     public List<String> photoArFilterList;
 
     /**
+     * Per-photo short muted video clip (index-matched with photoUrls).
+     * When non-empty at an index, that photo is a "Motion Photo" / Live Photo:
+     * a short looping muted clip plays on top of the still image instead of a
+     * static Ken Burns pan, similar to iOS Live Photos.
+     */
+    public List<String> photoMotionVideoUrlList;
+
+    /**
+     * Per-photo tiny (few-byte) base64 or low-res thumbnail URL used as an
+     * instant blurred placeholder while the full photo streams in
+     * (index-matched with photoUrls). Falls back to a downscaled+blurred
+     * request against the main URL when not provided.
+     */
+    public List<String> photoBlurPlaceholderList;
+
+    /**
      * Per-photo crop rect JSON (index-matched with photoUrls).
      * Format: {"left":0.0,"top":0.0,"right":1.0,"bottom":1.0,"rotation":0}
      * Values are fractions of the original image dimensions (0.0–1.0).
@@ -520,6 +536,33 @@ public class ReelModel {
     public String stickerJsonForPhoto(int index) {
         if (photoStickerJsonList != null && index >= 0 && index < photoStickerJsonList.size()) {
             return photoStickerJsonList.get(index);
+        }
+        return null;
+    }
+
+    /**
+     * Returns the motion-photo (Live Photo) video clip URL for the photo at
+     * the given index, or null if that photo is a plain still.
+     */
+    @com.google.firebase.database.Exclude
+    public String motionVideoForPhoto(int index) {
+        if (photoMotionVideoUrlList != null && index >= 0 && index < photoMotionVideoUrlList.size()) {
+            String v = photoMotionVideoUrlList.get(index);
+            if (v != null && !v.isEmpty()) return v;
+        }
+        return null;
+    }
+
+    /**
+     * Returns a low-res blurred placeholder URL for the photo at the given
+     * index, or null when none was supplied (caller should derive one from
+     * the main URL via a downscaled + blurred Glide request instead).
+     */
+    @com.google.firebase.database.Exclude
+    public String blurPlaceholderForPhoto(int index) {
+        if (photoBlurPlaceholderList != null && index >= 0 && index < photoBlurPlaceholderList.size()) {
+            String v = photoBlurPlaceholderList.get(index);
+            if (v != null && !v.isEmpty()) return v;
         }
         return null;
     }

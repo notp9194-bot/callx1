@@ -35,6 +35,10 @@ import android.widget.TextView;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.media3.common.MediaItem;
+import androidx.media3.common.util.UnstableApi;
+import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.ui.PlayerView;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.viewpager2.widget.ViewPager2;
 
@@ -47,9 +51,12 @@ import com.bumptech.glide.request.RequestOptions;
 import com.bumptech.glide.request.target.Target;
 import com.callx.app.models.ReelModel;
 import com.callx.app.reels.R;
+import com.facebook.shimmer.ShimmerFrameLayout;
 
 import java.util.List;
 import java.util.Random;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * ReelPhotoSlideshowAdapter ── Ultra-Advanced Photo Slideshow v5
@@ -90,6 +97,8 @@ public class ReelPhotoSlideshowAdapter
         void onPhotoSwipedByUser(int newIndex);
         /** Called when auto-advance should fire for the current photo. */
         void onAutoAdvanceTick(int fromIndex);
+        /** Called when the user double-taps a photo to like it (Instagram-style heart burst). */
+        void onDoubleTapLike(int position);
     }
 
     // ── Constants ─────────────────────────────────────────────────────────────
@@ -99,6 +108,13 @@ public class ReelPhotoSlideshowAdapter
     private static final long   ZOOM_SNAP_DURATION    = 220L;
     private static final long   DOUBLE_TAP_MAX_MS     = 300L;
     private static final String TAG_STICKER_VIEW      = "sticker_overlay";
+
+    /** Aspect-ratio delta beyond which we stop hard-cropping and switch to a
+     *  letterboxed fit + blurred background fill instead (Instagram-style). */
+    private static final float  ASPECT_MISMATCH_THRESHOLD = 0.30f;
+    private static final long   MOTION_PHOTO_START_DELAY_MS = 550L;
+    private static final long   HEART_BURST_DURATION_MS = 700L;
+    private static final float  FLING_UP_MIN_VELOCITY = 900f;
 
     // ── State ─────────────────────────────────────────────────────────────────
 
@@ -116,6 +132,9 @@ public class ReelPhotoSlideshowAdapter
     private final float[] zoomTransYArr;    // current translateY per position
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private final ExecutorService bgExecutor = Executors.newFixedThreadPool(2);
+    /** Expand/collapse state of the caption per adapter position. */
+    private final java.util.HashSet<Integer> expandedCaptions = new java.util.HashSet<>();
 
     // ── Constructor ───────────────────────────────────────────────────────────
 
@@ -168,6 +187,7 @@ public class ReelPhotoSlideshowAdapter
     public void onBindViewHolder(@NonNull PhotoVH h, int position) {
         cancelKenBurns(h);
         resetViewTransforms(h);
+        releaseMotionPlayer(h);
 
         String url    = photoUrls.get(position);
         String filter = resolveFilter(position);
@@ -185,29 +205,38 @@ public class ReelPhotoSlideshowAdapter
         // Apply effect overlay
         applyEffect(h, effect);
 
-        // Caption
-        bindCaption(h, caption, captionStyleJson);
+        // Caption (expandable, swipe-up-to-expand)
+        bindCaption(h, caption, captionStyleJson, position);
 
         // Stickers
         bindStickers(h, stickerJson, position);
 
-        // Load image
+        // Shimmer skeleton + instant blurred placeholder while the real photo streams in
+        h.ivPhoto.setAlpha(0f);
+        h.ivPhoto.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        h.ivPhotoBlurBg.setVisibility(View.GONE);
+        h.shimmer.setVisibility(View.VISIBLE);
+        h.shimmer.startShimmer();
+        bindBlurredPlaceholder(h, url, position);
+
+        // Load full-resolution photo as a Bitmap so we can face-detect + aspect-check it
         Glide.with(h.ivPhoto.getContext())
+                .asBitmap()
                 .load(url)
                 .apply(new RequestOptions()
                         .diskCacheStrategy(DiskCacheStrategy.ALL)
                         .override(Target.SIZE_ORIGINAL))
-                .placeholder(android.R.color.black)
-                .listener(new RequestListener<android.graphics.drawable.Drawable>() {
-                    @Override public boolean onLoadFailed(GlideException e, Object model,
-                            Target<android.graphics.drawable.Drawable> t, boolean first) {
+                .listener(new RequestListener<Bitmap>() {
+                    @Override public boolean onLoadFailed(@Nullable GlideException e, Object model,
+                            Target<Bitmap> t, boolean first) {
+                        h.shimmer.stopShimmer();
+                        h.shimmer.setVisibility(View.GONE);
                         return false;
                     }
                     @Override public boolean onResourceReady(
-                            android.graphics.drawable.Drawable res, Object model,
-                            Target<android.graphics.drawable.Drawable> t,
-                            DataSource src, boolean first) {
-                        startKenBurns(h, position);
+                            @NonNull Bitmap bmp, Object model,
+                            Target<Bitmap> t, DataSource src, boolean first) {
+                        onPhotoBitmapReady(h, position, bmp);
                         return false;
                     }
                 })
@@ -219,7 +248,7 @@ public class ReelPhotoSlideshowAdapter
         h.ivPhoto.setTranslationX(zoomTransXArr[position]);
         h.ivPhoto.setTranslationY(zoomTransYArr[position]);
 
-        // Attach gesture handlers
+        // Attach gesture handlers (pinch/zoom/double-tap-like/long-press)
         attachGestures(h, position);
 
         // Breathing pulse (if enabled in model)
@@ -235,11 +264,22 @@ public class ReelPhotoSlideshowAdapter
         super.onViewRecycled(h);
         cancelKenBurns(h);
         resetViewTransforms(h);
+        releaseMotionPlayer(h);
         h.ivPhoto.clearColorFilter();
+        h.ivPhoto.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        h.ivPhoto.setAlpha(1f);
+        h.ivPhotoBlurBg.setVisibility(View.GONE);
+        h.ivPhotoPlaceholderBlur.setVisibility(View.GONE);
+        h.ivPhotoPlaceholderBlur.setAlpha(1f);
+        h.shimmer.stopShimmer();
+        h.shimmer.setVisibility(View.GONE);
         h.vEffectOverlay.setVisibility(View.GONE);
         h.vColorFilterOverlay.setVisibility(View.GONE);
-        h.tvCaption.setVisibility(View.GONE);
+        h.llCaptionContainer.setVisibility(View.GONE);
+        h.tvCaptionExpandHint.setVisibility(View.GONE);
         h.vCaptionGradient.setVisibility(View.GONE);
+        h.ivHeartBurst.setAlpha(0f);
+        h.ivHeartBurst.animate().cancel();
         stopBreathingPulse(h);
         h.llStickerLayer.removeAllViews();
     }
@@ -591,31 +631,80 @@ public class ReelPhotoSlideshowAdapter
         });
     }
 
-    // ── Caption ───────────────────────────────────────────────────────────────
+    // ── Caption (expandable, swipe-up-to-expand) ────────────────────────────────
 
     private void bindCaption(@NonNull PhotoVH h, @Nullable String caption,
-                             @Nullable String styleJson) {
+                             @Nullable String styleJson, int position) {
+        expandedCaptions.remove(position);
         if (caption == null || caption.isEmpty()) {
-            h.tvCaption.setVisibility(View.GONE);
+            h.llCaptionContainer.setVisibility(View.GONE);
             h.vCaptionGradient.setVisibility(View.GONE);
+            h.tvCaptionExpandHint.setVisibility(View.GONE);
             return;
         }
         h.tvCaption.setText(caption);
-        h.tvCaption.setVisibility(View.VISIBLE);
+        h.tvCaption.setMaxLines(2);
+        h.tvCaption.setEllipsize(TextUtils.TruncateAt.END);
+        h.llCaptionContainer.setVisibility(View.VISIBLE);
         h.vCaptionGradient.setVisibility(View.VISIBLE);
 
         // Apply caption style
         applyCaptionStyle(h.tvCaption, styleJson);
 
+        // Only show the "swipe up for more" hint when the caption actually overflows 2 lines.
+        h.tvCaption.post(() -> {
+            boolean overflows = h.tvCaption.getLineCount() >= 2
+                    && (h.tvCaption.getLayout() != null
+                        && h.tvCaption.getLayout().getEllipsisCount(h.tvCaption.getLineCount() - 1) > 0
+                        || caption.length() > 90);
+            h.tvCaptionExpandHint.setVisibility(overflows ? View.VISIBLE : View.GONE);
+        });
+
+        // Tap or swipe-up toggles the expanded/collapsed state.
+        GestureDetector captionGesture = new GestureDetector(h.llCaptionContainer.getContext(),
+            new GestureDetector.SimpleOnGestureListener() {
+                @Override public boolean onSingleTapUp(MotionEvent e) {
+                    toggleCaptionExpand(h, position);
+                    return true;
+                }
+                @Override public boolean onFling(MotionEvent e1, MotionEvent e2, float vx, float vy) {
+                    if (vy < -FLING_UP_MIN_VELOCITY && !expandedCaptions.contains(position)) {
+                        toggleCaptionExpand(h, position);
+                        return true;
+                    } else if (vy > FLING_UP_MIN_VELOCITY && expandedCaptions.contains(position)) {
+                        toggleCaptionExpand(h, position);
+                        return true;
+                    }
+                    return false;
+                }
+            });
+        h.llCaptionContainer.setOnTouchListener((v, event) -> {
+            captionGesture.onTouchEvent(event);
+            return true;
+        });
+
         // Slide-up + fade-in animation
-        h.tvCaption.setAlpha(0f);
-        h.tvCaption.setTranslationY(24f);
-        h.tvCaption.animate()
+        h.llCaptionContainer.setAlpha(0f);
+        h.llCaptionContainer.setTranslationY(24f);
+        h.llCaptionContainer.animate()
                 .alpha(1f)
                 .translationY(0f)
                 .setDuration(CAPTION_ANIM_DURATION)
                 .setInterpolator(new DecelerateInterpolator())
                 .start();
+    }
+
+    /** Expands the caption to its full, unclamped height or collapses it back to 2 lines. */
+    private void toggleCaptionExpand(@NonNull PhotoVH h, int position) {
+        boolean expand = !expandedCaptions.contains(position);
+        if (expand) expandedCaptions.add(position); else expandedCaptions.remove(position);
+
+        androidx.transition.TransitionManager.beginDelayedTransition(
+                (ViewGroup) h.llCaptionContainer.getParent(),
+                new androidx.transition.AutoTransition().setDuration(220));
+        h.tvCaption.setMaxLines(expand ? 30 : 2);
+        h.tvCaption.setEllipsize(expand ? null : TextUtils.TruncateAt.END);
+        h.tvCaptionExpandHint.setText(expand ? "⌄ swipe down to collapse" : "⌃ swipe up for more");
     }
 
     private static void applyCaptionStyle(TextView tv, @Nullable String styleJson) {
@@ -754,6 +843,145 @@ public class ReelPhotoSlideshowAdapter
         });
     }
 
+    // ── Blurred low-res placeholder (Instagram-style fade-in) ───────────────────
+
+    private void bindBlurredPlaceholder(@NonNull PhotoVH h, String url, int position) {
+        h.ivPhotoPlaceholderBlur.setAlpha(1f);
+        h.ivPhotoPlaceholderBlur.setVisibility(View.VISIBLE);
+        String tiny = reelModel.blurPlaceholderForPhoto(position);
+        Glide.with(h.ivPhotoPlaceholderBlur.getContext())
+                .load(tiny != null ? tiny : url)
+                .apply(new RequestOptions()
+                        .override(48, 85) // tiny decode target -> near-instant + cheap to blur
+                        .diskCacheStrategy(DiskCacheStrategy.ALL)
+                        .transform(new FastBlurTransformation(18, 2)))
+                .into(h.ivPhotoPlaceholderBlur);
+    }
+
+    /**
+     * Runs once the full-resolution bitmap is decoded: fades the shimmer/blur
+     * placeholder out, applies aspect-ratio-aware rendering (letterbox +
+     * blurred fill when the photo doesn't match the slide's aspect ratio),
+     * runs face-aware focal-point cropping on a background thread, sets up
+     * a Motion Photo loop when the model provides one, and kicks off Ken Burns.
+     */
+    private void onPhotoBitmapReady(@NonNull PhotoVH h, int position, @NonNull Bitmap bmp) {
+        h.shimmer.stopShimmer();
+        h.shimmer.setVisibility(View.GONE);
+
+        h.ivPhoto.animate().alpha(1f).setDuration(220).start();
+        h.ivPhotoPlaceholderBlur.animate().alpha(0f).setDuration(260)
+                .withEndAction(() -> h.ivPhotoPlaceholderBlur.setVisibility(View.GONE)).start();
+
+        // ── Aspect-ratio-aware rendering ────────────────────────────────────
+        int viewW = h.ivPhoto.getWidth();
+        int viewH = h.ivPhoto.getHeight();
+        boolean letterbox = false;
+        if (viewW > 0 && viewH > 0 && bmp.getWidth() > 0 && bmp.getHeight() > 0) {
+            float viewRatio  = viewW / (float) viewH;
+            float photoRatio = bmp.getWidth() / (float) bmp.getHeight();
+            letterbox = Math.abs(viewRatio - photoRatio) / viewRatio > ASPECT_MISMATCH_THRESHOLD;
+        }
+
+        if (letterbox) {
+            // Blurred, zoomed copy of the same photo fills the letterbox bars
+            // instead of hard-cropping the subject (Instagram "expand" look).
+            h.ivPhotoBlurBg.setVisibility(View.VISIBLE);
+            Glide.with(h.ivPhotoBlurBg.getContext())
+                    .load(bmp)
+                    .apply(new RequestOptions().transform(new FastBlurTransformation(25, 6)))
+                    .into(h.ivPhotoBlurBg);
+            h.ivPhoto.setScaleType(ImageView.ScaleType.FIT_CENTER);
+            h.ivPhoto.setImageBitmap(bmp);
+        } else {
+            h.ivPhotoBlurBg.setVisibility(View.GONE);
+            // ── Smart, face-aware focal-point crop instead of a fixed centre-crop ──
+            h.ivPhoto.setImageBitmap(bmp);
+            bgExecutor.execute(() -> {
+                SmartCropHelper.FocalPoint focal = SmartCropHelper.detectFocalPoint(bmp);
+                mainHandler.post(() -> {
+                    if (h.getAdapterPosition() != position) return; // recycled since dispatch
+                    SmartCropHelper.applyFocalCrop(h.ivPhoto, bmp, focal);
+                });
+            });
+        }
+
+        startKenBurns(h, position);
+        setupMotionPhotoIfAny(h, position);
+    }
+
+    // ── Motion Photo / Live Photo support ────────────────────────────────────────
+
+    @UnstableApi
+    private void setupMotionPhotoIfAny(@NonNull PhotoVH h, int position) {
+        String clipUrl = reelModel.motionVideoForPhoto(position);
+        if (clipUrl == null) return;
+
+        h.tvLiveBadge.setVisibility(View.VISIBLE);
+        Runnable startRunnable = new Runnable() {
+            @Override public void run() {
+                // Bail out if this holder got recycled/rebound to another position
+                // (or its pending start was cancelled) since this was scheduled.
+                if (h.getAdapterPosition() != position || h.pendingMotionStart != this) return;
+                h.pendingMotionStart = null;
+                try {
+                    ExoPlayer player = new ExoPlayer.Builder(h.playerMotionPhoto.getContext()).build();
+                    player.setMediaItem(MediaItem.fromUri(clipUrl));
+                    player.setRepeatMode(ExoPlayer.REPEAT_MODE_ALL);
+                    player.setVolume(0f); // Motion photos always play muted, like iOS Live Photos
+                    h.playerMotionPhoto.setPlayer(player);
+                    h.playerMotionPhoto.setVisibility(View.VISIBLE);
+                    h.motionPlayer = player;
+                    player.prepare();
+                    player.play();
+                    // Cross-fade the static photo out once the loop starts so the
+                    // transition into motion feels seamless rather than a hard cut.
+                    h.playerMotionPhoto.setAlpha(0f);
+                    h.playerMotionPhoto.animate().alpha(1f).setDuration(280).start();
+                } catch (Exception ignored) {
+                    h.tvLiveBadge.setVisibility(View.GONE);
+                }
+            }
+        };
+        h.pendingMotionStart = startRunnable;
+        mainHandler.postDelayed(startRunnable, MOTION_PHOTO_START_DELAY_MS);
+    }
+
+    private void releaseMotionPlayer(@NonNull PhotoVH h) {
+        if (h.pendingMotionStart != null) {
+            mainHandler.removeCallbacks(h.pendingMotionStart);
+            h.pendingMotionStart = null;
+        }
+        h.tvLiveBadge.setVisibility(View.GONE);
+        h.playerMotionPhoto.setVisibility(View.GONE);
+        h.playerMotionPhoto.setAlpha(1f);
+        if (h.motionPlayer != null) {
+            h.motionPlayer.release();
+            h.motionPlayer = null;
+        }
+        h.playerMotionPhoto.setPlayer(null);
+    }
+
+    // ── Double-tap heart-burst (Instagram-style like animation) ─────────────────
+
+    private void showHeartBurst(@NonNull PhotoVH h) {
+        h.ivHeartBurst.animate().cancel();
+        h.ivHeartBurst.setAlpha(1f);
+        h.ivHeartBurst.setScaleX(0.3f);
+        h.ivHeartBurst.setScaleY(0.3f);
+        h.ivHeartBurst.animate()
+                .scaleX(1.15f).scaleY(1.15f)
+                .setDuration(220)
+                .setInterpolator(new android.view.animation.OvershootInterpolator(3f))
+                .withEndAction(() -> h.ivHeartBurst.animate()
+                        .alpha(0f)
+                        .scaleX(1f).scaleY(1f)
+                        .setStartDelay(180)
+                        .setDuration(240)
+                        .start())
+                .start();
+    }
+
     // ── Ken Burns pan+zoom ────────────────────────────────────────────────────
 
     private void startKenBurns(@NonNull PhotoVH h, int position) {
@@ -853,7 +1081,12 @@ public class ReelPhotoSlideshowAdapter
                 new GestureDetector.SimpleOnGestureListener() {
             @Override
             public boolean onDoubleTap(MotionEvent e) {
-                if (!allowDTap) return false;
+                // Double-tap always likes the photo (heart burst), Instagram-style,
+                // independent of whether pinch/double-tap-zoom is enabled for this reel.
+                showHeartBurst(h);
+                if (listener != null) listener.onDoubleTapLike(position);
+
+                if (!allowDTap) return true;
                 cancelKenBurns(h);
                 float target = zoomScaleArr[position] > 1.2f ? 1f : DEFAULT_ZOOM_TARGET;
                 animateZoomTo(h, position, target);
@@ -1214,23 +1447,41 @@ public class ReelPhotoSlideshowAdapter
 
     public static class PhotoVH extends RecyclerView.ViewHolder {
         final ImageView   ivPhoto;
+        final ImageView   ivPhotoBlurBg;
+        final ImageView   ivPhotoPlaceholderBlur;
+        final ShimmerFrameLayout shimmer;
         final View        vEffectOverlay;
         final View        vColorFilterOverlay;
         final FrameLayout llStickerLayer;
         final View        viewZoomTouch;
+        final ImageView   ivHeartBurst;
+        final ViewGroup   llCaptionContainer;
         final TextView    tvCaption;
+        final TextView    tvCaptionExpandHint;
         final View        vCaptionGradient;
+        final PlayerView  playerMotionPhoto;
+        final TextView    tvLiveBadge;
         @Nullable ValueAnimator pulseAnimator;
+        @Nullable ExoPlayer motionPlayer;
+        @Nullable Runnable pendingMotionStart;
 
         PhotoVH(@NonNull View itemView) {
             super(itemView);
-            ivPhoto             = itemView.findViewById(R.id.iv_photo_slide);
+            ivPhoto                = itemView.findViewById(R.id.iv_photo_slide);
+            ivPhotoBlurBg          = itemView.findViewById(R.id.iv_photo_blur_bg);
+            ivPhotoPlaceholderBlur = itemView.findViewById(R.id.iv_photo_placeholder_blur);
+            shimmer                = itemView.findViewById(R.id.shimmer_photo_skeleton);
             vEffectOverlay      = itemView.findViewById(R.id.v_effect_overlay);
             vColorFilterOverlay = itemView.findViewById(R.id.v_color_filter_overlay);
             llStickerLayer      = itemView.findViewById(R.id.ll_sticker_layer);
             viewZoomTouch       = itemView.findViewById(R.id.view_zoom_touch);
+            ivHeartBurst        = itemView.findViewById(R.id.iv_heart_burst);
+            llCaptionContainer  = itemView.findViewById(R.id.ll_caption_container);
             tvCaption           = itemView.findViewById(R.id.tv_photo_caption);
+            tvCaptionExpandHint = itemView.findViewById(R.id.tv_caption_expand_hint);
             vCaptionGradient    = itemView.findViewById(R.id.v_caption_gradient);
+            playerMotionPhoto   = itemView.findViewById(R.id.player_motion_photo);
+            tvLiveBadge         = itemView.findViewById(R.id.tv_live_badge);
         }
     }
 
