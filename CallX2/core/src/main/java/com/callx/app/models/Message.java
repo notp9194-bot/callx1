@@ -1,5 +1,7 @@
 package com.callx.app.models;
 
+import com.google.firebase.database.IgnoreExtraProperties;
+
 import java.util.Map;
 import java.util.Objects;
 
@@ -8,7 +10,20 @@ import java.util.Objects;
  *
  * Fields added for new features are clearly annotated.
  * Firebase serialisation uses default no-arg constructor + public fields.
+ *
+ * BUG FIX: StatusSeenTracker#doWriteSeenBubble() writes an extra "seen" key
+ * into the "messages/{chatId}/{id}" node that has no matching field here.
+ * Without @IgnoreExtraProperties, Firebase's snapshot.getValue(Message.class)
+ * THROWS a DatabaseException on any unknown key instead of skipping it — and
+ * that throw is unhandled at every call site (ChatActivity's realtime
+ * ChildEventListener, ChatRepository's delta sync). Net effect: the "seen
+ * your status" bubble gets written to Firebase fine, but silently fails to
+ * deserialize into a Message object, so it never reaches Room / the chat UI.
+ * Every other model class in this codebase (ReelModel, StatusItem,
+ * ReelComment, etc.) already carries this annotation — Message.java was the
+ * one gap.
  */
+@IgnoreExtraProperties
 public class Message {
 
     // ── Core ──────────────────────────────────────────────
