@@ -84,8 +84,8 @@ import com.callx.app.chat.ui.MessageHighlightAnimator;
  *   + Typing indicator, online member count, voice/media messages
  */
 public class GroupChatActivity extends AppCompatActivity
-        implements com.callx.app.conversation.info.MessageInfoBottomSheet.HostRecyclerPauseListener {
-        implements GroupWatchingController.Delegate, GroupStarredController.Delegate {
+        implements GroupWatchingController.Delegate, GroupStarredController.Delegate,
+        com.callx.app.conversation.info.MessageInfoBottomSheet.HostRecyclerPauseListener {
 
     private static final String TAG           = "GroupChatActivity";
     private static final int    PAGE_SIZE     = 20;
