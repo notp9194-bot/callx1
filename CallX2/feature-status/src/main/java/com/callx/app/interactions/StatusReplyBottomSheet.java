@@ -150,7 +150,7 @@ public class StatusReplyBottomSheet {
         });
         sheet.show();
     }
-    private static String getPreviewText(StatusItem item) {
+    public static String getPreviewText(StatusItem item) {
         if (item == null) return "Status";
         if ("image".equals(item.type))  return "📷 Photo status";
         if ("video".equals(item.type))  return "🎥 Video status";
@@ -182,7 +182,16 @@ public class StatusReplyBottomSheet {
         else if ("image".equals(item.type) && item.mediaUrl != null)
             msg.put("replyToMediaUrl", item.mediaUrl);
         FirebaseUtils.db()
-            .getReference("chats").child(chatId).child("messages").child(msgId)
+            // BUG FIX: was writing to "chats/{chatId}/messages/{msgId}", but
+            // ChatRepository (and every other send path in the app) reads/
+            // listens on "messages/{chatId}/{msgId}" — a completely
+            // different node. That mismatch meant a status reply silently
+            // vanished into a path nobody ever read: it never appeared in
+            // the sender's own chat thread, and — more importantly — the
+            // status owner never saw it either. Writing to the correct
+            // node is what actually makes it show up like a normal WhatsApp
+            // reply-to-status chat bubble on both ends.
+            .getReference("messages").child(chatId).child(msgId)
             .setValue(msg)
             .addOnSuccessListener(u ->
                 FirebaseUtils.db().getReference("users").child(myUid)

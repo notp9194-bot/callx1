@@ -10,6 +10,7 @@ package com.callx.app.viewer;
   import android.view.animation.*;
   import android.widget.*;
   import androidx.annotation.NonNull;
+  import androidx.annotation.Nullable;
   import androidx.annotation.OptIn;
   import androidx.appcompat.app.AlertDialog;
   import androidx.appcompat.app.AppCompatActivity;
@@ -434,6 +435,12 @@ package com.callx.app.viewer;
               StatusReactionBottomSheet.show(this, current, myUid, (emoji, removed) -> {
                   if (removed) { if (current.reactions != null) current.reactions.remove(myUid); }
                   else { if (current.reactions == null) current.reactions = new HashMap<>(); current.reactions.put(myUid, emoji); }
+                  // WhatsApp-style: an emoji reaction to a status previously
+                  // only wrote to statuses/{ownerUid}/{id}/reactions — never
+                  // touched the 1:1 chat at all, so neither side ever saw
+                  // "Reacted 😂 to your status" show up as a chat bubble.
+                  // Only fire on an actual new reaction, not on toggle-off.
+                  if (!removed) sendReactionToChat(current, emoji);
                   updateSeenByInfo(current);
                   resumeProgress();
               });
@@ -457,7 +464,8 @@ package com.callx.app.viewer;
                       ? binding.etReply.getText().toString().trim() : "";
               if (TextUtils.isEmpty(msg)) return;
               if (myUid == null || ownerUid == null) return;
-              sendReplyToChat(ownerUid, msg);
+              StatusItem current = idx < items.size() ? items.get(idx) : null;
+              sendReplyToChat(ownerUid, msg, current);
               binding.etReply.setText(""); binding.etReply.clearFocus();
               resumeProgress();
               Toast.makeText(this, "Reply sent", Toast.LENGTH_SHORT).show();
@@ -635,13 +643,66 @@ package com.callx.app.viewer;
               default:            tv.setTypeface(null, android.graphics.Typeface.NORMAL);
           }
       }
-      private void sendReplyToChat(String toUid, String msg) {
+      private void sendReplyToChat(String toUid, String msg, @Nullable StatusItem repliedStatus) {
           String chatId = FirebaseUtils.getChatId(myUid, toUid);
-          FirebaseUtils.getMessagesRef(chatId)
-              .push().setValue(new java.util.HashMap<String, Object>() {{
-                  put("sender", myUid); put("text", msg);
-                  put("timestamp", System.currentTimeMillis()); put("type", "text");
-              }});
+          String msgId = FirebaseUtils.getMessagesRef(chatId).push().getKey();
+          if (msgId == null) return;
+          Map<String, Object> data = new HashMap<>();
+          data.put("id",        msgId);
+          // BUG FIX: this used to write key "sender" instead of "senderId".
+          // Message.java's Firebase POJO mapping only knows "senderId", so
+          // the old key silently deserialized to null on every device that
+          // read this message back — breaking sent/received attribution
+          // for the quick inline reply (the full StatusReplyBottomSheet
+          // path already used the right key).
+          data.put("senderId",  myUid);
+          data.put("text",      msg);
+          data.put("type",      "text");
+          data.put("timestamp", ServerValue.TIMESTAMP);
+          data.put("seen",      false);
+          // Quoted "replying to status" box — same fields the full
+          // StatusReplyBottomSheet sets, so the quick inline reply shows
+          // the same WhatsApp-style quote box instead of a bare text bubble.
+          if (repliedStatus != null) {
+              data.put("replyToType",       repliedStatus.type != null ? repliedStatus.type : "text");
+              data.put("replyToText",       StatusReplyBottomSheet.getPreviewText(repliedStatus));
+              data.put("replyToSenderName", ownerName != null ? ownerName : "Status");
+              data.put("replyToId",         "status_" + (repliedStatus.id != null ? repliedStatus.id : "unknown"));
+              String thumb = repliedStatus.thumbnailUrl != null ? repliedStatus.thumbnailUrl
+                      : ("image".equals(repliedStatus.type) ? repliedStatus.mediaUrl : null);
+              if (thumb != null) data.put("replyToMediaUrl", thumb);
+          }
+          FirebaseUtils.getMessagesRef(chatId).child(msgId).setValue(data);
+      }
+
+      /**
+       * WhatsApp-style "Reacted 😂 to your status" chat bubble. Sent as a
+       * normal text message (text = emoji) carrying the same replyTo*
+       * quoted-status fields a status reply uses, so it renders through the
+       * existing reply-quote-box + reaction-badge bubble UI and the
+       * status_-prefixed tap-to-reopen-status handling — no new bubble
+       * type needed.
+       */
+      private void sendReactionToChat(StatusItem reactedStatus, String emoji) {
+          if (myUid == null || ownerUid == null || reactedStatus == null) return;
+          String chatId = FirebaseUtils.getChatId(myUid, ownerUid);
+          String msgId = FirebaseUtils.getMessagesRef(chatId).push().getKey();
+          if (msgId == null) return;
+          Map<String, Object> data = new HashMap<>();
+          data.put("id",                  msgId);
+          data.put("senderId",            myUid);
+          data.put("text",                emoji);
+          data.put("type",                "text");
+          data.put("timestamp",           ServerValue.TIMESTAMP);
+          data.put("seen",                false);
+          data.put("replyToType",         reactedStatus.type != null ? reactedStatus.type : "text");
+          data.put("replyToText",         StatusReplyBottomSheet.getPreviewText(reactedStatus));
+          data.put("replyToSenderName",   ownerName != null ? ownerName : "Status");
+          data.put("replyToId",           "status_" + (reactedStatus.id != null ? reactedStatus.id : "unknown"));
+          String thumb = reactedStatus.thumbnailUrl != null ? reactedStatus.thumbnailUrl
+                  : ("image".equals(reactedStatus.type) ? reactedStatus.mediaUrl : null);
+          if (thumb != null) data.put("replyToMediaUrl", thumb);
+          FirebaseUtils.getMessagesRef(chatId).child(msgId).setValue(data);
       }
       private int dpToPx(int dp) {
           return Math.round(dp * getResources().getDisplayMetrics().density);
