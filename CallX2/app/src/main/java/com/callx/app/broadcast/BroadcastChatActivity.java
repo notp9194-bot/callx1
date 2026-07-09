@@ -1,6 +1,5 @@
 package com.callx.app.broadcast;
 
-import android.content.SharedPreferences;
 import android.net.Uri;
 import android.os.Bundle;
 import android.text.Editable;
@@ -62,18 +61,6 @@ import java.util.Map;
 public class BroadcastChatActivity extends AppCompatActivity {
 
     private static final int MAX_SEEN_LISTENERS = 20; // bound resource usage
-
-    // ─────────────────────────────────────────────────────────────────────
-    // WHATSAPP-STYLE SCROLL STATE — same approach as ChatActivity /
-    // GroupChatActivity: save the exact item + pixel offset the user left
-    // from, and land back on it next time this broadcast thread is opened.
-    // Only the very first data load after opening restores the saved spot;
-    // later real-time updates (msgListener fires again) auto-scroll to the
-    // bottom only if the user was already sitting at the bottom.
-    // ─────────────────────────────────────────────────────────────────────
-    private static final String SCROLL_PREFS = "broadcast_scroll_prefs_v1";
-    private boolean hasRestoredScroll = false;
-    private boolean isUserAtBottom    = true;
 
     private RecyclerView         rvMessages;
     private EditText             etMessage;
@@ -141,18 +128,6 @@ public class BroadcastChatActivity extends AppCompatActivity {
         rvMessages.setLayoutManager(new LinearLayoutManager(this));
         adapter = new BroadcastMsgAdapter(messages, this::onMessageTapped);
         rvMessages.setAdapter(adapter);
-
-        // Track whether the user is at the bottom, so later real-time
-        // updates only auto-scroll down when that's where they already are
-        // (WhatsApp doesn't yank you to the bottom while you're reading up).
-        rvMessages.addOnScrollListener(new RecyclerView.OnScrollListener() {
-            @Override public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
-                LinearLayoutManager lm = (LinearLayoutManager) rv.getLayoutManager();
-                if (lm == null) return;
-                int lastVisible = lm.findLastVisibleItemPosition();
-                isUserAtBottom = lastVisible >= adapter.getItemCount() - 1;
-            }
-        });
 
         // Path: broadcast_messages/{ownerUid}/{listId} — owner-scoped so Firebase
         // security rules can enforce auth.uid === ownerUid without ambiguity.
@@ -232,21 +207,8 @@ public class BroadcastChatActivity extends AppCompatActivity {
                     }
                 }
                 adapter.notifyDataSetChanged();
-
-                if (!messages.isEmpty()) {
-                    if (!hasRestoredScroll) {
-                        // First data load since this screen opened — land back
-                        // on the exact spot the user left from (or the bottom,
-                        // if this thread has never been opened before).
-                        hasRestoredScroll = true;
-                        restoreScrollOrGoToBottom();
-                    } else if (isUserAtBottom) {
-                        // Real-time update while screen is open: only follow
-                        // new messages down if the user was already at the
-                        // bottom, same as WhatsApp.
-                        rvMessages.scrollToPosition(messages.size() - 1);
-                    }
-                }
+                if (!messages.isEmpty())
+                    rvMessages.scrollToPosition(messages.size() - 1);
 
                 attachSeenTracking();
             }
@@ -496,64 +458,6 @@ public class BroadcastChatActivity extends AppCompatActivity {
                 .setMessage(sb.toString())
                 .setPositiveButton("OK", null)
                 .show();
-    }
-
-    // ─────────────────────────────────────────────────────────────────────
-    // WHATSAPP-STYLE SCROLL STATE MANAGEMENT
-    // ─────────────────────────────────────────────────────────────────────
-
-    /**
-     * Saves the current first-visible item + its pixel offset to
-     * SharedPreferences, keyed by listId. Called from onPause() so it
-     * persists across back-press / home / navigating to another screen.
-     */
-    private void saveScrollState() {
-        if (rvMessages == null || listId == null || adapter == null) return;
-        LinearLayoutManager llm = (LinearLayoutManager) rvMessages.getLayoutManager();
-        if (llm == null) return;
-        int firstPos = llm.findFirstVisibleItemPosition();
-        if (firstPos < 0) return;
-        View firstView = llm.findViewByPosition(firstPos);
-        int offset = (firstView != null) ? firstView.getTop() : 0;
-        getSharedPreferences(SCROLL_PREFS, MODE_PRIVATE).edit()
-                .putInt("pos_" + listId, firstPos)
-                .putInt("off_" + listId, offset)
-                .apply();
-    }
-
-    /**
-     * Chat-open scroll behaviour, WhatsApp-style: if this broadcast thread
-     * was opened before, land back on the exact message + pixel offset the
-     * user left from; otherwise (first-ever open) fall back to the bottom.
-     * Position is clamped to the current message count in case messages
-     * changed while the user was away.
-     */
-    private void restoreScrollOrGoToBottom() {
-        if (rvMessages == null || messages.isEmpty()) return;
-        LinearLayoutManager llm = (LinearLayoutManager) rvMessages.getLayoutManager();
-        if (llm == null) return;
-
-        int savedPos = -1, savedOffset = 0;
-        if (listId != null) {
-            SharedPreferences prefs = getSharedPreferences(SCROLL_PREFS, MODE_PRIVATE);
-            savedPos = prefs.getInt("pos_" + listId, -1);
-            savedOffset = prefs.getInt("off_" + listId, 0);
-        }
-
-        if (savedPos < 0) {
-            rvMessages.scrollToPosition(messages.size() - 1);
-            isUserAtBottom = true;
-            return;
-        }
-
-        int clampedPos = Math.min(savedPos, messages.size() - 1);
-        llm.scrollToPositionWithOffset(clampedPos, savedOffset);
-        isUserAtBottom = (clampedPos >= messages.size() - 1);
-    }
-
-    @Override protected void onPause() {
-        super.onPause();
-        saveScrollState();
     }
 
     @Override protected void onDestroy() {

@@ -2066,18 +2066,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     private void observePagedMessages() {
         pagingMediator = new MediatorLiveData<>();
         pagingMediator.observe(this, pagingData -> pagingAdapter.submitData(getLifecycle(), pagingData));
-        // WhatsApp-style scroll restore: if a scroll position was saved for
-        // this chat (saveScrollState(), see below), seed the very first
-        // Pager load anchored on that message instead of always the tail —
-        // otherwise the initial page never contains it and
-        // restoreScrollOrGoToUnread() has nothing to scroll to but the
-        // bottom. See MessageKeysetPagingSource's anchored-REFRESH branch.
-        long savedAnchorTs = getSavedAnchorTimestampOrZero();
-        if (savedAnchorTs > 0) {
-            attachPagerWithKey(savedAnchorTs);
-        } else {
-            attachFreshBottomAnchoredPager();
-        }
+        attachFreshBottomAnchoredPager();
     }
 
     /**
@@ -2397,30 +2386,17 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // ─────────────────────────────────────────────────────────────────────
     // WHATSAPP-STYLE SCROLL STATE MANAGEMENT
     // ─────────────────────────────────────────────────────────────────────
-    //
-    // ROOT-CAUSE FIX: saving/restoring an adapter *index* doesn't work with
-    // Paging3 keyset pagination, because the very first page this screen
-    // ever loads only ever contains the newest ~INITIAL_LOAD messages (see
-    // MessageKeysetPagingSource — REFRESH used to ignore its key entirely).
-    // If the user had scrolled far up into older history, that saved index
-    // pointed past everything actually loaded, so restoreScrollOrGoToUnread()
-    // clamped it back to the last loaded item — i.e. the bottom. Fixed by
-    // anchoring on the message's stable id + timestamp instead of a
-    // position, and having observePagedMessages() build the initial Pager
-    // centered on that anchor (via MessageKeysetPagingSource's anchored-
-    // REFRESH support) instead of always the tail.
 
     /**
-     * Saves the id + timestamp of the current first-visible message, plus
-     * its pixel offset, to SharedPreferences. Called from onPause() so it
-     * persists across screen closes (back-press, home, other navigations).
+     * Saves the current scroll position and the last-seen message timestamp
+     * to SharedPreferences. Called from onPause() so it persists across
+     * screen closes (back-press, home, other screen navigations).
      *
      * Saved data:
-     *   "anchorId_<chatId>" — id of the first-visible message
-     *   "anchorTs_<chatId>" — its timestamp (used to seed the next open's Pager)
-     *   "off_<chatId>"      — pixel offset of that item's top edge
-     *   "lastTs_<chatId>"   — timestamp of the last message in the adapter
-     *                          (used to detect new messages on re-open)
+     *   "pos_<chatId>"    — first visible item index
+     *   "off_<chatId>"    — pixel offset of that item's top edge
+     *   "lastTs_<chatId>" — timestamp of the last message in the adapter
+     *                        (used to detect new messages on re-open)
      */
     private void saveScrollState() {
         if (binding == null || chatId == null || pagingAdapter == null) return;
@@ -2430,109 +2406,45 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         if (firstPos < 0) return;
         android.view.View firstView = llm.findViewByPosition(firstPos);
         int offset = (firstView != null) ? firstView.getTop() : 0;
-
-        Message firstMsg = pagingAdapter.peek(firstPos);
-        // Date separators are synthetic rows with no real timestamp to
-        // anchor on — walk forward to the nearest real message instead.
-        int total = pagingAdapter.getItemCount();
-        int probe = firstPos;
-        while (firstMsg != null && "date_separator".equals(firstMsg.type) && probe + 1 < total) {
-            probe++;
-            firstMsg = pagingAdapter.peek(probe);
-        }
-
         // Last message timestamp — used to detect messages that arrived
         // while we were away from this chat.
         long lastMsgTs = 0;
+        int total = pagingAdapter.getItemCount();
         if (total > 0) {
             Message last = pagingAdapter.peek(total - 1);
             if (last != null && last.timestamp != null) lastMsgTs = last.timestamp;
         }
-
-        android.content.SharedPreferences.Editor editor =
-                getSharedPreferences(SCROLL_PREFS, MODE_PRIVATE).edit()
-                        .putInt("off_" + chatId, offset)
-                        .putLong("lastTs_" + chatId, lastMsgTs);
-
-        if (firstMsg != null && firstMsg.timestamp != null) {
-            String anchorId = firstMsg.id != null ? firstMsg.id : firstMsg.messageId;
-            editor.putString("anchorId_" + chatId, anchorId)
-                  .putLong("anchorTs_" + chatId, firstMsg.timestamp);
-        }
-        editor.apply();
+        getSharedPreferences(SCROLL_PREFS, MODE_PRIVATE).edit()
+                .putInt("pos_" + chatId, firstPos)
+                .putInt("off_" + chatId, offset)
+                .putLong("lastTs_" + chatId, lastMsgTs)
+                .apply();
     }
 
     /**
-     * Whether a saved scroll anchor exists for this chat — checked at
-     * chat-open time (before the Pager is built) so observePagedMessages()
-     * knows whether to seed the initial load anchored on that saved message
-     * (WhatsApp-style "go back to where I left off") or bottom-anchored as
-     * usual (first-ever open, or nothing saved).
-     */
-    private long getSavedAnchorTimestampOrZero() {
-        if (chatId == null) return 0L;
-        return getSharedPreferences(SCROLL_PREFS, MODE_PRIVATE)
-                .getLong("anchorTs_" + chatId, 0L);
-    }
-
-    /**
-     * Chat-open scroll behaviour, WhatsApp-style: if the user has been in
-     * this chat before, land back on the exact message + pixel offset they
-     * left from (saved by {@link #saveScrollState()}). The Pager itself was
-     * already built anchored on that saved message (see observePagedMessages()),
-     * so the loaded page is guaranteed to contain it — this just has to find
-     * its position in the adapter and scroll there. Falls back to the bottom
-     * (which stackFromEnd(true) already anchors on its own, with zero scroll
-     * calls) when there's nothing saved for this chatId yet, or the saved
-     * message no longer exists (e.g. it was deleted while we were away).
+     * Chat-open scroll behaviour: land on the latest (bottom) message with
+     * ZERO programmatic scroll calls of any kind — no scrollToPosition(),
+     * no scrollToPositionWithOffset(), no smoothScroll. We rely entirely on
+     * LinearLayoutManager's stackFromEnd(true) (set in setupPagingRecyclerView),
+     * which anchors its FIRST layout pass at the last adapter item natively —
+     * the bottom message is simply where the view starts, not where it
+     * "scrolls to". Calling scrollToPosition() here — even though it's a
+     * non-animated jump — was occasionally visible as a one-frame snap when
+     * a second insert (warm-cache → real Room data reconciliation, or a
+     * Paging prefetch batch) landed between the layout pass and this post()
+     * callback running, since "total-1" could already be stale by then.
+     * Removing the call entirely eliminates that class of bug at the root:
+     * there is no longer any code path on chat-open that can move the list.
      */
     private void restoreScrollOrGoToUnread() {
         if (pagingAdapter == null || binding == null) return;
-        int total = pagingAdapter.getItemCount();
-        if (total == 0) return;
+        if (pagingAdapter.getItemCount() == 0) return;
 
+        // No scroll call. stackFromEnd already placed the bottom message
+        // in view on first layout. We only reset the indicator/state here.
         pendingNewMsgCount = 0;
         hideNewMessagesIndicator();
-
-        String anchorId = null;
-        int savedOffset = 0;
-        if (chatId != null) {
-            android.content.SharedPreferences prefs = getSharedPreferences(SCROLL_PREFS, MODE_PRIVATE);
-            anchorId = prefs.getString("anchorId_" + chatId, null);
-            savedOffset = prefs.getInt("off_" + chatId, 0);
-        }
-
-        if (anchorId == null) {
-            // First-ever open of this chat — nothing to restore. stackFromEnd
-            // already placed the bottom message in view; no scroll call needed.
-            isUserAtBottom = true;
-            return;
-        }
-
-        // Find the saved message in whatever the anchored Pager actually
-        // loaded. It's normally right there since the Pager was seeded with
-        // this exact anchor, but fall back gracefully if it was deleted.
-        int targetPos = -1;
-        for (int i = 0; i < total; i++) {
-            Message m = pagingAdapter.peek(i);
-            if (m != null && anchorId.equals(m.id != null ? m.id : m.messageId)) {
-                targetPos = i;
-                break;
-            }
-        }
-
-        LinearLayoutManager llm = (LinearLayoutManager) binding.rvMessages.getLayoutManager();
-        if (llm == null) { isUserAtBottom = true; return; }
-
-        if (targetPos < 0) {
-            // Anchor message is gone (deleted) or the anchored load somehow
-            // missed it — safest fallback is the bottom, same as a fresh open.
-            isUserAtBottom = true;
-            return;
-        }
-
-        llm.scrollToPositionWithOffset(targetPos, savedOffset);
-        isUserAtBottom = (targetPos >= total - 1);
+        isUserAtBottom = true;
     }
 
     /**
@@ -3773,6 +3685,32 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
 
     private void navigateToOriginalMsg(String messageId) {
         if (messageId == null || messageId.isEmpty()) return;
+        // WhatsApp-style: a reply-to-status quote box is not a real chat
+        // message (StatusReplyBottomSheet.sendReply stamps replyToId as
+        // "status_" + statusId), so searching for it in pagingAdapter/DB
+        // like a normal reply always missed and surfaced a confusing
+        // "Original message not found" toast. Tapping that quote box
+        // should instead open the status itself (same ACTION_OPEN_STATUS
+        // deep-link the status_seen bubble uses) — the chat partner is
+        // always the status owner, since StatusReplyBottomSheet always
+        // sends the reply into the myUid_ownerUid 1:1 chat.
+        if (messageId.startsWith("status_")) {
+            if (partnerUid == null || partnerUid.isEmpty()) {
+                Toast.makeText(this, "This status is no longer available", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            android.content.Intent intent = new android.content.Intent(
+                    com.callx.app.utils.Constants.ACTION_OPEN_STATUS);
+            intent.putExtra("ownerUid", partnerUid);
+            intent.putExtra("ownerName", partnerName != null ? partnerName : "");
+            intent.setPackage(getPackageName());
+            try {
+                startActivity(intent);
+            } catch (android.content.ActivityNotFoundException e) {
+                Toast.makeText(this, "Status viewer not available", Toast.LENGTH_SHORT).show();
+            }
+            return;
+        }
         int pos = -1;
         for (int i = 0; i < pagingAdapter.getItemCount(); i++) {
             Message m = pagingAdapter.peek(i);

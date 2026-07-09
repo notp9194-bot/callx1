@@ -142,7 +142,15 @@ package com.callx.app.viewer;
                           if (s.expiresAt != null && s.expiresAt < now) continue;
                           items.add(s);
                       }
-                      if (items.isEmpty()) { finish(); return; }
+                      if (items.isEmpty()) {
+                          // WhatsApp-style: reached here via a "replied to
+                          // status" quote-box tap (or a stale status link)
+                          // after the status already expired/was deleted —
+                          // tell the user why instead of silently closing.
+                          Toast.makeText(StatusViewerActivity.this,
+                                  "This status is no longer available", Toast.LENGTH_SHORT).show();
+                          finish(); return;
+                      }
                       items.sort((a, b) -> Long.compare(
                               a.timestamp == null ? 0 : a.timestamp,
                               b.timestamp == null ? 0 : b.timestamp));

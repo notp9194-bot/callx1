@@ -36,14 +36,9 @@ import io.reactivex.rxjava3.schedulers.Schedulers;
  * Signal-style chat apps use for this exact reason.
  *
  * Key = timestamp of the item just past whichever end of the loaded window
- * that page's request extends from. REFRESH normally ignores the key and
- * loads the most recent PAGE_SIZE messages — the default "open chat" case,
- * always bottom-anchored, same as WhatsApp/Telegram/Signal. The one
- * exception: when the caller supplies an explicit REFRESH key (see
- * {@code anchorKey} below), it's treated as an ANCHORED open — used by
- * ChatActivity's WhatsApp-style scroll restore to reopen a chat centered on
- * the exact message the user was reading when they left, instead of always
- * snapping back to the bottom.
+ * that page's request extends from. REFRESH ignores the key entirely and
+ * always loads the most recent PAGE_SIZE messages — that's the only
+ * "initial load" this app ever performs (chats always open bottom-anchored).
  */
 public class MessageKeysetPagingSource extends RxPagingSource<Long, MessageEntity> {
 
@@ -84,40 +79,9 @@ public class MessageKeysetPagingSource extends RxPagingSource<Long, MessageEntit
                 if (asc.size() < pageSize) nextKey = null;
                 prevKey = after;
 
-            } else if (params.getKey() != null) {
-                // ANCHORED REFRESH — scroll-restore reopening this chat
-                // centered on a specific saved message timestamp. Split the
-                // window roughly in half: older messages strictly before the
-                // anchor, plus the anchor itself and newer messages after it,
-                // then stitch them into one ASC page — same shape as a normal
-                // page, so the rest of the Paging3 pipeline doesn't need to
-                // know this REFRESH was special.
-                long anchor = params.getKey();
-                int half = Math.max(1, pageSize / 2);
-                List<MessageEntity> olderDesc = dao.getMessagesBeforeDesc(chatId, anchor, half);
-                List<MessageEntity> older = new ArrayList<>(olderDesc);
-                Collections.reverse(older); // DESC → ASC
-
-                // Remaining budget goes to the anchor-forward half so a short
-                // "older" side (anchor near the very start of history) still
-                // fills out the page instead of returning a half-empty one.
-                int forwardLimit = pageSize - older.size();
-                List<MessageEntity> atOrAfter =
-                        dao.getMessagesAtOrAfterAsc(chatId, anchor, forwardLimit);
-
-                page = new ArrayList<>(older.size() + atOrAfter.size());
-                page.addAll(older);
-                page.addAll(atOrAfter);
-
-                prevKey = older.isEmpty() ? null : older.get(0).timestamp;
-                if (olderDesc.size() < half) prevKey = null; // reached true start of history
-                nextKey = atOrAfter.isEmpty() ? null : atOrAfter.get(atOrAfter.size() - 1).timestamp;
-                if (atOrAfter.size() < forwardLimit) nextKey = null; // reached the tail
-
             } else {
-                // Plain REFRESH — always the most recent page; this is the
-                // default "open chat" case (first-ever open, or scroll-
-                // restore found nothing saved for this chat).
+                // REFRESH — always the most recent page; this app never
+                // opens a chat scrolled to anywhere but the bottom.
                 List<MessageEntity> desc = dao.getMessagesLatestDesc(chatId, pageSize);
                 page = new ArrayList<>(desc);
                 Collections.reverse(page); // DESC → ASC for display order
