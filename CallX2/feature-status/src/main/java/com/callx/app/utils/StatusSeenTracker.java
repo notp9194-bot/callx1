@@ -116,49 +116,76 @@ public final class StatusSeenTracker {
             });
     }
     // ── Internal: chat bubble ─────────────────────────────────────────────
+    /**
+     * BUG FIX: the old dedup check only looked at the CHAT'S LAST MESSAGE
+     * (orderByChild("timestamp").limitToLast(1)) to decide whether a
+     * "seen your status" bubble was already shown within the last 24h.
+     * That broke in two common ways:
+     *   1. If ANY other message landed in the chat afterward (a reply, a
+     *      status_reaction bubble, literally anything), the last message
+     *      was no longer the status_seen bubble, so the check missed it
+     *      and wrote a fresh duplicate bubble — this is exactly what
+     *      happened when re-viewing the same status repeatedly, since
+     *      each view can itself interleave other writes.
+     *   2. Re-opening/rewinding the same status in quick succession raced
+     *      two independent "read last message, then decide to write"
+     *      calls against each other — neither read saw the other's
+     *      not-yet-committed write, so both proceeded to write a bubble.
+     * Fix: track "last bubble shown" on a dedicated gate node
+     * (statusSeenBubbleGate/{chatId}/{viewerUid}) instead of inferring it
+     * from chat history, and decide-and-claim it with a single atomic
+     * Firebase transaction. This is independent of whatever else is in
+     * the chat, and the transaction guarantees only one caller wins even
+     * if two views race at the same instant.
+     */
     private static void writeStatusSeenToChat(String viewerUid, String ownerUid,
                                                String ownerName, String statusThumbUrl) {
         String chatId = viewerUid.compareTo(ownerUid) < 0
                 ? viewerUid + "_" + ownerUid : ownerUid + "_" + viewerUid;
-        com.google.firebase.database.DatabaseReference messagesRef =
-                FirebaseUtils.db().getReference("messages").child(chatId);
-        messagesRef.orderByChild("timestamp").limitToLast(1)
-            .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
-                @Override
-                public void onDataChange(com.google.firebase.database.DataSnapshot snap) {
-                    long now = System.currentTimeMillis();
-                    for (com.google.firebase.database.DataSnapshot child : snap.getChildren()) {
-                        String lastType   = child.child("type").getValue(String.class);
-                        String lastSender = child.child("senderId").getValue(String.class);
-                        Long   lastTs     = child.child("timestamp").getValue(Long.class);
-                        if ("status_seen".equals(lastType) && viewerUid.equals(lastSender)
-                                && lastTs != null && (now - lastTs) < DEDUP_WINDOW_MS) return;
-                    }
-                    FirebaseUtils.db().getReference("users").child(viewerUid)
-                        .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
-                            @Override
-                            public void onDataChange(com.google.firebase.database.DataSnapshot u) {
-                                String vName  = u.child("name").getValue(String.class);
-                                String vPhoto = u.child("photoUrl").getValue(String.class);
-                                if (vPhoto == null) vPhoto = u.child("thumbUrl").getValue(String.class);
-                                doWriteSeenBubble(messagesRef, viewerUid,
-                                        vName  != null ? vName  : "Someone",
-                                        vPhoto != null ? vPhoto : "",
-                                        ownerUid, ownerName, statusThumbUrl);
-                            }
-                            @Override
-                            public void onCancelled(com.google.firebase.database.DatabaseError e) {
-                                doWriteSeenBubble(messagesRef, viewerUid, "Someone", "",
-                                        ownerUid, ownerName, statusThumbUrl);
-                            }
-                        });
+        final long now = System.currentTimeMillis();
+        com.google.firebase.database.DatabaseReference gateRef =
+                FirebaseUtils.db().getReference("statusSeenBubbleGate")
+                        .child(chatId).child(viewerUid);
+        gateRef.runTransaction(new com.google.firebase.database.Transaction.Handler() {
+            @Override
+            public com.google.firebase.database.Transaction.Result doTransaction(
+                    com.google.firebase.database.MutableData data) {
+                Long last = data.getValue(Long.class);
+                if (last != null && (now - last) < DEDUP_WINDOW_MS) {
+                    // Bubble already shown within the window — claim nothing,
+                    // abort so onComplete() knows not to write a bubble.
+                    return com.google.firebase.database.Transaction.abort();
                 }
-                @Override
-                public void onCancelled(com.google.firebase.database.DatabaseError e) {
-                    doWriteSeenBubble(messagesRef, viewerUid, "Someone", "",
-                            ownerUid, ownerName, statusThumbUrl);
-                }
-            });
+                data.setValue(now);
+                return com.google.firebase.database.Transaction.success(data);
+            }
+            @Override
+            public void onComplete(com.google.firebase.database.DatabaseError error,
+                                    boolean committed,
+                                    com.google.firebase.database.DataSnapshot snap) {
+                if (error != null || !committed) return; // deduped (or failed) — no bubble
+                com.google.firebase.database.DatabaseReference messagesRef =
+                        FirebaseUtils.db().getReference("messages").child(chatId);
+                FirebaseUtils.db().getReference("users").child(viewerUid)
+                    .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
+                        @Override
+                        public void onDataChange(com.google.firebase.database.DataSnapshot u) {
+                            String vName  = u.child("name").getValue(String.class);
+                            String vPhoto = u.child("photoUrl").getValue(String.class);
+                            if (vPhoto == null) vPhoto = u.child("thumbUrl").getValue(String.class);
+                            doWriteSeenBubble(messagesRef, viewerUid,
+                                    vName  != null ? vName  : "Someone",
+                                    vPhoto != null ? vPhoto : "",
+                                    ownerUid, ownerName, statusThumbUrl);
+                        }
+                        @Override
+                        public void onCancelled(com.google.firebase.database.DatabaseError e) {
+                            doWriteSeenBubble(messagesRef, viewerUid, "Someone", "",
+                                    ownerUid, ownerName, statusThumbUrl);
+                        }
+                    });
+            }
+        });
     }
     private static void doWriteSeenBubble(
             com.google.firebase.database.DatabaseReference ref,
