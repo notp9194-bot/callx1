@@ -80,6 +80,20 @@ public class MessageEntity {
     /** UID of the reel owner — the bubble renders ONLY for this user. */
     public String reelOwnerUid;
 
+    // ── Status Seen Bubble (type = "status_seen") ─────────────────────────
+    /** UID of the status owner — mirrors reelOwnerUid: the "Seen your
+     *  status" bubble renders ONLY for this user, never for the viewer
+     *  who watched the status. BUG FIX v76: this column was missing
+     *  entirely, so it never survived the Firebase → Room round-trip;
+     *  MessagePagingAdapter's owner-check silently fell back to
+     *  senderId (the viewer), which flipped the bubble onto the wrong
+     *  side — viewer saw it, owner didn't. */
+    public String statusOwnerUid;
+    /** Display name of the status owner — shown in the bubble. */
+    public String statusOwnerName;
+    /** Thumbnail URL of the viewed status — shown in the bubble. */
+    public String statusThumbUrl;
+
     // ── Reel Share Card (type = "reel_share") ─────────────────────────────
     public String reelShareUrl;
     public String reelShareThumb;

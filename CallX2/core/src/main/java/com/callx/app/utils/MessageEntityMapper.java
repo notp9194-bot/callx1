@@ -31,6 +31,8 @@ public final class MessageEntityMapper {
         m.editHistory = com.callx.app.utils.EditHistoryJsonUtil.historyFromJson(e.editHistoryJson);
         m.starred = e.starred; m.pinned = e.pinned; m.reelId = e.reelId;
         m.reelOwnerUid = e.reelOwnerUid;
+        m.statusOwnerUid = e.statusOwnerUid; m.statusOwnerName = e.statusOwnerName;
+        m.statusThumbUrl = e.statusThumbUrl;
         m.reactions = com.callx.app.utils.ReactionJsonUtil.reactionsFromJson(e.reactionsJson);
         m.reelThumbUrl = e.reelThumbUrl; m.fontStyle = e.fontStyle; m.expiresAt = e.expiresAt;
         m.viewOnce = e.viewOnce; m.viewOnceState = e.viewOnceState; m.openedAt = e.openedAt; m.viewOnceExpiresAt = e.viewOnceExpiresAt;

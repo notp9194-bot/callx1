@@ -2618,6 +2618,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         e.reactionsJson = com.callx.app.utils.ReactionJsonUtil.reactionsToJson(m.reactions);
         e.pinned = Boolean.TRUE.equals(m.pinned); e.reelId = m.reelId;
         e.reelOwnerUid = m.reelOwnerUid;
+        e.statusOwnerUid = m.statusOwnerUid; e.statusOwnerName = m.statusOwnerName;
+        e.statusThumbUrl = m.statusThumbUrl;
         e.reelThumbUrl = m.reelThumbUrl; e.fontStyle = m.fontStyle; e.expiresAt = m.expiresAt;
         e.viewOnce = m.viewOnce; e.viewOnceState = m.viewOnceState; e.openedAt = m.openedAt; e.viewOnceExpiresAt = m.viewOnceExpiresAt;
         e.pollQuestion    = m.pollQuestion;

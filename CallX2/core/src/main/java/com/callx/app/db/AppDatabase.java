@@ -69,7 +69,7 @@ import net.sqlcipher.database.SupportFactory;
         StatusEntity.class,    // v17: status cache
         ScheduledMessageEntity.class  // v28: scheduled chat messages
     },
-    version = 26,
+    version = 27,
     exportSchema = true
 )
 public abstract class AppDatabase extends RoomDatabase {
@@ -423,6 +423,21 @@ public abstract class AppDatabase extends RoomDatabase {
         }
     };
 
+    /** v26 → v27: BUG FIX — "Seen your status" bubble owner-only fix.
+     *  statusOwnerUid/statusOwnerName/statusThumbUrl were never persisted
+     *  in Room (unlike the equivalent reelOwnerUid/reelThumbUrl for
+     *  reel_seen), so on every cold read from cache the owner-check in
+     *  MessagePagingAdapter fell back to senderId (the viewer), flipping
+     *  the bubble to show on the viewer's side instead of the owner's. */
+    static final Migration MIGRATION_26_27 = new Migration(26, 27) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase db) {
+            db.execSQL("ALTER TABLE messages ADD COLUMN statusOwnerUid TEXT DEFAULT NULL");
+            db.execSQL("ALTER TABLE messages ADD COLUMN statusOwnerName TEXT DEFAULT NULL");
+            db.execSQL("ALTER TABLE messages ADD COLUMN statusThumbUrl TEXT DEFAULT NULL");
+        }
+    };
+
     static final Migration MIGRATION_23_24 = new Migration(23, 24) {
         @Override
         public void migrate(@NonNull SupportSQLiteDatabase db) {
@@ -539,7 +554,7 @@ public abstract class AppDatabase extends RoomDatabase {
 
         AppDatabase db = Room.databaseBuilder(ctx, AppDatabase.class, DB_NAME)
                 .openHelperFactory(factory)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26)  // v26: group tick receipts
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27)  // v27: status_seen owner-only fix
                 .fallbackToDestructiveMigration()
                 // NOTE: WAL mode removed — SQLCipher 4.5.4 + Room WAL combination
                 // causes silent open failures on some devices. The write-batching

@@ -252,6 +252,9 @@ public class ChatMessageSender {
         e.reelId              = m.reelId;
         e.reelThumbUrl        = m.reelThumbUrl;
         e.reelOwnerUid        = m.reelOwnerUid;
+        e.statusOwnerUid      = m.statusOwnerUid;
+        e.statusOwnerName     = m.statusOwnerName;
+        e.statusThumbUrl      = m.statusThumbUrl;
         e.reelShareUrl        = m.reelShareUrl;
         e.reelShareThumb      = m.reelShareThumb;
         e.reelShareCaption    = m.reelShareCaption;
