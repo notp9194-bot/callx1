@@ -150,6 +150,18 @@ public class StatusReplyBottomSheet {
         });
         sheet.show();
     }
+    /**
+     * Label shown in the quote box's sender-name slot for a status
+     * reply/reaction chat bubble. Deliberately different from how a normal
+     * quoted-message reply looks (which just shows the sender's bare name)
+     * so a glance at the chat makes clear this bubble refers to a status,
+     * not a reply to another chat message — matches the "you can tell at a
+     * glance" affordance WhatsApp's story-reply bubbles have.
+     */
+    public static String statusReplyLabel(String ownerName) {
+        if (ownerName == null || ownerName.isEmpty()) return "\uD83D\uDCF7 Status"; // 📷
+        return "\uD83D\uDCF7 " + ownerName + "'s Status"; // 📷
+    }
     public static String getPreviewText(StatusItem item) {
         if (item == null) return "Status";
         if ("image".equals(item.type))  return "📷 Photo status";
@@ -175,7 +187,7 @@ public class StatusReplyBottomSheet {
         msg.put("seen",                false);
         msg.put("replyToType",         item.type != null ? item.type : "text");
         msg.put("replyToText",         getPreviewText(item));
-        msg.put("replyToSenderName",   ownerName != null ? ownerName : "Status");
+        msg.put("replyToSenderName",   statusReplyLabel(ownerName));
         msg.put("replyToId",           "status_" + (item.id != null ? item.id : "unknown"));
         if (item.thumbnailUrl != null)
             msg.put("replyToMediaUrl", item.thumbnailUrl);

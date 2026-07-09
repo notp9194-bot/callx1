@@ -61,6 +61,12 @@ package com.callx.app.viewer;
   public class StatusViewerActivity extends AppCompatActivity {
       public static final String EXTRA_OWNER_UID  = "ownerUid";
       public static final String EXTRA_OWNER_NAME = "ownerName";
+      /** Optional — set by ChatActivity when opened from a reply/reaction
+       *  quote-box tap, so the viewer opens directly on the exact status
+       *  that was replied/reacted to (WhatsApp jumps to that specific
+       *  story, not just the owner's oldest active one). */
+      public static final String EXTRA_TARGET_STATUS_ID = "targetStatusId";
+      private String targetStatusId;
       private ActivityStatusViewerBinding binding;
       private final List<StatusItem> items         = new ArrayList<>();
       private final List<String>     seenInSession  = new ArrayList<>();
@@ -87,6 +93,7 @@ package com.callx.app.viewer;
               | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
           ownerUid  = getIntent().getStringExtra(EXTRA_OWNER_UID);
           ownerName = getIntent().getStringExtra(EXTRA_OWNER_NAME);
+          targetStatusId = getIntent().getStringExtra(EXTRA_TARGET_STATUS_ID);
           if (ownerUid == null) { finish(); return; }
           try { myUid = FirebaseUtils.getCurrentUid(); } catch (Exception e) { myUid = null; }
           setupSwipeDownGesture();
@@ -155,6 +162,24 @@ package com.callx.app.viewer;
                       items.sort((a, b) -> Long.compare(
                               a.timestamp == null ? 0 : a.timestamp,
                               b.timestamp == null ? 0 : b.timestamp));
+                      if (targetStatusId != null && !targetStatusId.isEmpty()) {
+                          int found = -1;
+                          for (int i = 0; i < items.size(); i++) {
+                              if (targetStatusId.equals(items.get(i).id)) { found = i; break; }
+                          }
+                          if (found >= 0) {
+                              idx = found;
+                          } else {
+                              // The specific status this reply/reaction pointed
+                              // at has since expired/been deleted, but the
+                              // owner still has other active statuses — let
+                              // the viewer open (at the first one) rather than
+                              // silently failing, but say why the exact one
+                              // isn't there.
+                              Toast.makeText(StatusViewerActivity.this,
+                                      "That status is no longer available", Toast.LENGTH_SHORT).show();
+                          }
+                      }
                       StatusItem first = items.get(0);
                       if (first.ownerPhoto != null && !first.ownerPhoto.isEmpty())
                           Glide.with(StatusViewerActivity.this).load(first.ownerPhoto)
@@ -666,7 +691,7 @@ package com.callx.app.viewer;
           if (repliedStatus != null) {
               data.put("replyToType",       repliedStatus.type != null ? repliedStatus.type : "text");
               data.put("replyToText",       StatusReplyBottomSheet.getPreviewText(repliedStatus));
-              data.put("replyToSenderName", ownerName != null ? ownerName : "Status");
+              data.put("replyToSenderName", StatusReplyBottomSheet.statusReplyLabel(ownerName));
               data.put("replyToId",         "status_" + (repliedStatus.id != null ? repliedStatus.id : "unknown"));
               String thumb = repliedStatus.thumbnailUrl != null ? repliedStatus.thumbnailUrl
                       : ("image".equals(repliedStatus.type) ? repliedStatus.mediaUrl : null);
@@ -697,7 +722,7 @@ package com.callx.app.viewer;
           data.put("seen",                false);
           data.put("replyToType",         reactedStatus.type != null ? reactedStatus.type : "text");
           data.put("replyToText",         StatusReplyBottomSheet.getPreviewText(reactedStatus));
-          data.put("replyToSenderName",   ownerName != null ? ownerName : "Status");
+          data.put("replyToSenderName",   StatusReplyBottomSheet.statusReplyLabel(ownerName));
           data.put("replyToId",           "status_" + (reactedStatus.id != null ? reactedStatus.id : "unknown"));
           String thumb = reactedStatus.thumbnailUrl != null ? reactedStatus.thumbnailUrl
                   : ("image".equals(reactedStatus.type) ? reactedStatus.mediaUrl : null);

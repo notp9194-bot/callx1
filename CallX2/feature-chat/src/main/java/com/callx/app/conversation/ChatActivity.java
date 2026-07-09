@@ -3699,10 +3699,12 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 Toast.makeText(this, "This status is no longer available", Toast.LENGTH_SHORT).show();
                 return;
             }
+            String targetStatusId = messageId.substring("status_".length());
             android.content.Intent intent = new android.content.Intent(
                     com.callx.app.utils.Constants.ACTION_OPEN_STATUS);
             intent.putExtra("ownerUid", partnerUid);
             intent.putExtra("ownerName", partnerName != null ? partnerName : "");
+            intent.putExtra("targetStatusId", targetStatusId);
             intent.setPackage(getPackageName());
             try {
                 startActivity(intent);
