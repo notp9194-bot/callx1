@@ -1913,7 +1913,8 @@ public class GroupChatActivity extends AppCompatActivity
             // per-member breakdown makes sense from a recipient's own view.
             data.incomingStatus = m.status != null ? m.status : "sent";
             com.callx.app.conversation.info.MessageInfoBridge.set(data);
-            startActivity(new Intent(this, com.callx.app.conversation.info.MessageInfoActivity.class));
+            com.callx.app.conversation.info.MessageInfoBottomSheet.newInstance()
+                    .show(getSupportFragmentManager(), com.callx.app.conversation.info.MessageInfoBottomSheet.TAG);
             return;
         }
 
@@ -1939,7 +1940,8 @@ public class GroupChatActivity extends AppCompatActivity
         }
 
         com.callx.app.conversation.info.MessageInfoBridge.set(data);
-        startActivity(new Intent(this, com.callx.app.conversation.info.MessageInfoActivity.class));
+        com.callx.app.conversation.info.MessageInfoBottomSheet.newInstance()
+                .show(getSupportFragmentManager(), com.callx.app.conversation.info.MessageInfoBottomSheet.TAG);
     }
 
     private void showMultiSelectBar(int count) {

@@ -3597,7 +3597,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         data.incomingStatus = m.status;
 
         com.callx.app.conversation.info.MessageInfoBridge.set(data);
-        startActivity(new Intent(this, com.callx.app.conversation.info.MessageInfoActivity.class));
+        com.callx.app.conversation.info.MessageInfoBottomSheet.newInstance()
+                .show(getSupportFragmentManager(), com.callx.app.conversation.info.MessageInfoBottomSheet.TAG);
     }
 
 

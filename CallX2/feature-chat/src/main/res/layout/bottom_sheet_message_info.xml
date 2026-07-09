@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@drawable/bg_bottom_sheet_round">
+
+    <!-- Drag handle -->
+    <View
+        android:layout_width="36dp"
+        android:layout_height="4dp"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="10dp"
+        android:layout_marginBottom="4dp"
+        android:background="@drawable/bg_drag_handle"/>
+
+    <!-- Title row -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="20dp"
+        android:paddingEnd="8dp"
+        android:paddingTop="4dp"
+        android:paddingBottom="8dp">
+
+        <TextView
+            android:id="@+id/tv_sheet_title"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Message info"
+            android:textColor="@color/text_primary"
+            android:textSize="17sp"
+            android:textStyle="bold"/>
+
+        <ImageView
+            android:id="@+id/iv_sheet_close"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:padding="8dp"
+            android:src="@drawable/ic_close"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Close"/>
+    </LinearLayout>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="@color/surface_input"/>
+
+    <!--
+         MaxHeightRecyclerView: wraps to content for short lists (1:1 info —
+         just preview + Seen/Delivered, 3 rows) so the sheet doesn't sit
+         taller than it needs to, but clamps at a max height (set in code as
+         a fraction of screen height) and scrolls internally for long ones
+         (a large group's "Read by" list) instead of pushing the sheet past
+         the screen edge.
+    -->
+    <com.callx.app.conversation.info.MaxHeightRecyclerView
+        android:id="@+id/rv_message_info"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:clipToPadding="false"
+        android:paddingBottom="12dp"
+        android:overScrollMode="ifContentScrolls"/>
+
+</LinearLayout>
