@@ -139,55 +139,224 @@
             </LinearLayout>
 
             <!-- ── Font style picker ── -->
-            <LinearLayout
+            <HorizontalScrollView
                 android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:scrollbars="none"
+                android:layout_marginBottom="10dp">
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_font_default"
+                        style="@style/Widget.Material3.Button.TonalButton"
+                        android:layout_width="72dp"
+                        android:layout_height="36dp"
+                        android:layout_marginEnd="4dp"
+                        android:text="Aa"
+                        android:textSize="13sp"/>
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_font_bold"
+                        style="@style/Widget.Material3.Button.TonalButton"
+                        android:layout_width="72dp"
+                        android:layout_height="36dp"
+                        android:layout_marginEnd="4dp"
+                        android:text="Aa"
+                        android:textStyle="bold"
+                        android:textSize="13sp"/>
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_font_italic"
+                        style="@style/Widget.Material3.Button.TonalButton"
+                        android:layout_width="72dp"
+                        android:layout_height="36dp"
+                        android:layout_marginEnd="4dp"
+                        android:text="Aa"
+                        android:textStyle="italic"
+                        android:textSize="13sp"/>
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_font_handwriting"
+                        style="@style/Widget.Material3.Button.TonalButton"
+                        android:layout_width="72dp"
+                        android:layout_height="36dp"
+                        android:layout_marginEnd="4dp"
+                        android:text="Aa"
+                        android:fontFamily="monospace"
+                        android:textSize="13sp"/>
+
+                    <com.google.android.material.button.MaterialButton
+                        android:tag="btn_font_condensed"
+                        style="@style/Widget.Material3.Button.TonalButton"
+                        android:layout_width="72dp"
+                        android:layout_height="36dp"
+                        android:layout_marginEnd="4dp"
+                        android:text="Aa"
+                        android:fontFamily="sans-serif-condensed"
+                        android:textSize="13sp"/>
+
+                    <com.google.android.material.button.MaterialButton
+                        android:tag="btn_font_serif"
+                        style="@style/Widget.Material3.Button.TonalButton"
+                        android:layout_width="72dp"
+                        android:layout_height="36dp"
+                        android:text="Aa"
+                        android:fontFamily="serif"
+                        android:textSize="13sp"/>
+
+                </LinearLayout>
+
+            </HorizontalScrollView>
+
+            <!-- ── Text alignment picker ── -->
+            <LinearLayout
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
                 android:layout_marginBottom="16dp">
 
                 <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btn_font_default"
-                    style="@style/Widget.Material3.Button.TonalButton"
-                    android:layout_width="0dp"
-                    android:layout_height="36dp"
-                    android:layout_weight="1"
-                    android:layout_marginEnd="4dp"
-                    android:text="Aa"
-                    android:textSize="13sp"/>
+                    android:tag="btn_align_left"
+                    style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:layout_marginEnd="8dp"
+                    app:icon="@drawable/ic_status_align_left"
+                    app:iconGravity="textStart"
+                    app:iconPadding="0dp"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp"
+                    android:contentDescription="Align left"/>
 
                 <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btn_font_bold"
-                    style="@style/Widget.Material3.Button.TonalButton"
-                    android:layout_width="0dp"
-                    android:layout_height="36dp"
-                    android:layout_weight="1"
-                    android:layout_marginEnd="4dp"
-                    android:text="Aa"
-                    android:textStyle="bold"
-                    android:textSize="13sp"/>
+                    android:tag="btn_align_center"
+                    style="@style/Widget.Material3.Button.IconButton.Filled"
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:layout_marginEnd="8dp"
+                    app:icon="@drawable/ic_status_align_center"
+                    app:iconGravity="textStart"
+                    app:iconPadding="0dp"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp"
+                    android:contentDescription="Align center"/>
 
                 <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btn_font_italic"
-                    style="@style/Widget.Material3.Button.TonalButton"
-                    android:layout_width="0dp"
-                    android:layout_height="36dp"
-                    android:layout_weight="1"
-                    android:layout_marginEnd="4dp"
-                    android:text="Aa"
-                    android:textStyle="italic"
-                    android:textSize="13sp"/>
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btn_font_handwriting"
-                    style="@style/Widget.Material3.Button.TonalButton"
-                    android:layout_width="0dp"
-                    android:layout_height="36dp"
-                    android:layout_weight="1"
-                    android:text="Aa"
-                    android:fontFamily="monospace"
-                    android:textSize="13sp"/>
+                    android:tag="btn_align_right"
+                    style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    app:icon="@drawable/ic_status_align_right"
+                    app:iconGravity="textStart"
+                    app:iconPadding="0dp"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp"
+                    android:contentDescription="Align right"/>
 
             </LinearLayout>
+
+            <!-- ── Link preview card (auto-shown when a URL is typed) ── -->
+            <com.google.android.material.card.MaterialCardView
+                android:tag="link_preview_card"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="16dp"
+                app:cardCornerRadius="14dp"
+                app:cardElevation="1dp"
+                android:visibility="gone">
+
+                <FrameLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content">
+
+                    <ProgressBar
+                        android:tag="link_preview_progress"
+                        style="?android:attr/progressBarStyleSmall"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="center"
+                        android:layout_margin="16dp"
+                        android:visibility="gone"/>
+
+                    <LinearLayout
+                        android:tag="link_preview_content"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:padding="10dp"
+                        android:visibility="gone">
+
+                        <ImageView
+                            android:tag="link_preview_image"
+                            android:layout_width="64dp"
+                            android:layout_height="64dp"
+                            android:scaleType="centerCrop"
+                            android:background="@drawable/card_rounded"
+                            android:layout_marginEnd="10dp"
+                            android:contentDescription="Link preview"/>
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:layout_gravity="center_vertical"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:tag="link_preview_title"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:textColor="@color/text_primary"
+                                android:textStyle="bold"
+                                android:textSize="14sp"
+                                android:maxLines="1"
+                                android:ellipsize="end"
+                                android:text="Title"/>
+
+                            <TextView
+                                android:tag="link_preview_desc"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:textColor="@color/text_secondary"
+                                android:textSize="12sp"
+                                android:maxLines="2"
+                                android:ellipsize="end"
+                                android:text="Description"/>
+
+                            <LinearLayout
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:orientation="horizontal"
+                                android:gravity="center_vertical"
+                                android:layout_marginTop="2dp">
+
+                                <ImageView
+                                    android:layout_width="12dp"
+                                    android:layout_height="12dp"
+                                    android:src="@drawable/ic_status_link"
+                                    android:layout_marginEnd="4dp"/>
+
+                                <TextView
+                                    android:tag="link_preview_domain"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:textColor="@color/text_secondary"
+                                    android:textSize="11sp"
+                                    android:text="domain.com"/>
+
+                            </LinearLayout>
+
+                        </LinearLayout>
+
+                    </LinearLayout>
+
+                </FrameLayout>
+
+            </com.google.android.material.card.MaterialCardView>
 
             <!-- ── Media buttons ── -->
             <com.google.android.material.button.MaterialButton
@@ -206,6 +375,16 @@
                 android:layout_height="52dp"
                 android:text="Add Video"
                 app:icon="@drawable/ic_video"
+                app:cornerRadius="14dp"
+                android:layout_marginBottom="10dp"/>
+
+            <com.google.android.material.button.MaterialButton
+                android:tag="btn_gif"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:text="Add GIF / Sticker"
+                app:icon="@drawable/ic_gif"
                 app:cornerRadius="14dp"
                 android:layout_marginBottom="16dp"/>
 
@@ -289,6 +468,44 @@
                 android:visibility="gone"
                 android:layout_marginBottom="8dp"
                 android:text="Uploading media…"/>
+
+            <!-- ── Expiry timer + Close friends (NEW) ── -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="12dp">
+
+                <com.google.android.material.button.MaterialButton
+                    android:tag="btn_expiry"
+                    style="@style/Widget.Material3.Button.TonalButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:text="⏱ 24 hours"
+                    app:cornerRadius="18dp"
+                    android:layout_marginEnd="12dp"/>
+
+                <ImageView
+                    android:layout_width="18dp"
+                    android:layout_height="18dp"
+                    android:src="@drawable/ic_status_star"
+                    android:layout_marginEnd="6dp"/>
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Close friends only"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="14sp"/>
+
+                <com.google.android.material.switchmaterial.SwitchMaterial
+                    android:tag="toggle_close_friends"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"/>
+
+            </LinearLayout>
 
             <!-- ── Privacy selector ── -->
             <LinearLayout
