@@ -71,4 +71,17 @@ public class MessageInfoRow {
         r.label = text;
         return r;
     }
+
+    /** Field-level equality used by MessageInfoAdapter's DiffUtil callback
+     *  to decide whether a row actually needs rebinding. */
+    public boolean contentEquals(MessageInfoRow o) {
+        if (o == null || type != o.type) return false;
+        return java.util.Objects.equals(previewLabel, o.previewLabel)
+                && java.util.Objects.equals(sentTimeLabel, o.sentTimeLabel)
+                && java.util.Objects.equals(label, o.label)
+                && java.util.Objects.equals(timeLabel, o.timeLabel)
+                && iconRes == o.iconRes
+                && dim == o.dim
+                && java.util.Objects.equals(photoUrl, o.photoUrl);
+    }
 }

@@ -131,7 +131,8 @@ import java.util.concurrent.Executors;
  *   Firebase RT DB ──ChildEventListener──► Room DB (auto-invalidates PagingSource)
  *   Pager<Long, MessageEntity> (keyset) ──LiveData──► PagingAdapter ──► RecyclerView
  */
-public class ChatActivity extends AppCompatActivity implements ChatActivityDelegate {
+public class ChatActivity extends AppCompatActivity implements ChatActivityDelegate,
+        com.callx.app.conversation.info.MessageInfoBottomSheet.HostRecyclerPauseListener {
 
     // ── Constants ──────────────────────────────────────────────────────────
     private static final String TAG           = "ChatActivity";
@@ -3599,6 +3600,20 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         com.callx.app.conversation.info.MessageInfoBridge.set(data);
         com.callx.app.conversation.info.MessageInfoBottomSheet.newInstance()
                 .show(getSupportFragmentManager(), com.callx.app.conversation.info.MessageInfoBottomSheet.TAG);
+    }
+
+    // ── MessageInfoBottomSheet.HostRecyclerPauseListener ────────────────────
+    // The sheet fully covers rvMessages while open — nothing the user does
+    // can scroll it — so pause its layout/scroll compute for that interval
+    // instead of having both RecyclerViews do layout work in the same frame.
+    @Override
+    public void onMessageInfoOpened() {
+        binding.rvMessages.suppressLayout(true);
+    }
+
+    @Override
+    public void onMessageInfoClosed() {
+        binding.rvMessages.suppressLayout(false);
     }
 
 

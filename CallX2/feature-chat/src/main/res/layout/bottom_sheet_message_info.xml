@@ -50,6 +50,16 @@
         android:layout_height="1dp"
         android:background="@color/surface_input"/>
 
+    <ProgressBar
+        android:id="@+id/progress_message_info"
+        style="?android:attr/progressBarStyleSmall"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="24dp"
+        android:layout_marginBottom="24dp"
+        android:indeterminateTint="@color/brand_primary"/>
+
     <!--
          MaxHeightRecyclerView: wraps to content for short lists (1:1 info —
          just preview + Seen/Delivered, 3 rows) so the sheet doesn't sit
@@ -62,6 +72,7 @@
         android:id="@+id/rv_message_info"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:visibility="gone"
         android:clipToPadding="false"
         android:paddingBottom="12dp"
         android:overScrollMode="ifContentScrolls"/>

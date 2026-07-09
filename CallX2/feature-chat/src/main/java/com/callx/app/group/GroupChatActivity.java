@@ -84,6 +84,7 @@ import com.callx.app.chat.ui.MessageHighlightAnimator;
  *   + Typing indicator, online member count, voice/media messages
  */
 public class GroupChatActivity extends AppCompatActivity
+        implements com.callx.app.conversation.info.MessageInfoBottomSheet.HostRecyclerPauseListener {
         implements GroupWatchingController.Delegate, GroupStarredController.Delegate {
 
     private static final String TAG           = "GroupChatActivity";
@@ -1939,9 +1940,39 @@ public class GroupChatActivity extends AppCompatActivity
             }
         }
 
+        // Prefetch avatars into Glide's cache now, while the sheet is still
+        // being shown/inflated, instead of letting each row's Glide.load()
+        // kick off its own network fetch the moment it scrolls on screen.
+        // By the time MessageInfoAdapter binds a row, the image is already
+        // in cache — bind is a cache hit, not a network round-trip. Size
+        // matches MessageInfoAdapter.AVATAR_SIZE_DP converted to px, so the
+        // prefetch and the real bind resolve to the same Glide cache key.
+        int avatarPx = (int) (com.callx.app.conversation.info.MessageInfoAdapter.AVATAR_SIZE_DP
+                * getResources().getDisplayMetrics().density);
+        for (String uid : otherUids) {
+            String photo = memberPhotos != null ? memberPhotos.get(uid) : null;
+            if (photo != null && !photo.isEmpty()) {
+                com.bumptech.glide.Glide.with(this).load(photo).override(avatarPx, avatarPx).preload();
+            }
+        }
+
         com.callx.app.conversation.info.MessageInfoBridge.set(data);
         com.callx.app.conversation.info.MessageInfoBottomSheet.newInstance()
                 .show(getSupportFragmentManager(), com.callx.app.conversation.info.MessageInfoBottomSheet.TAG);
+    }
+
+    // ── MessageInfoBottomSheet.HostRecyclerPauseListener ────────────────────
+    // Same reasoning as ChatActivity: the sheet fully covers rvMessages, so
+    // freeze its layout/scroll compute for that interval rather than letting
+    // both RecyclerViews lay out/animate in the same frame.
+    @Override
+    public void onMessageInfoOpened() {
+        binding.rvMessages.suppressLayout(true);
+    }
+
+    @Override
+    public void onMessageInfoClosed() {
+        binding.rvMessages.suppressLayout(false);
     }
 
     private void showMultiSelectBar(int count) {
