@@ -5,13 +5,25 @@
     One page of the photo ViewPager2 in ReelPlayerFragment.
 
     Layers (bottom → top):
-      1. iv_photo_slide          – main photo (centerCrop, Ken Burns target)
+      0. iv_photo_bg             – heavily downsampled/blurred full-bleed fill,
+                                    shown only behind letterboxed (non-fullscreen-ratio) photos
+      1. iv_photo_slide          – main photo. scaleType switches centerCrop ↔ fitCenter
+                                    at runtime depending on how close the photo's aspect
+                                    ratio is to the player viewport (see setAspectAwareScaling()).
+      1b. pv_motion_photo        – ExoPlayer surface for the Live-Photo-style motion clip.
+                                    Hidden until the user long-presses a slide that has one
+                                    (see ReelModel.motionVideoForPhoto / startMotionPhotoPlayback()).
+      1c. tv_live_badge          – small "◉ LIVE" pill, top-left, shown only when the slide
+                                    has a motion clip attached.
       2. v_effect_overlay        – full-bleed shader overlay (vignette / grain / glitch / etc.)
       3. v_color_filter_overlay  – semi-transparent colour tint for live filter preview
       4. ll_sticker_layer        – FrameLayout for programmatically added emoji/text stickers
       5. view_zoom_touch         – transparent hit-target for pinch-zoom & double-tap gestures
-      6. tv_photo_caption        – per-photo animated caption bar at the bottom
-      7. v_caption_gradient      – gradient scrim behind the caption
+      6. tv_photo_caption        – per-photo animated caption bar at the bottom (collapsed to
+                                    2 lines by default; swipe up on it, or tap, to expand)
+      7. v_caption_gradient      – smoother 3-stop "HDR-style" scrim behind the caption
+                                    (gradient_caption_scrim_hdr) so text stays legible over
+                                    bright photos without a hard banded edge
       8. ll_spark_row            – subtle sparkle/particle strip above the caption (opt.)
 -->
 <FrameLayout
@@ -23,41 +35,27 @@
     android:clipChildren="false"
     android:clipToPadding="false">
 
-    <!-- ── 0a. Blurred letterbox fill (shown behind non-matching aspect photos,
-              e.g. landscape photo inside a 9:16 slide, Instagram-style) ────── -->
+    <!-- ── 0. Blurred background fill ──────────────────────────────────────
+         Only shown when the photo doesn't match the viewport aspect ratio
+         (landscape / square photos on a portrait 9:16 player). Loaded at a
+         tiny target size so Glide's upscale + bilinear filtering naturally
+         produces a soft blur — no extra blur library/dependency needed. -->
     <ImageView
-        android:id="@+id/iv_photo_blur_bg"
+        android:id="@+id/iv_photo_bg"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:scaleType="centerCrop"
         android:visibility="gone"
         android:contentDescription="@null"/>
 
-    <!-- ── 0b. Low-res blurred placeholder (Instagram-style fade-in while the
-              full-resolution photo streams in) ─────────────────────────────── -->
-    <ImageView
-        android:id="@+id/iv_photo_placeholder_blur"
+    <!-- Dim scrim over the blurred bg so the sharp foreground photo pops -->
+    <View
+        android:id="@+id/v_bg_dim"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:scaleType="centerCrop"
+        android:background="#55000000"
         android:visibility="gone"
-        android:contentDescription="@null"/>
-
-    <!-- ── 0c. Shimmer skeleton shown until Glide resolves the photo ───────── -->
-    <com.facebook.shimmer.ShimmerFrameLayout
-        android:id="@+id/shimmer_photo_skeleton"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        app:shimmer_base_alpha="0.15"
-        app:shimmer_highlight_alpha="0.35"
-        app:shimmer_duration="1100"
-        android:visibility="visible">
-
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:background="#1AFFFFFF"/>
-    </com.facebook.shimmer.ShimmerFrameLayout>
+        android:clickable="false"/>
 
     <!-- ── 1. Main photo ─────────────────────────────────────────────────── -->
     <ImageView
@@ -65,37 +63,40 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:scaleType="centerCrop"
-        android:alpha="0"
         android:contentDescription="Reel photo"/>
 
-    <!-- ── 1b. Motion photo / Live Photo loop player (muted, hidden until a
-              motion clip is attached to this photo) ───────────────────────── -->
+    <!-- ── 1b. Motion-photo (Live Photo) playback surface ─────────────────
+         alpha=0/GONE until the user long-presses a slide that has a clip;
+         ReelPhotoSlideshowAdapter fades this in over iv_photo_slide and
+         fades it back out on release. -->
     <androidx.media3.ui.PlayerView
-        android:id="@+id/player_motion_photo"
+        android:id="@+id/pv_motion_photo"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         app:use_controller="false"
         app:resize_mode="zoom"
+        android:alpha="0"
         android:visibility="gone"/>
 
-    <!-- ── 1c. "LIVE" badge shown while a motion photo is actively playing ── -->
+    <!-- ── 1c. "LIVE" badge — hints a motion clip is attached to this photo -->
     <TextView
         android:id="@+id/tv_live_badge"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="top|start"
-        android:layout_margin="14dp"
+        android:layout_marginTop="14dp"
+        android:layout_marginStart="12dp"
         android:paddingStart="8dp"
         android:paddingEnd="8dp"
         android:paddingTop="3dp"
         android:paddingBottom="3dp"
-        android:text="LIVE"
+        android:text="◉ LIVE"
         android:textColor="#FFFFFFFF"
-        android:textSize="10sp"
+        android:textSize="11sp"
         android:textStyle="bold"
-        android:letterSpacing="0.08"
-        android:background="@drawable/bg_search_bar"
-        android:visibility="gone"/>
+        android:background="#66000000"
+        android:visibility="gone"
+        android:clickable="false"/>
 
     <!-- ── 2. Effect overlay  (vignette / grain / glitch / neon_glow / etc.) -->
     <!-- DrawingCache is updated by ReelPhotoSlideshowAdapter.applyEffect()   -->
@@ -130,33 +131,20 @@
         android:clickable="true"
         android:focusable="false"/>
 
-    <!-- ── 5b. Double-tap heart-burst (Instagram-style like animation) ────── -->
-    <ImageView
-        android:id="@+id/iv_heart_burst"
-        android:layout_width="96dp"
-        android:layout_height="96dp"
-        android:layout_gravity="center"
-        android:src="@drawable/ic_heart_filled"
-        android:alpha="0"
-        android:scaleX="0.3"
-        android:scaleY="0.3"
-        android:clickable="false"
-        android:focusable="false"
-        android:contentDescription="@null"/>
-
     <!-- ── 6. Caption gradient scrim ─────────────────────────────────────── -->
     <View
         android:id="@+id/v_caption_gradient"
         android:layout_width="match_parent"
-        android:layout_height="120dp"
+        android:layout_height="170dp"
         android:layout_gravity="bottom"
-        android:background="@drawable/gradient_reel_bottom"
+        android:background="@drawable/gradient_caption_scrim_hdr"
         android:visibility="gone"
         android:clickable="false"/>
 
     <!-- ── 7. Per-photo caption overlay ──────────────────────────────────── -->
     <!--     Animated in from below; alpha = 0 initially. Collapsed to 2 lines
-             by default — swipe up or tap to expand the full caption.        -->
+             by default — swipe up (or tap) to expand to the full caption,
+             swipe down (or tap again) to collapse. See CaptionSwipeController. -->
     <LinearLayout
         android:id="@+id/ll_caption_container"
         android:layout_width="match_parent"
@@ -164,13 +152,23 @@
         android:layout_gravity="bottom"
         android:layout_marginBottom="18dp"
         android:layout_marginStart="14dp"
-        android:layout_marginEnd="52dp"
+        android:layout_marginEnd="64dp"
         android:orientation="vertical"
+        android:background="#BB000000"
         android:alpha="0"
         android:translationY="24dp"
         android:visibility="gone"
         android:clickable="true"
         android:focusable="true">
+
+        <!-- Little drag handle hinting the caption is swipeable/expandable -->
+        <View
+            android:id="@+id/v_caption_handle"
+            android:layout_width="32dp"
+            android:layout_height="3dp"
+            android:layout_marginTop="6dp"
+            android:layout_gravity="center_horizontal"
+            android:background="#66FFFFFF"/>
 
         <TextView
             android:id="@+id/tv_photo_caption"
@@ -178,27 +176,13 @@
             android:layout_height="wrap_content"
             android:paddingStart="10dp"
             android:paddingEnd="10dp"
-            android:paddingTop="7dp"
+            android:paddingTop="6dp"
             android:paddingBottom="7dp"
             android:textColor="#FFFFFFFF"
             android:textSize="13sp"
             android:lineSpacingMultiplier="1.35"
-            android:background="#BB000000"
             android:maxLines="2"
-            android:ellipsize="end"
-            android:clickable="false"/>
-
-        <TextView
-            android:id="@+id/tv_caption_expand_hint"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="10dp"
-            android:paddingTop="2dp"
-            android:text="⌃ swipe up for more"
-            android:textColor="#99FFFFFF"
-            android:textSize="10sp"
-            android:visibility="gone"
-            android:clickable="false"/>
+            android:ellipsize="end"/>
     </LinearLayout>
 
     <!-- ── 8. Sparkle / particle strip above caption ─────────────────────── -->

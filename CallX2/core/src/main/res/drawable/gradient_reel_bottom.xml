@@ -1,16 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!--
-    gradient_reel_bottom.xml ── HDR-style multi-stop caption scrim (v6)
-    3-stop gradient gives a punchier falloff than a flat 2-stop linear gradient,
-    keeping caption text readable over bright photo backgrounds without
-    darkening the whole lower third of the frame.
--->
 <shape xmlns:android="http://schemas.android.com/apk/res/android">
     <gradient
         android:type="linear"
         android:angle="90"
-        android:startColor="#E6000000"
-        android:centerColor="#66000000"
-        android:endColor="#00000000"
-        android:centerY="0.45"/>
+        android:startColor="#CC000000"
+        android:endColor="#00000000"/>
 </shape>

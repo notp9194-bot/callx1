@@ -6,12 +6,13 @@
     android:background="#000000"
     android:foreground="?attr/selectableItemBackground">
 
-    <!-- Background thumbnail (16:9-ish hero image) -->
-    <ImageView
+    <!-- Background thumbnail (16:9-ish hero image). Face-aware crop: keeps
+         detected faces in frame instead of a naive geometric-center crop
+         on this fixed 220dp-tall card — see SmartCropImageView. -->
+    <com.callx.app.feed.SmartCropImageView
         android:id="@+id/iv_pinned_thumb"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:scaleType="centerCrop"
         android:contentDescription="Pinned reel"/>
 
     <!-- Bottom gradient scrim -->
