@@ -1011,12 +1011,12 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     @Override public void launchPollCreator()                { pollController.showCreatePollDialog(); }
     @Override public void launchContactSharePicker()         { contactShareController.launch(); }
     @Override public void launchLocationSharePicker()        { locationShareController.launch(); }
-    @Override public void navigateToOriginal(String messageId) { navigateToOriginalMsg(messageId); }
+    @Override public void navigateToOriginal(String messageId) { navigateToOriginalMsg(messageId, null); }
     // ChatSearchController.SearchDelegate — search jumps to a match the same
     // way reply-tap jumps to the original: navigateToOriginalMsg() already
     // handles "not currently loaded" via the Room + approximate-position
     // fallback (see its own doc comment), so search gets that for free.
-    @Override public void navigateToMessage(String messageId)  { navigateToOriginalMsg(messageId); }
+    @Override public void navigateToMessage(String messageId)  { navigateToOriginalMsg(messageId, null); }
     @Override public String getCurrentReplyTargetId() {
         if (replyingTo == null) return null;
         return replyingTo.messageId != null ? replyingTo.messageId : replyingTo.id;
@@ -1697,7 +1697,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             @Override public void onStar(Message m)                { starredController.toggleStar(m); }
             @Override public void onCopy(Message m)                { copyText(m); }
             @Override public void onForward(Message m)             { forwardMessage(m); }
-            @Override public void onNavigateToOriginal(String mid) { navigateToOriginalMsg(mid); }
+            @Override public void onNavigateToOriginal(String mid) { navigateToOriginalMsg(mid, null); }
+            @Override public void onNavigateToOriginal(String mid, String senderId) { navigateToOriginalMsg(mid, senderId); }
             @Override public void onRetry(Message m) {
                 if (m.id == null) return;
                 String preview = m.text != null ? m.text : (m.type != null ? "[" + m.type + "]" : "[message]");
@@ -3683,7 +3684,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // NAVIGATE TO ORIGINAL (reply jump)
     // ─────────────────────────────────────────────────────────────────────
 
-    private void navigateToOriginalMsg(String messageId) {
+    private void navigateToOriginalMsg(String messageId, @Nullable String senderId) {
         if (messageId == null || messageId.isEmpty()) return;
         // WhatsApp-style: a reply-to-status quote box is not a real chat
         // message (StatusReplyBottomSheet.sendReply stamps replyToId as
@@ -3691,19 +3692,38 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // like a normal reply always missed and surfaced a confusing
         // "Original message not found" toast. Tapping that quote box
         // should instead open the status itself (same ACTION_OPEN_STATUS
-        // deep-link the status_seen bubble uses) — the chat partner is
-        // always the status owner, since StatusReplyBottomSheet always
-        // sends the reply into the myUid_ownerUid 1:1 chat.
+        // deep-link the status_seen bubble uses).
+        //
+        // BUG FIX: the chat partner is NOT always the status owner. This
+        // quote box appears on BOTH sides of the 1:1 chat:
+        //   • If I sent this message (I replied/reacted to partner's
+        //     status), the partner owns the status.
+        //   • If the PARTNER sent this message (they replied/reacted to
+        //     MY status), I own the status — this is the case that was
+        //     broken, since ownerUid was always hardcoded to partnerUid,
+        //     so opening a reply/reaction to your OWN status tried to load
+        //     a status from partnerUid's collection that never existed
+        //     there, surfacing "This status is no longer available" even
+        //     though the status was mine and still live.
+        // senderId tells us which side sent the chat message; fall back to
+        // the old partner-owns-it assumption only if it's unavailable.
         if (messageId.startsWith("status_")) {
-            if (partnerUid == null || partnerUid.isEmpty()) {
+            String ownerUid;
+            if (senderId != null && !senderId.isEmpty()) {
+                ownerUid = senderId.equals(currentUid) ? partnerUid : currentUid;
+            } else {
+                ownerUid = partnerUid;
+            }
+            if (ownerUid == null || ownerUid.isEmpty()) {
                 Toast.makeText(this, "This status is no longer available", Toast.LENGTH_SHORT).show();
                 return;
             }
+            boolean isMine = ownerUid.equals(currentUid);
             String targetStatusId = messageId.substring("status_".length());
             android.content.Intent intent = new android.content.Intent(
                     com.callx.app.utils.Constants.ACTION_OPEN_STATUS);
-            intent.putExtra("ownerUid", partnerUid);
-            intent.putExtra("ownerName", partnerName != null ? partnerName : "");
+            intent.putExtra("ownerUid", ownerUid);
+            intent.putExtra("ownerName", isMine ? "You" : (partnerName != null ? partnerName : ""));
             intent.putExtra("targetStatusId", targetStatusId);
             intent.setPackage(getPackageName());
             try {
@@ -3847,7 +3867,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                         .setAction("UNDO", v -> { cancelAction.run(); ReplyAnalyticsTracker.get().onUndoUsed(); });
                 pendingReplySnackbar.show();
             }
-            @Override public void onNavigateToOriginal(String messageId) { navigateToOriginalMsg(messageId); }
+            @Override public void onNavigateToOriginal(String messageId) { navigateToOriginalMsg(messageId, null); }
+            @Override public void onNavigateToOriginal(String messageId, String senderId) { navigateToOriginalMsg(messageId, senderId); }
             @Override public void onUndoConfirmed() {}
         });
     }

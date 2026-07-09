@@ -516,6 +516,22 @@ public class MessagePagingAdapter
     public interface ActionListener {
         void onReply(Message m);
         void onNavigateToOriginal(String messageId);
+        /**
+         * BUG FIX: status-reply/reaction quote boxes (replyToId = "status_"+id)
+         * need to know WHO SENT this chat message to figure out who actually
+         * owns the status — it is NOT always the chat partner. If I sent this
+         * message (I replied/reacted to partner's status), partner owns the
+         * status. If the PARTNER sent this message (they replied/reacted to
+         * MY status), I own the status. The single-arg overload above has no
+         * way to tell these apart, so it always assumed "partner owns it" —
+         * correct only for the first case, wrong for the second, which made
+         * tapping a reply/reaction to your OWN status show "This status is no
+         * longer available". Default implementation falls back to the old
+         * (partner-always-owns-it) behavior for callers that don't override it.
+         */
+        default void onNavigateToOriginal(String messageId, String senderId) {
+            onNavigateToOriginal(messageId);
+        }
         void onDelete(Message m);
         void onReact(Message m, String emoji);
         void onStar(Message m);
@@ -2539,7 +2555,7 @@ public class MessagePagingAdapter
             @Override
             public void onReplyPreviewClick() {
                 if (actionListener != null && m.replyToId != null) {
-                    actionListener.onNavigateToOriginal(m.replyToId);
+                    actionListener.onNavigateToOriginal(m.replyToId, m.senderId);
                 }
             }
 
@@ -3151,9 +3167,10 @@ public class MessagePagingAdapter
                 }
                 // Click → scroll to original message
                 final String replyId = m.replyToId;
+                final String replySenderId = m.senderId;
                 h.llReplyPreview.setOnClickListener(v -> {
                     if (actionListener != null) {
-                        actionListener.onNavigateToOriginal(replyId);
+                        actionListener.onNavigateToOriginal(replyId, replySenderId);
                     }
                 });
             } else {
