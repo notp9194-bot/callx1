@@ -3868,7 +3868,6 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 pendingReplySnackbar.show();
             }
             @Override public void onNavigateToOriginal(String messageId) { navigateToOriginalMsg(messageId, null); }
-            @Override public void onNavigateToOriginal(String messageId, String senderId) { navigateToOriginalMsg(messageId, senderId); }
             @Override public void onUndoConfirmed() {}
         });
     }
