@@ -137,15 +137,18 @@
             android:theme="@style/Theme.AppCompat.NoActionBar"
             android:screenOrientation="sensor"
             android:configChanges="orientation|screenSize|keyboardHidden"/>
-        <activity android:name=".activities.StatusViewerActivity"
-            android:exported="true"
-            android:theme="@style/Theme.CallX.Fullscreen"
-            tools:replace="android:exported">
-            <intent-filter>
-                <action android:name="com.callx.app.ACTION_OPEN_STATUS"/>
-                <category android:name="android.intent.category.DEFAULT"/>
-            </intent-filter>
-        </activity>
+        <!-- BUG FIX v72: removed dead ".activities.StatusViewerActivity" entry —
+             that class was deleted long ago when status viewing moved into the
+             feature-status module (com.callx.app.viewer.StatusViewerActivity,
+             declared in feature-status/AndroidManifest.xml with the SAME
+             ACTION_OPEN_STATUS intent-filter). Two activities registered for
+             the same action made resolution ambiguous, and since this one
+             pointed at a class that no longer exists, tapping a status-reply/
+             reaction quote box in chat resolved to this dead entry and threw
+             ActivityNotFoundException — silently swallowed by the catch block
+             in ChatActivity.navigateToOriginalMsg(), so the status viewer
+             never opened. Only feature-status's real activity should own this
+             intent-filter now. -->
         <activity android:name=".activities.NewStatusActivity"
             android:exported="false"/>
         <activity android:name=".activities.StarredMessagesActivity"
