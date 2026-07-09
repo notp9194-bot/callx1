@@ -2291,16 +2291,39 @@ public class GroupChatActivity extends AppCompatActivity
                 .apply();
     }
 
+    /**
+     * WhatsApp-style: restore to the exact message + pixel offset the user
+     * left this group chat from (saved by {@link #saveScrollState()}), same
+     * approach as ChatActivity's 1:1 version. Falls back to the bottom
+     * (stackFromEnd(true)'s own zero-scroll-call anchor) only when there's
+     * nothing saved yet for this groupId — i.e. first-ever open.
+     */
     private void restoreScrollOrGoToUnread() {
-        // Chat-open scroll behaviour: ZERO programmatic scroll calls — see
-        // ChatActivity's restoreScrollOrGoToUnread() comment for full
-        // reasoning. stackFromEnd(true) alone anchors the bottom message
-        // on first layout; we only reset indicator/state here.
         if (pagingAdapter == null || binding == null) return;
-        if (pagingAdapter.getItemCount() == 0) return;
+        int total = pagingAdapter.getItemCount();
+        if (total == 0) return;
+
         pendingNewMsgCount = 0;
         hideNewMessagesIndicator();
-        isUserAtBottom = true;
+
+        int savedPos = -1, savedOffset = 0;
+        if (groupId != null) {
+            android.content.SharedPreferences prefs = getSharedPreferences(SCROLL_PREFS, MODE_PRIVATE);
+            savedPos = prefs.getInt("pos_" + groupId, -1);
+            savedOffset = prefs.getInt("off_" + groupId, 0);
+        }
+
+        if (savedPos < 0) {
+            isUserAtBottom = true;
+            return;
+        }
+
+        LinearLayoutManager llm = (LinearLayoutManager) binding.rvMessages.getLayoutManager();
+        if (llm == null) { isUserAtBottom = true; return; }
+
+        int clampedPos = Math.min(savedPos, total - 1);
+        llm.scrollToPositionWithOffset(clampedPos, savedOffset);
+        isUserAtBottom = (clampedPos >= total - 1);
     }
 
     private void updateNewMessagesIndicator(int count) {

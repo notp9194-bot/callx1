@@ -2422,29 +2422,45 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     }
 
     /**
-     * Chat-open scroll behaviour: land on the latest (bottom) message with
-     * ZERO programmatic scroll calls of any kind — no scrollToPosition(),
-     * no scrollToPositionWithOffset(), no smoothScroll. We rely entirely on
-     * LinearLayoutManager's stackFromEnd(true) (set in setupPagingRecyclerView),
-     * which anchors its FIRST layout pass at the last adapter item natively —
-     * the bottom message is simply where the view starts, not where it
-     * "scrolls to". Calling scrollToPosition() here — even though it's a
-     * non-animated jump — was occasionally visible as a one-frame snap when
-     * a second insert (warm-cache → real Room data reconciliation, or a
-     * Paging prefetch batch) landed between the layout pass and this post()
-     * callback running, since "total-1" could already be stale by then.
-     * Removing the call entirely eliminates that class of bug at the root:
-     * there is no longer any code path on chat-open that can move the list.
+     * Chat-open scroll behaviour, WhatsApp-style: if the user has been in
+     * this chat before, land back on the exact message + pixel offset they
+     * left from (saved by {@link #saveScrollState()}); only fall back to
+     * the bottom (which stackFromEnd(true) already anchors on its own, with
+     * zero scroll calls) when there's nothing saved for this chatId yet —
+     * i.e. the very first time this chat is opened.
+     *
+     * Position is clamped to the current item count in case messages were
+     * deleted (by either side) while the user was away, so a stale saved
+     * index can never scroll past the end of the list.
      */
     private void restoreScrollOrGoToUnread() {
         if (pagingAdapter == null || binding == null) return;
-        if (pagingAdapter.getItemCount() == 0) return;
+        int total = pagingAdapter.getItemCount();
+        if (total == 0) return;
 
-        // No scroll call. stackFromEnd already placed the bottom message
-        // in view on first layout. We only reset the indicator/state here.
         pendingNewMsgCount = 0;
         hideNewMessagesIndicator();
-        isUserAtBottom = true;
+
+        int savedPos = -1, savedOffset = 0;
+        if (chatId != null) {
+            android.content.SharedPreferences prefs = getSharedPreferences(SCROLL_PREFS, MODE_PRIVATE);
+            savedPos = prefs.getInt("pos_" + chatId, -1);
+            savedOffset = prefs.getInt("off_" + chatId, 0);
+        }
+
+        if (savedPos < 0) {
+            // First-ever open of this chat — nothing to restore. stackFromEnd
+            // already placed the bottom message in view; no scroll call needed.
+            isUserAtBottom = true;
+            return;
+        }
+
+        LinearLayoutManager llm = (LinearLayoutManager) binding.rvMessages.getLayoutManager();
+        if (llm == null) { isUserAtBottom = true; return; }
+
+        int clampedPos = Math.min(savedPos, total - 1);
+        llm.scrollToPositionWithOffset(clampedPos, savedOffset);
+        isUserAtBottom = (clampedPos >= total - 1);
     }
 
     /**
