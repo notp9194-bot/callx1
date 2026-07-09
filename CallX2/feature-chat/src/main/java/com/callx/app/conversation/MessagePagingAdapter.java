@@ -842,7 +842,16 @@ public class MessagePagingAdapter
         // bubble.xml / item_reel_seen_bubble.xml. TYPE_STATUS_SEEN/
         // TYPE_REEL_SEEN + their legacy bind*Bubble() methods are kept
         // only as an unused fallback.
-        if ("status_seen".equals(m.type)) return TYPE_CANVAS_RECEIVED;
+        if ("status_seen".equals(m.type)) {
+            // BUG FIX: this used to unconditionally return TYPE_CANVAS_RECEIVED,
+            // so the "seen your status" bubble rendered on BOTH sides of the
+            // chat — the viewer who watched the status also saw it in their
+            // own chat, not just the status owner. Mirrors the reel_seen fix
+            // right below: only the status OWNER should ever see this bubble.
+            String statusOwnerUid = (m.statusOwnerUid != null && !m.statusOwnerUid.isEmpty())
+                    ? m.statusOwnerUid : m.senderId;
+            return currentUid.equals(statusOwnerUid) ? TYPE_CANVAS_RECEIVED : TYPE_HIDDEN;
+        }
         if ("reel_seen".equals(m.type)) {
             // Bubble must show ONLY to the reel's owner (the person who got
             // watched), never to the viewer who did the watching — otherwise
@@ -1184,6 +1193,9 @@ public class MessagePagingAdapter
         // ── STATUS SEEN BUBBLE — special system event row (legacy fallback,
         // unreachable now that getItemViewType() routes these to Canvas) ──
         if ("status_seen".equals(m.type)) {
+            String statusOwnerUid = (m.statusOwnerUid != null && !m.statusOwnerUid.isEmpty())
+                    ? m.statusOwnerUid : m.senderId;
+            if (!currentUid.equals(statusOwnerUid)) return; // hidden for the viewer side
             bindStatusSeenBubble(h, m);
             return;
         }
