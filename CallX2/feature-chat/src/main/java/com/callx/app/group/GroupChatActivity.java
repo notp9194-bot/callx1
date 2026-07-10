@@ -1483,6 +1483,15 @@ public class GroupChatActivity extends AppCompatActivity
         Map<String, Object> upd = new HashMap<>();
         upd.put("lastMessage", preview);
         upd.put("lastMessageAt", m.timestamp);
+        // v24: group-list ticks + media label — same fields ChatMessageSender
+        // writes for 1:1 chats (see User.lastMessageType/Status/SenderUid/Id
+        // and GroupAdapter). "sent" is the starting rank; GroupMessageStatusSync's
+        // checkAggregate() advances it to "delivered"/"read" once every other
+        // member has acked, guarded by this same lastMessageId.
+        upd.put("lastMessageType", m.type != null ? m.type : "text");
+        upd.put("lastMessageSenderUid", currentUid);
+        upd.put("lastMessageStatus", "sent");
+        upd.put("lastMessageId", key);
         FirebaseUtils.getGroupsRef().child(groupId).updateChildren(upd);
 
         PushNotify.notifyGroupMessage(groupId, currentUid, currentName,

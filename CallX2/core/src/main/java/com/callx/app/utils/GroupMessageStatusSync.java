@@ -225,6 +225,13 @@ public final class GroupMessageStatusSync {
                         // Reuses MessageStatusSync's rank-safe transaction (sent <
                         // delivered < read, never downgrades) — same one 1:1 uses.
                         MessageStatusSync.upgradeStatus(groupMessagesRef, msgId, targetStatus);
+                        // v24: group-list ticks — bump the SENDER's group list
+                        // row (groups/{groupId}/lastMessageStatus) the same
+                        // way ChatPresenceController#updateSenderChatListTicks
+                        // does for 1:1, guarded by lastMessageId so an older
+                        // message's aggregate catching up late never clobbers
+                        // a newer last message's tick state.
+                        updateGroupListTicks(groupId, msgId, targetStatus);
                     }
 
                     @Override
@@ -234,6 +241,19 @@ public final class GroupMessageStatusSync {
 
             @Override
             public void onCancelled(@NonNull DatabaseError error) { /* retried on next ack anyway */ }
+        });
+    }
+
+    /** See checkAggregate's call site above. */
+    private static void updateGroupListTicks(String groupId, String ackedMsgId, String targetStatus) {
+        DatabaseReference groupRow = FirebaseUtils.getGroupsRef().child(groupId);
+        groupRow.child("lastMessageId").addListenerForSingleValueEvent(new ValueEventListener() {
+            @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                String lastId = snap.getValue(String.class);
+                if (lastId == null || !lastId.equals(ackedMsgId)) return;
+                groupRow.child("lastMessageStatus").setValue(targetStatus);
+            }
+            @Override public void onCancelled(@NonNull DatabaseError error) {}
         });
     }
 }

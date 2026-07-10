@@ -43,15 +43,13 @@
                 android:textStyle="bold"
                 android:textColor="?android:attr/textColorPrimary"
                 android:textSize="16sp"/>
-            <TextView
-                android:id="@+id/tv_group_last"
+            <!-- v24: last-message text + read-receipt ticks + live "typing..."
+                 indicator, Canvas-rendered — same ChatListLastMessageView used
+                 by the 1:1 chat list (see ChatListLastMessageView / GroupAdapter). -->
+            <com.callx.app.chatlist.canvas.ChatListLastMessageView
+                android:id="@+id/view_group_last_message"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:textColor="@color/text_secondary"
-                android:textSize="14sp"
-                android:maxLines="1"
-                android:ellipsize="end"
-                android:text="Group ready"/>
+                android:layout_height="wrap_content"/>
         </LinearLayout>
         <TextView
             android:id="@+id/tv_group_members"

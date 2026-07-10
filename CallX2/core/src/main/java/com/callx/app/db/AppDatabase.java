@@ -69,7 +69,7 @@ import net.sqlcipher.database.SupportFactory;
         StatusEntity.class,    // v17: status cache
         ScheduledMessageEntity.class  // v28: scheduled chat messages
     },
-    version = 28,
+    version = 29,
     exportSchema = true
 )
 public abstract class AppDatabase extends RoomDatabase {
@@ -423,6 +423,22 @@ public abstract class AppDatabase extends RoomDatabase {
         }
     };
 
+    /** v28 → v29: group-list read receipts (ticks) + media label cache —
+     *  lastMessageType/lastMessageStatus/lastMessageSenderUid/lastMessageId
+     *  on the `groups` table (see GroupEntity), group analogue of
+     *  MIGRATION_27_28's chats-table columns. Lets the GROUP list render
+     *  ✓/✓✓/blue✓✓ ticks and media-type labels straight from Room on cold
+     *  start, same as the 1:1 chat list already does. */
+    static final Migration MIGRATION_28_29 = new Migration(28, 29) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase db) {
+            db.execSQL("ALTER TABLE groups ADD COLUMN lastMessageType TEXT DEFAULT NULL");
+            db.execSQL("ALTER TABLE groups ADD COLUMN lastMessageStatus TEXT DEFAULT NULL");
+            db.execSQL("ALTER TABLE groups ADD COLUMN lastMessageSenderUid TEXT DEFAULT NULL");
+            db.execSQL("ALTER TABLE groups ADD COLUMN lastMessageId TEXT DEFAULT NULL");
+        }
+    };
+
     /** v27 → v28: chat-list read receipts (ticks) + media label cache —
      *  lastMessageType/lastMessageStatus/lastMessageSenderUid/lastMessageId
      *  on the `chats` table (see ChatEntity). Lets the chat list render
@@ -569,7 +585,7 @@ public abstract class AppDatabase extends RoomDatabase {
 
         AppDatabase db = Room.databaseBuilder(ctx, AppDatabase.class, DB_NAME)
                 .openHelperFactory(factory)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28)  // v28: chat-list ticks + media label cache
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29)  // v29: group-list ticks + media label cache
                 .fallbackToDestructiveMigration()
                 // NOTE: WAL mode removed — SQLCipher 4.5.4 + Room WAL combination
                 // causes silent open failures on some devices. The write-batching

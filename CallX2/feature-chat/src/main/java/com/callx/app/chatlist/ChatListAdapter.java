@@ -6,12 +6,12 @@ import android.content.Intent;
 import android.view.*;
 import android.widget.*;
 import androidx.annotation.NonNull;
-import androidx.core.content.ContextCompat;
 import androidx.recyclerview.widget.RecyclerView;
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.request.RequestOptions;
 import com.callx.app.chat.R;
 
+import com.callx.app.chatlist.canvas.ChatListLastMessageView;
 import com.callx.app.conversation.ChatActivity;
 import com.callx.app.models.User;
 import de.hdodenhof.circleimageview.CircleImageView;
@@ -30,12 +30,25 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * ChatListAdapter v22
+ * ChatListAdapter v23
+ *
+ * CHANGES v23 — Canvas rendering for last-message row (perf):
+ *  1. item_chat.xml's last-message line — previously a nested LinearLayout
+ *     holding an iv_read_status ImageView (tick) + tv_last_message TextView —
+ *     is now a single ChatListLastMessageView that paints both the ticks
+ *     and the text directly with Canvas.drawLine()/drawText(), same
+ *     technique MessageBubbleCanvasView already uses for bubbles in the
+ *     chat screen. One less inflate + one less measure/layout pass per
+ *     row, so fast scrolling on the chat list stays smoother.
+ *  2. VH.lastMessageView replaces VH.tvLastMessage/VH.ivReadStatus; all
+ *     read-status + typing text now go through setMessageText()/setTicks(),
+ *     which no-op (skip invalidate) when the value hasn't actually changed.
  *
  * CHANGES v22 — Read receipts, media labels, live typing:
  *  1. Read-receipt ticks (✓ sent / ✓✓ delivered / blue ✓✓ read) rendered
- *     in iv_read_status, driven by User.lastMessageStatus — only shown
- *     when the current user sent the chat's last message.
+ *     via the last-message row's ChatListLastMessageView (see v23 above),
+ *     driven by User.lastMessageStatus — only shown when the current user
+ *     sent the chat's last message.
  *  2. Media messages (image/video/audio/gif/sticker/poll/contact/location/
  *     multi_media/reel_share/document) now always show their emoji label
  *     ("📷 Photo", "🎤 Voice message", ...) via ChatListPreviewUtil, derived
@@ -232,10 +245,12 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         Long when = u.lastMessageAt != null ? u.lastMessageAt : u.lastSeen;
         h.tvTime.setText((when != null && when > 0) ? fmt.format(new Date(when)) : "");
 
-        // v22: reset any stale italic style left over from a recycled row
-        // that was previously showing "typing...".
+        // v22/v23: reset any stale "typing..." flag left over from a
+        // recycled row — the canvas view's own setMessageText()/setTicks()
+        // no-op when values are unchanged, so no explicit reset call is
+        // needed here for text/ticks themselves; applySelectionVisuals()
+        // below always re-drives them from this row's real data.
         h.isTypingNow = false;
-        h.tvLastMessage.setTypeface(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.NORMAL);
 
         // ── Selection-dependent state (last-message text + ticks, unread
         // badge, special-text override, background / overlay / call-btns /
@@ -330,30 +345,31 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
 
         // Unread badge + last-message color (hidden while selecting)
         long unread = u.unread == null ? 0 : u.unread;
+        int lastMsgColor;
         if (unread > 0 && !isSelecting) {
             h.tvUnread.setText(unread > 99 ? "99+" : String.valueOf(unread));
             h.tvUnread.setVisibility(View.VISIBLE);
-            h.tvLastMessage.setTextColor(ctx.getResources().getColor(R.color.text_primary));
+            lastMsgColor = ctx.getResources().getColor(R.color.text_primary);
         } else {
             h.tvUnread.setVisibility(View.GONE);
-            h.tvLastMessage.setTextColor(ctx.getResources().getColor(R.color.text_secondary));
+            lastMsgColor = ctx.getResources().getColor(R.color.text_secondary);
         }
 
         // v22: while the partner is actively typing (see attachTypingListener/
-        // applyTypingRow below) that row already owns tv_last_message's text —
+        // applyTypingRow below) that row already owns the canvas view's text —
         // don't clobber "typing..." with the stored last message on a payload
         // bind (e.g. selection mode toggled mid-typing).
         if (!h.isTypingNow) {
             if (isSpecial && !isSelecting) {
-                h.tvLastMessage.setText("⭐ Special unblock request");
-                h.tvLastMessage.setTextColor(0xFFFF8F00);
+                h.lastMessageView.setMessageText("⭐ Special unblock request", 0xFFFF8F00, false);
             } else {
                 // BUG FIX: media messages (image/video/voice/etc.) now always
                 // show their emoji label ("📷 Photo", "🎤 Voice message", ...)
                 // derived from lastMessageType, instead of trusting whatever
                 // raw text happened to be stored for that message.
-                h.tvLastMessage.setText(
-                    ChatListPreviewUtil.buildPreview(u.lastMessageType, u.lastMessage, "Tap karke chat karo"));
+                String preview = ChatListPreviewUtil.buildPreview(
+                        u.lastMessageType, u.lastMessage, "Tap karke chat karo");
+                h.lastMessageView.setMessageText(preview, lastMsgColor, false);
             }
         }
 
@@ -405,25 +421,23 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
     // when the CURRENT USER sent the chat's last message — matching
     // WhatsApp, you never see ticks on a message the other person sent you.
     private void updateReadStatusTicks(VH h, User u, boolean isSelecting, boolean isSpecial) {
-        if (h.ivReadStatus == null) return;
         boolean iAmLastSender = myUid != null && u.uid != null
                 && myUid.equals(u.lastMessageSenderUid);
         if (h.isTypingNow || isSelecting || isSpecial || !iAmLastSender || u.lastMessageStatus == null) {
-            h.ivReadStatus.setVisibility(View.GONE);
+            h.lastMessageView.setTicks(ChatListLastMessageView.TICK_NONE, 0);
             return;
         }
         Context ctx = h.itemView.getContext();
-        h.ivReadStatus.setVisibility(View.VISIBLE);
         if ("read".equals(u.lastMessageStatus)) {
-            h.ivReadStatus.setImageResource(R.drawable.ic_double_tick_blue);
-            h.ivReadStatus.setColorFilter(ContextCompat.getColor(ctx, R.color.tick_read_blue));
+            h.lastMessageView.setTicks(ChatListLastMessageView.TICK_READ,
+                    ctx.getResources().getColor(R.color.tick_read_blue));
         } else if ("delivered".equals(u.lastMessageStatus)) {
-            h.ivReadStatus.setImageResource(R.drawable.ic_double_tick);
-            h.ivReadStatus.setColorFilter(ContextCompat.getColor(ctx, R.color.text_muted));
+            h.lastMessageView.setTicks(ChatListLastMessageView.TICK_DELIVERED,
+                    ctx.getResources().getColor(R.color.text_muted));
         } else {
             // "sent" (or any other/unknown non-null status)
-            h.ivReadStatus.setImageResource(R.drawable.ic_single_tick);
-            h.ivReadStatus.setColorFilter(ContextCompat.getColor(ctx, R.color.text_muted));
+            h.lastMessageView.setTicks(ChatListLastMessageView.TICK_SENT,
+                    ctx.getResources().getColor(R.color.text_muted));
         }
     }
 
@@ -472,12 +486,9 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
     private void applyTypingRow(VH h, User u, boolean isTyping) {
         h.isTypingNow = isTyping;
         if (isTyping) {
-            h.tvLastMessage.setTypeface(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.ITALIC);
-            h.tvLastMessage.setTextColor(0xFF0F4C3A); // brand_primary — matches typing strip in-chat
-            h.tvLastMessage.setText("typing...");
-            if (h.ivReadStatus != null) h.ivReadStatus.setVisibility(View.GONE);
+            h.lastMessageView.setMessageText("typing...", 0xFF0F4C3A, true); // brand_primary, italic — matches typing strip in-chat
+            h.lastMessageView.setTicks(ChatListLastMessageView.TICK_NONE, 0);
         } else {
-            h.tvLastMessage.setTypeface(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.NORMAL);
             // Typing stopped — redraw this row's normal state (last message
             // text/color, ticks, unread badge) without touching anything
             // else (avatar, call buttons, story ring, selection chrome).
@@ -606,11 +617,16 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
     }
 
     static class VH extends RecyclerView.ViewHolder {
-        TextView tvName, tvLastMessage, tvTime, tvUnread;
+        TextView tvName, tvTime, tvUnread;
         CircleImageView ivAvatar;
-        android.widget.ImageView ivStoryRing, ivCheck, ivReadStatus;
+        android.widget.ImageView ivStoryRing, ivCheck;
         View flSelectOverlay, vCheckRing, llCallBtns;
         ImageButton btnCall, btnVideoCall;
+
+        // v23: last-message text + read-receipt ticks, Canvas-rendered —
+        // replaces the old tv_last_message TextView + iv_read_status
+        // ImageView pair (see ChatListLastMessageView for why).
+        ChatListLastMessageView lastMessageView;
 
         // v22: live typing indicator — listener ref for detach-on-recycle,
         // plus a flag so applySelectionVisuals() knows not to clobber the
@@ -622,12 +638,11 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         VH(View v) {
             super(v);
             tvName          = v.findViewById(R.id.tv_name);
-            tvLastMessage   = v.findViewById(R.id.tv_last_message);
+            lastMessageView = v.findViewById(R.id.view_last_message);
             tvTime          = v.findViewById(R.id.tv_time);
             tvUnread        = v.findViewById(R.id.tv_unread_badge);
             ivAvatar        = v.findViewById(R.id.iv_avatar);
             ivStoryRing     = v.findViewById(R.id.iv_story_ring);
-            ivReadStatus    = v.findViewById(R.id.iv_read_status);
             flSelectOverlay = v.findViewById(R.id.fl_select_overlay);
             ivCheck         = v.findViewById(R.id.iv_check);
             vCheckRing      = v.findViewById(R.id.v_check_ring);

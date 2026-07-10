@@ -89,36 +89,19 @@
                     android:textColor="?android:attr/textColorPrimary"
                     android:textSize="16sp"/>
 
-                <LinearLayout
+                <!-- v23 PERF: last-message text + read-receipt ticks (✓ sent /
+                     ✓✓ delivered / blue ✓✓ read) are now rendered directly on
+                     Canvas by ChatListLastMessageView — same technique
+                     MessageBubbleCanvasView uses for message bubbles in the
+                     chat screen — instead of a nested LinearLayout holding a
+                     separate ImageView (tick) + TextView (last message).
+                     Ticks only ever show when the LAST message in this chat
+                     was sent by the current user; see
+                     ChatListAdapter#updateReadStatusTicks(). -->
+                <com.callx.app.chatlist.canvas.ChatListLastMessageView
+                    android:id="@+id/view_last_message"
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical">
-
-                    <!-- Read-receipt tick (✓ sent / ✓✓ delivered / blue ✓✓ read).
-                         Only visible when the LAST message in this chat was
-                         sent by the current user (see ChatListAdapter#updateReadStatusTicks). -->
-                    <ImageView
-                        android:id="@+id/iv_read_status"
-                        android:layout_width="16dp"
-                        android:layout_height="12dp"
-                        android:layout_marginEnd="4dp"
-                        android:scaleType="fitCenter"
-                        android:importantForAccessibility="no"
-                        android:visibility="gone"
-                        android:src="@drawable/ic_double_tick"/>
-
-                    <TextView
-                        android:id="@+id/tv_last_message"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:textColor="@color/text_secondary"
-                        android:textSize="14sp"
-                        android:maxLines="1"
-                        android:ellipsize="end"
-                        android:text="Tap karke chat karo"/>
-                </LinearLayout>
+                    android:layout_height="wrap_content"/>
             </LinearLayout>
 
             <LinearLayout

@@ -98,6 +98,10 @@ public class GroupsFragment extends Fragment {
                 g.lastMessage   = e.lastMessage;
                 g.lastSenderName = e.lastSenderName;
                 g.lastMessageAt = e.lastMessageAt;
+                g.lastMessageType      = e.lastMessageType;
+                g.lastMessageStatus    = e.lastMessageStatus;
+                g.lastMessageSenderUid = e.lastMessageSenderUid;
+                g.lastMessageId        = e.lastMessageId;
                 roomGroups.add(g);
             }
 
@@ -159,6 +163,10 @@ public class GroupsFragment extends Fragment {
                                     entity.lastMessage   = gr.lastMessage;
                                     entity.lastSenderName = gr.lastSenderName;
                                     entity.lastMessageAt = gr.lastMessageAt;
+                                    entity.lastMessageType      = gr.lastMessageType;
+                                    entity.lastMessageStatus    = gr.lastMessageStatus;
+                                    entity.lastMessageSenderUid = gr.lastMessageSenderUid;
+                                    entity.lastMessageId        = gr.lastMessageId;
                                     toSave.add(entity);
                                 }
                                 if (--pending[0] == 0) {
@@ -213,7 +221,14 @@ public class GroupsFragment extends Fragment {
                     && safeEq(a.lastMessage, b.lastMessage)
                     && safeEq(a.lastSenderName, b.lastSenderName)
                     && safeEq(a.iconUrl, b.iconUrl)
-                    && longEq(a.lastMessageAt, b.lastMessageAt);
+                    && longEq(a.lastMessageAt, b.lastMessageAt)
+                    // v24: ticks + media label depend on these too — without
+                    // them, a delivered→read tick flip (or a media-type
+                    // change) would be silently skipped by DiffUtil since
+                    // every OTHER field above stayed the same.
+                    && safeEq(a.lastMessageType, b.lastMessageType)
+                    && safeEq(a.lastMessageStatus, b.lastMessageStatus)
+                    && safeEq(a.lastMessageSenderUid, b.lastMessageSenderUid);
             }
 
             private boolean safeEq(String x, String y) {

@@ -26,6 +26,12 @@ public class GroupEntity {
     public String lastMessage;
     public String lastSenderName;
     public Long   lastMessageAt;
+    // v24: mirrors Group.lastMessageType/Status/SenderUid/Id — see that
+    // model for what each field means.
+    public String lastMessageType;
+    public String lastMessageStatus;
+    public String lastMessageSenderUid;
+    public String lastMessageId;
     public long   syncedAt;
 
     public GroupEntity() {
