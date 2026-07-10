@@ -2,13 +2,13 @@ package com.callx.app.group;
 import android.content.Context;
 import android.content.Intent;
 import android.view.*;
-import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.request.RequestOptions;
 import com.callx.app.chat.R;
 import com.callx.app.chatlist.canvas.ChatListLastMessageView;
+import com.callx.app.chatlist.canvas.ChatListNameTimeView;
 import com.callx.app.group.GroupChatActivity;
 import com.callx.app.models.Group;
 import com.callx.app.utils.ChatListPreviewUtil;
@@ -24,25 +24,21 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * GroupAdapter v24 — Canvas ticks + live typing (group-list parity with
- * ChatListAdapter):
+ * GroupAdapter v82
  *
- *  1. Read-receipt ticks (✓ sent / ✓✓ delivered / blue ✓✓ read) — group
- *     analogue of ChatListAdapter's ticks. lastMessageStatus here is the
- *     AGGREGATE status GroupMessageStatusSync computes (delivered = every
- *     other member has it, read = every other member has seen it), so a
- *     blue double-tick means "everyone's read it", matching WhatsApp group
- *     semantics. Only shown when the current user sent the group's last
- *     message.
- *  2. Live "typing..." indicator — mirrors groups/{groupId}/typing/{uid}
- *     (uid → display name), attached/detached with the row's bind/recycle
- *     lifecycle so it never leaks a listener while scrolling. Multiple
- *     simultaneous typers are summarized the same way the in-chat typing
- *     strip does: "Alice typing...", "Alice, Bob typing...", or
- *     "Alice +2 typing..." for 3+.
- *  3. Both of the above are rendered by ChatListLastMessageView — the same
- *     Canvas-based view the 1:1 chat list uses — instead of a plain
- *     TextView, so a group row pays the same reduced per-bind cost.
+ * CHANGES v82 — Canvas row parity with ChatListAdapter:
+ *  1. CardView root → plain FrameLayout with bg_chat_row (removes CardView
+ *     measure/layout overhead).
+ *  2. tv_group_name (TextView) + tv_group_members (TextView) → single
+ *     ChatListNameTimeView that draws group name bold-left and member count
+ *     muted-right — same savings as the 1:1 chat list gained in v82.
+ *  3. ChatListLastMessageView — UNCHANGED (already canvas since v24).
+ *  4. iv_group_avatar (CircleImageView) — UNCHANGED; Glide pipeline kept.
+ *
+ * CHANGES v24 — Canvas ticks + live typing (group-list parity with
+ * ChatListAdapter):
+ *  • Read-receipt ticks (aggregate: delivered = all got it, read = all saw it).
+ *  • Live "typing..." indicator per row, attached/detached with bind/recycle.
  */
 public class GroupAdapter extends RecyclerView.Adapter<GroupAdapter.VH> {
     private final List<Group> groups;
@@ -50,31 +46,33 @@ public class GroupAdapter extends RecyclerView.Adapter<GroupAdapter.VH> {
 
     public GroupAdapter(List<Group> groups) {
         this.groups = groups;
-        // PERF: stable IDs — same fix as ChatListAdapter — lets DiffUtil-driven
-        // updates (see GroupsFragment#diffUpdateGroups) avoid unnecessary rebinds
-        // for rows whose position didn't change.
         setHasStableIds(true);
     }
+
     @Override
     public long getItemId(int position) {
         if (position < 0 || position >= groups.size()) return RecyclerView.NO_ID;
         String id = groups.get(position).id;
         return id != null ? id.hashCode() : position;
     }
+
     @NonNull @Override
     public VH onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
         View v = LayoutInflater.from(parent.getContext())
             .inflate(R.layout.item_group, parent, false);
         return new VH(v);
     }
+
     @Override public void onBindViewHolder(@NonNull VH h, int pos) {
         Group g = groups.get(pos);
         Context ctx = h.itemView.getContext();
-        h.tvName.setText(g.name == null ? "Group" : g.name);
-        int n = g.members != null ? g.members.size() : 0;
-        h.tvMembers.setText(n + " members");
 
-        // Load group avatar if available, else show default icon
+        // v82: name drawn by ChatListNameTimeView (left = name, right = members)
+        h.nameMembersView.setName(g.name == null ? "Group" : g.name);
+        int n = g.members != null ? g.members.size() : 0;
+        h.nameMembersView.setTime(n + " members");
+
+        // Avatar via Glide — unchanged
         if (h.ivAvatar != null) {
             if (g.iconUrl != null && !g.iconUrl.isEmpty()) {
                 Glide.with(ctx)
@@ -92,16 +90,8 @@ public class GroupAdapter extends RecyclerView.Adapter<GroupAdapter.VH> {
             }
         }
 
-        // v24: reset any stale "typing..." flag left over from a recycled
-        // row — bindGroupRowContent() below always re-drives text/ticks from
-        // this row's real data (mirrors ChatListAdapter's onBindViewHolder).
         h.isTypingNow = false;
         bindGroupRowContent(h, g);
-
-        // v24: live "typing..." indicator — attached/detached with this
-        // row's bind/recycle lifecycle, same pattern as ChatListAdapter's
-        // attachTypingListener/onViewRecycled, so it never leaks a listener
-        // onto a row that's since scrolled away and been rebound.
         attachTypingListener(h, g);
 
         h.itemView.setOnClickListener(v -> {
@@ -113,10 +103,6 @@ public class GroupAdapter extends RecyclerView.Adapter<GroupAdapter.VH> {
         });
     }
 
-    // Everything that renders when this row is NOT showing a live
-    // "typing..." state — last-message text + ticks. Split out so
-    // applyTypingRow(false) can redraw just this part once typing stops,
-    // same shape as ChatListAdapter#applySelectionVisuals.
     private void bindGroupRowContent(VH h, Group g) {
         Context ctx = h.itemView.getContext();
         String preview = ChatListPreviewUtil.buildPreview(g.lastMessageType, g.lastMessage, "Group ready");
@@ -124,9 +110,6 @@ public class GroupAdapter extends RecyclerView.Adapter<GroupAdapter.VH> {
         updateReadStatusTicks(h, g);
     }
 
-    // ── v24: Read-status ticks ───────────────────────────────────────────
-    // ✓ (sent, grey) / ✓✓ (delivered, grey) / ✓✓ (read, blue) — only shown
-    // when the CURRENT USER sent the group's last message, same rule as 1:1.
     private void updateReadStatusTicks(VH h, Group g) {
         boolean iAmLastSender = myUid != null && g.id != null
                 && myUid.equals(g.lastMessageSenderUid);
@@ -142,23 +125,11 @@ public class GroupAdapter extends RecyclerView.Adapter<GroupAdapter.VH> {
             h.lastMessageView.setTicks(ChatListLastMessageView.TICK_DELIVERED,
                     ctx.getResources().getColor(R.color.text_muted));
         } else {
-            // "sent" (or any other/unknown non-null status)
             h.lastMessageView.setTicks(ChatListLastMessageView.TICK_SENT,
                     ctx.getResources().getColor(R.color.text_muted));
         }
     }
 
-    // ── v24: Live "typing..." indicator ──────────────────────────────────
-    // Mirrors groups/{groupId}/typing/{uid} = displayName (the same node
-    // GroupChatActivity's own in-screen typing strip reads) — here we watch
-    // the whole node per-row so the GROUP LIST can also show "typing..." in
-    // place of the last message while one or more members are composing.
-    //
-    // PERF: attach/detach is tied to this row's bind/recycle lifecycle,
-    // exactly like ChatListAdapter's attachTypingListener/onViewRecycled —
-    // it only ever listens for rows currently on/near screen, and is
-    // detached the instant a row is recycled, so scrolling never
-    // accumulates orphaned listeners.
     private void attachTypingListener(VH h, Group g) {
         detachTypingListener(h);
         if (g.id == null) return;
@@ -168,13 +139,11 @@ public class GroupAdapter extends RecyclerView.Adapter<GroupAdapter.VH> {
                 int pos = h.getAdapterPosition();
                 if (pos == RecyclerView.NO_POSITION || pos >= groups.size()) return;
                 Group current = groups.get(pos);
-                // Row may have been recycled to a different group while this
-                // listener's callback was in flight — verify first.
                 if (current.id == null || !current.id.equals(g.id)) return;
 
                 List<String> names = new ArrayList<>();
                 for (DataSnapshot child : snap.getChildren()) {
-                    if (myUid != null && myUid.equals(child.getKey())) continue; // skip my own typing echo
+                    if (myUid != null && myUid.equals(child.getKey())) continue;
                     String name = child.getValue(String.class);
                     names.add(name != null && !name.isEmpty() ? name : "Someone");
                 }
@@ -208,20 +177,15 @@ public class GroupAdapter extends RecyclerView.Adapter<GroupAdapter.VH> {
             } else {
                 label = typingNames.get(0) + " +" + (n - 1) + " typing...";
             }
-            h.lastMessageView.setMessageText(label, 0xFF0F4C3A, true); // brand_primary, italic — matches typing strip in-chat
+            h.lastMessageView.setMessageText(label, 0xFF0F4C3A, true);
             h.lastMessageView.setTicks(ChatListLastMessageView.TICK_NONE, 0);
         } else {
-            // Typing stopped — redraw this row's normal state (last message
-            // text + ticks) without touching avatar/member-count/click listener.
             bindGroupRowContent(h, g);
         }
     }
 
     @Override public int getItemCount() { return groups.size(); }
 
-    // v24: detach the per-row typing listener the instant a row leaves the
-    // screen and goes back into the recycled pool — mirrors ChatListAdapter's
-    // onViewRecycled so scrolling never leaks listeners.
     @Override
     public void onViewRecycled(@NonNull VH h) {
         super.onViewRecycled(h);
@@ -229,26 +193,21 @@ public class GroupAdapter extends RecyclerView.Adapter<GroupAdapter.VH> {
     }
 
     static class VH extends RecyclerView.ViewHolder {
-        TextView tvName, tvMembers;
-        CircleImageView ivAvatar;
-
-        // v24: last-message text + read-receipt ticks + typing indicator,
-        // Canvas-rendered — replaces the old tv_group_last TextView (see
-        // ChatListLastMessageView for why).
+        // v82: name+members in one canvas view
+        ChatListNameTimeView  nameMembersView;
+        // v24: last-message + ticks — canvas
         ChatListLastMessageView lastMessageView;
-
-        // v24: live typing indicator — listener ref for detach-on-recycle,
-        // plus a flag so bindGroupRowContent() knows not to clobber the
-        // "typing..." text mid-payload-bind (mirrors ChatListAdapter.VH).
+        // unchanged
+        CircleImageView ivAvatar;
+        // typing listener
         DatabaseReference typingRef;
         ValueEventListener typingListener;
         boolean isTypingNow = false;
 
         VH(View v) {
             super(v);
-            tvName          = v.findViewById(R.id.tv_group_name);
+            nameMembersView = v.findViewById(R.id.view_group_name_members);
             lastMessageView = v.findViewById(R.id.view_group_last_message);
-            tvMembers       = v.findViewById(R.id.tv_group_members);
             ivAvatar        = v.findViewById(R.id.iv_group_avatar);
         }
     }

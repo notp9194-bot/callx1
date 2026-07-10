@@ -1,13 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.cardview.widget.CardView
-    xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
+<!--
+    item_group.xml — v82 canvas optimisation
+
+    WHAT CHANGED vs v24:
+      • CardView root        →  plain FrameLayout with bg_chat_row background
+        (cardElevation was already 0dp — no visual change; removes CardView's
+        extra measure/layout pass on every RecyclerView bind).
+      • tv_group_name (TextView)     →  left side of ChatListNameTimeView (canvas)
+      • tv_group_members (TextView)  →  right side of ChatListNameTimeView (canvas)
+      • ChatListLastMessageView — UNCHANGED (already canvas since v24).
+      • iv_group_avatar (CircleImageView) — UNCHANGED; Glide pipeline kept.
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:layout_marginBottom="6dp"
-    app:cardCornerRadius="16dp"
-    app:cardElevation="0dp"
-    app:cardBackgroundColor="@color/surface_card">
+    android:background="@drawable/bg_chat_row">
+
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -15,7 +24,7 @@
         android:padding="14dp"
         android:gravity="center_vertical">
 
-        <!-- Group avatar with fallback icon -->
+        <!-- Group avatar — Glide-loaded, pipeline unchanged -->
         <FrameLayout
             android:layout_width="50dp"
             android:layout_height="50dp">
@@ -27,35 +36,29 @@
                 android:background="@drawable/circle_primary"
                 android:padding="12dp"
                 app:civ_border_width="2dp"
-                app:civ_border_color="@color/brand_primary"/>
+                app:civ_border_color="@color/brand_primary"
+                xmlns:app="http://schemas.android.com/apk/res-auto"/>
         </FrameLayout>
 
+        <!-- Text column -->
         <LinearLayout
-            android:layout_width="0dp"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
             android:orientation="vertical"
             android:layout_marginStart="14dp">
-            <TextView
-                android:id="@+id/tv_group_name"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:textStyle="bold"
-                android:textColor="?android:attr/textColorPrimary"
-                android:textSize="16sp"/>
-            <!-- v24: last-message text + read-receipt ticks + live "typing..."
-                 indicator, Canvas-rendered — same ChatListLastMessageView used
-                 by the 1:1 chat list (see ChatListLastMessageView / GroupAdapter). -->
+
+            <!-- v82: group name (left bold) + members count (right muted) — one canvas view -->
+            <com.callx.app.chatlist.canvas.ChatListNameTimeView
+                android:id="@+id/view_group_name_members"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"/>
+
+            <!-- v24: last-message + ticks + typing — canvas (unchanged) -->
             <com.callx.app.chatlist.canvas.ChatListLastMessageView
                 android:id="@+id/view_group_last_message"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"/>
         </LinearLayout>
-        <TextView
-            android:id="@+id/tv_group_members"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:textColor="@color/text_muted"
-            android:textSize="11sp"/>
+
     </LinearLayout>
-</androidx.cardview.widget.CardView>
+</FrameLayout>

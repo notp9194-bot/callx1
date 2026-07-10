@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    bg_chat_row.xml — v82 canvas optimisation
+
+    Replaces CardView (cardCornerRadius=16dp, cardElevation=0dp,
+    cardBackgroundColor=@color/surface_card) with a plain GradientDrawable
+    background set directly on the FrameLayout root of item_chat.xml and
+    item_group.xml.
+
+    The CardView's elevation was already 0dp, so there is no shadow to lose.
+    Using a plain View + this background removes CardView's extra inflate,
+    measure, and layout pass on every RecyclerView bind.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/surface_card"/>
+    <corners android:radius="16dp"/>
+</shape>
