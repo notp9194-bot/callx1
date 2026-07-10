@@ -5,7 +5,6 @@ import android.os.Bundle;
 import android.view.*;
 import androidx.annotation.NonNull;
 import androidx.fragment.app.Fragment;
-import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import com.callx.app.chat.R;
@@ -49,7 +48,8 @@ public class GroupsFragment extends Fragment {
         RecyclerView rv = v.findViewById(R.id.rv_groups);
         emptyState = v.findViewById(R.id.empty_groups);
         rv.setLayoutManager(new LinearLayoutManager(getContext()));
-        adapter = new GroupAdapter(groups);
+        // v83: constructor no longer takes a list — submitList() is the write path
+        adapter = new GroupAdapter();
         rv.setAdapter(adapter);
 
         FloatingActionButton fab = v.findViewById(R.id.fab_new_group);
@@ -197,49 +197,15 @@ public class GroupsFragment extends Fragment {
     }
 
     /**
-     * PERF (same fix as ChatsFragment#diffUpdateContacts): replace brute-force
-     * notifyDataSetChanged() with DiffUtil so a Firebase update only rebinds the
-     * group rows that actually changed (renamed group, new last-message preview,
-     * new icon) instead of every visible row in the groups list.
+     * v83: DiffUtil logic moved into GroupAdapter.DIFF_CALLBACK + AsyncListDiffer.
+     * The diff now runs on a background thread (AsyncListDiffer default executor)
+     * so the main thread never blocks on calculateDiff(). Local `groups` list is
+     * kept as a working copy for Room-save and empty-state checks; the adapter's
+     * differ owns the authoritative display list.
      */
     private void diffUpdateGroups(List<Group> newList) {
-        final List<Group> oldList = new ArrayList<>(groups);
-        DiffUtil.DiffResult result = DiffUtil.calculateDiff(new DiffUtil.Callback() {
-            @Override public int getOldListSize() { return oldList.size(); }
-            @Override public int getNewListSize() { return newList.size(); }
-
-            @Override
-            public boolean areItemsTheSame(int oldPos, int newPos) {
-                Group a = oldList.get(oldPos), b = newList.get(newPos);
-                return a.id != null && a.id.equals(b.id);
-            }
-
-            @Override
-            public boolean areContentsTheSame(int oldPos, int newPos) {
-                Group a = oldList.get(oldPos), b = newList.get(newPos);
-                return safeEq(a.name, b.name)
-                    && safeEq(a.lastMessage, b.lastMessage)
-                    && safeEq(a.lastSenderName, b.lastSenderName)
-                    && safeEq(a.iconUrl, b.iconUrl)
-                    && longEq(a.lastMessageAt, b.lastMessageAt)
-                    // v24: ticks + media label depend on these too — without
-                    // them, a delivered→read tick flip (or a media-type
-                    // change) would be silently skipped by DiffUtil since
-                    // every OTHER field above stayed the same.
-                    && safeEq(a.lastMessageType, b.lastMessageType)
-                    && safeEq(a.lastMessageStatus, b.lastMessageStatus)
-                    && safeEq(a.lastMessageSenderUid, b.lastMessageSenderUid);
-            }
-
-            private boolean safeEq(String x, String y) {
-                return x == null ? y == null : x.equals(y);
-            }
-            private boolean longEq(Long x, Long y) {
-                return x == null ? y == null : x.equals(y);
-            }
-        });
         groups.clear();
         groups.addAll(newList);
-        if (adapter != null) result.dispatchUpdatesTo(adapter);
+        if (adapter != null) adapter.submitList(new ArrayList<>(groups));
     }
 }

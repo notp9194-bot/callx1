@@ -32,7 +32,6 @@ import de.hdodenhof.circleimageview.CircleImageView;
 import java.util.*;
 import java.util.concurrent.Executors;
 import com.callx.app.conversation.ChatActivity;
-import androidx.recyclerview.widget.DiffUtil;
 
 /**
  * ChatsFragment v21 — Delete / Delete-All System
@@ -76,7 +75,8 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         if (banner != null) banner.setVisibility(View.GONE);
 
         rv.setLayoutManager(new LinearLayoutManager(getContext()));
-        adapter = new ChatListAdapter(contacts, this);
+        // v83: constructor no longer takes a list — submitList() is the write path
+        adapter = new ChatListAdapter(this);
         rv.setAdapter(adapter);
 
         // PERF: v22 — keep more off-screen rows alive in the view cache so a
@@ -322,50 +322,17 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
     }
 
     /**
-     * FIX #5: Replace brute-force notifyDataSetChanged() with DiffUtil.
-     * notifyDataSetChanged() forces a full rebind of every visible row on every
-     * Firebase update — even if only one contact's lastMessage changed.
-     * DiffUtil computes the minimal change set (O(N) with UID comparison) and
-     * only rebinds the rows that actually changed. On a list of 50 contacts
-     * this cuts rebind work by ~90% per Firebase update.
+     * v83: DiffUtil logic moved into ChatListAdapter.DIFF_CALLBACK + AsyncListDiffer.
+     * The diff now runs on a background thread (AsyncListDiffer default executor)
+     * so the main thread never blocks on calculateDiff(), no matter how large the
+     * list grows. This method keeps its signature so all existing call-sites
+     * compile without change — it just updates the local working copy and hands
+     * the new list to the adapter's differ.
      */
     private void diffUpdateContacts(List<User> newList) {
-        final List<User> oldList = new ArrayList<>(contacts);
-        DiffUtil.DiffResult result = DiffUtil.calculateDiff(new DiffUtil.Callback() {
-            @Override public int getOldListSize() { return oldList.size(); }
-            @Override public int getNewListSize() { return newList.size(); }
-
-            @Override
-            public boolean areItemsTheSame(int oldPos, int newPos) {
-                User a = oldList.get(oldPos), b = newList.get(newPos);
-                return a.uid != null && a.uid.equals(b.uid);
-            }
-
-            @Override
-            public boolean areContentsTheSame(int oldPos, int newPos) {
-                User a = oldList.get(oldPos), b = newList.get(newPos);
-                // Compare fields that drive the chat row UI
-                return safeEq(a.name, b.name)
-                    && safeEq(a.lastMessage, b.lastMessage)
-                    && safeEq(a.photoUrl, b.photoUrl)
-                    && safeEq(a.thumbUrl, b.thumbUrl)
-                    && longEq(a.lastMessageAt, b.lastMessageAt)
-                    && longEq(a.unread, b.unread)
-                    && safeEq(a.lastMessageType, b.lastMessageType)
-                    && safeEq(a.lastMessageStatus, b.lastMessageStatus)
-                    && safeEq(a.lastMessageSenderUid, b.lastMessageSenderUid);
-            }
-
-            private boolean safeEq(String x, String y) {
-                return x == null ? y == null : x.equals(y);
-            }
-            private boolean longEq(Long x, Long y) {
-                return x == null ? y == null : x.equals(y);
-            }
-        });
         contacts.clear();
         contacts.addAll(newList);
-        if (adapter != null) result.dispatchUpdatesTo(adapter);
+        if (adapter != null) adapter.submitList(new ArrayList<>(contacts));
     }
 
     // ── SelectionListener callbacks ─────────────────────────────────────────
