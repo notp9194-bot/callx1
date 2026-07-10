@@ -8,6 +8,8 @@ import androidx.recyclerview.widget.AsyncListDiffer;
 import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.RecyclerView;
 import com.bumptech.glide.Glide;
+import com.bumptech.glide.load.DecodeFormat;
+import com.bumptech.glide.load.engine.DiskCacheStrategy;
 import com.bumptech.glide.request.RequestOptions;
 import com.callx.app.chat.R;
 import com.callx.app.chatlist.canvas.ChatListLastMessageView;
@@ -131,12 +133,16 @@ public class GroupAdapter extends RecyclerView.Adapter<GroupAdapter.VH> {
         int n = g.members != null ? g.members.size() : 0;
         h.nameMembersView.setTime(n + " members");
 
-        // Avatar — Glide unchanged
+        // v85: Avatar — RGB_565 + exact size override + RESOURCE disk cache
         if (h.ivAvatar != null) {
             if (g.iconUrl != null && !g.iconUrl.isEmpty()) {
+                int px = Math.round(50f * ctx.getResources().getDisplayMetrics().density);
                 Glide.with(ctx)
                         .load(g.iconUrl)
                         .dontAnimate()
+                        .override(px, px)
+                        .format(DecodeFormat.PREFER_RGB_565)
+                        .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
                         .apply(RequestOptions.circleCropTransform())
                         .placeholder(R.drawable.ic_group)
                         .error(R.drawable.ic_group)

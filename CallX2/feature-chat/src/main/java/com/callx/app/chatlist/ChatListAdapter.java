@@ -9,6 +9,8 @@ import androidx.recyclerview.widget.AsyncListDiffer;
 import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.RecyclerView;
 import com.bumptech.glide.Glide;
+import com.bumptech.glide.load.DecodeFormat;
+import com.bumptech.glide.load.engine.DiskCacheStrategy;
 import com.bumptech.glide.request.RequestOptions;
 import com.callx.app.chat.R;
 
@@ -30,7 +32,6 @@ import com.google.firebase.database.DatabaseError;
 import com.google.firebase.database.DatabaseReference;
 import com.google.firebase.database.ValueEventListener;
 
-import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -155,7 +156,6 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
     @Deprecated
     private OnLongPressListener longPressListener;
 
-    private final SimpleDateFormat fmt = new SimpleDateFormat("hh:mm a", Locale.getDefault());
     private Set<String> specialRequestSenders = new HashSet<>();
 
     private final String myUid = FirebaseAuth.getInstance().getUid();
@@ -169,6 +169,14 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
     public ChatListAdapter(SelectionListener listener) {
         this.selectionListener = listener;
         setHasStableIds(true);
+    }
+
+    // v85: resolve avatar decode size lazily from context (50dp avatar)
+    private static int sAvatarSizePx = 0;
+    private static int getAvatarSizePx(Context ctx) {
+        if (sAvatarSizePx == 0)
+            sAvatarSizePx = Math.round(50f * ctx.getResources().getDisplayMetrics().density);
+        return sAvatarSizePx;
     }
 
     @Override
@@ -221,15 +229,22 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         h.nameTimeView.setName(u.name == null ? "User" : u.name);
 
         Long when = u.lastMessageAt != null ? u.lastMessageAt : u.lastSeen;
-        h.nameTimeView.setTime((when != null && when > 0) ? fmt.format(new Date(when)) : "");
+        // v85: ChatListTimeCache — LruCache keyed by minute, avoids SimpleDateFormat per bind
+        h.nameTimeView.setTime((when != null && when > 0)
+                ? ChatListTimeCache.getFormatted(when) : "");
 
-        // Avatar — Glide unchanged
+        // v85: Avatar — RGB_565 (50% less GPU memory) + exact size override (no main-thread
+        // scaling) + RESOURCE disk cache (stores already-scaled+circle-cropped bitmap)
         String avatarUrl = (u.thumbUrl != null && !u.thumbUrl.isEmpty())
                 ? u.thumbUrl : u.photoUrl;
+        int avatarPx = getAvatarSizePx(ctx);
         if (avatarUrl != null && !avatarUrl.isEmpty()) {
             Glide.with(ctx)
                     .load(avatarUrl)
                     .dontAnimate()
+                    .override(avatarPx, avatarPx)
+                    .format(DecodeFormat.PREFER_RGB_565)
+                    .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
                     .apply(RequestOptions.circleCropTransform())
                     .placeholder(R.drawable.ic_person)
                     .error(R.drawable.ic_person)
@@ -237,6 +252,8 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         } else {
             h.ivAvatar.setImageResource(R.drawable.ic_person);
         }
+        // v85: pre-warm Glide decode for next contact so it's ready before the row scrolls in
+        preloadAdjacentAvatar(ctx, list, pos);
 
         StatusCacheManager scm = StatusCacheManager.getInstance(ctx);
         boolean hasStory = u.uid != null && (scm.hasUnseen(u.uid) || scm.hasStatus(u.uid));
@@ -366,6 +383,28 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         if (h.callButtonsView != null) {
             h.callButtonsView.setVisibility(isSelecting ? View.GONE : View.VISIBLE);
         }
+    }
+
+    /**
+     * v85: Pre-warm Glide decode for the next contact's avatar so it is already
+     * in memory/disk-cache before that row scrolls into view. Only fires for
+     * pos+1 (one step ahead) and is a no-op if the URL is null/empty.
+     */
+    private void preloadAdjacentAvatar(Context ctx, List<User> list, int pos) {
+        int next = pos + 1;
+        if (next >= list.size()) return;
+        User adj = list.get(next);
+        String url = (adj.thumbUrl != null && !adj.thumbUrl.isEmpty())
+                ? adj.thumbUrl : adj.photoUrl;
+        if (url == null || url.isEmpty()) return;
+        int px = getAvatarSizePx(ctx);
+        Glide.with(ctx)
+                .load(url)
+                .override(px, px)
+                .format(DecodeFormat.PREFER_RGB_565)
+                .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
+                .apply(RequestOptions.circleCropTransform())
+                .preload(px, px);
     }
 
     private void updateReadStatusTicks(VH h, User u, boolean isSelecting, boolean isSpecial) {

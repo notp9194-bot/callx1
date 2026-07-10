@@ -101,13 +101,14 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         // Pause Glide bitmap decoding during fast flings (resume on idle/drag).
         rv.addOnScrollListener(new GlideScrollListener(requireContext()));
 
-        // Drop change-animations: PAYLOAD_* rebinds (typing, tick, unread)
-        // fire frequently and the default fade/flash is pure overhead for
-        // in-place text/icon swaps.
-        if (rv.getItemAnimator() instanceof androidx.recyclerview.widget.SimpleItemAnimator) {
-            ((androidx.recyclerview.widget.SimpleItemAnimator) rv.getItemAnimator())
-                    .setSupportsChangeAnimations(false);
-        }
+        // v85: null ItemAnimator — removes DefaultItemAnimator entirely.
+        // SimpleItemAnimator.setSupportsChangeAnimations(false) still keeps the
+        // animator object alive and checks on every update. Null skips all of it.
+        rv.setItemAnimator(null);
+
+        // Reduce unnecessary clipping work on every scroll frame
+        rv.setClipToPadding(false);
+        rv.setClipChildren(false);
 
         // Avatar click → contact bottom sheet (same as Calls tab)
         adapter.setOnAvatarClickListener(u -> showContactBottomSheet(u));

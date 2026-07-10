@@ -66,11 +66,10 @@ public class GroupsFragment extends Fragment {
         rv.setRecycledViewPool(pool);
         // Pause Glide during fast flings
         rv.addOnScrollListener(new com.callx.app.chatlist.GlideScrollListener(requireContext()));
-        // Drop change-animations for in-place rebinds
-        if (rv.getItemAnimator() instanceof androidx.recyclerview.widget.SimpleItemAnimator) {
-            ((androidx.recyclerview.widget.SimpleItemAnimator) rv.getItemAnimator())
-                    .setSupportsChangeAnimations(false);
-        }
+        // v85: null ItemAnimator — removes all animation overhead
+        rv.setItemAnimator(null);
+        rv.setClipToPadding(false);
+        rv.setClipChildren(false);
 
         FloatingActionButton fab = v.findViewById(R.id.fab_new_group);
         if (fab != null)
