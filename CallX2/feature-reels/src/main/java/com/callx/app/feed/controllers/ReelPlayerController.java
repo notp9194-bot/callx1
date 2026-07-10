@@ -79,6 +79,15 @@ public class ReelPlayerController {
     private boolean    isMuted    = false;
     private int        speedIndex = 1;
 
+    // ── Photo-mode background music ─────────────────────────────────────────
+    // Photo slideshow reels have no video ExoPlayer at all (see startPlayback()
+    // below), so any musicUrl attached at creation time (ReelUploadActivity →
+    // MusicPickerActivity) previously just sat unused in the model. This is a
+    // second, audio-only ExoPlayer dedicated to that track, started/stopped in
+    // lockstep with the photo slideshow and sharing the same mute button/state.
+    private ExoPlayer  musicPlayer;
+    private String     loadedMusicUrl;
+
     // ── ABR state ─────────────────────────────────────────────────────────────
     private AdaptiveStreamingManager.QualityCap currentCap    = AdaptiveStreamingManager.QualityCap.AUTO;
     private int                                 stallCount     = 0;
@@ -370,6 +379,7 @@ public class ReelPlayerController {
             ivThumb.setVisibility(View.GONE);
             delegate.startPhotoSlideshow();
             delegate.startDiscAnimation();
+            startPhotoModeMusic(reel);
             return;
         }
 
@@ -389,7 +399,10 @@ public class ReelPlayerController {
     }
 
     public void pausePlayback() {
-        if (delegate.isPhotoMode()) delegate.stopPhotoSlideshow();
+        if (delegate.isPhotoMode()) {
+            delegate.stopPhotoSlideshow();
+            pausePhotoModeMusic();
+        }
         if (player != null) player.pause();
         stopProgressTracking();
         delegate.stopDiscAnimation();
@@ -403,9 +416,49 @@ public class ReelPlayerController {
         showPlayPauseIndicator(!nowPausing);
     }
 
+    // ── Photo-mode background music ─────────────────────────────────────────
+
+    /**
+     * Starts (or resumes) the reel's attached song for a photo slideshow.
+     * No-op if the reel has no musicUrl. Loops the track (REPEAT_MODE_ONE)
+     * since a song is almost always longer/shorter than the photo slideshow's
+     * total duration; seeks to musicStartSec (the in/out point chosen at
+     * creation time in ReelUploadActivity) on first load only.
+     */
+    private void startPhotoModeMusic(ReelModel reel) {
+        if (reel.musicUrl == null || reel.musicUrl.isEmpty() || delegate.getContext() == null) return;
+
+        if (musicPlayer == null) {
+            musicPlayer = new ExoPlayer.Builder(delegate.getContext()).build();
+            musicPlayer.setRepeatMode(Player.REPEAT_MODE_ONE);
+        }
+        if (!reel.musicUrl.equals(loadedMusicUrl)) {
+            musicPlayer.setMediaItem(MediaItem.fromUri(reel.musicUrl));
+            musicPlayer.prepare();
+            if (reel.musicStartSec > 0) musicPlayer.seekTo(reel.musicStartSec * 1000L);
+            loadedMusicUrl = reel.musicUrl;
+        }
+        musicPlayer.setVolume(isMuted ? 0f : 1f);
+        musicPlayer.setPlayWhenReady(true);
+    }
+
+    private void pausePhotoModeMusic() {
+        if (musicPlayer != null) musicPlayer.setPlayWhenReady(false);
+    }
+
+    private void releasePhotoModeMusic() {
+        if (musicPlayer != null) {
+            try { musicPlayer.stop(); } catch (Exception ignored) {}
+            try { musicPlayer.release(); } catch (Exception ignored) {}
+            musicPlayer = null;
+        }
+        loadedMusicUrl = null;
+    }
+
     public void toggleMute() {
         isMuted = !isMuted;
         if (player != null) player.setVolume(isMuted ? 0f : 1f);
+        if (musicPlayer != null) musicPlayer.setVolume(isMuted ? 0f : 1f);
         if (btnMute != null) btnMute.setImageResource(
             isMuted ? R.drawable.ic_volume_off : R.drawable.ic_volume_on);
     }
@@ -554,6 +607,7 @@ public class ReelPlayerController {
             try { player.release(); } catch (Exception ignored) {}
             player = null;
         }
+        releasePhotoModeMusic();
         // v5: Detach ABR engine session before player release
         if (abrEngine != null && abrSession != null) {
             abrEngine.detach(abrSession);
