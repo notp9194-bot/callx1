@@ -50,7 +50,8 @@ public class ChatListLastMessageView extends View {
     private static final float TICK_SIZE_DP = 12f;
     private static final float TICK_GAP_DP  = 4f;
 
-    private final TextPaint textPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    private final TextPaint textPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG
+            | Paint.SUBPIXEL_TEXT_FLAG | Paint.LINEAR_TEXT_FLAG);
     private final Paint     tickPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
 
     private final float tickSizePx;

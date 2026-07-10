@@ -101,12 +101,15 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         // Pause Glide bitmap decoding during fast flings (resume on idle/drag).
         rv.addOnScrollListener(new GlideScrollListener(requireContext()));
 
-        // v85: null ItemAnimator — removes DefaultItemAnimator entirely.
-        // SimpleItemAnimator.setSupportsChangeAnimations(false) still keeps the
-        // animator object alive and checks on every update. Null skips all of it.
+        // v85+: null ItemAnimator — removes all animation overhead
         rv.setItemAnimator(null);
 
-        // Reduce unnecessary clipping work on every scroll frame
+        // v86: disable over-scroll edge glow (eliminates EdgeEffect draw on every overscroll)
+        rv.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        // Avoid nested-scroll event propagation overhead (RV is top-level scrollable)
+        rv.setNestedScrollingEnabled(false);
+
+        // Reduce clipping work on every scroll frame
         rv.setClipToPadding(false);
         rv.setClipChildren(false);
 

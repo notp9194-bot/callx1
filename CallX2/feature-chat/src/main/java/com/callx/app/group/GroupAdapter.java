@@ -81,6 +81,27 @@ public class GroupAdapter extends RecyclerView.Adapter<GroupAdapter.VH> {
             int cb = b.members != null ? b.members.size() : 0;
             return ca == cb;
         }
+
+        /**
+         * v86: Bitmask payload — only the changed field redraws.
+         *  0x01 IDENTITY: name, icon
+         *  0x02 LAST_MSG: lastMessage, senderName, type, status, senderUid
+         *  0x04 TIME    : lastMessageAt
+         *  0x08 MEMBERS : member count
+         */
+        @Override
+        public Object getChangePayload(@NonNull Group a, @NonNull Group b) {
+            int flags = 0;
+            if (!safeEq(a.name, b.name) || !safeEq(a.iconUrl, b.iconUrl)) flags |= 0x01;
+            if (!safeEq(a.lastMessage, b.lastMessage)
+                    || !safeEq(a.lastSenderName, b.lastSenderName)
+                    || !safeEq(a.lastMessageType, b.lastMessageType)
+                    || !safeEq(a.lastMessageStatus, b.lastMessageStatus)
+                    || !safeEq(a.lastMessageSenderUid, b.lastMessageSenderUid)) flags |= 0x02;
+            if (!longEq(a.lastMessageAt, b.lastMessageAt))  flags |= 0x04;
+            if (!memberCountEq(a, b))                       flags |= 0x08;
+            return flags == 0 ? null : flags;
+        }
     };
 
     // ── v83: AsyncListDiffer ──────────────────────────────────────────────────

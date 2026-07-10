@@ -66,8 +66,11 @@ public class GroupsFragment extends Fragment {
         rv.setRecycledViewPool(pool);
         // Pause Glide during fast flings
         rv.addOnScrollListener(new com.callx.app.chatlist.GlideScrollListener(requireContext()));
-        // v85: null ItemAnimator — removes all animation overhead
+        // v85+: null ItemAnimator
         rv.setItemAnimator(null);
+        // v86: disable edge glow + nested scroll overhead
+        rv.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        rv.setNestedScrollingEnabled(false);
         rv.setClipToPadding(false);
         rv.setClipChildren(false);
 

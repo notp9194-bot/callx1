@@ -61,23 +61,27 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
 
+    // ── v86: Partial-bind payload flags ──────────────────────────────────────
+    // getChangePayload() returns an Integer bitmask of what changed.
+    // onBindViewHolder(payloads) checks the flags and only redraws the canvas
+    // views that actually need updating — e.g. a delivered→read tick flip only
+    // redraws ChatListLastMessageView, not the name/time/badge/avatar views.
+    static final int CHANGE_IDENTITY = 0x01; // name, photo, thumbUrl
+    static final int CHANGE_LAST_MSG = 0x02; // lastMessage, type, status, senderUid
+    static final int CHANGE_UNREAD   = 0x04; // unread count
+    static final int CHANGE_TIME     = 0x08; // lastMessageAt timestamp
+
     // ── v83: DiffUtil.ItemCallback ────────────────────────────────────────────
-    // Static constant — one allocation for the lifetime of the process.
-    // areContentsTheSame covers every field that onBindViewHolder reads so a
-    // changed field always triggers a rebind of only that row.
     public static final DiffUtil.ItemCallback<User> DIFF_CALLBACK =
             new DiffUtil.ItemCallback<User>() {
 
         @Override
         public boolean areItemsTheSame(@NonNull User a, @NonNull User b) {
-            // Identity: same contact ↔ same UID
             return a.uid != null && a.uid.equals(b.uid);
         }
 
         @Override
         public boolean areContentsTheSame(@NonNull User a, @NonNull User b) {
-            // Content: compare every field the row renders so a real change
-            // triggers a rebind and a no-op update does NOT.
             return safeEq(a.name, b.name)
                 && safeEq(a.photoUrl, b.photoUrl)
                 && safeEq(a.thumbUrl, b.thumbUrl)
@@ -89,12 +93,28 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
                 && longEq(a.unread, b.unread);
         }
 
-        private boolean safeEq(String x, String y) {
-            return x == null ? y == null : x.equals(y);
+        /**
+         * v86: Return a bitmask of WHICH fields changed so onBindViewHolder
+         * can do a surgical partial redraw instead of a full row rebind.
+         * A tick flip (sent→delivered) sets CHANGE_LAST_MSG only — the
+         * name/time/badge/avatar canvas views do zero work.
+         */
+        @Override
+        public Object getChangePayload(@NonNull User a, @NonNull User b) {
+            int flags = 0;
+            if (!safeEq(a.name, b.name) || !safeEq(a.photoUrl, b.photoUrl)
+                    || !safeEq(a.thumbUrl, b.thumbUrl))          flags |= CHANGE_IDENTITY;
+            if (!safeEq(a.lastMessage, b.lastMessage)
+                    || !safeEq(a.lastMessageType, b.lastMessageType)
+                    || !safeEq(a.lastMessageStatus, b.lastMessageStatus)
+                    || !safeEq(a.lastMessageSenderUid, b.lastMessageSenderUid)) flags |= CHANGE_LAST_MSG;
+            if (!longEq(a.unread, b.unread))                     flags |= CHANGE_UNREAD;
+            if (!longEq(a.lastMessageAt, b.lastMessageAt))       flags |= CHANGE_TIME;
+            return flags == 0 ? null : flags;
         }
-        private boolean longEq(Long x, Long y) {
-            return x == null ? y == null : x.equals(y);
-        }
+
+        private boolean safeEq(String x, String y) { return x == null ? y == null : x.equals(y); }
+        private boolean longEq(Long x, Long y)      { return x == null ? y == null : x.equals(y); }
     };
 
     // ── v83: AsyncListDiffer — owns the list, runs diff on a bg thread ────────
@@ -208,14 +228,55 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         return new VH(v);
     }
 
+    /**
+     * v86 PARTIAL BIND — surgical canvas update instead of full row rebind.
+     *
+     * getChangePayload() returns an Integer bitmask of what actually changed.
+     * Here we use those flags to update ONLY the canvas view(s) that need it:
+     *
+     *  • CHANGE_TIME only  → 1 drawText call in ChatListNameTimeView
+     *  • CHANGE_LAST_MSG or CHANGE_UNREAD → applySelectionVisuals() updates
+     *      badge + lastMsg + ticks + story ring  (3-4 views, not 6)
+     *  • CHANGE_IDENTITY   → full bind (avatar reload can't be done safely
+     *      without re-attaching click listeners — rare event, acceptable cost)
+     *
+     * Telegram's tick flip (sent→delivered→read on Firebase update) hits only
+     * CHANGE_LAST_MSG → this method redraws ChatListLastMessageView only.
+     * Name/time/avatar/badge do ZERO work.
+     */
     @Override
     public void onBindViewHolder(@NonNull VH h, int pos, @NonNull List<Object> payloads) {
-        if (!payloads.isEmpty() && payloads.contains(PAYLOAD_SELECTION)) {
-            User u = differ.getCurrentList().get(pos);
-            applySelectionVisuals(h, u);
+        if (payloads.isEmpty()) { onBindViewHolder(h, pos); return; }
+
+        // Selection mode is always a full applySelectionVisuals pass
+        if (payloads.contains(PAYLOAD_SELECTION)) {
+            applySelectionVisuals(h, differ.getCurrentList().get(pos));
             return;
         }
-        super.onBindViewHolder(h, pos, payloads);
+
+        // Accumulate bitmask (multiple payloads can arrive batched by DiffUtil)
+        int flags = 0;
+        for (Object p : payloads) {
+            if (p instanceof Integer) flags |= (Integer) p;
+        }
+        if (flags == 0) { onBindViewHolder(h, pos); return; } // unknown payload — full bind
+
+        // Identity change (name/photo) → needs avatar + listener re-bind → full bind
+        if ((flags & CHANGE_IDENTITY) != 0) { onBindViewHolder(h, pos); return; }
+
+        User u = differ.getCurrentList().get(pos);
+
+        if ((flags & CHANGE_TIME) != 0) {
+            Long when = u.lastMessageAt != null ? u.lastMessageAt : u.lastSeen;
+            h.nameTimeView.setTime((when != null && when > 0)
+                    ? ChatListTimeCache.getFormatted(when) : "");
+        }
+        if ((flags & (CHANGE_LAST_MSG | CHANGE_UNREAD)) != 0) {
+            // applySelectionVisuals: badge + lastMsg text + ticks + story ring
+            // Skips name, time, avatar — exactly what we need for tick flips
+            // and new-message unread increments
+            applySelectionVisuals(h, u);
+        }
     }
 
     @Override

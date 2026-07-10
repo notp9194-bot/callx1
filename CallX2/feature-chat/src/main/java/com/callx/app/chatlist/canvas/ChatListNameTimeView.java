@@ -73,10 +73,15 @@ public class ChatListNameTimeView extends View {
         namePaint.setTextSize(NAME_SIZE_SP * sp);
         namePaint.setTypeface(Typeface.DEFAULT_BOLD);
         namePaint.setColor(0xFF0F172A);
+        // v86: sub-pixel + linear text — faster GPU rasterization on hardware canvas
+        namePaint.setSubpixelText(true);
+        namePaint.setLinearText(true);
 
         timePaint.setTextSize(TIME_SIZE_SP * sp);
         timePaint.setTypeface(Typeface.DEFAULT);
         timePaint.setColor(0xFF94A3B8);
+        timePaint.setSubpixelText(true);
+        timePaint.setLinearText(true);
 
         // Cache FontMetrics once — avoids allocation on every measure/draw
         fmName = namePaint.getFontMetrics();
