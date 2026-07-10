@@ -162,6 +162,8 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
             h.ivAvatar.setImageResource(R.drawable.ic_person);
         }
 
+        bindPresenceAndMute(h, u);
+
         // ── Story ring ──────────────────────────────────────────────────────
         StatusCacheManager scm = StatusCacheManager.getInstance(ctx);
         boolean hasStory = u.uid != null && (scm.hasUnseen(u.uid) || scm.hasStatus(u.uid));
@@ -398,12 +400,88 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
 
     @Override public int getItemCount() { return contacts.size(); }
 
+    // ── Live presence/mute (per-row, not part of the DiffUtil content model) ───
+    //
+    // Attached in onBindViewHolder, detached in onViewRecycled. Only rows
+    // actually on screen ever hold a listener — RecyclerView recycling takes
+    // care of the rest, so this scales to any list length without extra work
+    // here (unlike a naive "listen to all N contacts up front" approach).
+
+    private void bindPresenceAndMute(VH h, User u) {
+        detachPresenceAndMute(h);
+        if (u.uid == null || u.uid.isEmpty()) return;
+        String myUid = FirebaseAuth.getInstance().getUid();
+        if (myUid == null) return;
+        final String uid = u.uid;
+        h.boundUidForPresence = uid;
+
+        h.presenceRef = FirebaseUtils.getUserRef(uid).child("online");
+        h.presenceListener = h.presenceRef.addValueEventListener(
+            new com.google.firebase.database.ValueEventListener() {
+                @Override public void onDataChange(com.google.firebase.database.DataSnapshot s) {
+                    // Guard against a listener firing after this row was recycled
+                    // and rebound to a different user (async Firebase callback).
+                    if (!uid.equals(h.boundUidForPresence) || h.vOnlineDot == null) return;
+                    boolean online = Boolean.TRUE.equals(s.getValue(Boolean.class));
+                    h.vOnlineDot.setVisibility(online ? View.VISIBLE : View.GONE);
+                }
+                @Override public void onCancelled(com.google.firebase.database.DatabaseError e) {}
+            });
+
+        h.muteRef = FirebaseUtils.db().getReference("muted").child(myUid).child(uid);
+        h.muteListener = h.muteRef.addValueEventListener(
+            new com.google.firebase.database.ValueEventListener() {
+                @Override public void onDataChange(com.google.firebase.database.DataSnapshot s) {
+                    if (!uid.equals(h.boundUidForPresence) || h.ivMuteIcon == null) return;
+                    boolean muted = Boolean.TRUE.equals(s.getValue(Boolean.class));
+                    h.ivMuteIcon.setVisibility(muted ? View.VISIBLE : View.GONE);
+                }
+                @Override public void onCancelled(com.google.firebase.database.DatabaseError e) {}
+            });
+    }
+
+    private void detachPresenceAndMute(VH h) {
+        if (h.presenceRef != null && h.presenceListener != null) {
+            h.presenceRef.removeEventListener(h.presenceListener);
+        }
+        if (h.muteRef != null && h.muteListener != null) {
+            h.muteRef.removeEventListener(h.muteListener);
+        }
+        h.presenceRef = null; h.presenceListener = null;
+        h.muteRef = null; h.muteListener = null;
+        h.boundUidForPresence = null;
+        if (h.vOnlineDot != null) h.vOnlineDot.setVisibility(View.GONE);
+        if (h.ivMuteIcon != null) h.ivMuteIcon.setVisibility(View.GONE);
+    }
+
+    @Override
+    public void onViewRecycled(@NonNull VH h) {
+        super.onViewRecycled(h);
+        detachPresenceAndMute(h);
+    }
+
     static class VH extends RecyclerView.ViewHolder {
         TextView tvName, tvLastMessage, tvTime, tvUnread;
         CircleImageView ivAvatar;
         android.widget.ImageView ivStoryRing, ivCheck;
         View flSelectOverlay, vCheckRing, llCallBtns;
         ImageButton btnCall, btnVideoCall;
+        View vOnlineDot;
+        android.widget.ImageView ivMuteIcon;
+
+        // ── Live per-row presence/mute state ────────────────────────────────
+        // Bound in onBindViewHolder, detached in the adapter's onViewRecycled().
+        // Deliberately NOT routed through notifyItemChanged()/DiffUtil — these
+        // flip a single small View's visibility directly from the Firebase
+        // callback, so a presence/mute change never triggers a list rebind,
+        // never re-runs Glide/StaticLayout work for the row, and only ever
+        // costs anything for the ~10-15 rows actually on screen (listeners are
+        // torn down the moment a row recycles off-screen).
+        String boundUidForPresence;
+        com.google.firebase.database.DatabaseReference presenceRef;
+        com.google.firebase.database.ValueEventListener presenceListener;
+        com.google.firebase.database.DatabaseReference muteRef;
+        com.google.firebase.database.ValueEventListener muteListener;
 
         VH(View v) {
             super(v);
@@ -419,6 +497,8 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
             llCallBtns      = v.findViewById(R.id.ll_call_btns);
             btnCall         = v.findViewById(R.id.btn_call);
             btnVideoCall    = v.findViewById(R.id.btn_video_call);
+            vOnlineDot      = v.findViewById(R.id.v_online_dot);
+            ivMuteIcon      = v.findViewById(R.id.iv_mute_icon);
         }
     }
 }
