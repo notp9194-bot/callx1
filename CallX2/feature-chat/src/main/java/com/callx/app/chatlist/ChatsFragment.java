@@ -79,6 +79,19 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         adapter = new ChatListAdapter(contacts, this);
         rv.setAdapter(adapter);
 
+        // PERF: v22 — keep more off-screen rows alive in the view cache so a
+        // small back-and-forth scroll doesn't keep tearing down and rebuilding
+        // rows (which now also re-attaches a typing listener + reloads Glide).
+        // Also drop change-animations: notifyItemChanged(PAYLOAD_*) fires
+        // often now (typing on/off, tick updates) and the fade/flash default
+        // animation on every one of those was pure overhead for what's just
+        // an in-place text/icon swap.
+        rv.setItemViewCacheSize(12);
+        if (rv.getItemAnimator() instanceof androidx.recyclerview.widget.SimpleItemAnimator) {
+            ((androidx.recyclerview.widget.SimpleItemAnimator) rv.getItemAnimator())
+                    .setSupportsChangeAnimations(false);
+        }
+
         // Avatar click → contact bottom sheet (same as Calls tab)
         adapter.setOnAvatarClickListener(u -> showContactBottomSheet(u));
 
@@ -129,6 +142,11 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
                 u.thumbUrl = e.partnerThumb;
                 u.lastMessageAt = e.lastMessageAt;
                 u.unread   = e.unread;
+                u.lastMessage           = e.lastMessage;
+                u.lastMessageType       = e.lastMessageType;
+                u.lastMessageStatus     = e.lastMessageStatus;
+                u.lastMessageSenderUid  = e.lastMessageSenderUid;
+                u.lastMessageId         = e.lastMessageId;
                 roomUsers.add(u);
             }
 
@@ -178,8 +196,13 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
                         entity.partnerName  = u.name;
                         entity.partnerPhoto = u.photoUrl;
                         entity.partnerThumb = u.thumbUrl;
+                        entity.lastMessage  = u.lastMessage;
                         entity.lastMessageAt = u.lastMessageAt;
                         entity.unread       = u.unread;
+                        entity.lastMessageType      = u.lastMessageType;
+                        entity.lastMessageStatus    = u.lastMessageStatus;
+                        entity.lastMessageSenderUid = u.lastMessageSenderUid;
+                        entity.lastMessageId        = u.lastMessageId;
                         entity.syncedAt     = System.currentTimeMillis();
                         toSave.add(entity);
                     }
@@ -327,7 +350,10 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
                     && safeEq(a.photoUrl, b.photoUrl)
                     && safeEq(a.thumbUrl, b.thumbUrl)
                     && longEq(a.lastMessageAt, b.lastMessageAt)
-                    && longEq(a.unread, b.unread);
+                    && longEq(a.unread, b.unread)
+                    && safeEq(a.lastMessageType, b.lastMessageType)
+                    && safeEq(a.lastMessageStatus, b.lastMessageStatus)
+                    && safeEq(a.lastMessageSenderUid, b.lastMessageSenderUid);
             }
 
             private boolean safeEq(String x, String y) {

@@ -104,15 +104,6 @@ public class ReelPhotoSlideshowController {
         // Adapter
         ReelPhotoSlideshowAdapter adapter = new ReelPhotoSlideshowAdapter(reel);
         adapter.setGlobalFilter(reel.photoFilter != null ? reel.photoFilter : "normal");
-        adapter.setPhotoInteractionListener(new ReelPhotoSlideshowAdapter.PhotoInteractionListener() {
-            @Override public void onLongPressStateChanged(boolean isPaused) { /* handled by existing pause logic */ }
-            @Override public void onPhotoSwipedByUser(int newIndex)         { /* handled by existing swipe logic */ }
-            @Override public void onAutoAdvanceTick(int fromIndex)          { /* handled by existing auto-advance timer */ }
-            @Override public void onDoubleTapLike() {
-                if (!delegate.isLiked()) delegate.toggleLike();
-                delegate.showLikeAnimation();
-            }
-        });
         vpPhotos.setAdapter(adapter);
 
         // Transition

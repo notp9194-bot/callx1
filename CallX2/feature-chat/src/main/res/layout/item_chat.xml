@@ -43,19 +43,6 @@
                     android:focusable="true"
                     android:visibility="gone"/>
 
-                <!-- Online-status dot — bound/unbound live via a per-row Firebase
-                     listener scoped to the ViewHolder (see ChatListAdapter), NOT
-                     via notifyItemChanged/DiffUtil, so a presence flip never
-                     triggers a list rebind or touches scroll performance. -->
-                <View
-                    android:id="@+id/v_online_dot"
-                    android:layout_width="14dp"
-                    android:layout_height="14dp"
-                    android:layout_gravity="bottom|end"
-                    android:layout_marginEnd="1dp"
-                    android:background="@drawable/circle_online_dot"
-                    android:visibility="gone"/>
-
                 <!-- Selection checkmark overlay (visible only in selection mode) -->
                 <FrameLayout
                     android:id="@+id/fl_select_overlay"
@@ -102,15 +89,36 @@
                     android:textColor="?android:attr/textColorPrimary"
                     android:textSize="16sp"/>
 
-                <TextView
-                    android:id="@+id/tv_last_message"
+                <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:textColor="@color/text_secondary"
-                    android:textSize="14sp"
-                    android:maxLines="1"
-                    android:ellipsize="end"
-                    android:text="Tap karke chat karo"/>
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
+
+                    <!-- Read-receipt tick (✓ sent / ✓✓ delivered / blue ✓✓ read).
+                         Only visible when the LAST message in this chat was
+                         sent by the current user (see ChatListAdapter#updateReadStatusTicks). -->
+                    <ImageView
+                        android:id="@+id/iv_read_status"
+                        android:layout_width="16dp"
+                        android:layout_height="12dp"
+                        android:layout_marginEnd="4dp"
+                        android:scaleType="fitCenter"
+                        android:importantForAccessibility="no"
+                        android:visibility="gone"
+                        android:src="@drawable/ic_double_tick"/>
+
+                    <TextView
+                        android:id="@+id/tv_last_message"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="14sp"
+                        android:maxLines="1"
+                        android:ellipsize="end"
+                        android:text="Tap karke chat karo"/>
+                </LinearLayout>
             </LinearLayout>
 
             <LinearLayout
@@ -126,17 +134,6 @@
                     android:layout_height="wrap_content"
                     android:textColor="@color/text_muted"
                     android:textSize="11sp"/>
-
-                <!-- Mute icon — same live-per-row-listener pattern as v_online_dot -->
-                <ImageView
-                    android:id="@+id/iv_mute_icon"
-                    android:layout_width="14dp"
-                    android:layout_height="14dp"
-                    android:layout_marginTop="4dp"
-                    android:src="@drawable/ic_mute_small"
-                    android:tint="@color/text_muted"
-                    android:visibility="gone"
-                    android:contentDescription="Muted"/>
 
                 <TextView
                     android:id="@+id/tv_unread_badge"

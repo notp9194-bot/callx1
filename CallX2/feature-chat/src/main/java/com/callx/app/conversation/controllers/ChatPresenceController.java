@@ -911,6 +911,14 @@ public class ChatPresenceController {
             pendingReadFirebaseIds.clear();
             return;
         }
+
+        // v22: snapshot before clearing below — needed after the network
+        // call resolves, to decide whether this flush touched the message
+        // that's currently shown as the "last message" in the SENDER's chat
+        // list (see updateSenderChatListTicks()).
+        final java.util.Set<String> deliveredSnapshot = new LinkedHashSet<>(pendingDeliveredFirebaseIds);
+        final java.util.Set<String> readSnapshot = new LinkedHashSet<>(pendingReadFirebaseIds);
+
         Map<String, Object> updates = new HashMap<>();
 
         // Delivered stamp — only ever queued the first time a message leaves
@@ -945,7 +953,36 @@ public class ChatPresenceController {
                         com.callx.app.utils.FirebaseUtils.getDeliveryPendingRef()
                                 .child(msgId).removeValue();
                     }
+                    // v22: bump the ticks the SENDER sees on their own chat
+                    // list, if the message we just acked is still their
+                    // chat's last message.
+                    updateSenderChatListTicks(deliveredSnapshot, readSnapshot);
                 });
+    }
+
+    // v22: chat-list read receipts (ticks). We (the receiver) just marked
+    // some of the partner's messages delivered/read — reflect that on the
+    // ORIGINAL SENDER's own contacts-list row so their chat list shows
+    // ✓ → ✓✓ (grey) → ✓✓ (blue) without needing to reopen the chat.
+    // Guarded by lastMessageId so an older message being acked late doesn't
+    // clobber the tick state of a NEWER last message sent meanwhile.
+    private void updateSenderChatListTicks(java.util.Set<String> deliveredIds, java.util.Set<String> readIds) {
+        String senderUid = delegate.getPartnerUid(); // whose messages we just acked
+        String myUid = delegate.getCurrentUid();
+        if (senderUid == null || myUid == null) return;
+        DatabaseReference row = FirebaseUtils.getContactsRef(senderUid).child(myUid);
+        row.child("lastMessageId").addListenerForSingleValueEvent(new ValueEventListener() {
+            @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                String lastId = snap.getValue(String.class);
+                if (lastId == null) return;
+                if (readIds.contains(lastId)) {
+                    row.child("lastMessageStatus").setValue("read");
+                } else if (deliveredIds.contains(lastId)) {
+                    row.child("lastMessageStatus").setValue("delivered");
+                }
+            }
+            @Override public void onCancelled(@NonNull DatabaseError error) {}
+        });
     }
 
     // ── Cleanup ───────────────────────────────────────────────────────────

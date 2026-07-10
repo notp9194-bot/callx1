@@ -16,6 +16,22 @@ public class User {
     public String lastMessage;
     public Long lastMessageAt;
     public Long unread;
+    // Chat-list v22: read receipts (ticks) + media label support.
+    // lastMessageType   -> "text"/"image"/"video"/"audio"/"gif"/"sticker"/
+    //                      "poll"/"contact"/"location"/"multi_media"/
+    //                      "reel_share"/"document"/"file". Drives the
+    //                      emoji label shown in the chat list row instead
+    //                      of trusting free-text lastMessage for media.
+    // lastMessageStatus -> "sent"/"delivered"/"read". Only rendered as
+    //                      ticks when lastMessageSenderUid == the viewer's
+    //                      own uid (i.e. the viewer sent it).
+    // lastMessageSenderUid -> uid of whoever sent the last message.
+    // lastMessageId     -> Firebase message key, used to target status
+    //                      (delivered/read) updates at the correct row.
+    public String lastMessageType;
+    public String lastMessageStatus;
+    public String lastMessageSenderUid;
+    public String lastMessageId;
     // Social links
     public String whatsapp;      // WhatsApp number or link
     public String instagram;     // Instagram handle or URL

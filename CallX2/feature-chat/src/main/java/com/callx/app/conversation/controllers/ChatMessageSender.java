@@ -134,11 +134,21 @@ public class ChatMessageSender {
         Map<String, Object> myUpd = new HashMap<>();
         myUpd.put("lastMessage", previewText);
         myUpd.put("lastTs", ts);
+        // v22: chat-list read receipts (ticks) + media label support — see
+        // User.lastMessageType/Status/SenderUid/Id and ChatListAdapter.
+        myUpd.put("lastMessageType", m.type != null ? m.type : "text");
+        myUpd.put("lastMessageSenderUid", currentUid);
+        myUpd.put("lastMessageStatus", "sent");
+        myUpd.put("lastMessageId", key);
         FirebaseUtils.getContactsRef(currentUid).child(partnerUid).updateChildren(myUpd);
 
         Map<String, Object> theirUpd = new HashMap<>();
         theirUpd.put("lastMessage", previewText);
         theirUpd.put("lastTs", ts);
+        theirUpd.put("lastMessageType", m.type != null ? m.type : "text");
+        theirUpd.put("lastMessageSenderUid", currentUid);
+        theirUpd.put("lastMessageStatus", "sent");
+        theirUpd.put("lastMessageId", key);
         FirebaseUtils.getContactsRef(partnerUid).child(currentUid).updateChildren(theirUpd);
 
         FirebaseUtils.getContactsRef(partnerUid).child(currentUid).child("unread")

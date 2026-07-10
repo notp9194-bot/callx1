@@ -21,7 +21,6 @@ import android.os.Handler;
 import android.os.Looper;
 import android.text.TextUtils;
 import android.view.GestureDetector;
-import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.ScaleGestureDetector;
@@ -29,7 +28,6 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.animation.AccelerateDecelerateInterpolator;
 import android.view.animation.DecelerateInterpolator;
-import android.view.animation.OvershootInterpolator;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -44,17 +42,11 @@ import com.bumptech.glide.Glide;
 import com.bumptech.glide.load.DataSource;
 import com.bumptech.glide.load.engine.DiskCacheStrategy;
 import com.bumptech.glide.load.engine.GlideException;
-import com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions;
 import com.bumptech.glide.request.RequestListener;
 import com.bumptech.glide.request.RequestOptions;
 import com.bumptech.glide.request.target.Target;
 import com.callx.app.models.ReelModel;
 import com.callx.app.reels.R;
-
-import androidx.media3.common.MediaItem;
-import androidx.media3.common.Player;
-import androidx.media3.exoplayer.ExoPlayer;
-import androidx.media3.ui.PlayerView;
 
 import java.util.List;
 import java.util.Random;
@@ -98,10 +90,6 @@ public class ReelPhotoSlideshowAdapter
         void onPhotoSwipedByUser(int newIndex);
         /** Called when auto-advance should fire for the current photo. */
         void onAutoAdvanceTick(int fromIndex);
-        /** Called when the user double-taps a photo to like it (heart burst is
-         *  already handled internally by the adapter — this is just the hook
-         *  for the actual like state toggle + counters). */
-        void onDoubleTapLike();
     }
 
     // ── Constants ─────────────────────────────────────────────────────────────
@@ -203,26 +191,13 @@ public class ReelPhotoSlideshowAdapter
         // Stickers
         bindStickers(h, stickerJson, position);
 
-        // Low-res blurred placeholder (Instagram-style): a tiny 22x39 request
-        // decodes almost instantly and, upscaled + bilinear-filtered, looks
-        // like a soft blur of the real photo instead of a flat black box.
-        // The full-res request below crossfades on top of it once ready.
-        com.bumptech.glide.RequestBuilder<android.graphics.drawable.Drawable> blurredThumb =
-                Glide.with(h.ivPhoto.getContext())
-                        .load(url)
-                        .apply(new RequestOptions()
-                                .diskCacheStrategy(DiskCacheStrategy.ALL)
-                                .override(22, 39));
-
         // Load image
         Glide.with(h.ivPhoto.getContext())
                 .load(url)
                 .apply(new RequestOptions()
                         .diskCacheStrategy(DiskCacheStrategy.ALL)
                         .override(Target.SIZE_ORIGINAL))
-                .thumbnail(blurredThumb)
                 .placeholder(android.R.color.black)
-                .transition(DrawableTransitionOptions.withCrossFade(280))
                 .listener(new RequestListener<android.graphics.drawable.Drawable>() {
                     @Override public boolean onLoadFailed(GlideException e, Object model,
                             Target<android.graphics.drawable.Drawable> t, boolean first) {
@@ -233,31 +208,10 @@ public class ReelPhotoSlideshowAdapter
                             Target<android.graphics.drawable.Drawable> t,
                             DataSource src, boolean first) {
                         startKenBurns(h, position);
-                        applyAspectAwareScaling(h, res.getIntrinsicWidth(), res.getIntrinsicHeight());
                         return false;
                     }
                 })
                 .into(h.ivPhoto);
-
-        // Blurred fill for the eventual letterbox case — loaded at a tiny
-        // size so upscaling gives a free soft-blur. Visibility of the layer
-        // itself is decided once we know the real aspect ratio (see
-        // applyAspectAwareScaling), so this is safe to kick off in parallel.
-        Glide.with(h.ivPhotoBg.getContext())
-                .load(url)
-                .apply(new RequestOptions()
-                        .diskCacheStrategy(DiskCacheStrategy.ALL)
-                        .override(64, 114))
-                .into(h.ivPhotoBg);
-
-        // Caption: collapsed by default; swipe up / tap to expand
-        setupCaptionExpand(h);
-
-        // Motion photo (Live Photo): show the "LIVE" badge if this slide has a
-        // clip attached; actual playback only starts on long-press (see
-        // handleLongPress → startMotionPhotoPlayback).
-        h.motionVideoUrl = reelModel.motionVideoForPhoto(position);
-        h.tvLiveBadge.setVisibility(h.motionVideoUrl != null ? View.VISIBLE : View.GONE);
 
         // Restore zoom state
         h.ivPhoto.setScaleX(zoomScaleArr[position]);
@@ -286,109 +240,8 @@ public class ReelPhotoSlideshowAdapter
         h.vColorFilterOverlay.setVisibility(View.GONE);
         h.tvCaption.setVisibility(View.GONE);
         h.vCaptionGradient.setVisibility(View.GONE);
-        h.llCaptionContainer.setVisibility(View.GONE);
-        h.tvCaption.setMaxLines(2);
-        h.tvCaption.setEllipsize(TextUtils.TruncateAt.END);
-        h.captionExpanded = false;
-        h.ivPhotoBg.setVisibility(View.GONE);
-        h.vBgDim.setVisibility(View.GONE);
-        h.ivPhoto.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        stopMotionPhotoPlayback(h);
-        releaseMotionPlayer(h);
-        h.tvLiveBadge.setVisibility(View.GONE);
-        h.motionVideoUrl = null;
         stopBreathingPulse(h);
         h.llStickerLayer.removeAllViews();
-    }
-
-    // ── Aspect-ratio aware rendering ────────────────────────────────────────────
-    //
-    // Portrait photos shot close to the player's own 9:16-ish viewport are
-    // centerCrop'd full-bleed exactly like before. Landscape / square / near-square
-    // photos are instead shown whole (fitCenter) with a softly blurred, dimmed
-    // copy of the same photo filling the letterbox bars behind them — same look
-    // Instagram/WhatsApp Status use for non-matching aspect ratios.
-
-    private static final float ASPECT_MATCH_TOLERANCE = 0.18f; // 18% tolerance
-
-    private void applyAspectAwareScaling(@NonNull PhotoVH h, int photoW, int photoH) {
-        if (photoW <= 0 || photoH <= 0) return;
-        View parent = (View) h.ivPhoto.getParent();
-        int viewW = parent != null && parent.getWidth() > 0 ? parent.getWidth() : h.ivPhoto.getWidth();
-        int viewH = parent != null && parent.getHeight() > 0 ? parent.getHeight() : h.ivPhoto.getHeight();
-        if (viewW <= 0 || viewH <= 0) {
-            // Layout not measured yet — fall back to the safe full-bleed crop.
-            h.ivPhoto.setScaleType(ImageView.ScaleType.CENTER_CROP);
-            h.ivPhotoBg.setVisibility(View.GONE);
-            h.vBgDim.setVisibility(View.GONE);
-            return;
-        }
-
-        float photoRatio = photoW / (float) photoH;
-        float viewRatio  = viewW  / (float) viewH;
-        float diff = Math.abs(photoRatio - viewRatio) / viewRatio;
-
-        if (diff <= ASPECT_MATCH_TOLERANCE) {
-            // Close enough to the viewport shape — full-bleed crop, no letterbox needed.
-            h.ivPhoto.setScaleType(ImageView.ScaleType.CENTER_CROP);
-            h.ivPhotoBg.setVisibility(View.GONE);
-            h.vBgDim.setVisibility(View.GONE);
-        } else {
-            // Landscape/square photo on a portrait player (or vice-versa) — show the
-            // whole photo, letterboxed, with the blurred copy filling the gaps.
-            h.ivPhoto.setScaleType(ImageView.ScaleType.FIT_CENTER);
-            h.ivPhotoBg.setVisibility(View.VISIBLE);
-            h.vBgDim.setVisibility(View.VISIBLE);
-        }
-    }
-
-    // ── Swipe-up-to-expand caption ───────────────────────────────────────────────
-
-    private void setupCaptionExpand(@NonNull PhotoVH h) {
-        h.tvCaption.setMaxLines(h.captionExpanded ? Integer.MAX_VALUE : 2);
-        h.tvCaption.setEllipsize(h.captionExpanded ? null : TextUtils.TruncateAt.END);
-
-        final GestureDetector detector = new GestureDetector(h.llCaptionContainer.getContext(),
-            new GestureDetector.SimpleOnGestureListener() {
-                @Override public boolean onSingleTapUp(MotionEvent e) {
-                    toggleCaptionExpanded(h);
-                    return true;
-                }
-                @Override public boolean onFling(MotionEvent e1, MotionEvent e2,
-                        float velocityX, float velocityY) {
-                    if (e1 == null) return false;
-                    float dy = e2.getY() - e1.getY();
-                    // Swipe up (dy negative, fast) → expand. Swipe down → collapse.
-                    if (dy < -40 && Math.abs(velocityY) > Math.abs(velocityX)) {
-                        setCaptionExpanded(h, true);
-                        return true;
-                    } else if (dy > 40 && Math.abs(velocityY) > Math.abs(velocityX)) {
-                        setCaptionExpanded(h, false);
-                        return true;
-                    }
-                    return false;
-                }
-            });
-        h.llCaptionContainer.setOnTouchListener((v, event) -> {
-            detector.onTouchEvent(event);
-            return true;
-        });
-    }
-
-    private void toggleCaptionExpanded(@NonNull PhotoVH h) {
-        setCaptionExpanded(h, !h.captionExpanded);
-    }
-
-    private void setCaptionExpanded(@NonNull PhotoVH h, boolean expanded) {
-        if (h.captionExpanded == expanded) return;
-        h.captionExpanded = expanded;
-        h.tvCaption.setMaxLines(expanded ? Integer.MAX_VALUE : 2);
-        h.tvCaption.setEllipsize(expanded ? null : TextUtils.TruncateAt.END);
-        h.llCaptionContainer.animate()
-                .translationY(0f)
-                .setDuration(180)
-                .setInterpolator(new DecelerateInterpolator())
-                .start();
     }
 
     @Override
@@ -742,25 +595,22 @@ public class ReelPhotoSlideshowAdapter
 
     private void bindCaption(@NonNull PhotoVH h, @Nullable String caption,
                              @Nullable String styleJson) {
-        h.captionExpanded = false;
         if (caption == null || caption.isEmpty()) {
-            h.llCaptionContainer.setVisibility(View.GONE);
+            h.tvCaption.setVisibility(View.GONE);
             h.vCaptionGradient.setVisibility(View.GONE);
             return;
         }
         h.tvCaption.setText(caption);
-        h.tvCaption.setMaxLines(2);
-        h.tvCaption.setEllipsize(TextUtils.TruncateAt.END);
-        h.llCaptionContainer.setVisibility(View.VISIBLE);
+        h.tvCaption.setVisibility(View.VISIBLE);
         h.vCaptionGradient.setVisibility(View.VISIBLE);
 
         // Apply caption style
         applyCaptionStyle(h.tvCaption, styleJson);
 
         // Slide-up + fade-in animation
-        h.llCaptionContainer.setAlpha(0f);
-        h.llCaptionContainer.setTranslationY(24f);
-        h.llCaptionContainer.animate()
+        h.tvCaption.setAlpha(0f);
+        h.tvCaption.setTranslationY(24f);
+        h.tvCaption.animate()
                 .alpha(1f)
                 .translationY(0f)
                 .setDuration(CAPTION_ANIM_DURATION)
@@ -1003,9 +853,7 @@ public class ReelPhotoSlideshowAdapter
                 new GestureDetector.SimpleOnGestureListener() {
             @Override
             public boolean onDoubleTap(MotionEvent e) {
-                triggerHeartBurst(h, e.getX(), e.getY());
-                if (listener != null) listener.onDoubleTapLike();
-                if (!allowDTap) return true;
+                if (!allowDTap) return false;
                 cancelKenBurns(h);
                 float target = zoomScaleArr[position] > 1.2f ? 1f : DEFAULT_ZOOM_TARGET;
                 animateZoomTo(h, position, target);
@@ -1034,78 +882,6 @@ public class ReelPhotoSlideshowAdapter
         });
     }
 
-    // ── Double-tap heart burst ───────────────────────────────────────────────────
-    //
-    // One big center heart pop (classic Instagram moment) plus a handful of small
-    // hearts scattering outward from the exact tap point, for a fuller "burst"
-    // look. Pure view-based animation — no new assets/libraries needed.
-
-    private void triggerHeartBurst(@NonNull PhotoVH h, float tapX, float tapY) {
-        Context ctx = h.llStickerLayer.getContext();
-
-        // 1. Big center heart pop
-        TextView bigHeart = new TextView(ctx);
-        bigHeart.setText("❤");
-        bigHeart.setTextSize(56f);
-        bigHeart.setAlpha(0f);
-        bigHeart.setScaleX(0.3f);
-        bigHeart.setScaleY(0.3f);
-        FrameLayout.LayoutParams bigLp = new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        bigLp.gravity = Gravity.CENTER;
-        h.llStickerLayer.addView(bigHeart, bigLp);
-        bigHeart.animate()
-                .alpha(1f).scaleX(1.15f).scaleY(1.15f)
-                .setDuration(220)
-                .setInterpolator(new OvershootInterpolator(3f))
-                .withEndAction(() -> bigHeart.animate()
-                        .alpha(0f).scaleX(0.9f).scaleY(0.9f)
-                        .setStartDelay(230)
-                        .setDuration(260)
-                        .withEndAction(() -> h.llStickerLayer.removeView(bigHeart))
-                        .start())
-                .start();
-
-        // 2. Small hearts scattering outward from the tap point
-        Random rnd = new Random();
-        int burstCount = 7;
-        for (int i = 0; i < burstCount; i++) {
-            TextView heart = new TextView(ctx);
-            heart.setText("❤");
-            heart.setTextSize(14f + rnd.nextInt(14)); // 14–28sp
-            heart.setTextColor(Color.parseColor("#FF3B5C"));
-            heart.setAlpha(0f);
-            FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            lp.leftMargin = (int) tapX - 20;
-            lp.topMargin  = (int) tapY - 20;
-            h.llStickerLayer.addView(heart, lp);
-
-            float angle    = (float) (rnd.nextDouble() * Math.PI * 2);
-            float distance = 60 + rnd.nextInt(90);
-            float dx = (float) (Math.cos(angle) * distance);
-            float dy = (float) (Math.sin(angle) * distance) - 40; // bias upward
-
-            heart.setScaleX(0.2f);
-            heart.setScaleY(0.2f);
-            heart.animate()
-                    .alpha(1f)
-                    .scaleX(1f).scaleY(1f)
-                    .translationX(dx)
-                    .translationY(dy)
-                    .rotation(rnd.nextBoolean() ? 25f : -25f)
-                    .setStartDelay(i * 25L)
-                    .setDuration(500)
-                    .withEndAction(() -> heart.animate()
-                            .alpha(0f)
-                            .translationYBy(-30f)
-                            .setDuration(280)
-                            .withEndAction(() -> h.llStickerLayer.removeView(heart))
-                            .start())
-                    .start();
-        }
-    }
-
     // Long-press detection (separate from GestureDetector to avoid swallow issues)
     private static final long LONG_PRESS_TRIGGER_MS = 420L;
     private final Handler lpHandler = new Handler(Looper.getMainLooper());
@@ -1116,7 +892,6 @@ public class ReelPhotoSlideshowAdapter
             case MotionEvent.ACTION_DOWN:
                 lpRunnable = () -> {
                     if (listener != null) listener.onLongPressStateChanged(true);
-                    if (h.motionVideoUrl != null) startMotionPhotoPlayback(h, h.motionVideoUrl);
                 };
                 lpHandler.postDelayed(lpRunnable, LONG_PRESS_TRIGGER_MS);
                 break;
@@ -1124,58 +899,8 @@ public class ReelPhotoSlideshowAdapter
             case MotionEvent.ACTION_CANCEL:
                 lpHandler.removeCallbacks(lpRunnable);
                 if (listener != null) listener.onLongPressStateChanged(false);
-                stopMotionPhotoPlayback(h);
                 break;
         }
-    }
-
-    // ── Motion photo (Live Photo) playback ──────────────────────────────────────
-    //
-    // Long-press a slide that has a photoMotionVideoList entry to play the short
-    // muted clip captured alongside it, exactly like iOS Live Photos. Release to
-    // snap back to the static photo. The ExoPlayer instance is created lazily on
-    // first press and released in onViewRecycled (or when the slide is rebound
-    // to a different photo without a clip) to avoid leaking decoders.
-
-    private void startMotionPhotoPlayback(@NonNull PhotoVH h, @NonNull String url) {
-        if (h.motionPlaying) return;
-        if (h.motionPlayer == null) {
-            h.motionPlayer = new ExoPlayer.Builder(h.pvMotion.getContext()).build();
-            h.pvMotion.setPlayer(h.motionPlayer);
-            h.motionPlayer.setRepeatMode(Player.REPEAT_MODE_ONE);
-            h.motionPlayer.setVolume(0f); // Live Photos play muted
-        }
-        if (!url.equals(h.motionPlayerLoadedUrl)) {
-            h.motionPlayer.setMediaItem(MediaItem.fromUri(url));
-            h.motionPlayer.prepare();
-            h.motionPlayerLoadedUrl = url;
-        }
-        h.motionPlaying = true;
-        h.motionPlayer.setPlayWhenReady(true);
-        cancelKenBurns(h);
-        h.pvMotion.setVisibility(View.VISIBLE);
-        h.pvMotion.animate().alpha(1f).setDuration(180).start();
-    }
-
-    private void stopMotionPhotoPlayback(@NonNull PhotoVH h) {
-        if (!h.motionPlaying) return;
-        h.motionPlaying = false;
-        if (h.motionPlayer != null) h.motionPlayer.setPlayWhenReady(false);
-        h.pvMotion.animate().alpha(0f).setDuration(180)
-                .withEndAction(() -> h.pvMotion.setVisibility(View.GONE))
-                .start();
-    }
-
-    private void releaseMotionPlayer(@NonNull PhotoVH h) {
-        h.motionPlaying = false;
-        h.motionPlayerLoadedUrl = null;
-        if (h.motionPlayer != null) {
-            h.motionPlayer.release();
-            h.motionPlayer = null;
-        }
-        h.pvMotion.setPlayer(null);
-        h.pvMotion.setAlpha(0f);
-        h.pvMotion.setVisibility(View.GONE);
     }
 
     private void animateZoomTo(@NonNull PhotoVH h, int position, float targetScale) {
@@ -1489,36 +1214,21 @@ public class ReelPhotoSlideshowAdapter
 
     public static class PhotoVH extends RecyclerView.ViewHolder {
         final ImageView   ivPhoto;
-        final ImageView   ivPhotoBg;
-        final View        vBgDim;
-        final PlayerView  pvMotion;
-        final TextView    tvLiveBadge;
         final View        vEffectOverlay;
         final View        vColorFilterOverlay;
         final FrameLayout llStickerLayer;
         final View        viewZoomTouch;
-        final View        llCaptionContainer;
         final TextView    tvCaption;
         final View        vCaptionGradient;
-        boolean captionExpanded = false;
-        @Nullable String motionVideoUrl;
-        @Nullable String motionPlayerLoadedUrl;
-        @Nullable ExoPlayer motionPlayer;
-        boolean motionPlaying = false;
         @Nullable ValueAnimator pulseAnimator;
 
         PhotoVH(@NonNull View itemView) {
             super(itemView);
             ivPhoto             = itemView.findViewById(R.id.iv_photo_slide);
-            ivPhotoBg           = itemView.findViewById(R.id.iv_photo_bg);
-            vBgDim              = itemView.findViewById(R.id.v_bg_dim);
-            pvMotion            = itemView.findViewById(R.id.pv_motion_photo);
-            tvLiveBadge         = itemView.findViewById(R.id.tv_live_badge);
             vEffectOverlay      = itemView.findViewById(R.id.v_effect_overlay);
             vColorFilterOverlay = itemView.findViewById(R.id.v_color_filter_overlay);
             llStickerLayer      = itemView.findViewById(R.id.ll_sticker_layer);
             viewZoomTouch       = itemView.findViewById(R.id.view_zoom_touch);
-            llCaptionContainer  = itemView.findViewById(R.id.ll_caption_container);
             tvCaption           = itemView.findViewById(R.id.tv_photo_caption);
             vCaptionGradient    = itemView.findViewById(R.id.v_caption_gradient);
         }

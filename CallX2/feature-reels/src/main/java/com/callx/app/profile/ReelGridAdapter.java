@@ -149,7 +149,8 @@ package com.callx.app.profile;
       private void bindPinned(PinnedVH h) {
           if (pinnedReel == null) return;
           if (pinnedReel.thumbUrl != null && !pinnedReel.thumbUrl.isEmpty())
-              com.callx.app.feed.SmartCropImageView.loadWithFaceCrop(h.ivThumb, pinnedReel.thumbUrl);
+              Glide.with(context).load(pinnedReel.thumbUrl).centerCrop()
+                      .placeholder(R.drawable.ic_reels).into(h.ivThumb);
           else h.ivThumb.setImageResource(R.drawable.ic_reels);
           if (pinnedReel.duration > 0) {
               int s=(pinnedReel.duration/1000)%60, m=pinnedReel.duration/60000;
@@ -202,8 +203,7 @@ package com.callx.app.profile;
           }
       }
       static class PinnedVH extends RecyclerView.ViewHolder {
-          com.callx.app.feed.SmartCropImageView ivThumb;
-          TextView tvDuration, tvCaption, tvLikes, tvComments, tvViews;
+          ImageView ivThumb; TextView tvDuration, tvCaption, tvLikes, tvComments, tvViews;
           PinnedVH(@NonNull View v) {
               super(v);
               ivThumb=v.findViewById(R.id.iv_pinned_thumb); tvDuration=v.findViewById(R.id.tv_pinned_duration);

@@ -37,6 +37,15 @@ public class ChatEntity {
     public Boolean muted;
     public Boolean pinned;
 
+    /** v28: read receipts (ticks) + media label cache — mirrors User's
+     *  lastMessageType/Status/SenderUid/Id so the chat list can render
+     *  ticks and media labels instantly from Room, offline-first, before
+     *  the Firebase listener re-syncs. See AppDatabase.MIGRATION_27_28. */
+    public String lastMessageType;
+    public String lastMessageStatus;
+    public String lastMessageSenderUid;
+    public String lastMessageId;
+
     /** Unix ms when this row was last refreshed from Firebase. */
     public long syncedAt;
 

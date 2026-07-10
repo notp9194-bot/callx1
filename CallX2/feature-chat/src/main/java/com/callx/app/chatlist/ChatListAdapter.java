@@ -6,6 +6,7 @@ import android.content.Intent;
 import android.view.*;
 import android.widget.*;
 import androidx.annotation.NonNull;
+import androidx.core.content.ContextCompat;
 import androidx.recyclerview.widget.RecyclerView;
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.request.RequestOptions;
@@ -16,15 +17,33 @@ import com.callx.app.models.User;
 import de.hdodenhof.circleimageview.CircleImageView;
 import com.callx.app.cache.StatusCacheManager;
 import com.callx.app.repository.ChatRepository;
+import com.callx.app.utils.ChatListPreviewUtil;
 import com.callx.app.utils.FirebaseUtils;
 import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.database.DataSnapshot;
+import com.google.firebase.database.DatabaseError;
+import com.google.firebase.database.DatabaseReference;
+import com.google.firebase.database.ValueEventListener;
 
 import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * ChatListAdapter v21
+ * ChatListAdapter v22
+ *
+ * CHANGES v22 — Read receipts, media labels, live typing:
+ *  1. Read-receipt ticks (✓ sent / ✓✓ delivered / blue ✓✓ read) rendered
+ *     in iv_read_status, driven by User.lastMessageStatus — only shown
+ *     when the current user sent the chat's last message.
+ *  2. Media messages (image/video/audio/gif/sticker/poll/contact/location/
+ *     multi_media/reel_share/document) now always show their emoji label
+ *     ("📷 Photo", "🎤 Voice message", ...) via ChatListPreviewUtil, derived
+ *     from lastMessageType instead of trusting raw lastMessage text.
+ *  3. Live "typing..." indicator per row — mirrors "typing"/{chatId}/{uid}
+ *     from Firebase, attached/detached with the row's bind/recycle
+ *     lifecycle (see attachTypingListener/onViewRecycled) so it never
+ *     leaks listeners while scrolling.
  *
  * CHANGES v21 — Delete / Delete-All system:
  *  1. Long-press pe directly selection mode start hota hai.
@@ -54,7 +73,6 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
 
     private void preloadChatIfDue(Context ctx, User u) {
         if (u == null || u.uid == null) return;
-        String myUid = FirebaseAuth.getInstance().getUid();
         if (myUid == null) return;
         String chatId = FirebaseUtils.getChatId(myUid, u.uid);
         long now = System.currentTimeMillis();
@@ -97,8 +115,21 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
     private final SimpleDateFormat fmt = new SimpleDateFormat("hh:mm a", Locale.getDefault());
     private Set<String> specialRequestSenders = new HashSet<>();
 
+    // v22: cached once — used to decide whether ticks show on a row (only
+    // when the LAST message in that chat was sent by the current user).
+    private final String myUid = FirebaseAuth.getInstance().getUid();
+
     private boolean isSelecting = false;
     private final Set<String> selectedUids = new HashSet<>();
+
+    // PERF FIX: payload marker used to signal "only selection-mode visuals
+    // changed" so onBindViewHolder can skip the expensive full rebind
+    // (Glide load, preloadChatIfDue, click-listener re-creation) for rows
+    // whose content hasn't actually changed — just their selected / call-btn /
+    // overlay appearance. This is what stops entry/exit of selection mode
+    // and select-all/clear-all from flickering or re-triggering avatar loads
+    // on large chat lists.
+    private static final String PAYLOAD_SELECTION = "payload_selection";
 
     public ChatListAdapter(List<User> contacts, SelectionListener listener) {
         this.contacts          = contacts;
@@ -137,6 +168,20 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         return new VH(v);
     }
 
+    // PERF FIX: payload-aware bind entry point. When RecyclerView calls this
+    // with a non-empty payloads list (selection-mode toggles route through
+    // notifyItemChanged/notifyItemRangeChanged with PAYLOAD_SELECTION), we
+    // skip straight to the lightweight selection-only update instead of
+    // running the full bind (Glide reload, preload trigger, listener re-attach).
+    @Override public void onBindViewHolder(@NonNull VH h, int pos, @NonNull List<Object> payloads) {
+        if (!payloads.isEmpty() && payloads.contains(PAYLOAD_SELECTION)) {
+            User u = contacts.get(pos);
+            applySelectionVisuals(h, u);
+            return;
+        }
+        super.onBindViewHolder(h, pos, payloads);
+    }
+
     @Override public void onBindViewHolder(@NonNull VH h, int pos) {
         User u = contacts.get(pos);
         Context ctx = h.itemView.getContext();
@@ -162,8 +207,6 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
             h.ivAvatar.setImageResource(R.drawable.ic_person);
         }
 
-        bindPresenceAndMute(h, u);
-
         // ── Story ring ──────────────────────────────────────────────────────
         StatusCacheManager scm = StatusCacheManager.getInstance(ctx);
         boolean hasStory = u.uid != null && (scm.hasUnseen(u.uid) || scm.hasStatus(u.uid));
@@ -185,54 +228,28 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
             });
         }
 
-        // ── Last message / time / unread ────────────────────────────────────
-        if (u.lastMessage != null && !u.lastMessage.isEmpty())
-            h.tvLastMessage.setText(u.lastMessage);
-        else
-            h.tvLastMessage.setText("Tap karke chat karo");
-
+        // ── Time ─────────────────────────────────────────────────────────────
         Long when = u.lastMessageAt != null ? u.lastMessageAt : u.lastSeen;
         h.tvTime.setText((when != null && when > 0) ? fmt.format(new Date(when)) : "");
 
-        long unread = u.unread == null ? 0 : u.unread;
-        if (unread > 0 && !isSelecting) {
-            h.tvUnread.setText(unread > 99 ? "99+" : String.valueOf(unread));
-            h.tvUnread.setVisibility(View.VISIBLE);
-            h.tvLastMessage.setTextColor(ctx.getResources().getColor(R.color.text_primary));
-        } else {
-            h.tvUnread.setVisibility(View.GONE);
-            h.tvLastMessage.setTextColor(ctx.getResources().getColor(R.color.text_secondary));
-        }
+        // v22: reset any stale italic style left over from a recycled row
+        // that was previously showing "typing...".
+        h.isTypingNow = false;
+        h.tvLastMessage.setTypeface(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.NORMAL);
 
-        boolean isSpecial = u.uid != null && specialRequestSenders.contains(u.uid);
-        if (isSpecial && !isSelecting) {
-            h.tvLastMessage.setText("⭐ Special unblock request");
-            h.tvLastMessage.setTextColor(0xFFFF8F00);
-        }
+        // ── Selection-dependent state (last-message text + ticks, unread
+        // badge, special-text override, background / overlay / call-btns /
+        // story-ring) ──────────────────────────────────────────────────────
+        // Extracted into applySelectionVisuals() so selection-mode toggles
+        // can re-run just this part via a payload bind instead of a full
+        // rebind — see that method for the unread/isSpecial/isSelecting logic.
+        applySelectionVisuals(h, u);
 
-        // ── Selection state ────────────────────────────────────────────────
-        boolean selected = u.uid != null && selectedUids.contains(u.uid);
-
-        // Card background highlight
-        h.itemView.setBackgroundColor(
-            selected      ? 0x335B5BF6 :
-            isSpecial     ? 0x33FFC107 : 0x00000000);
-
-        // Selection overlay on avatar
-        if (h.flSelectOverlay != null) {
-            if (isSelecting) {
-                h.flSelectOverlay.setVisibility(View.VISIBLE);
-                if (h.vCheckRing != null)  h.vCheckRing.setVisibility(selected ? View.VISIBLE : View.GONE);
-                if (h.ivCheck != null)     h.ivCheck.setVisibility(View.INVISIBLE);  // ring handles it
-            } else {
-                h.flSelectOverlay.setVisibility(View.GONE);
-            }
-        }
-
-        // Call buttons: hide during selection mode
-        if (h.llCallBtns != null) {
-            h.llCallBtns.setVisibility(isSelecting ? View.GONE : View.VISIBLE);
-        }
+        // v22: live "typing..." indicator — attached/detached with this row's
+        // bind/recycle lifecycle (same pattern as Glide's avatar load above),
+        // so it never leaks a listener onto a row that's since scrolled away
+        // and been rebound to a different contact.
+        attachTypingListener(h, u);
 
         // ── Click listeners ─────────────────────────────────────────────────
 
@@ -263,7 +280,9 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
                 // Start selection mode
                 isSelecting = true;
                 if (u.uid != null) selectedUids.add(u.uid);
-                notifyDataSetChanged();
+                // PERF FIX: payload bind — every row's selection chrome
+                // changes, but avatars/preload/listeners don't need re-doing.
+                notifyItemRangeChanged(0, getItemCount(), PAYLOAD_SELECTION);
                 if (selectionListener != null) selectionListener.onSelectionStarted();
             } else {
                 toggleSelection(h.getAdapterPosition());
@@ -297,13 +316,181 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         }
     }
 
+    // PERF FIX: everything that changes purely because `isSelecting` /
+    // `selectedUids` changed — background highlight, avatar checkmark
+    // overlay, call-button visibility, unread-badge visibility, and the
+    // story-ring's visibility (it hides while selecting). Called from the
+    // full bind AND from the lightweight payload bind, so selection-mode
+    // enter/exit and select-all/clear-all never need to touch Glide,
+    // preloadChatIfDue(), or re-attach click listeners.
+    private void applySelectionVisuals(VH h, User u) {
+        Context ctx = h.itemView.getContext();
+        boolean selected  = u.uid != null && selectedUids.contains(u.uid);
+        boolean isSpecial = u.uid != null && specialRequestSenders.contains(u.uid);
+
+        // Unread badge + last-message color (hidden while selecting)
+        long unread = u.unread == null ? 0 : u.unread;
+        if (unread > 0 && !isSelecting) {
+            h.tvUnread.setText(unread > 99 ? "99+" : String.valueOf(unread));
+            h.tvUnread.setVisibility(View.VISIBLE);
+            h.tvLastMessage.setTextColor(ctx.getResources().getColor(R.color.text_primary));
+        } else {
+            h.tvUnread.setVisibility(View.GONE);
+            h.tvLastMessage.setTextColor(ctx.getResources().getColor(R.color.text_secondary));
+        }
+
+        // v22: while the partner is actively typing (see attachTypingListener/
+        // applyTypingRow below) that row already owns tv_last_message's text —
+        // don't clobber "typing..." with the stored last message on a payload
+        // bind (e.g. selection mode toggled mid-typing).
+        if (!h.isTypingNow) {
+            if (isSpecial && !isSelecting) {
+                h.tvLastMessage.setText("⭐ Special unblock request");
+                h.tvLastMessage.setTextColor(0xFFFF8F00);
+            } else {
+                // BUG FIX: media messages (image/video/voice/etc.) now always
+                // show their emoji label ("📷 Photo", "🎤 Voice message", ...)
+                // derived from lastMessageType, instead of trusting whatever
+                // raw text happened to be stored for that message.
+                h.tvLastMessage.setText(
+                    ChatListPreviewUtil.buildPreview(u.lastMessageType, u.lastMessage, "Tap karke chat karo"));
+            }
+        }
+
+        // Read-status ticks (✓ sent / ✓✓ delivered / blue ✓✓ read) — only
+        // for the row's own last message, and only when the CURRENT USER
+        // was the sender of it (you don't see ticks on messages you received).
+        updateReadStatusTicks(h, u, isSelecting, isSpecial);
+
+        // Story ring hides while selecting (own click listener is set once
+        // during the full bind and reads `isSelecting` live, so it doesn't
+        // need to be re-attached here).
+        if (h.ivStoryRing != null && u.uid != null) {
+            StatusCacheManager scm = StatusCacheManager.getInstance(ctx);
+            if (!isSelecting && scm.hasUnseen(u.uid)) {
+                h.ivStoryRing.setBackgroundResource(R.drawable.circle_status_unseen);
+                h.ivStoryRing.setVisibility(View.VISIBLE);
+            } else if (!isSelecting && scm.hasStatus(u.uid)) {
+                h.ivStoryRing.setBackgroundResource(R.drawable.circle_status_seen);
+                h.ivStoryRing.setVisibility(View.VISIBLE);
+            } else {
+                h.ivStoryRing.setVisibility(View.GONE);
+            }
+        }
+
+        // Card background highlight
+        h.itemView.setBackgroundColor(
+            selected      ? 0x335B5BF6 :
+            isSpecial     ? 0x33FFC107 : 0x00000000);
+
+        // Selection overlay on avatar
+        if (h.flSelectOverlay != null) {
+            if (isSelecting) {
+                h.flSelectOverlay.setVisibility(View.VISIBLE);
+                if (h.vCheckRing != null)  h.vCheckRing.setVisibility(selected ? View.VISIBLE : View.GONE);
+                if (h.ivCheck != null)     h.ivCheck.setVisibility(View.INVISIBLE);  // ring handles it
+            } else {
+                h.flSelectOverlay.setVisibility(View.GONE);
+            }
+        }
+
+        // Call buttons: hide during selection mode
+        if (h.llCallBtns != null) {
+            h.llCallBtns.setVisibility(isSelecting ? View.GONE : View.VISIBLE);
+        }
+    }
+
+    // ── v22: Read-status ticks ───────────────────────────────────────────
+    // ✓ (sent, grey) / ✓✓ (delivered, grey) / ✓✓ (read, blue). Only shown
+    // when the CURRENT USER sent the chat's last message — matching
+    // WhatsApp, you never see ticks on a message the other person sent you.
+    private void updateReadStatusTicks(VH h, User u, boolean isSelecting, boolean isSpecial) {
+        if (h.ivReadStatus == null) return;
+        boolean iAmLastSender = myUid != null && u.uid != null
+                && myUid.equals(u.lastMessageSenderUid);
+        if (h.isTypingNow || isSelecting || isSpecial || !iAmLastSender || u.lastMessageStatus == null) {
+            h.ivReadStatus.setVisibility(View.GONE);
+            return;
+        }
+        Context ctx = h.itemView.getContext();
+        h.ivReadStatus.setVisibility(View.VISIBLE);
+        if ("read".equals(u.lastMessageStatus)) {
+            h.ivReadStatus.setImageResource(R.drawable.ic_double_tick_blue);
+            h.ivReadStatus.setColorFilter(ContextCompat.getColor(ctx, R.color.tick_read_blue));
+        } else if ("delivered".equals(u.lastMessageStatus)) {
+            h.ivReadStatus.setImageResource(R.drawable.ic_double_tick);
+            h.ivReadStatus.setColorFilter(ContextCompat.getColor(ctx, R.color.text_muted));
+        } else {
+            // "sent" (or any other/unknown non-null status)
+            h.ivReadStatus.setImageResource(R.drawable.ic_single_tick);
+            h.ivReadStatus.setColorFilter(ContextCompat.getColor(ctx, R.color.text_muted));
+        }
+    }
+
+    // ── v22: Live "typing..." indicator ──────────────────────────────────
+    // Mirrors ChatPresenceController's own "typing"/{chatId}/{uid}=bool node
+    // (the same flag that drives the in-chat 3-dot typing strip) — here we
+    // watch it per-row so the chat LIST can also show "typing..." in place
+    // of the last message while that contact is composing a reply.
+    //
+    // PERF: attach/detach is tied to this row's bind/recycle lifecycle,
+    // exactly like the Glide avatar load and preloadChatIfDue() above —
+    // it only ever listens for rows Currently on/near screen, and is
+    // detached the instant a row is recycled (onViewRecycled below), so
+    // scrolling never accumulates orphaned listeners.
+    private void attachTypingListener(VH h, User u) {
+        detachTypingListener(h);
+        if (u.uid == null || myUid == null) return;
+        String chatId = FirebaseUtils.getChatId(myUid, u.uid);
+        DatabaseReference ref = FirebaseUtils.db().getReference("typing")
+                .child(chatId).child(u.uid);
+        ValueEventListener listener = new ValueEventListener() {
+            @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                int pos = h.getAdapterPosition();
+                if (pos == RecyclerView.NO_POSITION || pos >= contacts.size()) return;
+                User current = contacts.get(pos);
+                // Row may have been recycled to a different contact while
+                // this listener's callback was in flight — verify first.
+                if (current.uid == null || !current.uid.equals(u.uid)) return;
+                applyTypingRow(h, current, Boolean.TRUE.equals(snap.getValue(Boolean.class)));
+            }
+            @Override public void onCancelled(@NonNull DatabaseError error) {}
+        };
+        ref.addValueEventListener(listener);
+        h.typingRef = ref;
+        h.typingListener = listener;
+    }
+
+    private void detachTypingListener(VH h) {
+        if (h.typingRef != null && h.typingListener != null) {
+            h.typingRef.removeEventListener(h.typingListener);
+        }
+        h.typingRef = null;
+        h.typingListener = null;
+    }
+
+    private void applyTypingRow(VH h, User u, boolean isTyping) {
+        h.isTypingNow = isTyping;
+        if (isTyping) {
+            h.tvLastMessage.setTypeface(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.ITALIC);
+            h.tvLastMessage.setTextColor(0xFF0F4C3A); // brand_primary — matches typing strip in-chat
+            h.tvLastMessage.setText("typing...");
+            if (h.ivReadStatus != null) h.ivReadStatus.setVisibility(View.GONE);
+        } else {
+            h.tvLastMessage.setTypeface(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.NORMAL);
+            // Typing stopped — redraw this row's normal state (last message
+            // text/color, ticks, unread badge) without touching anything
+            // else (avatar, call buttons, story ring, selection chrome).
+            applySelectionVisuals(h, u);
+        }
+    }
+
     // Safety cap only — normal Room reads finish in a few ms (indexed,
     // LIMIT-20, local disk). This just stops a tap from ever feeling stuck
     // on an unusually slow device or a brand-new/never-synced chat.
     private static final long OPEN_CHAT_SAFETY_CAP_MS = 150L;
 
     private void openChat(Context ctx, User u) {
-        String myUid = FirebaseAuth.getInstance().getUid();
         String chatId = (myUid != null && u.uid != null) ? FirebaseUtils.getChatId(myUid, u.uid) : null;
 
         Runnable navigate = () -> {
@@ -359,11 +546,18 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         if (u.uid == null) return;
         if (selectedUids.contains(u.uid)) selectedUids.remove(u.uid);
         else selectedUids.add(u.uid);
-        notifyItemChanged(pos);
+
         if (selectedUids.isEmpty()) {
+            // Last item deselected → selection mode itself ends, which
+            // changes EVERY row's chrome (call-btns reappear etc.), so this
+            // one needs the full-range payload notify, not just this row.
             isSelecting = false;
+            notifyItemRangeChanged(0, getItemCount(), PAYLOAD_SELECTION);
             if (selectionListener != null) selectionListener.onSelectionCleared();
         } else {
+            // PERF FIX: payload bind — only this row's checkmark/background
+            // need to change, no need to re-run Glide or preloadChatIfDue for it.
+            notifyItemChanged(pos, PAYLOAD_SELECTION);
             if (selectionListener != null) selectionListener.onSelectionChanged();
         }
     }
@@ -371,14 +565,14 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
     public void selectAll() {
         isSelecting = true;
         for (User u : contacts) if (u.uid != null) selectedUids.add(u.uid);
-        notifyDataSetChanged();
+        notifyItemRangeChanged(0, getItemCount(), PAYLOAD_SELECTION);
         if (selectionListener != null) selectionListener.onSelectionChanged();
     }
 
     public void clearSelection() {
         isSelecting = false;
         selectedUids.clear();
-        notifyDataSetChanged();
+        notifyItemRangeChanged(0, getItemCount(), PAYLOAD_SELECTION);
         if (selectionListener != null) selectionListener.onSelectionCleared();
     }
 
@@ -400,88 +594,30 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
 
     @Override public int getItemCount() { return contacts.size(); }
 
-    // ── Live presence/mute (per-row, not part of the DiffUtil content model) ───
-    //
-    // Attached in onBindViewHolder, detached in onViewRecycled. Only rows
-    // actually on screen ever hold a listener — RecyclerView recycling takes
-    // care of the rest, so this scales to any list length without extra work
-    // here (unlike a naive "listen to all N contacts up front" approach).
-
-    private void bindPresenceAndMute(VH h, User u) {
-        detachPresenceAndMute(h);
-        if (u.uid == null || u.uid.isEmpty()) return;
-        String myUid = FirebaseAuth.getInstance().getUid();
-        if (myUid == null) return;
-        final String uid = u.uid;
-        h.boundUidForPresence = uid;
-
-        h.presenceRef = FirebaseUtils.getUserRef(uid).child("online");
-        h.presenceListener = h.presenceRef.addValueEventListener(
-            new com.google.firebase.database.ValueEventListener() {
-                @Override public void onDataChange(com.google.firebase.database.DataSnapshot s) {
-                    // Guard against a listener firing after this row was recycled
-                    // and rebound to a different user (async Firebase callback).
-                    if (!uid.equals(h.boundUidForPresence) || h.vOnlineDot == null) return;
-                    boolean online = Boolean.TRUE.equals(s.getValue(Boolean.class));
-                    h.vOnlineDot.setVisibility(online ? View.VISIBLE : View.GONE);
-                }
-                @Override public void onCancelled(com.google.firebase.database.DatabaseError e) {}
-            });
-
-        h.muteRef = FirebaseUtils.db().getReference("muted").child(myUid).child(uid);
-        h.muteListener = h.muteRef.addValueEventListener(
-            new com.google.firebase.database.ValueEventListener() {
-                @Override public void onDataChange(com.google.firebase.database.DataSnapshot s) {
-                    if (!uid.equals(h.boundUidForPresence) || h.ivMuteIcon == null) return;
-                    boolean muted = Boolean.TRUE.equals(s.getValue(Boolean.class));
-                    h.ivMuteIcon.setVisibility(muted ? View.VISIBLE : View.GONE);
-                }
-                @Override public void onCancelled(com.google.firebase.database.DatabaseError e) {}
-            });
-    }
-
-    private void detachPresenceAndMute(VH h) {
-        if (h.presenceRef != null && h.presenceListener != null) {
-            h.presenceRef.removeEventListener(h.presenceListener);
-        }
-        if (h.muteRef != null && h.muteListener != null) {
-            h.muteRef.removeEventListener(h.muteListener);
-        }
-        h.presenceRef = null; h.presenceListener = null;
-        h.muteRef = null; h.muteListener = null;
-        h.boundUidForPresence = null;
-        if (h.vOnlineDot != null) h.vOnlineDot.setVisibility(View.GONE);
-        if (h.ivMuteIcon != null) h.ivMuteIcon.setVisibility(View.GONE);
-    }
-
+    // v22: detach the per-row typing listener the instant a row leaves the
+    // screen and goes back into the recycled pool — mirrors how Glide loads
+    // get cancelled/replaced on rebind, so scrolling never leaks listeners
+    // or lets a stale callback write into a row that's since been reused
+    // for a different contact.
     @Override
     public void onViewRecycled(@NonNull VH h) {
         super.onViewRecycled(h);
-        detachPresenceAndMute(h);
+        detachTypingListener(h);
     }
 
     static class VH extends RecyclerView.ViewHolder {
         TextView tvName, tvLastMessage, tvTime, tvUnread;
         CircleImageView ivAvatar;
-        android.widget.ImageView ivStoryRing, ivCheck;
+        android.widget.ImageView ivStoryRing, ivCheck, ivReadStatus;
         View flSelectOverlay, vCheckRing, llCallBtns;
         ImageButton btnCall, btnVideoCall;
-        View vOnlineDot;
-        android.widget.ImageView ivMuteIcon;
 
-        // ── Live per-row presence/mute state ────────────────────────────────
-        // Bound in onBindViewHolder, detached in the adapter's onViewRecycled().
-        // Deliberately NOT routed through notifyItemChanged()/DiffUtil — these
-        // flip a single small View's visibility directly from the Firebase
-        // callback, so a presence/mute change never triggers a list rebind,
-        // never re-runs Glide/StaticLayout work for the row, and only ever
-        // costs anything for the ~10-15 rows actually on screen (listeners are
-        // torn down the moment a row recycles off-screen).
-        String boundUidForPresence;
-        com.google.firebase.database.DatabaseReference presenceRef;
-        com.google.firebase.database.ValueEventListener presenceListener;
-        com.google.firebase.database.DatabaseReference muteRef;
-        com.google.firebase.database.ValueEventListener muteListener;
+        // v22: live typing indicator — listener ref for detach-on-recycle,
+        // plus a flag so applySelectionVisuals() knows not to clobber the
+        // "typing..." text with the stored last message mid-payload-bind.
+        DatabaseReference typingRef;
+        ValueEventListener typingListener;
+        boolean isTypingNow = false;
 
         VH(View v) {
             super(v);
@@ -491,14 +627,13 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
             tvUnread        = v.findViewById(R.id.tv_unread_badge);
             ivAvatar        = v.findViewById(R.id.iv_avatar);
             ivStoryRing     = v.findViewById(R.id.iv_story_ring);
+            ivReadStatus    = v.findViewById(R.id.iv_read_status);
             flSelectOverlay = v.findViewById(R.id.fl_select_overlay);
             ivCheck         = v.findViewById(R.id.iv_check);
             vCheckRing      = v.findViewById(R.id.v_check_ring);
             llCallBtns      = v.findViewById(R.id.ll_call_btns);
             btnCall         = v.findViewById(R.id.btn_call);
             btnVideoCall    = v.findViewById(R.id.btn_video_call);
-            vOnlineDot      = v.findViewById(R.id.v_online_dot);
-            ivMuteIcon      = v.findViewById(R.id.iv_mute_icon);
         }
     }
 }

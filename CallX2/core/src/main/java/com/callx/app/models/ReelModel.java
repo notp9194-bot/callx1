@@ -162,16 +162,6 @@ public class ReelModel {
     public List<String> photoStickerJsonList;
 
     /**
-     * Per-photo "motion photo" / Live Photo clip URL (index-matched with photoUrls).
-     * When set, a small muted looping video clip (1-3s) was captured alongside the
-     * still photo. Shown instead of the static photo while the user long-presses
-     * on that slide — same interaction model as iOS Live Photos. A "LIVE" badge is
-     * shown on the slide so the user knows to press-and-hold.
-     * A null or empty entry means the photo is a plain static image.
-     */
-    public List<String> photoMotionVideoList;
-
-    /**
      * Per-photo AR filter / preset names (index-matched with photoUrls).
      * Values: "" | "beauty_v1" | "glam_v2" | "sunset_skin" | "smooth_pro"
      * Applied during upload; stored for re-processing.
@@ -530,19 +520,6 @@ public class ReelModel {
     public String stickerJsonForPhoto(int index) {
         if (photoStickerJsonList != null && index >= 0 && index < photoStickerJsonList.size()) {
             return photoStickerJsonList.get(index);
-        }
-        return null;
-    }
-
-    /**
-     * Returns the motion-photo (Live Photo) clip URL for the photo at the given
-     * index, or null if that photo is a plain static image.
-     */
-    @com.google.firebase.database.Exclude
-    public String motionVideoForPhoto(int index) {
-        if (photoMotionVideoList != null && index >= 0 && index < photoMotionVideoList.size()) {
-            String url = photoMotionVideoList.get(index);
-            if (url != null && !url.isEmpty()) return url;
         }
         return null;
     }
