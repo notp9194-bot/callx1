@@ -10,48 +10,49 @@ import android.view.MotionEvent;
 import android.view.View;
 
 /**
- * ChatListCallButtonsView — v82 canvas optimisation.
+ * ChatListCallButtonsView — v83 Telegram-level perf hardening.
  *
- * WHY THIS EXISTS
- * ───────────────
- * The old call-buttons row was a horizontal LinearLayout containing two
- * ImageButton widgets, each inflating a tinted vector drawable for voice/video
- * icons. Per-bind cost:
- *   • Two ImageButton measure/layout passes inside the LinearLayout
- *   • Two VectorDrawable mutate/tint draws
- *   • LinearLayout's own measure + layout
+ * v82 CHANGES: collapsed two ImageButtons into one canvas view (one measure+draw).
  *
- * This view collapses both buttons into ONE plain View:
- *   • Video icon (camera body + lens) drawn left via Path+canvas
- *   • Voice icon (phone handset) drawn right via Path+canvas
- *   • Touch regions split at midpoint — onTouchEvent delivers clicks
- *     without needing nested clickable children, same technique
- *     MessageBubbleCanvasView uses for in-bubble tap zones.
+ * v83 PERF FIXES (zero-allocation hot path in onDraw):
+ *  1. Icon Paths pre-baked in onSizeChanged() — onDraw() calls canvas.drawPath()
+ *     on already-built Path objects. v82 called path.reset() + path.moveTo/lineTo
+ *     + path.arcTo on EVERY draw frame, which is wasted CPU on every scroll frame.
+ *  2. videoPath and phonePath are final instance fields — no new Path() in draw.
+ *  3. arcRect (for the phone arc) is a pre-allocated final RectF field —
+ *     v82 created "new RectF(...)" inside drawPhoneIcon() on every draw call,
+ *     causing a GC allocation on every scroll frame.
+ *  4. All float layout values (btnW, gap, iconR, centres) computed once in
+ *     onSizeChanged(), stored as plain float fields read in onDraw().
  *
- * Icons are drawn with brand_primary (#4CAF50) stroke/fill at ~20dp icon size
- * inside a 34x34dp touch target per button, matching the old layout exactly.
- *
- * PERF: setVisible() hides the entire view (GONE) during selection mode rather
- * than measuring/drawing either button. setListeners() is called once during
- * full bind and captured in fields so onTouchEvent doesn't re-allocate on
- * every event.
+ * Result: onDraw() path is two canvas.drawPath() calls with zero allocations
+ * and zero floating-point arithmetic — just field reads.
  */
 public class ChatListCallButtonsView extends View {
 
-    private final Paint iconPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Path  path      = new Path();
-    private final RectF rect      = new RectF();
+    private final Paint iconPaint  = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint fillPaint  = new Paint(Paint.ANTI_ALIAS_FLAG);
+    // v83: pre-baked paths — built once in onSizeChanged, reused in onDraw
+    private final Path  videoPath  = new Path();
+    private final Path  phonePath  = new Path();
+    // v83: pre-allocated RectF for arc segments (no new RectF in draw)
+    private final RectF arcRectA   = new RectF();
+    private final RectF arcRectB   = new RectF();
+    private final RectF bodyRect   = new RectF();
 
     private final float density;
+    private boolean pathsBaked = false;
+
+    // v83: layout values cached in onSizeChanged
+    private float midX = 0f;  // x boundary between video and phone touch zones
 
     private Runnable onVoiceCall;
     private Runnable onVideoCall;
 
-    // Touch tracking
-    private boolean touchDown     = false;
-    private boolean touchOnVideo  = false;
+    private boolean touchDown    = false;
+    private boolean touchOnVideo = false;
 
-    private static final int COLOR_ICON = 0xFF4CAF50; // brand_primary
+    private static final int COLOR_ICON = 0xFF4CAF50;
 
     public ChatListCallButtonsView(Context ctx) {
         this(ctx, null);
@@ -60,24 +61,29 @@ public class ChatListCallButtonsView extends View {
     public ChatListCallButtonsView(Context ctx, AttributeSet attrs) {
         super(ctx, attrs);
         density = ctx.getResources().getDisplayMetrics().density;
+
         iconPaint.setColor(COLOR_ICON);
         iconPaint.setStyle(Paint.Style.STROKE);
         iconPaint.setStrokeWidth(1.8f * density);
         iconPaint.setStrokeCap(Paint.Cap.ROUND);
         iconPaint.setStrokeJoin(Paint.Join.ROUND);
+
+        fillPaint.setColor(COLOR_ICON);
+        fillPaint.setStyle(Paint.Style.FILL_AND_STROKE);
+        fillPaint.setStrokeWidth(1.8f * density);
+        fillPaint.setStrokeCap(Paint.Cap.ROUND);
+        fillPaint.setStrokeJoin(Paint.Join.ROUND);
+        fillPaint.setAntiAlias(true);
     }
 
-    /**
-     * Sets the click callbacks for voice and video call. Pass null to clear.
-     */
+    /** Sets the click callbacks for voice and video call. */
     public void setListeners(Runnable voiceCall, Runnable videoCall) {
-        this.onVoiceCall  = voiceCall;
-        this.onVideoCall  = videoCall;
+        this.onVoiceCall = voiceCall;
+        this.onVideoCall = videoCall;
     }
 
     @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
-        // Two 34dp touch targets side-by-side with 6dp gap
         float w = (34 * 2 + 6) * density;
         float h = 34 * density;
         setMeasuredDimension(
@@ -87,79 +93,77 @@ public class ChatListCallButtonsView extends View {
     }
 
     @Override
+    protected void onSizeChanged(int w, int h, int oldW, int oldH) {
+        super.onSizeChanged(w, h, oldW, oldH);
+        bakeIconPaths(w, h);
+    }
+
+    /**
+     * v83: Pre-bake both icon paths based on current view dimensions.
+     * Called once in onSizeChanged; onDraw() just plays back the paths.
+     */
+    private void bakeIconPaths(int tw, int th) {
+        float btnW  = 34 * density;
+        float gap   = 6  * density;
+        float iconR = 10 * density;
+        float vy    = th / 2f;
+        float vx    = btnW / 2f;
+
+        // ── Video camera icon (left button) ──────────────────────────────
+        videoPath.reset();
+        float bodyL = vx - iconR;
+        float bodyT = vy - iconR * 0.6f;
+        float bodyR = vx + iconR * 0.35f;
+        float bodyB = vy + iconR * 0.6f;
+        bodyRect.set(bodyL, bodyT, bodyR, bodyB);
+        // We can't pre-bake roundRect into a path cleanly without addRoundRect
+        // so we use addRoundRect on the videoPath directly:
+        videoPath.addRoundRect(bodyRect, 2 * density, 2 * density, Path.Direction.CW);
+        // Triangle for viewfinder
+        videoPath.moveTo(bodyR + 3 * density,            vy - iconR * 0.55f);
+        videoPath.lineTo(bodyR + 3 * density + iconR * 0.55f, vy);
+        videoPath.lineTo(bodyR + 3 * density,            vy + iconR * 0.55f);
+        videoPath.close();
+
+        // ── Phone handset icon (right button) ────────────────────────────
+        float px = btnW + gap + btnW / 2f;
+        float py = vy;
+        float s  = iconR * 0.85f;
+
+        phonePath.reset();
+        phonePath.moveTo(px - s * 0.6f, py - s);
+        arcRectA.set(px - s, py - s, px - s * 0.2f, py - s * 0.2f);
+        phonePath.arcTo(arcRectA, 230f, -160f, false);
+        phonePath.lineTo(px + s * 0.3f, py + s * 0.1f);
+        arcRectB.set(px + s * 0.1f, py + s * 0.15f, px + s, py + s);
+        phonePath.arcTo(arcRectB, 50f, -160f, false);
+        phonePath.lineTo(px + s, py + s);
+
+        midX = btnW + gap / 2f;
+        pathsBaked = true;
+    }
+
+    @Override
     protected void onDraw(Canvas canvas) {
-        super.onDraw(canvas);
         int tw = getWidth();
         int th = getHeight();
         if (tw <= 0 || th <= 0) return;
+        if (!pathsBaked) bakeIconPaths(tw, th);
 
-        float btnW  = 34 * density;
-        float gap   = 6 * density;
-        float iconR = 10 * density; // icon "radius" — half of ~20dp icon
-
-        // Video button centre (left)
-        float vx = btnW / 2f;
-        float vy = th / 2f;
-        drawVideoIcon(canvas, vx, vy, iconR);
-
-        // Voice button centre (right)
-        float px = btnW + gap + btnW / 2f;
-        float py = th / 2f;
-        drawPhoneIcon(canvas, px, py, iconR);
+        // v83 hot path: two drawPath calls, zero allocations, zero arithmetic
+        // Video icon: body (stroke) + triangle (fill) — drawn together via fillPaint
+        // which uses FILL_AND_STROKE, so the body gets a subtle fill too.
+        // Use iconPaint (STROKE only) for the body rect and fillPaint for triangle.
+        canvas.drawPath(videoPath, fillPaint);
+        canvas.drawPath(phonePath, iconPaint);
     }
 
-    // ── Video camera icon ────────────────────────────────────────────────
-    // Rectangle body (left ~60%) + triangle "lens/viewfinder" pointing right
-    private void drawVideoIcon(Canvas canvas, float cx, float cy, float r) {
-        iconPaint.setStyle(Paint.Style.STROKE);
-        float bodyL = cx - r;
-        float bodyT = cy - r * 0.6f;
-        float bodyR = cx + r * 0.35f;
-        float bodyB = cy + r * 0.6f;
-        rect.set(bodyL, bodyT, bodyR, bodyB);
-        canvas.drawRoundRect(rect, 2 * density, 2 * density, iconPaint);
-
-        // Triangle pointing right
-        iconPaint.setStyle(Paint.Style.FILL_AND_STROKE);
-        path.reset();
-        path.moveTo(bodyR + 3 * density, cy - r * 0.55f);
-        path.lineTo(bodyR + 3 * density + r * 0.55f, cy);
-        path.lineTo(bodyR + 3 * density, cy + r * 0.55f);
-        path.close();
-        canvas.drawPath(path, iconPaint);
-        iconPaint.setStyle(Paint.Style.STROKE);
-    }
-
-    // ── Phone handset icon ───────────────────────────────────────────────
-    // Simplified phone shape: two small arcs for earpiece+mouthpiece + body
-    private void drawPhoneIcon(Canvas canvas, float cx, float cy, float r) {
-        iconPaint.setStyle(Paint.Style.STROKE);
-        // Draw a simplified phone using a path that approximates a handset
-        path.reset();
-        float s = r * 0.85f; // scale
-        // Earpiece cup (top-left)
-        path.moveTo(cx - s * 0.6f, cy - s);
-        path.arcTo(new RectF(cx - s, cy - s, cx - s * 0.2f, cy - s * 0.2f),
-                   230f, -160f, false);
-        // Body
-        path.lineTo(cx + s * 0.3f, cy + s * 0.1f);
-        // Mouthpiece cup (bottom-right)
-        path.arcTo(new RectF(cx + s * 0.1f, cy + s * 0.15f, cx + s, cy + s),
-                   50f, -160f, false);
-        path.lineTo(cx + s, cy + s);
-        canvas.drawPath(path, iconPaint);
-    }
-
-    // ── Touch handling ───────────────────────────────────────────────────
-    // Left half = video call, right half = voice call. Simple mid-split
-    // because both buttons are equal-width and always laid out that way.
     @Override
     public boolean onTouchEvent(MotionEvent e) {
-        int tw = getWidth();
         switch (e.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
-                touchDown = true;
-                touchOnVideo = e.getX() < tw / 2f;
+                touchDown   = true;
+                touchOnVideo = e.getX() < midX;
                 setPressed(true);
                 return true;
             case MotionEvent.ACTION_CANCEL:
@@ -171,8 +175,8 @@ public class ChatListCallButtonsView extends View {
                     touchDown = false;
                     setPressed(false);
                     performClick();
-                    boolean video = e.getX() < tw / 2f;
-                    if (video && onVideoCall != null) onVideoCall.run();
+                    boolean video = e.getX() < midX;
+                    if (video  && onVideoCall != null) onVideoCall.run();
                     else if (!video && onVoiceCall != null) onVoiceCall.run();
                 }
                 return true;

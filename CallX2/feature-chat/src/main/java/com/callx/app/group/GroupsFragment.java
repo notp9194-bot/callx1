@@ -47,10 +47,30 @@ public class GroupsFragment extends Fragment {
         View v = inflater.inflate(R.layout.fragment_groups, parent, false);
         RecyclerView rv = v.findViewById(R.id.rv_groups);
         emptyState = v.findViewById(R.id.empty_groups);
-        rv.setLayoutManager(new LinearLayoutManager(getContext()));
+        // v83: Telegram-level RecyclerView tuning ─────────────────────────
+        LinearLayoutManager llm = new LinearLayoutManager(getContext());
+        llm.setInitialPrefetchItemCount(8);
+        rv.setLayoutManager(llm);
+
         // v83: constructor no longer takes a list — submitList() is the write path
         adapter = new GroupAdapter();
         rv.setAdapter(adapter);
+
+        // Fixed-size rows — avoids full list remeasure on item change
+        rv.setHasFixedSize(true);
+        // Keep 20 off-screen VHs alive to reduce VH churn during scroll
+        rv.setItemViewCacheSize(20);
+        // Pre-size recycled view pool
+        RecyclerView.RecycledViewPool pool = new RecyclerView.RecycledViewPool();
+        pool.setMaxRecycledViews(0, 20);
+        rv.setRecycledViewPool(pool);
+        // Pause Glide during fast flings
+        rv.addOnScrollListener(new com.callx.app.chatlist.GlideScrollListener(requireContext()));
+        // Drop change-animations for in-place rebinds
+        if (rv.getItemAnimator() instanceof androidx.recyclerview.widget.SimpleItemAnimator) {
+            ((androidx.recyclerview.widget.SimpleItemAnimator) rv.getItemAnimator())
+                    .setSupportsChangeAnimations(false);
+        }
 
         FloatingActionButton fab = v.findViewById(R.id.fab_new_group);
         if (fab != null)

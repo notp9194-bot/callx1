@@ -74,19 +74,36 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         View banner = v.findViewById(R.id.banner_requests);
         if (banner != null) banner.setVisibility(View.GONE);
 
-        rv.setLayoutManager(new LinearLayoutManager(getContext()));
+        // v83: Telegram-level RecyclerView tuning ─────────────────────────
+        LinearLayoutManager llm = new LinearLayoutManager(getContext());
+        // Prefetch 8 rows ahead on the RenderThread before they scroll into view
+        llm.setInitialPrefetchItemCount(8);
+        rv.setLayoutManager(llm);
+
         // v83: constructor no longer takes a list — submitList() is the write path
         adapter = new ChatListAdapter(this);
         rv.setAdapter(adapter);
 
-        // PERF: v22 — keep more off-screen rows alive in the view cache so a
-        // small back-and-forth scroll doesn't keep tearing down and rebuilding
-        // rows (which now also re-attaches a typing listener + reloads Glide).
-        // Also drop change-animations: notifyItemChanged(PAYLOAD_*) fires
-        // often now (typing on/off, tick updates) and the fade/flash default
-        // animation on every one of those was pure overhead for what's just
-        // an in-place text/icon swap.
-        rv.setItemViewCacheSize(12);
+        // Fixed-size rows: tell RV it never needs to re-measure the whole list
+        // when an item changes — saves a full layout pass on every Firebase update.
+        rv.setHasFixedSize(true);
+
+        // Keep 20 off-screen VHs alive (was 12). On a 50-contact list this
+        // virtually eliminates VH destruction/recreation during a scroll and
+        // avoids re-attaching typing listeners + reloading Glide on every bind.
+        rv.setItemViewCacheSize(20);
+
+        // Pre-size the recycled view pool so RV never needs to grow it during scroll.
+        RecyclerView.RecycledViewPool pool = new RecyclerView.RecycledViewPool();
+        pool.setMaxRecycledViews(0, 25); // view type 0 = chat rows
+        rv.setRecycledViewPool(pool);
+
+        // Pause Glide bitmap decoding during fast flings (resume on idle/drag).
+        rv.addOnScrollListener(new GlideScrollListener(requireContext()));
+
+        // Drop change-animations: PAYLOAD_* rebinds (typing, tick, unread)
+        // fire frequently and the default fade/flash is pure overhead for
+        // in-place text/icon swaps.
         if (rv.getItemAnimator() instanceof androidx.recyclerview.widget.SimpleItemAnimator) {
             ((androidx.recyclerview.widget.SimpleItemAnimator) rv.getItemAnimator())
                     .setSupportsChangeAnimations(false);
