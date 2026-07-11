@@ -127,8 +127,19 @@ public class EmojiPackDownloadWorker extends Worker {
         if (existing != null) return existing;
 
         EmojiManifestRepository repo = new EmojiManifestRepository(ctx);
-        EmojiManifestModels.Manifest manifest = repo.getCachedManifest();
-        if (manifest == null) manifest = repo.fetchManifestBlocking();
+        // BUG FIX: this used to try repo.getCachedManifest() first and only
+        // hit the network if that was null. But getCachedManifest() happily
+        // returns whatever was cached last time — including a manifest that
+        // came back with an empty `emojis` array because the server folder
+        // was misconfigured at the time. That empty result then sat valid
+        // in SharedPrefs for up to 6h (MANIFEST_TTL), so even after the
+        // server got fixed, this on-demand path kept silently reusing the
+        // stale empty manifest and returning null for every id. Always go
+        // through fetchManifestBlocking() instead — it's still cheap
+        // (conditional GET with If-None-Match → 304 when nothing changed),
+        // but it guarantees a fresh look whenever the id we need isn't in
+        // what we have cached.
+        EmojiManifestModels.Manifest manifest = repo.fetchManifestBlocking();
         if (manifest == null || manifest.emojis == null) return null;
 
         for (EmojiManifestModels.Entry entry : manifest.emojis) {
