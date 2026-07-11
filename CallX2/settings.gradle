@@ -11,6 +11,13 @@ dependencyResolutionManagement {
             content { includeGroup "io.getstream" }
         }
         maven { url "https://jitpack.io" }
+        // Local .aar libs (e.g. core/libs/rlottie.aar) — referenced from
+        // core/build.gradle as api(name: 'rlottie', ext: 'aar'). Must live
+        // here, not in a module build.gradle, because repositoriesMode is
+        // FAIL_ON_PROJECT_REPOS (centralized repo management).
+        flatDir {
+            dirs "${rootDir}/core/libs"
+        }
     }
 }
 rootProject.name = "CallX"

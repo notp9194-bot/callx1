@@ -2,12 +2,6 @@ plugins {
     id 'com.android.library'
 }
 
-repositories {
-    flatDir {
-        dirs 'libs'
-    }
-}
-
 android {
     namespace 'com.callx.app.core'
     compileSdk 34
