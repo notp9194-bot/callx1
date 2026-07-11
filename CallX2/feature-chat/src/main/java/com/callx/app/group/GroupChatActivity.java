@@ -1219,6 +1219,14 @@ public class GroupChatActivity extends AppCompatActivity
                         .precomputePollOptionLayoutIfPossible(opt);
             }
         }
+        // PERF ADV: same reply-preview precompute as 1:1 ChatActivity.
+        if (m.replyToText != null && !m.replyToText.isEmpty()) {
+            com.callx.app.conversation.canvas.MessageBubbleCanvasView
+                    .precomputeReplyLayoutIfPossible(
+                            m.replyToSenderName,
+                            m.replyToText,
+                            m.replyToMediaUrl != null && !m.replyToMediaUrl.isEmpty());
+        }
         return m;
     }
 

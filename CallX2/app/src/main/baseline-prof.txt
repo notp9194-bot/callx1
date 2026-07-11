@@ -86,6 +86,63 @@ HSPLcom/callx/app/conversation/MessagePagingAdapter;->onBindViewHolder(Landroidx
 HSPLcom/callx/app/conversation/MessagePagingAdapter$VH;-><init>(**)V
 HSPLcom/callx/app/conversation/MessagePagingAdapter;->getItemViewType(I)I
 
+# ── Canvas bubble rendering — message scroll hot path ──────────────────
+# GAP FOUND: MessageBubbleCanvasView + its renderer helpers (the actual
+# per-bubble measure/draw code that runs on every onBindViewHolder and
+# every fling frame) were entirely absent from this profile — despite
+# ChatActivity, MessagePagingAdapter and even the SQLCipher DB layer
+# already being covered above. This is arguably the single hottest class
+# during chat scroll (StaticLayout building, Canvas draw, hit-testing),
+# so it was previously running cold/interpreted on every app launch.
+HSPLcom/callx/app/conversation/canvas/MessageBubbleCanvasView;-><init>(**)V
+HSPLcom/callx/app/conversation/canvas/MessageBubbleCanvasView;->onMeasure(II)V
+HSPLcom/callx/app/conversation/canvas/MessageBubbleCanvasView;->onDraw(Landroid/graphics/Canvas;)V
+HSPLcom/callx/app/conversation/canvas/MessageBubbleCanvasView;->onTouchEvent(Landroid/view/MotionEvent;)Z
+HSPLcom/callx/app/conversation/canvas/MessageBubbleCanvasView;->bind*(**)V
+HSPLcom/callx/app/conversation/canvas/MessageBubbleCanvasView;->set*(**)V
+HSPLcom/callx/app/conversation/canvas/MessageBubbleCanvasView;->draw*(Landroid/graphics/Canvas;)V
+HSPLcom/callx/app/conversation/canvas/MessageBubbleCanvasView;->compute*(**)V
+HSPLcom/callx/app/conversation/canvas/MessageBubbleCanvasView;->resolveReplyColors(Landroid/content/Context;)V
+HSPLcom/callx/app/conversation/canvas/MessageBubbleCanvasView;->buildBubbleDrawable(Landroid/content/Context;Z)Landroid/graphics/drawable/GradientDrawable;
+HSPLcom/callx/app/conversation/canvas/MessageBubbleCanvasView;->maxLineWidth(Landroid/text/StaticLayout;)I
+# Background StaticLayout precompute caches (plain text, poll options,
+# reply-preview) — precompute* runs on ioExecutor before a message ever
+# reaches the adapter; the getter/build paths on the UI thread should
+# still be AOT-compiled since a cache miss falls back to them.
+HSPLcom/callx/app/conversation/canvas/MessageBubbleCanvasView;->precomputeTextLayoutIfPossible(Ljava/lang/String;Z)V
+HSPLcom/callx/app/conversation/canvas/MessageBubbleCanvasView;->precomputePollOptionLayoutIfPossible(Ljava/lang/String;)V
+HSPLcom/callx/app/conversation/canvas/MessageBubbleCanvasView;->precomputeReplyLayoutIfPossible(Ljava/lang/String;Ljava/lang/String;Z)V
+HSPLcom/callx/app/conversation/canvas/MessageBubbleCanvasView;->buildReplyLayoutPair(Ljava/lang/String;Ljava/lang/String;I)Lcom/callx/app/conversation/canvas/MessageBubbleCanvasView$CachedReplyLayout;
+HSPLcom/callx/app/conversation/canvas/MessageBubbleCanvasView;->replyCacheKey(Ljava/lang/String;Ljava/lang/String;I)Ljava/lang/String;
+# Per-content-type renderers — each is a plain-old-Canvas draw() called
+# straight from MessageBubbleCanvasView.onDraw(), same hot path as above.
+HSPLcom/callx/app/conversation/canvas/SeenBubbleRenderer;->*(**)V
+HSPLcom/callx/app/conversation/canvas/MediaRenderer;->*(**)V
+HSPLcom/callx/app/conversation/canvas/MediaGroupRenderer;->*(**)V
+HSPLcom/callx/app/conversation/canvas/AudioRenderer;->*(**)V
+HSPLcom/callx/app/conversation/canvas/PollRenderer;->*(**)V
+HSPLcom/callx/app/conversation/canvas/LocationRenderer;->*(**)V
+HSPLcom/callx/app/conversation/canvas/ReelShareRenderer;->*(**)V
+HSPLcom/callx/app/conversation/canvas/ContactRenderer;->*(**)V
+HSPLcom/callx/app/conversation/canvas/FileBubbleRenderer;->*(**)V
+HSPLcom/callx/app/conversation/canvas/LinkPreviewRenderer;->*(**)V
+HSPLcom/callx/app/conversation/canvas/ViewOnceRenderer;->*(**)V
+# Large-image async decode (MediaViewerActivity + full-res paths)
+HSPLcom/callx/app/conversation/MessageDecodeUtils;->decodeAsync(Ljava/io/File;IILcom/callx/app/conversation/MessageDecodeUtils$DecodeCallback;)V
+HSPLcom/callx/app/conversation/MessageDecodeUtils;->decodeWithImageDecoder(Ljava/io/File;II)Landroid/graphics/Bitmap;
+HSPLcom/callx/app/conversation/MessageDecodeUtils;->decodeWithBitmapFactory(Ljava/io/File;II)Landroid/graphics/Bitmap;
+# Chat-list row Canvas sub-views (avoid a second cold class-load path for
+# the list screen that's the very first thing shown after cold start)
+HSPLcom/callx/app/chatlist/canvas/ChatListNameTimeView;->onDraw(Landroid/graphics/Canvas;)V
+HSPLcom/callx/app/chatlist/canvas/ChatListLastMessageView;->onDraw(Landroid/graphics/Canvas;)V
+HSPLcom/callx/app/chatlist/canvas/ChatListUnreadBadgeView;->onDraw(Landroid/graphics/Canvas;)V
+HSPLcom/callx/app/chatlist/canvas/ChatListStoryRingView;->onDraw(Landroid/graphics/Canvas;)V
+HSPLcom/callx/app/chatlist/canvas/ChatListCallButtonsView;->onDraw(Landroid/graphics/Canvas;)V
+HSPLcom/callx/app/chatlist/ChatListTextPrecompute;->init(Landroid/content/res/Resources;)V
+HSPLcom/callx/app/chatlist/ChatListTextPrecompute;->precompute(Ljava/util/List;II)V
+HSPLcom/callx/app/chatlist/ChatListTextPrecompute;->getName(Ljava/lang/String;I)Ljava/lang/CharSequence;
+HSPLcom/callx/app/chatlist/ChatListTextPrecompute;->getMessage(Ljava/lang/String;I)Ljava/lang/CharSequence;
+
 # ── Chat UI components ────────────────────────────────────────────────
 HSPLcom/callx/app/chat/ui/ReplyBarView;-><init>(**)V
 HSPLcom/callx/app/chat/ui/ReplyBarView;->*(**)V

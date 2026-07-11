@@ -1164,7 +1164,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         binding.llReplyBar.setTranslationY(0f);
         binding.llReplyBar.setVisibility(View.VISIBLE);
         binding.etMessage.requestFocus();
-        ReplyAnalyticsTracker.get().onSwipeTriggered();
+        ReplyAnalyticsTracker.get().onSwipeTriggered(this);
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -2599,6 +2599,16 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                         .precomputePollOptionLayoutIfPossible(opt);
             }
         }
+        // PERF ADV: same idea, for the reply-preview strip (sender name +
+        // quoted text) — one of the most common message shapes in the app.
+        // See precomputeReplyLayoutIfPossible() javadoc for full reasoning.
+        if (m != null && m.replyToText != null && !m.replyToText.isEmpty()) {
+            com.callx.app.conversation.canvas.MessageBubbleCanvasView
+                    .precomputeReplyLayoutIfPossible(
+                            m.replyToSenderName,
+                            m.replyToText,
+                            m.replyToMediaUrl != null && !m.replyToMediaUrl.isEmpty());
+        }
         return m;
     }
 
@@ -3839,7 +3849,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 currentUid,
                 new SwipeReplyHandler.OnSwipeReplyListener() {
                     @Override public void onSwipeReply(Message message, int adapterPosition) {
-                        ReplyAnalyticsTracker.get().onSwipeAttempt(100f);
+                        ReplyAnalyticsTracker.get().onSwipeAttempt(ChatActivity.this, 100f);
                         startReply(message);
                     }
 
@@ -3866,7 +3876,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 String senderName = (currentUid != null && currentUid.equals(message.senderId))
                         ? "You" : (message.senderName != null ? message.senderName : "Unknown");
                 pendingReplySnackbar = Snackbar.make(binding.getRoot(), "Replying to " + senderName + "\u2026", Snackbar.LENGTH_SHORT)
-                        .setAction("UNDO", v -> { cancelAction.run(); ReplyAnalyticsTracker.get().onUndoUsed(); });
+                        .setAction("UNDO", v -> { cancelAction.run(); ReplyAnalyticsTracker.get().onUndoUsed(ChatActivity.this); });
                 pendingReplySnackbar.show();
             }
             @Override public void onNavigateToOriginal(String messageId) { navigateToOriginalMsg(messageId, null); }

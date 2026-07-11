@@ -875,6 +875,120 @@ public class MessageBubbleCanvasView extends View {
         }
     }
 
+    // ── PERF ADV: background-precomputed reply-preview StaticLayout cache ──
+    //
+    // Same technique as sTextLayoutCache above, applied to the reply-preview
+    // strip (sender name + quoted text) that sits above a huge fraction of
+    // real-world messages — replies are one of the most common message
+    // shapes in this app, yet until now replySenderLayout/replyTextLayout
+    // were always built synchronously in onMeasure(), on every bind.
+    //
+    // COLOR SAFETY — this is the one place a naive copy of the plain-text
+    // pattern would be wrong: reply-preview color legitimately differs by
+    // message direction (sent vs received uses different sender/text
+    // colors), so two different messages with identical quoted text could
+    // hash to the same cache entry but need different colors. Baking a
+    // color into the cached layout at build/bind time (like the plain-text
+    // cache does) would risk one view's color bleeding into another's, since
+    // several RecyclerView rows may bind before any of them actually draws.
+    //
+    // Fix: cached layouts are built with their own dedicated TextPaint (an
+    // arbitrary placeholder color, never drawn as-is), and the *real* color
+    // is written onto that paint immediately before each draw() call — see
+    // the reply-preview draw site below — never at measure/bind time. A
+    // plain color mutation doesn't touch line-breaking/geometry, so this is
+    // safe even when the exact same cached StaticLayout instance is shared
+    // and drawn by several different rows (sequentially, same UI thread)
+    // with different colors across a single frame.
+    private static final int REPLY_LAYOUT_CACHE_CAPACITY = 200;
+    private static final Object sReplyLayoutCacheLock = new Object();
+    private static final java.util.LinkedHashMap<String, CachedReplyLayout> sReplyLayoutCache =
+            new java.util.LinkedHashMap<String, CachedReplyLayout>(64, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(
+                        java.util.Map.Entry<String, CachedReplyLayout> eldest) {
+                    return size() > REPLY_LAYOUT_CACHE_CAPACITY;
+                }
+            };
+
+    private static final class CachedReplyLayout {
+        final StaticLayout senderLayout;
+        final StaticLayout textLayout;
+        CachedReplyLayout(StaticLayout senderLayout, StaticLayout textLayout) {
+            this.senderLayout = senderLayout;
+            this.textLayout = textLayout;
+        }
+    }
+
+    // Self-calibrating, same idea as sLastKnownMaxTextWidth — two variants
+    // because a reply thumbnail (image/video quoted) shrinks the available
+    // text column width by REPLY_THUMB_SIZE_DP + margins.
+    private static volatile int sLastKnownReplyWidthNoThumb = -1;
+    private static volatile int sLastKnownReplyWidthWithThumb = -1;
+
+    /**
+     * Call off the UI thread (see entityToModel()/PagingDataTransforms.map
+     * call sites). Safe to call unconditionally for every message; no-ops
+     * for anything not eligible (no reply, or no calibrated width yet).
+     */
+    public static void precomputeReplyLayoutIfPossible(String senderName, String text, boolean hasThumb) {
+        if (text == null || text.isEmpty()) return;
+        String sender = senderName != null ? senderName : "";
+        int width = hasThumb ? sLastKnownReplyWidthWithThumb : sLastKnownReplyWidthNoThumb;
+        if (width <= 0) return; // no real reply bubble measured yet this session
+        String key = replyCacheKey(sender, text, width);
+        synchronized (sReplyLayoutCacheLock) {
+            if (sReplyLayoutCache.containsKey(key)) return;
+        }
+        CachedReplyLayout built = buildReplyLayoutPair(sender, text, width);
+        if (built == null) return;
+        synchronized (sReplyLayoutCacheLock) {
+            sReplyLayoutCache.put(key, built);
+        }
+    }
+
+    private static String replyCacheKey(String sender, String text, int width) {
+        return sender.length() + "_" + sender.hashCode()
+                + "|" + text.length() + "_" + text.hashCode()
+                + "_" + width;
+    }
+
+    // Builds both layouts with fresh, dedicated TextPaints — never an
+    // instance's shared replySenderPaint/replyTextPaint field. Color is an
+    // arbitrary placeholder (BLACK); real color is applied at draw time.
+    private static CachedReplyLayout buildReplyLayoutPair(String sender, String text, int width) {
+        try {
+            TextPaint senderPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+            senderPaint.setTextSize(sp2pxStatic(REPLY_SENDER_SIZE_SP));
+            senderPaint.setFakeBoldText(true);
+            senderPaint.setColor(Color.BLACK);
+            StaticLayout senderLayout = StaticLayout.Builder
+                    .obtain(sender, 0, sender.length(), senderPaint, width)
+                    .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                    .setMaxLines(1)
+                    .setEllipsize(TextUtils.TruncateAt.END)
+                    .setIncludePad(false)
+                    .build();
+
+            TextPaint textPaintClone = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+            textPaintClone.setTextSize(sp2pxStatic(REPLY_TEXT_SIZE_SP));
+            textPaintClone.setColor(Color.BLACK);
+            StaticLayout textLayout = StaticLayout.Builder
+                    .obtain(text, 0, text.length(), textPaintClone, width)
+                    .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                    .setMaxLines(2)
+                    .setEllipsize(TextUtils.TruncateAt.END)
+                    .setIncludePad(false)
+                    .build();
+
+            return new CachedReplyLayout(senderLayout, textLayout);
+        } catch (Exception ex) {
+            // Never let a precompute/cache-fill failure affect anything —
+            // callers simply fall back to building fresh, exactly as before.
+            return null;
+        }
+    }
+
     String messageText = "";
     String footerTimeText = "";
     boolean sent = false;
@@ -3474,20 +3588,43 @@ public class MessageBubbleCanvasView extends View {
             int replyTextColMaxWidth = Math.max(1, maxTextWidth - replyBar - replyPadH * 2
                     - replyThumbSize - replyThumbMargin * 2);
 
-            replySenderLayout = StaticLayout.Builder
-                    .obtain(replySenderName, 0, replySenderName.length(), replySenderPaint, replyTextColMaxWidth)
-                    .setAlignment(Layout.Alignment.ALIGN_NORMAL)
-                    .setMaxLines(1)
-                    .setEllipsize(TextUtils.TruncateAt.END)
-                    .setIncludePad(false)
-                    .build();
-            replyTextLayout = StaticLayout.Builder
-                    .obtain(replyText, 0, replyText.length(), replyTextPaint, replyTextColMaxWidth)
-                    .setAlignment(Layout.Alignment.ALIGN_NORMAL)
-                    .setMaxLines(2)
-                    .setEllipsize(TextUtils.TruncateAt.END)
-                    .setIncludePad(false)
-                    .build();
+            // Self-calibrate for background precompute — see
+            // precomputeReplyLayoutIfPossible() javadoc.
+            if (replyThumb != null) {
+                sLastKnownReplyWidthWithThumb = replyTextColMaxWidth;
+            } else {
+                sLastKnownReplyWidthNoThumb = replyTextColMaxWidth;
+            }
+
+            // PERF ADV: try the background-precomputed cache first. Color is
+            // NOT applied here — see the cache javadoc; it's applied fresh
+            // right before every draw() call instead, so a shared cached
+            // layout can never show a stale/wrong direction's color.
+            CachedReplyLayout cachedReply;
+            String replyKey = replyCacheKey(replySenderName != null ? replySenderName : "",
+                    replyText != null ? replyText : "", replyTextColMaxWidth);
+            synchronized (sReplyLayoutCacheLock) {
+                cachedReply = sReplyLayoutCache.get(replyKey);
+            }
+            if (cachedReply != null) {
+                replySenderLayout = cachedReply.senderLayout;
+                replyTextLayout = cachedReply.textLayout;
+            } else {
+                replySenderLayout = StaticLayout.Builder
+                        .obtain(replySenderName, 0, replySenderName.length(), replySenderPaint, replyTextColMaxWidth)
+                        .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                        .setMaxLines(1)
+                        .setEllipsize(TextUtils.TruncateAt.END)
+                        .setIncludePad(false)
+                        .build();
+                replyTextLayout = StaticLayout.Builder
+                        .obtain(replyText, 0, replyText.length(), replyTextPaint, replyTextColMaxWidth)
+                        .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                        .setMaxLines(2)
+                        .setEllipsize(TextUtils.TruncateAt.END)
+                        .setIncludePad(false)
+                        .build();
+            }
 
             int replyTextColWidth = Math.max(maxLineWidth(replySenderLayout), maxLineWidth(replyTextLayout));
             int replyTextColHeight = replySenderLayout.getHeight() + replyTextLayout.getHeight();
@@ -4723,13 +4860,22 @@ public class MessageBubbleCanvasView extends View {
         float textColTop = replyBoxRect.top
                 + (replyBoxRect.height() - (replySenderLayout.getHeight() + replyTextLayout.getHeight())) / 2f;
 
+        // PERF ADV: replySenderLayout/replyTextLayout may be a shared,
+        // cache-provided StaticLayout (see precomputeReplyLayoutIfPossible),
+        // so the direction-correct color is applied to its paint fresh,
+        // right here, immediately before drawing -- never at measure/bind
+        // time. This is a plain color mutation (no relayout), so it's cheap
+        // every frame and safe even when the same cached instance is drawn
+        // by other rows with a different color elsewhere in this pass.
         canvas.save();
         canvas.translate(textColLeft, Math.max(textColTop, replyBoxRect.top + replyPadV));
         if (replySenderLayout != null) {
+            replySenderLayout.getPaint().setColor(replySenderPaint.getColor());
             replySenderLayout.draw(canvas);
             canvas.translate(0, replySenderLayout.getHeight());
         }
         if (replyTextLayout != null) {
+            replyTextLayout.getPaint().setColor(replyTextPaint.getColor());
             replyTextLayout.draw(canvas);
         }
         canvas.restore();
