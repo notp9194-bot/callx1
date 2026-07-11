@@ -1689,21 +1689,34 @@ public class MessagePagingAdapter
                 }
             }
             if (hasThumb) {
-                glide(ctx).asBitmap().load(thumbUrl).apply(THUMB_RGB565)
-                        .override(240, 240).centerCrop()
-                        .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
-                            @Override
-                            public void onResourceReady(@NonNull Bitmap resource,
-                                    @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
-                                if (h.canvasBindToken != myToken) return;
-                                cv.setSeenThumbBitmap(resource);
-                            }
-                            @Override
-                            public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {
-                                if (h.canvasBindToken != myToken) return;
-                                cv.setSeenThumbBitmap(null);
-                            }
-                        });
+                // FIX: same root cause as the reel-share 330×474 thumb flicker —
+                // no cache check meant EVERY bind (including a plain scroll-recycle,
+                // and every rebind of an on-screen seen-bubble row that a new
+                // message send/receive elsewhere in the list triggers) unconditionally
+                // re-fired an async Glide load, guaranteeing a blank/junk frame on
+                // this thumbnail before the image popped back in. Now checks
+                // DECODED_BITMAP_CACHE synchronously first, same as reel-share/reply/video.
+                android.graphics.Bitmap seenThumbHit = DECODED_BITMAP_CACHE.get(thumbUrl);
+                if (seenThumbHit != null && !seenThumbHit.isRecycled()) {
+                    cv.setSeenThumbBitmap(seenThumbHit);
+                } else {
+                    glide(ctx).asBitmap().load(thumbUrl).apply(THUMB_RGB565)
+                            .override(240, 240).centerCrop()
+                            .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
+                                @Override
+                                public void onResourceReady(@NonNull Bitmap resource,
+                                        @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
+                                    DECODED_BITMAP_CACHE.put(thumbUrl, resource);
+                                    if (h.canvasBindToken != myToken) return;
+                                    cv.setSeenThumbBitmap(resource);
+                                }
+                                @Override
+                                public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {
+                                    if (h.canvasBindToken != myToken) return;
+                                    cv.setSeenThumbBitmap(null);
+                                }
+                            });
+                }
             }
         } else if (isCallEntry) {
             // Mirrors the legacy bindCallEntryBubble() exactly — same
@@ -1820,25 +1833,55 @@ public class MessagePagingAdapter
                     cellPending[i] = true; // has a thumb to show, but full-res still needs downloading
                 }
 
-                com.bumptech.glide.request.target.CustomTarget<Bitmap> target =
-                        new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
-                            @Override
-                            public void onResourceReady(@NonNull Bitmap resource,
-                                    @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
-                                if (h.canvasBindToken != myToken) return; // holder recycled/rebound since this load started
-                                cv.setMediaGroupBitmap(cellIndex, resource);
-                            }
-                            @Override
-                            public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {
-                                if (h.canvasBindToken != myToken) return;
-                                cv.setMediaGroupBitmap(cellIndex, null);
-                            }
-                        };
-
                 if (cachedFile != null) {
-                    glide(ctx).asBitmap().load(cachedFile).apply(THUMB_RGB565).override(240, 240).into(target);
+                    // FIX: same flicker root cause as reel-share/seen-bubble —
+                    // grid cells had zero cache check, so every rebind of a
+                    // media-group row (scroll, or a new message elsewhere
+                    // triggering a rebind of this visible row) blanked every
+                    // cell in the grid for a frame before Glide redecoded it.
+                    String cellPoolKey = cachedFile.getAbsolutePath();
+                    android.graphics.Bitmap cellHit = DECODED_BITMAP_CACHE.get(cellPoolKey);
+                    if (cellHit != null && !cellHit.isRecycled()) {
+                        cv.setMediaGroupBitmap(cellIndex, cellHit);
+                    } else {
+                        glide(ctx).asBitmap().load(cachedFile).apply(THUMB_RGB565).override(240, 240)
+                                .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
+                                    @Override
+                                    public void onResourceReady(@NonNull Bitmap resource,
+                                            @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
+                                        DECODED_BITMAP_CACHE.put(cellPoolKey, resource);
+                                        if (h.canvasBindToken != myToken) return;
+                                        cv.setMediaGroupBitmap(cellIndex, resource);
+                                    }
+                                    @Override
+                                    public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {
+                                        if (h.canvasBindToken != myToken) return;
+                                        cv.setMediaGroupBitmap(cellIndex, null);
+                                    }
+                                });
+                    }
                 } else if (loadUrl != null && !loadUrl.isEmpty()) {
-                    glide(ctx).asBitmap().load(loadUrl).apply(THUMB_RGB565).override(240, 240).into(target);
+                    android.graphics.Bitmap cellHit = DECODED_BITMAP_CACHE.get(loadUrl);
+                    if (cellHit != null && !cellHit.isRecycled()) {
+                        cv.setMediaGroupBitmap(cellIndex, cellHit);
+                    } else {
+                        final String finalLoadUrl = loadUrl;
+                        glide(ctx).asBitmap().load(loadUrl).apply(THUMB_RGB565).override(240, 240)
+                                .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
+                                    @Override
+                                    public void onResourceReady(@NonNull Bitmap resource,
+                                            @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
+                                        DECODED_BITMAP_CACHE.put(finalLoadUrl, resource);
+                                        if (h.canvasBindToken != myToken) return;
+                                        cv.setMediaGroupBitmap(cellIndex, resource);
+                                    }
+                                    @Override
+                                    public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {
+                                        if (h.canvasBindToken != myToken) return;
+                                        cv.setMediaGroupBitmap(cellIndex, null);
+                                    }
+                                });
+                    }
                 }
             }
             // For sent groups this is an all-false array (gate stays inert,
@@ -2166,21 +2209,31 @@ public class MessagePagingAdapter
 
             final String contactPhotoUrl = m.contactPhotoUrl;
             if (contactPhotoUrl != null && !contactPhotoUrl.isEmpty()) {
-                glide(ctx).asBitmap().load(contactPhotoUrl).apply(THUMB_RGB565)
-                        .override(96, 96).circleCrop()
-                        .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
-                            @Override
-                            public void onResourceReady(@NonNull Bitmap resource,
-                                    @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
-                                if (h.canvasBindToken != myToken) return;
-                                cv.setContactAvatarBitmap(resource);
-                            }
-                            @Override
-                            public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {
-                                if (h.canvasBindToken != myToken) return;
-                                cv.setContactAvatarBitmap(null);
-                            }
-                        });
+                // FIX: same flicker root cause as seen-bubble/reel-share —
+                // no cache check meant every rebind (scroll, or a new
+                // message elsewhere triggering a rebind of this visible
+                // contact-card row) blanked the avatar for a frame.
+                android.graphics.Bitmap contactHit = DECODED_BITMAP_CACHE.get(contactPhotoUrl);
+                if (contactHit != null && !contactHit.isRecycled()) {
+                    cv.setContactAvatarBitmap(contactHit);
+                } else {
+                    glide(ctx).asBitmap().load(contactPhotoUrl).apply(THUMB_RGB565)
+                            .override(96, 96).circleCrop()
+                            .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
+                                @Override
+                                public void onResourceReady(@NonNull Bitmap resource,
+                                        @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
+                                    DECODED_BITMAP_CACHE.put(contactPhotoUrl, resource);
+                                    if (h.canvasBindToken != myToken) return;
+                                    cv.setContactAvatarBitmap(resource);
+                                }
+                                @Override
+                                public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {
+                                    if (h.canvasBindToken != myToken) return;
+                                    cv.setContactAvatarBitmap(null);
+                                }
+                            });
+                }
             }
         } else if (isLocation) {
             // Mirrors the legacy "location" case (ChatLocationShareController.
@@ -2266,18 +2319,29 @@ public class MessagePagingAdapter
 
             java.io.File gifCached = MediaCache.getCached(ctx, gifUrl);
             if (gifCached != null) {
-                // Already on disk — decode first-frame and display immediately.
-                glide(ctx).asBitmap().load(gifCached).apply(THUMB_RGB565)
-                        .into(new com.bumptech.glide.request.target.CustomTarget<android.graphics.Bitmap>() {
-                            @Override
-                            public void onResourceReady(@NonNull android.graphics.Bitmap resource,
-                                    @Nullable com.bumptech.glide.request.transition.Transition<? super android.graphics.Bitmap> transition) {
-                                if (h.canvasBindToken != myToken) return;
-                                cv.setGifBitmap(resource);
-                            }
-                            @Override
-                            public void onLoadCleared(@Nullable android.graphics.drawable.Drawable p) {}
-                        });
+                // FIX: disk-cached doesn't mean flicker-free — decode was
+                // still async with zero in-memory pool check, so every
+                // rebind (scroll, or a new message elsewhere triggering a
+                // rebind of this visible GIF row) blanked it for a frame.
+                String gifPoolKey = gifCached.getAbsolutePath();
+                android.graphics.Bitmap gifHit = DECODED_BITMAP_CACHE.get(gifPoolKey);
+                if (gifHit != null && !gifHit.isRecycled()) {
+                    cv.setGifBitmap(gifHit);
+                } else {
+                    // Already on disk — decode first-frame and display immediately.
+                    glide(ctx).asBitmap().load(gifCached).apply(THUMB_RGB565)
+                            .into(new com.bumptech.glide.request.target.CustomTarget<android.graphics.Bitmap>() {
+                                @Override
+                                public void onResourceReady(@NonNull android.graphics.Bitmap resource,
+                                        @Nullable com.bumptech.glide.request.transition.Transition<? super android.graphics.Bitmap> transition) {
+                                    DECODED_BITMAP_CACHE.put(gifPoolKey, resource);
+                                    if (h.canvasBindToken != myToken) return;
+                                    cv.setGifBitmap(resource);
+                                }
+                                @Override
+                                public void onLoadCleared(@Nullable android.graphics.drawable.Drawable p) {}
+                            });
+                }
             } else if (!gifUrl.isEmpty()) {
                 // Not cached — show download gate; fetch remote size for the pill label.
                 cv.setMediaDownloadGate(false, Integer.MIN_VALUE, "GIF");
@@ -2312,17 +2376,26 @@ public class MessagePagingAdapter
 
             java.io.File stickerCached = MediaCache.getCached(ctx, stickerUrl);
             if (stickerCached != null) {
-                glide(ctx).asBitmap().load(stickerCached).apply(THUMB_RGB565)
-                        .into(new com.bumptech.glide.request.target.CustomTarget<android.graphics.Bitmap>() {
-                            @Override
-                            public void onResourceReady(@NonNull android.graphics.Bitmap resource,
-                                    @Nullable com.bumptech.glide.request.transition.Transition<? super android.graphics.Bitmap> transition) {
-                                if (h.canvasBindToken != myToken) return;
-                                cv.setStickerBitmap(resource);
-                            }
-                            @Override
-                            public void onLoadCleared(@Nullable android.graphics.drawable.Drawable p) {}
-                        });
+                // FIX: same as GIF above — disk-cached but no in-memory pool
+                // check meant every rebind blanked the sticker for a frame.
+                String stickerPoolKey = stickerCached.getAbsolutePath();
+                android.graphics.Bitmap stickerHit = DECODED_BITMAP_CACHE.get(stickerPoolKey);
+                if (stickerHit != null && !stickerHit.isRecycled()) {
+                    cv.setStickerBitmap(stickerHit);
+                } else {
+                    glide(ctx).asBitmap().load(stickerCached).apply(THUMB_RGB565)
+                            .into(new com.bumptech.glide.request.target.CustomTarget<android.graphics.Bitmap>() {
+                                @Override
+                                public void onResourceReady(@NonNull android.graphics.Bitmap resource,
+                                        @Nullable com.bumptech.glide.request.transition.Transition<? super android.graphics.Bitmap> transition) {
+                                    DECODED_BITMAP_CACHE.put(stickerPoolKey, resource);
+                                    if (h.canvasBindToken != myToken) return;
+                                    cv.setStickerBitmap(resource);
+                                }
+                                @Override
+                                public void onLoadCleared(@Nullable android.graphics.drawable.Drawable p) {}
+                            });
+                }
             } else if (!stickerUrl.isEmpty()) {
                 cv.setMediaDownloadGate(false, Integer.MIN_VALUE, "Sticker");
                 com.callx.app.utils.MediaCache.getRemoteSize(ctx, stickerUrl,
@@ -2426,12 +2499,21 @@ public class MessagePagingAdapter
                         boolean hasThumb = r.imageUrl != null && !r.imageUrl.isEmpty();
                         cv.setLinkPreview(r.url, r.title, r.domain, hasThumb);
                         if (hasThumb) {
+                            // FIX: same flicker root cause as seen-bubble/reel-share —
+                            // no cache check meant every rebind (scroll, or a new
+                            // message elsewhere triggering a rebind of this visible
+                            // link-preview row) blanked the card thumbnail for a frame.
+                            android.graphics.Bitmap lpHit = DECODED_BITMAP_CACHE.get(r.imageUrl);
+                            if (lpHit != null && !lpHit.isRecycled()) {
+                                cv.setLinkPreviewThumbBitmap(lpHit);
+                            } else {
                             // PERF #4: density-aware width; keep 2:1 aspect for link-preview card
                             glide(ctx).asBitmap().load(r.imageUrl).apply(THUMB_RGB565)
                                     .override(thumbPx(ctx), thumbPx(ctx) / 2).centerCrop()
                                     .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
                                         @Override public void onResourceReady(@NonNull Bitmap resource,
                                                 @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
+                                            DECODED_BITMAP_CACHE.put(r.imageUrl, resource);
                                             if (!previewUrl.equals(cv.getTag())) return;
                                             cv.setLinkPreviewThumbBitmap(resource);
                                         }
@@ -2440,6 +2522,7 @@ public class MessagePagingAdapter
                                             cv.setLinkPreviewThumbBitmap(null);
                                         }
                                     });
+                            }
                         }
                     }
                     @Override public void onError(String url) {
