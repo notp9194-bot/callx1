@@ -2,6 +2,7 @@ package com.callx.app;
 
 import android.app.ActivityManager;
 import android.content.Context;
+import android.os.Build;
 
 import androidx.annotation.NonNull;
 
@@ -17,27 +18,44 @@ import com.bumptech.glide.request.RequestOptions;
 /**
  * CallxGlideModule — app-wide Glide configuration.
  *
+ * v91: merged from two previously-duplicate GlideModule classes
+ * (CallXGlideModule + CallxGlideModule) that only differed by filename
+ * case. Having two @GlideModule AppGlideModule subclasses in one app is
+ * invalid — Glide's annotation processor only supports a single one —
+ * and the case-only filename difference broke case-insensitive
+ * filesystems/CI checkouts. This file keeps the best of both:
+ *   - HARDWARE-bitmap-aware decode format switching (API 26+)
+ *   - Low-RAM-device adaptive cache/pool scaling
+ *
  * Why custom cache sizes?
- *   Default Glide memory cache = ~1/8 of available RAM (typically 25–40 MB on modern devices,
- *   but as low as 8 MB on low-end phones). Default disk cache = 250 MB.
+ *   Default Glide memory cache = ~1/8 of available RAM (typically 25–40 MB
+ *   on modern devices, as low as 8 MB on low-end phones). Default disk
+ *   cache = 250 MB.
  *
- *   For CallX2 (a media-heavy chat app with images, video thumbs, avatars, status previews):
- *   • Memory cache 40 MB  — fits well over a hundred mid-res chat thumbnails in RAM.
- *     Keeps recently viewed images instant-load without re-decoding from disk.
+ *   For CallX2 (a media-heavy chat app with images, video thumbs, avatars,
+ *   status previews):
+ *   • Memory cache 40 MB  — fits well over a hundred mid-res chat thumbnails
+ *     in RAM. Keeps recently viewed images instant-load without re-decode.
  *   • Disk cache 200 MB   — stores ~800-1500 chat images across sessions.
- *     A user re-opening a chat sees the same thumbnails without any network round-trip,
- *     even after scrolling through a long, media-heavy conversation.
- *   • BitmapPool 20 MB    — Glide reuses Bitmap objects instead of allocating new ones
- *     for every image decode. Cuts GC pressure during fast scrolling.
- *   • PREFER_ARGB_8888    — higher quality than RGB_565; worth it on modern AMOLED screens.
+ *   • BitmapPool 20 MB (HW) / 48 MB (SW) — see decode-format note below.
  *
- * FIX: all three budgets above were fixed constants regardless of device RAM.
- * On a low-end device (ActivityManager.getMemoryClass() ~ 96-128MB app heap),
- * a flat 40MB memory cache + 20MB bitmap pool is a big chunk of the whole
- * process heap — during a fast fling through a media-heavy chat, Glide's own
- * caches could crowd out headroom needed elsewhere and increase OOM risk
- * instead of preventing it. Budgets now scale with getMemoryClass(): full
- * size on normal/high-RAM devices, roughly halved below a 128MB heap class.
+ * Low-RAM scaling:
+ *   On a low-end device (ActivityManager.getMemoryClass() < 128MB app heap),
+ *   flat budgets are a big chunk of the whole process heap — during a fast
+ *   fling through a media-heavy chat, Glide's own caches could crowd out
+ *   headroom and increase OOM risk instead of preventing it. Budgets scale
+ *   with getMemoryClass(): full size on normal/high-RAM devices, halved
+ *   below the 128MB heap-class threshold.
+ *
+ * Decode format / HARDWARE bitmaps:
+ *   API 26+: request ARGB_8888 and let Glide promote the decoded+transformed
+ *   bitmap to Bitmap.Config.HARDWARE. Hardware bitmaps live in GPU memory —
+ *   zero CPU→GPU upload per frame during composite. The intermediate
+ *   software bitmap during decode is short-lived, so the bitmap pool for
+ *   this path can be smaller.
+ *   API < 26: no HARDWARE bitmap support — use PREFER_RGB_565 (2 bytes/px)
+ *   to keep the memory footprint low, with a larger pool since bitmaps stay
+ *   resident in normal RAM and get reused across scroll/reload cycles.
  *
  * @GlideModule triggers annotation-processor code-gen (GeneratedAppGlideModuleImpl).
  * No AndroidManifest.xml meta-data is needed (that was Glide 3 only).
@@ -46,15 +64,15 @@ import com.bumptech.glide.request.RequestOptions;
 @GlideModule
 public final class CallxGlideModule extends AppGlideModule {
 
-    // PERF: bumped from the original 20/50/10 MB defaults. CallX2 chats can
-    // easily hold hundreds of image/video-thumb/reply-thumb bubbles, and the
-    // old 50 MB disk cache was getting evicted within a single long chat —
-    // reopening a chat (or even scrolling back up) re-hit the network for
-    // thumbnails that had *just* been downloaded. Bigger budgets mean a
-    // re-opened chat loads its media thumbnails from disk, not the network.
     private static final long MEMORY_CACHE_BYTES = 40L * 1024 * 1024;  // 40 MB — normal/high-RAM devices
     private static final long DISK_CACHE_BYTES   = 200L * 1024 * 1024; // 200 MB — unaffected by RAM (disk, not heap)
-    private static final long BITMAP_POOL_BYTES  = 20L * 1024 * 1024;  // 20 MB — normal/high-RAM devices
+
+    // API 26+ (HARDWARE bitmaps): intermediate software bitmaps are short-lived
+    // during the decode+transform pipeline. 20 MB handles the worst-case burst.
+    // API < 26 (RGB_565 software bitmaps): larger pool avoids re-allocation during
+    // rapid scrolling. 48 MB fits ~1000 50dp RGB_565 avatars.
+    private static final long BITMAP_POOL_BYTES_HW = 20L * 1024 * 1024;
+    private static final long BITMAP_POOL_BYTES_SW = 48L * 1024 * 1024;
 
     // Devices reporting less than this app-heap class are treated as low-RAM.
     private static final int LOW_RAM_MEMORY_CLASS_MB = 128;
@@ -62,9 +80,16 @@ public final class CallxGlideModule extends AppGlideModule {
 
     @Override
     public void applyOptions(@NonNull Context context, @NonNull GlideBuilder builder) {
+        boolean hwBitmaps = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O;
+        DecodeFormat format = hwBitmaps
+                ? DecodeFormat.PREFER_ARGB_8888   // → Glide promotes to HARDWARE
+                : DecodeFormat.PREFER_RGB_565;    // 2 bytes/px, stays in RAM
+
         boolean lowRam = isLowRamDevice(context);
+        long baseBitmapPoolBytes = hwBitmaps ? BITMAP_POOL_BYTES_HW : BITMAP_POOL_BYTES_SW;
+
         long memoryCacheBytes = lowRam ? (long) (MEMORY_CACHE_BYTES * LOW_RAM_SCALE) : MEMORY_CACHE_BYTES;
-        long bitmapPoolBytes  = lowRam ? (long) (BITMAP_POOL_BYTES * LOW_RAM_SCALE) : BITMAP_POOL_BYTES;
+        long bitmapPoolBytes  = lowRam ? (long) (baseBitmapPoolBytes * LOW_RAM_SCALE) : baseBitmapPoolBytes;
 
         builder
             // ── In-memory LRU cache ────────────────────────────────────────
@@ -86,11 +111,8 @@ public final class CallxGlideModule extends AppGlideModule {
             // it's trying to protect, so it's scaled down there too.
             .setBitmapPool(new LruBitmapPool(bitmapPoolBytes))
 
-            // ── Decode format ──────────────────────────────────────────────
-            // PREFER_ARGB_8888: full colour depth. Better than RGB_565 on AMOLED
-            // screens (no colour banding on gradients / profile photos).
-            .setDefaultRequestOptions(
-                new RequestOptions().format(DecodeFormat.PREFER_ARGB_8888));
+            // ── Decode format ────────────────────────────────────────────────
+            .setDefaultRequestOptions(new RequestOptions().format(format));
     }
 
     private boolean isLowRamDevice(@NonNull Context context) {
