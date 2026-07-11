@@ -40,6 +40,10 @@ public class CallxApp extends Application {
     private static final String TAG = "CallxApp";
     private static int    sActivityRefs = 0;
     private static String sMyPhotoUrl   = "";
+    // DEBUG-only: full AXrLottie.init() failure text, shown once via
+    // AlertDialog on the first Activity resume (see onActivityResumed below)
+    // since Toast truncates and there's no window at Application.onCreate.
+    private static String sPendingDebugError = null;
 
     public static boolean isAppInForeground()  { return sActivityRefs > 0; }
     public static String  getMyPhotoUrlCached() { return sMyPhotoUrl; }
@@ -81,12 +85,12 @@ public class CallxApp extends Application {
         } catch (Throwable t) {
             Log.e(TAG, "AXrLottie.init failed — empty-chat animation disabled", t);
             if (BuildConfig.DEBUG) {
-                // No logcat access while building from mobile — surface it
-                // on-screen instead so we can see whether init() itself
-                // threw (vs. silently leaving its internal context unset).
-                final String msg = "AXrLottie.init failed: " + t;
-                new android.os.Handler(android.os.Looper.getMainLooper()).post(() ->
-                        android.widget.Toast.makeText(CallxApp.this, msg, android.widget.Toast.LENGTH_LONG).show());
+                // No logcat access while building from mobile — surface the
+                // FULL stack trace on-screen instead. Toast truncates long
+                // text and Application context has no window yet anyway, so
+                // stash it and show a proper AlertDialog on first Activity
+                // resume (see registerForegroundTracking() below).
+                sPendingDebugError = "AXrLottie.init failed:\n\n" + Log.getStackTraceString(t);
             }
         }
 
@@ -335,6 +339,25 @@ public class CallxApp extends Application {
             }
 
             @Override public void onActivityResumed(Activity a) {
+                if (BuildConfig.DEBUG && sPendingDebugError != null) {
+                    final String errorText = sPendingDebugError;
+                    sPendingDebugError = null; // show once only
+                    try {
+                        android.widget.TextView msg = new android.widget.TextView(a);
+                        int pad = (int) (16 * a.getResources().getDisplayMetrics().density);
+                        msg.setPadding(pad, pad, pad, pad);
+                        msg.setTextIsSelectable(true);
+                        msg.setText(errorText);
+                        android.widget.ScrollView scroll = new android.widget.ScrollView(a);
+                        scroll.addView(msg);
+                        new android.app.AlertDialog.Builder(a)
+                                .setTitle("Debug error")
+                                .setView(scroll)
+                                .setPositiveButton("OK", null)
+                                .show();
+                    } catch (Throwable ignored) {}
+                }
+
                 if (!(a instanceof LockScreenActivity)
                         && !(a instanceof AuthActivity)) {
                     // FIX-AL1: Singleton use karo — heavy EncryptedSharedPreferences
