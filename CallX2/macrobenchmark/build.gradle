@@ -16,6 +16,8 @@
 //  filter, automaticGenerationDuringBuild) belong in the consumer: app/build.gradle.
 // ══════════════════════════════════════════════════════════════════════
 
+import com.android.build.api.dsl.ManagedVirtualDevice
+
 plugins {
     id 'com.android.test'
     id 'androidx.baselineprofile'
@@ -49,6 +51,28 @@ android {
 
     targetProjectPath ':app'
     experimentalProperties['android.experimental.self-instrumenting'] = true
+
+    // ── CI Macrobenchmark: Gradle Managed Device ──────────────────────────
+    // Real hardware isn't available on GitHub-hosted runners, so CI runs
+    // benchmarks against a GMD instead — a Gradle-provisioned emulator with
+    // the exact same image every run (deterministic enough for pre-merge
+    // regression comparison; absolute numbers on a GMD are noisier than a
+    // real device, hence the wider regression tolerance in
+    // scripts/check_jank_regression.js). Task name this generates:
+    //   ./gradlew :macrobenchmark:pixel6Api31BenchmarkAndroidTest
+    // Needs nested virtualization (KVM) on the runner — see
+    // .github/workflows/macrobenchmark.yml.
+    testOptions {
+        managedDevices {
+            devices {
+                pixel6Api31(ManagedVirtualDevice) {
+                    device = "Pixel 6"
+                    apiLevel = 31
+                    systemImageSource = "aosp"
+                }
+            }
+        }
+    }
 }
 
 dependencies {

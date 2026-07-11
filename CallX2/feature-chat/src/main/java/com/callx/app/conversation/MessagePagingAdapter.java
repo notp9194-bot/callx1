@@ -486,11 +486,20 @@ public class MessagePagingAdapter
     private final SimpleDateFormat dateLabelFmt =
             new SimpleDateFormat("d MMM yyyy", Locale.getDefault());
 
-    // ── PERF: timestamp → formatted string cache (LRU, 256 slots) ────────────
+    // ── PERF: timestamp → formatted string cache (LongSparseArray, 256 cap) ──
     // Messages in the same minute share a key → very high hit rate.
     // reuseDate avoids Date allocation on every format call.
-    private final android.util.LruCache<Long, String> timeStringCache =
-            new android.util.LruCache<>(256);
+    // PERF: android.util.LongSparseArray instead of LruCache<Long,String> —
+    // LruCache's key type is Long, so every get()/put() autoboxes the primitive
+    // `key` into a new Long (or hits the [-128,127] cache, which timestamp
+    // buckets almost never fall into). LongSparseArray stores primitive longs
+    // directly in a backing array, so lookups on a scroll-heavy screen no
+    // longer allocate a Long per row. Not truly LRU any more — capped by
+    // clearing the whole array once it outgrows the old LruCache capacity,
+    // which is fine for a cache (worst case is a few extra recomputes right
+    // after the clear, never incorrect data).
+    private final android.util.LongSparseArray<String> timeStringCache =
+            new android.util.LongSparseArray<>(256);
     private final java.util.Date reuseDate = new java.util.Date();
 
     private String formatTime(long ts) {
@@ -499,22 +508,28 @@ public class MessagePagingAdapter
         if (s != null) return s;
         reuseDate.setTime(ts);
         s = timeFmt.format(reuseDate);
+        if (timeStringCache.size() >= 256) timeStringCache.clear();
         timeStringCache.put(key, s);
         return s;
     }
 
     // ── PERF: date-label cache — "Today"/"Yesterday"/"3 Jan" per day ─────────
     // Keys are midnight-truncated timestamps. Recomputed once per day per key.
-    private final android.util.LruCache<Long, String> dateLabelCache =
-            new android.util.LruCache<>(64);
+    // PERF: LongSparseArray, same autoboxing rationale as timeStringCache.
+    private final android.util.LongSparseArray<String> dateLabelCache =
+            new android.util.LongSparseArray<>(64);
 
     // ── PERF: isSameDay result cache — keyed by (ts1/day, ts2/day) ───────────
     // Called on every row to decide whether to show the date separator.
-    // A flat LongSparseArray isn't practical for two keys; use a small HashMap
-    // of combined keys. Cache size capped — at most one entry per unique pair
-    // in a visible window (~20 rows = ~20 unique pairs at most).
-    private final java.util.HashMap<Long, Boolean> sameDayCache =
-            new java.util.HashMap<>(32);
+    // PERF: LongSparseArray<Boolean> instead of HashMap<Long,Boolean> — the
+    // combined cacheKey is a primitive long, so HashMap.get/put were boxing
+    // it on every call (Boolean values are still boxed, but TRUE/FALSE are
+    // JVM-cached singletons, so that side was already free). Cache size
+    // capped — at most one entry per unique pair in a visible window
+    // (~20 rows = ~20 unique pairs at most); cleared wholesale if it ever
+    // grows past that in one long-lived adapter instance.
+    private final android.util.LongSparseArray<Boolean> sameDayCache =
+            new android.util.LongSparseArray<>(32);
 
     // ── PERF FIX #3: reel-share avatar/thumb in-memory cache ─────────────────
     // Root cause: bindReelShareBubble fired a fresh Firebase "users" query
@@ -1600,6 +1615,7 @@ public class MessagePagingAdapter
         // Don't cache "Today" / "Yesterday" — they become stale at midnight.
         // Cache only absolute date strings which never change.
         if (!label.equals("Today") && !label.equals("Yesterday")) {
+            if (dateLabelCache.size() >= 64) dateLabelCache.clear();
             dateLabelCache.put(dayKey, label);
         }
         return label;
@@ -1620,6 +1636,7 @@ public class MessagePagingAdapter
         c2.setTimeInMillis(ts2);
         boolean same = c1.get(java.util.Calendar.YEAR) == c2.get(java.util.Calendar.YEAR)
                 && c1.get(java.util.Calendar.DAY_OF_YEAR) == c2.get(java.util.Calendar.DAY_OF_YEAR);
+        if (sameDayCache.size() >= 32) sameDayCache.clear();
         sameDayCache.put(cacheKey, same);
         return same;
     }

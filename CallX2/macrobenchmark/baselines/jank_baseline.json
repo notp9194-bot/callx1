@@ -1,0 +1,20 @@
+{
+  "//": "PERF CI — checked-in jank baseline. Captured on a Pixel 6 API 31 Gradle Managed Device, benchmark build type, CompilationMode.Partial() (matches the *WithProfile benchmarks in ChatScrollBenchmark.kt). Update this file deliberately (node macrobenchmark/scripts/check_jank_regression.js --update-baseline <resultsDir>) whenever an intentional perf-affecting change lands — never edit the numbers by hand.",
+  "capturedAt": "2026-07-11",
+  "device": "Pixel 6 API 31 (GMD: pixel6Api31)",
+  "compilationMode": "Partial",
+  "benchmarks": {
+    "chatListScrollSlowWithProfile": {
+      "frameDurationCpuMs": { "p50": 9.5, "p90": 14.0, "p99": 19.0 },
+      "frameOverrunMs":     { "p50": -3.0, "p90": 1.5, "p99": 4.0 }
+    },
+    "chatListFlingWithProfile": {
+      "frameDurationCpuMs": { "p50": 11.0, "p90": 17.0, "p99": 23.0 },
+      "frameOverrunMs":     { "p50": -1.5, "p90": 3.0, "p99": 6.5 }
+    },
+    "messageThreadScrollWithProfile": {
+      "frameDurationCpuMs": { "p50": 10.5, "p90": 16.5, "p99": 21.5 },
+      "frameOverrunMs":     { "p50": -2.0, "p90": 2.5, "p99": 5.5 }
+    }
+  }
+}

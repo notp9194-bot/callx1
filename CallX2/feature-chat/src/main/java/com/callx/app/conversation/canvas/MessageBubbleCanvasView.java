@@ -1558,6 +1558,20 @@ public class MessageBubbleCanvasView extends View {
     private int                       fullBubblePictureW = -1;
     private int                       fullBubblePictureH = -1;
 
+    // ── PERF #5b: RenderNode upgrade (API 29+) ───────────────────────────────
+    // RenderNode is the hardware-accelerated successor to Picture: the
+    // recorded display list lives on the GPU side and canvas.drawRenderNode()
+    // replays it without the CPU re-walking the draw-op list the way
+    // canvas.drawPicture() does. On far off-screen bubbles that come back
+    // into view after a long fling (e.g. jumping to the top of a big group
+    // chat and flinging back down), this avoids re-rasterizing text/paths
+    // that haven't changed at all — same content, same size, just re-shown.
+    // Picture stays as the fallback for API 23-28 and for the rare
+    // software-canvas case (e.g. a bitmap snapshot draw path).
+    private static final boolean SUPPORTS_RENDER_NODE =
+            android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q;
+    private android.graphics.RenderNode fullBubbleRenderNode;
+
     /**
      * Draws a single-image/video bubble, using a cached Picture for
      * everything except the live spinner ring while (and only while) the
@@ -4455,6 +4469,32 @@ public class MessageBubbleCanvasView extends View {
 
         int w = getWidth(), h = getHeight();
         if (!skipFullCache && w > 0 && h > 0) {
+            // RenderNode path (API 29+, hardware-accelerated canvas only).
+            // Falls through to the Picture path below for older API levels
+            // or the rare software-canvas draw (e.g. a bitmap snapshot).
+            if (SUPPORTS_RENDER_NODE && canvas.isHardwareAccelerated()) {
+                if (fullBubbleRenderNode == null) {
+                    fullBubbleRenderNode = new android.graphics.RenderNode("bubble");
+                }
+                boolean hit = !fullBubbleDirty
+                        && w == fullBubblePictureW && h == fullBubblePictureH
+                        && fullBubbleRenderNode.hasDisplayList();
+                if (hit) {
+                    // Cache hit: replay the GPU-side display list — no CPU
+                    // draw-op walk at all, cheaper than canvas.drawPicture().
+                    canvas.drawRenderNode(fullBubbleRenderNode);
+                    return;
+                }
+                fullBubbleRenderNode.setPosition(0, 0, w, h);
+                android.graphics.RecordingCanvas rc = fullBubbleRenderNode.beginRecording();
+                drawBubbleContent(rc);
+                fullBubbleRenderNode.endRecording();
+                fullBubbleDirty    = false;
+                fullBubblePictureW = w;
+                fullBubblePictureH = h;
+                canvas.drawRenderNode(fullBubbleRenderNode);
+                return;
+            }
             if (!fullBubbleDirty && fullBubblePicture != null
                     && w == fullBubblePictureW && h == fullBubblePictureH) {
                 // Cache hit: replay the recorded Picture — ~0 CPU cost

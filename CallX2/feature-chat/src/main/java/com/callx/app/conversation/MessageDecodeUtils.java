@@ -42,6 +42,73 @@ public final class MessageDecodeUtils {
 
     private MessageDecodeUtils() {}
 
+    // ── PERF #7: Bitmap pool for inBitmap reuse ──────────────────────────────
+    // Why: decodeWithBitmapFactory() used to call BitmapFactory.decodeFile()
+    // with a fresh Options every time, which means a brand-new pixel buffer
+    // allocation on EVERY decode — even though message-bubble decodes happen
+    // constantly during a fling and the resulting Bitmap is usually discarded
+    // within a frame or two (replaced by the next bubble, or by Glide's own
+    // thumbnail once it loads). Each of those allocations is a native buffer
+    // the GC eventually has to reclaim, which shows up as GC pauses/jank on
+    // scroll-heavy chats with lots of local images.
+    //
+    // BitmapFactory.Options.inBitmap lets the decoder write pixels into an
+    // already-allocated Bitmap instead of asking the allocator for a new
+    // buffer. Since API 19, the reuse rule is just "allocationByteCount of
+    // the supplied bitmap >= byte count the decode will need" — dimensions
+    // don't have to match, BitmapFactory reconfigures the buffer internally.
+    // We always decode into RGB_565 here (see decodeWithBitmapFactory), so
+    // every pooled bitmap has a consistent, always-compatible config.
+    //
+    // Design: a tiny fixed-capacity pool (4 slots), thread-safe since decodes
+    // run on a 2-thread pool. Callers that are done displaying a bitmap
+    // decoded through this path (e.g. MediaViewerActivity closing, or a
+    // bubble holder swapping in a different image) can call
+    // releaseBitmapToPool() to make its buffer available for the next
+    // decode instead of leaving it purely to the GC. Never calling it is
+    // safe — the pool is a cache, not something anything depends on for
+    // correctness.
+    private static final int POOL_CAPACITY = 4;
+    private static final java.util.ArrayDeque<Bitmap> sBitmapPool =
+            new java.util.ArrayDeque<>(POOL_CAPACITY);
+    private static final Object sPoolLock = new Object();
+
+    /**
+     * Returns a bitmap previously decoded via this class to the reuse pool.
+     * Safe to call with any bitmap (immutable/recycled/null ones are simply
+     * ignored). Once handed to this method the caller must not keep drawing
+     * with the bitmap — it may be mutated by a subsequent decode at any time.
+     */
+    public static void releaseBitmapToPool(Bitmap bitmap) {
+        if (bitmap == null || bitmap.isRecycled() || !bitmap.isMutable()) return;
+        synchronized (sPoolLock) {
+            if (sBitmapPool.size() >= POOL_CAPACITY) {
+                Bitmap evicted = sBitmapPool.pollFirst();
+                if (evicted != null && !evicted.isRecycled()) evicted.recycle();
+            }
+            sBitmapPool.addLast(bitmap);
+        }
+    }
+
+    /** Pulls the first pooled bitmap big enough to hold {@code requiredBytes}, or null. */
+    private static Bitmap acquirePoolCandidate(long requiredBytes) {
+        synchronized (sPoolLock) {
+            java.util.Iterator<Bitmap> it = sBitmapPool.iterator();
+            while (it.hasNext()) {
+                Bitmap b = it.next();
+                if (b.isRecycled()) {
+                    it.remove();
+                    continue;
+                }
+                if (b.getAllocationByteCount() >= requiredBytes) {
+                    it.remove();
+                    return b;
+                }
+            }
+            return null;
+        }
+    }
+
     /**
      * Decodes {@code file} asynchronously, downsampling to fit within
      * {@code targetW × targetH} pixels, then delivers the result to
@@ -107,9 +174,33 @@ public final class MessageDecodeUtils {
         BitmapFactory.decodeFile(file.getAbsolutePath(), bounds);
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null;
 
+        int sampleSize = calculateInSampleSize(bounds.outWidth, bounds.outHeight, targetW, targetH);
+
         BitmapFactory.Options opts = new BitmapFactory.Options();
-        opts.inSampleSize = calculateInSampleSize(bounds.outWidth, bounds.outHeight, targetW, targetH);
+        opts.inSampleSize = sampleSize;
         opts.inPreferredConfig = Bitmap.Config.RGB_565; // half the memory of ARGB_8888 for opaque images
+        opts.inMutable = true; // so this decode's own result is poolable later too
+
+        // PERF #7: try to reuse a pooled buffer instead of a fresh allocation.
+        // Rough (over-)estimate of the post-sample decode size — BitmapFactory
+        // will reject inBitmap and fall back internally only if this estimate
+        // undershoots, which the +1 row/col padding below guards against.
+        int estW = (bounds.outWidth  + sampleSize - 1) / sampleSize;
+        int estH = (bounds.outHeight + sampleSize - 1) / sampleSize;
+        long requiredBytes = (long) (estW + 1) * (estH + 1) * 2L; // RGB_565 = 2 bytes/px
+        Bitmap candidate = acquirePoolCandidate(requiredBytes);
+        if (candidate != null) {
+            opts.inBitmap = candidate;
+            try {
+                return BitmapFactory.decodeFile(file.getAbsolutePath(), opts);
+            } catch (IllegalArgumentException e) {
+                // Candidate turned out incompatible (shouldn't happen given the
+                // byteCount check, but the config/mutability contract isn't
+                // 100% guaranteed across OEM skins) — recycle it and decode fresh.
+                if (!candidate.isRecycled()) candidate.recycle();
+                opts.inBitmap = null;
+            }
+        }
         return BitmapFactory.decodeFile(file.getAbsolutePath(), opts);
     }
 
