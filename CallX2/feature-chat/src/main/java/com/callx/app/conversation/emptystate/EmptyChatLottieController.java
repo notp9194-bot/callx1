@@ -6,10 +6,12 @@ import android.os.Handler;
 import android.os.Looper;
 import android.view.View;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 
 import com.callx.app.cache.DiskCache;
+import com.callx.app.core.BuildConfig;
 import com.callx.app.emptystate.EmojiPackDownloadWorker;
 
 import java.io.File;
@@ -100,6 +102,12 @@ public class EmptyChatLottieController {
                 if (loaded) {
                     lottieView.setVisibility(View.VISIBLE);
                     fallbackEmoji.setVisibility(View.GONE);
+                } else if (BuildConfig.DEBUG) {
+                    // No logcat access while building from mobile — surface
+                    // the exact failure on-screen instead. Debug builds only.
+                    Toast.makeText(appContext,
+                            "RLottie load failed: " + lottieView.getLastError(),
+                            Toast.LENGTH_LONG).show();
                 }
                 // If loading failed, the fallback TextView (👋) stays visible
                 // exactly as it was — nothing to do.

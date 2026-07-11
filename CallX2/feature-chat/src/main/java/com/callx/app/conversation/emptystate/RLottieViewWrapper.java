@@ -32,6 +32,16 @@ public class RLottieViewWrapper extends FrameLayout {
 
     private final AXrLottieImageView lottieView;
     private boolean released = false;
+    private String lastError = null;
+
+    /** Debug-only: the exception from the most recent failed load(), so it
+     *  can be shown on-screen (Toast) when the developer has no logcat
+     *  access, e.g. building from a mobile CI. Null if the last load
+     *  succeeded or none was attempted yet. */
+    @Nullable
+    public String getLastError() {
+        return lastError;
+    }
 
     public RLottieViewWrapper(Context ctx) {
         this(ctx, null);
@@ -54,11 +64,13 @@ public class RLottieViewWrapper extends FrameLayout {
             AXrLottieDrawable drawable = AXrLottieDrawable.fromFile(jsonFile).build();
             lottieView.setLottieDrawable(drawable);
             lottieView.playAnimation();
+            lastError = null;
             return true;
         } catch (Throwable e) {
             // Caller (EmptyChatLottieController) already has the static emoji
             // TextView showing underneath, so a bad file just means no
             // animation instead of a crash.
+            lastError = e.toString();
             Log.w(TAG, "loadFromFile failed: " + e.getMessage());
             return false;
         }
@@ -73,8 +85,10 @@ public class RLottieViewWrapper extends FrameLayout {
             AXrLottieDrawable drawable = AXrLottieDrawable.fromAssets(getContext(), assetPath).build();
             lottieView.setLottieDrawable(drawable);
             lottieView.playAnimation();
+            lastError = null;
             return true;
         } catch (Throwable e) {
+            lastError = e.toString();
             Log.w(TAG, "loadFromAsset failed: " + e.getMessage());
             return false;
         }
