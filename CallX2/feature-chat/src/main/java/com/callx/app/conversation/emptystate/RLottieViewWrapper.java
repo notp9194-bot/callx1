@@ -52,7 +52,7 @@ public class RLottieViewWrapper extends FrameLayout {
             AXrLottieDrawable drawable = AXrLottieDrawable.fromFile(jsonFile).build();
             lottieView.setLottieDrawable(drawable);
             lottieView.playAnimation();
-        } catch (Exception e) {
+        } catch (Throwable e) {
             // Caller (EmptyChatLottieController) already has the static emoji
             // TextView showing underneath, so a bad file just means no
             // animation instead of a crash.
@@ -67,7 +67,7 @@ public class RLottieViewWrapper extends FrameLayout {
             AXrLottieDrawable drawable = AXrLottieDrawable.fromAssets(getContext(), assetPath).build();
             lottieView.setLottieDrawable(drawable);
             lottieView.playAnimation();
-        } catch (Exception e) {
+        } catch (Throwable e) {
             Log.w(TAG, "loadFromAsset failed: " + e.getMessage());
         }
     }

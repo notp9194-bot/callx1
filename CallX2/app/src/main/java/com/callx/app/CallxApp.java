@@ -70,7 +70,17 @@ public class CallxApp extends Application {
         // Required one-time init for the RLottie native engine (empty-chat
         // welcome animation). Cheap — just registers the native lib + cache
         // dirs, doesn't decode anything yet.
-        com.aghajari.rlottie.AXrLottie.init(this);
+        // Wrapped: a native lib load failure here (e.g. UnsatisfiedLinkError,
+        // which is an Error — not an Exception) would otherwise take down
+        // the ENTIRE app at launch, since this runs in Application#onCreate()
+        // before anything else. Worst case now is just no welcome animation
+        // (RLottieViewWrapper's own loadFromFile/loadFromAsset already
+        // no-op safely when the engine never initialized).
+        try {
+            com.aghajari.rlottie.AXrLottie.init(this);
+        } catch (Throwable t) {
+            Log.e(TAG, "AXrLottie.init failed — empty-chat animation disabled", t);
+        }
 
         // ── PERF: StrictMode (DEBUG builds only) ──────────────────────────
         // Catches exactly the class of bug the user asked to check for:
