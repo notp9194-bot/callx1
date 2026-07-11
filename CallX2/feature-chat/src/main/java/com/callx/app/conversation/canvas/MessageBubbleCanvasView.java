@@ -538,6 +538,12 @@ public class MessageBubbleCanvasView extends View {
     static final float SEEN_THUMB_W_DP           = 120f;
     static final float SEEN_THUMB_H_DP           = 80f;
     static final float SEEN_THUMB_MARGIN_BOTTOM_DP = 6f;
+    // MODERNIZE: thumbnail used to be drawn as a hard-cornered rectangle —
+    // every other card/thumbnail in the app (link-preview, reel-share,
+    // media bubbles) rounds its corners; this was the one holdout that
+    // read as visually outdated next to them. Matches the same corner
+    // radius family as the link-preview thumb band (LINK_PREVIEW_CORNER_DP).
+    static final float SEEN_THUMB_CORNER_DP       = 10f;
     static final float SEEN_OVERLAY_ICON_SP      = 22f;
     static final float SEEN_ICON_TEXT_SP         = 14f;
     static final float SEEN_ICON_LABEL_GAP_DP    = 5f;

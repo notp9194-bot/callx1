@@ -61,6 +61,18 @@ final class SeenBubbleRenderer {
 
         // ── Optional thumbnail + play/eye overlay ──
         if (host.seenHasThumb) {
+            // MODERNIZE: was a plain sharp-cornered drawRect() — every other
+            // thumbnail/card in the app (link-preview, reel-share, media
+            // bubbles) is rounded; this was the one outdated-looking
+            // rectangle left. Clip to a round-rect on all 4 corners (the
+            // thumb sits fully inset inside the card with margin on every
+            // side — see seenThumbRect's measure — so a full round-rect
+            // reads correctly, no need to match it to any card edge).
+            float thumbR = MessageBubbleCanvasView.SEEN_THUMB_CORNER_DP * host.density;
+            android.graphics.Path thumbClip = new android.graphics.Path();
+            thumbClip.addRoundRect(host.seenThumbRect, thumbR, thumbR, android.graphics.Path.Direction.CW);
+            int thumbSaveCount = canvas.save();
+            canvas.clipPath(thumbClip);
             canvas.drawRect(host.seenThumbRect, host.seenThumbBgPaint);
             if (host.seenThumbBitmap != null) {
                 float scale = Math.max(host.seenThumbRect.width() / host.seenThumbBitmap.getWidth(),
@@ -76,6 +88,7 @@ final class SeenBubbleRenderer {
                 host.seenThumbPaint.setShader(shader);
                 canvas.drawRect(host.seenThumbRect, host.seenThumbPaint);
             }
+            canvas.restoreToCount(thumbSaveCount);
             String overlayGlyph = host.seenIsReel ? MessageBubbleCanvasView.SEEN_REEL_PLAY_GLYPH : MessageBubbleCanvasView.SEEN_STATUS_EYE_GLYPH;
             canvas.drawText(overlayGlyph, host.seenThumbRect.centerX(),
                     host.seenThumbRect.centerY() - (host.seenOverlayIconPaint.ascent() + host.seenOverlayIconPaint.descent()) / 2f,
