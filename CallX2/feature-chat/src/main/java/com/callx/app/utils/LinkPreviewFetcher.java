@@ -176,6 +176,24 @@ public class LinkPreviewFetcher {
         synchronized (cache) { cache.remove(url); }
     }
 
+    /**
+     * FIX (chat-list flicker on every send/receive once a link message
+     * exists): synchronous, cache-only lookup — no network, no executor
+     * hop, no mainHandler.post(). fetch() always delivers its callback a
+     * frame later (via mainHandler.post()) even on a cache hit, which is
+     * fine for a first-time bind but meant every REBIND of an
+     * already-resolved link-preview row had to briefly clear/collapse the
+     * card before that posted callback landed. Row-bind code should call
+     * this first and only fall back to fetch() when it returns null.
+     * Returns null if url is null or nothing is cached for it yet.
+     */
+    public static Result peek(String url) {
+        if (url == null) return null;
+        synchronized (cache) {
+            return cache.get(url);
+        }
+    }
+
     // ── Internal ──────────────────────────────────────────────────────────
 
     private static Result fetchSync(String rawUrl) {

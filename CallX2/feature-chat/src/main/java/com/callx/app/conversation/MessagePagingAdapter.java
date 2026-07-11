@@ -864,6 +864,47 @@ public class MessagePagingAdapter
         attachedRecyclerView = null;
     }
 
+    /**
+     * Renders a resolved link-preview Result onto the Canvas bubble —
+     * title/domain card plus thumbnail (cache-hit-synchronous or
+     * Glide-async as needed). Shared by both the synchronous cache-peek
+     * path and the async fetch() callback in bindText() above, so a
+     * cached preview and a freshly-fetched one render identically.
+     */
+    private void bindLinkPreviewResult(
+            com.callx.app.conversation.canvas.MessageBubbleCanvasView cv,
+            android.content.Context ctx,
+            String previewUrl,
+            com.callx.app.utils.LinkPreviewFetcher.Result r) {
+        boolean hasThumb = r.imageUrl != null && !r.imageUrl.isEmpty();
+        cv.setLinkPreview(r.url, r.title, r.domain, hasThumb);
+        if (!hasThumb) return;
+        // PERF #4: density-aware width; keep 2:1 aspect for link-preview card.
+        // Check the shared decoded-bitmap pool synchronously first — a hit
+        // renders the thumb in the very same frame as the title/domain text,
+        // zero flash. Only a genuine miss falls back to async Glide.
+        final int lpW = thumbPx(ctx), lpH = thumbPx(ctx) / 2;
+        android.graphics.Bitmap lpHit = DECODED_BITMAP_CACHE.get(poolKey(r.imageUrl, lpW, lpH));
+        if (lpHit != null && !lpHit.isRecycled()) {
+            cv.setLinkPreviewThumbBitmap(lpHit);
+            return;
+        }
+        glide(ctx).asBitmap().load(r.imageUrl).apply(THUMB_RGB565)
+                .override(lpW, lpH).centerCrop()
+                .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
+                    @Override public void onResourceReady(@NonNull Bitmap resource,
+                            @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
+                        DECODED_BITMAP_CACHE.put(poolKey(r.imageUrl, lpW, lpH), resource);
+                        if (!previewUrl.equals(cv.getTag())) return;
+                        cv.setLinkPreviewThumbBitmap(resource);
+                    }
+                    @Override public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {
+                        if (!previewUrl.equals(cv.getTag())) return;
+                        cv.setLinkPreviewThumbBitmap(null);
+                    }
+                });
+    }
+
     /** Cached RequestManager if attached; falls back to glide(ctx) so callers never null-check. */
     private com.bumptech.glide.RequestManager glide(Context ctx) {
         return glideRequestManager != null ? glideRequestManager : com.bumptech.glide.Glide.with(ctx);
@@ -2534,46 +2575,46 @@ public class MessagePagingAdapter
             if (previewUrl == null) {
                 cv.clearLinkPreview();
             } else {
-                cv.clearLinkPreview(); // no stale card from a recycled view while this fetch is in flight
-                com.callx.app.utils.LinkPreviewFetcher.fetch(previewUrl,
-                        new com.callx.app.utils.LinkPreviewFetcher.Callback() {
-                    @Override public void onResult(com.callx.app.utils.LinkPreviewFetcher.Result r) {
-                        if (!previewUrl.equals(cv.getTag())) return; // recycled/rebound since this fetch started
-                        boolean hasThumb = r.imageUrl != null && !r.imageUrl.isEmpty();
-                        cv.setLinkPreview(r.url, r.title, r.domain, hasThumb);
-                        if (hasThumb) {
-                            // FIX: same flicker root cause as seen-bubble/reel-share —
-                            // no cache check meant every rebind (scroll, or a new
-                            // message elsewhere triggering a rebind of this visible
-                            // link-preview row) blanked the card thumbnail for a frame.
-                            final int lpW = thumbPx(ctx), lpH = thumbPx(ctx) / 2;
-                            android.graphics.Bitmap lpHit = DECODED_BITMAP_CACHE.get(poolKey(r.imageUrl, lpW, lpH));
-                            if (lpHit != null && !lpHit.isRecycled()) {
-                                cv.setLinkPreviewThumbBitmap(lpHit);
-                            } else {
-                            // PERF #4: density-aware width; keep 2:1 aspect for link-preview card
-                            glide(ctx).asBitmap().load(r.imageUrl).apply(THUMB_RGB565)
-                                    .override(lpW, lpH).centerCrop()
-                                    .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
-                                        @Override public void onResourceReady(@NonNull Bitmap resource,
-                                                @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
-                                            DECODED_BITMAP_CACHE.put(poolKey(r.imageUrl, lpW, lpH), resource);
-                                            if (!previewUrl.equals(cv.getTag())) return;
-                                            cv.setLinkPreviewThumbBitmap(resource);
-                                        }
-                                        @Override public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {
-                                            if (!previewUrl.equals(cv.getTag())) return;
-                                            cv.setLinkPreviewThumbBitmap(null);
-                                        }
-                                    });
-                            }
+                // FLICKER ROOT CAUSE (whole chat list junk on every send/
+                // receive once a link message exists): this used to call
+                // clearLinkPreview() UNCONDITIONALLY before firing fetch() —
+                // even when the URL was already resolved and sitting in
+                // LinkPreviewFetcher's cache. clearLinkPreview() collapses the
+                // card to zero height (requestLayoutIfSizeChanged() sees a
+                // real size change), and fetch()'s callback — even on a pure
+                // cache hit — always lands a frame later via mainHandler.post(),
+                // never synchronously. So every rebind of this row replayed a
+                // collapse-then-expand cycle. And this row DOES get rebound on
+                // every unrelated send/receive: reanchorPagingToBottom()
+                // invalidates the live PagingSource on every write, reloading
+                // the whole visible page as fresh Message objects. That
+                // per-row height thrash is exactly what forces RecyclerView to
+                // reflow every row below it — the "puri chat list
+                // flickering/junk" the moment a link exists anywhere onscreen.
+                //
+                // Fix: peek the cache synchronously FIRST. The overwhelmingly
+                // common case — a link that already resolved once — renders
+                // in the very same frame with no clear/collapse step at all.
+                // Only a genuine cache miss (URL never fetched before) still
+                // falls back to clearLinkPreview() + async fetch().
+                com.callx.app.utils.LinkPreviewFetcher.Result cachedPreview =
+                        com.callx.app.utils.LinkPreviewFetcher.peek(previewUrl);
+                if (cachedPreview != null) {
+                    bindLinkPreviewResult(cv, ctx, previewUrl, cachedPreview);
+                } else {
+                    cv.clearLinkPreview(); // genuinely nothing to show yet — fetch in flight
+                    com.callx.app.utils.LinkPreviewFetcher.fetch(previewUrl,
+                            new com.callx.app.utils.LinkPreviewFetcher.Callback() {
+                        @Override public void onResult(com.callx.app.utils.LinkPreviewFetcher.Result r) {
+                            if (!previewUrl.equals(cv.getTag())) return; // recycled/rebound since this fetch started
+                            bindLinkPreviewResult(cv, ctx, previewUrl, r);
                         }
-                    }
-                    @Override public void onError(String url) {
-                        if (!previewUrl.equals(cv.getTag())) return;
-                        cv.clearLinkPreview();
-                    }
-                });
+                        @Override public void onError(String url) {
+                            if (!previewUrl.equals(cv.getTag())) return;
+                            cv.clearLinkPreview();
+                        }
+                    });
+                }
             }
         }
 
