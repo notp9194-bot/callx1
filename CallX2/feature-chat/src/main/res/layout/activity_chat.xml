@@ -47,11 +47,25 @@
             android:orientation="vertical"
             android:gravity="center"
             android:visibility="gone">
+
+            <!-- Instant zero-cost fallback (point 13: low-end devices, or
+                 while the RLottie view underneath is still loading/decoding).
+                 Always laid out first so it's on screen with zero delay. -->
             <TextView
+                android:id="@+id/tv_empty_emoji_fallback"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="👋"
                 android:textSize="56sp"/>
+
+            <!-- RLottie welcome animation — swapped in over the fallback once
+                 loaded (EmptyChatLottieController). Never used inside the
+                 RecyclerView/bubbles, empty-screen only (plan point 4). -->
+            <com.callx.app.conversation.emptystate.RLottieViewWrapper
+                android:id="@+id/rlottie_empty_chat"
+                android:layout_width="120dp"
+                android:layout_height="120dp"
+                android:visibility="gone"/>
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"

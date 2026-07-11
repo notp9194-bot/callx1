@@ -67,6 +67,11 @@ public class CallxApp extends Application {
     public void onCreate() {
         super.onCreate();
 
+        // Required one-time init for the RLottie native engine (empty-chat
+        // welcome animation). Cheap — just registers the native lib + cache
+        // dirs, doesn't decode anything yet.
+        com.aghajari.rlottie.AXrLottie.init(this);
+
         // ── PERF: StrictMode (DEBUG builds only) ──────────────────────────
         // Catches exactly the class of bug the user asked to check for:
         // accidental disk/DB/network calls hiding inside RecyclerView

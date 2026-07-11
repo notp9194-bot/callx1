@@ -24,6 +24,9 @@ android {
 dependencies {
     implementation project(':core')
 
+    // RLottie welcome-animation (empty chat screen) — the actual aar dep
+    // lives in core/build.gradle as `api`, transitively available here.
+
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'androidx.activity:activity:1.8.2'
     implementation 'androidx.core:core:1.13.1'

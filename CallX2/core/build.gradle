@@ -33,6 +33,12 @@ android {
 }
 
 dependencies {
+    // RLottie welcome-animation native+java lib. `api` (not `implementation`)
+    // — needs to be visible in :app (AXrLottie.init() at startup) and
+    // :feature-chat (renders it), both of which only depend on :core.
+    // See core/libs/README.md.
+    api files('libs/rlottie.aar')
+
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'androidx.core:core:1.13.1'
     implementation 'androidx.work:work-runtime:2.9.0'
