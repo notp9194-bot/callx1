@@ -60,10 +60,12 @@ public class GroupsFragment extends Fragment {
         rv.setHasFixedSize(true);
         // Keep 20 off-screen VHs alive to reduce VH churn during scroll
         rv.setItemViewCacheSize(20);
-        // Pre-size recycled view pool
-        RecyclerView.RecycledViewPool pool = new RecyclerView.RecycledViewPool();
-        pool.setMaxRecycledViews(0, 20);
-        rv.setRecycledViewPool(pool);
+        // v87: Activity-scoped pool — same ViewModel as ChatsFragment but a DIFFERENT pool.
+        // GroupAdapter.VH (item_group layout) must never enter the chatsPool.
+        RecyclerViewPoolViewModel poolVm =
+                new androidx.lifecycle.ViewModelProvider(requireActivity())
+                        .get(com.callx.app.chatlist.RecyclerViewPoolViewModel.class);
+        rv.setRecycledViewPool(poolVm.getGroupsPool());
         // Pause Glide during fast flings
         rv.addOnScrollListener(new com.callx.app.chatlist.GlideScrollListener(requireContext()));
         // v85+: null ItemAnimator

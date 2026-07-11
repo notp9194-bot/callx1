@@ -93,10 +93,14 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         // avoids re-attaching typing listeners + reloading Glide on every bind.
         rv.setItemViewCacheSize(20);
 
-        // Pre-size the recycled view pool so RV never needs to grow it during scroll.
-        RecyclerView.RecycledViewPool pool = new RecyclerView.RecycledViewPool();
-        pool.setMaxRecycledViews(0, 25); // view type 0 = chat rows
-        rv.setRecycledViewPool(pool);
+        // v87: Activity-scoped pool — survives Fragment View destruction on tab switches.
+        // Pool is owned by RecyclerViewPoolViewModel (Activity lifecycle), so the 25 cached
+        // ChatListAdapter.VHs are never thrown away when the user visits a distant tab.
+        // NEVER pass this pool to GroupsFragment — VH layouts are incompatible.
+        RecyclerViewPoolViewModel poolVm =
+                new androidx.lifecycle.ViewModelProvider(requireActivity())
+                        .get(RecyclerViewPoolViewModel.class);
+        rv.setRecycledViewPool(poolVm.getChatsPool());
 
         // Pause Glide bitmap decoding during fast flings (resume on idle/drag).
         rv.addOnScrollListener(new GlideScrollListener(requireContext()));
