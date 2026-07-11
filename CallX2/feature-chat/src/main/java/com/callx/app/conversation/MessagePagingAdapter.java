@@ -4954,8 +4954,11 @@ public class MessagePagingAdapter
         if (actionListener == null) return;
 
         // ── Step 1: Build emoji reaction row ──────────────────────────
-        String[] QUICK_EMOJIS = {"\u2764\uFE0F", "\uD83D\uDC4D", "\uD83D\uDE02",
-                                  "\uD83D\uDE2E", "\uD83D\uDE22", "\uD83D\uDE21"};
+        // RLottie-animated where the pack is already cached (LottieAssetCache,
+        // downloaded once via EmojiPackDownloadWorker), plain unicode glyph
+        // fallback otherwise — a slot is NEVER left blank.
+        com.callx.app.utils.ReactionEmojiCatalog.Entry[] QUICK_REACTIONS =
+                com.callx.app.utils.ReactionEmojiCatalog.QUICK_REACTIONS;
         android.widget.LinearLayout emojiRow = new android.widget.LinearLayout(ctx);
         emojiRow.setOrientation(android.widget.LinearLayout.HORIZONTAL);
         emojiRow.setGravity(android.view.Gravity.CENTER);
@@ -4971,24 +4974,55 @@ public class MessagePagingAdapter
         // Keep a dialog reference so emoji tap can dismiss it
         final android.app.AlertDialog[] holder = new android.app.AlertDialog[1];
 
-        for (String emoji : QUICK_EMOJIS) {
-            android.widget.TextView tv = new android.widget.TextView(ctx);
-            tv.setText(emoji);
-            tv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 28);
-            int btnPad = (int)(10 * ctx.getResources().getDisplayMetrics().density);
-            tv.setPadding(btnPad, btnPad / 2, btnPad, btnPad / 2);
-            // Highlight whichever emoji the current user already reacted with —
-            // tapping it again removes the reaction (see ChatReactionController#toggleReaction).
+        // Native RLottie drawables must be released when the sheet closes,
+        // or every long-press leaks native memory. Collected as they're built.
+        final java.util.List<com.callx.app.conversation.emptystate.RLottieViewWrapper> lottieRefs =
+                new java.util.ArrayList<>();
+
+        com.callx.app.cache.LottieAssetCache lottieCache =
+                com.callx.app.cache.LottieAssetCache.getInstance(ctx);
+        int slotSizePx = (int)(36 * ctx.getResources().getDisplayMetrics().density);
+
+        for (com.callx.app.utils.ReactionEmojiCatalog.Entry reaction : QUICK_REACTIONS) {
+            String emoji = reaction.unicode;
             boolean already = currentUid != null && m.reactions != null
                     && emoji.equals(m.reactions.get(currentUid));
-            tv.setAlpha(already ? 1.0f : 0.7f);
-            tv.setScaleX(already ? 1.25f : 1.0f);
-            tv.setScaleY(already ? 1.25f : 1.0f);
-            tv.setOnClickListener(v -> {
+
+            java.io.File cachedLottie = lottieCache.get(
+                    com.callx.app.emptystate.EmojiPackDownloadWorker.CACHE_KEY_PREFIX + reaction.id);
+
+            android.view.View slot;
+            if (cachedLottie != null) {
+                com.callx.app.conversation.emptystate.RLottieViewWrapper lottieView =
+                        new com.callx.app.conversation.emptystate.RLottieViewWrapper(ctx);
+                android.widget.LinearLayout.LayoutParams lp =
+                        new android.widget.LinearLayout.LayoutParams(slotSizePx, slotSizePx);
+                int btnPad = (int)(4 * ctx.getResources().getDisplayMetrics().density);
+                lp.setMargins(btnPad, 0, btnPad, 0);
+                lottieView.setLayoutParams(lp);
+                boolean loaded = lottieView.loadFromFile(cachedLottie);
+                if (!loaded) {
+                    // Corrupt cache entry slipped past — fall back to unicode glyph
+                    // instead of showing a broken/empty animated view.
+                    slot = buildUnicodeReactionGlyph(ctx, emoji, already);
+                } else {
+                    lottieView.setScaleX(already ? 1.25f : 1.0f);
+                    lottieView.setScaleY(already ? 1.25f : 1.0f);
+                    lottieView.setAlpha(already ? 1.0f : 0.85f);
+                    lottieRefs.add(lottieView);
+                    slot = lottieView;
+                }
+            } else {
+                // Not downloaded yet — worker prefetches on next chat-open,
+                // this slot just stays a plain glyph for now.
+                slot = buildUnicodeReactionGlyph(ctx, emoji, already);
+            }
+
+            slot.setOnClickListener(v -> {
                 actionListener.onReact(m, emoji);
                 if (holder[0] != null) holder[0].dismiss();
             });
-            emojiRow.addView(tv);
+            emojiRow.addView(slot);
         }
 
         // FIX [P3-3]: "+" button → full emoji picker dialog (was dead/missing before)
@@ -5049,8 +5083,25 @@ public class MessagePagingAdapter
                         }
                     });
         android.app.AlertDialog dlgLongPress = builder.create();
+        dlgLongPress.setOnDismissListener(d -> {
+            for (com.callx.app.conversation.emptystate.RLottieViewWrapper v : lottieRefs) v.release();
+        });
         com.callx.app.utils.AlertDialogStyler.showRounded(dlgLongPress);
         holder[0] = dlgLongPress;
+    }
+
+    /** Plain unicode-glyph reaction slot — the always-available fallback so a
+     *  quick-reaction slot is never blank while its RLottie pack downloads. */
+    private android.view.View buildUnicodeReactionGlyph(Context ctx, String emoji, boolean highlighted) {
+        android.widget.TextView tv = new android.widget.TextView(ctx);
+        tv.setText(emoji);
+        tv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 28);
+        int btnPad = (int)(10 * ctx.getResources().getDisplayMetrics().density);
+        tv.setPadding(btnPad, btnPad / 2, btnPad, btnPad / 2);
+        tv.setAlpha(highlighted ? 1.0f : 0.7f);
+        tv.setScaleX(highlighted ? 1.25f : 1.0f);
+        tv.setScaleY(highlighted ? 1.25f : 1.0f);
+        return tv;
     }
 
     // FIX [P3-3]: Full emoji picker — 8-column scrollable grid of common emojis
