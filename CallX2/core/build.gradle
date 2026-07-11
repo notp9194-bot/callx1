@@ -43,6 +43,13 @@ dependencies {
     // it through the flatDir repo above as a name/ext coordinate instead
     // resolves it like a normal Maven dependency and sidesteps that check.
     api(name: 'rlottie', ext: 'aar')
+    // Required transitively by AXrLottie.init() (com.getkeepsafe.relinker.ReLinker)
+    // for loading the native .so libs. Normally this would resolve automatically
+    // via rlottie's own POM, but a flatDir/local .aar reference (see repositories
+    // block above) has no POM, so transitive deps never get pulled in — must be
+    // declared explicitly. Without this: java.lang.NoClassDefFoundError /
+    // ClassNotFoundException: com.getkeepsafe.relinker.ReLinker at AXrLottie.init().
+    implementation 'com.getkeepsafe.relinker:relinker:1.4.5'
 
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'androidx.core:core:1.13.1'
