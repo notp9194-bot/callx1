@@ -189,6 +189,21 @@ public class GroupAdapter extends RecyclerView.Adapter<GroupAdapter.VH> {
         });
     }
 
+    /**
+     * v88: Clear Glide + detach typing listener on pool return.
+     * Prevents stale avatar flash and orphaned Firebase listeners.
+     */
+    @Override
+    public void onViewRecycled(@NonNull VH h) {
+        super.onViewRecycled(h);
+        if (h.ivAvatar != null) {
+            try { Glide.with(h.ivAvatar.getContext()).clear(h.ivAvatar); }
+            catch (Exception ignored) {}
+        }
+        detachTypingListener(h);
+        h.isTypingNow = false;
+    }
+
     private void bindGroupRowContent(VH h, Group g) {
         Context ctx = h.itemView.getContext();
         String preview = ChatListPreviewUtil.buildPreview(

@@ -5,7 +5,9 @@ import android.os.Bundle;
 import android.view.*;
 import androidx.annotation.NonNull;
 import androidx.fragment.app.Fragment;
+import androidx.lifecycle.ViewModelProvider;
 import androidx.recyclerview.widget.LinearLayoutManager;
+import com.callx.app.chatlist.RecyclerViewPoolViewModel;
 import androidx.recyclerview.widget.RecyclerView;
 import com.callx.app.chat.R;
 import com.callx.app.group.NewGroupActivity;
@@ -47,8 +49,9 @@ public class GroupsFragment extends Fragment {
         View v = inflater.inflate(R.layout.fragment_groups, parent, false);
         RecyclerView rv = v.findViewById(R.id.rv_groups);
         emptyState = v.findViewById(R.id.empty_groups);
-        // v83: Telegram-level RecyclerView tuning ─────────────────────────
-        LinearLayoutManager llm = new LinearLayoutManager(getContext());
+        // v88: shared custom LayoutManager — same two gains as ChatsFragment
+        com.callx.app.chatlist.ChatListLayoutManager llm =
+                new com.callx.app.chatlist.ChatListLayoutManager(requireContext());
         llm.setInitialPrefetchItemCount(8);
         rv.setLayoutManager(llm);
 
@@ -63,8 +66,8 @@ public class GroupsFragment extends Fragment {
         // v87: Activity-scoped pool — same ViewModel as ChatsFragment but a DIFFERENT pool.
         // GroupAdapter.VH (item_group layout) must never enter the chatsPool.
         RecyclerViewPoolViewModel poolVm =
-                new androidx.lifecycle.ViewModelProvider(requireActivity())
-                        .get(com.callx.app.chatlist.RecyclerViewPoolViewModel.class);
+                new ViewModelProvider(requireActivity())
+                        .get(RecyclerViewPoolViewModel.class);
         rv.setRecycledViewPool(poolVm.getGroupsPool());
         // Pause Glide during fast flings
         rv.addOnScrollListener(new com.callx.app.chatlist.GlideScrollListener(requireContext()));
@@ -73,6 +76,18 @@ public class GroupsFragment extends Fragment {
         // v86: disable edge glow + nested scroll overhead
         rv.setOverScrollMode(View.OVER_SCROLL_NEVER);
         rv.setNestedScrollingEnabled(false);
+
+        // v88: touch slop + Glide safety clear on pool return
+        rv.setScrollingTouchSlop(RecyclerView.TOUCH_SLOP_DEFAULT);
+        rv.setRecyclerListener(holder -> {
+            if (holder instanceof com.callx.app.group.GroupAdapter.VH) {
+                com.callx.app.group.GroupAdapter.VH vh = (com.callx.app.group.GroupAdapter.VH) holder;
+                if (vh.ivAvatar != null) {
+                    try { Glide.with(vh.ivAvatar.getContext()).clear(vh.ivAvatar); }
+                    catch (Exception ignored) {}
+                }
+            }
+        });
         rv.setClipToPadding(false);
         rv.setClipChildren(false);
 

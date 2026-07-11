@@ -74,9 +74,11 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         View banner = v.findViewById(R.id.banner_requests);
         if (banner != null) banner.setVisibility(View.GONE);
 
-        // v83: Telegram-level RecyclerView tuning ─────────────────────────
-        LinearLayoutManager llm = new LinearLayoutManager(getContext());
-        // Prefetch 8 rows ahead on the RenderThread before they scroll into view
+        // v88: ChatListLayoutManager (custom LLM)
+        //  • supportsPredictiveItemAnimations=false → single layout pass per update
+        //  • getExtraLayoutSpace=screenHeight → rows pre-laid out before scroll
+        //  • isMeasurementCacheEnabled=true → no re-measure for fixed-height rows
+        ChatListLayoutManager llm = new ChatListLayoutManager(requireContext());
         llm.setInitialPrefetchItemCount(8);
         rv.setLayoutManager(llm);
 
@@ -108,10 +110,25 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         // v85+: null ItemAnimator — removes all animation overhead
         rv.setItemAnimator(null);
 
-        // v86: disable over-scroll edge glow (eliminates EdgeEffect draw on every overscroll)
+        // v86: disable over-scroll edge glow + nested scroll overhead
         rv.setOverScrollMode(View.OVER_SCROLL_NEVER);
-        // Avoid nested-scroll event propagation overhead (RV is top-level scrollable)
         rv.setNestedScrollingEnabled(false);
+
+        // v88: fine-tune touch slop — default gives precise single-tap detection
+        // while still recognising flings cleanly
+        rv.setScrollingTouchSlop(RecyclerView.TOUCH_SLOP_DEFAULT);
+
+        // v88: Glide safety net — clear any in-flight request the moment a VH
+        // is returned to the pool, before the next bind can fire with a stale URL
+        rv.setRecyclerListener(holder -> {
+            if (holder instanceof ChatListAdapter.VH) {
+                ChatListAdapter.VH vh = (ChatListAdapter.VH) holder;
+                if (vh.ivAvatar != null) {
+                    try { Glide.with(vh.ivAvatar.getContext()).clear(vh.ivAvatar); }
+                    catch (Exception ignored) {}
+                }
+            }
+        });
 
         // Reduce clipping work on every scroll frame
         rv.setClipToPadding(false);

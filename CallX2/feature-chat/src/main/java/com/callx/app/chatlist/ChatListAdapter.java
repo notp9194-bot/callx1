@@ -468,6 +468,35 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
                 .preload(px, px);
     }
 
+    /**
+     * v88: Called by RecyclerView when a VH is returned to the RecycledViewPool.
+     *
+     * TWO THINGS DONE HERE:
+     *
+     * ① Glide.clear(ivAvatar)
+     *    Without this, a Glide request that was still loading when the row scrolled
+     *    off-screen can fire its completion callback AFTER the VH has been rebound
+     *    to a different contact — causing the wrong avatar to flash in for a frame.
+     *    Clearing here cancels the request before the VH re-enters the pool.
+     *
+     * ② detachTypingListener(h)
+     *    Each VH holds a Firebase ValueEventListener for the typing indicator.
+     *    If not detached on recycle, the listener continues firing against a VH
+     *    that now shows a different contact — a subtle but real data-leak / UI-glitch.
+     *    detachTypingListener() is idempotent and already called in onBindViewHolder,
+     *    but calling it here guarantees zero listeners survive the pool round-trip.
+     */
+    @Override
+    public void onViewRecycled(@NonNull VH h) {
+        super.onViewRecycled(h);
+        if (h.ivAvatar != null) {
+            try { Glide.with(h.ivAvatar.getContext()).clear(h.ivAvatar); }
+            catch (Exception ignored) {}
+        }
+        detachTypingListener(h);
+        h.isTypingNow = false;
+    }
+
     private void updateReadStatusTicks(VH h, User u, boolean isSelecting, boolean isSpecial) {
         boolean iAmLastSender = myUid != null && u.uid != null
                 && myUid.equals(u.lastMessageSenderUid);

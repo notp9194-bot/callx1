@@ -84,10 +84,23 @@ public class ChatListUnreadBadgeView extends View {
 
     /**
      * Sets the unread count. Pass 0 to hide. No-op if count is unchanged.
+     *
+     * v88: Smart requestLayout() skip — only trigger a parent measure pass when
+     * the BADGE SIZE actually changes. For in-place count increments/decrements
+     * that don't change the label width (e.g. "5" → "6", "12" → "13"), only
+     * invalidate() is called. This avoids propagating a measure pass up through
+     * the VH's FrameLayout → RecyclerView on every new-message notification.
+     *
+     * requestLayout() is called only when:
+     *  • visibility toggles  (count 0 → N or N → 0) — badge appears/disappears
+     *  • label CHARACTER COUNT changes  ("9" → "10", "99" → "99+") — width changes
      */
     public void setBadgeCount(long count) {
         if (count == lastCount) return;
+        boolean wasVisible = visible;
+        String  prevLabel  = label;
         lastCount = count;
+
         if (count <= 0) {
             visible = false;
             label   = "";
@@ -95,7 +108,10 @@ public class ChatListUnreadBadgeView extends View {
             visible = true;
             label   = count > 99 ? "99+" : String.valueOf(count);
         }
-        requestLayout();
+
+        boolean sizeChanged = (visible != wasVisible)
+                || (label.length() != prevLabel.length());
+        if (sizeChanged) requestLayout();
         invalidate();
     }
 
