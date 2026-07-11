@@ -2434,24 +2434,49 @@ public class MessagePagingAdapter
             }
         }
 
-        // ── Reply preview ──
+        // ── Reply preview (also covers status-reply/status-reaction quote
+        //    boxes — those are ordinary messages whose replyToId is
+        //    "status_"+statusId, rendered through this exact same path) ──
+        //
+        // FIX: this used to unconditionally call setReply(..., null) first
+        // and let the async Glide load fill the thumbnail in afterward —
+        // even when the bitmap was already sitting in Glide's memory cache.
+        // Every rebind (recycler reuse on scroll, AND every rebind of an
+        // on-screen row triggered by an unrelated new message being
+        // inserted elsewhere in the paging list) replayed that
+        // blank→pop-in sequence, which is exactly the flicker/junk on
+        // send/receive. Status-reply bubbles were hit hardest since they
+        // almost always carry a thumbnail. Now: check the same in-memory
+        // decoded-Bitmap pool the media bubbles use (PERF #1) synchronously
+        // first — a cache hit renders the thumb in the very same frame as
+        // the text, with zero flash. Only a genuine cache miss falls back
+        // to the async Glide load, exactly like the media-bitmap path above.
         if (m.replyToId != null && !m.replyToId.isEmpty()) {
-            cv.setReply(m.replyToSenderName, m.replyToText, null);
-            if (m.replyToMediaUrl != null && !m.replyToMediaUrl.isEmpty()) {
-                glide(ctx).asBitmap()
-                        .load(m.replyToMediaUrl)
-                        .apply(THUMB_RGB565)
-                        .override(88, 88)
-                        .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
-                            @Override
-                            public void onResourceReady(@NonNull Bitmap resource,
-                                    @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
-                                if (h.canvasBindToken != myToken) return; // holder recycled/rebound since this load started
-                                cv.setReply(m.replyToSenderName, m.replyToText, resource);
-                            }
-                            @Override
-                            public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {}
-                        });
+            final String replyThumbUrl = m.replyToMediaUrl;
+            if (replyThumbUrl != null && !replyThumbUrl.isEmpty()) {
+                android.graphics.Bitmap replyPoolHit = DECODED_BITMAP_CACHE.get(replyThumbUrl);
+                if (replyPoolHit != null && !replyPoolHit.isRecycled()) {
+                    cv.setReply(m.replyToSenderName, m.replyToText, replyPoolHit);
+                } else {
+                    cv.setReply(m.replyToSenderName, m.replyToText, null);
+                    glide(ctx).asBitmap()
+                            .load(replyThumbUrl)
+                            .apply(THUMB_RGB565)
+                            .override(88, 88)
+                            .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
+                                @Override
+                                public void onResourceReady(@NonNull Bitmap resource,
+                                        @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
+                                    DECODED_BITMAP_CACHE.put(replyThumbUrl, resource);
+                                    if (h.canvasBindToken != myToken) return; // holder recycled/rebound since this load started
+                                    cv.setReply(m.replyToSenderName, m.replyToText, resource);
+                                }
+                                @Override
+                                public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {}
+                            });
+                }
+            } else {
+                cv.setReply(m.replyToSenderName, m.replyToText, null);
             }
         } else {
             cv.clearReply();
@@ -2962,7 +2987,11 @@ public class MessagePagingAdapter
         // than the (few, cheap) draw calls it would replace.
         boolean hasReactions = m.reactions != null && !m.reactions.isEmpty();
         boolean needsHwLayer = hasReactions || isImage || isVideo || isMultiMedia || isReelShare;
-        cv.setLayerType(needsHwLayer ? View.LAYER_TYPE_HARDWARE : View.LAYER_TYPE_NONE, null);
+        int targetLayerType = needsHwLayer ? View.LAYER_TYPE_HARDWARE : View.LAYER_TYPE_NONE;
+        if (h.lastCanvasLayerType != targetLayerType) {
+            cv.setLayerType(targetLayerType, null);
+            h.lastCanvasLayerType = targetLayerType;
+        }
     }
 
     /**
@@ -5309,6 +5338,17 @@ public class MessagePagingAdapter
         // has no such lifecycle tie-in, so this token is the only thing
         // preventing that race.
         volatile int canvasBindToken = 0;
+        // PERF #8b: last hardware-layer type actually applied to canvasView.
+        // -1 means "unknown / force re-apply" (fresh holder). Lets
+        // bindCanvasMessage() skip the setLayerType() call entirely when
+        // this holder's hw-layer need hasn't changed since its last bind —
+        // the common case while scrolling (most adjacent bubbles share the
+        // same image/video/reactions-or-not shape). Avoids redundant
+        // texture-transition churn, which is real per-frame GPU work and,
+        // on RecyclerView items that flip type on rapid successive rebinds
+        // (e.g. several rows rebinding at once when a new message arrives),
+        // was a source of the reaction-badge flicker/junk on send/receive.
+        int lastCanvasLayerType = -1;
         TextView     tvDateHeader;   // date separator chip (Today / Yesterday / MMM d)
         ImageView    ivImage;
         TextView     tvStatus;   // tv_status in both item layouts
