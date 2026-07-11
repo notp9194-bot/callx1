@@ -55,7 +55,7 @@ public class RLottiePlaybackPool {
     public RecyclerView.OnScrollListener attachTo(RecyclerView recyclerView) {
         RecyclerView.OnScrollListener listener = new RecyclerView.OnScrollListener() {
             @Override
-            public void onScrollStateChanged(androidx.annotation.NonNull RecyclerView rv, int newState) {
+            public void onScrollStateChanged(@androidx.annotation.NonNull RecyclerView rv, int newState) {
                 if (newState == RecyclerView.SCROLL_STATE_IDLE) {
                     resumeAll();
                 } else {
