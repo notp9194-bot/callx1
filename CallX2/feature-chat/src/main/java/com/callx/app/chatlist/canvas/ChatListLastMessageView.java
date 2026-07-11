@@ -163,8 +163,13 @@ public class ChatListLastMessageView extends View {
 
     private void maybeRebuildEllipsis(int avail) {
         if (!textDirty && avail == lastEllipsisWidth) return;
-        ellipsized = TextUtils.ellipsize(rawText, textPaint,
-                Math.max(0, avail), TextUtils.TruncateAt.END);
+        // v89: check background precompute cache first (same trick as NameTimeView).
+        CharSequence cached = com.callx.app.chatlist.ChatListTextPrecompute
+                .getMessage(rawText, avail);
+        ellipsized = (cached != null)
+                ? cached
+                : TextUtils.ellipsize(rawText, textPaint,
+                        Math.max(0, avail), TextUtils.TruncateAt.END);
         lastEllipsisWidth = avail;
         textDirty = false;
     }

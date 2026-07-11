@@ -154,8 +154,15 @@ public class ChatListNameTimeView extends View {
 
     private void rebuildEllipsisIfNeeded(int nameWidth) {
         if (!nameDirty && nameWidth == lastNameWidth) return;
-        ellipsizedName = TextUtils.ellipsize(rawName, namePaint,
-                Math.max(0f, nameWidth), TextUtils.TruncateAt.END);
+        // v89: check background precompute cache first.
+        // On cache hit  → zero UI-thread font/glyph work (PrecomputedTextCompat equivalent).
+        // On cache miss → fall back to TextUtils.ellipsize() as before (cold-start path).
+        CharSequence cached = com.callx.app.chatlist.ChatListTextPrecompute
+                .getName(rawName, nameWidth);
+        ellipsizedName = (cached != null)
+                ? cached
+                : TextUtils.ellipsize(rawName, namePaint,
+                        Math.max(0f, nameWidth), TextUtils.TruncateAt.END);
         lastNameWidth = nameWidth;
         nameDirty = false;
     }

@@ -154,15 +154,19 @@ public class GroupAdapter extends RecyclerView.Adapter<GroupAdapter.VH> {
         int n = g.members != null ? g.members.size() : 0;
         h.nameMembersView.setTime(n + " members");
 
-        // v85: Avatar — RGB_565 + exact size override + RESOURCE disk cache
+        // v90: Avatar — HARDWARE bitmap on API 26+, RGB_565 on API < 26
         if (h.ivAvatar != null) {
             if (g.iconUrl != null && !g.iconUrl.isEmpty()) {
                 int px = Math.round(50f * ctx.getResources().getDisplayMetrics().density);
+                DecodeFormat fmt = android.os.Build.VERSION.SDK_INT
+                        >= android.os.Build.VERSION_CODES.O
+                        ? DecodeFormat.PREFER_ARGB_8888   // → HARDWARE on API 26+
+                        : DecodeFormat.PREFER_RGB_565;
                 Glide.with(ctx)
                         .load(g.iconUrl)
                         .dontAnimate()
                         .override(px, px)
-                        .format(DecodeFormat.PREFER_RGB_565)
+                        .format(fmt)
                         .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
                         .apply(RequestOptions.circleCropTransform())
                         .placeholder(R.drawable.ic_group)
