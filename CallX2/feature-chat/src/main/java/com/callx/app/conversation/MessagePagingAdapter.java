@@ -4979,6 +4979,12 @@ public class MessagePagingAdapter
         final java.util.List<com.callx.app.conversation.emptystate.RLottieViewWrapper> lottieRefs =
                 new java.util.ArrayList<>();
 
+        // Guards the live-swap callback below against touching a sheet
+        // that's already been dismissed.
+        final boolean[] sheetClosed = new boolean[]{false};
+        final android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+        final Context appCtx = ctx.getApplicationContext();
+
         com.callx.app.cache.LottieAssetCache lottieCache =
                 com.callx.app.cache.LottieAssetCache.getInstance(ctx);
         int slotSizePx = (int)(36 * ctx.getResources().getDisplayMetrics().density);
@@ -5014,8 +5020,43 @@ public class MessagePagingAdapter
                 }
             } else {
                 // Not downloaded yet — worker prefetches on next chat-open,
-                // this slot just stays a plain glyph for now.
+                // but that background sync can sit queued for a while
+                // (Doze/battery optimization/network timing), so this
+                // slot doesn't just wait for it: kick a direct on-demand
+                // fetch for THIS one entry and swap the animation in live
+                // if it lands before the user closes the sheet.
                 slot = buildUnicodeReactionGlyph(ctx, emoji, already);
+                final android.view.View unicodeSlot = slot;
+                final String reactionId = reaction.id;
+                final boolean wasAlready = already;
+                new Thread(() -> {
+                    java.io.File f = com.callx.app.emptystate.EmojiPackDownloadWorker
+                            .downloadSingleBlocking(appCtx, reactionId);
+                    if (f == null) return; // manifest missing this id / no network / download failed
+                    mainHandler.post(() -> {
+                        if (sheetClosed[0]) return;
+                        int pos = emojiRow.indexOfChild(unicodeSlot);
+                        if (pos < 0) return; // already swapped or view gone
+                        com.callx.app.conversation.emptystate.RLottieViewWrapper lottieView =
+                                new com.callx.app.conversation.emptystate.RLottieViewWrapper(ctx);
+                        android.widget.LinearLayout.LayoutParams lp2 =
+                                new android.widget.LinearLayout.LayoutParams(slotSizePx, slotSizePx);
+                        int btnPad2 = (int)(4 * ctx.getResources().getDisplayMetrics().density);
+                        lp2.setMargins(btnPad2, 0, btnPad2, 0);
+                        lottieView.setLayoutParams(lp2);
+                        if (!lottieView.loadFromFile(f)) return; // corrupt file, keep unicode slot
+                        lottieView.setScaleX(wasAlready ? 1.25f : 1.0f);
+                        lottieView.setScaleY(wasAlready ? 1.25f : 1.0f);
+                        lottieView.setAlpha(wasAlready ? 1.0f : 0.85f);
+                        lottieView.setOnClickListener(v -> {
+                            actionListener.onReact(m, emoji);
+                            if (holder[0] != null) holder[0].dismiss();
+                        });
+                        lottieRefs.add(lottieView);
+                        emojiRow.removeViewAt(pos);
+                        emojiRow.addView(lottieView, pos);
+                    });
+                }).start();
             }
 
             slot.setOnClickListener(v -> {
@@ -5084,6 +5125,7 @@ public class MessagePagingAdapter
                     });
         android.app.AlertDialog dlgLongPress = builder.create();
         dlgLongPress.setOnDismissListener(d -> {
+            sheetClosed[0] = true;
             for (com.callx.app.conversation.emptystate.RLottieViewWrapper v : lottieRefs) v.release();
         });
         com.callx.app.utils.AlertDialogStyler.showRounded(dlgLongPress);

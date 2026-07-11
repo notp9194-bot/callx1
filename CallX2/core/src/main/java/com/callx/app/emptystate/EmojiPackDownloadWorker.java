@@ -15,6 +15,7 @@ import androidx.work.WorkerParameters;
 import com.callx.app.cache.LottieAssetCache;
 import com.callx.app.utils.Constants;
 
+import java.io.File;
 import java.io.IOException;
 import java.security.MessageDigest;
 import java.util.List;
@@ -63,6 +64,14 @@ public class EmojiPackDownloadWorker extends Worker {
 
         WorkManager.getInstance(ctx.getApplicationContext())
                 .enqueueUniqueWork(UNIQUE_WORK_NAME, ExistingWorkPolicy.KEEP, request);
+        // NOTE: deliberately NOT using setExpedited() here — Worker (not
+        // ListenableWorker/CoroutineWorker) doesn't override
+        // getForegroundInfoAsync(), and expedited work on pre-Android-12
+        // devices requires that or it throws at runtime. The real fix for
+        // "picker still shows unicode right after opening a chat" is
+        // downloadSingleBlocking() below, called on-demand from the
+        // reaction picker itself — that doesn't wait on WorkManager's
+        // scheduler at all.
     }
 
     @NonNull
@@ -99,7 +108,40 @@ public class EmojiPackDownloadWorker extends Worker {
         return Result.success();
     }
 
-    private boolean downloadOne(Context ctx, LottieAssetCache lottieCache,
+    /**
+     * On-demand single-entry fetch — used by the reaction-picker UI
+     * (MessagePagingAdapter#showActionBottomSheet) to try to get one
+     * specific animated pack right away instead of waiting for the next
+     * WorkManager-scheduled background sync (which, under Doze/battery
+     * optimization, can sit queued for minutes even with setExpedited()).
+     * Blocking network + disk I/O — call off the UI thread only.
+     *
+     * @return the cached file on success (already-cached counts as
+     *         success too), or null if the entry isn't in the manifest /
+     *         download fails / no network.
+     */
+    public static File downloadSingleBlocking(Context ctx, String id) {
+        LottieAssetCache lottieCache = LottieAssetCache.getInstance(ctx);
+        String cacheKey = CACHE_KEY_PREFIX + id;
+        File existing = lottieCache.get(cacheKey);
+        if (existing != null) return existing;
+
+        EmojiManifestRepository repo = new EmojiManifestRepository(ctx);
+        EmojiManifestModels.Manifest manifest = repo.getCachedManifest();
+        if (manifest == null) manifest = repo.fetchManifestBlocking();
+        if (manifest == null || manifest.emojis == null) return null;
+
+        for (EmojiManifestModels.Entry entry : manifest.emojis) {
+            if (entry.isDefault) continue;
+            if (id.equals(entry.id)) {
+                if (!downloadOne(ctx, lottieCache, entry, cacheKey)) return null;
+                return lottieCache.get(cacheKey);
+            }
+        }
+        return null; // server manifest doesn't have this id (yet) — deploy check
+    }
+
+    private static boolean downloadOne(Context ctx, LottieAssetCache lottieCache,
                                  EmojiManifestModels.Entry entry, String cacheKey) {
         boolean isGzip = entry.gzUrl != null && !entry.gzUrl.isEmpty();
         String rawUrl = isGzip ? entry.gzUrl : entry.url;
@@ -142,7 +184,7 @@ public class EmojiPackDownloadWorker extends Worker {
         }
     }
 
-    private boolean sha256Matches(byte[] data, String expectedHex) {
+    private static boolean sha256Matches(byte[] data, String expectedHex) {
         try {
             MessageDigest md = MessageDigest.getInstance("SHA-256");
             byte[] digest = md.digest(data);
