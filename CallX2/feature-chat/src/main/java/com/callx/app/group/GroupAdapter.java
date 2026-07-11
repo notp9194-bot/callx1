@@ -290,12 +290,6 @@ public class GroupAdapter extends RecyclerView.Adapter<GroupAdapter.VH> {
 
     @Override public int getItemCount() { return differ.getCurrentList().size(); }
 
-    @Override
-    public void onViewRecycled(@NonNull VH h) {
-        super.onViewRecycled(h);
-        detachTypingListener(h);
-    }
-
     static class VH extends RecyclerView.ViewHolder {
         ChatListNameTimeView    nameMembersView;
         ChatListLastMessageView lastMessageView;

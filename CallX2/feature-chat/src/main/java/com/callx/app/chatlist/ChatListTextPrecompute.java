@@ -9,6 +9,7 @@ import android.util.DisplayMetrics;
 import android.util.LruCache;
 
 import com.callx.app.models.User;
+import com.callx.app.utils.ChatListPreviewUtil;
 
 import java.util.List;
 import java.util.concurrent.ExecutorService;

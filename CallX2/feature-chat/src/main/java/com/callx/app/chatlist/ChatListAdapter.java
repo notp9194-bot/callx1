@@ -695,12 +695,6 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
 
     @Override public int getItemCount() { return differ.getCurrentList().size(); }
 
-    @Override
-    public void onViewRecycled(@NonNull VH h) {
-        super.onViewRecycled(h);
-        detachTypingListener(h);
-    }
-
     static class VH extends RecyclerView.ViewHolder {
         // v82: canvas views
         ChatListNameTimeView    nameTimeView;
