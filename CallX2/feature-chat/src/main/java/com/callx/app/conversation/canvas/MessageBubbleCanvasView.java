@@ -2764,6 +2764,30 @@ public class MessageBubbleCanvasView extends View {
         fileDownloadPercent = 0;
     }
 
+    // ── BUGFIX: clear remaining Bitmap references on recycle ──────────────
+    // resetGif()/resetSticker() already null out mediaBitmap (covers image/
+    // video/gif/sticker bubbles) via setMediaBitmap(null), but the other
+    // bubble types' decoded Bitmap fields were never cleared when a holder
+    // went back into the RecycledViewPool — they just sat there holding a
+    // reference until the next bind() overwrote the field. The Bitmap
+    // itself isn't leaked (it's still owned by DECODED_BITMAP_CACHE/
+    // AVATAR_BITMAP_CACHE for reuse), but a recycled-and-idle view has no
+    // business holding extra references to large bitmaps it's no longer
+    // showing — this drops them immediately instead of waiting for the
+    // next bind. Call from onViewRecycled(), alongside resetGif()/
+    // resetSticker()/clearFileBubble().
+    public void clearRecycledBitmaps() {
+        replyThumb        = null;
+        groupBitmaps      = new Bitmap[0];
+        reelThumbBitmap   = null;
+        reelAvatarBitmap  = null;
+        contactAvatarBitmap = null;
+        locationMapBitmap = null;
+        seenAvatarBitmap  = null;
+        seenThumbBitmap   = null;
+        linkThumbBitmap   = null;
+    }
+
     private static int resolveFileIconColor(@Nullable String mime) {
         if (mime == null) return 0xFF607D8B;
         if (mime.equals("application/pdf"))                            return 0xFFE53935;
