@@ -2008,6 +2008,15 @@ public class MessagePagingAdapter
             }
 
             // Thumbnail
+            // FIX: unlike the avatar block right above (which checks
+            // AVATAR_BITMAP_CACHE synchronously first), this thumbnail had
+            // NO cache check at all — every single bind (including a plain
+            // scroll-recycle, and every rebind of an on-screen row that a
+            // new message insert elsewhere triggers) unconditionally
+            // re-fired an async Glide load, guaranteeing at least one blank
+            // frame on this big 330×474 card before the image popped back
+            // in. Same root cause as the reply/status-reply thumb flicker —
+            // now fixed the same way: check DECODED_BITMAP_CACHE first.
             String thumb = m.reelShareThumb != null ? m.reelShareThumb : "";
             final String rKey = m.reelId != null ? m.reelId : "";
             if (thumb.isEmpty() && !rKey.isEmpty()) {
@@ -2015,17 +2024,24 @@ public class MessagePagingAdapter
                 if (cachedThumb != null) thumb = cachedThumb;
             }
             if (!thumb.isEmpty()) {
-                glide(ctx).asBitmap().load(thumb).apply(THUMB_RGB565).override(330, 474).centerCrop()
+                final String finalThumbUrl = thumb;
+                android.graphics.Bitmap reelThumbHit = DECODED_BITMAP_CACHE.get(finalThumbUrl);
+                if (reelThumbHit != null && !reelThumbHit.isRecycled()) {
+                    cv.setReelShareThumbBitmap(reelThumbHit);
+                } else {
+                glide(ctx).asBitmap().load(finalThumbUrl).apply(THUMB_RGB565).override(330, 474).centerCrop()
                         .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
                             @Override
                             public void onResourceReady(@NonNull Bitmap resource,
                                     @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
+                                DECODED_BITMAP_CACHE.put(finalThumbUrl, resource);
                                 if (h.canvasBindToken != myToken) return;
                                 cv.setReelShareThumbBitmap(resource);
                             }
                             @Override
                             public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {}
                         });
+                }
             } else if (!rKey.isEmpty() && reelThumbFetchInFlight.add(rKey)) {
                 final android.content.Context fCtxT = ctx.getApplicationContext();
                 com.google.firebase.database.FirebaseDatabase.getInstance()
