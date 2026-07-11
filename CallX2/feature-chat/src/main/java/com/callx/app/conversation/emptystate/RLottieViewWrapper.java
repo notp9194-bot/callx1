@@ -70,7 +70,7 @@ public class RLottieViewWrapper extends FrameLayout {
             // Caller (EmptyChatLottieController) already has the static emoji
             // TextView showing underneath, so a bad file just means no
             // animation instead of a crash.
-            lastError = e.toString();
+            lastError = Log.getStackTraceString(e);
             Log.w(TAG, "loadFromFile failed: " + e.getMessage());
             return false;
         }
@@ -88,7 +88,7 @@ public class RLottieViewWrapper extends FrameLayout {
             lastError = null;
             return true;
         } catch (Throwable e) {
-            lastError = e.toString();
+            lastError = Log.getStackTraceString(e);
             Log.w(TAG, "loadFromAsset failed: " + e.getMessage());
             return false;
         }

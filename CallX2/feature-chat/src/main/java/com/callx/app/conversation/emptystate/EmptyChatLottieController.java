@@ -1,12 +1,12 @@
 package com.callx.app.conversation.emptystate;
 
 import android.app.ActivityManager;
+import android.app.AlertDialog;
 import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.View;
 import android.widget.TextView;
-import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 
@@ -54,6 +54,7 @@ public class EmptyChatLottieController {
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     private final Context appContext;
+    private final Context uiContext;
     private final RLottieViewWrapper lottieView;
     private final TextView fallbackEmoji;
     private final boolean lowEndDevice;
@@ -65,6 +66,7 @@ public class EmptyChatLottieController {
                                       @NonNull RLottieViewWrapper lottieView,
                                       @NonNull TextView fallbackEmoji) {
         this.appContext = ctx.getApplicationContext();
+        this.uiContext = ctx;
         this.lottieView = lottieView;
         this.fallbackEmoji = fallbackEmoji;
         this.lowEndDevice = isLowRamDevice(appContext);
@@ -105,9 +107,23 @@ public class EmptyChatLottieController {
                 } else if (BuildConfig.DEBUG) {
                     // No logcat access while building from mobile — surface
                     // the exact failure on-screen instead. Debug builds only.
-                    Toast.makeText(appContext,
-                            "RLottie load failed: " + lottieView.getLastError(),
-                            Toast.LENGTH_LONG).show();
+                    // AlertDialog (not Toast) so the full stack trace is
+                    // visible and selectable, not cut off after 2 lines.
+                    try {
+                        TextView msg = new TextView(uiContext);
+                        int pad = (int) (16 * uiContext.getResources().getDisplayMetrics().density);
+                        msg.setPadding(pad, pad, pad, pad);
+                        msg.setTextIsSelectable(true);
+                        msg.setText(lottieView.getLastError());
+                        new AlertDialog.Builder(uiContext)
+                                .setTitle("RLottie load failed")
+                                .setView(msg)
+                                .setPositiveButton("OK", null)
+                                .show();
+                    } catch (Throwable ignored) {
+                        // uiContext not a valid Activity window (e.g. already
+                        // destroyed) — nothing more we can do here.
+                    }
                 }
                 // If loading failed, the fallback TextView (👋) stays visible
                 // exactly as it was — nothing to do.
