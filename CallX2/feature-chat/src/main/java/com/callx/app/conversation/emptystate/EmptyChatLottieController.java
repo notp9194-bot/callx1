@@ -94,13 +94,15 @@ public class EmptyChatLottieController {
 
             mainHandler.post(() -> {
                 if (!currentlyShown) return; // user already left the empty state / left the screen
-                if (cached != null) {
-                    lottieView.loadFromFile(cached);
-                } else {
-                    lottieView.loadFromAsset(DEFAULT_ASSET_NAME);
+                boolean loaded = (cached != null)
+                        ? lottieView.loadFromFile(cached)
+                        : lottieView.loadFromAsset(DEFAULT_ASSET_NAME);
+                if (loaded) {
+                    lottieView.setVisibility(View.VISIBLE);
+                    fallbackEmoji.setVisibility(View.GONE);
                 }
-                lottieView.setVisibility(View.VISIBLE);
-                fallbackEmoji.setVisibility(View.GONE);
+                // If loading failed, the fallback TextView (👋) stays visible
+                // exactly as it was — nothing to do.
                 loadedOnce = true;
             });
         });

@@ -45,30 +45,38 @@ public class RLottieViewWrapper extends FrameLayout {
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
     }
 
-    /** Load + play a lottie JSON straight from a cached file (server-downloaded pack). */
-    public void loadFromFile(File jsonFile) {
-        if (released || jsonFile == null || !jsonFile.exists()) return;
+    /** Load + play a lottie JSON straight from a cached file (server-downloaded pack).
+     *  @return true if the drawable loaded and started playing, false otherwise —
+     *  caller must NOT hide the fallback emoji on a false return, or nothing shows. */
+    public boolean loadFromFile(File jsonFile) {
+        if (released || jsonFile == null || !jsonFile.exists()) return false;
         try {
             AXrLottieDrawable drawable = AXrLottieDrawable.fromFile(jsonFile).build();
             lottieView.setLottieDrawable(drawable);
             lottieView.playAnimation();
+            return true;
         } catch (Throwable e) {
             // Caller (EmptyChatLottieController) already has the static emoji
             // TextView showing underneath, so a bad file just means no
             // animation instead of a crash.
             Log.w(TAG, "loadFromFile failed: " + e.getMessage());
+            return false;
         }
     }
 
-    /** Load + play a lottie JSON bundled in assets/ (used for the default emoji). */
-    public void loadFromAsset(String assetPath) {
-        if (released) return;
+    /** Load + play a lottie JSON bundled in assets/ (used for the default emoji).
+     *  @return true if the drawable loaded and started playing, false otherwise —
+     *  caller must NOT hide the fallback emoji on a false return, or nothing shows. */
+    public boolean loadFromAsset(String assetPath) {
+        if (released) return false;
         try {
             AXrLottieDrawable drawable = AXrLottieDrawable.fromAssets(getContext(), assetPath).build();
             lottieView.setLottieDrawable(drawable);
             lottieView.playAnimation();
+            return true;
         } catch (Throwable e) {
             Log.w(TAG, "loadFromAsset failed: " + e.getMessage());
+            return false;
         }
     }
 
