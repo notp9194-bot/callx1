@@ -2,6 +2,12 @@ plugins {
     id 'com.android.library'
 }
 
+repositories {
+    flatDir {
+        dirs 'libs'
+    }
+}
+
 android {
     namespace 'com.callx.app.core'
     compileSdk 34
@@ -37,7 +43,12 @@ dependencies {
     // — needs to be visible in :app (AXrLottie.init() at startup) and
     // :feature-chat (renders it), both of which only depend on :core.
     // See core/libs/README.md.
-    api files('libs/rlottie.aar')
+    // NOTE: AGP disallows `files('libs/rlottie.aar')` (direct local .aar file
+    // deps) inside a module that itself builds an AAR — "Direct local .aar
+    // file dependencies are not supported when building an AAR". Referencing
+    // it through the flatDir repo above as a name/ext coordinate instead
+    // resolves it like a normal Maven dependency and sidesteps that check.
+    api(name: 'rlottie', ext: 'aar')
 
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'androidx.core:core:1.13.1'

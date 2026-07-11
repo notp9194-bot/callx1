@@ -39,7 +39,7 @@ public class EmojiPackDownloadWorker extends Worker {
 
     private static final String TAG = "EmojiPackDownloadWorker";
     public static final String UNIQUE_WORK_NAME = "emoji_pack_sync";
-    static final String CACHE_KEY_PREFIX = "lottie_emoji:";
+    public static final String CACHE_KEY_PREFIX = "lottie_emoji:";
 
     public EmojiPackDownloadWorker(@NonNull Context context, @NonNull WorkerParameters params) {
         super(context, params);
