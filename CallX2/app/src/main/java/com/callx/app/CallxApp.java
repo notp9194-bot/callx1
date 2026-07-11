@@ -80,6 +80,14 @@ public class CallxApp extends Application {
             com.aghajari.rlottie.AXrLottie.init(this);
         } catch (Throwable t) {
             Log.e(TAG, "AXrLottie.init failed — empty-chat animation disabled", t);
+            if (BuildConfig.DEBUG) {
+                // No logcat access while building from mobile — surface it
+                // on-screen instead so we can see whether init() itself
+                // threw (vs. silently leaving its internal context unset).
+                final String msg = "AXrLottie.init failed: " + t;
+                new android.os.Handler(android.os.Looper.getMainLooper()).post(() ->
+                        android.widget.Toast.makeText(CallxApp.this, msg, android.widget.Toast.LENGTH_LONG).show());
+            }
         }
 
         // ── PERF: StrictMode (DEBUG builds only) ──────────────────────────
