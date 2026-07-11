@@ -12,7 +12,7 @@ import androidx.work.WorkManager;
 import androidx.work.Worker;
 import androidx.work.WorkerParameters;
 
-import com.callx.app.cache.DiskCache;
+import com.callx.app.cache.LottieAssetCache;
 import com.callx.app.utils.Constants;
 
 import java.io.IOException;
@@ -24,13 +24,19 @@ import okhttp3.Response;
 import okhttp3.ResponseBody;
 
 /**
- * Plan points 7 + 8 + 10:
- *   - Runs once in the background right after app open (enqueued from
- *     CallxApp / EmptyChatLottieController — see enqueue()).
+ * Plan points 7 + 8 + 10 (+ gaps #1/#2 fix pass):
+ *   - Runs in the background whenever a chat is opened (enqueued from
+ *     EmptyChatLottieController — see enqueue()) — this IS the "prefetch
+ *     when the pack surface is opened" trigger, not a blind global timer.
  *   - Downloads the manifest, then any emoji lottie JSON not already sitting
- *     in DiskCache (Tier-2, 200MB/7-day cache — same one media already uses).
- *   - sha256-verifies each file before caching it, so a corrupt/partial
- *     download can never get served to the UI.
+ *     in LottieAssetCache — a PERMANENT, dedicated cache (gap #1) that is
+ *     never evicted by ordinary media traffic the way the shared 200MB/
+ *     7-day DiskCache was.
+ *   - Prefers each entry's gzUrl (TGS-style gzip transport, gap #2) when the
+ *     server provides one; decompresses locally, then sha256-verifies the
+ *     DECOMPRESSED bytes before caching, so a corrupt/partial/truncated
+ *     download can never get served to the UI. Falls back to the plain
+ *     `url` field for older manifests that don't have gzUrl yet.
  *   - Unique work name ("emoji_pack_sync") + KEEP policy: if it's already
  *     running/queued, a second trigger (e.g. user opening 2 chats fast) is
  *     a no-op instead of stacking duplicate downloads.
@@ -72,17 +78,17 @@ public class EmojiPackDownloadWorker extends Worker {
             return Result.success();
         }
 
-        DiskCache diskCache = DiskCache.getInstance(ctx);
+        LottieAssetCache lottieCache = LottieAssetCache.getInstance(ctx);
         int downloaded = 0, skipped = 0, failed = 0;
 
         for (EmojiManifestModels.Entry entry : manifest.emojis) {
             if (entry.isDefault) continue; // already bundled in the APK, never re-download
             String cacheKey = CACHE_KEY_PREFIX + entry.id;
-            if (diskCache.exists(cacheKey)) {
+            if (lottieCache.exists(cacheKey)) {
                 skipped++;
                 continue;
             }
-            if (downloadOne(ctx, diskCache, entry, cacheKey)) {
+            if (downloadOne(ctx, lottieCache, entry, cacheKey)) {
                 downloaded++;
             } else {
                 failed++;
@@ -93,9 +99,12 @@ public class EmojiPackDownloadWorker extends Worker {
         return Result.success();
     }
 
-    private boolean downloadOne(Context ctx, DiskCache diskCache,
+    private boolean downloadOne(Context ctx, LottieAssetCache lottieCache,
                                  EmojiManifestModels.Entry entry, String cacheKey) {
-        String url = entry.url.startsWith("http") ? entry.url : Constants.SERVER_URL + entry.url;
+        boolean isGzip = entry.gzUrl != null && !entry.gzUrl.isEmpty();
+        String rawUrl = isGzip ? entry.gzUrl : entry.url;
+        if (rawUrl == null || rawUrl.isEmpty()) return false;
+        String url = rawUrl.startsWith("http") ? rawUrl : Constants.SERVER_URL + rawUrl;
         Request req = new Request.Builder().url(url).get().build();
 
         try (Response resp = EmojiManifestRepository.httpClient().newCall(req).execute()) {
@@ -103,21 +112,30 @@ public class EmojiPackDownloadWorker extends Worker {
             ResponseBody body = resp.body();
             if (body == null) return false;
 
-            byte[] bytes = body.bytes();
+            byte[] wireBytes = body.bytes();
 
-            // Point 12: JSON optimization rule — cap at ~30KB per emoji so a
-            // bad server entry never balloons the disk cache.
-            if (bytes.length > 40 * 1024) {
-                Log.w(TAG, "emoji " + entry.id + " exceeds size budget (" + bytes.length + "B), skipping");
+            // Gap #2: gzUrl bytes arrive compressed — decompress before any
+            // of the size-budget / sha256 checks below, since those are
+            // always defined against the plain JSON.
+            byte[] jsonBytes = isGzip ? lottieCache.decompressGzip(wireBytes) : wireBytes;
+            if (jsonBytes == null) {
+                Log.w(TAG, "emoji " + entry.id + " gzip decompress failed, discarding");
                 return false;
             }
 
-            if (entry.sha256 != null && !entry.sha256.isEmpty() && !sha256Matches(bytes, entry.sha256)) {
+            // Point 12: JSON optimization rule — cap at ~40KB per emoji so a
+            // bad server entry never balloons the disk cache.
+            if (jsonBytes.length > 40 * 1024) {
+                Log.w(TAG, "emoji " + entry.id + " exceeds size budget (" + jsonBytes.length + "B), skipping");
+                return false;
+            }
+
+            if (entry.sha256 != null && !entry.sha256.isEmpty() && !sha256Matches(jsonBytes, entry.sha256)) {
                 Log.w(TAG, "emoji " + entry.id + " failed sha256 check, discarding");
                 return false;
             }
 
-            return diskCache.save(cacheKey, bytes);
+            return lottieCache.savePlain(cacheKey, jsonBytes);
         } catch (IOException e) {
             Log.w(TAG, "download failed for " + entry.id + ": " + e.getMessage());
             return false;

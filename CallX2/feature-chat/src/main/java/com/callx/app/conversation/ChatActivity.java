@@ -158,6 +158,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // ── View binding ───────────────────────────────────────────────────────
     private ActivityChatBinding binding;
     private com.callx.app.conversation.emptystate.EmptyChatLottieController emptyChatLottieController;
+    private com.callx.app.conversation.emptystate.RLottiePlaybackPool rlottiePlaybackPool;
 
     // ── Chat identifiers ───────────────────────────────────────────────────
     private String chatId;
@@ -423,6 +424,14 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
 
         emptyChatLottieController = new com.callx.app.conversation.emptystate.EmptyChatLottieController(
                 this, binding.rlottieEmptyChat, binding.tvEmptyEmojiFallback);
+
+        // Gap #4: pause/resume lottie playback automatically while
+        // rvMessages is being dragged/flung. Only the empty-chat wave is
+        // registered today, but any future sticker/animated-emoji
+        // ViewHolder just calls rlottiePlaybackPool.register()/unregister()
+        // — see RLottiePlaybackPool's class doc.
+        rlottiePlaybackPool = new com.callx.app.conversation.emptystate.RLottiePlaybackPool();
+        rlottiePlaybackPool.register(binding.rlottieEmptyChat);
 
         // Left/right screen-edge se swipe karke back jaane ke liye
         // (RecyclerView ke andar "swipe to reply" se clash nahi karta —
@@ -4060,6 +4069,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                         sizeProvider,
                         5 /* preload 5 items in the scroll direction */);
         binding.rvMessages.addOnScrollListener(glidePreloader);
+        if (rlottiePlaybackPool != null) rlottiePlaybackPool.attachTo(binding.rvMessages);
 
         binding.rvMessages.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {

@@ -10,7 +10,7 @@ import android.widget.TextView;
 
 import androidx.annotation.NonNull;
 
-import com.callx.app.cache.DiskCache;
+import com.callx.app.cache.LottieAssetCache;
 import com.callx.app.core.BuildConfig;
 import com.callx.app.emptystate.EmojiPackDownloadWorker;
 
@@ -91,10 +91,10 @@ public class EmptyChatLottieController {
         // Instant state: fallback emoji already visible from the XML default.
         // Kick the (possibly slow, first-time asset decode) load off-thread.
         IO_EXECUTOR.execute(() -> {
-            // A previously-downloaded, nicer default could live in DiskCache
+            // A previously-downloaded, nicer default could live in LottieAssetCache
             // (e.g. server pushed an updated default). Prefer that; else the
             // asset bundled in the APK.
-            File cached = DiskCache.getInstance(appContext).get(DEFAULT_CACHE_KEY);
+            File cached = LottieAssetCache.getInstance(appContext).get(DEFAULT_CACHE_KEY);
 
             mainHandler.post(() -> {
                 if (!currentlyShown) return; // user already left the empty state / left the screen

@@ -39,8 +39,15 @@ public class EmojiManifestModels {
         @SerializedName("url")
         public String url;          // relative to SERVER_URL, e.g. /emoji-assets/confetti.json
 
+        @SerializedName("gzUrl")
+        public String gzUrl;        // Gap #2 (TGS-style): gzip-compressed variant, e.g.
+                                     // /emoji-assets/confetti.json.gz — 70-80% smaller on
+                                     // the wire. Worker prefers this when present; sha256
+                                     // below is always checked against the DECOMPRESSED
+                                     // bytes so old and new manifests stay compatible.
+
         @SerializedName("sha256")
-        public String sha256;       // integrity check before caching
+        public String sha256;       // integrity check before caching (of plain JSON)
 
         @SerializedName("sizeBytes")
         public long sizeBytes;      // point 12: server enforces ~30KB/emoji budget
