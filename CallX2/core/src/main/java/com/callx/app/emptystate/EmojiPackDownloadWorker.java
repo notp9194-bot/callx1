@@ -157,7 +157,7 @@ public class EmojiPackDownloadWorker extends Worker {
             if (outReason != null) outReason[0] = "manifest fetch failed (network/server error)";
             return null;
         }
-        if (manifest.emojis == null || manifest.emojis.length == 0) {
+        if (manifest.emojis == null || manifest.emojis.isEmpty()) {
             if (outReason != null) outReason[0] = "manifest has 0 emojis (server misconfigured?)";
             return null;
         }
