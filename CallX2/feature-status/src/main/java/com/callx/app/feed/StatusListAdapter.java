@@ -39,11 +39,6 @@ package com.callx.app.feed;
       public static final int TYPE_MUTED_HEADER  = 3;
       public static final int TYPE_MUTED_CONTACT = 4;
       public static final int TYPE_CAROUSEL      = 6; // v27: horizontal status-card carousel
-      // FIX (screenshot parity): Channels section, appended below Status/Muted.
-      public static final int TYPE_CHANNELS_HEADER    = 7;
-      public static final int TYPE_CHANNELS_FIND_LABEL = 8;
-      public static final int TYPE_CHANNEL_FOLLOWED   = 9;
-      public static final int TYPE_CHANNEL_SUGGESTED  = 10;
 
       // ── Highlight album model ─────────────────────────────────────────────
       public static class HighlightAlbum {
@@ -120,20 +115,14 @@ package com.callx.app.feed;
       private static final int ITEM_MUT_HDR = 3;
       private static final int ITEM_MUT_ROW = 4;
       private static final int ITEM_CAROUSEL = 6; // v27: horizontal status-card carousel
-      private static final int ITEM_CHANNELS_HEADER     = 7;
-      private static final int ITEM_CHANNELS_FIND_LABEL = 8;
-      private static final int ITEM_CHANNEL_FOLLOWED    = 9;
-      private static final int ITEM_CHANNEL_SUGGESTED   = 10;
 
       private static class FlatItem {
           int    kind;
           String header;
           Entry  entry;
           List<CardItem> carouselItems; // v27: populated only for ITEM_CAROUSEL
-          com.callx.app.channels.ChannelItem channel; // populated only for ITEM_CHANNEL_*
           FlatItem(int k, String h, Entry e) { kind = k; header = h; entry = e; }
           FlatItem(int k, List<CardItem> cards) { kind = k; carouselItems = cards; }
-          FlatItem(int k, com.callx.app.channels.ChannelItem c) { kind = k; channel = c; }
       }
 
       // ── State ─────────────────────────────────────────────────────────────
@@ -151,13 +140,6 @@ package com.callx.app.feed;
       private List<Entry> lastUnseen = new ArrayList<>();
       private List<Entry> lastSeen   = new ArrayList<>();
       private List<Entry> lastMuted  = new ArrayList<>();
-      // FIX (screenshot parity): current user's own profile photo, used on the "Add status" tile.
-      private String myPhotoUrl;
-      // FIX (screenshot parity): Channels section state, pushed in by StatusFragment via setChannels().
-      private List<com.callx.app.channels.ChannelItem> followedChannels  = new ArrayList<>();
-      private List<com.callx.app.channels.ChannelItem> suggestedChannels = new ArrayList<>();
-      private boolean channelsSuggestionsExpanded = true;
-      private ChannelsListener channelsListener;
       private final SimpleDateFormat timeFmt =
               new SimpleDateFormat("HH:mm", Locale.getDefault());
 
@@ -171,26 +153,6 @@ package com.callx.app.feed;
           void onClick(HighlightAlbum album);
       }
       private HighlightClickListener onHighlightClick;
-
-      // FIX (screenshot parity): Channels section callbacks.
-      public interface ChannelsListener {
-          void onChannelClick(com.callx.app.channels.ChannelItem channel);
-          void onFollowClick(com.callx.app.channels.ChannelItem channel);
-          void onDismissClick(com.callx.app.channels.ChannelItem channel);
-          void onExploreClick();
-          void onFindLabelToggle();
-      }
-      public void setChannelsListener(ChannelsListener l) { this.channelsListener = l; }
-
-      /** Called by StatusFragment whenever channel follow/dismiss/expand state changes. */
-      public void setChannels(List<com.callx.app.channels.ChannelItem> followed,
-                               List<com.callx.app.channels.ChannelItem> suggestions,
-                               boolean suggestionsExpanded) {
-          this.followedChannels = followed != null ? followed : new ArrayList<>();
-          this.suggestedChannels = suggestions != null ? suggestions : new ArrayList<>();
-          this.channelsSuggestionsExpanded = suggestionsExpanded;
-          rebuildFlatList(items);
-      }
 
       public StatusListAdapter(String myUid, List<StatusItem> myStatuses,
                                Runnable onMyStatusClick, Runnable onAddStatusClick,
@@ -212,15 +174,6 @@ package com.callx.app.feed;
       }
 
       public void setHighlightClickListener(HighlightClickListener l) { this.onHighlightClick = l; }
-
-      // FIX (screenshot parity): called once StatusFragment resolves the signed-in user's
-      // own photoUrl from Firebase, so the "Add status" tile shows a real avatar instead
-      // of a blank silhouette.
-      public void setMyPhotoUrl(String url) {
-          if (java.util.Objects.equals(this.myPhotoUrl, url)) return;
-          this.myPhotoUrl = url;
-          if (myStatuses.isEmpty()) rebuildFlatList(items);
-      }
 
       // ── FIX: Update highlights strip data ────────────────────────────────
       public void updateHighlights(List<HighlightAlbum> albums) {
@@ -247,12 +200,7 @@ package com.callx.app.feed;
       private List<CardItem> buildCarouselItems(List<Entry> unseen, List<Entry> seen) {
           List<CardItem> cards = new ArrayList<>();
           if (myStatuses.isEmpty()) {
-              // FIX (screenshot parity): show the signed-in user's own profile photo on the
-              // "Add status" tile instead of a blank silhouette, like WhatsApp's Updates tab.
-              // myPhotoUrl is fetched once from Firebase by StatusFragment and pushed in via
-              // setMyPhotoUrl() -- feature-status has no dependency on the :app module.
-              cards.add(new CardItem(true, false, myUid, "Add status",
-                      (myPhotoUrl != null && !myPhotoUrl.isEmpty()) ? myPhotoUrl : null, null, null, false, false));
+              cards.add(new CardItem(true, false, myUid, "My Status", null, null, null, false, false));
           } else {
               StatusItem latest = myStatuses.get(myStatuses.size() - 1);
               String thumb = latest.thumbnailUrl != null ? latest.thumbnailUrl : latest.mediaUrl;
@@ -282,21 +230,6 @@ package com.callx.app.feed;
               next.add(new FlatItem(ITEM_MUT_HDR, "Muted", null));
               for (Entry e : muted) next.add(new FlatItem(ITEM_MUT_ROW, null, e));
           }
-          // FIX (screenshot parity): Channels section — followed channels (as update rows),
-          // then a collapsible "Find channels to follow" suggestions list, matching the
-          // reference screenshot's Status-then-Channels layout.
-          if (!followedChannels.isEmpty() || !suggestedChannels.isEmpty()) {
-              next.add(new FlatItem(ITEM_CHANNELS_HEADER, (com.callx.app.channels.ChannelItem) null));
-              for (com.callx.app.channels.ChannelItem c : followedChannels)
-                  next.add(new FlatItem(ITEM_CHANNEL_FOLLOWED, c));
-              if (!suggestedChannels.isEmpty()) {
-                  next.add(new FlatItem(ITEM_CHANNELS_FIND_LABEL, (com.callx.app.channels.ChannelItem) null));
-                  if (channelsSuggestionsExpanded) {
-                      for (com.callx.app.channels.ChannelItem c : suggestedChannels)
-                          next.add(new FlatItem(ITEM_CHANNEL_SUGGESTED, c));
-                  }
-              }
-          }
           return next;
       }
 
@@ -325,17 +258,12 @@ package com.callx.app.feed;
                   if (o.kind == ITEM_ROW || o.kind == ITEM_MUT_ROW)
                       return o.entry != null && n.entry != null
                               && o.entry.ownerUid.equals(n.entry.ownerUid);
-                  if (o.kind == ITEM_CHANNELS_HEADER || o.kind == ITEM_CHANNELS_FIND_LABEL) return true;
-                  if (o.kind == ITEM_CHANNEL_FOLLOWED || o.kind == ITEM_CHANNEL_SUGGESTED)
-                      return o.channel != null && n.channel != null && o.channel.id.equals(n.channel.id);
                   return true; // MY_STATUS
               }
               @Override public boolean areContentsTheSame(int op, int np) {
                   FlatItem o = old.get(op), n = next.get(np);
                   if (o.kind == ITEM_HIGHLIGHTS) return highlights.size() == highlights.size(); // always false = re-bind
                   if (o.kind == ITEM_CAROUSEL) return false; // always re-bind, nested RV handles its own diffing
-                  if (o.kind == ITEM_CHANNEL_FOLLOWED || o.kind == ITEM_CHANNEL_SUGGESTED
-                          || o.kind == ITEM_CHANNELS_HEADER || o.kind == ITEM_CHANNELS_FIND_LABEL) return false;
                   if (o.kind == ITEM_ROW || o.kind == ITEM_MUT_ROW) {
                       if (o.entry == null || n.entry == null) return false;
                       return o.entry.unseenCount == n.entry.unseenCount
@@ -362,10 +290,6 @@ package com.callx.app.feed;
               case ITEM_HDR:        return TYPE_SECTION_HEADER;
               case ITEM_MUT_HDR:    return TYPE_MUTED_HEADER;
               case ITEM_MUT_ROW:    return TYPE_MUTED_CONTACT;
-              case ITEM_CHANNELS_HEADER:     return TYPE_CHANNELS_HEADER;
-              case ITEM_CHANNELS_FIND_LABEL: return TYPE_CHANNELS_FIND_LABEL;
-              case ITEM_CHANNEL_FOLLOWED:    return TYPE_CHANNEL_FOLLOWED;
-              case ITEM_CHANNEL_SUGGESTED:   return TYPE_CHANNEL_SUGGESTED;
               default:              return TYPE_CONTACT;
           }
       }
@@ -385,14 +309,6 @@ package com.callx.app.feed;
               case TYPE_SECTION_HEADER:
               case TYPE_MUTED_HEADER:
                   return new HeaderVH(li.inflate(R.layout.item_status_header, parent, false));
-              case TYPE_CHANNELS_HEADER:
-                  return new ChannelsHeaderVH(li.inflate(R.layout.item_channels_header, parent, false));
-              case TYPE_CHANNELS_FIND_LABEL:
-                  return new ChannelsFindLabelVH(li.inflate(R.layout.item_channels_find_label, parent, false));
-              case TYPE_CHANNEL_FOLLOWED:
-                  return new ChannelFollowedVH(li.inflate(R.layout.item_channel_followed, parent, false));
-              case TYPE_CHANNEL_SUGGESTED:
-                  return new ChannelSuggestedVH(li.inflate(R.layout.item_channel_suggested, parent, false));
               default:
                   return new ContactVH(li.inflate(R.layout.item_status, parent, false));
           }
@@ -408,54 +324,7 @@ package com.callx.app.feed;
           else if (holder instanceof HeaderVH) {
               String label = fi.kind == ITEM_MUT_HDR ? "\uD83D\uDD07 Muted" : fi.header;
               ((HeaderVH) holder).tvHeader.setText(label);
-          } else if (holder instanceof ChannelsHeaderVH) bindChannelsHeader((ChannelsHeaderVH) holder);
-          else if (holder instanceof ChannelsFindLabelVH) bindChannelsFindLabel((ChannelsFindLabelVH) holder);
-          else if (holder instanceof ChannelFollowedVH) bindChannelFollowed((ChannelFollowedVH) holder, fi.channel, ctx);
-          else if (holder instanceof ChannelSuggestedVH) bindChannelSuggested((ChannelSuggestedVH) holder, fi.channel);
-          else bindContact((ContactVH) holder, fi.entry, ctx, fi.kind == ITEM_MUT_ROW);
-      }
-
-      // ── FIX (screenshot parity): Channels section ────────────────────────
-      private void bindChannelsHeader(ChannelsHeaderVH h) {
-          h.btnExplore.setOnClickListener(v -> { if (channelsListener != null) channelsListener.onExploreClick(); });
-      }
-
-      private void bindChannelsFindLabel(ChannelsFindLabelVH h) {
-          h.ivChevron.setRotation(channelsSuggestionsExpanded ? 180f : 0f);
-          h.itemView.setOnClickListener(v -> { if (channelsListener != null) channelsListener.onFindLabelToggle(); });
-      }
-
-      private void bindChannelFollowed(ChannelFollowedVH h, com.callx.app.channels.ChannelItem c, Context ctx) {
-          if (c == null) return;
-          h.tvIcon.setText(com.callx.app.channels.ChannelsUi.initial(c.name));
-          h.tvIcon.getBackground().setTint(com.callx.app.channels.ChannelsUi.colorFor(c.name));
-          h.tvName.setText(c.name);
-          h.ivVerified.setVisibility(c.verified ? View.VISIBLE : View.GONE);
-          h.tvPreview.setText(c.latestPost());
-          h.ivPostThumb.setVisibility(View.GONE);
-          h.tvTime.setText(c.lastPostAtMillis > 0
-                  ? new java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault())
-                          .format(new java.util.Date(c.lastPostAtMillis))
-                  : "");
-          if (c.unreadCount > 0) {
-              h.tvUnread.setVisibility(View.VISIBLE);
-              h.tvUnread.setText(c.unreadCount > 999 ? "999+" : String.valueOf(c.unreadCount));
-          } else {
-              h.tvUnread.setVisibility(View.GONE);
-          }
-          h.itemView.setOnClickListener(v -> { if (channelsListener != null) channelsListener.onChannelClick(c); });
-      }
-
-      private void bindChannelSuggested(ChannelSuggestedVH h, com.callx.app.channels.ChannelItem c) {
-          if (c == null) return;
-          h.tvIcon.setText(com.callx.app.channels.ChannelsUi.initial(c.name));
-          h.tvIcon.getBackground().setTint(com.callx.app.channels.ChannelsUi.colorFor(c.name));
-          h.tvName.setText(c.name);
-          h.ivVerified.setVisibility(c.verified ? View.VISIBLE : View.GONE);
-          h.tvFollowers.setText(c.followerCountLabel());
-          h.btnFollow.setOnClickListener(v -> { if (channelsListener != null) channelsListener.onFollowClick(c); });
-          h.btnDismiss.setOnClickListener(v -> { if (channelsListener != null) channelsListener.onDismissClick(c); });
-          h.itemView.setOnClickListener(v -> { if (channelsListener != null) channelsListener.onChannelClick(c); });
+          } else bindContact((ContactVH) holder, fi.entry, ctx, fi.kind == ITEM_MUT_ROW);
       }
 
       // ── FIX: Highlights ViewHolder ────────────────────────────────────────
@@ -656,46 +525,6 @@ package com.callx.app.feed;
           }
       }
 
-      // ── FIX (screenshot parity): Channels section view holders ─────────────
-      static class ChannelsHeaderVH extends RecyclerView.ViewHolder {
-          TextView btnExplore;
-          ChannelsHeaderVH(View v) { super(v); btnExplore = v.findViewById(R.id.btn_explore_channels); }
-      }
-
-      static class ChannelsFindLabelVH extends RecyclerView.ViewHolder {
-          ImageView ivChevron;
-          ChannelsFindLabelVH(View v) { super(v); ivChevron = v.findViewById(R.id.iv_find_chevron); }
-      }
-
-      static class ChannelFollowedVH extends RecyclerView.ViewHolder {
-          TextView tvIcon, tvName, tvPreview, tvTime, tvUnread;
-          ImageView ivVerified, ivPostThumb;
-          ChannelFollowedVH(View v) {
-              super(v);
-              tvIcon      = v.findViewById(R.id.tv_channel_icon);
-              tvName      = v.findViewById(R.id.tv_channel_name);
-              ivVerified  = v.findViewById(R.id.iv_channel_verified);
-              ivPostThumb = v.findViewById(R.id.iv_channel_post_thumb);
-              tvPreview   = v.findViewById(R.id.tv_channel_preview);
-              tvTime      = v.findViewById(R.id.tv_channel_time);
-              tvUnread    = v.findViewById(R.id.tv_channel_unread);
-          }
-      }
-
-      static class ChannelSuggestedVH extends RecyclerView.ViewHolder {
-          TextView tvIcon, tvName, tvFollowers, btnFollow;
-          ImageView ivVerified, btnDismiss;
-          ChannelSuggestedVH(View v) {
-              super(v);
-              tvIcon      = v.findViewById(R.id.tv_channel_icon);
-              tvName      = v.findViewById(R.id.tv_channel_name);
-              ivVerified  = v.findViewById(R.id.iv_channel_verified);
-              tvFollowers = v.findViewById(R.id.tv_channel_followers);
-              btnFollow   = v.findViewById(R.id.btn_follow);
-              btnDismiss  = v.findViewById(R.id.btn_dismiss);
-          }
-      }
-
       // ── Inner adapter for highlights horizontal strip ──────────────────────
       static class HighlightAlbumAdapter extends RecyclerView.Adapter<HighlightAlbumAdapter.VH> {
           private final List<HighlightAlbum> albums;
@@ -747,28 +576,32 @@ package com.callx.app.feed;
               CardItem c = cards.get(pos);
               Context ctx = h.itemView.getContext();
 
-              // FIX (screenshot parity): classic WhatsApp circle style — one circular
-              // thumbnail per tile (status media if present, else the owner's profile photo),
-              // a coloured ring, and the name truncated to one line underneath.
-              h.tvName.setText(c.isMine
-                      ? (c.hasStatus ? "My Status" : "Add status")
-                      : (c.ownerName != null ? c.ownerName : ""));
+              h.tvName.setText(c.isMine ? "My Status" : (c.ownerName != null ? c.ownerName : ""));
 
-              String img = c.thumbUrl != null && !c.thumbUrl.isEmpty() ? c.thumbUrl : c.ownerPhoto;
-              if (img != null && !img.isEmpty())
-                  Glide.with(ctx).load(img).circleCrop().placeholder(R.drawable.ic_person).into(h.ivAvatar);
+              // Card background image: latest status media, or the owner's profile photo,
+              // or a plain color fallback (already set as the ImageView's default background).
+              String bg = c.thumbUrl != null && !c.thumbUrl.isEmpty() ? c.thumbUrl : c.ownerPhoto;
+              if (bg != null && !bg.isEmpty()) {
+                  Glide.with(ctx).load(bg).centerCrop()
+                          .placeholder(R.drawable.ic_person)
+                          .into(h.ivBg);
+              } else {
+                  h.ivBg.setImageResource(R.drawable.ic_person);
+              }
+
+              if (c.ownerPhoto != null && !c.ownerPhoto.isEmpty())
+                  Glide.with(ctx).load(c.ownerPhoto).placeholder(R.drawable.ic_person).into(h.ivAvatar);
               else
                   h.ivAvatar.setImageResource(R.drawable.ic_person);
 
               if (c.isMine && !c.hasStatus) {
-                  // "Add status" tile — no ring yet, plus badge shown instead
+                  // "Add status" tile — grey ring, plus badge, no status yet
                   h.ring.setVisibility(View.GONE);
                   h.ivAddBadge.setVisibility(View.VISIBLE);
               } else {
                   h.ring.setVisibility(View.VISIBLE);
-                  h.ring.setImageResource(c.isMuted ? R.drawable.circle_status_ring_seen
-                          : c.unseen || c.isMine ? R.drawable.circle_status_ring_unseen
-                                                  : R.drawable.circle_status_ring_seen);
+                  h.ring.setBackgroundResource(c.isMuted ? R.drawable.circle_status_seen
+                          : c.unseen || c.isMine ? R.drawable.circle_status_unseen : R.drawable.circle_status_seen);
                   h.ring.setAlpha(c.isMuted ? 0.4f : 1f);
                   h.ivAddBadge.setVisibility(c.isMine ? View.VISIBLE : View.GONE);
               }
@@ -780,11 +613,12 @@ package com.callx.app.feed;
           @Override public int getItemCount() { return cards.size(); }
 
           static class VH extends RecyclerView.ViewHolder {
-              ImageView ring, ivAddBadge;
+              ImageView ivBg, ring, ivAddBadge;
               CircleImageView ivAvatar;
               TextView tvName;
               VH(View v) {
                   super(v);
+                  ivBg       = v.findViewById(R.id.iv_card_bg);
                   ring       = v.findViewById(R.id.ring);
                   ivAvatar   = v.findViewById(R.id.iv_card_avatar);
                   ivAddBadge = v.findViewById(R.id.iv_card_add);

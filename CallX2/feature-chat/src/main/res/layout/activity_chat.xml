@@ -453,18 +453,22 @@
 
         <!-- ══════════════════════════════════════════════════════════════
              EMOJI BURST OVERLAY — when the partner sends an emoji-only
-             message, it pops up HUGE in the center, overlapping the chat
-             area, with a scale+fade animation, then auto-vanishes after a
-             short delay. Driven by ChatEmojiBurstController, which also
-             enforces a 4-second cooldown so the partner can't spam it.
-             Centered + ignores touches so it never blocks the chat list. ─ -->
-        <TextView
+             message, it pops up HUGE in the center, overlapping the whole
+             chat area, with a scale+fade animation, then auto-vanishes after
+             a short delay. Driven by ChatEmojiBurstController, which guards
+             against the chat-open backlog replay, ignores our own messages,
+             and enforces a 4-second cooldown so the partner can't spam it.
+             Rendered by EmojiBurstCanvasView — a plain Canvas draw, not a
+             TextView, so changing the emoji only ever calls invalidate(),
+             never requestLayout(). match_parent + independent FrameLayout
+             sibling of the RecyclerView means it never competes with the
+             message list's own measure/layout/scroll passes — scrolling
+             stays buttery smooth. Ignores touches so it never blocks the
+             chat list. ─ -->
+        <com.callx.app.conversation.canvas.EmojiBurstCanvasView
             android:id="@+id/tv_emoji_burst"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="center"
-            android:textSize="96sp"
-            android:gravity="center"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
             android:clickable="false"
             android:focusable="false"
             android:visibility="gone"/>

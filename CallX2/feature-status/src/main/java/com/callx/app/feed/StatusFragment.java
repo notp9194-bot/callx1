@@ -54,8 +54,6 @@ package com.callx.app.feed;
       private StatusMediaPreloader mediaPreloader;
       private EditText etSearch;
       private String   searchQuery = "";
-      // FIX (screenshot parity): Channels section, purely local (no backend yet).
-      private com.callx.app.channels.ChannelsRepository channelsRepo;
       // ── Lifecycle ─────────────────────────────────────────────────────────
       @Nullable @Override
       public View onCreateView(@NonNull LayoutInflater inflater,
@@ -108,35 +106,6 @@ package com.callx.app.feed;
               }
           });
           rv.setAdapter(adapter);
-          loadMyPhotoUrl(); // FIX (screenshot parity): populate "Add status" tile avatar
-
-          // FIX (screenshot parity): Channels section wiring
-          channelsRepo = new com.callx.app.channels.ChannelsRepository(requireContext());
-          adapter.setChannelsListener(new StatusListAdapter.ChannelsListener() {
-              @Override public void onChannelClick(com.callx.app.channels.ChannelItem channel) {
-                  startActivity(com.callx.app.channels.ChannelViewActivity.intent(requireContext(), channel.id));
-              }
-              @Override public void onFollowClick(com.callx.app.channels.ChannelItem channel) {
-                  channelsRepo.setFollowing(channel.id, true);
-                  refreshChannels();
-              }
-              @Override public void onDismissClick(com.callx.app.channels.ChannelItem channel) {
-                  channelsRepo.dismissSuggestion(channel.id);
-                  refreshChannels();
-              }
-              @Override public void onExploreClick() {
-                  if (getContext() == null) return;
-                  com.callx.app.channels.ChannelsExploreBottomSheet
-                          .newInstance(channelsRepo, StatusFragment.this::refreshChannels)
-                          .show(getParentFragmentManager(), "explore_channels");
-              }
-              @Override public void onFindLabelToggle() {
-                  boolean expanded = !channelsRepo.isSuggestionsExpanded();
-                  channelsRepo.setSuggestionsExpanded(expanded);
-                  refreshChannels();
-              }
-          });
-          refreshChannels();
           View.OnClickListener openComposer = x -> startActivity(new Intent(requireContext(), NewStatusActivity.class));
           com.google.android.material.floatingactionbutton.FloatingActionButton fabCamera =
                   v.findViewById(R.id.fab_camera_status);
@@ -167,7 +136,6 @@ package com.callx.app.feed;
           loadFromRoom();
           loadStatuses();
           loadHighlights(); // FIX: new
-          refreshChannels(); // FIX (screenshot parity): pick up follow/read state changed elsewhere
           StatusCacheManager.getInstance(requireContext()).addObserver(statusCacheObserver);
       }
       @Override
@@ -177,25 +145,6 @@ package com.callx.app.feed;
               StatusCacheManager.getInstance(getContext()).removeObserver(statusCacheObserver);
           if (mediaPreloader != null) { mediaPreloader.shutdown(); mediaPreloader = null; }
           super.onStop();
-      }
-      // FIX (screenshot parity): re-reads channel follow/dismiss/expand state and pushes
-      // it into the adapter — called after any follow/unfollow/dismiss/toggle action.
-      private void refreshChannels() {
-          if (channelsRepo == null || adapter == null) return;
-          adapter.setChannels(channelsRepo.getFollowed(), channelsRepo.getSuggestions(),
-                  channelsRepo.isSuggestionsExpanded());
-      }
-      // ── FIX (screenshot parity): resolve own profile photo for "Add status" tile ─
-      private void loadMyPhotoUrl() {
-          if (myUid == null || myUid.isEmpty()) return;
-          FirebaseUtils.getUserRef(myUid).child("photoUrl")
-              .addListenerForSingleValueEvent(new ValueEventListener() {
-                  @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                      String url = snap.getValue(String.class);
-                      if (adapter != null) adapter.setMyPhotoUrl(url);
-                  }
-                  @Override public void onCancelled(@NonNull DatabaseError e) {}
-              });
       }
       // ── FIX: Load highlights from Firebase ───────────────────────────────
       private void loadHighlights() {
