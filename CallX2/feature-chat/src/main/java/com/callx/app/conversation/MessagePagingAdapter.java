@@ -1134,10 +1134,17 @@ public class MessagePagingAdapter
             return new VH(v);
         }
         if (viewType == TYPE_DATE_SEPARATOR) {
-            View v = LayoutInflater.from(parent.getContext())
-                    .inflate(R.layout.item_date_separator, parent, false);
-            v.setSaveEnabled(false);
-            return new VH(v);
+            // Canvas replacement for item_date_separator.xml — see
+            // DateSeparatorCanvasView's class doc. Kept as a plain View
+            // (not added to the shared MessageBubbleCanvasView pool) since
+            // its shape/frequency has nothing in common with message rows.
+            com.callx.app.conversation.canvas.DateSeparatorCanvasView dv =
+                    new com.callx.app.conversation.canvas.DateSeparatorCanvasView(parent.getContext());
+            dv.setLayoutParams(new RecyclerView.LayoutParams(
+                    RecyclerView.LayoutParams.MATCH_PARENT, RecyclerView.LayoutParams.WRAP_CONTENT));
+            VH vh = new VH(dv);
+            vh.dateSeparatorView = dv;
+            return vh;
         }
         if (viewType == TYPE_CANVAS_SENT || viewType == TYPE_CANVAS_RECEIVED) {
             com.callx.app.conversation.canvas.MessageBubbleCanvasView cv =
@@ -1276,8 +1283,7 @@ public class MessagePagingAdapter
         }
         // ── DATE SEPARATOR — standalone chip row ─────────────────────────
         if ("date_separator".equals(m.type)) {
-            TextView tvLabel = h.itemView.findViewById(R.id.tv_date_label);
-            if (tvLabel != null) tvLabel.setText(m.text != null ? m.text : "");
+            if (h.dateSeparatorView != null) h.dateSeparatorView.setLabel(m.text);
             return;
         }
         // ── CANVAS PATH — text/media/contact/location/poll/view-once/
@@ -5531,7 +5537,12 @@ public class MessagePagingAdapter
         // (e.g. several rows rebinding at once when a new message arrives),
         // was a source of the reaction-badge flicker/junk on send/receive.
         int lastCanvasLayerType = -1;
-        TextView     tvDateHeader;   // date separator chip (Today / Yesterday / MMM d)
+        // Canvas replacement for item_date_separator.xml's tv_date_label —
+        // non-null only for TYPE_DATE_SEPARATOR holders. tvDateHeader below
+        // is unused dead-fallback state, same status as tvMessage/etc. are
+        // for TYPE_CANVAS_SENT/RECEIVED holders.
+        com.callx.app.conversation.canvas.DateSeparatorCanvasView dateSeparatorView;
+        TextView     tvDateHeader;   // date separator chip (Today / Yesterday / MMM d) — legacy fallback, unreachable
         ImageView    ivImage;
         TextView     tvStatus;   // tv_status in both item layouts
         // Manual media download overlay (WhatsApp-style) — received images only.
