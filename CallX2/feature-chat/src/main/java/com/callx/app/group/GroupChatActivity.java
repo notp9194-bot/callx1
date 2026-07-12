@@ -522,10 +522,7 @@ public class GroupChatActivity extends AppCompatActivity
             FirebaseUtils.getUserRef(e.getKey()).removeEventListener(e.getValue());
         presenceListeners.clear();
         if (watchingController != null) watchingController.release();
-        if (typingDotsAnimator != null) {
-            typingDotsAnimator.stop();
-            typingDotsAnimator = null;
-        }
+        if (binding.llTypingStrip != null) binding.llTypingStrip.stopDots();
         if (connMgr != null && netCallback != null) {
             try { connMgr.unregisterNetworkCallback(netCallback); } catch (Exception ignored) {}
         }
@@ -2409,7 +2406,7 @@ public class GroupChatActivity extends AppCompatActivity
     // potentially multiple simultaneous typers from typingNames (uid -> name,
     // populated by the existing typingListener in setupRealtimeHeader()).
 
-    private com.callx.app.chat.ui.TypingDotsAnimator typingDotsAnimator;
+
     /** Mirrors ChatPresenceController's same-named flag — true while this
      *  screen is paused/backgrounded, so the dots loop stays stopped even
      *  if typingNames is non-empty. */
@@ -2420,7 +2417,7 @@ public class GroupChatActivity extends AppCompatActivity
      *  keeps tracking typingNames in the background exactly like before. */
     private void onTypingStripScreenPaused() {
         screenPaused = true;
-        if (typingDotsAnimator != null) typingDotsAnimator.stop();
+        if (binding.llTypingStrip != null) binding.llTypingStrip.stopDots();
     }
 
     /** Call from onResume(). Restarts the dots loop if someone is (still)
@@ -2428,9 +2425,8 @@ public class GroupChatActivity extends AppCompatActivity
     private void onTypingStripScreenResumed() {
         screenPaused = false;
         if (!typingNames.isEmpty() && binding.llTypingStrip != null
-                && binding.llTypingStrip.getVisibility() == View.VISIBLE
-                && typingDotsAnimator != null) {
-            typingDotsAnimator.start();
+                && binding.llTypingStrip.getVisibility() == View.VISIBLE) {
+            binding.llTypingStrip.startDots();
         }
     }
 
@@ -2453,25 +2449,12 @@ public class GroupChatActivity extends AppCompatActivity
         } else {
             label = first.getValue() + " +" + (n - 1) + " typing";
         }
-        binding.tvTypingName.setText(label);
+        binding.llTypingStrip.setName(label);
+        binding.llTypingStrip.setAvatarUrl(memberPhotos.get(first.getKey()));
 
-        String photo = memberPhotos.get(first.getKey());
-        if (photo != null && !photo.isEmpty()) {
-            com.bumptech.glide.Glide.with(this)
-                    .load(photo)
-                    .placeholder(com.callx.app.chat.R.drawable.ic_person)
-                    .into(binding.ivTypingAvatar);
-        } else {
-            binding.ivTypingAvatar.setImageResource(com.callx.app.chat.R.drawable.ic_person);
-        }
-
-        if (typingDotsAnimator == null) {
-            typingDotsAnimator = new com.callx.app.chat.ui.TypingDotsAnimator(
-                    binding.dotTyping1, binding.dotTyping2, binding.dotTyping3);
-        }
         // Don't start the bounce loop while backgrounded — onTypingStripScreenResumed()
         // will pick it back up once we're visible again.
-        if (!screenPaused) typingDotsAnimator.start();
+        if (!screenPaused) binding.llTypingStrip.startDots();
 
         if (binding.llTypingStrip.getVisibility() == View.VISIBLE) {
             // Already showing — still make sure the watching banner reflects
@@ -2493,7 +2476,7 @@ public class GroupChatActivity extends AppCompatActivity
         if (binding.llTypingStrip == null) return;
         if (binding.llTypingStrip.getVisibility() != View.VISIBLE) return;
 
-        if (typingDotsAnimator != null) typingDotsAnimator.stop();
+        binding.llTypingStrip.stopDots();
         binding.llTypingStrip.setVisibility(View.GONE);
         binding.llTypingStrip.setAlpha(1f);
         binding.llTypingStrip.setScaleX(1f);

@@ -4954,55 +4954,38 @@ public class MessagePagingAdapter
         if (actionListener == null) return;
 
         // ── Step 1: Build emoji reaction row ──────────────────────────
-        String[] QUICK_EMOJIS = {"\u2764\uFE0F", "\uD83D\uDC4D", "\uD83D\uDE02",
-                                  "\uD83D\uDE2E", "\uD83D\uDE22", "\uD83D\uDE21"};
-        android.widget.LinearLayout emojiRow = new android.widget.LinearLayout(ctx);
-        emojiRow.setOrientation(android.widget.LinearLayout.HORIZONTAL);
-        emojiRow.setGravity(android.view.Gravity.CENTER);
-        int hPad = (int)(8 * ctx.getResources().getDisplayMetrics().density);
-        int vPad = (int)(12 * ctx.getResources().getDisplayMetrics().density);
-        emojiRow.setPadding(hPad, vPad, hPad, vPad);
+        // PERF ADV: was 7 TextViews + 7 RippleDrawables + 2 LinearLayouts
+        // rebuilt from scratch on EVERY long-press (measure+layout on the
+        // main thread right as the chat list is settling from the touch).
+        // Now a single custom View that paints everything in one onDraw()
+        // pass — see ReactionQuickBarCanvasView for the full rationale.
+        com.callx.app.conversation.canvas.ReactionQuickBarCanvasView emojiBar =
+                new com.callx.app.conversation.canvas.ReactionQuickBarCanvasView(ctx);
+        String alreadyReacted = currentUid != null && m.reactions != null
+                ? m.reactions.get(currentUid) : null;
+        emojiBar.bind(alreadyReacted);
 
         // Wrap in a container so AlertDialog can host it as a custom title
         android.widget.LinearLayout wrapper = new android.widget.LinearLayout(ctx);
         wrapper.setOrientation(android.widget.LinearLayout.VERTICAL);
-        wrapper.addView(emojiRow);
+        wrapper.setGravity(android.view.Gravity.CENTER);
+        int vPad = (int)(12 * ctx.getResources().getDisplayMetrics().density);
+        wrapper.setPadding(0, vPad, 0, vPad);
+        wrapper.addView(emojiBar);
 
         // Keep a dialog reference so emoji tap can dismiss it
         final android.app.AlertDialog[] holder = new android.app.AlertDialog[1];
 
-        for (String emoji : QUICK_EMOJIS) {
-            android.widget.TextView tv = new android.widget.TextView(ctx);
-            tv.setText(emoji);
-            tv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 28);
-            int btnPad = (int)(10 * ctx.getResources().getDisplayMetrics().density);
-            tv.setPadding(btnPad, btnPad / 2, btnPad, btnPad / 2);
-            // Highlight whichever emoji the current user already reacted with —
-            // tapping it again removes the reaction (see ChatReactionController#toggleReaction).
-            boolean already = currentUid != null && m.reactions != null
-                    && emoji.equals(m.reactions.get(currentUid));
-            tv.setAlpha(already ? 1.0f : 0.7f);
-            tv.setScaleX(already ? 1.25f : 1.0f);
-            tv.setScaleY(already ? 1.25f : 1.0f);
-            tv.setOnClickListener(v -> {
+        emojiBar.setListener(new com.callx.app.conversation.canvas.ReactionQuickBarCanvasView.OnEmojiPickListener() {
+            @Override public void onEmojiPicked(String emoji) {
                 actionListener.onReact(m, emoji);
                 if (holder[0] != null) holder[0].dismiss();
-            });
-            emojiRow.addView(tv);
-        }
-
-        // FIX [P3-3]: "+" button → full emoji picker dialog (was dead/missing before)
-        android.widget.TextView btnMore = new android.widget.TextView(ctx);
-        btnMore.setText("+");
-        btnMore.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 22);
-        btnMore.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        int morePad = (int)(10 * ctx.getResources().getDisplayMetrics().density);
-        btnMore.setPadding(morePad, morePad / 2, morePad, morePad / 2);
-        btnMore.setOnClickListener(v -> {
-            if (holder[0] != null) holder[0].dismiss();
-            showFullEmojiPicker(ctx, m);
+            }
+            @Override public void onMoreTapped() {
+                if (holder[0] != null) holder[0].dismiss();
+                showFullEmojiPicker(ctx, m);
+            }
         });
-        emojiRow.addView(btnMore);
 
         // ── Step 2: Build action items list ───────────────────────────
         boolean isOwnMsg     = currentUid != null && currentUid.equals(m.senderId);
@@ -5054,41 +5037,36 @@ public class MessagePagingAdapter
     }
 
     // FIX [P3-3]: Full emoji picker — 8-column scrollable grid of common emojis
+    // PERF ADV: was GridView + ArrayAdapter(android.R.layout.simple_list_item_1)
+    // — ~24-32 concurrent TextView inflate+bind passes the instant the dialog
+    // opened, on the main thread, right as the RecyclerView (which the
+    // long-press interrupted) is settling. Now ReactionGridCanvasView draws
+    // all 80 emojis in one onDraw() pass with zero child-View inflation;
+    // wrapped in a plain ScrollView (cheap: one child, no recycler
+    // machinery) so the scrollable-grid UX is unchanged.
     private void showFullEmojiPicker(Context ctx, Message m) {
         if (actionListener == null) return;
-        final String[] ALL_EMOJIS = {
-            "❤️","👍","😂","😮","😢","😡","🙏","🔥","✅","💯",
-            "👏","🤣","😍","😎","🤔","😴","🥳","😅","🤩","🥰",
-            "💀","🤯","😱","🤗","😇","🙄","😑","🤐","🫡","💪",
-            "👀","✌️","🤞","🫶","❤️‍🔥","💔","💕","💖","💘","🫂",
-            "🎉","🎊","🎈","🏆","⭐","🌟","💫","✨","🌈","☀️",
-            "😁","😆","🤭","😜","😝","🥹","🥺","😭","😤","😠",
-            "👋","🤙","🖐️","✋","👊","🫸","💅","🫰","👌","🤌",
-            "🙌","🤜","🤛","🫵","☝️","👈","👉","👆","👇","🤷"
-        };
-        android.widget.GridView grid = new android.widget.GridView(ctx);
-        grid.setNumColumns(8);
-        grid.setPadding(12, 12, 12, 12);
-        android.widget.ArrayAdapter<String> adapter = new android.widget.ArrayAdapter<String>(
-                ctx, android.R.layout.simple_list_item_1, ALL_EMOJIS) {
-            @Override public android.view.View getView(int pos, android.view.View cv, android.view.ViewGroup parent) {
-                android.widget.TextView tv = (android.widget.TextView)
-                        super.getView(pos, cv, parent);
-                tv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 26);
-                tv.setGravity(android.view.Gravity.CENTER);
-                tv.setPadding(4, 8, 4, 8);
-                return tv;
-            }
-        };
-        grid.setAdapter(adapter);
+
+        com.callx.app.conversation.canvas.ReactionGridCanvasView grid =
+                new com.callx.app.conversation.canvas.ReactionGridCanvasView(ctx);
+
+        android.widget.ScrollView scrollHost = new android.widget.ScrollView(ctx);
+        int pad = (int) (12 * ctx.getResources().getDisplayMetrics().density);
+        scrollHost.setPadding(pad, pad, pad, pad);
+        scrollHost.addView(grid, new android.widget.ScrollView.LayoutParams(
+                android.widget.ScrollView.LayoutParams.MATCH_PARENT,
+                android.widget.ScrollView.LayoutParams.WRAP_CONTENT));
+
         android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(ctx)
                 .setTitle("Pick an emoji")
-                .setView(grid)
+                .setView(scrollHost)
                 .create();
-        grid.setOnItemClickListener((parent, v, pos, id) -> {
-            actionListener.onReact(m, ALL_EMOJIS[pos]);
+
+        grid.setListener(emoji -> {
+            actionListener.onReact(m, emoji);
             dialog.dismiss();
         });
+
         com.callx.app.utils.AlertDialogStyler.showRounded(dialog,
                 com.callx.app.utils.AlertDialogStyler.DialogSize.WIDE);
     }

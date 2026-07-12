@@ -225,78 +225,24 @@
              "Asha typing…" (1 typer) or "Asha, Ravi typing…" (2+, names
              joined — GroupTypingController truncates/pluralizes for 3+).
              ══════════════════════════════════════════════════════════════ -->
-        <LinearLayout
+        <!-- Canvas-rendered replacement for the old LinearLayout(avatar +
+             name TextView + 3-child-View dot row). ONE view now paints the
+             avatar, name and the 3 bouncing dots directly — see
+             TypingStripCanvasView for why (real bounce animation restored,
+             without the per-frame multi-View invalidate cost that made the
+             old TypingDotsAnimator get turned into a no-op). -->
+        <com.callx.app.conversation.canvas.TypingStripCanvasView
             android:id="@+id/ll_typing_strip"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="bottom|start"
             android:layout_margin="10dp"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
             android:background="@drawable/bg_watching_strip"
             android:paddingStart="6dp"
             android:paddingEnd="14dp"
             android:paddingTop="6dp"
             android:paddingBottom="6dp"
-            android:visibility="gone">
-
-            <de.hdodenhof.circleimageview.CircleImageView
-                android:id="@+id/iv_typing_avatar"
-                android:layout_width="22dp"
-                android:layout_height="22dp"
-                android:src="@drawable/ic_person"
-                app:civ_border_width="1dp"
-                app:civ_border_color="#80FFFFFF"/>
-
-            <TextView
-                android:id="@+id/tv_typing_name"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
-                android:layout_marginEnd="6dp"
-                android:maxLines="1"
-                android:ellipsize="end"
-                android:maxWidth="180dp"
-                android:text="typing"
-                android:textColor="#FFFFFF"
-                android:textSize="12sp"
-                android:textStyle="bold"/>
-
-            <!-- Animated 3-dot indicator — each dot's alpha/translationY is
-                 pulsed on a staggered loop from TypingDotsAnimator. -->
-            <LinearLayout
-                android:id="@+id/ll_typing_dots"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical">
-
-                <View
-                    android:id="@+id/dot_typing_1"
-                    android:layout_width="5dp"
-                    android:layout_height="5dp"
-                    android:background="@drawable/circle_primary"
-                    android:backgroundTint="#FFFFFF"/>
-
-                <View
-                    android:id="@+id/dot_typing_2"
-                    android:layout_width="5dp"
-                    android:layout_height="5dp"
-                    android:layout_marginStart="3dp"
-                    android:background="@drawable/circle_primary"
-                    android:backgroundTint="#FFFFFF"/>
-
-                <View
-                    android:id="@+id/dot_typing_3"
-                    android:layout_width="5dp"
-                    android:layout_height="5dp"
-                    android:layout_marginStart="3dp"
-                    android:background="@drawable/circle_primary"
-                    android:backgroundTint="#FFFFFF"/>
-
-            </LinearLayout>
-
-        </LinearLayout>
+            android:visibility="gone"/>
 
         <!-- ══════════════════════════════════════════════════════════════
              VOICE RECORDING INDICATOR — "Rahul is recording a voice

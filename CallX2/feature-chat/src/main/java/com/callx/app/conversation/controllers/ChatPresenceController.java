@@ -148,7 +148,6 @@ public class ChatPresenceController {
     // tv_status now: online/last-seen always stays visible in the header,
     // typing never hides it and never shares a view with it.
 
-    private com.callx.app.chat.ui.TypingDotsAnimator typingDotsAnimator;
     /** Last known "is the partner typing" state from Firebase, independent of
      *  whether the strip/animator is currently running — lets onResume()
      *  know whether to restart the dots loop without re-querying Firebase. */
@@ -217,7 +216,8 @@ public class ChatPresenceController {
      *  resume, just without an animation loop running while paused. */
     public void onScreenPaused() {
         screenPaused = true;
-        if (typingDotsAnimator != null) typingDotsAnimator.stop();
+        ActivityChatBinding binding = delegate.getBinding();
+        if (binding.llTypingStrip != null) binding.llTypingStrip.stopDots();
     }
 
     /** Call from the Activity's onResume(). Restarts the dots loop if the
@@ -228,9 +228,8 @@ public class ChatPresenceController {
         if (lastPartnerTypingState) {
             ActivityChatBinding binding = delegate.getBinding();
             if (binding.llTypingStrip != null
-                    && binding.llTypingStrip.getVisibility() == View.VISIBLE
-                    && typingDotsAnimator != null) {
-                typingDotsAnimator.start();
+                    && binding.llTypingStrip.getVisibility() == View.VISIBLE) {
+                binding.llTypingStrip.startDots();
             }
         }
     }
@@ -239,24 +238,13 @@ public class ChatPresenceController {
         ActivityChatBinding binding = delegate.getBinding();
         if (binding.llTypingStrip == null) return;
 
-        binding.tvTypingName.setText(
+        binding.llTypingStrip.setName(
                 (delegate.getPartnerName() != null ? delegate.getPartnerName() : "") + " typing");
+        binding.llTypingStrip.setAvatarUrl(delegate.getPartnerPhoto());
 
-        String photo = delegate.getPartnerPhoto();
-        if (photo != null && !photo.isEmpty() && delegate.getActivity() != null) {
-            Glide.with(delegate.getActivity())
-                    .load(photo)
-                    .placeholder(R.drawable.ic_person)
-                    .into(binding.ivTypingAvatar);
-        }
-
-        if (typingDotsAnimator == null) {
-            typingDotsAnimator = new com.callx.app.chat.ui.TypingDotsAnimator(
-                    binding.dotTyping1, binding.dotTyping2, binding.dotTyping3);
-        }
         // Don't start the bounce loop while the screen is paused/backgrounded
         // — onScreenResumed() will start it once we're visible again.
-        if (!screenPaused) typingDotsAnimator.start();
+        if (!screenPaused) binding.llTypingStrip.startDots();
 
         if (binding.llTypingStrip.getVisibility() == View.VISIBLE) {
             // Already showing — still make sure the watching banner reflects
@@ -280,7 +268,7 @@ public class ChatPresenceController {
         if (binding.llTypingStrip == null) return;
         if (binding.llTypingStrip.getVisibility() != View.VISIBLE) return;
 
-        if (typingDotsAnimator != null) typingDotsAnimator.stop();
+        binding.llTypingStrip.stopDots();
         binding.llTypingStrip.setVisibility(View.GONE);
         binding.llTypingStrip.setAlpha(1f);
         binding.llTypingStrip.setScaleX(1f);
@@ -1018,10 +1006,8 @@ public class ChatPresenceController {
                     .child(delegate.getPartnerUid())
                     .removeEventListener(recordingListener);
         }
-        if (typingDotsAnimator != null) {
-            typingDotsAnimator.stop();
-            typingDotsAnimator = null;
-        }
+        ActivityChatBinding binding = delegate.getBinding();
+        if (binding.llTypingStrip != null) binding.llTypingStrip.stopDots();
         stopWaveformAnimation();
         cancelJustLeftWindow();
         clearOurTypingStatus();
