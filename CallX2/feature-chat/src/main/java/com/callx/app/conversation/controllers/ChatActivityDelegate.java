@@ -99,6 +99,11 @@ public interface ChatActivityDelegate extends ChatSearchController.SearchDelegat
     void launchContactSharePicker();
     void launchLocationSharePicker();
 
+    /** Opens the view-once expiry picker. Was wired to its own toolbar
+     *  button (btn_view_once); now launched from the consolidated "+"
+     *  attach sheet's opt_view_once instead. */
+    void showViewOnceExpiryPicker();
+
     /**
      * PERF FIX: queues a Room "mark read" write instead of writing it
      * immediately. Coalesced with other buffered Firebase events into a

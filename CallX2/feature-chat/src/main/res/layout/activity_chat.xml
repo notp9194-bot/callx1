@@ -636,11 +636,18 @@
                 android:layout_marginBottom="10dp"
                 app:cardCornerRadius="28dp"
                 app:cardElevation="6dp"
-                app:cardBackgroundColor="@color/surface_input"
+                app:cardBackgroundColor="@android:color/transparent"
                 app:strokeColor="@color/divider"
                 app:strokeWidth="0.5dp"
                 app:cardPreventCornerOverlap="false"
                 app:cardUseCompatPadding="true">
+
+                <!-- Gradient layer — same technique as the header capsule.
+                     Stroke above still draws on the card outline itself. -->
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:background="@drawable/bg_input_capsule_gradient"/>
 
                 <!-- Input row -->
                 <LinearLayout
@@ -654,21 +661,32 @@
                     android:paddingBottom="4dp"
                     android:background="@android:color/transparent"
                     android:gravity="center_vertical">
-                    <!-- Consolidated "+" menu: replaces the old 3 separate
-                         Attach / Camera / View-Once buttons with a single
-                         entry point that opens a popup listing all three.
-                         One fewer button = one fewer measure/layout child in
-                         ll_input_row, and one fewer icon to fade/shrink in
-                         animateAttachCameraIcons() on every keystroke. -->
+                    <!--
+                        CONSOLIDATED "+" BUTTON — replaces the old 3 separate
+                        ImageButtons (attach / camera / view-once). All three
+                        actions now live inside the attach bottom sheet
+                        (opt_camera, opt_view_once added alongside the
+                        existing gallery/video/file/etc options).
+
+                        Why: ll_input_row is re-measured/re-laid-out on every
+                        keyboard show/hide, orientation change and EditText
+                        height change (multi-line typing). Fewer weight-0
+                        siblings means LinearLayout's horizontal measure pass
+                        has less fixed-width work to walk through before it
+                        gets to sizing the weighted EditText — 1 child here
+                        instead of 3. The saving is small per pass, but it's
+                        a hot path (typing), so it's a real (if modest) win,
+                        not just fewer views for cosmetics.
+                    -->
                     <ImageButton
-                        android:id="@+id/btn_plus_menu"
+                        android:id="@+id/btn_plus"
                         android:layout_width="34dp"
                         android:layout_height="34dp"
                         android:padding="6dp"
-                        android:src="@drawable/ic_plus_menu"
+                        android:src="@drawable/ic_attach"
                         android:tint="@color/white"
                         android:background="?attr/selectableItemBackgroundBorderless"
-                        android:contentDescription="More options"/>
+                        android:contentDescription="Attach"/>
                     <FrameLayout
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
@@ -876,9 +894,17 @@
             app:cardCornerRadius="24dp"
             app:cardElevation="6dp"
             app:cardBackgroundColor="@android:color/transparent"
-            android:background="@drawable/bg_header_capsule_gradient"
             app:cardPreventCornerOverlap="false"
             app:cardUseCompatPadding="true">
+
+            <!-- Gradient layer — sits behind the toolbar row, clipped to the
+                 card's rounded outline automatically. Card bg is transparent
+                 above so this is the only paint source (single draw, no
+                 extra overdraw vs the old flat cardBackgroundColor). -->
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:background="@drawable/bg_header_capsule_gradient"/>
 
             <!-- WhatsApp-style Chat Header -->
             <LinearLayout

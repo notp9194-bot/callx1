@@ -176,15 +176,10 @@ class ChatMediaBenchmark {
         openFirstChat()
         Thread.sleep(500)
 
-        // Tap "+" menu button, then the Attach entry in the popup it opens
-        // (Attach/Camera/View-Once are consolidated behind btnPlusMenu now).
-        val plusBtn = device.findObject(By.res(TARGET_PACKAGE, "btnPlusMenu"))
-            ?: device.findObject(By.desc("More options"))
+        // Tap media/attachment button
+        val attachBtn = device.findObject(By.res(TARGET_PACKAGE, "btnAttach"))
+            ?: device.findObject(By.desc("Attach"))
             ?: device.findObject(By.res(TARGET_PACKAGE, "btnMedia"))
-            ?: return@measureRepeated
-        plusBtn.click()
-        Thread.sleep(200)
-        val attachBtn = device.findObject(By.text("Attach"))
             ?: return@measureRepeated
         attachBtn.click()
         Thread.sleep(600)

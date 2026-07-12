@@ -9,6 +9,8 @@
     <color name="surface_card">#FFFFFF</color>
     <color name="surface_chat_bg">#ECE5DD</color>
     <color name="surface_input">#F1F3F8</color>
+    <color name="input_capsule_grad_start">#FBFCFE</color>
+    <color name="input_capsule_grad_end">#E8ECF4</color>
     <color name="bar_background">#0F4C3A</color>
     <color name="bar_on_background">#FFFFFF</color>
     <color name="text_primary">#0F172A</color>

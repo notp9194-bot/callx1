@@ -2713,7 +2713,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             });
             return true;
         });
-        binding.btnPlusMenu.setOnClickListener(v -> showPlusMenuPopup(v));
+        binding.btnPlus.setOnClickListener(v -> mediaController.showAttachSheet());
 
         if (binding.btnCancelReply != null)
             binding.btnCancelReply.setOnClickListener(v -> clearReply());
@@ -2815,53 +2815,15 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     }
 
     /**
-     * Telegram/Instagram-style: attach + camera icons shrink & fade away as
-     * soon as text is typed, freeing up room for the multi-line input, and
-     * smoothly grow back in when the text is cleared.
+     * Telegram/Instagram-style: the "+" icon shrinks & fades away as soon as
+     * text is typed, freeing up room for the multi-line input, and smoothly
+     * grows back in when the text is cleared. (Was 2 icons — attach + camera
+     * — before the "+" consolidation; now just the one.)
      */
     private void animateAttachCameraIcons(boolean expand) {
         if (inputIconsExpanded != null && inputIconsExpanded == expand) return;
         inputIconsExpanded = expand;
-        animateIconTo(binding.btnPlusMenu, expand);
-    }
-
-    /**
-     * Consolidated "+" button popup — replaces the old always-visible
-     * Attach / Camera / View-Once trio with a single on-demand menu.
-     * Fewer permanent children in ll_input_row (1 vs 3) means fewer
-     * measure/layout passes on that row and one less icon to animate in
-     * animateAttachCameraIcons() on every keystroke; the popup itself is
-     * only inflated on tap, so it costs nothing while idle or scrolling.
-     */
-    private void showPlusMenuPopup(View anchor) {
-        android.widget.PopupMenu popup = new android.widget.PopupMenu(this, anchor);
-        popup.getMenuInflater().inflate(R.menu.menu_plus_input, popup.getMenu());
-        MenuItem viewOnceItem = popup.getMenu().findItem(R.id.menu_plus_view_once);
-        if (viewOnceItem != null) {
-            viewOnceItem.setTitle(isViewOnceModeOn
-                    ? getString(R.string.plus_menu_view_once_on)
-                    : getString(R.string.plus_menu_view_once));
-        }
-        popup.setOnMenuItemClickListener(item -> {
-            int id = item.getItemId();
-            if (id == R.id.menu_plus_attach) {
-                mediaController.showAttachSheet();
-                return true;
-            } else if (id == R.id.menu_plus_camera) {
-                mediaController.launchCamera();
-                return true;
-            } else if (id == R.id.menu_plus_view_once) {
-                if (isViewOnceModeOn) {
-                    setViewOnceMode(false);
-                    selectedViewOnceExpiryMs = 0L;
-                } else {
-                    showViewOnceExpiryPicker();
-                }
-                return true;
-            }
-            return false;
-        });
-        popup.show();
+        animateIconTo(binding.btnPlus, expand);
     }
 
     // Shared overshoot interpolator for the icon "pop back in" bounce.
@@ -2960,7 +2922,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
      * selectedViewOnceExpiryMs == -1  → no timer, delete only on receiver open
      * selectedViewOnceExpiryMs >  0   → timer set; also delete on open if receiver opens before timer
      */
-    private void showViewOnceExpiryPicker() {
+    @Override
+    public void showViewOnceExpiryPicker() {
         String[] options  = {
             "Expire with View Once",   // delete on open, no timer
             "1 hour",
@@ -2993,10 +2956,13 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
      */
     private void setViewOnceMode(boolean on) {
         isViewOnceModeOn = on;
-        if (binding == null || binding.btnPlusMenu == null) return;
-        binding.btnPlusMenu.setColorFilter(on
+        if (binding == null || binding.btnPlus == null) return;
+        // btn_view_once was removed in the "+" consolidation — the + button
+        // itself now shows the active tint so there's still a visible cue
+        // that view-once mode is armed (in addition to the hint text below).
+        binding.btnPlus.setColorFilter(on
                 ? android.graphics.Color.parseColor("#FF6200EE")   // active tint
-                : android.graphics.Color.parseColor("#FFFFFFFF")); // idle/white tint (matches ic_plus_menu default)
+                : android.graphics.Color.parseColor("#FFFFFFFF")); // idle — back to normal white icon tint
         binding.etMessage.setHint(on ? "View once message…" : getString(R.string.hint_message));
     }
 

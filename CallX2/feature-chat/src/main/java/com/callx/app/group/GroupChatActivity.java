@@ -1310,25 +1310,7 @@ public class GroupChatActivity extends AppCompatActivity
                 }
             }
         });
-        binding.btnPlusMenu.setOnClickListener(v -> {
-            android.widget.PopupMenu popup = new android.widget.PopupMenu(this, v);
-            popup.getMenuInflater().inflate(R.menu.menu_plus_input, popup.getMenu());
-            // Group chat has no View-Once mode -- hide that entry, keep Attach/Camera only.
-            android.view.MenuItem viewOnceItem = popup.getMenu().findItem(R.id.menu_plus_view_once);
-            if (viewOnceItem != null) viewOnceItem.setVisible(false);
-            popup.setOnMenuItemClickListener(item -> {
-                int id = item.getItemId();
-                if (id == R.id.menu_plus_attach) {
-                    showAttachSheet();
-                    return true;
-                } else if (id == R.id.menu_plus_camera) {
-                    imagePicker.launch("image/*");
-                    return true;
-                }
-                return false;
-            });
-            popup.show();
-        });
+        binding.btnPlus.setOnClickListener(v -> showAttachSheet());
         binding.btnSend.setOnClickListener(v -> sendText());
         attachMicGesture();
 
@@ -2697,6 +2679,18 @@ public class GroupChatActivity extends AppCompatActivity
                 sheet.dismiss();
                 gifPickerLauncher.launch(new Intent(this, com.callx.app.chat.ChatGifPickerActivity.class));
             });
+        }
+        // Camera — moved in from the old standalone btn_camera toolbar
+        // button as part of the "+" consolidation.
+        View optCamera = v.findViewById(R.id.opt_camera);
+        if (optCamera != null) {
+            optCamera.setOnClickListener(x -> { sheet.dismiss(); imagePicker.launch("image/*"); });
+        }
+        // View Once is a 1:1-chat-only feature — hide the slot in groups
+        // rather than wiring a no-op click.
+        View optViewOnce = v.findViewById(R.id.opt_view_once);
+        if (optViewOnce != null) {
+            optViewOnce.setVisibility(View.GONE);
         }
         sheet.setContentView(v); sheet.show();
     }

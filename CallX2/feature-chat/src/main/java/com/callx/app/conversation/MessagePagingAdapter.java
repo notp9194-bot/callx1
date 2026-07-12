@@ -176,6 +176,9 @@ public class MessagePagingAdapter
 
     private static final int TYPE_SENT        = 1;
     private static final int TYPE_RECEIVED    = 2;
+    private static final int TYPE_STATUS_SEEN = 3;
+    private static final int TYPE_REEL_SEEN   = 4;
+    private static final int TYPE_CALL_ENTRY  = 5;
     /** reel_seen row that belongs to THIS viewer's own "watched X's reel"
      *  event — must render as nothing (0x0), since only the reel OWNER
      *  should ever see the bubble. See getItemViewType() below. */
@@ -183,6 +186,12 @@ public class MessagePagingAdapter
     /** Standalone date separator chip — injected by insertSeparators() in ChatActivity.
      *  Stored as a synthetic Message with type="date_separator"; text holds the label. */
     private static final int TYPE_DATE_SEPARATOR   = 7;
+    /** View-once message: receiver sees "View Once" tap badge. */
+    private static final int TYPE_VIEW_ONCE_SENT    = 8;
+    /** View-once message: already opened — shows expired state. */
+    private static final int TYPE_VIEW_ONCE_EXPIRED = 9;
+    /** View-once message: sent by ME, not yet opened by receiver — shows lock/waiting state. */
+    private static final int TYPE_VIEW_ONCE_SENT_WAITING = 10;
     /**
      * Phase 1 Canvas rendering (see conversation.canvas.MessageBubbleCanvasView).
      * Used ONLY for messages isCanvasEligible() accepts — plain text (any
@@ -1160,8 +1169,14 @@ public class MessagePagingAdapter
             return vh;
         }
         int layout;
-        if (viewType == TYPE_SENT) layout = R.layout.item_message_sent;
-        else                       layout = R.layout.item_message_received;
+        if (viewType == TYPE_VIEW_ONCE_SENT)         layout = R.layout.item_view_once_bubble;
+        else if (viewType == TYPE_VIEW_ONCE_EXPIRED) layout = R.layout.item_view_once_expired;
+        else if (viewType == TYPE_VIEW_ONCE_SENT_WAITING) layout = R.layout.item_view_once_sent_waiting;
+        else if (viewType == TYPE_SENT)          layout = R.layout.item_message_sent;
+        else if (viewType == TYPE_STATUS_SEEN) layout = R.layout.item_status_seen_bubble;
+        else if (viewType == TYPE_REEL_SEEN)   layout = R.layout.item_reel_seen_bubble;
+        else if (viewType == TYPE_CALL_ENTRY)  layout = R.layout.item_call_entry_bubble;
+        else                                   layout = R.layout.item_message_received;
         View v = LayoutInflater.from(parent.getContext()).inflate(layout, parent, false);
         // PERF: item-level micro-optimizations (applied once at create time)
         // setSaveEnabled(false) — skip useless per-item state parcelling
@@ -1193,9 +1208,17 @@ public class MessagePagingAdapter
             // Fast path: only tick changed — skip full bind.
             Message m = getItem(position);
             if (m != null) {
-                // Canvas-eligible bubbles (the common case — see
-                // isCanvasEligible()) get their tick updated via a cheap,
-                // draw-only update on the canvas view.
+                // FIX: this used to only update the legacy tv_status
+                // TextView (bindStatusTick below) — but canvas-eligible
+                // bubbles (the common case: plain text, images, etc., see
+                // isCanvasEligible()) don't have a tv_status at all, so
+                // their tick silently never updated on a sent→delivered→
+                // read transition. bindStatusTick still runs for the
+                // legacy/non-canvas fallback views; the canvas view now
+                // gets its own cheap, draw-only update alongside it.
+                if (h.tvStatus != null) {
+                    bindStatusTick(h, m);
+                }
                 if (h.canvasView != null) {
                     boolean isRead = "read".equals(m.status);
                     boolean isDelivered = isRead || "delivered".equals(m.status);
@@ -1272,8 +1295,291 @@ public class MessagePagingAdapter
             bindCanvasMessage(h, m);
             return;
         }
+        // ── STATUS SEEN BUBBLE — special system event row (legacy fallback,
+        // unreachable now that getItemViewType() routes these to Canvas) ──
+        if ("status_seen".equals(m.type)) {
+            String statusOwnerUid = (m.statusOwnerUid != null && !m.statusOwnerUid.isEmpty())
+                    ? m.statusOwnerUid : m.senderId;
+            if (!currentUid.equals(statusOwnerUid)) return; // hidden for the viewer side
+            bindStatusSeenBubble(h, m);
+            return;
+        }
+        // ── REEL SEEN BUBBLE — special system event row (legacy fallback,
+        // unreachable now that getItemViewType() routes these to Canvas) ──
+        if ("reel_seen".equals(m.type)) {
+            if (!currentUid.equals(m.reelOwnerUid)) return; // hidden for the viewer side
+            bindReelSeenBubble(h, m);
+            return;
+        }
+        // ── CALL ENTRY BUBBLE — system call log row in chat ──────────────────
+        if ("call_entry".equals(m.type)) {
+            bindCallEntryBubble(h, m);
+            return;
+        }
+        // ── VIEW ONCE BUBBLES — Feature 13 (legacy fallback, unreachable
+        // now that getItemViewType() routes these to Canvas) ─────────────
+        if (Boolean.TRUE.equals(m.viewOnce)) {
+            if (com.callx.app.conversation.controllers.ChatViewOnceController.isExpired(m)) {
+                bindViewOnceExpired(h, m);
+                return;
+            }
+            if (currentUid.equals(m.senderId)) {
+                bindViewOnceSentWaiting(h, m);
+                return;
+            }
+            bindViewOnceSent(h, m);
+            return;
+        }
+        bindMessage(h, m, position);
         } finally {
             android.os.Trace.endSection();
+        }
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // CALL ENTRY BUBBLE — centered system call log row in chat.
+    // Layout: item_call_entry_bubble.xml
+    //   tv_call_entry_icon  — emoji (📞 audio, 📹 video)
+    //   tv_call_entry_label — e.g. "Audio call • 2:30" or "Missed video call"
+    //   tv_call_entry_time  — formatted timestamp (hh:mm a)
+    // No long-press / reactions — it's a system event.
+    // ──────────────────────────────────────────────────────────────
+    private void bindCallEntryBubble(@NonNull VH h, @NonNull Message m) {
+        android.widget.TextView tvIcon  = h.tvCallEntryIcon;
+        android.widget.TextView tvLabel = h.tvCallEntryLabel;
+        android.widget.TextView tvTime  = h.tvCallEntryTime;
+        android.view.View llRoot = h.llCallEntryRoot;
+        android.view.View llPill = h.llCallEntryPill;
+
+        boolean isVideoCall = "video".equals(m.fileName);
+        boolean isMissed    = "missed".equals(m.text);
+        boolean iAmCaller   = currentUid != null && currentUid.equals(m.senderId);
+
+        // Align bubble to the caller's side — right if I called, left if they called.
+        if (llRoot instanceof android.widget.LinearLayout) {
+            ((android.widget.LinearLayout) llRoot).setGravity(
+                    iAmCaller ? android.view.Gravity.END : android.view.Gravity.START);
+        }
+        if (llPill != null) {
+            android.widget.LinearLayout.LayoutParams lp =
+                    (android.widget.LinearLayout.LayoutParams) llPill.getLayoutParams();
+            lp.gravity = iAmCaller ? android.view.Gravity.END : android.view.Gravity.START;
+            llPill.setLayoutParams(lp);
+        }
+
+        // Icon
+        if (tvIcon != null) tvIcon.setText(isVideoCall ? "📹" : "📞");
+
+        // Label text
+        String label;
+        if (isMissed) {
+            if (iAmCaller) {
+                label = isVideoCall ? "No answer (video)" : "No answer";
+            } else {
+                label = isVideoCall ? "Missed video call" : "Missed call";
+            }
+            if (tvLabel != null) tvLabel.setTextColor(android.graphics.Color.parseColor("#FF5555"));
+        } else {
+            // Call was connected — show duration
+            String durStr = "";
+            if (m.duration != null && m.duration > 0) {
+                long sec = m.duration / 1000;
+                durStr = " • " + String.format(java.util.Locale.getDefault(), "%d:%02d", sec / 60, sec % 60);
+            }
+            if (iAmCaller) {
+                label = isVideoCall ? ("Video call" + durStr) : ("Audio call" + durStr);
+            } else {
+                label = isVideoCall ? ("Incoming video call" + durStr) : ("Incoming call" + durStr);
+            }
+            if (tvLabel != null) tvLabel.setTextColor(0xFFFFFFFF);
+        }
+        if (tvLabel != null) tvLabel.setText(label);
+
+        // Time
+        if (tvTime != null && m.timestamp != null && m.timestamp > 0) {
+            tvTime.setText(formatTime(m.timestamp));
+        }
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // STATUS SEEN BUBBLE — "👁 Seen your status" system event row.
+    // Layout: item_status_seen_bubble.xml
+    //   • iv_status_seen_avatar  → circular avatar (Glide)
+    //   • fl_status_seen_thumb   → thumbnail container (visible for image/video statuses)
+    //   • iv_status_seen_thumb   → status thumbnail (tappable → StatusViewerActivity)
+    //   • iv_status_seen_eye     → eye overlay icon on thumbnail
+    //   • tv_status_seen_label   → "Seen your status" (set in XML)
+    //   • tv_status_seen_name    → sender name (group only)
+    //   • tv_status_seen_time    → formatted timestamp
+    // No long-press / reactions / reply — it's a system event.
+    // ──────────────────────────────────────────────────────────────
+    private void bindStatusSeenBubble(@NonNull VH h, @NonNull Message m) {
+        Context ctx = h.itemView.getContext();
+
+        // Avatar
+        de.hdodenhof.circleimageview.CircleImageView ivAvatar = h.ivStatusSeenAvatar;
+        if (ivAvatar != null) {
+            String photo = m.senderPhoto != null ? m.senderPhoto : "";
+            if (!photo.isEmpty()) {
+                glide(ctx)
+                    .load(photo)
+                    .apply(THUMB_RGB565)
+                    .override(96, 96)
+                    .dontAnimate()
+                    .apply(com.bumptech.glide.request.RequestOptions.circleCropTransform())
+                    .placeholder(R.drawable.ic_person)
+                    .into(ivAvatar);
+            } else {
+                ivAvatar.setImageResource(R.drawable.ic_person);
+            }
+        }
+
+        // Status thumbnail
+        android.view.View flThumb = h.flStatusSeenThumb;
+        android.widget.ImageView ivThumb = h.ivStatusSeenThumb;
+        android.widget.ImageView ivEye   = h.ivStatusSeenEye;
+        if (ivThumb != null && flThumb != null) {
+            String thumb = m.statusThumbUrl != null ? m.statusThumbUrl : "";
+            if (!thumb.isEmpty()) {
+                flThumb.setVisibility(View.VISIBLE);
+                if (ivEye != null) ivEye.setVisibility(View.VISIBLE);
+                glide(ctx)
+                    .load(thumb)
+                    .apply(THUMB_RGB565)
+                    .override(240, 240)
+                    .centerCrop()
+                    .placeholder(R.drawable.bg_skeleton_rect)
+                    .into(ivThumb);
+            } else {
+                flThumb.setVisibility(View.GONE);
+                if (ivEye != null) ivEye.setVisibility(View.GONE);
+            }
+        }
+
+        // Click on whole bubble or thumbnail → open StatusViewerActivity
+        final String ownerUid  = (m.statusOwnerUid != null && !m.statusOwnerUid.isEmpty())
+                                 ? m.statusOwnerUid : m.senderId;
+        final String ownerName = m.statusOwnerName != null ? m.statusOwnerName
+                                 : (m.senderName != null ? m.senderName : "");
+        android.view.View.OnClickListener openStatus = v -> {
+            if (ownerUid == null || ownerUid.isEmpty()) return;
+            android.content.Intent intent = new android.content.Intent(
+                    com.callx.app.utils.Constants.ACTION_OPEN_STATUS);
+            intent.putExtra("ownerUid",  ownerUid);
+            intent.putExtra("ownerName", ownerName);
+            intent.setPackage(ctx.getPackageName());
+            try { ctx.startActivity(intent); }
+            catch (android.content.ActivityNotFoundException e) {
+                android.widget.Toast.makeText(ctx, "Status viewer not available",
+                        android.widget.Toast.LENGTH_SHORT).show();
+            }
+        };
+        h.itemView.setOnClickListener(openStatus);
+        if (flThumb != null) flThumb.setOnClickListener(openStatus);
+
+        // Sender name (shown in group chat only)
+        android.widget.TextView tvName = h.tvStatusSeenName;
+        if (tvName != null) {
+            if (isGroup && m.senderName != null && !m.senderName.isEmpty()) {
+                tvName.setText(m.senderName);
+                tvName.setVisibility(View.VISIBLE);
+            } else {
+                tvName.setVisibility(View.GONE);
+            }
+        }
+
+        // Time
+        android.widget.TextView tvTime = h.tvStatusSeenTime;
+        if (tvTime != null && m.timestamp != null && m.timestamp > 0) {
+            tvTime.setText(formatTime(m.timestamp));
+        }
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // REEL SEEN BUBBLE — "🎬 Watched your reel" system event row.
+    // Layout: item_reel_seen_bubble.xml
+    //   • iv_reel_seen_avatar   → circular avatar (Glide)
+    //   • fl_reel_seen_thumb    → FrameLayout container (tappable → opens reel)
+    //   • iv_reel_seen_thumb    → reel thumbnail
+    //   • iv_reel_seen_play     → play icon overlay on thumbnail
+    //   • tv_reel_seen_label    → "Watched your reel" (set in XML)
+    //   • tv_reel_seen_name     → sender name (group only)
+    //   • tv_reel_seen_time     → formatted timestamp
+    // No long-press / reactions / reply — system event.
+    // ──────────────────────────────────────────────────────────────
+    private void bindReelSeenBubble(@NonNull VH h, @NonNull Message m) {
+        Context ctx = h.itemView.getContext();
+
+        // Avatar
+        de.hdodenhof.circleimageview.CircleImageView ivAvatar = h.ivReelSeenAvatar;
+        if (ivAvatar != null) {
+            String photo = m.senderPhoto != null ? m.senderPhoto : "";
+            if (!photo.isEmpty()) {
+                glide(ctx)
+                    .load(photo)
+                    .apply(THUMB_RGB565)
+                    .override(96, 96)
+                    .dontAnimate()
+                    .apply(com.bumptech.glide.request.RequestOptions.circleCropTransform())
+                    .placeholder(R.drawable.ic_person)
+                    .into(ivAvatar);
+            } else {
+                ivAvatar.setImageResource(R.drawable.ic_person);
+            }
+        }
+
+        // Click handler — reelId se reel kholo (thumb ho ya na ho, always kaam kare)
+        final String reelId = m.reelId;
+        android.view.View.OnClickListener openReel = v -> {
+            if (reelId == null || reelId.isEmpty()) return;
+            android.content.Intent intent = new android.content.Intent(
+                    com.callx.app.utils.Constants.ACTION_OPEN_REEL);
+            intent.putExtra("reelId", reelId);
+            intent.setPackage(ctx.getPackageName());
+            ctx.startActivity(intent);
+        };
+
+        // Reel thumbnail + play icon
+        android.view.View flThumb = h.flReelSeenThumb;
+        android.widget.ImageView ivThumb = h.ivReelSeenThumb;
+        android.widget.ImageView ivPlay  = h.ivReelSeenPlay;
+        if (ivThumb != null) {
+            String thumb = m.reelThumbUrl != null ? m.reelThumbUrl : "";
+            if (!thumb.isEmpty()) {
+                ivThumb.setVisibility(android.view.View.VISIBLE);
+                if (ivPlay != null) ivPlay.setVisibility(android.view.View.VISIBLE);
+                glide(ctx)
+                    .load(thumb)
+                    .apply(THUMB_RGB565)
+                    .override(240, 240)
+                    .centerCrop()
+                    .placeholder(R.drawable.bg_skeleton_rect)
+                    .into(ivThumb);
+            } else {
+                ivThumb.setVisibility(android.view.View.GONE);
+                if (ivPlay != null) ivPlay.setVisibility(android.view.View.GONE);
+            }
+        }
+        // Click on FrameLayout container, play icon, AND whole item
+        if (flThumb != null) flThumb.setOnClickListener(openReel);
+        if (ivPlay  != null) ivPlay.setOnClickListener(openReel);
+        h.itemView.setOnClickListener(openReel);
+
+        // Sender name (group only)
+        android.widget.TextView tvName = h.tvReelSeenName;
+        if (tvName != null) {
+            if (isGroup && m.senderName != null && !m.senderName.isEmpty()) {
+                tvName.setText(m.senderName);
+                tvName.setVisibility(android.view.View.VISIBLE);
+            } else {
+                tvName.setVisibility(android.view.View.GONE);
+            }
+        }
+
+        // Time
+        android.widget.TextView tvTime = h.tvReelSeenTime;
+        if (tvTime != null && m.timestamp != null && m.timestamp > 0) {
+            tvTime.setText(formatTime(m.timestamp));
         }
     }
 
@@ -2948,6 +3254,1318 @@ public class MessagePagingAdapter
         });
     }
 
+    private void bindMessage(@NonNull VH h, @NonNull Message m, int position) {
+        Context ctx = h.itemView.getContext();
+        boolean sent = currentUid.equals(m.senderId);
+
+        // ── "Someone is viewing this message right now" dot ───────────────
+        if (h.viewSeenDot != null) {
+            String mid = m.messageId != null ? m.messageId : m.id;
+            boolean viewing = mid != null && currentlyViewedMessageIds.contains(mid);
+            h.viewSeenDot.setVisibility(viewing ? View.VISIBLE : View.GONE);
+        }
+
+        // ── "Someone is currently playing this voice note / video" badge ──
+        // Instagram-DM-style live indicator — independent of the dot above
+        // (that one means "scrolled into view", this one means "actually
+        // pressed play right now"). Audio/video only; harmless no-op for
+        // text/image/poll bubbles since the badge just stays hidden.
+        if (h.tvListeningBadge != null) {
+            String mid = m.messageId != null ? m.messageId : m.id;
+            boolean playing = mid != null && currentlyPlayingMessageIds.contains(mid);
+            if (playing) {
+                boolean isVideoMsg = "video".equals(m.type);
+                h.tvListeningBadge.setText(isVideoMsg ? "▶ watching…" : "🎧 listening…");
+            }
+            h.tvListeningBadge.setVisibility(playing ? View.VISIBLE : View.GONE);
+        }
+
+        // ── Theme-aware bubble background ─────────────────────────────────
+        // Instagram/WhatsApp style: image, gif, video, reel_share, and
+        // grouped media (multi_media) are BUBBLELESS — no chat-bubble
+        // background, the media card itself is the visual frame. Mirrors
+        // MessageAdapter's (1:1 chat) existing behavior, which group chat
+        // was missing entirely.
+        android.view.View llBubble = h.llBubble;
+        String bMsgType = m.type != null ? m.type : "text";
+        boolean isMediaMsg = "image".equals(bMsgType) || "gif".equals(bMsgType)
+                || "sticker".equals(bMsgType)
+                || "video".equals(bMsgType) || "reel_share".equals(bMsgType)
+                || "multi_media".equals(bMsgType);
+        try {
+            if (llBubble != null) {
+                if (isMediaMsg) {
+                    llBubble.setBackground(null);
+                    llBubble.setPadding(0, 0, 0, 0);
+                    // Force a real re-apply next time this holder shows a
+                    // text bubble — background is null right now, not the
+                    // GradientDrawable the cache key would imply.
+                    h.lastBubbleReplyState = -1;
+                } else {
+                    boolean hasReply = m.replyToId != null && !m.replyToId.isEmpty();
+                    int replyState = hasReply ? 1 : 0;
+                    // PERF/RAM: skip mutate()+setBackground() entirely when
+                    // this holder already has the right bubble drawable from
+                    // its previous bind — avoids an allocation + an
+                    // invalidate/draw pass on nearly every scroll-triggered
+                    // rebind, since hasReply flips far less often than the
+                    // row itself gets recycled.
+                    if (h.lastBubbleReplyState != replyState) {
+                        com.callx.app.utils.ChatThemeManager
+                                .get(ctx)
+                                .applyBubble(llBubble, sent, bMsgType, hasReply);
+                        h.lastBubbleReplyState = replyState;
+                    }
+                }
+            }
+        } catch (Exception ignored) {}
+
+        // Dark scrim pill behind the timestamp/tick footer so it stays
+        // readable when sitting directly on top of a photo/video thumbnail
+        // instead of inside a solid-color bubble.
+        try {
+            android.view.View footer = h.itemView.findViewById(R.id.ll_msg_footer);
+            if (footer != null) {
+                footer.setBackgroundResource(isMediaMsg
+                        ? R.drawable.bg_media_timestamp : 0);
+            }
+        } catch (Exception ignored) {}
+
+        // ── "Someone is currently composing a reply to THIS message" glow ──
+        // Finer-grained sibling of the viewing-dot above: lights up only the
+        // exact bubble being replied to (not just "screen open" or "this
+        // message is in view"), fed by chatTypingReply/{id}/{uid}=messageId.
+        if (llBubble != null) {
+            String mid = m.messageId != null ? m.messageId : m.id;
+            boolean isReplyTarget = mid != null && replyTargetMessageIds.contains(mid);
+            llBubble.setForeground(isReplyTarget
+                    ? ContextCompat.getDrawable(ctx, R.drawable.bg_reply_target_highlight)
+                    : null);
+        }
+
+        // Reset visibility
+        h.tvMessage.setVisibility(View.GONE);
+        if (h.ivImage    != null) h.ivImage.setVisibility(View.GONE);
+        if (h.llAudio    != null) h.llAudio.setVisibility(View.GONE);
+        if (h.llFile     != null) h.llFile.setVisibility(View.GONE);
+        if (h.llPoll     != null) h.llPoll.setVisibility(View.GONE);
+        if (h.llReelShare!= null) h.llReelShare.setVisibility(View.GONE);
+        if (h.llMediaGroup != null) h.llMediaGroup.setVisibility(View.GONE);
+        if (h.llContact  != null) h.llContact.setVisibility(View.GONE);
+        if (h.llLocation != null) h.llLocation.setVisibility(View.GONE);
+        if (h.tvTime     != null) h.tvTime.setVisibility(View.VISIBLE);
+
+        // ── Quick Forward Button — media/link messages pe dikhao ──────────
+        if (h.btnQuickForward != null) {
+            String mt = m.type != null ? m.type : "text";
+            boolean showFwd = mt.equals("image") || mt.equals("video") || mt.equals("audio")
+                    || mt.equals("file") || mt.equals("reel_share") || mt.equals("reel_link")
+                    || mt.equals("multi_media")
+                    || (mt.equals("text") && m.text != null
+                        && (m.text.contains("http://") || m.text.contains("https://")));
+            h.btnQuickForward.setVisibility(showFwd ? View.VISIBLE : View.GONE);
+            if (showFwd) {
+                final Message fwdMsg = m;
+                h.btnQuickForward.setOnClickListener(v -> {
+                    if (actionListener != null) actionListener.onForward(fwdMsg);
+                });
+            }
+        }
+
+        // Timestamp — append "(edited)" when applicable
+        if (h.tvTime != null && m.timestamp > 0) {
+            String timeStr = formatTime(m.timestamp);
+            boolean isEdited = Boolean.TRUE.equals(m.edited);
+            if (isEdited) timeStr = timeStr + "  \u270F\uFE0F edited";
+            h.tvTime.setText(timeStr);
+            // Tap the "✏️ edited" tag to view every prior version of the text.
+            if (isEdited) {
+                h.tvTime.setOnClickListener(v -> {
+                    if (actionListener != null) actionListener.onShowEditHistory(m);
+                });
+            } else {
+                h.tvTime.setOnClickListener(null);
+                h.tvTime.setClickable(false);
+            }
+        }
+
+        // ── REPLY PREVIEW (SwipeReplySystem v1) ─────────────────────────
+        if (h.llReplyPreview != null) {
+            boolean hasReply = m.replyToId != null && !m.replyToId.isEmpty();
+            h.llReplyPreview.setVisibility(hasReply ? View.VISIBLE : View.GONE);
+            if (hasReply) {
+                if (h.tvReplySender != null)
+                    h.tvReplySender.setText(
+                            m.replyToSenderName != null ? m.replyToSenderName : "");
+                if (h.tvReplyText != null)
+                    h.tvReplyText.setText(
+                            m.replyToText != null ? m.replyToText : "[Original message]");
+                // Thumbnail
+                if (h.ivReplyThumb != null) {
+                    String thumbUrl = m.replyToMediaUrl;
+                    if (thumbUrl != null && !thumbUrl.isEmpty()) {
+                        h.ivReplyThumb.setVisibility(View.VISIBLE);
+                        glide(ctx)
+                                .load(thumbUrl)
+                                .apply(THUMB_RGB565)
+                                .override(120, 120)
+                                .centerCrop()
+                                .into(h.ivReplyThumb);
+                    } else {
+                        h.ivReplyThumb.setVisibility(View.GONE);
+                    }
+                }
+                // Click → scroll to original message
+                final String replyId = m.replyToId;
+                final String replySenderId = m.senderId;
+                h.llReplyPreview.setOnClickListener(v -> {
+                    if (actionListener != null) {
+                        actionListener.onNavigateToOriginal(replyId, replySenderId);
+                    }
+                });
+            } else {
+                h.llReplyPreview.setOnClickListener(null);
+            }
+        }
+
+        // ── Reactions display ─────────────────────────────────────────
+        bindReactionsOnly(h, m);
+
+        // ── Forwarded label ─────────────────────────────────────────────
+        if (h.tvForwarded != null) {
+            boolean fwd = m.forwardedFrom != null && !m.forwardedFrom.isEmpty();
+            h.tvForwarded.setVisibility(fwd ? View.VISIBLE : View.GONE);
+            if (fwd) h.tvForwarded.setText("\u21AA Forwarded from " + m.forwardedFrom);
+        }
+
+        // Sender name (group chats) — also show broadcast badge for 1:1 received broadcast messages
+        if (!sent && h.tvSenderName != null) {
+            boolean isBroadcast = Boolean.TRUE.equals(m.broadcast);
+            if (isGroup) {
+                h.tvSenderName.setVisibility(View.VISIBLE);
+                String sn = m.senderName != null ? m.senderName : "Member";
+                // Prepend 📢 if this group message also carries the broadcast flag
+                h.tvSenderName.setText(isBroadcast ? "📢 " + sn : sn);
+            } else if (isBroadcast) {
+                // 1:1 chat — show sender name row solely to display the broadcast badge
+                h.tvSenderName.setVisibility(View.VISIBLE);
+                h.tvSenderName.setText("📢 Broadcast");
+            } else {
+                h.tvSenderName.setVisibility(View.GONE);
+            }
+        } else if (h.tvSenderName != null) {
+            h.tvSenderName.setVisibility(View.GONE);
+        }
+
+        // Deleted message
+        if (Boolean.TRUE.equals(m.deleted)) {
+            h.tvMessage.setVisibility(View.VISIBLE);
+            h.tvMessage.setText(sent ? "You deleted this message" : "This message was deleted");
+            h.tvMessage.setAlpha(0.6f);
+            return;
+        }
+
+        // ── Render by type ───────────────────────────────────────
+        String type = m.type != null ? m.type : "text";
+        switch (type) {
+            case "image":
+            case "gif":
+            case "sticker":
+                if (h.ivImage != null) {
+                    h.ivImage.setVisibility(View.VISIBLE);
+                    String fullUrl  = m.mediaUrl != null ? m.mediaUrl : m.text;
+                    String thumbUrl = m.thumbnailUrl;
+                    boolean isGifMsg = "gif".equals(m.type) || "sticker".equals(m.type);
+
+                    // PERF FIX (WhatsApp-style lazy media): bubble shows ONLY
+                    // the thumbnail — no eager full-res load/crossfade here.
+                    // Scrolling through a chat with many image bubbles used
+                    // to fire a full-res Glide request (720x720, disk-cached)
+                    // for EVERY bound bubble, on top of the thumb — extra
+                    // network + decode work competing with scroll, causing
+                    // jank on fast flings through media-heavy chats.
+                    // Full resolution now only loads on demand: when the
+                    // user actually taps the bubble, MediaViewerActivity
+                    // (opened via showImageActionSheet below) loads fullUrl
+                    // itself. This matches WhatsApp: the chat thread only
+                    // ever shows the lightweight thumbnail; full quality is
+                    // fetched on open, not upfront.
+                    if (thumbUrl != null && !thumbUrl.isEmpty() && !isGifMsg) {
+                        glide(ctx)
+                            .load(thumbUrl)
+                            .apply(THUMB_RGB565)
+                            .override(200, 200)
+                            .placeholder(R.drawable.bg_skeleton_rect)
+                            .error(R.drawable.bg_skeleton_rect)
+                            .into(h.ivImage);
+                    } else if (!isGifMsg) {
+                        // PERF FIX: this used to be the real remaining leak —
+                        // any message missing a real thumbnailUrl (thumb
+                        // upload failed, or an older client sent it without
+                        // one) fell straight through to an EAGER full-res
+                        // (720x720) download + a background MediaCache.get()
+                        // full-file fetch, for every such bubble, on chat
+                        // open/scroll. That's why full images kept
+                        // downloading immediately even after the main
+                        // thumbnail path was fixed.
+                        //
+                        // Fix: derive a lightweight Cloudinary transform URL
+                        // from fullUrl (no thumbnailUrl needed, no extra
+                        // upload — see CloudinaryUploader.deriveThumbUrl) and
+                        // use that for the bubble instead. Full resolution
+                        // still only loads on tap, via showImageActionSheet
+                        // below, which is already passed the real fullUrl.
+                        String derivedThumb = com.callx.app.utils.CloudinaryUploader
+                                .deriveThumbUrl(fullUrl, 200);
+                        glide(ctx)
+                            .load(derivedThumb)
+                            .apply(THUMB_RGB565)
+                            .override(200, 200)
+                            .placeholder(R.drawable.bg_skeleton_rect)
+                            .error(R.drawable.bg_skeleton_rect)
+                            .into(h.ivImage);
+                    } else {
+                        // GIF: asGif() se URL directly load karo — MediaCache file use
+                        // mat karo kyunki file mein .gif extension nahi hogi, Glide
+                        // decode fail karta hai. Glide DiskCache GIF cache kar lega.
+                        glide(ctx)
+                            .asGif()
+                            .load(fullUrl)
+                            .apply(THUMB_RGB565)
+                            .override(thumbPx(ctx), thumbPx(ctx)) // PERF #4: density-aware; GIFs are heavy at full res
+                            .placeholder(R.drawable.bg_skeleton_rect)
+                            .error(R.drawable.bg_skeleton_rect)
+                            .into(h.ivImage);
+                    }
+
+                    // Click → WhatsApp-style image action bottom sheet, UNLESS
+                    // we're in multi-select mode — then a tap should toggle
+                    // this item's selection (same as text bubbles), not jump
+                    // straight into the full-screen viewer.
+                    h.ivImage.setOnClickListener(v -> {
+                        if (multiSelectMode) {
+                            h.itemView.callOnClick();
+                            return;
+                        }
+                        showImageActionSheet(ctx, m, fullUrl, thumbUrl != null ? thumbUrl : fullUrl);
+                    });
+                    // Long-press → GAP FIX: this used to jump STRAIGHT to
+                    // showActionBottomSheet(), skipping multi-select mode
+                    // entirely — but that action sheet's option list (Reply/
+                    // Copy/Star/Pin/Forward/Delete) has no "Info" entry at all.
+                    // Text bubbles instead enter multi-select mode first (see
+                    // h.itemView's long-click below), which shows the selection
+                    // toolbar with an Info button wired to
+                    // showMessageInfoDialog() — that's the ONLY way "Message
+                    // Info" was reachable, and images never had a path to it.
+                    // Now mirrors text exactly: first long-press selects (Info
+                    // button available in the toolbar); a second long-press
+                    // while already selecting still opens the full action sheet.
+                    h.ivImage.setOnLongClickListener(v -> {
+                        v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
+                        if (!multiSelectMode) {
+                            enterMultiSelectMode(m);
+                        } else if (actionListener != null) {
+                            showActionBottomSheet(ctx, m);
+                        }
+                        return true;
+                    });
+
+                    // ── MANUAL DOWNLOAD OVERLAY (WhatsApp-style) ─────────────
+                    // Received images only — bubble keeps showing the blurred
+                    // low-res thumbnail underneath until the user taps the
+                    // pill; only then is fullUrl actually fetched. Sent
+                    // messages (sender's own upload) and GIFs skip this.
+                    if (h.fl_download_overlay != null && !sent && !isGifMsg) {
+                        bindDownloadOverlay(ctx, h, fullUrl);
+                    } else if (h.fl_download_overlay != null) {
+                        h.fl_download_overlay.setVisibility(View.GONE);
+                    }
+                }
+                break;
+            // ── MULTI MEDIA (WhatsApp-style grid, multi-image send) ──────
+            case "multi_media": {
+                if (h.llMediaGroup != null && m.mediaItems != null && !m.mediaItems.isEmpty()) {
+                    h.llMediaGroup.setVisibility(View.VISIBLE);
+                    String groupMsgId = (m.id != null && !m.id.isEmpty()) ? m.id : m.messageId;
+                    MediaGroupLayoutHelper.populate(ctx, h.llMediaGroup, m.mediaItems, m.caption,
+                            chatId, groupMsgId);
+                    // GAP FIX: same bug as the single-image/video bubbles —
+                    // this jumped STRAIGHT to showActionBottomSheet(), whose
+                    // option list (Reply/Copy/Star/Pin/Forward/Delete) has no
+                    // "Info" entry at all. Now mirrors every other bubble
+                    // type: first long-press enters multi-select mode (Info
+                    // button available in the selection toolbar); a second
+                    // long-press while already selecting opens the full
+                    // action sheet.
+                    h.llMediaGroup.setOnLongClickListener(v -> {
+                        v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
+                        if (!multiSelectMode) {
+                            enterMultiSelectMode(m);
+                        } else if (actionListener != null) {
+                            showActionBottomSheet(ctx, m);
+                        }
+                        return true;
+                    });
+                } else {
+                    // Defensive fallback — if mediaItems somehow came through empty
+                    // (e.g. legacy/partial data), at least show something instead
+                    // of a blank bubble.
+                    h.tvMessage.setVisibility(View.VISIBLE);
+                    h.tvMessage.setText("\uD83D\uDCF7 Photos");
+                }
+                break;
+            }
+            case "video": {
+                // POLISH: Use fl_video + iv_video_thumb (thumbnail + play overlay)
+                // Prefer thumbnailUrl (Cloudinary thumb) over raw video URL for preview
+                final String vMid = m.messageId != null ? m.messageId : m.id;
+                ensureVideoInflated(h); // ViewStub lazy inflate
+                if (h.flVideo != null && h.ivVideoThumb != null) {
+                    h.flVideo.setVisibility(View.VISIBLE);
+                    if (h.ivImage != null) h.ivImage.setVisibility(View.GONE);
+                    String vUrl   = m.mediaUrl != null ? m.mediaUrl : m.text;
+                    // POLISH FIX: use Cloudinary thumbnail for preview image, not the raw video URL
+                    String thumbUrl = (m.thumbnailUrl != null && !m.thumbnailUrl.isEmpty())
+                            ? m.thumbnailUrl : vUrl;
+                    glide(ctx)
+                        .load(thumbUrl)
+                        .apply(THUMB_RGB565)
+                        .thumbnail(0.1f) // PERF: render 10% low-res frame instantly, then upgrade
+                        .override(thumbPx(ctx), thumbPx(ctx)) // PERF #4: density-aware size
+                        .placeholder(R.drawable.bg_skeleton_rect)
+                        .centerCrop()
+                        .into(h.ivVideoThumb);
+                    // Duration overlay
+                    if (h.tvDuration != null && m.duration != null && m.duration > 0) {
+                        long secs = m.duration / 1000;
+                        h.tvDuration.setText(String.format(
+                                java.util.Locale.US, "%d:%02d", secs / 60, secs % 60));
+                        h.tvDuration.setVisibility(View.VISIBLE);
+                    }
+                    // GAP FIX: this block never had a setOnLongClickListener
+                    // at all — flVideo was only setOnClickListener (play),
+                    // which makes it clickable but NOT long-clickable, so a
+                    // long-press here did literally nothing (no multi-select,
+                    // no action sheet, no way to reach "Message Info"). Same
+                    // fix as the single-image bubble: tap opens the player
+                    // normally, but a tap while already in multi-select mode
+                    // toggles selection instead; long-press enters
+                    // multi-select (Info button in the toolbar) the first
+                    // time, and opens the full action sheet on a second
+                    // long-press while already selecting.
+                    h.flVideo.setOnClickListener(v -> {
+                        if (multiSelectMode) {
+                            h.itemView.callOnClick();
+                            return;
+                        }
+                        Intent i = new Intent().setClassName(ctx.getPackageName(),
+                                "com.callx.app.activities.MediaViewerActivity");
+                        i.putExtra("url", vUrl);
+                        i.putExtra("type", "video");
+                        // Lets MediaViewerActivity publish playback presence
+                        // (chatPlayback/{chatId}/{uid}=messageId) while the
+                        // video is actually playing — null-safe extras.
+                        i.putExtra("chatId", chatId);
+                        i.putExtra("messageId", vMid);
+                        ctx.startActivity(i);
+                    });
+                    h.flVideo.setOnLongClickListener(v -> {
+                        v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
+                        if (!multiSelectMode) {
+                            enterMultiSelectMode(m);
+                        } else if (actionListener != null) {
+                            showActionBottomSheet(ctx, m);
+                        }
+                        return true;
+                    });
+                } else if (h.ivImage != null) {
+                    // Fallback: layout without fl_video — show thumbnail in ivImage
+                    h.ivImage.setVisibility(View.VISIBLE);
+                    String vUrl     = m.mediaUrl != null ? m.mediaUrl : m.text;
+                    String thumbUrl = (m.thumbnailUrl != null && !m.thumbnailUrl.isEmpty())
+                            ? m.thumbnailUrl : vUrl;
+                    glide(ctx).load(thumbUrl)
+                        .apply(THUMB_RGB565)
+                        .override(thumbPx(ctx), thumbPx(ctx)) // PERF #4: density-aware size
+                        .placeholder(R.drawable.bg_skeleton_rect)
+                        .into(h.ivImage);
+                    h.ivImage.setOnClickListener(v -> {
+                        if (multiSelectMode) {
+                            h.itemView.callOnClick();
+                            return;
+                        }
+                        Intent i = new Intent().setClassName(ctx.getPackageName(),
+                                "com.callx.app.activities.MediaViewerActivity");
+                        i.putExtra("url", vUrl);
+                        i.putExtra("type", "video");
+                        i.putExtra("chatId", chatId);
+                        i.putExtra("messageId", vMid);
+                        ctx.startActivity(i);
+                    });
+                    // GAP FIX: same missing long-press wiring as the flVideo
+                    // branch above — this fallback thumbnail had no way to
+                    // reach multi-select/Message Info either.
+                    h.ivImage.setOnLongClickListener(v -> {
+                        v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
+                        if (!multiSelectMode) {
+                            enterMultiSelectMode(m);
+                        } else if (actionListener != null) {
+                            showActionBottomSheet(ctx, m);
+                        }
+                        return true;
+                    });
+                }
+                break;
+            }
+            case "audio":
+                ensureAudioInflated(h, ctx, sent); // ViewStub lazy inflate
+                if (h.llAudio != null && h.btnPlayPause != null) {
+                    h.llAudio.setVisibility(View.VISIBLE);
+                    String aUrl = m.mediaUrl != null ? m.mediaUrl : m.text;
+                    if (h.seekAudio != null) {
+                        h.seekAudio.setSeed(aUrl);
+                        h.seekAudio.setProgress(0f);
+                    }
+                    final int pos = position;
+                    h.btnPlayPause.setOnClickListener(v -> toggleAudio(h, aUrl, pos));
+                    // FIX v14: Audio preload — MediaStreamCache se pehle 512KB cache karo
+                    // Taaki play button press karne par turant start ho, buffer nahi kare
+                    java.io.File cachedAudio = MediaCache.getCached(ctx, aUrl);
+                    if (cachedAudio == null && aUrl != null && !aUrl.isEmpty()) {
+                        com.callx.app.cache.MediaStreamCache.getInstance(ctx)
+                            .preloadPartial(aUrl, new com.callx.app.cache.MediaStreamCache.DownloadCallback() {
+                                @Override public void onComplete(java.io.File file) {
+                                    android.util.Log.d("PagingAdapter", "Audio preloaded: " + file.getName());
+                                }
+                                @Override public void onError(String error) {}
+                                @Override public void onProgress(int percent) {}
+                            });
+                    }
+                } else {
+                    // Fallback if no audio layout
+                    h.tvMessage.setVisibility(View.VISIBLE);
+                    h.tvMessage.setText("Audio message");
+                }
+                break;
+            case "file":
+            case "document":
+                ensureFileInflated(h, ctx, sent); // ViewStub lazy inflate
+                if (h.llFile != null && h.tvFileName != null) {
+                    h.llFile.setVisibility(View.VISIBLE);
+                    String fName = m.fileName != null ? m.fileName : "File";
+                    h.tvFileName.setText(fName);
+                    if (h.btnDownload != null) {
+                        String fUrl = m.mediaUrl != null ? m.mediaUrl : m.text;
+                        h.btnDownload.setOnClickListener(v -> {
+                            // Pehle local cache check karo
+                            java.io.File cached = MediaCache.getCached(ctx, fUrl);
+                            if (cached != null) {
+                                FileUtils.openOrDownload(ctx, cached.toURI().toString(), fName);
+                                return;
+                            }
+                            android.widget.Toast.makeText(ctx, "Downloading…", android.widget.Toast.LENGTH_SHORT).show();
+                            MediaCache.get(ctx, fUrl, new MediaCache.Callback() {
+                                @Override public void onReady(java.io.File file) {
+                                    FileUtils.openOrDownload(ctx, file.toURI().toString(), fName);
+                                }
+                                @Override public void onError(String reason) {
+                                    FileUtils.openOrDownload(ctx, fUrl, fName);
+                                }
+                            });
+                        });
+                    }
+                } else {
+                    h.tvMessage.setVisibility(View.VISIBLE);
+                    h.tvMessage.setText(m.fileName != null ? m.fileName : "File");
+                }
+                break;
+            case "poll":
+                // Canvas path — getItemViewType() now returns TYPE_CANVAS_SENT/RECEIVED for
+                // poll messages (isCanvasEligible() returns true), so this case is never
+                // reached for normal operation. Kept as a safety fallback only.
+                h.tvMessage.setVisibility(View.VISIBLE);
+                h.tvMessage.setText("\uD83D\uDCCA " + (m.pollQuestion != null ? m.pollQuestion : "Poll"));
+                break;
+            case "reel_share":
+            case "reel_link": {
+                // ── Inflate ViewStub on first use ──
+                if (h.stubReelShare != null) {
+                    h.stubReelShare.inflate();
+                    h.llReelShare         = h.itemView.findViewById(R.id.ll_reel_share);
+                    h.ivReelShareThumb    = h.itemView.findViewById(R.id.iv_reel_share_thumb);
+                    h.ivReelShareAvatar   = h.itemView.findViewById(R.id.iv_reel_share_avatar);
+                    h.tvReelShareUsername = h.itemView.findViewById(R.id.tv_reel_share_username);
+                    h.tvReelShareCaption  = h.itemView.findViewById(R.id.tv_reel_share_caption);
+                    // Apply circular clip to avatar via ShapeAppearance (no CircleImageView dep needed)
+                    if (h.ivReelShareAvatar != null) {
+                        h.ivReelShareAvatar.setClipToOutline(true);
+                        h.ivReelShareAvatar.setOutlineProvider(new android.view.ViewOutlineProvider() {
+                            @Override public void getOutline(android.view.View v, android.graphics.Outline outline) {
+                                outline.setOval(0, 0, v.getWidth(), v.getHeight());
+                            }
+                        });
+                    }
+                    h.stubReelShare = null; // mark inflated
+                }
+                if (h.llReelShare == null) {
+                    // Fallback: stub missing in layout, show text
+                    h.tvMessage.setVisibility(View.VISIBLE);
+                    h.tvMessage.setText(m.text != null ? m.text : "🎬 Reel");
+                    break;
+                }
+                h.llReelShare.setVisibility(View.VISIBLE);
+
+                // Username
+                if (h.tvReelShareUsername != null) {
+                    String uname = (m.reelShareUsername != null && !m.reelShareUsername.isEmpty())
+                            ? "@" + m.reelShareUsername : "@callx_reel";
+                    h.tvReelShareUsername.setText(uname);
+                }
+                // Avatar — load from reelShareOwnerPhoto; else in-memory cache;
+                // else Firebase fallback (profileImage/photoUrl), ONCE per
+                // username for the app's lifetime (PERF FIX #3).
+                if (h.ivReelShareAvatar != null) {
+                    String avatarUrl = m.reelShareOwnerPhoto != null ? m.reelShareOwnerPhoto : "";
+                    String uKey = m.reelShareUsername != null ? m.reelShareUsername : "";
+                    if (avatarUrl.isEmpty() && !uKey.isEmpty()) {
+                        String cached = reelOwnerAvatarCache.get(uKey);
+                        if (cached != null) {
+                            avatarUrl = cached;
+                            m.reelShareOwnerPhoto = cached;
+                        }
+                    }
+                    if (!avatarUrl.isEmpty()) {
+                        glide(ctx)
+                                .load(avatarUrl)
+                                .apply(THUMB_RGB565)
+                                .override(48, 48)
+                                .circleCrop()
+                                .placeholder(android.R.drawable.ic_menu_camera)
+                                .into(h.ivReelShareAvatar);
+                    } else if (!uKey.isEmpty()) {
+                        h.ivReelShareAvatar.setImageResource(android.R.drawable.ic_menu_camera);
+                        if (reelAvatarFetchInFlight.add(uKey)) {
+                            final String fUKey = uKey;
+                            final VH fhA = h;
+                            final android.content.Context fCtxA = ctx.getApplicationContext();
+                            com.google.firebase.database.FirebaseDatabase.getInstance()
+                                .getReference("users").orderByChild("username")
+                                .equalTo(uKey)
+                                .limitToFirst(1)
+                                .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
+                                    @Override public void onDataChange(@androidx.annotation.NonNull com.google.firebase.database.DataSnapshot snap) {
+                                        reelAvatarFetchInFlight.remove(fUKey);
+                                        if (!snap.exists()) return;
+                                        String photo = null;
+                                        for (com.google.firebase.database.DataSnapshot child : snap.getChildren()) {
+                                            photo = child.child("profileImage").getValue(String.class);
+                                            if (photo == null || photo.isEmpty())
+                                                photo = child.child("photoUrl").getValue(String.class);
+                                            if (photo == null || photo.isEmpty())
+                                                photo = child.child("profilePhoto").getValue(String.class);
+                                            break;
+                                        }
+                                        if (photo == null || photo.isEmpty()) return;
+                                        reelOwnerAvatarCache.put(fUKey, photo);
+                                        // Guard: only push into the ImageView if this row is
+                                        // still showing the same username (it may have been
+                                        // recycled to a different message by the time this
+                                        // async Firebase callback returns).
+                                        CharSequence curName = fhA.tvReelShareUsername != null
+                                                ? fhA.tvReelShareUsername.getText() : null;
+                                        if (fhA.ivReelShareAvatar != null && curName != null
+                                                && curName.toString().equals("@" + fUKey)) {
+                                            glide(fCtxA)
+                                                    .load(photo)
+                                                    .apply(THUMB_RGB565)
+                                                    .override(48, 48)
+                                                    .circleCrop()
+                                                    .placeholder(android.R.drawable.ic_menu_camera)
+                                                    .into(fhA.ivReelShareAvatar);
+                                        }
+                                    }
+                                    @Override public void onCancelled(@androidx.annotation.NonNull com.google.firebase.database.DatabaseError e) {
+                                        reelAvatarFetchInFlight.remove(fUKey);
+                                    }
+                                });
+                        }
+                    }
+                }
+                // Caption
+                if (h.tvReelShareCaption != null) {
+                    if (m.reelShareCaption != null && !m.reelShareCaption.isEmpty()) {
+                        h.tvReelShareCaption.setText(m.reelShareCaption);
+                        h.tvReelShareCaption.setVisibility(View.VISIBLE);
+                    } else {
+                        h.tvReelShareCaption.setVisibility(View.GONE);
+                    }
+                }
+                // Thumbnail — same PERF FIX #3 pattern: in-memory cache keyed by
+                // reelId, plus an in-flight guard so N rows sharing one reelId
+                // (e.g. same reel forwarded/reshared multiple times in a chat)
+                // only ever trigger ONE Firebase "reels/{id}" read for the
+                // lifetime of the app process instead of one per bind.
+                if (h.ivReelShareThumb != null) {
+                    String thumb = m.reelShareThumb != null ? m.reelShareThumb : "";
+                    String rKey = m.reelId != null ? m.reelId : "";
+                    // Tag the row with the reelId it's currently bound to, so an
+                    // async Firebase callback returning after this row got
+                    // recycled to a different message can detect the mismatch
+                    // and skip touching views that no longer belong to it.
+                    h.itemView.setTag(R.id.iv_reel_share_thumb, rKey);
+                    if (thumb.isEmpty() && !rKey.isEmpty()) {
+                        String cachedThumb = reelThumbCache.get(rKey);
+                        if (cachedThumb != null) {
+                            thumb = cachedThumb;
+                            m.reelShareThumb = cachedThumb;
+                        }
+                    }
+                    if (!thumb.isEmpty()) {
+                        glide(ctx)
+                                .load(thumb)
+                                .apply(THUMB_RGB565)
+                                .override(330, 474) // PERF: match ~165x237dp bubble, avoid full-res decode
+                                .centerCrop()
+                                .placeholder(android.R.color.darker_gray)
+                                .into(h.ivReelShareThumb);
+                    } else if (!rKey.isEmpty() && reelThumbFetchInFlight.add(rKey)) {
+                        final VH fh = h;
+                        final String fRKey = rKey;
+                        final android.content.Context fCtxT = ctx.getApplicationContext();
+                        com.google.firebase.database.FirebaseDatabase.getInstance()
+                            .getReference("reels").child(rKey)
+                            .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
+                                @Override public void onDataChange(@androidx.annotation.NonNull com.google.firebase.database.DataSnapshot snap) {
+                                    reelThumbFetchInFlight.remove(fRKey);
+                                    if (!snap.exists()) return;
+                                    String t = snap.child("thumbUrl").getValue(String.class);
+                                    if (t == null || t.isEmpty())
+                                        t = snap.child("thumbnailUrl").getValue(String.class);
+                                    boolean rowStillMatches = fRKey.equals(fh.itemView.getTag(R.id.iv_reel_share_thumb));
+                                    if (t != null && !t.isEmpty()) {
+                                        reelThumbCache.put(fRKey, t);
+                                        if (fh.ivReelShareThumb != null && rowStillMatches) {
+                                            glide(fCtxT).load(t)
+                                                .apply(THUMB_RGB565)
+                                                .override(330, 474)
+                                                .centerCrop()
+                                                .into(fh.ivReelShareThumb);
+                                        }
+                                    }
+                                    if (!rowStillMatches) return;
+                                    String u = snap.child("ownerName").getValue(String.class);
+                                    if (u == null || u.isEmpty())
+                                        u = snap.child("username").getValue(String.class);
+                                    if (u != null && !u.isEmpty() && fh.tvReelShareUsername != null)
+                                        fh.tvReelShareUsername.setText("@" + u);
+                                    // Also load avatar if not yet loaded, and warm the avatar cache.
+                                    String ap = snap.child("ownerPhoto").getValue(String.class);
+                                    if (ap == null || ap.isEmpty())
+                                        ap = snap.child("profileImage").getValue(String.class);
+                                    if (ap != null && !ap.isEmpty()) {
+                                        if (u != null && !u.isEmpty()) reelOwnerAvatarCache.put(u, ap);
+                                        if (fh.ivReelShareAvatar != null) {
+                                            glide(fCtxT)
+                                                    .load(ap)
+                                                    .apply(THUMB_RGB565)
+                                                    .override(48, 48)
+                                                    .circleCrop()
+                                                    .placeholder(android.R.drawable.ic_menu_camera)
+                                                    .into(fh.ivReelShareAvatar);
+                                        }
+                                    }
+                                    String c = snap.child("caption").getValue(String.class);
+                                    if (c != null && !c.isEmpty() && fh.tvReelShareCaption != null) {
+                                        fh.tvReelShareCaption.setText(c);
+                                        fh.tvReelShareCaption.setVisibility(View.VISIBLE);
+                                    }
+                                }
+                                @Override public void onCancelled(@androidx.annotation.NonNull com.google.firebase.database.DatabaseError e) {
+                                    reelThumbFetchInFlight.remove(fRKey);
+                                }
+                            });
+                    }
+                }
+                // Tap to open reel
+                final String fReelId  = m.reelId      != null ? m.reelId      : "";
+                final String fReelUrl = m.reelShareUrl != null ? m.reelShareUrl : "";
+                h.llReelShare.setOnClickListener(v -> {
+                    String deepLink = !fReelId.isEmpty()
+                            ? com.callx.app.utils.Constants.DEEP_LINK_BASE_URL + "/reel/" + fReelId
+                            : fReelUrl;
+                    if (!deepLink.isEmpty()) {
+                        try {
+                            android.content.Intent ri = new android.content.Intent(
+                                    android.content.Intent.ACTION_VIEW,
+                                    android.net.Uri.parse(deepLink));
+                            ri.setPackage(ctx.getPackageName());
+                            ri.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                            ctx.startActivity(ri);
+                        } catch (Exception ignored) {}
+                    }
+                });
+                break;
+            }
+            case "contact": {
+                // Inflate stub on first use
+                if (h.stubContact != null) {
+                    h.llContact = h.stubContact.inflate();
+                    h.stubContact = null;
+                }
+                if (h.llContact == null) {
+                    h.tvMessage.setVisibility(View.VISIBLE);
+                    h.tvMessage.setText(m.contactName != null ? "📇 " + m.contactName : "📇 Contact");
+                    break;
+                }
+                h.llContact.setVisibility(View.VISIBLE);
+                com.callx.app.conversation.controllers.ChatContactShareController
+                        .bindBubble(h.llContact, m);
+                h.llContact.setOnLongClickListener(v -> {
+                    if (actionListener != null) showActionBottomSheet(ctx, m);
+                    return true;
+                });
+                break;
+            }
+            case "location": {
+                // Inflate stub on first use
+                if (h.stubLocation != null) {
+                    h.llLocation = h.stubLocation.inflate();
+                    h.stubLocation = null;
+                }
+                if (h.llLocation == null) {
+                    h.tvMessage.setVisibility(View.VISIBLE);
+                    h.tvMessage.setText(m.locationAddress != null ? "📍 " + m.locationAddress : "📍 Location");
+                    break;
+                }
+                h.llLocation.setVisibility(View.VISIBLE);
+                com.callx.app.conversation.controllers.ChatLocationShareController
+                        .bindBubble(h.llLocation, m);
+                h.llLocation.setOnLongClickListener(v -> {
+                    if (actionListener != null) showActionBottomSheet(ctx, m);
+                    return true;
+                });
+                break;
+            }
+            default: // "text", "emoji", etc.
+                h.tvMessage.setVisibility(View.VISIBLE);
+                String txt = m.text != null ? m.text : "";
+                if (Boolean.TRUE.equals(m.edited)) txt += " (edited)";
+                // ── Font Style — cached static Typeface, no allocation ────────
+                h.tvMessage.setTypeface(TF_NORMAL);
+                // ── Font Size — moved to onCreateViewHolder for constant case ──
+                // Only call here for safety (noop if already set at create time)
+                // ── Clickable links: URLs, phone numbers, emails ─────────────
+                // PERF: check the linkify cache before running Linkify's regex
+                // passes — see linkifiedTextCache field comment. Cache hit means
+                // "spanned instanceof String" tells us there was no link (we
+                // only ever store the plain String in that case), no need to
+                // re-derive mightHaveLink.
+                final String linkCacheKey = (m.messageId != null ? m.messageId : m.id) + "#" + txt.hashCode();
+                CharSequence spanned;
+                boolean mightHaveLink;
+                synchronized (precomputeCacheLock) {
+                    spanned = linkifiedTextCache.get(linkCacheKey);
+                }
+                if (spanned != null) {
+                    mightHaveLink = !(spanned instanceof String);
+                } else {
+                    mightHaveLink = txt.contains("http://")
+                            || txt.contains("https://")
+                            || txt.contains("www.")
+                            || txt.contains("@")
+                            || (txt.length() >= 7 && txt.contains("+"));
+                    // PERF/RAM: SpannableString always carries an internal span
+                    // array even with zero spans attached — for the common
+                    // plain-text message (no link) that's a pure-waste
+                    // allocation on every single bind. Only pay for it when
+                    // Linkify actually has something to attach.
+                    if (mightHaveLink) {
+                        android.text.SpannableString linkSpanned = new android.text.SpannableString(txt);
+                        android.text.util.Linkify.addLinks(linkSpanned,
+                            android.text.util.Linkify.WEB_URLS |
+                            android.text.util.Linkify.PHONE_NUMBERS |
+                            android.text.util.Linkify.EMAIL_ADDRESSES);
+                        spanned = linkSpanned;
+                    } else {
+                        spanned = txt;
+                    }
+                    synchronized (precomputeCacheLock) {
+                        linkifiedTextCache.put(linkCacheKey, spanned);
+                    }
+                }
+                boolean isSentMsg = currentUid.equals(m.senderId);
+                if (mightHaveLink) {
+                    // Link color matching bubble theme
+                    int linkColor = isSentMsg ? 0xFFB3E5FC : 0xFF1565C0;
+                    h.tvMessage.setLinkTextColor(linkColor);
+                    h.tvMessage.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
+                    h.tvMessage.setHighlightColor(0x33FFFFFF);
+                } else {
+                    // Plain text — remove MovementMethod so RecyclerView keeps scroll events
+                    h.tvMessage.setMovementMethod(null);
+                }
+                h.tvMessage.setAlpha(1f);
+                h.tvMessage.setTextColor(
+                    com.callx.app.utils.ChatThemeManager.get(ctx).getTextColor(ctx, isSentMsg));
+
+                // ── BUG FIX (v45-4): PrecomputedTextCompat REMOVED entirely ──
+                // The previous "perf" path replaced the just-set plain text
+                // with a PrecomputedTextCompat result (sync or async) after
+                // the fact. Even the "synchronous" branch swapped the
+                // TextView's text a second time via
+                // TextViewCompat.setPrecomputedText() with a layout built
+                // from Params captured off a TextView whose width isn't
+                // guaranteed final yet on a freshly-inflated/cold-open
+                // holder — occasionally resolving to a different line count
+                // than plain setText() would, so the bubble's measured
+                // height (first pass) and its actually-drawn content
+                // (second, silently-swapped pass) disagreed. That mismatch
+                // is exactly the "kabhi pura bubble dikhta hai, kabhi thoda
+                // sa dikhta hai" bug — and it could recur any time the swap
+                // and the real layout width disagreed, not only in the old
+                // async branch. Root-caused for good by removing the second
+                // pass entirely: a single plain setText() call is the only
+                // thing that ever sets tv_message's content, so there is
+                // only ever ONE measurement of it, period. No swap, no
+                // possible mismatch, no "thoda sa dikhta hai" — guaranteed,
+                // not just in the common case.
+                //
+                // BUG FIX: footerReservePx used to be computed from
+                // h.tvTime's CURRENT (possibly stale, recycled-from-a-
+                // previous-message) text, read before this message's own
+                // time was ever set on it. Now computed straight from this
+                // message's own timestamp so the reserved gap always
+                // matches the footer that will actually be drawn.
+                String footerTimeStr = m.timestamp > 0 ? formatTime(m.timestamp) : null;
+                int footerReservePx = computeFooterReservePx(h, m, isSentMsg, footerTimeStr);
+                CharSequence displaySpanned = appendFooterReserve(spanned, footerReservePx);
+
+                // Set message text directly. (An earlier "precompute"
+                // path here called TextViewCompat.setTextFuture(), which
+                // does not exist on TextViewCompat and never compiled as
+                // written — removed. See v45-4 bug-fix note above: a single
+                // plain setText() call is the only thing that should ever
+                // set tv_message's content, so there is only ever ONE
+                // measurement of it.)
+                h.tvMessage.setText(displaySpanned);
+                h.textBindToken++;
+
+                // ── @mention blue highlight + search yellow highlight ─────────
+                // Applied AFTER the single setText() so the underlying linkified
+                // spans are already in place. We read the TextView's current text
+                // into a SpannableStringBuilder (preserving link spans), append
+                // our extra spans on top, then do one final setText(). This is
+                // safe because we only reach this branch for text/emoji messages
+                // whose content was just set a line above — no stale state risk.
+                boolean hasMention = txt.contains("@");
+                boolean hasSearch  = activeSearchQuery != null && !activeSearchQuery.isEmpty()
+                                     && txt.toLowerCase(java.util.Locale.getDefault())
+                                            .contains(activeSearchQuery.toLowerCase(java.util.Locale.getDefault()));
+                if (hasMention || hasSearch) {
+                    android.text.SpannableStringBuilder overlay =
+                            new android.text.SpannableStringBuilder(h.tvMessage.getText());
+                    // @mention — blue foreground
+                    if (hasMention) {
+                        java.util.regex.Matcher mm = MENTION_PATTERN.matcher(txt);
+                        while (mm.find()) {
+                            int ms = mm.start(), me = mm.end();
+                            if (ms < overlay.length() && me <= overlay.length()) {
+                                overlay.setSpan(
+                                    new android.text.style.ForegroundColorSpan(MENTION_COLOR),
+                                    ms, me,
+                                    android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                            }
+                        }
+                    }
+                    // Search — yellow background
+                    if (hasSearch) {
+                        String lq = activeSearchQuery.toLowerCase(java.util.Locale.getDefault());
+                        String lt = txt.toLowerCase(java.util.Locale.getDefault());
+                        int si = 0;
+                        while ((si = lt.indexOf(lq, si)) != -1) {
+                            int se = si + lq.length();
+                            if (se <= overlay.length()) {
+                                overlay.setSpan(
+                                    new android.text.style.BackgroundColorSpan(0xFFFFEB3B),
+                                    si, se,
+                                    android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                            }
+                            si = se;
+                        }
+                    }
+                    h.tvMessage.setText(overlay);
+                }
+                // ── end mention/search overlay ─────────────────────────────────
+
+                // ── Link preview (ViewStub lazy inflate) ─────────────────────
+                // BUG FIX (cold-open big bubble / "shrinks on selection"):
+                // ensureLinkPreviewInflated() used to run for EVERY text
+                // message (any m.text != null), not just ones with a URL.
+                // layout_msg_link_preview.xml's root has no
+                // android:visibility="gone", so the moment the ViewStub
+                // inflated, an EMPTY-but-VISIBLE match_parent-width preview
+                // card appeared inside content_frame — stretching that
+                // fresh bubble to full row width on first bind. The old
+                // GONE-guard above only worked once h.llLinkPreview was
+                // already non-null, i.e. AFTER a stub had already been
+                // inflated once — which is exactly why entering selection
+                // mode (forcing a rebind of the already-inflated holder)
+                // made the bubble "shrink" to its correct size instead of
+                // the underlying bug being fixed.
+                //
+                // Fix: detect the URL FIRST, and only inflate the stub
+                // (and touch h.llLinkPreview) when a URL genuinely exists.
+                // For plain text (the overwhelming majority of messages)
+                // the stub is never inflated at all, and any leftover
+                // preview card on a *recycled* holder is explicitly hidden.
+                String cachedText = (String) h.tvMessage.getTag(R.id.tv_message);
+                String previewUrl;
+                if (m.text != null && m.text.equals(cachedText)) {
+                    previewUrl = h.llLinkPreview != null ? (String) h.llLinkPreview.getTag() : null;
+                    if (previewUrl == null) previewUrl = com.callx.app.utils.LinkPreviewFetcher.extractFirstUrl(m.text);
+                } else {
+                    if (m.text != null) h.tvMessage.setTag(R.id.tv_message, m.text);
+                    previewUrl = m.text != null ? com.callx.app.utils.LinkPreviewFetcher.extractFirstUrl(m.text) : null;
+                }
+
+                if (previewUrl != null) {
+                    ensureLinkPreviewInflated(h, isSentMsg); // inflate only when actually needed
+                }
+
+                if (h.llLinkPreview != null) {
+                    if (previewUrl == null) {
+                        // Recycled holder previously showed a link preview
+                        // but this message has none — hide the leftover card.
+                        h.llLinkPreview.setVisibility(View.GONE);
+                    } else {
+                        // Tag itemView with URL so we detect stale VH on recycle
+                        h.llLinkPreview.setTag(previewUrl);
+                        h.llLinkPreview.setVisibility(View.INVISIBLE); // reserve space while loading
+                        // FIX: must be final for use inside anonymous inner class
+                        final String finalPreviewUrl = previewUrl;
+                        com.callx.app.utils.LinkPreviewFetcher.fetch(finalPreviewUrl,
+                                new com.callx.app.utils.LinkPreviewFetcher.Callback() {
+                            @Override public void onResult(com.callx.app.utils.LinkPreviewFetcher.Result r) {
+                                // Guard against recycled VH
+                                if (!finalPreviewUrl.equals(h.llLinkPreview.getTag())) return;
+                                h.llLinkPreview.setVisibility(View.VISIBLE);
+                                if (h.tvLinkDomain != null) h.tvLinkDomain.setText(r.domain);
+                                if (h.tvLinkTitle  != null) h.tvLinkTitle.setText(r.title);
+                                if (h.ivLinkThumb  != null) {
+                                    if (r.imageUrl != null && !r.imageUrl.isEmpty()) {
+                                        h.ivLinkThumb.setVisibility(View.VISIBLE);
+                                        glide(ctx)
+                                            .load(r.imageUrl)
+                                            .apply(THUMB_RGB565)
+                                            .override(300, 300)
+                                            .centerCrop()
+                                            .into(h.ivLinkThumb);
+                                    } else {
+                                        h.ivLinkThumb.setVisibility(View.GONE);
+                                    }
+                                }
+                                // Tapping the card opens the URL in browser
+                                h.llLinkPreview.setOnClickListener(v -> {
+                                    Intent browserIntent = new Intent(
+                                            Intent.ACTION_VIEW, android.net.Uri.parse(r.url));
+                                    browserIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                                    ctx.startActivity(browserIntent);
+                                });
+                            }
+                            @Override public void onError(String url) {
+                                if (!finalPreviewUrl.equals(h.llLinkPreview.getTag())) return;
+                                h.llLinkPreview.setVisibility(View.GONE);
+                            }
+                        });
+                    }
+                }
+                break;
+        }
+
+        // ── Delivery status (sent messages only) ─────────────────
+        if (sent && h.tvStatus != null) {
+            h.tvStatus.setVisibility(View.VISIBLE);
+            String status = m.status != null ? m.status : "sent";
+            // TICK ADVANCE #4: WhatsApp-style symmetry — if I've turned OFF
+            // read receipts myself, I don't get to see the other person's
+            // blue tick either, even though the real Firebase status is
+            // "read". Display-only downgrade; the real status is untouched.
+            if (("read".equals(status) || "seen".equals(status))
+                    && !new com.callx.app.utils.SecurityManager(ctx).isReadReceiptsEnabled()) {
+                status = "delivered";
+            }
+            switch (status) {
+                case "seen":
+                case "read":
+                    h.tvStatus.setText("✓✓");
+                    h.tvStatus.setTextColor(
+                        com.callx.app.utils.ChatThemeManager.getTickColor(true));
+                    break;
+                case "delivered":
+                    h.tvStatus.setText("✓✓");
+                    h.tvStatus.setTextColor(
+                        com.callx.app.utils.ChatThemeManager.getTickColor(false));
+                    break;
+                case "pending":
+                    // Clock icon — sent locally, not yet reached Firebase
+                    h.tvStatus.setText("🕐");
+                    h.tvStatus.setTextColor(0xFFAAAAAA);
+                    break;
+                case "failed":
+                    // Error icon — Firebase push rejected; tap to retry
+                    h.tvStatus.setText("⚠");
+                    h.tvStatus.setTextColor(0xFFFF5555);
+                    h.tvStatus.setOnClickListener(v -> {
+                        if (actionListener != null) actionListener.onRetry(m);
+                    });
+                    break;
+                default: // "sent" — one grey tick
+                    h.tvStatus.setText("✓");
+                    h.tvStatus.setTextColor(
+                        com.callx.app.utils.ChatThemeManager.getTickColor(false));
+                    h.tvStatus.setOnClickListener(null);
+                    break;
+            }
+        } else if (h.tvStatus != null) {
+            h.tvStatus.setVisibility(View.GONE);
+        }
+
+        // ── Disappearing message countdown ────────────────────────────────
+        // PERF: shared ExpiryTickManager handler instead of a per-row CountDownTimer.
+        com.callx.app.utils.ExpiryTickManager.get().unregister(h);
+        if (h.tvExpiry != null) {
+            long expiresAt = m.expiresAt != null ? m.expiresAt : 0L;
+            long remaining = expiresAt - System.currentTimeMillis();
+            if (expiresAt > 0 && remaining > 0) {
+                h.tvExpiry.setVisibility(View.VISIBLE);
+                h.tvExpiry.setText("⏳ " + formatRemaining(remaining));
+                com.callx.app.utils.ExpiryTickManager.get().register(h, expiresAt,
+                        new com.callx.app.utils.ExpiryTickManager.Listener() {
+                    @Override public void onTick(long ms) {
+                        if (h.tvExpiry != null)
+                            h.tvExpiry.setText("⏳ " + formatRemaining(ms));
+                    }
+                    @Override public void onFinish() {
+                        if (h.tvExpiry != null) h.tvExpiry.setVisibility(View.GONE);
+                    }
+                });
+            } else {
+                h.tvExpiry.setVisibility(View.GONE);
+            }
+        }
+
+        // ── Long press — multi-select mode ya action sheet ─────────────────
+        h.itemView.setOnLongClickListener(v -> {
+            // FIX: Haptic feedback on long press — production apps always do this
+            v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
+            if (!multiSelectMode) {
+                enterMultiSelectMode(m);
+            } else {
+                if (actionListener != null) showActionBottomSheet(ctx, m);
+            }
+            return true;
+        });
+        h.itemView.setOnClickListener(v -> {
+            if (multiSelectMode) {
+                String id = m.messageId != null ? m.messageId : m.id;
+                if (id != null) {
+                    if (selectedMessageIds.contains(id)) {
+                        selectedMessageIds.remove(id);
+                    } else {
+                        selectedMessageIds.add(id);
+                    }
+                    // FIX: same NO_POSITION race as the canvas path — update
+                    // this row's highlight directly instead of going through
+                    // notifyItemChanged(h.getAdapterPosition()).
+                    applySelectionHighlight(h, m);
+                    if (multiSelectListener != null)
+                        multiSelectListener.onSelectionChanged(selectedMessageIds.size());
+                    if (selectedMessageIds.isEmpty()) exitMultiSelectMode();
+                }
+            }
+        });
+        applySelectionHighlight(h, m);
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // POLL BUBBLE (advanced) — icon-badge header, frosted card,
+    // radio OR checkbox vote indicator (single- vs multi-choice),
+    // animated fill bars, leading-option highlight, and a status chip
+    // for Closed/Anonymous polls.
+    // Layout (per-bubble): ll_poll > header(iv_poll_icon, tv_poll_icon_label,
+    // tv_poll_status_badge), tv_poll_question, tv_poll_subtitle,
+    // ll_poll_options, tv_poll_total_votes. Each option row is
+    // item_poll_option_row.xml, inflated dynamically since option count
+    // is variable (2–10).
+    //
+    // Multi-choice polls (Message#pollMultiChoice == true) let a voter
+    // tick any number of options — tapping a ticked option un-ticks it,
+    // tapping an un-ticked one adds it. Single-choice polls keep the
+    // original radio behaviour: tapping any option replaces your vote.
+    // ──────────────────────────────────────────────────────────────
+    private void bindPoll(@NonNull VH h, @NonNull Message m, boolean sent) {
+        Context ctx = h.itemView.getContext();
+        h.llPoll.setVisibility(View.VISIBLE);
+
+        int textColor = sent
+                ? androidx.core.content.ContextCompat.getColor(ctx, R.color.bubble_sent_text)
+                : androidx.core.content.ContextCompat.getColor(ctx, R.color.bubble_received_text);
+
+        // Recolor the fixed-white header icon to match the bubble's text color
+        // so it stays legible on both light and dark bubble/theme combinations.
+        if (h.ivPollIcon != null) {
+            h.ivPollIcon.setColorFilter(textColor, android.graphics.PorterDuff.Mode.SRC_IN);
+        }
+
+        if (h.tvPollQuestion != null) {
+            h.tvPollQuestion.setText(m.pollQuestion != null ? m.pollQuestion : "");
+        }
+
+        boolean multiChoice = Boolean.TRUE.equals(m.pollMultiChoice);
+
+        if (h.tvPollSubtitle != null) {
+            h.tvPollSubtitle.setText(multiChoice ? "Select one or more answers" : "Select one answer");
+            h.tvPollSubtitle.setTextColor((textColor & 0x00FFFFFF) | 0xAA000000);
+        }
+
+        java.util.List<String> options = m.pollOptions != null
+                ? m.pollOptions : java.util.Collections.emptyList();
+        java.util.Map<String, java.util.List<Integer>> votes = m.pollVotes != null
+                ? m.pollVotes : java.util.Collections.emptyMap();
+        int[] counts = com.callx.app.utils.PollJsonUtil.countVotes(votes, options.size());
+        int total = com.callx.app.utils.PollJsonUtil.totalVotes(votes);
+        java.util.List<Integer> myVotes = currentUid != null ? votes.get(currentUid) : null;
+        if (myVotes == null) myVotes = java.util.Collections.emptyList();
+        boolean closed = Boolean.TRUE.equals(m.pollClosed);
+        boolean anonymous = Boolean.TRUE.equals(m.pollAnonymous);
+
+        // Identify the leading option(s) so we can give them a subtle bold
+        // treatment — but only when there IS a clear leader (skip when every
+        // option is tied, including the all-zero-votes case).
+        int maxCount = 0;
+        for (int c : counts) if (c > maxCount) maxCount = c;
+        boolean hasClearLeader = maxCount > 0;
+        if (hasClearLeader) {
+            int countAtMax = 0;
+            for (int c : counts) if (c == maxCount) countAtMax++;
+            if (countAtMax == options.size()) hasClearLeader = false;
+        }
+
+        if (h.llPollOptions != null) {
+            // PERF: recycle existing option rows instead of removeAllViews + inflate
+            int optCount = options.size();
+            while (h.llPollOptions.getChildCount() > optCount) {
+                h.llPollOptions.removeViewAt(h.llPollOptions.getChildCount() - 1);
+            }
+            for (int i = 0; i < optCount; i++) {
+                final int optionIndex = i;
+                View row;
+                PollOptionRowViews rowViews;
+                if (i < h.llPollOptions.getChildCount()) {
+                    row = h.llPollOptions.getChildAt(i);
+                    rowViews = (PollOptionRowViews) row.getTag();
+                } else {
+                    row = LayoutInflater.from(ctx)
+                            .inflate(R.layout.item_poll_option_row, h.llPollOptions, false);
+                    h.llPollOptions.addView(row);
+                    rowViews = null;
+                }
+                // PERF: cache the 4 child views on the row itself via setTag().
+                // findViewById() walks the row's view tree; with rows being
+                // reused across binds (recycling, above) we'd otherwise pay
+                // that walk cost every single bind even though the row's
+                // structure never changes after first inflation.
+                if (rowViews == null) {
+                    rowViews = new PollOptionRowViews(row);
+                    row.setTag(rowViews);
+                }
+                TextView  tvText  = rowViews.tvText;
+                TextView  tvPct   = rowViews.tvPct;
+                ImageView ivCheck = rowViews.ivCheck;
+                View      vFill   = rowViews.vFill;
+
+                int pct = total > 0 ? Math.round((counts[i] * 100f) / total) : 0;
+                boolean isMyVote  = myVotes.contains(optionIndex);
+                boolean isLeading = hasClearLeader && counts[i] == maxCount;
+
+                if (tvText != null) {
+                    tvText.setText(options.get(i));
+                    tvText.setTextColor(textColor);
+                    tvText.setTypeface(null, isLeading ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
+                }
+                if (tvPct != null) {
+                    tvPct.setText(total > 0 ? (pct + "%") : "");
+                    tvPct.setTextColor(textColor);
+                }
+                if (ivCheck != null) {
+                    int filledRes     = multiChoice ? R.drawable.ic_poll_checkbox_filled     : R.drawable.ic_poll_check_filled;
+                    int unselectedRes = multiChoice ? R.drawable.ic_poll_checkbox_unselected  : R.drawable.ic_poll_radio_unselected;
+                    if (isMyVote) {
+                        ivCheck.clearColorFilter();
+                        ivCheck.setImageResource(filledRes);
+                    } else {
+                        ivCheck.setImageResource(unselectedRes);
+                        int ringColor = (textColor & 0x00FFFFFF) | 0x80000000;
+                        ivCheck.setColorFilter(ringColor, android.graphics.PorterDuff.Mode.SRC_IN);
+                    }
+                }
+
+                row.setBackgroundResource(isMyVote
+                        ? R.drawable.bg_poll_option_voted
+                        : R.drawable.bg_poll_option);
+                if (vFill != null) {
+                    vFill.setBackgroundResource(isMyVote
+                            ? R.drawable.bg_poll_option_fill_voted
+                            : R.drawable.bg_poll_option_fill);
+
+                    final View fillView = vFill;
+                    final int fPct = pct;
+                    vFill.post(() -> {
+                        Object parentObj = fillView.getParent();
+                        if (!(parentObj instanceof View)) return;
+                        int parentWidth = ((View) parentObj).getWidth();
+                        if (parentWidth <= 0) return;
+                        int targetWidth = Math.round(parentWidth * (fPct / 100f));
+                        android.view.ViewGroup.LayoutParams lp = fillView.getLayoutParams();
+                        lp.width = targetWidth;
+                        fillView.setLayoutParams(lp);
+                        fillView.setTag(targetWidth);
+                    });
+                }
+
+                row.setOnClickListener(v -> {
+                    if (closed) {
+                        android.widget.Toast.makeText(ctx, "This poll is closed", android.widget.Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    if (actionListener != null) actionListener.onPollVote(m, optionIndex);
+                });
+            }
+        }
+
+        if (h.tvPollTotalVotes != null) {
+            String label = total == 0 ? "No votes yet" : total + (total == 1 ? " person voted" : " people voted");
+            h.tvPollTotalVotes.setText(label);
+        }
+
+        // Status chip — shows the single most relevant state: Closed takes
+        // priority over Anonymous since it affects whether the user can vote.
+        if (h.tvPollStatusBadge != null) {
+            if (closed) {
+                h.tvPollStatusBadge.setText("🔒 Closed");
+                h.tvPollStatusBadge.setBackgroundResource(R.drawable.bg_poll_chip_closed);
+                h.tvPollStatusBadge.setVisibility(View.VISIBLE);
+            } else if (anonymous) {
+                h.tvPollStatusBadge.setText("🙈 Anonymous");
+                h.tvPollStatusBadge.setBackgroundResource(R.drawable.bg_poll_chip_neutral);
+                h.tvPollStatusBadge.setVisibility(View.VISIBLE);
+            } else {
+                h.tvPollStatusBadge.setVisibility(View.GONE);
+            }
+        }
+    }
+
     // ──────────────────────────────────────────────────────────────
     // Audio playback toggle
     // ──────────────────────────────────────────────────────────────
@@ -3519,11 +5137,12 @@ public class MessagePagingAdapter
 
     /**
      * PAYLOAD_POLL fast path — re-renders only the poll vote bars / percentages
-     * inside an already-bound canvas poll bubble without touching text,
-     * media, Glide loads, Linkify, or any other part of the bind.
+     * inside an already-bound canvas or legacy poll bubble without touching
+     * text, media, Glide loads, Linkify, or any other part of the bind.
      *
-     * Delegates to cv.bindPoll() which re-measures and invalidates only the
-     * poll card section.
+     * Canvas path: delegates to cv.bindPoll() which re-measures and invalidates
+     * only the poll card section.  Legacy ViewStub path: re-calls bindPoll()
+     * which updates the existing inflated option rows in place.
      */
     private void bindPollOnly(@NonNull VH h, @NonNull Message m) {
         if (!"poll".equals(m.type)) return;
@@ -3556,7 +5175,10 @@ public class MessagePagingAdapter
                     Boolean.TRUE.equals(m.pollClosed),
                     Boolean.TRUE.equals(m.pollMultiChoice),
                     sent, timeStr, isRead, isDelivered);
+            return;
         }
+        // Legacy non-canvas path — defer to the full poll bind helper.
+        bindPoll(h, m, sent);
     }
 
     /**
@@ -3628,13 +5250,15 @@ public class MessagePagingAdapter
     public void onViewRecycled(@NonNull VH holder) {
         super.onViewRecycled(holder);
         // FIX #3: Clear ALL ImageViews on recycle — not just ivImage.
-        // Missing clears on ivReplyThumb/ivLinkThumb/ivVideoThumb
+        // Missing clears on ivReplyThumb/ivLinkThumb/ivVideoThumb/ivStatusSeenThumb/ivReelSeenThumb
         // caused Glide memory leaks and stale image flicker on fast scrolling.
         Context ctx = holder.itemView.getContext();
         if (holder.ivImage           != null) glide(ctx).clear(holder.ivImage);
         if (holder.ivReplyThumb      != null) glide(ctx).clear(holder.ivReplyThumb);
         if (holder.ivLinkThumb       != null) glide(ctx).clear(holder.ivLinkThumb);
         if (holder.ivVideoThumb      != null) glide(ctx).clear(holder.ivVideoThumb);
+        if (holder.ivStatusSeenThumb != null) glide(ctx).clear(holder.ivStatusSeenThumb);
+        if (holder.ivReelSeenThumb   != null) glide(ctx).clear(holder.ivReelSeenThumb);
         // Same staleness-guard idea as bindCanvasMessage()'s Glide
         // CustomTarget calls — invalidate any in-flight canvas image/reply-
         // thumb load the instant this holder is recycled.
@@ -3712,6 +5336,47 @@ public class MessagePagingAdapter
     // ──────────────────────────────────────────────────────────────
     // ViewHolder — covers all view IDs used in both item layouts
     // ──────────────────────────────────────────────────────────────
+    /** Fast-path: rebind only the tick icon, called from payload-aware onBind. */
+    private void bindStatusTick(@NonNull VH h, @NonNull Message m) {
+        boolean sent = currentUid != null && currentUid.equals(m.senderId);
+        if (!sent || h.tvStatus == null) {
+            if (h.tvStatus != null) h.tvStatus.setVisibility(View.GONE);
+            return;
+        }
+        h.tvStatus.setVisibility(View.VISIBLE);
+        String s = m.status == null ? "" : m.status;
+        if (("read".equals(s) || "seen".equals(s))
+                && !new com.callx.app.utils.SecurityManager(h.itemView.getContext()).isReadReceiptsEnabled()) {
+            s = "delivered";
+        }
+        switch (s) {
+            case "read":
+                h.tvStatus.setText("✓✓");
+                h.tvStatus.setTextColor(0xFF4FC3F7);
+                h.tvStatus.setOnClickListener(null);
+                break;
+            case "delivered":
+                h.tvStatus.setText("✓✓");
+                h.tvStatus.setTextColor(0xAAFFFFFF);
+                h.tvStatus.setOnClickListener(null);
+                break;
+            case "sending":
+                h.tvStatus.setText("🕐");
+                h.tvStatus.setTextColor(0xFFAAAAAA);
+                h.tvStatus.setOnClickListener(null);
+                break;
+            case "failed":
+                h.tvStatus.setText("⚠");
+                h.tvStatus.setTextColor(0xFFFF5555);
+                break;
+            default:
+                h.tvStatus.setText("✓");
+                h.tvStatus.setTextColor(0xAAFFFFFF);
+                h.tvStatus.setOnClickListener(null);
+                break;
+        }
+    }
+
     /** Fast-path: rebind ONLY the three presence-driven views — the
      *  "someone's viewing this" dot, the "someone's playing this" badge,
      *  and the "someone's replying to this" bubble glow. Called from the
@@ -3826,6 +5491,22 @@ public class MessagePagingAdapter
         }
         String result = sb.toString().trim();
         return result.isEmpty() ? null : result;
+    }
+
+    /** PERF: tiny view-cache for a poll option row, stashed via row.setTag().
+     *  See bindPoll() — avoids repeat findViewById() on every rebind of a
+     *  recycled poll-option row. */
+    private static final class PollOptionRowViews {
+        final TextView  tvText;
+        final TextView  tvPct;
+        final ImageView ivCheck;
+        final View      vFill;
+        PollOptionRowViews(View row) {
+            tvText  = row.findViewById(R.id.tv_poll_option_text);
+            tvPct   = row.findViewById(R.id.tv_poll_option_pct);
+            ivCheck = row.findViewById(R.id.iv_poll_option_check);
+            vFill   = row.findViewById(R.id.v_poll_option_fill);
+        }
     }
 
     static class VH extends RecyclerView.ViewHolder {
@@ -3953,6 +5634,25 @@ public class MessagePagingAdapter
         // ── Forwarded label ("↪ Forwarded from X") ──
         TextView tvForwarded;
 
+        // PERF: the following are for the rarer system-row layouts
+        // (status_seen / reel_seen / call_entry). They used to be looked
+        // up with itemView.findViewById() inside the bind*Bubble() methods
+        // on every bind. Cached here instead — null on layouts that don't
+        // contain them, which is fine since those bind methods are never
+        // called for the wrong view type.
+        de.hdodenhof.circleimageview.CircleImageView ivStatusSeenAvatar;
+        View      flStatusSeenThumb;
+        ImageView ivStatusSeenThumb, ivStatusSeenEye;
+        TextView  tvStatusSeenName, tvStatusSeenTime;
+
+        de.hdodenhof.circleimageview.CircleImageView ivReelSeenAvatar;
+        View      flReelSeenThumb;
+        ImageView ivReelSeenThumb, ivReelSeenPlay;
+        TextView  tvReelSeenName, tvReelSeenTime;
+
+        TextView  tvCallEntryIcon, tvCallEntryLabel, tvCallEntryTime;
+        View      llCallEntryRoot, llCallEntryPill;
+
         VH(@NonNull View v) {
             super(v);
             tvMessage      = v.findViewById(R.id.tv_message);
@@ -4001,7 +5701,155 @@ public class MessagePagingAdapter
             llBubble          = v.findViewById(R.id.ll_bubble);
             btnQuickForward   = v.findViewById(R.id.btn_quick_forward);
             tvForwarded       = v.findViewById(R.id.tv_forwarded);
+
+            // System-row layouts (status_seen / reel_seen / call_entry) —
+            // these IDs only exist on their respective layouts, so they'll
+            // simply resolve to null on the other view types. That's fine:
+            // the bind*Bubble() method for one type never runs against a
+            // VH inflated from a different type's layout.
+            ivStatusSeenAvatar = v.findViewById(R.id.iv_status_seen_avatar);
+            flStatusSeenThumb  = v.findViewById(R.id.fl_status_seen_thumb);
+            ivStatusSeenThumb  = v.findViewById(R.id.iv_status_seen_thumb);
+            ivStatusSeenEye    = v.findViewById(R.id.iv_status_seen_eye);
+            tvStatusSeenName   = v.findViewById(R.id.tv_status_seen_name);
+            tvStatusSeenTime   = v.findViewById(R.id.tv_status_seen_time);
+
+            ivReelSeenAvatar = v.findViewById(R.id.iv_reel_seen_avatar);
+            flReelSeenThumb  = v.findViewById(R.id.fl_reel_seen_thumb);
+            ivReelSeenThumb  = v.findViewById(R.id.iv_reel_seen_thumb);
+            ivReelSeenPlay   = v.findViewById(R.id.iv_reel_seen_play);
+            tvReelSeenName   = v.findViewById(R.id.tv_reel_seen_name);
+            tvReelSeenTime   = v.findViewById(R.id.tv_reel_seen_time);
+
+            tvCallEntryIcon  = v.findViewById(R.id.tv_call_entry_icon);
+            tvCallEntryLabel = v.findViewById(R.id.tv_call_entry_label);
+            tvCallEntryTime  = v.findViewById(R.id.tv_call_entry_time);
+            llCallEntryRoot  = v.findViewById(R.id.ll_call_entry_root);
+            llCallEntryPill  = v.findViewById(R.id.ll_call_entry_pill);
         }
+    }
+    // ── Feature 13: View Once bubble binding ─────────────────────────────
+
+    /**
+     * Binds the "Waiting to be opened" sender bubble (TYPE_VIEW_ONCE_SENT_WAITING).
+     * Shown to the SENDER after sending a view-once message, while receiver hasn't opened it yet.
+     * Shows a lock icon + "Waiting to be opened" label.
+     * Feature 3: sender can LONG-PRESS to revoke (remove) the message before receiver opens it.
+     */
+    private void bindViewOnceSentWaiting(RecyclerView.ViewHolder holder, Message m) {
+        android.view.View root = holder.itemView;
+        android.widget.TextView tvTime = root.findViewById(com.callx.app.chat.R.id.tv_time);
+        if (tvTime != null && m.timestamp != null) {
+            tvTime.setText(new java.text.SimpleDateFormat("h:mm a",
+                    java.util.Locale.getDefault()).format(new java.util.Date(m.timestamp)));
+        }
+        android.view.View bubble = root.findViewById(com.callx.app.chat.R.id.ll_bubble);
+        android.view.View tapTarget = bubble != null ? bubble : root;
+        tapTarget.setOnClickListener(null); // sender cannot open their own view-once
+        // Feature 3: long-press → revoke dialog
+        tapTarget.setOnLongClickListener(v -> {
+            if (viewOnceRevokeListener != null) {
+                viewOnceRevokeListener.onRevokeViewOnce(m);
+            }
+            return true;
+        });
+    }
+
+    /**
+     * Binds the "View Once" tap bubble for the receiver.
+     * Called from onBindViewHolder when viewType == TYPE_VIEW_ONCE_SENT.
+     *
+     * PERFORMANCE: SimpleViewHolder — no complex binding, just time + tap listener.
+     * No Glide load, no media decode here. Media loads only in ViewOnceViewerActivity.
+     */
+    private void bindViewOnceSent(RecyclerView.ViewHolder holder, Message m) {
+        android.view.View root = holder.itemView;
+
+        // Sublabel: show media type hint
+        android.widget.TextView tvSub = root.findViewById(com.callx.app.chat.R.id.tv_vo_sublabel);
+        if (tvSub != null) {
+            String hint = buildTypeHint(m.type);
+            tvSub.setText(hint);
+        }
+
+        // Time
+        android.widget.TextView tvTime = root.findViewById(com.callx.app.chat.R.id.tv_time);
+        if (tvTime != null && m.timestamp != null) {
+            tvTime.setText(new java.text.SimpleDateFormat("h:mm a",
+                    java.util.Locale.getDefault()).format(new java.util.Date(m.timestamp)));
+        }
+
+        // BUG FIX: the click listener must go on `ll_bubble` (the actual 200dp
+        // clickable card with its own ripple foreground), NOT on `root`/itemView.
+        // ll_bubble is clickable="true" itself, so it intercepts the touch and
+        // a listener on the full-width root never fires — that's why "Tap to
+        // open" was doing nothing.
+        android.view.View bubble = root.findViewById(com.callx.app.chat.R.id.ll_bubble);
+        android.view.View tapTarget = bubble != null ? bubble : root;
+        // DEBOUNCE: tag stores last-click timestamp. Prevents spurious double-fires
+        // from RecyclerView rebind or rapid multi-tap causing dialog to open twice.
+        tapTarget.setOnClickListener(v -> {
+            Object lastClick = v.getTag(com.callx.app.chat.R.id.ll_bubble);
+            long now = System.currentTimeMillis();
+            if (lastClick instanceof Long && now - (Long) lastClick < 800) return;
+            v.setTag(com.callx.app.chat.R.id.ll_bubble, now);
+            if (viewOnceOpenListener != null) viewOnceOpenListener.onOpenViewOnce(m);
+        });
+        tapTarget.setOnLongClickListener(null); // no long-press for view-once (no copy/forward)
+    }
+
+    /**
+     * Binds the post-open expired bubble.
+     * Shows "Opened", "Expired", or "Removed" depending on viewOnceState.
+     * Called from onBindViewHolder when viewType == TYPE_VIEW_ONCE_EXPIRED.
+     */
+    private void bindViewOnceExpired(RecyclerView.ViewHolder holder, Message m) {
+        android.view.View root = holder.itemView;
+
+        // Message sent time (bottom-right)
+        android.widget.TextView tvTime = root.findViewById(com.callx.app.chat.R.id.tv_time);
+        if (tvTime != null && m.timestamp != null) {
+            tvTime.setText(new java.text.SimpleDateFormat("h:mm a",
+                    java.util.Locale.getDefault()).format(new java.util.Date(m.timestamp)));
+        }
+
+        // Determine label based on state
+        // Feature 7: expired timer → "Expired"
+        // Feature 8: sender revoked → "Removed"
+        // Default: receiver opened → "Opened"
+        android.widget.TextView tvLabel = root.findViewById(com.callx.app.chat.R.id.tv_expired_label);
+        if (tvLabel != null) {
+            if (com.callx.app.conversation.controllers.ChatViewOnceController.isTimerExpired(m)) {
+                tvLabel.setText("Expired");
+            } else if (com.callx.app.conversation.controllers.ChatViewOnceController.isRevoked(m)) {
+                tvLabel.setText("Removed");
+            } else {
+                tvLabel.setText("Opened");
+            }
+        }
+
+        // "Opened on" date+time — shown only to sender (openedAt is set by receiver's device)
+        // For Expired and Removed states there is no openedAt — hide this line.
+        android.widget.TextView tvOpenedAt = root.findViewById(com.callx.app.chat.R.id.tv_opened_at);
+        if (tvOpenedAt != null) {
+            boolean isOpenedNormally = !com.callx.app.conversation.controllers.ChatViewOnceController.isTimerExpired(m)
+                    && !com.callx.app.conversation.controllers.ChatViewOnceController.isRevoked(m);
+            if (isOpenedNormally
+                    && currentUid != null && currentUid.equals(m.senderId) && m.openedAt != null) {
+                // Feature 6: format is "h:mm a" only — time, no date (e.g. "Opened · 3:45 PM")
+                java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat(
+                        "h:mm a", java.util.Locale.getDefault());
+                tvOpenedAt.setText("Opened · " + sdf.format(new java.util.Date(m.openedAt)));
+                tvOpenedAt.setVisibility(android.view.View.VISIBLE);
+            } else {
+                tvOpenedAt.setVisibility(android.view.View.GONE);
+            }
+        }
+
+        android.view.View bubble = root.findViewById(com.callx.app.chat.R.id.ll_bubble);
+        android.view.View tapTarget = bubble != null ? bubble : root;
+        tapTarget.setOnClickListener(null);
+        tapTarget.setOnLongClickListener(null);
     }
 
     private static String buildTypeHint(String type) {

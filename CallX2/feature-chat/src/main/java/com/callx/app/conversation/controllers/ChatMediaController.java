@@ -263,6 +263,17 @@ public class ChatMediaController {
                 gifPickerLauncher.launch(new Intent(activity, com.callx.app.chat.ChatGifPickerActivity.class));
             });
         }
+        // Camera + View Once — moved in from the old standalone toolbar
+        // buttons (btn_camera / btn_view_once) as part of the "+"
+        // consolidation. Same actions, one entry point.
+        View optCamera = v.findViewById(R.id.opt_camera);
+        if (optCamera != null) {
+            optCamera.setOnClickListener(x -> { sheet.dismiss(); launchCamera(); });
+        }
+        View optViewOnce = v.findViewById(R.id.opt_view_once);
+        if (optViewOnce != null) {
+            optViewOnce.setOnClickListener(x -> { sheet.dismiss(); delegate.showViewOnceExpiryPicker(); });
+        }
         sheet.setContentView(v);
         sheet.show();
     }
