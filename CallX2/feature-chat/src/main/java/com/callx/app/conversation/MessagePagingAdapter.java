@@ -5585,8 +5585,11 @@ public class MessagePagingAdapter
             // via onReactionsClick() in bindCanvasMessage()'s click
             // listener (set once per full bind — no separate listener to
             // reattach here, unlike the legacy llReactions view).
-            if (formatted != null) h.canvasView.setReactions(formatted);
-            else h.canvasView.clearReactions();
+            if (formatted != null) {
+                h.canvasView.setReactions(formatted, primaryReactionCatalogId(m.reactions));
+            } else {
+                h.canvasView.clearReactions();
+            }
             return;
         }
         if (h.llReactions == null || h.tvReactions == null) return;
@@ -5600,6 +5603,23 @@ public class MessagePagingAdapter
             h.llReactions.setVisibility(View.GONE);
             h.llReactions.setOnClickListener(null);
         }
+    }
+
+    /** Whichever emoji formatReactions() puts FIRST in the badge (the
+     *  earliest-added distinct reaction) — if it's one of the six bundled
+     *  quick-reactions, its catalog id so the canvas badge can animate it;
+     *  null for a custom emoji from the full picker, which stays a plain
+     *  static glyph in the badge (same as before). */
+    @Nullable
+    private String primaryReactionCatalogId(@Nullable java.util.Map<String, String> rxMap) {
+        if (rxMap == null || rxMap.isEmpty()) return null;
+        for (String emoji : rxMap.values()) {
+            com.callx.app.utils.ReactionEmojiCatalog.Entry entry =
+                    com.callx.app.utils.ReactionEmojiCatalog.findByUnicode(emoji);
+            if (entry != null) return entry.id;
+            return null; // first-inserted emoji isn't a quick-reaction — don't animate a later one out of order
+        }
+        return null;
     }
 
     /** Shared emoji-counting/formatting logic for both the legacy

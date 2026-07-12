@@ -33,4 +33,16 @@ public final class ReactionEmojiCatalog {
         new Entry("sad",   "\uD83D\uDE22"),
         new Entry("angry", "\uD83D\uDE21"),
     };
+
+    /** @return the catalog entry whose unicode glyph matches, or null if
+     *  {@code unicode} is a custom emoji picked from the full picker (not
+     *  one of the six bundled quick-reactions). */
+    @androidx.annotation.Nullable
+    public static Entry findByUnicode(@androidx.annotation.Nullable String unicode) {
+        if (unicode == null) return null;
+        for (Entry e : QUICK_REACTIONS) {
+            if (e.unicode.equals(unicode)) return e;
+        }
+        return null;
+    }
 }
