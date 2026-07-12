@@ -642,13 +642,6 @@
                 app:cardPreventCornerOverlap="false"
                 app:cardUseCompatPadding="true">
 
-                <!-- Gradient layer — same technique as the header capsule.
-                     Stroke above still draws on the card outline itself. -->
-                <View
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:background="@drawable/bg_input_capsule_gradient"/>
-
                 <!-- Input row -->
                 <LinearLayout
                     android:id="@+id/ll_input_row"
@@ -659,7 +652,7 @@
                     android:paddingEnd="4dp"
                     android:paddingTop="4dp"
                     android:paddingBottom="4dp"
-                    android:background="@android:color/transparent"
+                    android:background="@drawable/bg_input_capsule_gradient"
                     android:gravity="center_vertical">
                     <!--
                         CONSOLIDATED "+" BUTTON — replaces the old 3 separate
@@ -751,6 +744,7 @@
                     android:paddingEnd="10dp"
                     android:paddingTop="4dp"
                     android:paddingBottom="4dp"
+                    android:background="@drawable/bg_input_capsule_gradient"
                     android:gravity="center_vertical"
                     android:visibility="gone">
 
@@ -897,21 +891,12 @@
             app:cardPreventCornerOverlap="false"
             app:cardUseCompatPadding="true">
 
-            <!-- Gradient layer — sits behind the toolbar row, clipped to the
-                 card's rounded outline automatically. Card bg is transparent
-                 above so this is the only paint source (single draw, no
-                 extra overdraw vs the old flat cardBackgroundColor). -->
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:background="@drawable/bg_header_capsule_gradient"/>
-
             <!-- WhatsApp-style Chat Header -->
             <LinearLayout
                 android:id="@+id/toolbar"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:background="@android:color/transparent"
+                android:background="@drawable/bg_header_capsule_gradient"
                 android:orientation="horizontal"
                 android:gravity="center_vertical"
                 android:paddingTop="4dp"
