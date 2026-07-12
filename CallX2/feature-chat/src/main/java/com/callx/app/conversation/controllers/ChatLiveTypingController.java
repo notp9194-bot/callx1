@@ -114,9 +114,10 @@ public class ChatLiveTypingController {
 
         if (text == null || text.isEmpty()) {
             binding.llLiveTypingPreview.setVisibility(View.GONE);
+            binding.llLiveTypingPreview.clearPreview();
             return;
         }
-        binding.tvLiveTypingPreview.setText(text);
+        binding.llLiveTypingPreview.setPreviewText(text);
         binding.llLiveTypingPreview.setVisibility(View.VISIBLE);
     }
 

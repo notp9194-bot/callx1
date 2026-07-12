@@ -412,8 +412,13 @@
              character by character, before they hit send. Sits just above
              the input bar so it never overlaps ll_typing_strip's avatar
              pill (that one shows WHO is typing; this one shows WHAT).
-             Driven by ChatLiveTypingController. ══════════════════════════ -->
-        <LinearLayout
+             Driven by ChatLiveTypingController. Rendered by
+             LiveTypingCanvasView — ONE view painting both the "typing
+             live" label and the wrapped draft text directly via Canvas,
+             replacing what used to be a LinearLayout + two child TextViews
+             re-measuring/re-drawing on every single keystroke the partner
+             makes. ══════════════════════════ -->
+        <com.callx.app.conversation.canvas.LiveTypingCanvasView
             android:id="@+id/ll_live_typing_preview"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
@@ -421,35 +426,14 @@
             android:layout_marginStart="10dp"
             android:layout_marginEnd="70dp"
             android:layout_marginBottom="66dp"
-            android:orientation="vertical"
             android:background="@drawable/bg_watching_strip"
             android:paddingStart="10dp"
             android:paddingEnd="10dp"
             android:paddingTop="6dp"
             android:paddingBottom="6dp"
-            android:visibility="gone">
-
-            <TextView
-                android:id="@+id/tv_live_typing_label"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="typing live"
-                android:textColor="#C7D2FE"
-                android:textSize="9sp"
-                android:textStyle="bold"/>
-
-            <TextView
-                android:id="@+id/tv_live_typing_preview"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="2dp"
-                android:maxWidth="220dp"
-                android:maxLines="3"
-                android:ellipsize="none"
-                android:textColor="#FFFFFF"
-                android:textSize="13sp"/>
-
-        </LinearLayout>
+            android:clickable="false"
+            android:focusable="false"
+            android:visibility="gone"/>
 
         <!-- ══════════════════════════════════════════════════════════════
              EMOJI BURST OVERLAY — when the partner sends an emoji-only
