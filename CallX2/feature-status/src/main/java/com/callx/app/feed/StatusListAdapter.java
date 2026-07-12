@@ -38,6 +38,7 @@ package com.callx.app.feed;
       public static final int TYPE_CONTACT       = 2;
       public static final int TYPE_MUTED_HEADER  = 3;
       public static final int TYPE_MUTED_CONTACT = 4;
+      public static final int TYPE_CAROUSEL      = 6; // v27: horizontal status-card carousel
 
       // ── Highlight album model ─────────────────────────────────────────────
       public static class HighlightAlbum {
@@ -45,6 +46,28 @@ package com.callx.app.feed;
           public final String coverUrl;
           public HighlightAlbum(String title, String coverUrl) {
               this.title = title; this.coverUrl = coverUrl;
+          }
+      }
+
+      // ── v27: Card model for horizontal status carousel (WhatsApp-style) ────
+      public static class CardItem {
+          public final boolean isMine;
+          public final boolean hasStatus;
+          public final String  ownerUid, ownerName, ownerPhoto, thumbUrl, bgColor;
+          public final boolean unseen;
+          public final boolean isMuted;
+          public CardItem(boolean isMine, boolean hasStatus, String ownerUid, String ownerName,
+                          String ownerPhoto, String thumbUrl, String bgColor,
+                          boolean unseen, boolean isMuted) {
+              this.isMine     = isMine;
+              this.hasStatus  = hasStatus;
+              this.ownerUid   = ownerUid;
+              this.ownerName  = ownerName;
+              this.ownerPhoto = ownerPhoto;
+              this.thumbUrl   = thumbUrl;
+              this.bgColor    = bgColor;
+              this.unseen     = unseen;
+              this.isMuted    = isMuted;
           }
       }
 
@@ -91,12 +114,15 @@ package com.callx.app.feed;
       private static final int ITEM_ROW     = 2;
       private static final int ITEM_MUT_HDR = 3;
       private static final int ITEM_MUT_ROW = 4;
+      private static final int ITEM_CAROUSEL = 6; // v27: horizontal status-card carousel
 
       private static class FlatItem {
           int    kind;
           String header;
           Entry  entry;
+          List<CardItem> carouselItems; // v27: populated only for ITEM_CAROUSEL
           FlatItem(int k, String h, Entry e) { kind = k; header = h; entry = e; }
+          FlatItem(int k, List<CardItem> cards) { kind = k; carouselItems = cards; }
       }
 
       // ── State ─────────────────────────────────────────────────────────────
@@ -109,6 +135,11 @@ package com.callx.app.feed;
       private List<FlatItem>         items = new ArrayList<>();
       private List<HighlightAlbum>   highlights = new ArrayList<>(); // FIX: new
       private int myStatusCount = 0;
+      // v27: cached last section lists, so rebuildFlatList() (highlights-only refresh) can
+      // reconstruct the carousel without needing to parse it back out of flat items.
+      private List<Entry> lastUnseen = new ArrayList<>();
+      private List<Entry> lastSeen   = new ArrayList<>();
+      private List<Entry> lastMuted  = new ArrayList<>();
       private final SimpleDateFormat timeFmt =
               new SimpleDateFormat("HH:mm", Locale.getDefault());
 
@@ -158,8 +189,33 @@ package com.callx.app.feed;
       public void update(List<Entry> unseen, List<Entry> seen, List<Entry> muted) {
           final int prevMyCount = myStatusCount;
           myStatusCount = myStatuses.size();
+          lastUnseen = unseen; lastSeen = seen; lastMuted = muted;
           List<FlatItem> next = buildFlatItems(unseen, seen, muted);
           dispatchDiff(next, prevMyCount);
+      }
+
+      // v27: builds the "My status" tile + all contact statuses into one CardItem list
+      // that's rendered as a single horizontal scrolling carousel (WhatsApp-style cards),
+      // instead of the old vertical "My status" row + "Recent/Viewed updates" list rows.
+      private List<CardItem> buildCarouselItems(List<Entry> unseen, List<Entry> seen) {
+          List<CardItem> cards = new ArrayList<>();
+          if (myStatuses.isEmpty()) {
+              cards.add(new CardItem(true, false, myUid, "My Status", null, null, null, false, false));
+          } else {
+              StatusItem latest = myStatuses.get(myStatuses.size() - 1);
+              String thumb = latest.thumbnailUrl != null ? latest.thumbnailUrl : latest.mediaUrl;
+              cards.add(new CardItem(true, true, myUid, "My Status", latest.ownerPhoto, thumb, latest.bgColor, false, false));
+          }
+          for (Entry e : unseen) cards.add(entryToCard(e, true));
+          for (Entry e : seen)   cards.add(entryToCard(e, false));
+          return cards;
+      }
+
+      private CardItem entryToCard(Entry e, boolean unseen) {
+          StatusItem latest = e.latestItem;
+          String thumb = latest != null ? (latest.thumbnailUrl != null ? latest.thumbnailUrl : latest.mediaUrl) : null;
+          String bg = latest != null ? latest.bgColor : null;
+          return new CardItem(false, true, e.ownerUid, e.ownerName, e.ownerPhoto, thumb, bg, unseen, e.isMuted);
       }
 
       private List<FlatItem> buildFlatItems(List<Entry> unseen, List<Entry> seen, List<Entry> muted) {
@@ -168,15 +224,8 @@ package com.callx.app.feed;
           if (!highlights.isEmpty()) {
               next.add(new FlatItem(ITEM_HIGHLIGHTS, null, null));
           }
-          next.add(new FlatItem(ITEM_MY, null, null));
-          if (!unseen.isEmpty()) {
-              next.add(new FlatItem(ITEM_HDR, "Recent updates", null));
-              for (Entry e : unseen) next.add(new FlatItem(ITEM_ROW, null, e));
-          }
-          if (!seen.isEmpty()) {
-              next.add(new FlatItem(ITEM_HDR, "Viewed updates", null));
-              for (Entry e : seen) next.add(new FlatItem(ITEM_ROW, null, e));
-          }
+          // v27: My-status + contacts now render as one horizontal card carousel
+          next.add(new FlatItem(ITEM_CAROUSEL, buildCarouselItems(unseen, seen)));
           if (!muted.isEmpty()) {
               next.add(new FlatItem(ITEM_MUT_HDR, "Muted", null));
               for (Entry e : muted) next.add(new FlatItem(ITEM_MUT_ROW, null, e));
@@ -185,23 +234,11 @@ package com.callx.app.feed;
       }
 
       private void rebuildFlatList(List<FlatItem> old) {
-          // Called when only highlights change — extract existing entry lists and rebuild
-          List<Entry> unseen = new ArrayList<>(), seen = new ArrayList<>(), muted = new ArrayList<>();
-          boolean inUnseen = false, inSeen = false, inMuted = false;
-          for (FlatItem fi : old) {
-              if (fi.kind == ITEM_HDR && "Recent updates".equals(fi.header)) { inUnseen=true; inSeen=false; inMuted=false; }
-              else if (fi.kind == ITEM_HDR && "Viewed updates".equals(fi.header)) { inUnseen=false; inSeen=true; inMuted=false; }
-              else if (fi.kind == ITEM_MUT_HDR) { inUnseen=false; inSeen=false; inMuted=true; }
-              else if (fi.kind == ITEM_ROW && fi.entry != null) {
-                  if (inUnseen) unseen.add(fi.entry);
-                  else if (inSeen) seen.add(fi.entry);
-              } else if (fi.kind == ITEM_MUT_ROW && fi.entry != null) {
-                  if (inMuted) muted.add(fi.entry);
-              }
-          }
+          // Called when only highlights change — reuse the cached section lists
+          // rather than re-parsing the flat list (carousel no longer exposes rows).
           final int prevMyCount = myStatusCount;
           myStatusCount = myStatuses.size();
-          List<FlatItem> next = buildFlatItems(unseen, seen, muted);
+          List<FlatItem> next = buildFlatItems(lastUnseen, lastSeen, lastMuted);
           dispatchDiff(next, prevMyCount);
       }
 
@@ -215,6 +252,7 @@ package com.callx.app.feed;
                   FlatItem o = old.get(op), n = next.get(np);
                   if (o.kind != n.kind) return false;
                   if (o.kind == ITEM_HIGHLIGHTS) return true;
+                  if (o.kind == ITEM_CAROUSEL) return true; // singleton item
                   if (o.kind == ITEM_HDR || o.kind == ITEM_MUT_HDR)
                       return java.util.Objects.equals(o.header, n.header);
                   if (o.kind == ITEM_ROW || o.kind == ITEM_MUT_ROW)
@@ -225,6 +263,7 @@ package com.callx.app.feed;
               @Override public boolean areContentsTheSame(int op, int np) {
                   FlatItem o = old.get(op), n = next.get(np);
                   if (o.kind == ITEM_HIGHLIGHTS) return highlights.size() == highlights.size(); // always false = re-bind
+                  if (o.kind == ITEM_CAROUSEL) return false; // always re-bind, nested RV handles its own diffing
                   if (o.kind == ITEM_ROW || o.kind == ITEM_MUT_ROW) {
                       if (o.entry == null || n.entry == null) return false;
                       return o.entry.unseenCount == n.entry.unseenCount
@@ -246,6 +285,7 @@ package com.callx.app.feed;
       @Override public int getItemViewType(int pos) {
           switch (items.get(pos).kind) {
               case ITEM_HIGHLIGHTS: return TYPE_HIGHLIGHTS;
+              case ITEM_CAROUSEL:   return TYPE_CAROUSEL;
               case ITEM_MY:         return TYPE_MY_STATUS;
               case ITEM_HDR:        return TYPE_SECTION_HEADER;
               case ITEM_MUT_HDR:    return TYPE_MUTED_HEADER;
@@ -262,6 +302,8 @@ package com.callx.app.feed;
           switch (vt) {
               case TYPE_HIGHLIGHTS:
                   return new HighlightsVH(li.inflate(R.layout.item_status_highlights, parent, false));
+              case TYPE_CAROUSEL:
+                  return new CarouselVH(li.inflate(R.layout.item_status_carousel, parent, false));
               case TYPE_MY_STATUS:
                   return new MyStatusVH(li.inflate(R.layout.item_my_status, parent, false));
               case TYPE_SECTION_HEADER:
@@ -277,6 +319,7 @@ package com.callx.app.feed;
           FlatItem fi = items.get(pos);
           Context ctx = holder.itemView.getContext();
           if (holder instanceof HighlightsVH) bindHighlights((HighlightsVH) holder, ctx);
+          else if (holder instanceof CarouselVH) bindCarousel((CarouselVH) holder, fi.carouselItems);
           else if (holder instanceof MyStatusVH) bindMyStatus((MyStatusVH) holder, ctx);
           else if (holder instanceof HeaderVH) {
               String label = fi.kind == ITEM_MUT_HDR ? "\uD83D\uDD07 Muted" : fi.header;
@@ -292,6 +335,30 @@ package com.callx.app.feed;
               if (onHighlightClick != null) onHighlightClick.onClick(album);
           });
           h.rvHighlights.setAdapter(albumAdapter);
+      }
+
+      // ── v27: Status carousel (horizontal, WhatsApp-style cards) ────────────
+      private void bindCarousel(CarouselVH h, List<CardItem> cards) {
+          if (cards == null) cards = new ArrayList<>();
+          if (h.rvCarousel.getLayoutManager() == null) {
+              h.rvCarousel.setLayoutManager(
+                      new LinearLayoutManager(h.itemView.getContext(), LinearLayoutManager.HORIZONTAL, false));
+          }
+          StatusCardAdapter cardAdapter = new StatusCardAdapter(cards, card -> {
+              if (card.isMine) {
+                  if (card.hasStatus) { if (onMyStatusClick != null) onMyStatusClick.run(); }
+                  else                { if (onAddStatusClick != null) onAddStatusClick.run(); }
+              } else if (!card.isMuted && onContactClick != null) {
+                  onContactClick.onClick(card.ownerUid, card.ownerName);
+              } else if (card.isMuted) {
+                  android.widget.Toast.makeText(h.itemView.getContext(),
+                          card.ownerName + " is muted. Long press to unmute.",
+                          android.widget.Toast.LENGTH_SHORT).show();
+              }
+          }, card -> {
+              if (!card.isMine && onLongPress != null) onLongPress.onLongPress(card.ownerUid, card.ownerName, card.isMuted);
+          });
+          h.rvCarousel.setAdapter(cardAdapter);
       }
 
       // ── My-Status ─────────────────────────────────────────────────────────
@@ -411,6 +478,15 @@ package com.callx.app.feed;
           }
       }
 
+      // v27: holder for the horizontal status-card carousel
+      static class CarouselVH extends RecyclerView.ViewHolder {
+          RecyclerView rvCarousel;
+          CarouselVH(View v) {
+              super(v);
+              rvCarousel = v.findViewById(R.id.rv_status_carousel);
+          }
+      }
+
       static class MyStatusVH extends RecyclerView.ViewHolder {
           CircleImageView ivAvatar;
           ImageView ivAdd, ring, ivThumb;
@@ -473,6 +549,81 @@ package com.callx.app.feed;
               CircleImageView ivCover;
               TextView tvTitle;
               VH(View v) { super(v); ivCover = v.findViewById(R.id.iv_highlight_cover); tvTitle = v.findViewById(R.id.tv_highlight_title); }
+          }
+      }
+
+      // ── v27: Inner adapter for the horizontal status-card carousel ─────────
+      static class StatusCardAdapter extends RecyclerView.Adapter<StatusCardAdapter.VH> {
+          private final List<CardItem> cards;
+          private final java.util.function.Consumer<CardItem> onClick;
+          private final java.util.function.Consumer<CardItem> onLongClick;
+
+          StatusCardAdapter(List<CardItem> cards,
+                             java.util.function.Consumer<CardItem> onClick,
+                             java.util.function.Consumer<CardItem> onLongClick) {
+              this.cards = cards;
+              this.onClick = onClick;
+              this.onLongClick = onLongClick;
+          }
+
+          @NonNull @Override
+          public VH onCreateViewHolder(@NonNull ViewGroup parent, int vt) {
+              return new VH(LayoutInflater.from(parent.getContext())
+                      .inflate(R.layout.item_status_card, parent, false));
+          }
+
+          @Override public void onBindViewHolder(@NonNull VH h, int pos) {
+              CardItem c = cards.get(pos);
+              Context ctx = h.itemView.getContext();
+
+              h.tvName.setText(c.isMine ? "My Status" : (c.ownerName != null ? c.ownerName : ""));
+
+              // Card background image: latest status media, or the owner's profile photo,
+              // or a plain color fallback (already set as the ImageView's default background).
+              String bg = c.thumbUrl != null && !c.thumbUrl.isEmpty() ? c.thumbUrl : c.ownerPhoto;
+              if (bg != null && !bg.isEmpty()) {
+                  Glide.with(ctx).load(bg).centerCrop()
+                          .placeholder(R.drawable.ic_person)
+                          .into(h.ivBg);
+              } else {
+                  h.ivBg.setImageResource(R.drawable.ic_person);
+              }
+
+              if (c.ownerPhoto != null && !c.ownerPhoto.isEmpty())
+                  Glide.with(ctx).load(c.ownerPhoto).placeholder(R.drawable.ic_person).into(h.ivAvatar);
+              else
+                  h.ivAvatar.setImageResource(R.drawable.ic_person);
+
+              if (c.isMine && !c.hasStatus) {
+                  // "Add status" tile — grey ring, plus badge, no status yet
+                  h.ring.setVisibility(View.GONE);
+                  h.ivAddBadge.setVisibility(View.VISIBLE);
+              } else {
+                  h.ring.setVisibility(View.VISIBLE);
+                  h.ring.setBackgroundResource(c.isMuted ? R.drawable.circle_status_seen
+                          : c.unseen || c.isMine ? R.drawable.circle_status_unseen : R.drawable.circle_status_seen);
+                  h.ring.setAlpha(c.isMuted ? 0.4f : 1f);
+                  h.ivAddBadge.setVisibility(c.isMine ? View.VISIBLE : View.GONE);
+              }
+
+              h.itemView.setOnClickListener(v -> { if (onClick != null) onClick.accept(c); });
+              h.itemView.setOnLongClickListener(v -> { if (onLongClick != null) onLongClick.accept(c); return true; });
+          }
+
+          @Override public int getItemCount() { return cards.size(); }
+
+          static class VH extends RecyclerView.ViewHolder {
+              ImageView ivBg, ring, ivAddBadge;
+              CircleImageView ivAvatar;
+              TextView tvName;
+              VH(View v) {
+                  super(v);
+                  ivBg       = v.findViewById(R.id.iv_card_bg);
+                  ring       = v.findViewById(R.id.ring);
+                  ivAvatar   = v.findViewById(R.id.iv_card_avatar);
+                  ivAddBadge = v.findViewById(R.id.iv_card_add);
+                  tvName     = v.findViewById(R.id.tv_card_name);
+              }
           }
       }
   }
