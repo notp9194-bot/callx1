@@ -276,7 +276,6 @@ public class MessageBubbleCanvasView extends View {
     static final float REACTIONS_MARGIN_END_DP = 4f;
     static final float REACTIONS_OVERLAP_DP   = 14f; // how far the badge hangs below the bubble's bottom edge (matches layout_marginBottom="-14dp")
     static final int   REACTIONS_SHADOW_COLOR = 0x66000000;
-    static final float REACTIONS_ICON_GAP_DP  = 3f; // gap between the animated primary-reaction icon and the trailing count/other-emoji text
 
     // ── Pinned label — mirrors tv_pinned_label's text/size/color from
     // item_message_sent.xml ("📌 Pinned", 10sp, #E65100). That XML view was
@@ -1174,20 +1173,6 @@ public class MessageBubbleCanvasView extends View {
     boolean hasReactions = false;
     String reactionsText = "";
     final TextPaint reactionsTextPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
-    // Real animated RLottie icon for the badge's primary reaction (replaces
-    // the plain unicode glyph at the start of reactionsText when the
-    // reaction matches one of the six bundled quick-reaction assets — see
-    // ReactionEmojiCatalog / setReactions(text, catalogId) below). This
-    // view has no child Views (pure Canvas drawing), so unlike the picker
-    // (which uses the real RLottieViewWrapper) the drawable is driven
-    // directly: setCallback(this) makes View#invalidateDrawable() repaint
-    // us on every frame, and draw(Canvas) blits the current frame bitmap.
-    private com.aghajari.rlottie.AXrLottieDrawable reactionLottieDrawable;
-    // Exact unicode glyph the loaded drawable stands in for — its Java
-    // char-length tells us where in reactionsText the plain-text remainder
-    // (count + any other distinct emoji) starts, so we never re-measure or
-    // duplicate the glyph itself.
-    private String reactionLottieGlyphPrefix;
     final RectF reactionsRect = new RectF();
     // PERF ADV: cached FontMetrics — getFontMetrics() allocates a new object
     // every call.  Since reactionsTextPaint's size/style never changes after
@@ -3206,95 +3191,16 @@ public class MessageBubbleCanvasView extends View {
      *             is treated the same as clearReactions().
      */
     public void setReactions(@Nullable String text) {
-        setReactions(text, null);
-    }
-
-    /**
-     * Same as {@link #setReactions(String)} but additionally animates the
-     * FIRST/primary emoji in {@code text} as a real RLottie icon instead of
-     * a static glyph, when it's one of the six bundled quick-reactions.
-     *
-     * @param catalogId {@link com.callx.app.utils.ReactionEmojiCatalog}
-     *                  entry id (e.g. "heart") whose unicode glyph is the
-     *                  leading token of {@code text}, or null to fall back
-     *                  to the plain static-text badge (custom/non-catalog
-     *                  emoji, or multiple distinct reactions where the lead
-     *                  reaction isn't a quick-reaction).
-     */
-    public void setReactions(@Nullable String text, @Nullable String catalogId) {
         this.hasReactions = text != null && !text.isEmpty();
         this.reactionsText = text != null ? text : "";
-        releaseReactionLottie(); // always rebuild fresh — cheap (bundled asset), avoids any stale-state edge case
-        if (this.hasReactions && catalogId != null) {
-            com.callx.app.utils.ReactionEmojiCatalog.Entry match = null;
-            for (com.callx.app.utils.ReactionEmojiCatalog.Entry e
-                    : com.callx.app.utils.ReactionEmojiCatalog.QUICK_REACTIONS) {
-                if (catalogId.equals(e.id)) { match = e; break; }
-            }
-            if (match != null && this.reactionsText.startsWith(match.unicode)) {
-                try {
-                    reactionLottieDrawable = com.aghajari.rlottie.AXrLottieDrawable
-                            .fromAssets(getContext(), "lottie/reaction_" + catalogId + ".json")
-                            .build();
-                    reactionLottieDrawable.setAutoRepeat(true);
-                    reactionLottieDrawable.setCallback(this);
-                    reactionLottieDrawable.start();
-                    reactionLottieGlyphPrefix = match.unicode;
-                } catch (Throwable t) {
-                    // Bundled-asset load should never fail, but if it does,
-                    // reactionsText's own glyph (already correct) is the
-                    // fallback — never a blank badge.
-                    reactionLottieDrawable = null;
-                    reactionLottieGlyphPrefix = null;
-                }
-            }
-        }
         requestLayoutIfSizeChanged();
         invalidate();
     }
 
-    /** Stops + recycles the native animation and detaches the Drawable
-     *  callback. Safe to call even if nothing is loaded. Called on every
-     *  setReactions()/clearReactions() (so a recycled bubble never inherits
-     *  a previous message's animation) and from onDetachedFromWindow() (so
-     *  a bubble that's recycled out of the RecyclerView pool never leaks
-     *  native memory while off-screen). */
-    private void releaseReactionLottie() {
-        if (reactionLottieDrawable != null) {
-            reactionLottieDrawable.stop();
-            reactionLottieDrawable.setCallback(null);
-            reactionLottieDrawable.recycle();
-            reactionLottieDrawable = null;
-        }
-        reactionLottieGlyphPrefix = null;
-    }
-
     /** Call when a message has no reactions — clears any previous badge state so a recycled view doesn't show a stale reaction. */
-    /** View's default verifyDrawable() only recognizes its own background
-     *  drawable — since reactionLottieDrawable is drawn manually in
-     *  drawReactionsBadge() (not set as a background), the default would
-     *  make invalidateDrawable() (called every frame via setCallback(this))
-     *  silently drop our repaint requests, freezing the animation on its
-     *  first frame. */
-    @Override
-    protected boolean verifyDrawable(android.graphics.drawable.Drawable who) {
-        return who == reactionLottieDrawable || super.verifyDrawable(who);
-    }
-
-    /** Recycled bubbles get detached from the window when scrolled off and
-     *  put back in RecyclerView's pool — release the native animation here
-     *  so it can't keep decoding/redrawing (or leak memory) off-screen.
-     *  setReactions() rebuilds it fresh if/when this view is rebound. */
-    @Override
-    protected void onDetachedFromWindow() {
-        super.onDetachedFromWindow();
-        releaseReactionLottie();
-    }
-
     public void clearReactions() {
         this.hasReactions = false;
         this.reactionsText = "";
-        releaseReactionLottie();
         requestLayoutIfSizeChanged();
         invalidate();
     }
@@ -4449,16 +4355,8 @@ public class MessageBubbleCanvasView extends View {
             float marginEnd = REACTIONS_MARGIN_END_DP * density;
             float overlap = REACTIONS_OVERLAP_DP * density;
             Paint.FontMetrics fm = reactionsTextPaint.getFontMetrics();
+            float badgeW = reactionsTextPaint.measureText(reactionsText);
             float badgeH = fm.descent - fm.ascent;
-            float badgeW;
-            if (reactionLottieDrawable != null && reactionLottieGlyphPrefix != null) {
-                float remainderW = reactionsTextPaint.measureText(
-                        reactionsText, reactionLottieGlyphPrefix.length(), reactionsText.length());
-                float iconGap = REACTIONS_ICON_GAP_DP * density;
-                badgeW = badgeH + iconGap + remainderW; // icon drawn as a badgeH-square
-            } else {
-                badgeW = reactionsTextPaint.measureText(reactionsText);
-            }
             float right = bubbleRect.right - marginEnd;
             float bottom = bubbleRect.bottom + overlap;
             reactionsRect.set(right - badgeW, bottom - badgeH, right, bottom);
@@ -4714,20 +4612,7 @@ public class MessageBubbleCanvasView extends View {
         // object on every call, adding GC pressure at 60fps during scroll.
         if (reactionsTextFM == null) reactionsTextFM = reactionsTextPaint.getFontMetrics();
         float baselineY = reactionsRect.bottom - reactionsTextFM.descent;
-        if (reactionLottieDrawable != null && reactionLottieGlyphPrefix != null) {
-            int left = Math.round(reactionsRect.left);
-            int top = Math.round(reactionsRect.top);
-            int iconSize = Math.round(reactionsRect.height());
-            reactionLottieDrawable.setBounds(left, top, left + iconSize, top + iconSize);
-            reactionLottieDrawable.draw(canvas);
-            float textStartX = reactionsRect.left + iconSize + REACTIONS_ICON_GAP_DP * density;
-            int glyphLen = reactionLottieGlyphPrefix.length();
-            if (glyphLen < reactionsText.length()) {
-                canvas.drawText(reactionsText, glyphLen, reactionsText.length(), textStartX, baselineY, reactionsTextPaint);
-            }
-        } else {
-            canvas.drawText(reactionsText, reactionsRect.left, baselineY, reactionsTextPaint);
-        }
+        canvas.drawText(reactionsText, reactionsRect.left, baselineY, reactionsTextPaint);
     }
 
     private void drawPinnedLabel(Canvas canvas) {

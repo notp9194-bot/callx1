@@ -1,15 +1,12 @@
 package com.callx.app.utils;
 
 /**
- * Bridges the RLottie-backed reaction picker to the existing unicode-emoji
- * data contract (Message#reactions is Map<uid, unicode-emoji-string>, same
- * shape in Firebase + Room — see ReactionJsonUtil). Nothing about *storage*
- * changes: tapping a reaction still calls onReact(message, unicodeEmoji).
- *
- * This catalog only maps each quick-reaction slot to the LottieAssetCache
- * key (EmojiPackDownloadWorker.CACHE_KEY_PREFIX + id) the picker should try
- * to animate instead of the plain unicode glyph. If that file isn't cached
- * yet, callers fall back to the unicode glyph — never a blank slot.
+ * Quick-reaction slot catalog for the chat long-press reaction picker.
+ * Maps each slot's id to the unicode emoji that's actually stored/sent
+ * (Message#reactions is Map<uid, unicode-emoji-string>, same shape in
+ * Firebase + Room — see ReactionJsonUtil). The picker renders these as
+ * plain unicode glyphs (see MessagePagingAdapter#buildUnicodeReactionGlyph)
+ * — no RLottie/animated-sticker rendering here anymore.
  */
 public final class ReactionEmojiCatalog {
 
@@ -33,16 +30,4 @@ public final class ReactionEmojiCatalog {
         new Entry("sad",   "\uD83D\uDE22"),
         new Entry("angry", "\uD83D\uDE21"),
     };
-
-    /** @return the catalog entry whose unicode glyph matches, or null if
-     *  {@code unicode} is a custom emoji picked from the full picker (not
-     *  one of the six bundled quick-reactions). */
-    @androidx.annotation.Nullable
-    public static Entry findByUnicode(@androidx.annotation.Nullable String unicode) {
-        if (unicode == null) return null;
-        for (Entry e : QUICK_REACTIONS) {
-            if (e.unicode.equals(unicode)) return e;
-        }
-        return null;
-    }
 }
