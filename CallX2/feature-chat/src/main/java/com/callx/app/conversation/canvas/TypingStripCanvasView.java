@@ -216,7 +216,7 @@ public class TypingStripCanvasView extends View {
             Glide.with(getContext()).clear(pendingAvatarTarget);
         }
         pendingAvatarTarget = new CustomTarget<Bitmap>() {
-            @Override public void onResourceReady(androidx.annotation.NonNull Bitmap resource,
+            @Override public void onResourceReady(@androidx.annotation.NonNull Bitmap resource,
                                                     @Nullable Transition<? super Bitmap> transition) {
                 avatarBitmap = resource;
                 if (avatarBoundsInt.isEmpty()) invalidate();
