@@ -112,13 +112,14 @@
         android:gravity="center_vertical"
         android:visibility="gone"/>
 
-    <!-- Double tap like animation — RLottie animated heart (assets/lottie/like_heart.json),
-         plays once per trigger via ReelSocialController#showLikeAnimation(). -->
-    <com.callx.app.views.RLottieView
+    <!-- Double tap like animation -->
+    <ImageView
         android:id="@+id/iv_like_anim"
-        android:layout_width="140dp"
-        android:layout_height="140dp"
+        android:layout_width="100dp"
+        android:layout_height="100dp"
         android:layout_gravity="center"
+        android:src="@drawable/ic_heart_filled"
+        android:tint="#FF416C"
         android:visibility="gone"
         android:alpha="0"
         android:contentDescription="Like animation"/>

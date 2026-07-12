@@ -42,7 +42,7 @@ android {
         // ── Dex Layout: keep hot classes in primary dex ───────────────
         // Cold start + chat open pe class loader ko secondary dex I/O
         // nahi karna padta — ~30-80ms measurable gain on ARM64 devices.
-        multiDexEnabled true
+        multiDexEnabled false
         multiDexKeepProguard file('src/main/multidex-config.pro')
 
         ndk {

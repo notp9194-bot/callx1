@@ -7,6 +7,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
 import android.widget.ImageButton;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -17,7 +18,6 @@ import com.callx.app.models.ReelModel;
 import com.callx.app.profile.UserReelsActivity;
 import com.callx.app.reels.R;
 import com.callx.app.utils.FirebaseUtils;
-import com.callx.app.views.RLottieView;
 import com.callx.app.workers.ReelRepostWorker;
 import com.google.firebase.database.DataSnapshot;
 import com.google.firebase.database.DatabaseError;
@@ -55,7 +55,7 @@ public class ReelSocialController {
     private View        btnFollowOverlay;
     private LinearLayout layoutReactions;
     private LinearLayout layoutLiveReactions;
-    private RLottieView ivLikeAnim;
+    private ImageView   ivLikeAnim;
 
     // Floating liker avatars
     private FrameLayout      llLikersAvatarRow;
@@ -243,11 +243,6 @@ public class ReelSocialController {
         ivLikeAnim.setAlpha(1f);
         ivLikeAnim.setScaleX(0.3f);
         ivLikeAnim.setScaleY(0.3f);
-        // RLottie animated heart (assets/lottie/like_heart.json) — same
-        // hand-built heartbeat animation that used to live in the chat
-        // reaction picker, now bundled here instead and played once per
-        // double-tap.
-        ivLikeAnim.playFromAsset("lottie/like_heart.json");
 
         AnimatorSet set = new AnimatorSet();
         ObjectAnimator scaleX = ObjectAnimator.ofFloat(ivLikeAnim, "scaleX", 0.3f, 1.2f, 1.0f);
@@ -721,6 +716,5 @@ public class ReelSocialController {
         if (floatAnim1 != null) { floatAnim1.cancel(); floatAnim1 = null; }
         if (floatAnim2 != null) { floatAnim2.cancel(); floatAnim2 = null; }
         if (floatAnim3 != null) { floatAnim3.cancel(); floatAnim3 = null; }
-        if (ivLikeAnim != null) ivLikeAnim.release();
     }
 }

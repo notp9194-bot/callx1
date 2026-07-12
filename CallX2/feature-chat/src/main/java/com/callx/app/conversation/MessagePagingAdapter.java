@@ -4951,46 +4951,11 @@ public class MessagePagingAdapter
     }
 
     private void showActionBottomSheet(Context ctx, Message m) {
-        try {
-            showActionBottomSheetInner(ctx, m);
-        } catch (Throwable t) {
-            // Immediate, same-session capture for any plain Java exception
-            // in the reaction-picker/action-sheet build. (Native SIGSEGV
-            // crashes can't be caught here — see CrashDebugHelper's
-            // breadcrumb mechanism for those, surfaced on next app launch.)
-            android.util.Log.e("ReactionPicker", "showActionBottomSheet crashed", t);
-            try {
-                android.widget.TextView msg = new android.widget.TextView(ctx);
-                int pad = (int) (16 * ctx.getResources().getDisplayMetrics().density);
-                msg.setPadding(pad, pad, pad, pad);
-                msg.setTextIsSelectable(true);
-                msg.setText(android.util.Log.getStackTraceString(t));
-                android.widget.ScrollView scroll = new android.widget.ScrollView(ctx);
-                scroll.addView(msg);
-                new android.app.AlertDialog.Builder(ctx)
-                        .setTitle("Reaction picker crashed (Java exception)")
-                        .setView(scroll)
-                        .setPositiveButton("OK", null)
-                        .show();
-            } catch (Throwable ignored) {}
-        }
-    }
-
-    private void showActionBottomSheetInner(Context ctx, Message m) {
         if (actionListener == null) return;
 
         // ── Step 1: Build emoji reaction row ──────────────────────────
-        // Plain unicode-glyph slots (no RLottie here anymore). RLottie
-        // was pulled out of the chat reaction picker entirely — the same
-        // hand-built heart animation that used to live at
-        // assets/lottie/reaction_heart.json now animates the Reels like
-        // button instead (see ReelSocialController.showLikeAnimation()).
-        // This picker just shows the real unicode glyph with a bounce/
-        // pop-in, which is also exactly what gets stored/applied on the
-        // message, so the preview and the applied reaction can never
-        // disagree.
-        com.callx.app.utils.ReactionEmojiCatalog.Entry[] QUICK_REACTIONS =
-                com.callx.app.utils.ReactionEmojiCatalog.QUICK_REACTIONS;
+        String[] QUICK_EMOJIS = {"\u2764\uFE0F", "\uD83D\uDC4D", "\uD83D\uDE02",
+                                  "\uD83D\uDE2E", "\uD83D\uDE22", "\uD83D\uDE21"};
         android.widget.LinearLayout emojiRow = new android.widget.LinearLayout(ctx);
         emojiRow.setOrientation(android.widget.LinearLayout.HORIZONTAL);
         emojiRow.setGravity(android.view.Gravity.CENTER);
@@ -5006,44 +4971,24 @@ public class MessagePagingAdapter
         // Keep a dialog reference so emoji tap can dismiss it
         final android.app.AlertDialog[] holder = new android.app.AlertDialog[1];
 
-        for (int qi = 0; qi < QUICK_REACTIONS.length; qi++) {
-            com.callx.app.utils.ReactionEmojiCatalog.Entry reaction = QUICK_REACTIONS[qi];
-            String emoji = reaction.unicode;
+        for (String emoji : QUICK_EMOJIS) {
+            android.widget.TextView tv = new android.widget.TextView(ctx);
+            tv.setText(emoji);
+            tv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 28);
+            int btnPad = (int)(10 * ctx.getResources().getDisplayMetrics().density);
+            tv.setPadding(btnPad, btnPad / 2, btnPad, btnPad / 2);
+            // Highlight whichever emoji the current user already reacted with —
+            // tapping it again removes the reaction (see ChatReactionController#toggleReaction).
             boolean already = currentUid != null && m.reactions != null
                     && emoji.equals(m.reactions.get(currentUid));
-            final float restScale = already ? 1.25f : 1.0f;
-
-            android.view.View slot = buildUnicodeReactionGlyph(ctx, emoji, already);
-
-            // Telegram-style staggered pop-in: slots animate in one after
-            // another instead of all appearing at once.
-            slot.setScaleX(0f);
-            slot.setScaleY(0f);
-            slot.setAlpha(0f);
-            slot.animate()
-                    .scaleX(restScale)
-                    .scaleY(restScale)
-                    .alpha(1f)
-                    .setStartDelay(qi * 30L)
-                    .setDuration(220)
-                    .setInterpolator(new android.view.animation.OvershootInterpolator(3f))
-                    .start();
-
-            slot.setOnClickListener(v -> {
-                // Quick punch-scale on tap, THEN apply + dismiss.
-                v.animate()
-                        .scaleX(restScale * 1.35f)
-                        .scaleY(restScale * 1.35f)
-                        .setDuration(90)
-                        .setInterpolator(new android.view.animation.DecelerateInterpolator())
-                        .withEndAction(() -> {
-                            actionListener.onReact(m, emoji);
-                            if (holder[0] != null) holder[0].dismiss();
-                        })
-                        .start();
+            tv.setAlpha(already ? 1.0f : 0.7f);
+            tv.setScaleX(already ? 1.25f : 1.0f);
+            tv.setScaleY(already ? 1.25f : 1.0f);
+            tv.setOnClickListener(v -> {
+                actionListener.onReact(m, emoji);
+                if (holder[0] != null) holder[0].dismiss();
             });
-
-            emojiRow.addView(slot);
+            emojiRow.addView(tv);
         }
 
         // FIX [P3-3]: "+" button → full emoji picker dialog (was dead/missing before)
@@ -5106,21 +5051,6 @@ public class MessagePagingAdapter
         android.app.AlertDialog dlgLongPress = builder.create();
         com.callx.app.utils.AlertDialogStyler.showRounded(dlgLongPress);
         holder[0] = dlgLongPress;
-    }
-
-    /** Plain unicode-glyph reaction slot for the quick-reaction row. This is
-     *  the same glyph that ends up stored/applied on the message, so the
-     *  picker preview and the applied reaction can never disagree. */
-    private android.view.View buildUnicodeReactionGlyph(Context ctx, String emoji, boolean highlighted) {
-        android.widget.TextView tv = new android.widget.TextView(ctx);
-        tv.setText(emoji);
-        tv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 28);
-        int btnPad = (int)(10 * ctx.getResources().getDisplayMetrics().density);
-        tv.setPadding(btnPad, btnPad / 2, btnPad, btnPad / 2);
-        tv.setAlpha(highlighted ? 1.0f : 0.7f);
-        tv.setScaleX(highlighted ? 1.25f : 1.0f);
-        tv.setScaleY(highlighted ? 1.25f : 1.0f);
-        return tv;
     }
 
     // FIX [P3-3]: Full emoji picker — 8-column scrollable grid of common emojis

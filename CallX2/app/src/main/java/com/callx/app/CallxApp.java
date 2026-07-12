@@ -71,18 +71,6 @@ public class CallxApp extends Application {
     public void onCreate() {
         super.onCreate();
 
-        // DEBUG: catch native RLottie crashes / uncaught Java exceptions
-        // from last run and surface them via the sPendingDebugError →
-        // AlertDialog mechanism below. Must run before anything else has
-        // a chance to crash again.
-        if (BuildConfig.DEBUG) {
-            com.callx.app.utils.CrashDebugHelper.installUncaughtHandler(this);
-            String lastCrash = com.callx.app.utils.CrashDebugHelper.consumePendingCrashReport(this);
-            if (lastCrash != null) {
-                sPendingDebugError = lastCrash;
-            }
-        }
-
         // Required one-time init for the RLottie native engine (empty-chat
         // welcome animation). Cheap — just registers the native lib + cache
         // dirs, doesn't decode anything yet.
@@ -102,8 +90,7 @@ public class CallxApp extends Application {
                 // text and Application context has no window yet anyway, so
                 // stash it and show a proper AlertDialog on first Activity
                 // resume (see registerForegroundTracking() below).
-                sPendingDebugError = (sPendingDebugError != null ? sPendingDebugError + "\n\n" : "")
-                        + "AXrLottie.init failed:\n\n" + Log.getStackTraceString(t);
+                sPendingDebugError = "AXrLottie.init failed:\n\n" + Log.getStackTraceString(t);
             }
         }
 

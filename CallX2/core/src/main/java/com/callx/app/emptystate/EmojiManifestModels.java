@@ -26,13 +26,7 @@ public class EmojiManifestModels {
 
     public static class Manifest {
         @SerializedName("version")
-        // Server (index.js): version = Math.round(maxMtimeMs) + files.length
-        // — that's a millisecond epoch timestamp, e.g. 1783818210007
-        // (13 digits). An `int` maxes out at ~2.1 billion (10 digits), so
-        // Gson threw NumberFormatException on every single manifest parse
-        // ("Expected an int but was 1783818210007") — every quick reaction
-        // failed identically for this exact reason. Must be `long`.
-        public long version;
+        public int version;
 
         @SerializedName("emojis")
         public List<Entry> emojis;
@@ -45,15 +39,8 @@ public class EmojiManifestModels {
         @SerializedName("url")
         public String url;          // relative to SERVER_URL, e.g. /emoji-assets/confetti.json
 
-        @SerializedName("gzUrl")
-        public String gzUrl;        // Gap #2 (TGS-style): gzip-compressed variant, e.g.
-                                     // /emoji-assets/confetti.json.gz — 70-80% smaller on
-                                     // the wire. Worker prefers this when present; sha256
-                                     // below is always checked against the DECOMPRESSED
-                                     // bytes so old and new manifests stay compatible.
-
         @SerializedName("sha256")
-        public String sha256;       // integrity check before caching (of plain JSON)
+        public String sha256;       // integrity check before caching
 
         @SerializedName("sizeBytes")
         public long sizeBytes;      // point 12: server enforces ~30KB/emoji budget
