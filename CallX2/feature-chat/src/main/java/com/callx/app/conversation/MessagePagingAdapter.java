@@ -4998,7 +4998,7 @@ public class MessagePagingAdapter
                     com.callx.app.emptystate.EmojiPackDownloadWorker.CACHE_KEY_PREFIX + reaction.id);
 
             android.view.View slot;
-            if (cachedLottie != null) {
+            if (cachedLottie != null && com.callx.app.cache.LottieJsonValidator.isSafeToLoad(cachedLottie)) {
                 com.callx.app.conversation.emptystate.RLottieViewWrapper lottieView =
                         new com.callx.app.conversation.emptystate.RLottieViewWrapper(ctx);
                 android.widget.LinearLayout.LayoutParams lp =
@@ -5019,6 +5019,14 @@ public class MessagePagingAdapter
                     slot = lottieView;
                 }
             } else {
+                if (cachedLottie != null) {
+                    // Failed structural validation — this is exactly the
+                    // "missing e/i/o keyframe fields" bug that crashed the
+                    // whole app natively on long-press. Never hand this to
+                    // RLottie. Delete it so a corrected version can be
+                    // re-downloaded instead of this bad file sticking around.
+                    lottieCache.delete(com.callx.app.emptystate.EmojiPackDownloadWorker.CACHE_KEY_PREFIX + reaction.id);
+                }
                 // Not downloaded yet — worker prefetches on next chat-open,
                 // but that background sync can sit queued for a while
                 // (Doze/battery optimization/network timing), so this
@@ -5030,31 +5038,59 @@ public class MessagePagingAdapter
                 final String reactionId = reaction.id;
                 final boolean wasAlready = already;
                 new Thread(() -> {
-                    java.io.File f = com.callx.app.emptystate.EmojiPackDownloadWorker
-                            .downloadSingleBlocking(appCtx, reactionId);
+                    java.io.File f;
+                    try {
+                        f = com.callx.app.emptystate.EmojiPackDownloadWorker
+                                .downloadSingleBlocking(appCtx, reactionId);
+                    } catch (Throwable t) {
+                        // Defensive: on-demand fetch is a nice-to-have live
+                        // upgrade, never allowed to bring the whole app
+                        // down. Slot just stays unicode on any failure.
+                        android.util.Log.w("ReactionPicker",
+                                "on-demand lottie fetch failed for " + reactionId, t);
+                        return;
+                    }
                     if (f == null) return; // manifest missing this id / no network / download failed
+                    if (!com.callx.app.cache.LottieJsonValidator.isSafeToLoad(f)) {
+                        // Same class of bug as the cached-branch check —
+                        // never let a malformed file reach native code.
+                        // Delete it so a fixed server build gets re-fetched
+                        // next time instead of this bad file sticking around.
+                        android.util.Log.w("ReactionPicker",
+                                "downloaded lottie failed schema validation, deleting: " + reactionId);
+                        com.callx.app.cache.LottieAssetCache.getInstance(appCtx)
+                                .delete(com.callx.app.emptystate.EmojiPackDownloadWorker.CACHE_KEY_PREFIX + reactionId);
+                        return;
+                    }
                     mainHandler.post(() -> {
-                        if (sheetClosed[0]) return;
-                        int pos = emojiRow.indexOfChild(unicodeSlot);
-                        if (pos < 0) return; // already swapped or view gone
-                        com.callx.app.conversation.emptystate.RLottieViewWrapper lottieView =
-                                new com.callx.app.conversation.emptystate.RLottieViewWrapper(ctx);
-                        android.widget.LinearLayout.LayoutParams lp2 =
-                                new android.widget.LinearLayout.LayoutParams(slotSizePx, slotSizePx);
-                        int btnPad2 = (int)(4 * ctx.getResources().getDisplayMetrics().density);
-                        lp2.setMargins(btnPad2, 0, btnPad2, 0);
-                        lottieView.setLayoutParams(lp2);
-                        if (!lottieView.loadFromFile(f)) return; // corrupt file, keep unicode slot
-                        lottieView.setScaleX(wasAlready ? 1.25f : 1.0f);
-                        lottieView.setScaleY(wasAlready ? 1.25f : 1.0f);
-                        lottieView.setAlpha(wasAlready ? 1.0f : 0.85f);
-                        lottieView.setOnClickListener(v -> {
-                            actionListener.onReact(m, emoji);
-                            if (holder[0] != null) holder[0].dismiss();
-                        });
-                        lottieRefs.add(lottieView);
-                        emojiRow.removeViewAt(pos);
-                        emojiRow.addView(lottieView, pos);
+                        try {
+                            if (sheetClosed[0]) return;
+                            int pos = emojiRow.indexOfChild(unicodeSlot);
+                            if (pos < 0) return; // already swapped or view gone
+                            com.callx.app.conversation.emptystate.RLottieViewWrapper lottieView =
+                                    new com.callx.app.conversation.emptystate.RLottieViewWrapper(ctx);
+                            android.widget.LinearLayout.LayoutParams lp2 =
+                                    new android.widget.LinearLayout.LayoutParams(slotSizePx, slotSizePx);
+                            int btnPad2 = (int)(4 * ctx.getResources().getDisplayMetrics().density);
+                            lp2.setMargins(btnPad2, 0, btnPad2, 0);
+                            lottieView.setLayoutParams(lp2);
+                            if (!lottieView.loadFromFile(f)) return; // corrupt file, keep unicode slot
+                            lottieView.setScaleX(wasAlready ? 1.25f : 1.0f);
+                            lottieView.setScaleY(wasAlready ? 1.25f : 1.0f);
+                            lottieView.setAlpha(wasAlready ? 1.0f : 0.85f);
+                            lottieView.setOnClickListener(v -> {
+                                actionListener.onReact(m, emoji);
+                                if (holder[0] != null) holder[0].dismiss();
+                            });
+                            lottieRefs.add(lottieView);
+                            emojiRow.removeViewAt(pos);
+                            emojiRow.addView(lottieView, pos);
+                        } catch (Throwable t) {
+                            // Same defensive net on the UI-thread swap-in —
+                            // e.g. dialog window already torn down under us.
+                            android.util.Log.w("ReactionPicker",
+                                    "live lottie swap-in failed for " + reactionId, t);
+                        }
                     });
                 }).start();
             }
