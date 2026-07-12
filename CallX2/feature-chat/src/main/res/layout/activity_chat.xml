@@ -654,33 +654,21 @@
                     android:paddingBottom="4dp"
                     android:background="@android:color/transparent"
                     android:gravity="center_vertical">
+                    <!-- Consolidated "+" menu: replaces the old 3 separate
+                         Attach / Camera / View-Once buttons with a single
+                         entry point that opens a popup listing all three.
+                         One fewer button = one fewer measure/layout child in
+                         ll_input_row, and one fewer icon to fade/shrink in
+                         animateAttachCameraIcons() on every keystroke. -->
                     <ImageButton
-                        android:id="@+id/btn_attach"
+                        android:id="@+id/btn_plus_menu"
                         android:layout_width="34dp"
                         android:layout_height="34dp"
                         android:padding="6dp"
-                        android:src="@drawable/ic_attach"
+                        android:src="@drawable/ic_plus_menu"
                         android:tint="@color/white"
                         android:background="?attr/selectableItemBackgroundBorderless"
-                        android:contentDescription="Attach"/>
-                    <ImageButton
-                        android:id="@+id/btn_camera"
-                        android:layout_width="34dp"
-                        android:layout_height="34dp"
-                        android:padding="6dp"
-                        android:src="@drawable/ic_camera"
-                        android:tint="@color/white"
-                        android:background="?attr/selectableItemBackgroundBorderless"
-                        android:contentDescription="Camera"/>
-                    <ImageButton
-                        android:id="@+id/btn_view_once"
-                        android:layout_width="34dp"
-                        android:layout_height="34dp"
-                        android:padding="6dp"
-                        android:src="@drawable/ic_view_once"
-                        android:tint="@color/white"
-                        android:background="?attr/selectableItemBackgroundBorderless"
-                        android:contentDescription="View Once"/>
+                        android:contentDescription="More options"/>
                     <FrameLayout
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
@@ -887,7 +875,8 @@
             android:layout_marginBottom="6dp"
             app:cardCornerRadius="24dp"
             app:cardElevation="6dp"
-            app:cardBackgroundColor="@color/bar_background"
+            app:cardBackgroundColor="@android:color/transparent"
+            android:background="@drawable/bg_header_capsule_gradient"
             app:cardPreventCornerOverlap="false"
             app:cardUseCompatPadding="true">
 

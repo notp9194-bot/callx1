@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Subtle 2-color diagonal gradient for the floating chat header capsule.
+    Replaces the old flat @color/bar_background fill with brand_gradient_start
+    -> brand_gradient_end (same premium green tones used elsewhere in the app,
+    e.g. bg_request_banner) so header ties into the existing brand palette
+    instead of introducing new colors. Corner radius matches
+    cv_header_capsule's app:cardCornerRadius="24dp" exactly so the drawable's
+    own rounded rect lines up perfectly with the card's shadow/outline.
+
+    Static drawable, drawn once by the View system like any other background
+    -- no per-frame cost, no effect on scroll/measure performance.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <corners android:radius="24dp"/>
+    <gradient
+        android:type="linear"
+        android:angle="135"
+        android:startColor="@color/brand_gradient_start"
+        android:endColor="@color/brand_gradient_end"/>
+</shape>

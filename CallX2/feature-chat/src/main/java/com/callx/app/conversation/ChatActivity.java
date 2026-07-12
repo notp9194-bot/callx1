@@ -2713,9 +2713,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             });
             return true;
         });
-        binding.btnAttach.setOnClickListener(v -> mediaController.showAttachSheet());
-        binding.btnViewOnce.setOnClickListener(v -> showViewOnceExpiryPicker());
-        binding.btnCamera.setOnClickListener(v -> mediaController.launchCamera());
+        binding.btnPlusMenu.setOnClickListener(v -> showPlusMenuPopup(v));
 
         if (binding.btnCancelReply != null)
             binding.btnCancelReply.setOnClickListener(v -> clearReply());
@@ -2824,8 +2822,46 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     private void animateAttachCameraIcons(boolean expand) {
         if (inputIconsExpanded != null && inputIconsExpanded == expand) return;
         inputIconsExpanded = expand;
-        animateIconTo(binding.btnAttach, expand);
-        animateIconTo(binding.btnCamera, expand);
+        animateIconTo(binding.btnPlusMenu, expand);
+    }
+
+    /**
+     * Consolidated "+" button popup — replaces the old always-visible
+     * Attach / Camera / View-Once trio with a single on-demand menu.
+     * Fewer permanent children in ll_input_row (1 vs 3) means fewer
+     * measure/layout passes on that row and one less icon to animate in
+     * animateAttachCameraIcons() on every keystroke; the popup itself is
+     * only inflated on tap, so it costs nothing while idle or scrolling.
+     */
+    private void showPlusMenuPopup(View anchor) {
+        android.widget.PopupMenu popup = new android.widget.PopupMenu(this, anchor);
+        popup.getMenuInflater().inflate(R.menu.menu_plus_input, popup.getMenu());
+        MenuItem viewOnceItem = popup.getMenu().findItem(R.id.menu_plus_view_once);
+        if (viewOnceItem != null) {
+            viewOnceItem.setTitle(isViewOnceModeOn
+                    ? getString(R.string.plus_menu_view_once_on)
+                    : getString(R.string.plus_menu_view_once));
+        }
+        popup.setOnMenuItemClickListener(item -> {
+            int id = item.getItemId();
+            if (id == R.id.menu_plus_attach) {
+                mediaController.showAttachSheet();
+                return true;
+            } else if (id == R.id.menu_plus_camera) {
+                mediaController.launchCamera();
+                return true;
+            } else if (id == R.id.menu_plus_view_once) {
+                if (isViewOnceModeOn) {
+                    setViewOnceMode(false);
+                    selectedViewOnceExpiryMs = 0L;
+                } else {
+                    showViewOnceExpiryPicker();
+                }
+                return true;
+            }
+            return false;
+        });
+        popup.show();
     }
 
     // Shared overshoot interpolator for the icon "pop back in" bounce.
@@ -2957,10 +2993,10 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
      */
     private void setViewOnceMode(boolean on) {
         isViewOnceModeOn = on;
-        if (binding == null || binding.btnViewOnce == null) return;
-        binding.btnViewOnce.setColorFilter(on
+        if (binding == null || binding.btnPlusMenu == null) return;
+        binding.btnPlusMenu.setColorFilter(on
                 ? android.graphics.Color.parseColor("#FF6200EE")   // active tint
-                : android.graphics.Color.parseColor("#FF8A8A8A")); // idle/grey tint
+                : android.graphics.Color.parseColor("#FFFFFFFF")); // idle/white tint (matches ic_plus_menu default)
         binding.etMessage.setHint(on ? "View once message…" : getString(R.string.hint_message));
     }
 
