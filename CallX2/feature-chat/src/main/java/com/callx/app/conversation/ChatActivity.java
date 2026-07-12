@@ -157,7 +157,6 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
 
     // ── View binding ───────────────────────────────────────────────────────
     private ActivityChatBinding binding;
-    private com.callx.app.conversation.emptystate.EmptyChatLottieController emptyChatLottieController;
 
     // ── Chat identifiers ───────────────────────────────────────────────────
     private String chatId;
@@ -420,9 +419,6 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
 
         binding = ActivityChatBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
-
-        emptyChatLottieController = new com.callx.app.conversation.emptystate.EmptyChatLottieController(
-                this, binding.rlottieEmptyChat, binding.tvEmptyEmojiFallback);
 
         // Left/right screen-edge se swipe karke back jaane ke liye
         // (RecyclerView ke andar "swipe to reply" se clash nahi karta —
@@ -712,7 +708,6 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     @Override
     protected void onResume() {
         super.onResume();
-        if (emptyChatLottieController != null) emptyChatLottieController.onResume();
         // Re-assert immersive full-screen (system can restore bars after
         // returning from a picker / dialog / app-switch).
         com.callx.app.utils.ImmersiveModeUtils.enterImmersive(this);
@@ -911,7 +906,6 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // chat the user just left.  Clearing the strong references also lets
         // Glide GC the targets normally.
         clearActivePreloadTargets();
-        if (emptyChatLottieController != null) emptyChatLottieController.onPause();
         // WhatsApp-style: persist scroll position + last-seen-ts so we can
         // intelligently restore (or jump to first unread) on re-open.
         saveScrollState();
@@ -942,7 +936,6 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     protected void onDestroy() {
         super.onDestroy();
         saveDraft();
-        if (emptyChatLottieController != null) emptyChatLottieController.onDestroy();
         // Cancel any remaining Glide preloads before the activity is torn down.
         clearActivePreloadTargets();
         shimmerHandler.removeCallbacks(shimmerShowRunnable);
@@ -2001,11 +1994,6 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 boolean isEmpty = pagingAdapter.getItemCount() == 0;
                 binding.rvMessages.setVisibility(isEmpty ? View.GONE : View.VISIBLE);
                 binding.llEmptyChat.setVisibility(isEmpty ? View.VISIBLE : View.GONE);
-                if (isEmpty) {
-                    emptyChatLottieController.onShown();
-                } else {
-                    emptyChatLottieController.onHidden();
-                }
                 // Confirmed-empty chat (genuinely zero messages, ever) —
                 // onItemRangeInserted() will never fire since nothing is
                 // being inserted, so this is the only signal we'll get.

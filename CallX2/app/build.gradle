@@ -42,7 +42,7 @@ android {
         // ── Dex Layout: keep hot classes in primary dex ───────────────
         // Cold start + chat open pe class loader ko secondary dex I/O
         // nahi karna padta — ~30-80ms measurable gain on ARM64 devices.
-        multiDexEnabled false
+        multiDexEnabled true
         multiDexKeepProguard file('src/main/multidex-config.pro')
 
         ndk {
@@ -62,12 +62,7 @@ android {
 
     splits {
         abi {
-            // Plan point 5: per-ABI APKs so a single device never pulls all
-            // 4 native .so sets. NOTE — the AAB path (bundle{} block below,
-            // what the Play Store actually serves) already does this
-            // automatically regardless of this flag; this only matters for
-            // raw `assembleRelease` APKs used for direct/sideload builds.
-            enable true
+            enable false
             reset()
             include "arm64-v8a", "armeabi-v7a", "x86_64", "x86"
             universalApk true

@@ -40,10 +40,6 @@ public class CallxApp extends Application {
     private static final String TAG = "CallxApp";
     private static int    sActivityRefs = 0;
     private static String sMyPhotoUrl   = "";
-    // DEBUG-only: full AXrLottie.init() failure text, shown once via
-    // AlertDialog on the first Activity resume (see onActivityResumed below)
-    // since Toast truncates and there's no window at Application.onCreate.
-    private static String sPendingDebugError = null;
 
     public static boolean isAppInForeground()  { return sActivityRefs > 0; }
     public static String  getMyPhotoUrlCached() { return sMyPhotoUrl; }
@@ -70,29 +66,6 @@ public class CallxApp extends Application {
     @Override
     public void onCreate() {
         super.onCreate();
-
-        // Required one-time init for the RLottie native engine (empty-chat
-        // welcome animation). Cheap — just registers the native lib + cache
-        // dirs, doesn't decode anything yet.
-        // Wrapped: a native lib load failure here (e.g. UnsatisfiedLinkError,
-        // which is an Error — not an Exception) would otherwise take down
-        // the ENTIRE app at launch, since this runs in Application#onCreate()
-        // before anything else. Worst case now is just no welcome animation
-        // (RLottieViewWrapper's own loadFromFile/loadFromAsset already
-        // no-op safely when the engine never initialized).
-        try {
-            com.aghajari.rlottie.AXrLottie.init(this);
-        } catch (Throwable t) {
-            Log.e(TAG, "AXrLottie.init failed — empty-chat animation disabled", t);
-            if (BuildConfig.DEBUG) {
-                // No logcat access while building from mobile — surface the
-                // FULL stack trace on-screen instead. Toast truncates long
-                // text and Application context has no window yet anyway, so
-                // stash it and show a proper AlertDialog on first Activity
-                // resume (see registerForegroundTracking() below).
-                sPendingDebugError = "AXrLottie.init failed:\n\n" + Log.getStackTraceString(t);
-            }
-        }
 
         // ── PERF: StrictMode (DEBUG builds only) ──────────────────────────
         // Catches exactly the class of bug the user asked to check for:
@@ -339,25 +312,6 @@ public class CallxApp extends Application {
             }
 
             @Override public void onActivityResumed(Activity a) {
-                if (BuildConfig.DEBUG && sPendingDebugError != null) {
-                    final String errorText = sPendingDebugError;
-                    sPendingDebugError = null; // show once only
-                    try {
-                        android.widget.TextView msg = new android.widget.TextView(a);
-                        int pad = (int) (16 * a.getResources().getDisplayMetrics().density);
-                        msg.setPadding(pad, pad, pad, pad);
-                        msg.setTextIsSelectable(true);
-                        msg.setText(errorText);
-                        android.widget.ScrollView scroll = new android.widget.ScrollView(a);
-                        scroll.addView(msg);
-                        new android.app.AlertDialog.Builder(a)
-                                .setTitle("Debug error")
-                                .setView(scroll)
-                                .setPositiveButton("OK", null)
-                                .show();
-                    } catch (Throwable ignored) {}
-                }
-
                 if (!(a instanceof LockScreenActivity)
                         && !(a instanceof AuthActivity)) {
                     // FIX-AL1: Singleton use karo — heavy EncryptedSharedPreferences
