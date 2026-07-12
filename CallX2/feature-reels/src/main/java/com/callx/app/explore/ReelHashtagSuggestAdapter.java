@@ -4,17 +4,20 @@ import android.content.Context;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.callx.app.reels.R;
+import com.callx.app.chips.canvas.HashtagChipCanvasView;
 
 import java.util.List;
 
 /**
  * ReelHashtagSuggestAdapter — Horizontal scrollable hashtag chips.
  * Used in ReelSearchActivity as trending hashtag suggestions.
+ *
+ * v2 — Canvas chip (perf): shares HashtagChipCanvasView (core module) with
+ * feature-chat's HashtagSuggestAdapter — see that view's class doc.
  */
 public class ReelHashtagSuggestAdapter extends RecyclerView.Adapter<ReelHashtagSuggestAdapter.VH> {
 
@@ -44,7 +47,7 @@ public class ReelHashtagSuggestAdapter extends RecyclerView.Adapter<ReelHashtagS
     @Override
     public void onBindViewHolder(@NonNull VH h, int position) {
         String tag = hashtags.get(position);
-        h.tvHashtag.setText("#" + tag);
+        h.chipView.setText("#" + tag);
         h.itemView.setOnClickListener(v -> {
             if (listener != null) listener.onHashtagClick(tag);
         });
@@ -54,10 +57,10 @@ public class ReelHashtagSuggestAdapter extends RecyclerView.Adapter<ReelHashtagS
     public int getItemCount() { return hashtags.size(); }
 
     static class VH extends RecyclerView.ViewHolder {
-        TextView tvHashtag;
+        HashtagChipCanvasView chipView;
         VH(@NonNull View v) {
             super(v);
-            tvHashtag = v.findViewById(R.id.tv_hashtag);
+            chipView = (HashtagChipCanvasView) v;
         }
     }
 }

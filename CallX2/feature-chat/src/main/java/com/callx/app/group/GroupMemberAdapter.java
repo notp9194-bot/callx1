@@ -8,6 +8,7 @@ import androidx.appcompat.app.AlertDialog;
 import androidx.recyclerview.widget.RecyclerView;
 import com.bumptech.glide.Glide;
 import com.callx.app.chat.R;
+import com.callx.app.group.canvas.MemberIdentityCanvasView;
 import com.callx.app.utils.Constants;
 import java.text.SimpleDateFormat;
 import java.util.*;
@@ -18,6 +19,12 @@ import java.util.*;
  * Shows: circular avatar, online dot, name, admin/creator badge,
  *        last-seen text, 3-dot options menu (view profile, message,
  *        make admin, remove — admin-gated).
+ *
+ * v2 — Canvas identity block (perf): tv_member_name + tv_role_badge +
+ * tv_member_status went from 3 TextViews across 2 nested LinearLayouts to a
+ * single MemberIdentityCanvasView — see its class doc. Matters here because
+ * this list can run to hundreds of rows and re-binds on every
+ * online-status/last-seen update.
  */
 public class GroupMemberAdapter extends RecyclerView.Adapter<GroupMemberAdapter.VH> {
 
@@ -77,12 +84,11 @@ public class GroupMemberAdapter extends RecyclerView.Adapter<GroupMemberAdapter.
         boolean isMe   = currentUid.equals(m.uid);
 
         // Name — append "(You)" for self
-        h.tvName.setText(isMe ? m.name + " (You)" : m.name);
+        h.identityView.setName(isMe ? m.name + " (You)" : m.name);
 
         // Role badge
         boolean showBadge = "admin".equals(m.role) || "creator".equals(m.role);
-        h.tvRoleBadge.setVisibility(showBadge ? View.VISIBLE : View.GONE);
-        if (showBadge) h.tvRoleBadge.setText("creator".equals(m.role) ? "Creator" : "Admin");
+        h.identityView.setBadge(showBadge ? ("creator".equals(m.role) ? "Creator" : "Admin") : null);
 
         // Online dot
         h.onlineDot.setVisibility(m.online ? View.VISIBLE : View.GONE);
@@ -103,11 +109,11 @@ public class GroupMemberAdapter extends RecyclerView.Adapter<GroupMemberAdapter.
 
         // Last seen / status
         if (m.online) {
-            h.tvStatus.setText("Online");
+            h.identityView.setStatus("Online");
         } else if (m.lastSeen != null && m.lastSeen > 0) {
-            h.tvStatus.setText("last seen " + formatLastSeen(m.lastSeen));
+            h.identityView.setStatus("last seen " + formatLastSeen(m.lastSeen));
         } else {
-            h.tvStatus.setText("");
+            h.identityView.setStatus("");
         }
 
         // Options menu
@@ -162,17 +168,15 @@ public class GroupMemberAdapter extends RecyclerView.Adapter<GroupMemberAdapter.
     static class VH extends RecyclerView.ViewHolder {
         de.hdodenhof.circleimageview.CircleImageView ivAvatar;
         View   onlineDot;
-        TextView tvName, tvRoleBadge, tvStatus;
+        MemberIdentityCanvasView identityView;
         View   btnOptions;
 
         VH(@NonNull View itemView) {
             super(itemView);
-            ivAvatar    = itemView.findViewById(R.id.iv_avatar);
-            onlineDot   = itemView.findViewById(R.id.online_dot);
-            tvName      = itemView.findViewById(R.id.tv_member_name);
-            tvRoleBadge = itemView.findViewById(R.id.tv_role_badge);
-            tvStatus    = itemView.findViewById(R.id.tv_member_status);
-            btnOptions  = itemView.findViewById(R.id.btn_member_options);
+            ivAvatar     = itemView.findViewById(R.id.iv_avatar);
+            onlineDot    = itemView.findViewById(R.id.online_dot);
+            identityView = itemView.findViewById(R.id.view_member_identity);
+            btnOptions   = itemView.findViewById(R.id.btn_member_options);
         }
     }
 }

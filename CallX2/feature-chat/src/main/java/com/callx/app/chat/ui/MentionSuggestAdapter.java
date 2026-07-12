@@ -4,15 +4,12 @@ import android.content.Context;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.ImageView;
-import android.widget.TextView;
 
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
 
-import com.bumptech.glide.Glide;
-import com.bumptech.glide.load.resource.bitmap.CircleCrop;
 import com.callx.app.chat.R;
+import com.callx.app.mention.canvas.MentionRowCanvasView;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -22,7 +19,11 @@ import java.util.Locale;
  * MentionSuggestAdapter — filterable list of members shown when the user
  * types "@" in the message input.
  *
- * Row layout: circular avatar + display name.
+ * Row layout: circular avatar + display name (drawn together by
+ * MentionRowCanvasView — see its class doc; the row went from 3 child
+ * Views to 1 because filter() re-binds every visible row on every
+ * keystroke, not just when the dropdown first opens).
+ *
  * Filtering uses <b>contains</b>-matching (not just prefix) for a more
  * natural UX — "@ali" matches "Malik Ali", "Aaliyah", etc.
  */
@@ -104,18 +105,8 @@ public class MentionSuggestAdapter
     @Override
     public void onBindViewHolder(@NonNull VH h, int position) {
         MentionItem item = filteredItems.get(position);
-        h.tvName.setText(item.name);
-
-        if (item.photoUrl != null && !item.photoUrl.isEmpty()) {
-            Glide.with(context)
-                    .load(item.photoUrl)
-                    .placeholder(R.drawable.ic_person)
-                    .transform(new CircleCrop())
-                    .into(h.ivAvatar);
-        } else {
-            Glide.with(context).clear(h.ivAvatar);
-            h.ivAvatar.setImageResource(R.drawable.ic_person);
-        }
+        h.rowView.setName(item.name);
+        h.rowView.setAvatarUrl(item.photoUrl != null && !item.photoUrl.isEmpty() ? item.photoUrl : null);
 
         h.itemView.setOnClickListener(v -> {
             if (listener != null) listener.onMentionSelected(item);
@@ -127,13 +118,11 @@ public class MentionSuggestAdapter
     // ── ViewHolder ────────────────────────────────────────────────────────
 
     static class VH extends RecyclerView.ViewHolder {
-        final ImageView ivAvatar;
-        final TextView  tvName;
+        final MentionRowCanvasView rowView;
 
         VH(@NonNull View v) {
             super(v);
-            ivAvatar = v.findViewById(R.id.iv_mention_avatar);
-            tvName   = v.findViewById(R.id.tv_mention_name);
+            rowView = (MentionRowCanvasView) v;
         }
     }
 }

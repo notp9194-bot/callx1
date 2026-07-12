@@ -1,17 +1,23 @@
 package com.callx.app.media;
 
 import android.view.*;
-import android.widget.*;
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
-import com.bumptech.glide.Glide;
 import com.callx.app.chat.R;
+import com.callx.app.media.canvas.MediaThumbCanvasView;
 import java.util.List;
 import com.callx.app.group.GroupInfoActivity;
 
 /**
  * MediaThumbAdapter — 3-column media grid for GroupInfoActivity.
- * Each cell shows a square thumbnail loaded via Glide.
+ *
+ * v2 — Canvas cell (perf): iv_media_thumb went from a
+ * FrameLayout>ImageView pair (Glide.into(ImageView), centerCrop() transform
+ * run on every load) to a single MediaThumbCanvasView that decodes the raw
+ * Bitmap once via Glide.asBitmap() and draws it with a cached center-crop
+ * Matrix — see MediaThumbCanvasView's class doc for the full rationale.
+ * onBindViewHolder() itself is unchanged in shape (still just "set the URL,
+ * set the click listener"); only what's underneath the row changed.
  */
 public class MediaThumbAdapter extends RecyclerView.Adapter<MediaThumbAdapter.VH> {
 
@@ -39,12 +45,8 @@ public class MediaThumbAdapter extends RecyclerView.Adapter<MediaThumbAdapter.VH
     @Override
     public void onBindViewHolder(@NonNull VH h, int pos) {
         String url = urls.get(pos);
-        Glide.with(h.ivThumb.getContext())
-                .load(url)
-                .centerCrop()
-                .placeholder(R.drawable.ic_gallery)
-                .into(h.ivThumb);
-        h.itemView.setOnClickListener(v -> listener.onClick(url));
+        h.thumbView.setImageUrl(url);
+        h.thumbView.setOnThumbClickListener(() -> listener.onClick(url));
     }
 
     @Override public int getItemCount() {
@@ -52,10 +54,10 @@ public class MediaThumbAdapter extends RecyclerView.Adapter<MediaThumbAdapter.VH
     }
 
     static class VH extends RecyclerView.ViewHolder {
-        ImageView ivThumb;
+        MediaThumbCanvasView thumbView;
         VH(@NonNull View itemView) {
             super(itemView);
-            ivThumb = itemView.findViewById(R.id.iv_media_thumb);
+            thumbView = itemView.findViewById(R.id.iv_media_thumb);
         }
     }
 }
