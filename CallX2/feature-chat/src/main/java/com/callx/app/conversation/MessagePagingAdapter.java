@@ -5011,9 +5011,53 @@ public class MessagePagingAdapter
         final android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
         final Context appCtx = ctx.getApplicationContext();
 
+        // DEBUG-only: collects a one-line status per reaction (cached /
+        // downloaded / rejected-by-validator / network-failed / etc.) so
+        // we can show a single summary dialog once all 6 have resolved,
+        // instead of them silently falling back to unicode with no clue why.
+        final boolean debugDiag = com.callx.app.chat.BuildConfig.DEBUG;
+        final java.util.Map<String, String> debugStatus =
+                debugDiag ? new java.util.concurrent.ConcurrentHashMap<>() : null;
+        final java.util.concurrent.atomic.AtomicInteger debugPending =
+                debugDiag ? new java.util.concurrent.atomic.AtomicInteger(0) : null;
+
+        // Records one reaction's resolution status; once all have reported
+        // in, shows a single summary AlertDialog (DEBUG builds only) —
+        // exactly why each of the 6 quick reactions is/isn't animated.
+        final java.util.function.BiConsumer<String, String> debugRecord = (id, status) -> {
+            if (!debugDiag) return;
+            debugStatus.put(id, status);
+            if (debugPending.decrementAndGet() == 0) {
+                mainHandler.post(() -> {
+                    try {
+                        StringBuilder sb = new StringBuilder("Reaction animation status:\n\n");
+                        for (com.callx.app.utils.ReactionEmojiCatalog.Entry r : QUICK_REACTIONS) {
+                            sb.append(r.id).append(": ")
+                              .append(debugStatus.getOrDefault(r.id, "(no report)"))
+                              .append("\n");
+                        }
+                        android.widget.TextView msg = new android.widget.TextView(ctx);
+                        int pad = (int) (16 * ctx.getResources().getDisplayMetrics().density);
+                        msg.setPadding(pad, pad, pad, pad);
+                        msg.setTextIsSelectable(true);
+                        msg.setText(sb.toString());
+                        android.widget.ScrollView scroll = new android.widget.ScrollView(ctx);
+                        scroll.addView(msg);
+                        new android.app.AlertDialog.Builder(ctx)
+                                .setTitle("Reaction debug (DEBUG build only)")
+                                .setView(scroll)
+                                .setPositiveButton("OK", null)
+                                .show();
+                    } catch (Throwable ignored) {}
+                });
+            }
+        };
+
         com.callx.app.cache.LottieAssetCache lottieCache =
                 com.callx.app.cache.LottieAssetCache.getInstance(ctx);
         int slotSizePx = (int)(36 * ctx.getResources().getDisplayMetrics().density);
+
+        if (debugDiag) debugPending.set(QUICK_REACTIONS.length);
 
         for (com.callx.app.utils.ReactionEmojiCatalog.Entry reaction : QUICK_REACTIONS) {
             String emoji = reaction.unicode;
@@ -5039,12 +5083,14 @@ public class MessagePagingAdapter
                     // Corrupt cache entry slipped past — fall back to unicode glyph
                     // instead of showing a broken/empty animated view.
                     slot = buildUnicodeReactionGlyph(ctx, emoji, already);
+                    debugRecord.accept(reaction.id, "cached file present but native loadFromFile() rejected it");
                 } else {
                     lottieView.setScaleX(already ? 1.25f : 1.0f);
                     lottieView.setScaleY(already ? 1.25f : 1.0f);
                     lottieView.setAlpha(already ? 1.0f : 0.85f);
                     lottieRefs.add(lottieView);
                     slot = lottieView;
+                    debugRecord.accept(reaction.id, "OK: shown from cache, animated");
                 }
             } else {
                 if (cachedLottie != null) {
@@ -5067,19 +5113,26 @@ public class MessagePagingAdapter
                 final boolean wasAlready = already;
                 new Thread(() -> {
                     java.io.File f;
+                    String[] reasonBuf = debugDiag ? new String[1] : null;
                     try {
                         f = com.callx.app.emptystate.EmojiPackDownloadWorker
-                                .downloadSingleBlocking(appCtx, reactionId);
+                                .downloadSingleBlocking(appCtx, reactionId, reasonBuf);
                     } catch (Throwable t) {
                         // Defensive: on-demand fetch is a nice-to-have live
                         // upgrade, never allowed to bring the whole app
                         // down. Slot just stays unicode on any failure.
                         android.util.Log.w("ReactionPicker",
                                 "on-demand lottie fetch failed for " + reactionId, t);
+                        debugRecord.accept(reactionId, "fetch threw: " + t);
                         return;
                     }
-                    if (f == null) return; // manifest missing this id / no network / download failed
-                    if (!com.callx.app.cache.LottieJsonValidator.isSafeToLoad(f)) {
+                    if (f == null) {
+                        debugRecord.accept(reactionId,
+                                "not downloaded: " + (reasonBuf != null && reasonBuf[0] != null ? reasonBuf[0] : "unknown"));
+                        return; // manifest missing this id / no network / download failed
+                    }
+                    String[] validReason = debugDiag ? new String[1] : null;
+                    if (!com.callx.app.cache.LottieJsonValidator.isSafeToLoad(f, validReason)) {
                         // Same class of bug as the cached-branch check —
                         // never let a malformed file reach native code.
                         // Delete it so a fixed server build gets re-fetched
@@ -5088,13 +5141,21 @@ public class MessagePagingAdapter
                                 "downloaded lottie failed schema validation, deleting: " + reactionId);
                         com.callx.app.cache.LottieAssetCache.getInstance(appCtx)
                                 .delete(com.callx.app.emptystate.EmojiPackDownloadWorker.CACHE_KEY_PREFIX + reactionId);
+                        debugRecord.accept(reactionId, "downloaded but REJECTED by validator: "
+                                + (validReason != null && validReason[0] != null ? validReason[0] : "?"));
                         return;
                     }
                     mainHandler.post(() -> {
                         try {
-                            if (sheetClosed[0]) return;
+                            if (sheetClosed[0]) {
+                                debugRecord.accept(reactionId, "downloaded ok, but sheet already closed before swap");
+                                return;
+                            }
                             int pos = emojiRow.indexOfChild(unicodeSlot);
-                            if (pos < 0) return; // already swapped or view gone
+                            if (pos < 0) {
+                                debugRecord.accept(reactionId, "downloaded ok, but slot view already gone");
+                                return; // already swapped or view gone
+                            }
                             com.callx.app.conversation.emptystate.RLottieViewWrapper lottieView =
                                     new com.callx.app.conversation.emptystate.RLottieViewWrapper(ctx);
                             android.widget.LinearLayout.LayoutParams lp2 =
@@ -5105,7 +5166,10 @@ public class MessagePagingAdapter
                             com.callx.app.utils.CrashDebugHelper.markLottieLoadStarting(ctx, reactionId, f);
                             boolean ok2 = lottieView.loadFromFile(f);
                             com.callx.app.utils.CrashDebugHelper.clearLottieLoadMarker(ctx);
-                            if (!ok2) return; // corrupt file, keep unicode slot
+                            if (!ok2) {
+                                debugRecord.accept(reactionId, "downloaded + validated ok, but native loadFromFile() STILL rejected it");
+                                return; // corrupt file, keep unicode slot
+                            }
                             lottieView.setScaleX(wasAlready ? 1.25f : 1.0f);
                             lottieView.setScaleY(wasAlready ? 1.25f : 1.0f);
                             lottieView.setAlpha(wasAlready ? 1.0f : 0.85f);
@@ -5116,11 +5180,13 @@ public class MessagePagingAdapter
                             lottieRefs.add(lottieView);
                             emojiRow.removeViewAt(pos);
                             emojiRow.addView(lottieView, pos);
+                            debugRecord.accept(reactionId, "OK: downloaded fresh & swapped in live");
                         } catch (Throwable t) {
                             // Same defensive net on the UI-thread swap-in —
                             // e.g. dialog window already torn down under us.
                             android.util.Log.w("ReactionPicker",
                                     "live lottie swap-in failed for " + reactionId, t);
+                            debugRecord.accept(reactionId, "swap-in threw: " + t);
                         }
                     });
                 }).start();

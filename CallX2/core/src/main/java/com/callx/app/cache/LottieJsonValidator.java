@@ -35,15 +35,33 @@ public final class LottieJsonValidator {
 
     /** @return true only if this file is safe to hand to native RLottie. */
     public static boolean isSafeToLoad(File f) {
-        if (f == null || !f.exists() || f.length() == 0) return false;
+        return isSafeToLoad(f, null);
+    }
+
+    /** Same as {@link #isSafeToLoad(File)} but fills {@code outReason[0]}
+     *  with why it failed, for the DEBUG-build diagnostics dialog. */
+    public static boolean isSafeToLoad(File f, String[] outReason) {
+        if (f == null || !f.exists() || f.length() == 0) {
+            if (outReason != null) outReason[0] = "file missing/empty";
+            return false;
+        }
         try {
             JSONObject root = new JSONObject(readFile(f));
-            if (!root.has("v") || !root.has("layers")) return false;
+            if (!root.has("v") || !root.has("layers")) {
+                if (outReason != null) outReason[0] = "missing top-level 'v' or 'layers'";
+                return false;
+            }
             JSONArray layers = root.optJSONArray("layers");
-            if (layers == null || layers.length() == 0) return false;
-            return checkNode(root);
+            if (layers == null || layers.length() == 0) {
+                if (outReason != null) outReason[0] = "'layers' empty/not an array";
+                return false;
+            }
+            boolean ok = checkNode(root);
+            if (!ok && outReason != null) outReason[0] = "an animated keyframe is missing e/i/o/s";
+            return ok;
         } catch (Exception e) {
             Log.w(TAG, "lottie validation failed for " + f.getName(), e);
+            if (outReason != null) outReason[0] = "JSON parse error: " + e.getMessage();
             return false;
         }
     }

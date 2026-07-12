@@ -121,10 +121,23 @@ public class EmojiPackDownloadWorker extends Worker {
      *         download fails / no network.
      */
     public static File downloadSingleBlocking(Context ctx, String id) {
+        return downloadSingleBlocking(ctx, id, null);
+    }
+
+    /**
+     * Same as {@link #downloadSingleBlocking(Context, String)} but fills
+     * {@code outReason[0]} with a short human-readable status — used by the
+     * DEBUG-build reaction-picker summary dialog so it's obvious WHY a
+     * given reaction stayed unicode instead of just silently failing.
+     */
+    public static File downloadSingleBlocking(Context ctx, String id, String[] outReason) {
         LottieAssetCache lottieCache = LottieAssetCache.getInstance(ctx);
         String cacheKey = CACHE_KEY_PREFIX + id;
         File existing = lottieCache.get(cacheKey);
-        if (existing != null) return existing;
+        if (existing != null) {
+            if (outReason != null) outReason[0] = "already cached";
+            return existing;
+        }
 
         EmojiManifestRepository repo = new EmojiManifestRepository(ctx);
         // BUG FIX: this used to try repo.getCachedManifest() first and only
@@ -140,15 +153,28 @@ public class EmojiPackDownloadWorker extends Worker {
         // but it guarantees a fresh look whenever the id we need isn't in
         // what we have cached.
         EmojiManifestModels.Manifest manifest = repo.fetchManifestBlocking();
-        if (manifest == null || manifest.emojis == null) return null;
+        if (manifest == null) {
+            if (outReason != null) outReason[0] = "manifest fetch failed (network/server error)";
+            return null;
+        }
+        if (manifest.emojis == null || manifest.emojis.length == 0) {
+            if (outReason != null) outReason[0] = "manifest has 0 emojis (server misconfigured?)";
+            return null;
+        }
 
         for (EmojiManifestModels.Entry entry : manifest.emojis) {
             if (entry.isDefault) continue;
             if (id.equals(entry.id)) {
-                if (!downloadOne(ctx, lottieCache, entry, cacheKey)) return null;
+                if (!downloadOne(ctx, lottieCache, entry, cacheKey)) {
+                    if (outReason != null) outReason[0] = "download/sha256-verify failed for url=" + entry.url;
+                    return null;
+                }
+                if (outReason != null) outReason[0] = "downloaded fresh, ok";
                 return lottieCache.get(cacheKey);
             }
+
         }
+        if (outReason != null) outReason[0] = "id '" + id + "' not present in manifest (server deploy check)";
         return null; // server manifest doesn't have this id (yet) — deploy check
     }
 
