@@ -1,115 +1,72 @@
 <?xml version="1.0" encoding="utf-8"?>
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<!--
+  Classic WhatsApp-style status tile: a circular thumbnail with a coloured ring
+  (green = has an unseen update, grey = fully viewed) and the contact's name
+  truncated to one line below it. Used inside the horizontal status carousel
+  on the Updates screen, matching the reference "Updates" tab design.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
-    android:layout_width="116dp"
-    android:layout_height="182dp"
-    android:layout_marginStart="8dp"
-    android:layout_marginEnd="6dp"
-    android:layout_marginTop="24dp"
-    android:layout_marginBottom="10dp">
+    android:layout_width="78dp"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:gravity="center_horizontal"
+    android:paddingHorizontal="6dp"
+    android:paddingTop="4dp"
+    android:paddingBottom="8dp"
+    android:background="?attr/selectableItemBackground">
 
-    <!-- Card body: status image + vignette + gradient scrim + name, thin premium border -->
-    <com.google.android.material.card.MaterialCardView
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:layout_marginTop="22dp"
-        app:cardCornerRadius="18dp"
-        app:cardElevation="6dp"
-        app:cardBackgroundColor="#1A1A1A"
-        app:strokeWidth="1dp"
-        app:strokeColor="#40D4AF37"
-        app:rippleColor="#33D4AF37"
-        android:foreground="?attr/selectableItemBackground">
-
-        <FrameLayout
-            android:layout_width="match_parent"
-            android:layout_height="match_parent">
-
-            <ImageView
-                android:id="@+id/iv_card_bg"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:scaleType="centerCrop"
-                android:background="#3A3A3A"
-                android:src="@drawable/ic_person"/>
-
-            <!-- Soft top vignette for depth -->
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="56dp"
-                android:layout_gravity="top"
-                android:background="@drawable/bg_status_card_top_scrim"/>
-
-            <!-- Bottom gradient so the name always stays readable -->
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="92dp"
-                android:layout_gravity="bottom"
-                android:background="@drawable/bg_status_card_scrim"/>
-
-            <!-- Hairline inner edge highlight — gives the glass/premium finish -->
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:background="@drawable/bg_status_card_inner_stroke"/>
-
-            <TextView
-                android:id="@+id/tv_card_name"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_gravity="bottom"
-                android:paddingHorizontal="9dp"
-                android:paddingBottom="9dp"
-                android:paddingTop="4dp"
-                android:textColor="@android:color/white"
-                android:textSize="12.5sp"
-                android:fontFamily="sans-serif-medium"
-                android:textStyle="bold"
-                android:maxLines="2"
-                android:ellipsize="end"
-                android:shadowColor="#CC000000"
-                android:shadowRadius="5"
-                android:letterSpacing="0.01"
-                android:text="Name"/>
-
-        </FrameLayout>
-    </com.google.android.material.card.MaterialCardView>
-
-    <!-- Avatar + ring, overlapping the top edge of the card -->
+    <!-- Ring + circular thumbnail + add badge -->
     <FrameLayout
-        android:id="@+id/fl_avatar"
-        android:layout_width="48dp"
-        android:layout_height="48dp"
-        android:layout_gravity="center_horizontal|top"
-        android:elevation="6dp">
+        android:layout_width="64dp"
+        android:layout_height="64dp">
 
         <ImageView
             android:id="@+id/ring"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:src="@drawable/circle_status_unseen"/>
+            android:layout_width="64dp"
+            android:layout_height="64dp"
+            android:src="@drawable/circle_status_ring_unseen"/>
 
         <de.hdodenhof.circleimageview.CircleImageView
             android:id="@+id/iv_card_avatar"
-            android:layout_width="39dp"
-            android:layout_height="39dp"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
             android:layout_gravity="center"
             app:civ_border_width="2dp"
-            app:civ_border_color="@android:color/white"
+            app:civ_border_color="?attr/colorSurface"
             android:src="@drawable/ic_person"/>
 
-        <!-- Add (+) badge, shown only on own "add status" tile -->
+        <!-- Kept for adapter compatibility; unused visually in the classic circle design. -->
+        <ImageView
+            android:id="@+id/iv_card_bg"
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:visibility="gone"/>
+
+        <!-- Add (+) badge, shown only on the own "Add status" tile -->
         <ImageView
             android:id="@+id/iv_card_add"
-            android:layout_width="17dp"
-            android:layout_height="17dp"
+            android:layout_width="20dp"
+            android:layout_height="20dp"
             android:layout_gravity="bottom|end"
-            android:src="@android:drawable/ic_input_add"
-            android:tint="@android:color/white"
-            android:padding="2dp"
+            android:src="@drawable/ic_status_add"
             android:background="@drawable/bg_status_card_add_badge"
+            android:padding="2dp"
             android:visibility="gone"/>
 
     </FrameLayout>
 
-</FrameLayout>
+    <TextView
+        android:id="@+id/tv_card_name"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:gravity="center"
+        android:textColor="?attr/colorOnSurface"
+        android:textSize="11.5sp"
+        android:fontFamily="sans-serif"
+        android:maxLines="1"
+        android:ellipsize="end"
+        android:text="Name"/>
+
+</LinearLayout>

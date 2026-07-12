@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Rounded-square fallback background for a channel's initials avatar (colour is
+     overridden per-item at runtime via setTint, based on a hash of the channel name). -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <corners android:radius="14dp"/>
+    <solid android:color="#607D8B"/>
+</shape>
