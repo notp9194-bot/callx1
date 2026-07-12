@@ -4951,6 +4951,32 @@ public class MessagePagingAdapter
     }
 
     private void showActionBottomSheet(Context ctx, Message m) {
+        try {
+            showActionBottomSheetInner(ctx, m);
+        } catch (Throwable t) {
+            // Immediate, same-session capture for any plain Java exception
+            // in the reaction-picker/action-sheet build. (Native SIGSEGV
+            // crashes can't be caught here — see CrashDebugHelper's
+            // breadcrumb mechanism for those, surfaced on next app launch.)
+            android.util.Log.e("ReactionPicker", "showActionBottomSheet crashed", t);
+            try {
+                android.widget.TextView msg = new android.widget.TextView(ctx);
+                int pad = (int) (16 * ctx.getResources().getDisplayMetrics().density);
+                msg.setPadding(pad, pad, pad, pad);
+                msg.setTextIsSelectable(true);
+                msg.setText(android.util.Log.getStackTraceString(t));
+                android.widget.ScrollView scroll = new android.widget.ScrollView(ctx);
+                scroll.addView(msg);
+                new android.app.AlertDialog.Builder(ctx)
+                        .setTitle("Reaction picker crashed (Java exception)")
+                        .setView(scroll)
+                        .setPositiveButton("OK", null)
+                        .show();
+            } catch (Throwable ignored) {}
+        }
+    }
+
+    private void showActionBottomSheetInner(Context ctx, Message m) {
         if (actionListener == null) return;
 
         // ── Step 1: Build emoji reaction row ──────────────────────────
@@ -5006,7 +5032,9 @@ public class MessagePagingAdapter
                 int btnPad = (int)(4 * ctx.getResources().getDisplayMetrics().density);
                 lp.setMargins(btnPad, 0, btnPad, 0);
                 lottieView.setLayoutParams(lp);
+                com.callx.app.utils.CrashDebugHelper.markLottieLoadStarting(ctx, reaction.id, cachedLottie);
                 boolean loaded = lottieView.loadFromFile(cachedLottie);
+                com.callx.app.utils.CrashDebugHelper.clearLottieLoadMarker(ctx);
                 if (!loaded) {
                     // Corrupt cache entry slipped past — fall back to unicode glyph
                     // instead of showing a broken/empty animated view.
@@ -5074,7 +5102,10 @@ public class MessagePagingAdapter
                             int btnPad2 = (int)(4 * ctx.getResources().getDisplayMetrics().density);
                             lp2.setMargins(btnPad2, 0, btnPad2, 0);
                             lottieView.setLayoutParams(lp2);
-                            if (!lottieView.loadFromFile(f)) return; // corrupt file, keep unicode slot
+                            com.callx.app.utils.CrashDebugHelper.markLottieLoadStarting(ctx, reactionId, f);
+                            boolean ok2 = lottieView.loadFromFile(f);
+                            com.callx.app.utils.CrashDebugHelper.clearLottieLoadMarker(ctx);
+                            if (!ok2) return; // corrupt file, keep unicode slot
                             lottieView.setScaleX(wasAlready ? 1.25f : 1.0f);
                             lottieView.setScaleY(wasAlready ? 1.25f : 1.0f);
                             lottieView.setAlpha(wasAlready ? 1.0f : 0.85f);
