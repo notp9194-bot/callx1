@@ -106,12 +106,18 @@ package com.callx.app.feed;
               }
           });
           rv.setAdapter(adapter);
-          ExtendedFloatingActionButton fab = v.findViewById(R.id.fab_new_status);
-          if (fab != null) {
-              fab.setOnClickListener(x -> startActivity(new Intent(requireContext(), NewStatusActivity.class)));
+          View.OnClickListener openComposer = x -> startActivity(new Intent(requireContext(), NewStatusActivity.class));
+          com.google.android.material.floatingactionbutton.FloatingActionButton fabCamera =
+                  v.findViewById(R.id.fab_camera_status);
+          com.google.android.material.floatingactionbutton.FloatingActionButton fabEdit =
+                  v.findViewById(R.id.fab_edit_status);
+          if (fabCamera != null) fabCamera.setOnClickListener(openComposer);
+          if (fabEdit != null) fabEdit.setOnClickListener(openComposer);
+          if (fabCamera != null && fabEdit != null) {
               rv.addOnScrollListener(new RecyclerView.OnScrollListener() {
                   @Override public void onScrolled(@NonNull RecyclerView r, int dx, int dy) {
-                      if (dy > 4) fab.shrink(); if (dy < -4) fab.extend();
+                      if (dy > 4) { fabCamera.hide(); fabEdit.hide(); }
+                      if (dy < -4) { fabCamera.show(); fabEdit.show(); }
                   }
               });
           }
