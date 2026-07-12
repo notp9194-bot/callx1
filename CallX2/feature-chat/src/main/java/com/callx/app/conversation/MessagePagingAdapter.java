@@ -4980,8 +4980,34 @@ public class MessagePagingAdapter
         if (actionListener == null) return;
 
         // ── Step 1: Build emoji reaction row ──────────────────────────
-        // Real unicode emoji glyph per slot (see NOTE below for why this
-        // isn't RLottie-animated) — a slot is NEVER left blank.
+        // Each slot plays a REAL hand-authored RLottie animation of the
+        // actual emoji (heartbeat heart, nodding thumb, laughing/crying
+        // face, gasping face, sad face with falling tear, shaking angry
+        // face) — bundled straight in the APK at assets/lottie/reaction_
+        // {id}.json, loaded via RLottieViewWrapper.loadFromAsset(). No
+        // network, no cache, no first-open delay: it's always there,
+        // exactly like Telegram's built-in reaction set ships inside the
+        // app rather than being fetched per-message.
+        //
+        // HISTORY — why this used to be broken:
+        // v122 and earlier tried to animate these same 6 slots from
+        // LottieAssetCache, populated over the network by
+        // EmojiPackDownloadWorker from the server's emoji-assets manifest.
+        // That pipeline (download → sha256-verify → validate → native
+        // loadFromFile() → live swap-in) was working correctly end-to-end
+        // — but the actual .json content behind heart/thumb/laugh/wow/sad/
+        // angry on the server was never real emoji artwork, just a
+        // placeholder single-shape "dot" (one flat-colored ellipse per
+        // file). Structurally valid Lottie, so nothing ever rejected it —
+        // it just wasn't an emoji. That's what showed up as pink/blue/
+        // yellow/orange/blue/red circles instead of ❤️👍😂😮😢😡. A follow-up
+        // pass (v123) then swapped in real unicode glyphs with a bounce
+        // animation instead of a fake sticker — correct and un-mismatched,
+        // but not what was actually wanted (a real animated reaction).
+        // This pass replaces the placeholder content with real hand-built
+        // vector emoji Lottie art AND bundles it in the app directly
+        // instead of depending on a server round-trip, so it can never be
+        // "half-downloaded" or stuck on stale cached placeholder data.
         com.callx.app.utils.ReactionEmojiCatalog.Entry[] QUICK_REACTIONS =
                 com.callx.app.utils.ReactionEmojiCatalog.QUICK_REACTIONS;
         android.widget.LinearLayout emojiRow = new android.widget.LinearLayout(ctx);
@@ -4999,42 +5025,37 @@ public class MessagePagingAdapter
         // Keep a dialog reference so emoji tap can dismiss it
         final android.app.AlertDialog[] holder = new android.app.AlertDialog[1];
 
-        // NOTE: quick-reaction slots are ALWAYS the real unicode glyph now.
-        //
-        // Previously each slot tried to render an RLottie animation loaded
-        // from LottieAssetCache (populated by EmojiPackDownloadWorker from
-        // the server's emoji-assets manifest). That looked right in theory
-        // — cache hit -> "OK: shown from cache, animated" in the DEBUG
-        // status dialog — but the actual .json files behind heart/thumb/
-        // laugh/wow/sad/angry on the server were never real emoji artwork,
-        // they were placeholder single-shape "dot" animations (one filled
-        // ellipse per file, each a different flat color). That's exactly
-        // the pink/blue/yellow/orange/blue/red circles that showed up in
-        // the picker instead of the real emoji — the Lottie pipeline was
-        // working perfectly, it just had nothing real to play. Tapping a
-        // slot always called onReact(m, reaction.unicode) regardless of
-        // what the slot LOOKED like, so the correct emoji still landed on
-        // the message — the picker preview and the applied reaction were
-        // simply out of sync.
-        //
-        // Real fix: stop pretending. Render the actual emoji glyph (same
-        // one that ends up on the bubble) with a Telegram-style staggered
-        // pop-in + tap punch-scale animation instead of a fake animated
-        // sticker. This guarantees the picker always shows exactly what
-        // will be applied, with zero dependency on server assets that
-        // don't exist yet. If/when real animated emoji Lottie/TGS files
-        // are supplied, LottieAssetCache + RLottieViewWrapper are still
-        // here (used by the empty-chat state) and this loop can be pointed
-        // back at them — just gate it on real content, not just "the JSON
-        // parses", since a placeholder circle is perfectly valid Lottie.
+        // Native RLottie drawables must be released when the sheet closes,
+        // or every long-press leaks native memory.
+        final java.util.List<com.callx.app.conversation.emptystate.RLottieViewWrapper> lottieRefs =
+                new java.util.ArrayList<>();
+
+        int slotSizePx = (int)(36 * ctx.getResources().getDisplayMetrics().density);
+
         for (int qi = 0; qi < QUICK_REACTIONS.length; qi++) {
             com.callx.app.utils.ReactionEmojiCatalog.Entry reaction = QUICK_REACTIONS[qi];
             String emoji = reaction.unicode;
             boolean already = currentUid != null && m.reactions != null
                     && emoji.equals(m.reactions.get(currentUid));
-
-            android.view.View slot = buildUnicodeReactionGlyph(ctx, emoji, already);
             final float restScale = already ? 1.25f : 1.0f;
+
+            android.view.View slot;
+            com.callx.app.conversation.emptystate.RLottieViewWrapper lottieView =
+                    new com.callx.app.conversation.emptystate.RLottieViewWrapper(ctx);
+            android.widget.LinearLayout.LayoutParams lp =
+                    new android.widget.LinearLayout.LayoutParams(slotSizePx, slotSizePx);
+            int btnPad = (int)(4 * ctx.getResources().getDisplayMetrics().density);
+            lp.setMargins(btnPad, 0, btnPad, 0);
+            lottieView.setLayoutParams(lp);
+            boolean loaded = lottieView.loadFromAsset("lottie/reaction_" + reaction.id + ".json");
+            if (loaded) {
+                lottieRefs.add(lottieView);
+                slot = lottieView;
+            } else {
+                // Should never happen (bundled in the APK, not downloaded) —
+                // but a slot must never be blank if it somehow does.
+                slot = buildUnicodeReactionGlyph(ctx, emoji, already);
+            }
 
             // Telegram-style staggered pop-in: slots animate in one after
             // another instead of all appearing at once.
@@ -5051,8 +5072,7 @@ public class MessagePagingAdapter
                     .start();
 
             slot.setOnClickListener(v -> {
-                // Quick punch-scale on tap, THEN apply + dismiss — same
-                // tactile beat Telegram/WhatsApp use, no fake asset needed.
+                // Quick punch-scale on tap, THEN apply + dismiss.
                 v.animate()
                         .scaleX(restScale * 1.35f)
                         .scaleY(restScale * 1.35f)
@@ -5126,6 +5146,9 @@ public class MessagePagingAdapter
                         }
                     });
         android.app.AlertDialog dlgLongPress = builder.create();
+        dlgLongPress.setOnDismissListener(d -> {
+            for (com.callx.app.conversation.emptystate.RLottieViewWrapper v : lottieRefs) v.release();
+        });
         com.callx.app.utils.AlertDialogStyler.showRounded(dlgLongPress);
         holder[0] = dlgLongPress;
     }
