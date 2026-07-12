@@ -104,7 +104,7 @@ public class EmojiManifestRepository {
                 String newEtag = resp.header("ETag");
                 SharedPreferences.Editor editor = prefs.edit()
                         .putString(KEY_MANIFEST_JSON, body)
-                        .putInt(KEY_MANIFEST_VERSION, manifest.version)
+                        .putLong(KEY_MANIFEST_VERSION, manifest.version)
                         .putLong(KEY_FETCHED_AT, System.currentTimeMillis());
                 if (newEtag != null) editor.putString(KEY_ETAG, newEtag);
                 editor.apply();

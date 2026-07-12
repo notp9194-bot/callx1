@@ -26,7 +26,13 @@ public class EmojiManifestModels {
 
     public static class Manifest {
         @SerializedName("version")
-        public int version;
+        // Server (index.js): version = Math.round(maxMtimeMs) + files.length
+        // — that's a millisecond epoch timestamp, e.g. 1783818210007
+        // (13 digits). An `int` maxes out at ~2.1 billion (10 digits), so
+        // Gson threw NumberFormatException on every single manifest parse
+        // ("Expected an int but was 1783818210007") — every quick reaction
+        // failed identically for this exact reason. Must be `long`.
+        public long version;
 
         @SerializedName("emojis")
         public List<Entry> emojis;
