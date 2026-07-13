@@ -350,6 +350,30 @@
             android:imeOptions="actionDone"
             android:inputType="textCapSentences"/>
 
+        <!--
+            View-once toggle — WhatsApp-style "1-in-a-circle" icon that marks
+            the whole selection to be sent as a view-once message (single
+            image/video → opens once then deletes; multiple items → grouped
+            multi_media message, still one-shot). GONE for surfaces that
+            don't support view-once (e.g. group chat — see
+            AttachSheetRecentMediaBinder#bind's supportsViewOnce param).
+            Tint flips between idle grey and active purple exactly like
+            ChatActivity's own btn_view_once input-bar toggle, so the same
+            feature reads identically whether triggered from the input bar
+            or from here.
+        -->
+        <ImageView
+            android:id="@+id/btn_selection_view_once"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_marginStart="6dp"
+            android:padding="8dp"
+            android:src="@drawable/ic_view_once"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Send as view once"
+            android:clickable="true"
+            android:focusable="true"/>
+
         <FrameLayout
             android:id="@+id/btn_selection_send"
             android:layout_width="46dp"

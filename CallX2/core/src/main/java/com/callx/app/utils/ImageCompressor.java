@@ -199,29 +199,64 @@ public class ImageCompressor {
 
     // ── Step 2: EXIF rotation fix ──────────────────────────────────────────
 
+    /**
+     * ExifInterface alone can read differently depending on the URI's
+     * authority — a raw MediaStore content:// uri (attach sheet's
+     * RecentMediaLoader) vs a system Photo Picker content:// uri (old
+     * Gallery-button PickMultipleVisualMedia flow) don't always expose the
+     * same EXIF stream reliably, which showed up as the two entry points
+     * producing differently-cropped grouped-media bubbles for the exact
+     * same photo. MediaStore's own ORIENTATION column is queried as a
+     * cross-check/fallback so both URI sources normalize to the same
+     * rotation regardless of which flow supplied the uri.
+     */
     private static Bitmap fixExifRotation(Context ctx, Uri uri, Bitmap src) {
+        float degrees = readExifDegrees(ctx, uri);
+        if (degrees == 0f) degrees = readMediaStoreOrientation(ctx, uri);
+        if (degrees == 0f) return src;
+        Matrix m = new Matrix();
+        m.postRotate(degrees);
+        Bitmap rotated = Bitmap.createBitmap(src, 0, 0,
+            src.getWidth(), src.getHeight(), m, true);
+        src.recycle();
+        return rotated;
+    }
+
+    private static float readExifDegrees(Context ctx, Uri uri) {
         try (InputStream in = ctx.getContentResolver().openInputStream(uri)) {
-            if (in == null) return src;
+            if (in == null) return 0f;
             ExifInterface exif = new ExifInterface(in);
             int orientation = exif.getAttributeInt(
                 ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL);
-            float degrees = 0f;
             switch (orientation) {
-                case ExifInterface.ORIENTATION_ROTATE_90:  degrees =  90f; break;
-                case ExifInterface.ORIENTATION_ROTATE_180: degrees = 180f; break;
-                case ExifInterface.ORIENTATION_ROTATE_270: degrees = 270f; break;
+                case ExifInterface.ORIENTATION_ROTATE_90:  return  90f;
+                case ExifInterface.ORIENTATION_ROTATE_180: return 180f;
+                case ExifInterface.ORIENTATION_ROTATE_270: return 270f;
+                default: return 0f;
             }
-            if (degrees == 0f) return src;
-            Matrix m = new Matrix();
-            m.postRotate(degrees);
-            Bitmap rotated = Bitmap.createBitmap(src, 0, 0,
-                src.getWidth(), src.getHeight(), m, true);
-            src.recycle();
-            return rotated;
         } catch (Exception e) {
             Log.w(TAG, "EXIF fix skipped: " + e.getMessage());
-            return src;
+            return 0f;
         }
+    }
+
+    /** Fallback for URI authorities where ExifInterface can't read rotation
+     *  reliably (e.g. picker vs raw MediaStore) — MediaStore.Images.Media
+     *  .ORIENTATION is only present for its own "external/images/media"
+     *  authority, so this silently no-ops (returns 0) for anything else,
+     *  same as ExifInterface's own graceful fallback above. */
+    private static float readMediaStoreOrientation(Context ctx, Uri uri) {
+        String[] projection = {android.provider.MediaStore.Images.Media.ORIENTATION};
+        try (android.database.Cursor c = ctx.getContentResolver()
+                .query(uri, projection, null, null, null)) {
+            if (c != null && c.moveToFirst()) {
+                int idx = c.getColumnIndex(android.provider.MediaStore.Images.Media.ORIENTATION);
+                if (idx >= 0) return c.getInt(idx);
+            }
+        } catch (Exception e) {
+            // Column not present for this uri's authority (e.g. Photo Picker) — fine, no-op.
+        }
+        return 0f;
     }
 
     // ── Step 3: Resize keeping aspect ratio ───────────────────────────────

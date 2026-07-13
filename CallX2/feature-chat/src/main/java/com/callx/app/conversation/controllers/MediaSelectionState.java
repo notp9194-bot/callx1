@@ -24,11 +24,27 @@ public final class MediaSelectionState {
         void onSelectionChanged();
     }
 
+    /**
+     * Fired with the exact uri whose selection state flipped, instead of a
+     * blanket "something changed". Adapters use this to notifyItemChanged()
+     * a single position instead of notifyDataSetChanged()-ing the whole
+     * strip/grid (which was re-triggering a fresh Glide load for every
+     * bound cell on every single tap — the main jank source in this sheet).
+     */
+    public interface ToggleListener {
+        void onItemToggled(Uri uri);
+    }
+
     private final Map<Uri, RecentMediaLoader.Item> selected = new LinkedHashMap<>();
     private final List<Listener> listeners = new ArrayList<>();
+    private final List<ToggleListener> toggleListeners = new ArrayList<>();
 
     public void addListener(Listener l) {
         listeners.add(l);
+    }
+
+    public void addToggleListener(ToggleListener l) {
+        toggleListeners.add(l);
     }
 
     /** Flips selection for this item. @return true if it's now selected. */
@@ -42,6 +58,7 @@ public final class MediaSelectionState {
             nowSelected = true;
         }
         notifyChanged();
+        notifyToggled(item.uri);
         return nowSelected;
     }
 
@@ -74,11 +91,17 @@ public final class MediaSelectionState {
 
     public void clear() {
         if (selected.isEmpty()) return;
+        List<Uri> previouslySelected = new ArrayList<>(selected.keySet());
         selected.clear();
         notifyChanged();
+        for (Uri u : previouslySelected) notifyToggled(u);
     }
 
     private void notifyChanged() {
         for (Listener l : listeners) l.onSelectionChanged();
+    }
+
+    private void notifyToggled(Uri uri) {
+        for (ToggleListener l : toggleListeners) l.onItemToggled(uri);
     }
 }

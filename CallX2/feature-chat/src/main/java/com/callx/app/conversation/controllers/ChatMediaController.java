@@ -309,7 +309,7 @@ public class ChatMediaController {
                         sheet.dismiss();
                         launchCamera();
                     }
-                    @Override public void onMediaSend(List<RecentMediaLoader.Item> items, String caption, boolean isHD) {
+                    @Override public void onMediaSend(List<RecentMediaLoader.Item> items, String caption, boolean isHD, boolean isViewOnce) {
                         if (items.isEmpty()) return;
                         List<Uri> uris = new ArrayList<>();
                         for (RecentMediaLoader.Item item : items) uris.add(item.uri);
@@ -318,7 +318,12 @@ public class ChatMediaController {
                         // a single item and a batch, with the shared caption attached
                         // to the resulting message. isHD threads through to the image
                         // branch of rawUploadGroupItem so ImageCompressor picks its
-                        // HD-tier caps instead of the Standard default.
+                        // HD-tier caps instead of the Standard default. isViewOnce is
+                        // stashed on the instance (see pendingMultiSendViewOnce) rather
+                        // than threaded through every uploadSequentially overload,
+                        // since it's only needed once — at finishMultiUpload, where the
+                        // outgoing Message is actually built.
+                        pendingMultiSendViewOnce = isViewOnce;
                         uploadSequentially(uris, null, caption == null || caption.isEmpty() ? null : caption, 0, isHD);
                     }
                 });
@@ -338,12 +343,25 @@ public class ChatMediaController {
     // (already-collected items still get sent as a smaller group).
     private volatile boolean multiUploadCancelled = false;
 
+    /**
+     * Set right before uploadSequentially() is kicked off from the attach
+     * sheet's onMediaSend (view-once toggle in the selection bar). Read once
+     * by finishMultiUpload() when the outgoing Message is built, then reset —
+     * a per-batch one-shot flag, same lifecycle as the input bar's own
+     * isViewOnceModeOn in ChatActivity.
+     */
+    private volatile boolean pendingMultiSendViewOnce = false;
+
     /** All uploads attempted (or batch was cancelled mid-way) — push ONE grouped message if we have anything. */
     private void finishMultiUpload(List<java.util.Map<String, Object>> collected, String caption) {
         delegate.getBinding().uploadProgress.setVisibility(View.GONE);
         delegate.getBinding().uploadProgress.setOnClickListener(null);
         boolean wasCancelled = multiUploadCancelled;
         multiUploadCancelled = false;
+        // One-shot: read + clear so a later, unrelated multi-send never
+        // accidentally inherits a stale ON from this batch.
+        boolean sendAsViewOnce = pendingMultiSendViewOnce;
+        pendingMultiSendViewOnce = false;
 
         if (!collected.isEmpty()) {
             Message m       = delegate.buildOutgoing();
@@ -357,9 +375,20 @@ public class ChatMediaController {
             Object firstUrl = collected.get(0).get("url");
             if (firstUrl instanceof String) m.mediaUrl = (String) firstUrl;
 
-            String preview = collected.size() == 1
-                    ? "📷 Photo"
-                    : "📷 " + collected.size() + " photos";
+            String preview;
+            if (sendAsViewOnce) {
+                // Tag before pushMessage — ChatViewOnceController's state
+                // machine (opened/expired/revoked) already treats multi_media
+                // exactly like single-media view-once (see FIELD_MEDIA_ITEMS
+                // wipe in hardDeleteFromFirebase), so nothing else needs to
+                // change on the receiving/rendering side.
+                com.callx.app.conversation.controllers.ChatViewOnceController.tagMessageAsViewOnce(m);
+                preview = "🔒 View Once";
+            } else {
+                preview = collected.size() == 1
+                        ? "📷 Photo"
+                        : "📷 " + collected.size() + " photos";
+            }
             delegate.pushMessage(m, preview);
             delegate.clearReply();
             if (wasCancelled) {

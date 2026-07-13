@@ -2675,7 +2675,12 @@ public class GroupChatActivity extends AppCompatActivity
         // recent gallery thumbnails) rather than a separate opt_camera row —
         // see AttachSheetRecentMediaBinder.
         com.callx.app.conversation.controllers.AttachSheetRecentMediaBinder.bind(
-                this, sheet, v, attachMediaExecutor,
+                // supportsViewOnce=false — group chat has no
+                // ChatViewOnceController-equivalent send/state-machine yet,
+                // so the toggle is hidden here rather than left sitting in
+                // the sheet as a dead control (see 1-1 ChatMediaController
+                // for the working version of this UI).
+                this, sheet, v, attachMediaExecutor, false,
                 new com.callx.app.conversation.controllers.AttachSheetRecentMediaBinder.Callbacks() {
                     @Override public void onCameraTapped() {
                         sheet.dismiss();
@@ -2683,7 +2688,7 @@ public class GroupChatActivity extends AppCompatActivity
                     }
                     @Override public void onMediaSend(
                             java.util.List<com.callx.app.conversation.controllers.RecentMediaLoader.Item> items,
-                            String caption, boolean isHD) {
+                            String caption, boolean isHD, boolean isViewOnce) {
                         if (items.isEmpty()) return;
                         java.util.List<Uri> uris = new java.util.ArrayList<>();
                         for (com.callx.app.conversation.controllers.RecentMediaLoader.Item item : items) uris.add(item.uri);

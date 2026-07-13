@@ -7,6 +7,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewTreeObserver;
 import android.widget.EditText;
+import android.widget.ImageView;
 import android.widget.TextView;
 
 import androidx.appcompat.app.AppCompatActivity;
@@ -65,12 +66,28 @@ public final class AttachSheetRecentMediaBinder {
          *             expanded "Recents" header) was ON at send time — true
          *             means images should be compressed at the higher HD cap
          *             instead of the default/Standard cap.
+         * @param isViewOnce whether the view-once toggle (selection bar,
+         *             next to the caption field) was ON at send time — true
+         *             means the resulting message should be tagged view-once
+         *             (single flag for the whole batch, same as WhatsApp).
          */
-        void onMediaSend(List<RecentMediaLoader.Item> items, String caption, boolean isHD);
+        void onMediaSend(List<RecentMediaLoader.Item> items, String caption, boolean isHD, boolean isViewOnce);
     }
 
     public static void bind(AppCompatActivity activity, BottomSheetDialog sheet, View sheetRoot,
                              ExecutorService mediaQueryExecutor, Callbacks callbacks) {
+        bind(activity, sheet, sheetRoot, mediaQueryExecutor, true, callbacks);
+    }
+
+    /**
+     * @param supportsViewOnce whether this surface has a view-once pipeline
+     *        wired up on the sending side (currently 1-1 chat only — group
+     *        chat has no ChatViewOnceController equivalent yet). When false,
+     *        the toggle button is hidden entirely instead of sitting there
+     *        as a dead/misleading control.
+     */
+    public static void bind(AppCompatActivity activity, BottomSheetDialog sheet, View sheetRoot,
+                             ExecutorService mediaQueryExecutor, boolean supportsViewOnce, Callbacks callbacks) {
         RecyclerView bottomRow  = sheetRoot.findViewById(R.id.bottom_media_row);
         RecyclerView grid       = sheetRoot.findViewById(R.id.recents_grid);
         View recentsLabel       = sheetRoot.findViewById(R.id.recents_label);
@@ -86,7 +103,26 @@ public final class AttachSheetRecentMediaBinder {
         if (bottomRow == null || topContent == null) return; // older/replaced layout — skip silently
 
         View hdToggle           = sheetRoot.findViewById(R.id.btn_hd_toggle);
+        View viewOnceToggle     = sheetRoot.findViewById(R.id.btn_selection_view_once);
         if (closeBtn != null) closeBtn.setOnClickListener(x -> sheet.dismiss());
+
+        // View-once toggle — OFF by default, one flag for the whole selection
+        // (same UX as WhatsApp: you can't mix normal + view-once in one send).
+        // Mirrors ChatActivity#setViewOnceMode's tint swap exactly so the
+        // control reads identically whether it's the input-bar button or
+        // this one — active = purple, idle = grey.
+        final boolean[] viewOnceEnabled = {false};
+        if (viewOnceToggle instanceof ImageView) {
+            if (!supportsViewOnce) {
+                viewOnceToggle.setVisibility(View.GONE);
+            } else {
+                updateViewOnceToggleVisual((ImageView) viewOnceToggle, false);
+                viewOnceToggle.setOnClickListener(x -> {
+                    viewOnceEnabled[0] = !viewOnceEnabled[0];
+                    updateViewOnceToggleVisual((ImageView) viewOnceToggle, viewOnceEnabled[0]);
+                });
+            }
+        }
 
         BottomSheetBehavior<android.widget.FrameLayout> behavior = sheet.getBehavior();
 
@@ -120,40 +156,57 @@ public final class AttachSheetRecentMediaBinder {
                 }
             }
         };
-        RecentMediaStripAdapter stripAdapter = new RecentMediaStripAdapter(stripListener, selection);
+        RecentMediaStripAdapter stripAdapter = new RecentMediaStripAdapter(activity, stripListener, selection);
         bottomRow.setLayoutManager(new LinearLayoutManager(activity, RecyclerView.HORIZONTAL, false));
         bottomRow.setAdapter(stripAdapter);
+        // Fixed-size cells + a deeper offscreen view cache so a fast fling
+        // through the strip doesn't keep tearing down/re-inflating holders,
+        // and a disabled change-animator so a selection-only rebind doesn't
+        // pay for a flash/fade transition on every tap.
+        bottomRow.setHasFixedSize(true);
+        bottomRow.setItemViewCacheSize(12);
+        if (bottomRow.getItemAnimator() instanceof androidx.recyclerview.widget.SimpleItemAnimator) {
+            ((androidx.recyclerview.widget.SimpleItemAnimator) bottomRow.getItemAnimator())
+                    .setSupportsChangeAnimations(false);
+        }
+        bottomRow.getRecycledViewPool().setMaxRecycledViews(0, 20);
 
         RecentMediaGridAdapter gridAdapter = null;
         if (grid != null) {
             DisplayMetrics dm = activity.getResources().getDisplayMetrics();
             int cellPx = dm.widthPixels / 4;
             RecentMediaGridAdapter.Listener gridListener = item -> selection.toggle(item);
-            gridAdapter = new RecentMediaGridAdapter(gridListener, selection) {
-                @Override public VH onCreateViewHolder(ViewGroup parent, int viewType) {
-                    VH h = super.onCreateViewHolder(parent, viewType);
-                    ViewGroup.LayoutParams lp = h.itemView.getLayoutParams();
-                    lp.width = cellPx;
-                    lp.height = cellPx;
-                    h.itemView.setLayoutParams(lp);
-                    return h;
-                }
-            };
+            gridAdapter = new RecentMediaGridAdapter(activity, gridListener, selection, cellPx);
             grid.setLayoutManager(new GridLayoutManager(activity, 4));
             grid.setAdapter(gridAdapter);
+            grid.setHasFixedSize(true);
+            grid.setItemViewCacheSize(16);
+            if (grid.getItemAnimator() instanceof androidx.recyclerview.widget.SimpleItemAnimator) {
+                ((androidx.recyclerview.widget.SimpleItemAnimator) grid.getItemAnimator())
+                        .setSupportsChangeAnimations(false);
+            }
+            grid.getRecycledViewPool().setMaxRecycledViews(0, 32);
+
+            // Warms the next ~12 thumbnails below the fold via Glide's
+            // RecyclerViewPreloader so they're already decoded/cached by
+            // the time the grid scrolls to them — same idea as the
+            // Glide preloading already used for the chat list.
+            com.bumptech.glide.integration.recyclerview.RecyclerViewPreloader<android.net.Uri> preloader =
+                    new com.bumptech.glide.integration.recyclerview.RecyclerViewPreloader<>(
+                            com.bumptech.glide.Glide.with(activity),
+                            gridAdapter,
+                            new com.bumptech.glide.integration.recyclerview.FixedPreloadSizeProvider<>(cellPx, cellPx),
+                            12);
+            grid.addOnScrollListener(preloader);
         }
         RecentMediaGridAdapter finalGridAdapter = gridAdapter;
 
-        // Keeps the strip + grid + floating selection bar all in sync no
-        // matter which view the toggle came from — cheap (≤60 cells) so a
-        // full notifyDataSetChanged() here isn't worth the bookkeeping a
-        // targeted notifyItemChanged(position) would need across two
-        // independently-paginated adapters.
-        selection.addListener(() -> {
-            stripAdapter.notifyDataSetChanged();
-            if (finalGridAdapter != null) finalGridAdapter.notifyDataSetChanged();
-            updateSelectionBar(activity, selection, selectionBar, sendCount);
-        });
+        // Strip + grid each keep themselves in sync via
+        // MediaSelectionState.ToggleListener (targeted notifyItemChanged,
+        // registered inside the adapters' constructors) — this listener
+        // only has to drive the floating caption/send bar, which is a
+        // cheap alpha/visibility flip, not a RecyclerView rebind.
+        selection.addListener(() -> updateSelectionBar(activity, selection, selectionBar, sendCount));
 
         if (sendBtn != null) {
             sendBtn.setOnClickListener(x -> {
@@ -161,7 +214,7 @@ public final class AttachSheetRecentMediaBinder {
                 List<RecentMediaLoader.Item> items = selection.items();
                 String caption = captionInput != null ? captionInput.getText().toString().trim() : "";
                 sheet.dismiss();
-                callbacks.onMediaSend(items, caption, hdEnabled[0]);
+                callbacks.onMediaSend(items, caption, hdEnabled[0], viewOnceEnabled[0]);
                 selection.clear();
             });
         }
@@ -320,6 +373,18 @@ public final class AttachSheetRecentMediaBinder {
     private static void updateHdToggleVisual(TextView hdToggle, boolean enabled) {
         hdToggle.setBackgroundResource(enabled ? R.drawable.bg_hd_toggle_active : R.drawable.bg_hd_toggle_inactive);
         hdToggle.setTextColor(enabled ? 0xFFFFFFFF : ContextCompat.getColor(hdToggle.getContext(), R.color.text_secondary));
+    }
+
+    /**
+     * Swaps the view-once icon between idle-grey and active-purple — same
+     * two colors ChatActivity#setViewOnceMode uses for the input-bar
+     * btn_view_once toggle, so the feature reads identically from either
+     * entry point.
+     */
+    private static void updateViewOnceToggleVisual(ImageView viewOnceToggle, boolean enabled) {
+        viewOnceToggle.setColorFilter(enabled
+                ? android.graphics.Color.parseColor("#FF6200EE")   // active tint
+                : android.graphics.Color.parseColor("#FF8A8A8A")); // idle/grey tint
     }
 
     private static boolean hasMediaReadPermission(AppCompatActivity activity) {
