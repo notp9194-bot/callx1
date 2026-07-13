@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Cell in the expanded "Recents" grid (GridLayoutManager, 4 columns) shown
+    when the attach sheet is dragged to STATE_EXPANDED — see
+    ChatMediaController#setupRecentsGrid(). Square cells, 1dp gap handled by
+    the RecyclerView's ItemDecoration, not margins here (keeps recycling
+    cheap — no per-item margin math).
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <ImageView
+        android:id="@+id/thumb"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@drawable/bg_media_thumb_camera"
+        android:scaleType="centerCrop"/>
+
+    <TextView
+        android:id="@+id/video_duration"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|end"
+        android:layout_margin="4dp"
+        android:background="@drawable/bg_video_duration_pill"
+        android:paddingStart="5dp"
+        android:paddingEnd="5dp"
+        android:paddingTop="1dp"
+        android:paddingBottom="1dp"
+        android:textColor="#FFFFFF"
+        android:textSize="10sp"
+        android:visibility="gone"/>
+</FrameLayout>

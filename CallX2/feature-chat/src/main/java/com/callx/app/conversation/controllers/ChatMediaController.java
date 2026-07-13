@@ -40,7 +40,16 @@ import com.callx.app.utils.VideoCompressor;
 import com.callx.app.utils.VideoUploader;
 import com.callx.app.utils.VoiceRecorder;
 import com.callx.app.conversation.MultiMediaPreviewDialog;
+import com.google.android.material.bottomsheet.BottomSheetBehavior;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
+
+import android.util.DisplayMetrics;
+import android.view.ViewTreeObserver;
+import androidx.recyclerview.widget.GridLayoutManager;
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * Handles media pickers (image/video/audio/file/camera/wallpaper),
@@ -69,6 +78,11 @@ public class ChatMediaController {
     private static final int MAX_MULTI_PICK = 30;
 
     private Uri cameraOutputUri;
+
+    // Recent-media strip/grid: one MediaStore query per sheet-open, shared by
+    // both RecyclerViews (grid just gets a longer slice of the same list).
+    private static final int RECENT_MEDIA_LIMIT = 60;
+    private final ExecutorService mediaQueryExecutor = Executors.newSingleThreadExecutor();
 
     private final VoiceRecorder recorder = new VoiceRecorder();
 
@@ -230,6 +244,8 @@ public class ChatMediaController {
         BottomSheetDialog sheet = new BottomSheetDialog(activity);
         View v = LayoutInflater.from(activity).inflate(R.layout.bottom_sheet_attach, null);
 
+        setupRecentMedia(sheet, v);
+
         // Gallery — now opens the combined image+video picker (was image-only)
         // so this one chip covers what used to be Gallery + Video + Multi.
         v.findViewById(R.id.opt_gallery)
@@ -291,6 +307,109 @@ public class ChatMediaController {
         }
         sheet.setContentView(v);
         sheet.show();
+    }
+
+    /**
+     * Wires the WhatsApp-style compact strip (camera tile + recent gallery
+     * thumbnails, right under the drag handle) and the expandable "Recents"
+     * grid underneath it.
+     *
+     * Collapsed peek height = the height of top_content (drag handle +
+     * strip + icon grid + camera row) — measured once the sheet is laid
+     * out, via a one-shot ViewTreeObserver listener. Dragging past that
+     * reveals the grid, which is fed off the SAME background MediaStore
+     * query as the strip (one query, two RecyclerViews) so opening the
+     * sheet never does more than one disk hit.
+     */
+    private void setupRecentMedia(BottomSheetDialog sheet, View sheetRoot) {
+        RecyclerView strip = sheetRoot.findViewById(R.id.recent_media_strip);
+        RecyclerView grid  = sheetRoot.findViewById(R.id.recents_grid);
+        View recentsLabel  = sheetRoot.findViewById(R.id.recents_label);
+        View recentsEmpty  = sheetRoot.findViewById(R.id.recents_empty);
+        View topContent    = sheetRoot.findViewById(R.id.top_content);
+        if (strip == null || grid == null || topContent == null) return; // older/replaced layout — skip silently
+
+        RecentMediaStripAdapter.Listener stripListener = new RecentMediaStripAdapter.Listener() {
+            @Override public void onCameraTapped() {
+                sheet.dismiss();
+                launchCamera();
+            }
+            @Override public void onMediaTapped(RecentMediaLoader.Item item) {
+                sheet.dismiss();
+                uploadAndSend(item.uri, item.isVideo ? "video" : "image",
+                        item.isVideo ? "video" : "image", null);
+            }
+        };
+        RecentMediaStripAdapter stripAdapter = new RecentMediaStripAdapter(stripListener);
+        strip.setLayoutManager(new LinearLayoutManager(activity, RecyclerView.HORIZONTAL, false));
+        strip.setAdapter(stripAdapter);
+
+        DisplayMetrics dm = activity.getResources().getDisplayMetrics();
+        int cellPx = dm.widthPixels / 4;
+        RecentMediaGridAdapter.Listener gridListener = item -> {
+            sheet.dismiss();
+            uploadAndSend(item.uri, item.isVideo ? "video" : "image",
+                    item.isVideo ? "video" : "image", null);
+        };
+        RecentMediaGridAdapter gridAdapter = new RecentMediaGridAdapter(gridListener) {
+            // Force square cells sized to (screen width / 4) since GridLayoutManager
+            // alone won't do that for us — cheaper than a custom ItemDecoration
+            // for a grid that's only ever 4 columns.
+            @Override public RecentMediaGridAdapter.VH onCreateViewHolder(android.view.ViewGroup parent, int viewType) {
+                RecentMediaGridAdapter.VH h = super.onCreateViewHolder(parent, viewType);
+                android.view.ViewGroup.LayoutParams lp = h.itemView.getLayoutParams();
+                lp.width = cellPx;
+                lp.height = cellPx;
+                h.itemView.setLayoutParams(lp);
+                return h;
+            }
+        };
+        grid.setLayoutManager(new GridLayoutManager(activity, 4));
+        grid.setAdapter(gridAdapter);
+
+        // Only need permission-gated MediaStore reads for READ_MEDIA_IMAGES/
+        // READ_MEDIA_VIDEO (API 33+) or READ_EXTERNAL_STORAGE (older) — if not
+        // granted yet, just leave both rows empty; the icon-grid attach
+        // options keep working regardless, and the system Gallery picker
+        // (opt_gallery) requests it independently when tapped.
+        boolean hasPerm = hasMediaReadPermission();
+        if (hasPerm) {
+            mediaQueryExecutor.execute(() -> {
+                List<RecentMediaLoader.Item> items = RecentMediaLoader.loadRecent(activity, RECENT_MEDIA_LIMIT);
+                activity.runOnUiThread(() -> {
+                    stripAdapter.submit(items);
+                    gridAdapter.submit(items);
+                    if (recentsEmpty != null) recentsEmpty.setVisibility(items.isEmpty() ? View.VISIBLE : View.GONE);
+                    if (recentsLabel != null) recentsLabel.setVisibility(items.isEmpty() ? View.GONE : View.VISIBLE);
+                    grid.setVisibility(items.isEmpty() ? View.GONE : View.VISIBLE);
+                });
+            });
+        } else {
+            if (recentsLabel != null) recentsLabel.setVisibility(View.GONE);
+            grid.setVisibility(View.GONE);
+        }
+
+        // Peek height = collapsed content only, so the sheet opens compact
+        // (matches the reference screenshot) and dragging up is what reveals
+        // the Recents grid below it.
+        BottomSheetBehavior<android.widget.FrameLayout> behavior = sheet.getBehavior();
+        behavior.setSkipCollapsed(false);
+        behavior.setState(BottomSheetBehavior.STATE_COLLAPSED);
+        topContent.getViewTreeObserver().addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
+            @Override public void onGlobalLayout() {
+                if (topContent.getHeight() > 0) {
+                    behavior.setPeekHeight(topContent.getHeight());
+                    topContent.getViewTreeObserver().removeOnGlobalLayoutListener(this);
+                }
+            }
+        });
+    }
+
+    private boolean hasMediaReadPermission() {
+        String perm = android.os.Build.VERSION.SDK_INT >= 33
+                ? Manifest.permission.READ_MEDIA_IMAGES
+                : Manifest.permission.READ_EXTERNAL_STORAGE;
+        return ContextCompat.checkSelfPermission(activity, perm) == PackageManager.PERMISSION_GRANTED;
     }
 
     // ── Multi media: sequential upload, grouped into ONE message ─────────────
