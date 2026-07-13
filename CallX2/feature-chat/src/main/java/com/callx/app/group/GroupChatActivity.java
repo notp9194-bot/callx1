@@ -189,6 +189,9 @@ public class GroupChatActivity extends AppCompatActivity
 
     // ── Media pickers ──────────────────────────────────────────────────────
     private ActivityResultLauncher<String> imagePicker, videoPicker, audioPicker, filePicker, stickerPicker;
+    // Attach sheet's recent-media strip/grid — one background thread, reused across sheet opens.
+    private final java.util.concurrent.ExecutorService attachMediaExecutor =
+            java.util.concurrent.Executors.newSingleThreadExecutor();
     private ActivityResultLauncher<Intent> gifPickerLauncher;
     private ActivityResultLauncher<String> wallpaperPicker;
     private androidx.activity.result.ActivityResultLauncher<androidx.activity.result.PickVisualMediaRequest> multiMediaPicker;
@@ -2668,10 +2671,22 @@ public class GroupChatActivity extends AppCompatActivity
         if (optLocation != null) {
             optLocation.setOnClickListener(x -> { sheet.dismiss(); locationShareController.launch(); });
         }
-        View optCamera = v.findViewById(R.id.opt_camera);
-        if (optCamera != null) {
-            optCamera.setOnClickListener(x -> { sheet.dismiss(); imagePicker.launch("image/*"); });
-        }
+        // Camera tile is now the first item of bottom_media_row (inline with
+        // recent gallery thumbnails) rather than a separate opt_camera row —
+        // see AttachSheetRecentMediaBinder.
+        com.callx.app.conversation.controllers.AttachSheetRecentMediaBinder.bind(
+                this, sheet, v, attachMediaExecutor,
+                new com.callx.app.conversation.controllers.AttachSheetRecentMediaBinder.Callbacks() {
+                    @Override public void onCameraTapped() {
+                        sheet.dismiss();
+                        imagePicker.launch("image/*");
+                    }
+                    @Override public void onMediaTapped(com.callx.app.conversation.controllers.RecentMediaLoader.Item item) {
+                        sheet.dismiss();
+                        uploadAndSend(item.uri, item.isVideo ? "video" : "image",
+                                item.isVideo ? "video" : "image", null);
+                    }
+                });
         // Payment / Event / AI images — new chips, backend flow not wired up yet.
         View optPayment = v.findViewById(R.id.opt_payment);
         if (optPayment != null) {

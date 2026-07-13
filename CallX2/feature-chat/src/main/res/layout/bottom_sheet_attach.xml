@@ -44,24 +44,6 @@
         android:layout_marginBottom="16dp"
         android:background="@drawable/bg_drag_handle"/>
 
-    <!--
-        Recent-media strip: camera tile (position 0, code-side) + last ~30
-        gallery thumbnails, horizontal-scroll. Populated by
-        RecentMediaStripAdapter off a background MediaStore query — see
-        ChatMediaController#showAttachSheet(). Tapping a thumbnail sends
-        it straight away (same upload path as the Gallery picker); tapping
-        the camera tile opens the camera, same as opt_camera below.
-    -->
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/recent_media_strip"
-        android:layout_width="match_parent"
-        android:layout_height="76dp"
-        android:layout_marginBottom="16dp"
-        android:clipToPadding="false"
-        android:paddingStart="12dp"
-        android:paddingEnd="12dp"
-        android:overScrollMode="never"/>
-
     <!-- Row 1: Gallery / Location / Contact / Document -->
     <LinearLayout
         android:layout_width="match_parent"
@@ -187,32 +169,26 @@
 
     </LinearLayout>
 
-    <!-- Camera — full-width row -->
-    <LinearLayout
-        android:id="@+id/opt_camera"
+    <!--
+        Bottom media row — camera tile (position 0, added in code) + recent
+        gallery thumbnails, one horizontal-scroll RecyclerView. This REPLACES
+        the old plain "Camera" label row — matches the reference screenshot
+        where the camera icon sits inline with recent gallery images at the
+        bottom of the sheet, not as its own separate row/button.
+        Populated by RecentMediaStripAdapter off a background MediaStore
+        query — see AttachSheetRecentMediaBinder. Tapping a thumbnail sends
+        it straight away (same upload path as the Gallery picker); tapping
+        the camera tile opens the camera.
+    -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/bottom_media_row"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:paddingStart="16dp"
-        android:paddingEnd="16dp"
-        android:paddingTop="14dp"
-        android:paddingBottom="14dp"
-        android:layout_marginTop="10dp"
-        android:layout_marginStart="12dp"
-        android:layout_marginEnd="12dp"
-        android:background="@drawable/bg_attach_camera_row">
-
-        <FrameLayout android:layout_width="44dp" android:layout_height="44dp" android:background="@drawable/circle_attach_blue">
-            <ImageView android:layout_width="22dp" android:layout_height="22dp"
-                android:layout_gravity="center" android:src="@drawable/ic_camera"/>
-        </FrameLayout>
-
-        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-            android:text="Camera" android:textSize="14sp" android:textStyle="bold"
-            android:textColor="@color/text_primary" android:layout_marginStart="14dp"/>
-
-    </LinearLayout>
+        android:layout_height="76dp"
+        android:layout_marginTop="14dp"
+        android:clipToPadding="false"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:overScrollMode="never"/>
 
     </LinearLayout>
     <!-- /top_content — collapsed (peek) state ends here -->
