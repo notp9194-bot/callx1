@@ -5,16 +5,23 @@
     prepended in code as position 0, everything else is a MediaStore
     thumbnail). Kept tiny/flat on purpose — this row is rendered for
     every attach-sheet open, so no nested view hierarchies.
+
+    Border lives on the ROOT FrameLayout with the thumb ImageView inset by
+    1dp — same reasoning as item_attach_grid_media.xml: a border painted
+    directly behind a centerCrop image is fully covered by that image and
+    never shows.
 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="76dp"
     android:layout_height="76dp"
-    android:layout_marginEnd="8dp">
+    android:layout_marginEnd="8dp"
+    android:background="@drawable/bg_media_thumb_border_rounded">
 
     <ImageView
         android:id="@+id/thumb"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
+        android:layout_margin="1dp"
         android:background="@drawable/bg_media_thumb_camera"
         android:scaleType="centerCrop"/>
 

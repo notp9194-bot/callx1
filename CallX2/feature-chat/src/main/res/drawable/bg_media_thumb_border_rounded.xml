@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Sits on the strip tile's ROOT FrameLayout (item_attach_strip_media.xml).
+    Transparent fill — only the stroke matters, since the inset ImageView's
+    own bg_media_thumb_camera drawable provides the actual fill color.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="@android:color/transparent"/>
+    <corners android:radius="10dp"/>
+    <stroke android:width="1dp" android:color="#33FFFFFF"/>
+</shape>

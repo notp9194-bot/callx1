@@ -165,30 +165,51 @@ public final class AttachSheetRecentMediaBinder {
         // growing in underneath it. slideOffset is 0 at peek (COLLAPSED) and
         // 1 at STATE_EXPANDED, same reference BottomSheetBehavior uses for
         // its own drag physics, so this rides the same gesture 1:1.
+        //
+        // Plain linear alpha read as flat/mechanical, so this also eases the
+        // progress through a decelerate curve and adds a small translateY +
+        // scale on both layers (icon grid drifts up/shrinks slightly as it
+        // leaves, header settles down/in as it arrives) — same idea as
+        // Telegram's attach-sheet header swap, not just an opacity dissolve.
+        final android.view.animation.Interpolator fadeEasing = new android.view.animation.DecelerateInterpolator(1.6f);
+        final float driftPx = dpToPx(activity, 14f);
+
         if (iconGridSection != null || expandedHeader != null) {
             behavior.addBottomSheetCallback(new BottomSheetBehavior.BottomSheetCallback() {
                 @Override public void onStateChanged(@androidx.annotation.NonNull View bs, int newState) {}
 
                 @Override public void onSlide(@androidx.annotation.NonNull View bs, float slideOffset) {
-                    float t = Math.max(0f, Math.min(1f, slideOffset));
-                    float fadeOut = Math.max(0f, 1f - (t / FADE_FRACTION));
-                    float fadeIn  = Math.min(1f, t / FADE_FRACTION);
+                    float t = Math.max(0f, Math.min(1f, slideOffset)) / FADE_FRACTION;
+                    t = Math.max(0f, Math.min(1f, t));
+                    float eased = fadeEasing.getInterpolation(t);
+                    float fadeOut = 1f - eased;
+                    float fadeIn  = eased;
 
                     if (iconGridSection != null) {
                         iconGridSection.setAlpha(fadeOut);
+                        iconGridSection.setTranslationY(-driftPx * eased);
+                        float scale = 1f - 0.04f * eased;
+                        iconGridSection.setScaleX(scale);
+                        iconGridSection.setScaleY(scale);
                         iconGridSection.setVisibility(fadeOut <= 0.02f ? View.GONE : View.VISIBLE);
                     }
                     if (bottomRow != null) {
                         bottomRow.setAlpha(fadeOut);
+                        bottomRow.setTranslationY(-driftPx * eased);
                         bottomRow.setVisibility(fadeOut <= 0.02f ? View.GONE : View.VISIBLE);
                     }
                     if (expandedHeader != null) {
                         expandedHeader.setAlpha(fadeIn);
+                        expandedHeader.setTranslationY(driftPx * (1f - eased));
                         expandedHeader.setVisibility(fadeIn <= 0.02f ? View.GONE : View.VISIBLE);
                     }
                 }
             });
         }
+    }
+
+    private static float dpToPx(AppCompatActivity activity, float dp) {
+        return dp * activity.getResources().getDisplayMetrics().density;
     }
 
     private static boolean hasMediaReadPermission(AppCompatActivity activity) {
