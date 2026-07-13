@@ -183,6 +183,19 @@ public class FirebaseUtils {
     }
 
     /**
+     * Live recording WAVEFORM node — companion to getChatRecordingRef's
+     * plain boolean flag. chatRecordingWave/{chatIdOrGroupId}/{uid} = a
+     * single quantized int (0-31) representing the CURRENT mic amplitude,
+     * overwritten in place (never appended/listed) so each write stays a
+     * tiny scalar payload instead of a growing array. Only written while
+     * chatRecording/{..}/{uid} is true, and removed the instant recording
+     * stops — see RecordingPreviewController.
+     */
+    public static DatabaseReference getChatRecordingWaveRef(String chatOrGroupId) {
+        return db().getReference("chatRecordingWave").child(chatOrGroupId);
+    }
+
+    /**
      * Screenshot notification node — Snapchat-style.
      * chatScreenshot/{chatIdOrGroupId}/{uid} = serverTimestamp()
      * Written once when the user takes a screenshot; the partner's listener

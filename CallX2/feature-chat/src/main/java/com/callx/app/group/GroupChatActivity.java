@@ -1310,7 +1310,8 @@ public class GroupChatActivity extends AppCompatActivity
                 }
             }
         });
-        binding.btnPlus.setOnClickListener(v -> showAttachSheet());
+        binding.btnAttach.setOnClickListener(v -> showAttachSheet());
+        binding.btnCamera.setOnClickListener(v -> imagePicker.launch("image/*"));
         binding.btnSend.setOnClickListener(v -> sendText());
         attachMicGesture();
 
@@ -2679,18 +2680,6 @@ public class GroupChatActivity extends AppCompatActivity
                 sheet.dismiss();
                 gifPickerLauncher.launch(new Intent(this, com.callx.app.chat.ChatGifPickerActivity.class));
             });
-        }
-        // Camera — moved in from the old standalone btn_camera toolbar
-        // button as part of the "+" consolidation.
-        View optCamera = v.findViewById(R.id.opt_camera);
-        if (optCamera != null) {
-            optCamera.setOnClickListener(x -> { sheet.dismiss(); imagePicker.launch("image/*"); });
-        }
-        // View Once is a 1:1-chat-only feature — hide the slot in groups
-        // rather than wiring a no-op click.
-        View optViewOnce = v.findViewById(R.id.opt_view_once);
-        if (optViewOnce != null) {
-            optViewOnce.setVisibility(View.GONE);
         }
         sheet.setContentView(v); sheet.show();
     }

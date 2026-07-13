@@ -16,9 +16,9 @@ import com.callx.app.chat.R;
 
 import com.callx.app.chatlist.canvas.ChatListCallButtonsView;
 import com.callx.app.chatlist.canvas.ChatListLastMessageView;
-import com.callx.app.chatlist.canvas.ChatListNameTimeView;
 import com.callx.app.chatlist.canvas.ChatListStoryRingView;
 import com.callx.app.chatlist.canvas.ChatListUnreadBadgeView;
+import com.callx.app.chatlist.canvas.ChatRowContentView;
 import com.callx.app.conversation.ChatActivity;
 import com.callx.app.models.User;
 import de.hdodenhof.circleimageview.CircleImageView;
@@ -49,6 +49,15 @@ import java.util.concurrent.ConcurrentHashMap;
  *    on calculateDiff(), regardless of list size.
  *  • ChatsFragment calls adapter.submitList(sorted) instead of managing
  *    diffUpdateContacts() itself — diff logic lives in one place (the adapter).
+ *
+ * CHANGES v90 — Row-content consolidation:
+ *  ChatListNameTimeView + ChatListLastMessageView (both already canvas from
+ *  v82/v23) merged into ONE view, ChatRowContentView — one measure/layout/
+ *  draw pass in the row's text column instead of two. VH keeps both old
+ *  field names (nameTimeView, lastMessageView) pointing at the same
+ *  instance so every existing call site below is unchanged. Scoped to
+ *  item_chat.xml / this adapter only — GroupAdapter/item_group.xml still
+ *  use the original two separate views.
  *
  * CHANGES v82 — Full canvas row (perf):
  *  CardView → FrameLayout; tv_name+tv_time → ChatListNameTimeView;
@@ -696,13 +705,16 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
     @Override public int getItemCount() { return differ.getCurrentList().size(); }
 
     static class VH extends RecyclerView.ViewHolder {
-        // v82: canvas views
-        ChatListNameTimeView    nameTimeView;
+        // v90: nameTimeView + lastMessageView now both reference the SAME
+        // merged ChatRowContentView instance (one view, one measure/layout/
+        // draw pass) — kept as two field names purely so every existing
+        // h.nameTimeView.xxx / h.lastMessageView.xxx call site below still
+        // compiles unchanged; ChatRowContentView implements both APIs.
+        ChatRowContentView nameTimeView;
+        ChatRowContentView lastMessageView;
         ChatListUnreadBadgeView unreadBadgeView;
         ChatListStoryRingView   storyRingView;
         ChatListCallButtonsView callButtonsView;
-        // v23: canvas last-message + ticks
-        ChatListLastMessageView lastMessageView;
         // unchanged
         CircleImageView ivAvatar;
         android.widget.ImageView ivCheck;
@@ -714,8 +726,9 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
 
         VH(View v) {
             super(v);
-            nameTimeView    = v.findViewById(R.id.view_name_time);
-            lastMessageView = v.findViewById(R.id.view_last_message);
+            ChatRowContentView rowContent = v.findViewById(R.id.view_row_content);
+            nameTimeView    = rowContent;
+            lastMessageView = rowContent;
             unreadBadgeView = v.findViewById(R.id.view_unread_badge);
             storyRingView   = v.findViewById(R.id.view_story_ring);
             callButtonsView = v.findViewById(R.id.view_call_buttons);

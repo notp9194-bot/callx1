@@ -694,15 +694,10 @@ public class ChatPresenceController {
 
     private ValueEventListener recordingListener;
 
-    /** Waveform bar IDs — animated in a staggered scale loop. */
-    private static final int[] WAVE_BAR_IDS = {
-        com.callx.app.chat.R.id.bar_wave_1,
-        com.callx.app.chat.R.id.bar_wave_2,
-        com.callx.app.chat.R.id.bar_wave_3,
-        com.callx.app.chat.R.id.bar_wave_4,
-        com.callx.app.chat.R.id.bar_wave_5,
-    };
-    private static final float[] WAVE_PEAK_SCALES = {0.5f, 1.0f, 0.4f, 0.8f, 0.3f};
+    // NOTE: the old fake 5-bar staggered-scale waveform (WAVE_BAR_IDS /
+    // WAVE_PEAK_SCALES, animator already disabled for perf) has been
+    // replaced by a REAL amplitude-driven waveform — see
+    // RecordingPreviewController + R.id.waveform_recording_preview.
     private final android.os.Handler waveHandler = new android.os.Handler(android.os.Looper.getMainLooper());
     private Runnable waveRunnable;
     private boolean waveAnimRunning = false;

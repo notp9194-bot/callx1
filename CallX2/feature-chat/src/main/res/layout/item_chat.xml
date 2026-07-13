@@ -1,13 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    item_chat.xml — v82 canvas optimisation
+    item_chat.xml — v90 canvas consolidation
 
-    WHAT CHANGED vs v23:
+    WHAT CHANGED vs v82:
+      • tv_name + tv_time (already merged into ChatListNameTimeView in v82)
+        and the last-message view (ChatListLastMessageView) are now merged
+        AGAIN into ONE view — ChatRowContentView — so RecyclerView measures
+        and lays out one child here instead of two. Drawing itself was
+        already zero-allocation canvas in both source views; this pass
+        only removes the extra view-tree node, not draw work.
+
+    WHAT CHANGED vs v23 (still applies):
       • CardView root  →  plain FrameLayout with a simple background drawable
         (cardElevation was 0dp so no visual change; removes CardView's extra
         measure/layout pass on every RecyclerView bind).
-      • tv_name (TextView)         →  ChatListNameTimeView (canvas; name left, time right)
-      • tv_time (TextView)         →  removed (now part of ChatListNameTimeView)
       • tv_unread_badge (TextView) →  ChatListUnreadBadgeView (canvas pill + count)
       • iv_story_ring (ImageView)  →  ChatListStoryRingView (canvas arc, seen/unseen)
       • ll_call_btns LinearLayout  →  ChatListCallButtonsView (canvas icons + touch regions)
@@ -80,26 +86,23 @@
             </FrameLayout>
         </FrameLayout>
 
-        <!-- Main text column: name+time (canvas) + last-message (canvas) -->
-        <LinearLayout
+        <!-- Main text column: name+time+last-message, ONE merged canvas view
+             (v90: was two stacked canvas views — ChatListNameTimeView +
+             ChatListLastMessageView — now a single ChatRowContentView with
+             one measure/layout/draw pass; see that class for details).
+             v91: the wrapping vertical LinearLayout that used to stack the
+             two child views is GONE — with only one child left after the
+             v90 merge it was pure pass-through (measured/laid out every
+             bind for zero layout benefit). Its weight/margin params moved
+             straight onto ChatRowContentView, which is now a DIRECT child
+             of the row's outer horizontal LinearLayout — one fewer
+             ViewGroup in the tree per row. -->
+        <com.callx.app.chatlist.canvas.ChatRowContentView
+            android:id="@+id/view_row_content"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:orientation="vertical"
-            android:layout_marginStart="14dp">
-
-            <!-- v82: name (left bold) + time (right muted) — single canvas view -->
-            <com.callx.app.chatlist.canvas.ChatListNameTimeView
-                android:id="@+id/view_name_time"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"/>
-
-            <!-- v23: last-message text + ticks — canvas (unchanged) -->
-            <com.callx.app.chatlist.canvas.ChatListLastMessageView
-                android:id="@+id/view_last_message"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"/>
-        </LinearLayout>
+            android:layout_marginStart="14dp"/>
 
         <!-- Right meta column: unread badge (canvas) + call buttons (canvas) -->
         <LinearLayout

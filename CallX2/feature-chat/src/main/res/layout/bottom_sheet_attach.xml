@@ -128,30 +128,5 @@
                 android:text="GIF" android:textSize="12sp"
                 android:textColor="?android:attr/textColorPrimary" android:layout_marginTop="6dp"/>
         </LinearLayout>
-        <!-- Moved here from the standalone header-row button as part of the
-             "+" consolidation — was its own ImageButton in ll_input_row. -->
-        <LinearLayout android:id="@+id/opt_camera" android:layout_width="0dp" android:layout_height="wrap_content"
-            android:layout_columnWeight="1" android:orientation="vertical" android:gravity="center"
-            android:padding="12dp" android:background="?attr/selectableItemBackground">
-            <FrameLayout android:layout_width="56dp" android:layout_height="56dp" android:background="@drawable/circle_primary">
-                <ImageView android:layout_width="28dp" android:layout_height="28dp"
-                    android:layout_gravity="center" android:src="@drawable/ic_camera"/>
-            </FrameLayout>
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="Camera" android:textSize="12sp"
-                android:textColor="?android:attr/textColorPrimary" android:layout_marginTop="6dp"/>
-        </LinearLayout>
-        <!-- Same move for View Once — was its own ImageButton in ll_input_row. -->
-        <LinearLayout android:id="@+id/opt_view_once" android:layout_width="0dp" android:layout_height="wrap_content"
-            android:layout_columnWeight="1" android:orientation="vertical" android:gravity="center"
-            android:padding="12dp" android:background="?attr/selectableItemBackground">
-            <FrameLayout android:layout_width="56dp" android:layout_height="56dp" android:background="@drawable/circle_primary">
-                <ImageView android:layout_width="28dp" android:layout_height="28dp"
-                    android:layout_gravity="center" android:src="@drawable/ic_view_once"/>
-            </FrameLayout>
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="View Once" android:textSize="12sp"
-                android:textColor="?android:attr/textColorPrimary" android:layout_marginTop="6dp"/>
-        </LinearLayout>
     </GridLayout>
 </LinearLayout>

@@ -341,6 +341,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     private ChatBlockController    blockController;
     private ChatPresenceController presenceController;
     private ChatPlaybackPresenceController playbackPresenceController;
+    private RecordingPreviewController recordingPreviewController;
     private ChatLiveTypingController liveTypingController;
     private ChatEmojiBurstController emojiBurstController;
     private ChatPinController      pinController;
@@ -476,10 +477,22 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // Yeh sab DB-independent hain
         blockController    = new ChatBlockController(this);
         presenceController = new ChatPresenceController(this);
+        recordingPreviewController = new RecordingPreviewController(this);
         mediaController.setRecordingListener(recording -> {
             // Publish voice-note recording state to Firebase so the partner
             // sees "Rahul is recording a voice message" on their screen.
             if (presenceController != null) presenceController.publishOurRecordingState(recording);
+            if (!recording && recordingPreviewController != null) {
+                recordingPreviewController.onOurRecordingStopped();
+            }
+        });
+        mediaController.setAmplitudeListener(level -> {
+            // Same 100ms sample already computed for our own waveform bar —
+            // forwarded here, internally throttled to ~200ms before it ever
+            // touches Firebase. See RecordingPreviewController perf notes.
+            if (recordingPreviewController != null) {
+                recordingPreviewController.onOurAmplitudeSample(level);
+            }
         });
         playbackPresenceController = new ChatPlaybackPresenceController(this);
         liveTypingController = new ChatLiveTypingController(this);
@@ -639,6 +652,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         binding.getRoot().postDelayed(() -> {
             if (isFinishing() || isDestroyed()) return;
             playbackPresenceController.init();
+            recordingPreviewController.init();
             liveTypingController.init();
             screenshotNotifier.init();
         }, 300);
@@ -717,6 +731,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             presenceController.setOurInChatScreen(true);
             presenceController.onScreenResumed();
         }
+        if (recordingPreviewController != null) recordingPreviewController.onScreenResumed();
         if (screenshotNotifier != null) screenshotNotifier.onScreenResumed();
 
         // Grouped-media gallery (MediaViewerActivity) swipe-up-to-reply
@@ -920,8 +935,12 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             // a strip nobody can see while we're backgrounded.
             presenceController.onScreenPaused();
             // If we left mid-recording, clear the recording badge on the partner's screen.
-            if (isRecording) presenceController.publishOurRecordingState(false);
+            if (isRecording) {
+                presenceController.publishOurRecordingState(false);
+                if (recordingPreviewController != null) recordingPreviewController.onOurRecordingStopped();
+            }
         }
+        if (recordingPreviewController != null) recordingPreviewController.onScreenPaused();
         if (screenshotNotifier != null) screenshotNotifier.onScreenPaused();
         if (liveTypingController != null) liveTypingController.clearOurPreview();
         typingHandler.removeCallbacks(stopTypingRunnable);
@@ -960,6 +979,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
 
         if (presenceController != null) presenceController.release();
         if (playbackPresenceController != null) playbackPresenceController.release();
+        if (recordingPreviewController != null) recordingPreviewController.release();
         if (liveTypingController != null) liveTypingController.destroy();
         if (emojiBurstController != null) emojiBurstController.release();
         if (blockController    != null) blockController.release();
@@ -2713,7 +2733,9 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             });
             return true;
         });
-        binding.btnPlus.setOnClickListener(v -> mediaController.showAttachSheet());
+        binding.btnAttach.setOnClickListener(v -> mediaController.showAttachSheet());
+        binding.btnViewOnce.setOnClickListener(v -> showViewOnceExpiryPicker());
+        binding.btnCamera.setOnClickListener(v -> mediaController.launchCamera());
 
         if (binding.btnCancelReply != null)
             binding.btnCancelReply.setOnClickListener(v -> clearReply());
@@ -2815,15 +2837,15 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     }
 
     /**
-     * Telegram/Instagram-style: the "+" icon shrinks & fades away as soon as
-     * text is typed, freeing up room for the multi-line input, and smoothly
-     * grows back in when the text is cleared. (Was 2 icons — attach + camera
-     * — before the "+" consolidation; now just the one.)
+     * Telegram/Instagram-style: attach + camera icons shrink & fade away as
+     * soon as text is typed, freeing up room for the multi-line input, and
+     * smoothly grow back in when the text is cleared.
      */
     private void animateAttachCameraIcons(boolean expand) {
         if (inputIconsExpanded != null && inputIconsExpanded == expand) return;
         inputIconsExpanded = expand;
-        animateIconTo(binding.btnPlus, expand);
+        animateIconTo(binding.btnAttach, expand);
+        animateIconTo(binding.btnCamera, expand);
     }
 
     // Shared overshoot interpolator for the icon "pop back in" bounce.
@@ -2922,8 +2944,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
      * selectedViewOnceExpiryMs == -1  → no timer, delete only on receiver open
      * selectedViewOnceExpiryMs >  0   → timer set; also delete on open if receiver opens before timer
      */
-    @Override
-    public void showViewOnceExpiryPicker() {
+    private void showViewOnceExpiryPicker() {
         String[] options  = {
             "Expire with View Once",   // delete on open, no timer
             "1 hour",
@@ -2956,13 +2977,10 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
      */
     private void setViewOnceMode(boolean on) {
         isViewOnceModeOn = on;
-        if (binding == null || binding.btnPlus == null) return;
-        // btn_view_once was removed in the "+" consolidation — the + button
-        // itself now shows the active tint so there's still a visible cue
-        // that view-once mode is armed (in addition to the hint text below).
-        binding.btnPlus.setColorFilter(on
+        if (binding == null || binding.btnViewOnce == null) return;
+        binding.btnViewOnce.setColorFilter(on
                 ? android.graphics.Color.parseColor("#FF6200EE")   // active tint
-                : android.graphics.Color.parseColor("#FFFFFFFF")); // idle — back to normal white icon tint
+                : android.graphics.Color.parseColor("#FF8A8A8A")); // idle/grey tint
         binding.etMessage.setHint(on ? "View once message…" : getString(R.string.hint_message));
     }
 

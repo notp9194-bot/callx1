@@ -78,6 +78,18 @@ public class ChatMediaController {
     }
     private RecordingStateListener recordingListener;
 
+    /** Fired from the SAME 100ms tick that already drives our own
+     *  waveformRecording bar — zero extra polling cost, just forwards the
+     *  amplitude sample that was computed anyway. See RecordingPreviewController. */
+    public interface AmplitudeListener {
+        void onAmplitudeSample(float level0to1);
+    }
+    private AmplitudeListener amplitudeListener;
+
+    public void setAmplitudeListener(AmplitudeListener listener) {
+        this.amplitudeListener = listener;
+    }
+
     private static final long  AMPLITUDE_POLL_MS  = 100L;
     /** Below this hold duration, a release is treated as an accidental tap
      *  (finger never really settled into "recording" mode) — same as
@@ -262,17 +274,6 @@ public class ChatMediaController {
                 sheet.dismiss();
                 gifPickerLauncher.launch(new Intent(activity, com.callx.app.chat.ChatGifPickerActivity.class));
             });
-        }
-        // Camera + View Once — moved in from the old standalone toolbar
-        // buttons (btn_camera / btn_view_once) as part of the "+"
-        // consolidation. Same actions, one entry point.
-        View optCamera = v.findViewById(R.id.opt_camera);
-        if (optCamera != null) {
-            optCamera.setOnClickListener(x -> { sheet.dismiss(); launchCamera(); });
-        }
-        View optViewOnce = v.findViewById(R.id.opt_view_once);
-        if (optViewOnce != null) {
-            optViewOnce.setOnClickListener(x -> { sheet.dismiss(); delegate.showViewOnceExpiryPicker(); });
         }
         sheet.setContentView(v);
         sheet.show();
@@ -906,7 +907,11 @@ public class ChatMediaController {
         recordTickRunnable = () -> {
             if (recordState == RecordState.IDLE) return;
             binding.tvRecordTimer.setText(formatTimer(recorder.getDuration()));
-            binding.waveformRecording.pushLevel(normalizeAmplitude(recorder.getMaxAmplitudeSafe()));
+            float level = normalizeAmplitude(recorder.getMaxAmplitudeSafe());
+            binding.waveformRecording.pushLevel(level);
+            // Same sample, forwarded to the partner-facing preview — no
+            // second call to recorder.getMaxAmplitudeSafe(), no second timer.
+            if (amplitudeListener != null) amplitudeListener.onAmplitudeSample(level);
             recordHandler.postDelayed(recordTickRunnable, AMPLITUDE_POLL_MS);
         };
         recordHandler.postDelayed(recordTickRunnable, AMPLITUDE_POLL_MS);

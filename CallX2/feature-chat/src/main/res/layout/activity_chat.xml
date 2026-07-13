@@ -301,54 +301,17 @@
                 android:textSize="12sp"
                 android:textStyle="bold"/>
 
-            <!-- Mini waveform: 5 bars of alternating heights, alpha-looped -->
-            <LinearLayout
-                android:id="@+id/ll_recording_waveform"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical">
-
-                <View
-                    android:id="@+id/bar_wave_1"
-                    android:layout_width="3dp"
-                    android:layout_height="10dp"
-                    android:background="@drawable/circle_primary"
-                    android:backgroundTint="#FFFFFF"/>
-
-                <View
-                    android:id="@+id/bar_wave_2"
-                    android:layout_width="3dp"
-                    android:layout_height="16dp"
-                    android:layout_marginStart="2dp"
-                    android:background="@drawable/circle_primary"
-                    android:backgroundTint="#FFFFFF"/>
-
-                <View
-                    android:id="@+id/bar_wave_3"
-                    android:layout_width="3dp"
-                    android:layout_height="8dp"
-                    android:layout_marginStart="2dp"
-                    android:background="@drawable/circle_primary"
-                    android:backgroundTint="#FFFFFF"/>
-
-                <View
-                    android:id="@+id/bar_wave_4"
-                    android:layout_width="3dp"
-                    android:layout_height="13dp"
-                    android:layout_marginStart="2dp"
-                    android:background="@drawable/circle_primary"
-                    android:backgroundTint="#FFFFFF"/>
-
-                <View
-                    android:id="@+id/bar_wave_5"
-                    android:layout_width="3dp"
-                    android:layout_height="6dp"
-                    android:layout_marginStart="2dp"
-                    android:background="@drawable/circle_primary"
-                    android:backgroundTint="#FFFFFF"/>
-
-            </LinearLayout>
+            <!-- Live waveform driven by the partner's REAL mic amplitude —
+                 see RecordingPreviewController. Replaces the old static
+                 5-bar fake waveform (whose animator was already disabled
+                 for perf); this View is allocation-free per frame
+                 (RecordingWaveformView: fixed-capacity ring buffer, single
+                 onDraw pass), same class already used for our OWN
+                 recording bar in ll_recording_bar below. -->
+            <com.callx.app.chat.ui.RecordingWaveformView
+                android:id="@+id/waveform_recording_preview"
+                android:layout_width="46dp"
+                android:layout_height="18dp"/>
 
         </LinearLayout>
 
@@ -636,7 +599,7 @@
                 android:layout_marginBottom="10dp"
                 app:cardCornerRadius="28dp"
                 app:cardElevation="6dp"
-                app:cardBackgroundColor="@android:color/transparent"
+                app:cardBackgroundColor="@color/surface_input"
                 app:strokeColor="@color/divider"
                 app:strokeWidth="0.5dp"
                 app:cardPreventCornerOverlap="false"
@@ -652,27 +615,10 @@
                     android:paddingEnd="4dp"
                     android:paddingTop="4dp"
                     android:paddingBottom="4dp"
-                    android:background="@drawable/bg_input_capsule_gradient"
+                    android:background="@android:color/transparent"
                     android:gravity="center_vertical">
-                    <!--
-                        CONSOLIDATED "+" BUTTON — replaces the old 3 separate
-                        ImageButtons (attach / camera / view-once). All three
-                        actions now live inside the attach bottom sheet
-                        (opt_camera, opt_view_once added alongside the
-                        existing gallery/video/file/etc options).
-
-                        Why: ll_input_row is re-measured/re-laid-out on every
-                        keyboard show/hide, orientation change and EditText
-                        height change (multi-line typing). Fewer weight-0
-                        siblings means LinearLayout's horizontal measure pass
-                        has less fixed-width work to walk through before it
-                        gets to sizing the weighted EditText — 1 child here
-                        instead of 3. The saving is small per pass, but it's
-                        a hot path (typing), so it's a real (if modest) win,
-                        not just fewer views for cosmetics.
-                    -->
                     <ImageButton
-                        android:id="@+id/btn_plus"
+                        android:id="@+id/btn_attach"
                         android:layout_width="34dp"
                         android:layout_height="34dp"
                         android:padding="6dp"
@@ -680,6 +626,24 @@
                         android:tint="@color/white"
                         android:background="?attr/selectableItemBackgroundBorderless"
                         android:contentDescription="Attach"/>
+                    <ImageButton
+                        android:id="@+id/btn_camera"
+                        android:layout_width="34dp"
+                        android:layout_height="34dp"
+                        android:padding="6dp"
+                        android:src="@drawable/ic_camera"
+                        android:tint="@color/white"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:contentDescription="Camera"/>
+                    <ImageButton
+                        android:id="@+id/btn_view_once"
+                        android:layout_width="34dp"
+                        android:layout_height="34dp"
+                        android:padding="6dp"
+                        android:src="@drawable/ic_view_once"
+                        android:tint="@color/white"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:contentDescription="View Once"/>
                     <FrameLayout
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
@@ -744,7 +708,6 @@
                     android:paddingEnd="10dp"
                     android:paddingTop="4dp"
                     android:paddingBottom="4dp"
-                    android:background="@drawable/bg_input_capsule_gradient"
                     android:gravity="center_vertical"
                     android:visibility="gone">
 
@@ -887,7 +850,7 @@
             android:layout_marginBottom="6dp"
             app:cardCornerRadius="24dp"
             app:cardElevation="6dp"
-            app:cardBackgroundColor="@android:color/transparent"
+            app:cardBackgroundColor="@color/bar_background"
             app:cardPreventCornerOverlap="false"
             app:cardUseCompatPadding="true">
 
@@ -896,7 +859,7 @@
                 android:id="@+id/toolbar"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:background="@drawable/bg_header_capsule_gradient"
+                android:background="@android:color/transparent"
                 android:orientation="horizontal"
                 android:gravity="center_vertical"
                 android:paddingTop="4dp"
