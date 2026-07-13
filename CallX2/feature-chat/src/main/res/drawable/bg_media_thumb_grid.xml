@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Used only by RecentMediaGridAdapter's cells (the expanded 4-column
+    Recents grid). Unlike bg_media_thumb_camera (rounded, used by the
+    compact strip's 76dp tiles), this has NO corner radius — square cells
+    with a hairline border read as a continuous grid, matching WhatsApp/
+    Telegram's expanded media grid instead of showing rounded gaps between
+    rows.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="#2A2A2A"/>
+    <stroke android:width="1dp" android:color="#33FFFFFF"/>
+</shape>

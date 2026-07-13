@@ -44,6 +44,65 @@
         android:layout_marginBottom="16dp"
         android:background="@drawable/bg_drag_handle"/>
 
+    <!--
+        expanded_header — crossfades IN as the icon grid / strip crossfade
+        OUT (see ChatMediaController#setupRecentMedia's BottomSheetBehavior
+        BottomSheetCallback). Gone at rest so it takes no space at peek.
+    -->
+    <LinearLayout
+        android:id="@+id/expanded_header"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingBottom="12dp"
+        android:visibility="gone"
+        android:alpha="0">
+
+        <ImageView
+            android:id="@+id/btn_close_sheet"
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:src="@drawable/ic_close"
+            android:contentDescription="Close"/>
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="20dp"
+            android:text="Recents"
+            android:textColor="@color/text_primary"
+            android:textSize="18sp"
+            android:textStyle="bold"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="HD"
+            android:textColor="@color/text_secondary"
+            android:textSize="11sp"
+            android:background="@drawable/bg_attach_chip"
+            android:paddingStart="6dp"
+            android:paddingEnd="6dp"
+            android:paddingTop="2dp"
+            android:paddingBottom="2dp"/>
+    </LinearLayout>
+
+    <!--
+        icon_grid_section = Row1+Row2 of category chips. Faded out (alpha)
+        and collapsed (GONE, to reclaim space for the Recents grid) as the
+        sheet is dragged up past peek — see the BottomSheetCallback in
+        ChatMediaController. Crossfades against expanded_header above.
+    -->
+    <LinearLayout
+        android:id="@+id/icon_grid_section"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
     <!-- Row 1: Gallery / Location / Contact / Document -->
     <LinearLayout
         android:layout_width="match_parent"
@@ -168,6 +227,9 @@
         </LinearLayout>
 
     </LinearLayout>
+
+    </LinearLayout>
+    <!-- /icon_grid_section -->
 
     <!--
         Bottom media row — camera tile (position 0, added in code) + recent

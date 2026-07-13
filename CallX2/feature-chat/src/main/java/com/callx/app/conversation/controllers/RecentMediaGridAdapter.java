@@ -43,6 +43,21 @@ public class RecentMediaGridAdapter extends RecyclerView.Adapter<RecentMediaGrid
         notifyDataSetChanged();
     }
 
+    /** Appends a page fetched by RecentMediaLoader#loadRecentPage — powers the
+     *  grid's infinite scroll (see AttachSheetRecentMediaBinder's scroll listener). */
+    public void append(List<RecentMediaLoader.Item> more) {
+        if (more.isEmpty()) return;
+        int start = items.size();
+        List<RecentMediaLoader.Item> combined = new java.util.ArrayList<>(items);
+        combined.addAll(more);
+        items = combined;
+        notifyItemRangeInserted(start, more.size());
+    }
+
+    public int getLoadedCount() {
+        return items.size();
+    }
+
     public boolean isEmpty() {
         return items.isEmpty();
     }

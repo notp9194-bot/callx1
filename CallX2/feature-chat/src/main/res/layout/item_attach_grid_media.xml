@@ -14,7 +14,7 @@
         android:id="@+id/thumb"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:background="@drawable/bg_media_thumb_camera"
+        android:background="@drawable/bg_media_thumb_grid"
         android:scaleType="centerCrop"/>
 
     <TextView

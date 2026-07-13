@@ -52,20 +52,39 @@ public final class RecentMediaLoader {
 
     /** @param limit max items to return (strip needs ~30, grid can ask for more). */
     public static List<Item> loadRecent(Context context, int limit) {
-        int safeLimit = Math.max(1, limit);
+        return loadRecentPage(context, 0, limit);
+    }
 
-        List<Item> images = queryImages(context, safeLimit);
-        List<Item> videos = queryVideos(context, safeLimit);
+    /**
+     * Paged version for the expanded Recents grid's "unlimited" scroll.
+     * Since images/videos live in two separate MediaStore tables, we can't
+     * just LIMIT/OFFSET each table independently and merge (offsets would
+     * drift out of date-order once merged). Instead each call re-queries
+     * BOTH tables up to (offset+limit) rows, sorts the merged list by
+     * date_added, then slices out just the requested page. This re-reads
+     * a growing prefix on every page — fine here since MediaStore cursor
+     * reads are cheap and this only runs while the user is actively
+     * scrolling an open sheet (not a persistent/background query).
+     *
+     * @param offset how many newest items to skip (0 = first page)
+     * @param limit  page size
+     */
+    public static List<Item> loadRecentPage(Context context, int offset, int limit) {
+        int safeOffset = Math.max(0, offset);
+        int safeLimit  = Math.max(1, limit);
+        int total = safeOffset + safeLimit;
+
+        List<Item> images = queryImages(context, total);
+        List<Item> videos = queryVideos(context, total);
 
         List<Item> merged = new ArrayList<>(images.size() + videos.size());
         merged.addAll(images);
         merged.addAll(videos);
         Collections.sort(merged, (a, b) -> Long.compare(b.dateAddedSec, a.dateAddedSec));
 
-        if (merged.size() > safeLimit) {
-            merged = new ArrayList<>(merged.subList(0, safeLimit));
-        }
-        return merged;
+        if (safeOffset >= merged.size()) return new ArrayList<>(); // no more pages
+        int end = Math.min(merged.size(), safeOffset + safeLimit);
+        return new ArrayList<>(merged.subList(safeOffset, end));
     }
 
     private static List<Item> queryImages(Context context, int limit) {

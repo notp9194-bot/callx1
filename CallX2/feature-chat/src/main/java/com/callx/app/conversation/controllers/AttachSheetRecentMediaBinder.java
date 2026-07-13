@@ -36,6 +36,12 @@ public final class AttachSheetRecentMediaBinder {
     private AttachSheetRecentMediaBinder() {}
 
     private static final int RECENT_MEDIA_LIMIT = 60;
+    private static final int GRID_PAGE_SIZE = 60;
+    // Fraction of the sheet's collapsed→expanded drag distance over which the
+    // icon grid/strip fade out and the "Recents" header fades in. Kept short
+    // (first 35% of the drag) so the crossfade finishes well before the user
+    // reaches full expansion, matching the reference screenshots.
+    private static final float FADE_FRACTION = 0.35f;
 
     public interface Callbacks {
         void onCameraTapped();
@@ -49,7 +55,12 @@ public final class AttachSheetRecentMediaBinder {
         View recentsLabel       = sheetRoot.findViewById(R.id.recents_label);
         View recentsEmpty       = sheetRoot.findViewById(R.id.recents_empty);
         View topContent         = sheetRoot.findViewById(R.id.top_content);
+        View iconGridSection    = sheetRoot.findViewById(R.id.icon_grid_section);
+        View expandedHeader     = sheetRoot.findViewById(R.id.expanded_header);
+        View closeBtn           = sheetRoot.findViewById(R.id.btn_close_sheet);
         if (bottomRow == null || topContent == null) return; // older/replaced layout — skip silently
+
+        if (closeBtn != null) closeBtn.setOnClickListener(x -> sheet.dismiss());
 
         RecentMediaStripAdapter.Listener stripListener = new RecentMediaStripAdapter.Listener() {
             @Override public void onCameraTapped() { callbacks.onCameraTapped(); }
@@ -79,17 +90,55 @@ public final class AttachSheetRecentMediaBinder {
 
         boolean hasPerm = hasMediaReadPermission(activity);
         RecentMediaGridAdapter finalGridAdapter = gridAdapter;
+        // Guards against firing two overlapping "load next page" queries off
+        // one fast fling, and against paging forever once MediaStore is dry.
+        final boolean[] loadingMore = {false};
+        final boolean[] noMorePages = {false};
         if (hasPerm) {
             mediaQueryExecutor.execute(() -> {
-                List<RecentMediaLoader.Item> items = RecentMediaLoader.loadRecent(activity, RECENT_MEDIA_LIMIT);
+                List<RecentMediaLoader.Item> items = RecentMediaLoader.loadRecentPage(activity, 0, RECENT_MEDIA_LIMIT);
                 activity.runOnUiThread(() -> {
                     stripAdapter.submit(items);
                     if (finalGridAdapter != null) finalGridAdapter.submit(items);
                     if (recentsEmpty != null) recentsEmpty.setVisibility(items.isEmpty() ? View.VISIBLE : View.GONE);
                     if (recentsLabel != null) recentsLabel.setVisibility(items.isEmpty() ? View.GONE : View.VISIBLE);
                     if (grid != null) grid.setVisibility(items.isEmpty() ? View.GONE : View.VISIBLE);
+                    if (items.size() < RECENT_MEDIA_LIMIT) noMorePages[0] = true;
                 });
             });
+
+            // Infinite scroll: once the user has dragged the sheet up and is
+            // scrolling the grid itself, load the next page a few rows before
+            // hitting the bottom — same "keep paging MediaStore" pattern
+            // WhatsApp/Telegram use instead of loading everything up front.
+            if (grid != null) {
+                grid.addOnScrollListener(new RecyclerView.OnScrollListener() {
+                    @Override public void onScrolled(@androidx.annotation.NonNull RecyclerView rv, int dx, int dy) {
+                        if (dy <= 0 || loadingMore[0] || noMorePages[0] || finalGridAdapter == null) return;
+                        GridLayoutManager lm = (GridLayoutManager) rv.getLayoutManager();
+                        if (lm == null) return;
+                        int lastVisible = lm.findLastVisibleItemPosition();
+                        int total = finalGridAdapter.getLoadedCount();
+                        if (lastVisible >= total - 8) { // ~2 rows from the end
+                            loadingMore[0] = true;
+                            int offset = total;
+                            mediaQueryExecutor.execute(() -> {
+                                List<RecentMediaLoader.Item> more =
+                                        RecentMediaLoader.loadRecentPage(activity, offset, GRID_PAGE_SIZE);
+                                activity.runOnUiThread(() -> {
+                                    loadingMore[0] = false;
+                                    if (more.isEmpty()) {
+                                        noMorePages[0] = true;
+                                    } else {
+                                        finalGridAdapter.append(more);
+                                        if (more.size() < GRID_PAGE_SIZE) noMorePages[0] = true;
+                                    }
+                                });
+                            });
+                        }
+                    }
+                });
+            }
         } else {
             if (recentsLabel != null) recentsLabel.setVisibility(View.GONE);
             if (grid != null) grid.setVisibility(View.GONE);
@@ -109,6 +158,37 @@ public final class AttachSheetRecentMediaBinder {
                 }
             }
         });
+
+        // Crossfade: icon grid + strip fade OUT / collapse, "Recents" header
+        // fades IN, over the first FADE_FRACTION of the collapsed→expanded
+        // drag — instead of the icon grid just sitting there and the grid
+        // growing in underneath it. slideOffset is 0 at peek (COLLAPSED) and
+        // 1 at STATE_EXPANDED, same reference BottomSheetBehavior uses for
+        // its own drag physics, so this rides the same gesture 1:1.
+        if (iconGridSection != null || expandedHeader != null) {
+            behavior.addBottomSheetCallback(new BottomSheetBehavior.BottomSheetCallback() {
+                @Override public void onStateChanged(@androidx.annotation.NonNull View bs, int newState) {}
+
+                @Override public void onSlide(@androidx.annotation.NonNull View bs, float slideOffset) {
+                    float t = Math.max(0f, Math.min(1f, slideOffset));
+                    float fadeOut = Math.max(0f, 1f - (t / FADE_FRACTION));
+                    float fadeIn  = Math.min(1f, t / FADE_FRACTION);
+
+                    if (iconGridSection != null) {
+                        iconGridSection.setAlpha(fadeOut);
+                        iconGridSection.setVisibility(fadeOut <= 0.02f ? View.GONE : View.VISIBLE);
+                    }
+                    if (bottomRow != null) {
+                        bottomRow.setAlpha(fadeOut);
+                        bottomRow.setVisibility(fadeOut <= 0.02f ? View.GONE : View.VISIBLE);
+                    }
+                    if (expandedHeader != null) {
+                        expandedHeader.setAlpha(fadeIn);
+                        expandedHeader.setVisibility(fadeIn <= 0.02f ? View.GONE : View.VISIBLE);
+                    }
+                }
+            });
+        }
     }
 
     private static boolean hasMediaReadPermission(AppCompatActivity activity) {
