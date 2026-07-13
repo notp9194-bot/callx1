@@ -310,6 +310,14 @@ public class ChatMediaController {
                         sheet.dismiss();
                         launchCamera();
                     }
+                    @Override public void onMoreAppsRequested() {
+                        filePicker.launch("*/*");
+                    }
+                    @Override public void onSeeMoreRequested() {
+                        multiMediaPicker.launch(new PickVisualMediaRequest.Builder()
+                                .setMediaType(PickVisualMedia.ImageAndVideo.INSTANCE)
+                                .build());
+                    }
                     @Override public void onMediaSend(List<RecentMediaLoader.Item> items, String caption, boolean isHD, boolean isViewOnce) {
                         if (items.isEmpty()) return;
                         List<Uri> uris = new ArrayList<>();

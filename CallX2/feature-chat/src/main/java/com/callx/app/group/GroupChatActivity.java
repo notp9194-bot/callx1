@@ -2686,6 +2686,14 @@ public class GroupChatActivity extends AppCompatActivity
                         sheet.dismiss();
                         imagePicker.launch("image/*");
                     }
+                    @Override public void onMoreAppsRequested() {
+                        filePicker.launch("*/*");
+                    }
+                    @Override public void onSeeMoreRequested() {
+                        multiMediaPicker.launch(new androidx.activity.result.PickVisualMediaRequest.Builder()
+                                .setMediaType(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageAndVideo.INSTANCE)
+                                .build());
+                    }
                     @Override public void onMediaSend(
                             java.util.List<com.callx.app.conversation.controllers.RecentMediaLoader.Item> items,
                             String caption, boolean isHD, boolean isViewOnce) {

@@ -73,15 +73,46 @@
             android:src="@drawable/ic_close"
             android:contentDescription="Close"/>
 
-        <TextView
+        <!--
+            recents_dropdown_row — tapping anywhere on "Recents ▾" opens the
+            folder picker popup (see AttachSheetFolderPicker) listing every
+            on-device folder (Camera/Videos/Screenshots/Downloads/WhatsApp/…),
+            matching the reference screenshot's dropdown. recents_title's text
+            is swapped to the picked folder's name once one is chosen.
+        -->
+        <LinearLayout
+            android:id="@+id/recents_dropdown_row"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:layout_marginStart="20dp"
-            android:text="Recents"
-            android:textColor="@color/text_primary"
-            android:textSize="18sp"
-            android:textStyle="bold"/>
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingTop="4dp"
+            android:paddingBottom="4dp"
+            android:paddingEnd="8dp"
+            android:background="?attr/selectableItemBackground"
+            android:clickable="true"
+            android:focusable="true">
+
+            <TextView
+                android:id="@+id/recents_title"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Recents"
+                android:textColor="@color/text_primary"
+                android:textSize="18sp"
+                android:textStyle="bold"
+                android:maxLines="1"
+                android:ellipsize="end"/>
+
+            <ImageView
+                android:layout_width="22dp"
+                android:layout_height="22dp"
+                android:layout_marginStart="2dp"
+                android:src="@drawable/ic_chevron_down"
+                android:contentDescription="Choose folder"/>
+        </LinearLayout>
 
         <TextView
             android:id="@+id/btn_hd_toggle"

@@ -64,6 +64,19 @@ public final class AttachSheetRecentMediaBinder {
     public interface Callbacks {
         void onCameraTapped();
         /**
+         * "More apps" row in the Recents ▾ dropdown was tapped — hand off to
+         * whatever the surface's own document/file chooser is (ChatMediaController
+         * and GroupChatActivity both already wire opt_document to this same
+         * system content-chooser flow; reuse it here instead of duplicating it).
+         */
+        void onMoreAppsRequested();
+        /**
+         * "See more" row in the Recents ▾ dropdown was tapped — hand off to the
+         * surface's system Photos picker, i.e. the exact same flow opt_gallery
+         * already triggers.
+         */
+        void onSeeMoreRequested();
+        /**
          * Fired when the user taps Send on the selection bar with 1+ items picked.
          * @param isHD whether the WhatsApp-style HD toggle (top-right of the
          *             expanded "Recents" header) was ON at send time — true
@@ -105,6 +118,8 @@ public final class AttachSheetRecentMediaBinder {
 
         View hdToggle           = sheetRoot.findViewById(R.id.btn_hd_toggle);
         View viewOnceToggle     = sheetRoot.findViewById(R.id.btn_selection_view_once);
+        View recentsDropdownRow = sheetRoot.findViewById(R.id.recents_dropdown_row);
+        TextView recentsTitle   = sheetRoot.findViewById(R.id.recents_title);
         if (closeBtn != null) closeBtn.setOnClickListener(x -> sheet.dismiss());
 
         // View-once toggle — OFF by default, one flag for the whole selection
@@ -158,11 +173,25 @@ public final class AttachSheetRecentMediaBinder {
         // forces CoordinatorLayout to re-settle the sheet against its real,
         // parent-clamped bounds. Giving it that ceiling up front makes drag
         // and scroll agree from the start.
-        int statusBarPx = 0;
-        int statusBarResId = activity.getResources().getIdentifier("status_bar_height", "dimen", "android");
-        if (statusBarResId > 0) statusBarPx = activity.getResources().getDimensionPixelSize(statusBarResId);
-        int topGapPx = Math.round(dpToPx(activity, 24f)); // small sliver of chat stays visible, like the reference
-        int maxSheetHeightPx = dm.heightPixels - statusBarPx - topGapPx;
+        //
+        // v154 computed this ceiling from raw DisplayMetrics (dm.heightPixels)
+        // and it could *still* overshoot. Reason: DisplayMetrics reports the
+        // physical screen size, not the actual height the CoordinatorLayout
+        // inside this dialog gets — those differ whenever the dialog window
+        // isn't perfectly edge-to-edge (theme insets, multi-window/split
+        // screen, a resized window while the caption EditText has IME
+        // focus, etc). If our ceiling ends up LARGER than that real parent
+        // height, BottomSheetBehavior's `expandedOffset = parentHeight -
+        // maxHeight` goes NEGATIVE — the sheet's top gets pushed above y=0,
+        // i.e. exactly this bug.
+        //
+        // Fix: derive the ceiling from real WindowInsetsCompat on the decor
+        // view (correctly accounts for the status bar / display cutouts)
+        // instead of the legacy "status_bar_height" dimen lookup, and
+        // re-apply it a second time once the dialog window has actually
+        // settled (see the topContent layout listener below) so a
+        // too-early first measurement can't leave a stale value behind.
+        int maxSheetHeightPx = computeMaxSheetHeightPx(activity);
         if (maxSheetHeightPx > 0) behavior.setMaxHeight(maxSheetHeightPx);
         // --------------------------------------------------------------------
         RecentMediaGridAdapter.Listener gridListener = item -> {
@@ -235,15 +264,31 @@ public final class AttachSheetRecentMediaBinder {
         // one fast fling, and against paging forever once MediaStore is dry.
         final boolean[] loadingMore = {false};
         final boolean[] noMorePages = {false};
+        // Which folder the grid is currently showing — null/FILTER_ALL means
+        // "Recents" (everything). Swapped by the "Recents ▾" dropdown (see
+        // AttachSheetFolderPicker wiring below); reset() re-runs the first
+        // page against whatever this currently holds.
+        final String[] currentFilter = {RecentMediaLoader.FILTER_ALL};
+
+        Runnable[] loadFirstPageHolder = new Runnable[1];
         if (hasPerm) {
-            mediaQueryExecutor.execute(() -> {
-                List<RecentMediaLoader.Item> items = RecentMediaLoader.loadRecentPage(activity, 0, RECENT_MEDIA_LIMIT);
-                activity.runOnUiThread(() -> {
-                    finalGridAdapter.submit(items);
-                    if (recentsEmpty != null) recentsEmpty.setVisibility(items.isEmpty() ? View.VISIBLE : View.GONE);
-                    if (items.size() < RECENT_MEDIA_LIMIT) noMorePages[0] = true;
+            loadFirstPageHolder[0] = () -> {
+                loadingMore[0] = false;
+                noMorePages[0] = false;
+                String filterAtRequestTime = currentFilter[0];
+                mediaQueryExecutor.execute(() -> {
+                    List<RecentMediaLoader.Item> items =
+                            RecentMediaLoader.loadRecentPage(activity, 0, RECENT_MEDIA_LIMIT, filterAtRequestTime);
+                    activity.runOnUiThread(() -> {
+                        if (!java.util.Objects.equals(filterAtRequestTime, currentFilter[0])) return; // stale
+                        finalGridAdapter.submit(items);
+                        grid.scrollToPosition(0);
+                        if (recentsEmpty != null) recentsEmpty.setVisibility(items.isEmpty() ? View.VISIBLE : View.GONE);
+                        if (items.size() < RECENT_MEDIA_LIMIT) noMorePages[0] = true;
+                    });
                 });
-            });
+            };
+            loadFirstPageHolder[0].run();
 
             // Infinite scroll: once the user has dragged the sheet up and is
             // scrolling the grid itself, load the next page a few rows before
@@ -259,10 +304,12 @@ public final class AttachSheetRecentMediaBinder {
                     if (lastVisible >= total - 8) { // ~2 rows from the end
                         loadingMore[0] = true;
                         int offset = total;
+                        String filterAtRequestTime = currentFilter[0];
                         mediaQueryExecutor.execute(() -> {
                             List<RecentMediaLoader.Item> more =
-                                    RecentMediaLoader.loadRecentPage(activity, offset, GRID_PAGE_SIZE);
+                                    RecentMediaLoader.loadRecentPage(activity, offset, GRID_PAGE_SIZE, filterAtRequestTime);
                             activity.runOnUiThread(() -> {
+                                if (!java.util.Objects.equals(filterAtRequestTime, currentFilter[0])) return; // stale
                                 loadingMore[0] = false;
                                 if (more.isEmpty()) {
                                     noMorePages[0] = true;
@@ -277,6 +324,32 @@ public final class AttachSheetRecentMediaBinder {
             });
         }
 
+        // "Recents ▾" dropdown — opens AttachSheetFolderPicker's popup listing
+        // every on-device folder; picking one swaps the grid's filter, clears
+        // the current page, and re-runs the first-page load above against the
+        // new folder (see loadFirstPageHolder). Any selection made in the old
+        // folder is intentionally left as-is — WhatsApp/Telegram both keep a
+        // cross-folder selection alive the same way.
+        if (recentsDropdownRow != null && hasPerm) {
+            recentsDropdownRow.setOnClickListener(x -> AttachSheetFolderPicker.showUnderAnchor(
+                    activity, recentsDropdownRow, sheetRoot, mediaQueryExecutor, currentFilter[0],
+                    folder -> {
+                        if (RecentMediaLoader.ACTION_MORE_APPS.equals(folder.filterKey)) {
+                            sheet.dismiss();
+                            callbacks.onMoreAppsRequested();
+                            return;
+                        }
+                        if (RecentMediaLoader.ACTION_SEE_MORE.equals(folder.filterKey)) {
+                            sheet.dismiss();
+                            callbacks.onSeeMoreRequested();
+                            return;
+                        }
+                        currentFilter[0] = folder.filterKey;
+                        if (recentsTitle != null) recentsTitle.setText(folder.name);
+                        if (loadFirstPageHolder[0] != null) loadFirstPageHolder[0].run();
+                    }));
+        }
+
         // Peek height = top_content (drag handle + icon grid) PLUS
         // PEEK_GRID_ROWS worth of the Recents grid sitting right below it —
         // so the collapsed sheet always shows the icon grid, the camera
@@ -287,6 +360,15 @@ public final class AttachSheetRecentMediaBinder {
         topContent.getViewTreeObserver().addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
             @Override public void onGlobalLayout() {
                 if (topContent.getHeight() > 0) {
+                    // Re-derive and re-apply the overshoot-fix ceiling now that the
+                    // dialog window has actually laid out — the very first call
+                    // (right after bind(), before show()) can be measured against
+                    // a decor view that hasn't settled into its real size yet
+                    // (window insets/IME not applied), which is what let the
+                    // ceiling end up too tall and the sheet overshoot above y=0.
+                    int refreshedMaxHeightPx = computeMaxSheetHeightPx(activity);
+                    if (refreshedMaxHeightPx > 0) behavior.setMaxHeight(refreshedMaxHeightPx);
+
                     behavior.setSkipCollapsed(false);
                     behavior.setPeekHeight(topContent.getHeight() + peekGridPx);
                     behavior.setState(BottomSheetBehavior.STATE_COLLAPSED);
@@ -369,6 +451,46 @@ public final class AttachSheetRecentMediaBinder {
 
     private static float dpToPx(AppCompatActivity activity, float dp) {
         return dp * activity.getResources().getDisplayMetrics().density;
+    }
+
+    /**
+     * Real ceiling for BottomSheetBehavior#setMaxHeight — see the
+     * "Overshoot fix" comment in bind() for why this can't just be
+     * `DisplayMetrics.heightPixels - status_bar_height dimen`.
+     *
+     * Uses the decor view's *actual current* height (its real window size
+     * right now, not the physical screen size) together with
+     * WindowInsetsCompat's status-bar inset (correct on notches/cutouts,
+     * and reflects the IME inset too if the keyboard happens to be up
+     * already) so the ceiling always matches what CoordinatorLayout will
+     * really measure against. Falls back to DisplayMetrics only if the
+     * decor view hasn't been laid out yet (height == 0), which can happen
+     * on the very first call made right after bind(), before show()).
+     */
+    private static int computeMaxSheetHeightPx(AppCompatActivity activity) {
+        View decorView = activity.getWindow().getDecorView();
+        int windowHeightPx = decorView.getHeight();
+        int statusBarInsetPx = 0;
+        androidx.core.view.WindowInsetsCompat insets =
+                androidx.core.view.ViewCompat.getRootWindowInsets(decorView);
+        if (insets != null) {
+            statusBarInsetPx = insets.getInsets(
+                    androidx.core.view.WindowInsetsCompat.Type.statusBars()).top;
+        }
+        if (statusBarInsetPx <= 0) {
+            // Fallback for the pre-layout call: legacy dimen lookup.
+            int statusBarResId = activity.getResources().getIdentifier(
+                    "status_bar_height", "dimen", "android");
+            if (statusBarResId > 0) {
+                statusBarInsetPx = activity.getResources().getDimensionPixelSize(statusBarResId);
+            }
+        }
+        if (windowHeightPx <= 0) {
+            // Decor view not laid out yet — best available estimate.
+            windowHeightPx = activity.getResources().getDisplayMetrics().heightPixels;
+        }
+        int topGapPx = Math.round(dpToPx(activity, 24f)); // sliver of chat stays visible, like the reference
+        return windowHeightPx - statusBarInsetPx - topGapPx;
     }
 
     /** Swaps the HD chip between its filled-green (ON) and outline (OFF) look. */

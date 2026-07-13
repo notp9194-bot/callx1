@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Content view for the "Recents ▾" dropdown PopupWindow (see
+    AttachSheetFolderPicker). A rounded white card, elevated above the
+    sheet, listing every on-device folder — same look as the reference
+    screenshot's Recents/Camera/Videos/Screenshots/Downloads/WhatsApp
+    dropdown. Height is capped at runtime (see AttachSheetFolderPicker)
+    to roughly 60% of the sheet so it never runs off-screen on short
+    folder lists or overflows on long ones — the RecyclerView itself
+    scrolls internally past that cap.
+
+    MaterialCardView instead of androidx.cardview.widget.CardView since
+    feature-chat already depends on com.google.android.material (which
+    ships MaterialCardView) and doesn't otherwise pull in the separate
+    androidx.cardview artifact.
+-->
+<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    app:cardCornerRadius="18dp"
+    app:cardElevation="12dp"
+    app:cardBackgroundColor="?attr/colorSurface"
+    app:strokeWidth="0dp">
+
+    <com.callx.app.conversation.controllers.MaxHeightRecyclerView
+        android:id="@+id/folder_list"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingTop="6dp"
+        android:paddingBottom="6dp"
+        android:overScrollMode="never"
+        android:clipToPadding="false"/>
+
+</com.google.android.material.card.MaterialCardView>
