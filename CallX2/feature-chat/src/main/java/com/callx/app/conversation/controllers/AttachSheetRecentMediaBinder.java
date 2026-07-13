@@ -145,6 +145,26 @@ public final class AttachSheetRecentMediaBinder {
 
         DisplayMetrics dm = activity.getResources().getDisplayMetrics();
         int cellPx = dm.widthPixels / 4;
+
+        // --- Overshoot fix -------------------------------------------------
+        // Root cause: this sheet's content (top_content + the 560dp Recents
+        // grid) is taller than the screen on most phones, and nothing was
+        // telling BottomSheetBehavior the ceiling for STATE_EXPANDED. With
+        // no maxHeight set, Behavior derives the expanded offset purely from
+        // measured content height, which can push the sheet's top past y=0
+        // — i.e. dragging up sends it climbing above the visible screen
+        // (under the status bar). It only *looked* like it "snapped back
+        // correct" when scrolling the grid because a nested-scroll pass
+        // forces CoordinatorLayout to re-settle the sheet against its real,
+        // parent-clamped bounds. Giving it that ceiling up front makes drag
+        // and scroll agree from the start.
+        int statusBarPx = 0;
+        int statusBarResId = activity.getResources().getIdentifier("status_bar_height", "dimen", "android");
+        if (statusBarResId > 0) statusBarPx = activity.getResources().getDimensionPixelSize(statusBarResId);
+        int topGapPx = Math.round(dpToPx(activity, 24f)); // small sliver of chat stays visible, like the reference
+        int maxSheetHeightPx = dm.heightPixels - statusBarPx - topGapPx;
+        if (maxSheetHeightPx > 0) behavior.setMaxHeight(maxSheetHeightPx);
+        // --------------------------------------------------------------------
         RecentMediaGridAdapter.Listener gridListener = item -> {
             selection.toggle(item);
             // Tapped while the sheet is still collapsed/peeking — smoothly
