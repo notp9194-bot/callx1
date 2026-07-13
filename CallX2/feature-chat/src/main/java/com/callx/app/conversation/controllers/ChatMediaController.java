@@ -63,6 +63,7 @@ public class ChatMediaController {
     private ActivityResultLauncher<String>  videoPicker;
     private ActivityResultLauncher<String>  audioPicker;
     private ActivityResultLauncher<String>  filePicker;
+    private ActivityResultLauncher<Intent>  moreAppsChooser;
     private ActivityResultLauncher<Uri>     cameraCapturer;
     private ActivityResultLauncher<String>  wallpaperPicker;
     private ActivityResultLauncher<PickVisualMediaRequest> multiMediaPicker;
@@ -176,6 +177,25 @@ public class ChatMediaController {
         filePicker = activity.registerForActivityResult(
                 new ActivityResultContracts.GetContent(),
                 uri -> {
+                    if (uri == null) return;
+                    uploadAndSend(uri, "file", "raw", FileUtils.fileName(activity, uri));
+                });
+
+        // "More apps" row in the Recents ▾ dropdown — deliberately NOT reusing
+        // filePicker's GetContent() contract. GetContent() just fires plain
+        // ACTION_GET_CONTENT and lets Android resolve it however it normally
+        // would — on devices where the user (or OEM) has set a default handler
+        // for that action (commonly the system Files app), Android skips the
+        // disambiguation dialog entirely and opens that default straight away
+        // (the Files-app browse UI, NOT the app-picker list the reference
+        // screenshot shows). Wrapping the same intent in Intent.createChooser()
+        // forces that picker dialog every single time, regardless of any
+        // previously-set default, which is what "More apps" is supposed to be.
+        moreAppsChooser = activity.registerForActivityResult(
+                new ActivityResultContracts.StartActivityForResult(),
+                result -> {
+                    if (result.getResultCode() != android.app.Activity.RESULT_OK || result.getData() == null) return;
+                    Uri uri = result.getData().getData();
                     if (uri == null) return;
                     uploadAndSend(uri, "file", "raw", FileUtils.fileName(activity, uri));
                 });
@@ -311,7 +331,10 @@ public class ChatMediaController {
                         launchCamera();
                     }
                     @Override public void onMoreAppsRequested() {
-                        filePicker.launch("*/*");
+                        Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+                        intent.setType("*/*");
+                        intent.addCategory(Intent.CATEGORY_OPENABLE);
+                        moreAppsChooser.launch(Intent.createChooser(intent, "Open with"));
                     }
                     @Override public void onSeeMoreRequested() {
                         multiMediaPicker.launch(new PickVisualMediaRequest.Builder()

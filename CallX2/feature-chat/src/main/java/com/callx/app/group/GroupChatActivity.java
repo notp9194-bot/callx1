@@ -189,6 +189,7 @@ public class GroupChatActivity extends AppCompatActivity
 
     // ── Media pickers ──────────────────────────────────────────────────────
     private ActivityResultLauncher<String> imagePicker, videoPicker, audioPicker, filePicker, stickerPicker;
+    private ActivityResultLauncher<Intent> moreAppsChooser;
     // Attach sheet's recent-media strip/grid — one background thread, reused across sheet opens.
     private final java.util.concurrent.ExecutorService attachMediaExecutor =
             java.util.concurrent.Executors.newSingleThreadExecutor();
@@ -2622,6 +2623,21 @@ public class GroupChatActivity extends AppCompatActivity
         filePicker  = registerForActivityResult(new ActivityResultContracts.GetContent(),
                 uri -> { if (uri != null)
                     uploadAndSend(uri, "file", "raw", FileUtils.fileName(this, uri)); });
+        // "More apps" row in the Recents ▾ dropdown — see the matching comment
+        // in ChatMediaController for why this can't just reuse filePicker's
+        // plain GetContent() contract: on devices with a default handler set
+        // for ACTION_GET_CONTENT, GetContent() skips straight to that default
+        // (usually the system Files app's own browse UI) instead of showing
+        // the app-picker dialog. Wrapping in Intent.createChooser() forces
+        // that picker every time.
+        moreAppsChooser = registerForActivityResult(
+                new ActivityResultContracts.StartActivityForResult(),
+                result -> {
+                    if (result.getResultCode() != android.app.Activity.RESULT_OK || result.getData() == null) return;
+                    Uri uri = result.getData().getData();
+                    if (uri == null) return;
+                    uploadAndSend(uri, "file", "raw", FileUtils.fileName(this, uri));
+                });
         multiMediaPicker = registerForActivityResult(
                 new androidx.activity.result.contract.ActivityResultContracts.PickMultipleVisualMedia(MAX_MULTI_PICK),
                 uris -> {
@@ -2687,7 +2703,10 @@ public class GroupChatActivity extends AppCompatActivity
                         imagePicker.launch("image/*");
                     }
                     @Override public void onMoreAppsRequested() {
-                        filePicker.launch("*/*");
+                        Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+                        intent.setType("*/*");
+                        intent.addCategory(Intent.CATEGORY_OPENABLE);
+                        moreAppsChooser.launch(Intent.createChooser(intent, "Open with"));
                     }
                     @Override public void onSeeMoreRequested() {
                         multiMediaPicker.launch(new androidx.activity.result.PickVisualMediaRequest.Builder()
