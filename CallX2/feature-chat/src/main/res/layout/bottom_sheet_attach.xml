@@ -15,12 +15,17 @@
     opt_document to the same file-picker flow opt_file used, and
     opt_camera to the existing camera launcher.
 -->
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:background="@drawable/bg_bottom_sheet_round"
-    android:orientation="vertical"
-    android:paddingBottom="12dp">
+    android:background="@drawable/bg_bottom_sheet_round">
+
+    <LinearLayout
+        android:id="@+id/sheet_scroll_content"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingBottom="12dp">
 
     <!--
         top_content = everything visible in the COLLAPSED state (peekHeight
@@ -79,16 +84,20 @@
             android:textStyle="bold"/>
 
         <TextView
+            android:id="@+id/btn_hd_toggle"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="HD"
             android:textColor="@color/text_secondary"
             android:textSize="11sp"
-            android:background="@drawable/bg_attach_chip"
-            android:paddingStart="6dp"
-            android:paddingEnd="6dp"
-            android:paddingTop="2dp"
-            android:paddingBottom="2dp"/>
+            android:textStyle="bold"
+            android:background="@drawable/bg_hd_toggle_inactive"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:paddingTop="4dp"
+            android:paddingBottom="4dp"
+            android:clickable="true"
+            android:focusable="true"/>
     </LinearLayout>
 
     <!--
@@ -298,4 +307,83 @@
         android:textSize="13sp"
         android:visibility="gone"/>
 
-</LinearLayout>
+    </LinearLayout>
+    <!-- /sheet_scroll_content -->
+
+    <!--
+        Selection caption/send bar — floats pinned to the bottom of the
+        sheet, over the Recents grid, exactly like WhatsApp/Telegram's
+        multi-select bar. GONE + alpha 0 at rest; AttachSheetRecentMediaBinder
+        fades/slides it in as soon as MediaSelectionState goes non-empty
+        (from either the strip or the grid) and keeps the count badge live.
+    -->
+    <LinearLayout
+        android:id="@+id/selection_bar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:layout_margin="10dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:paddingTop="10dp"
+        android:paddingBottom="10dp"
+        android:background="@drawable/bg_selection_bar_card"
+        android:elevation="8dp"
+        android:visibility="gone"
+        android:alpha="0">
+
+        <EditText
+            android:id="@+id/selection_caption_input"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_weight="1"
+            android:background="@drawable/bg_selection_caption_pill"
+            android:hint="Add a caption…"
+            android:textColorHint="@color/text_secondary"
+            android:textColor="@color/text_primary"
+            android:textSize="14sp"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:maxLines="1"
+            android:imeOptions="actionDone"
+            android:inputType="textCapSentences"/>
+
+        <FrameLayout
+            android:id="@+id/btn_selection_send"
+            android:layout_width="46dp"
+            android:layout_height="46dp"
+            android:layout_marginStart="10dp"
+            android:background="@drawable/circle_attach_green">
+
+            <ImageView
+                android:layout_width="20dp"
+                android:layout_height="20dp"
+                android:layout_gravity="center"
+                android:layout_marginStart="2dp"
+                android:src="@drawable/ic_send"
+                android:contentDescription="Send"/>
+
+            <FrameLayout
+                android:id="@+id/selection_send_count_holder"
+                android:layout_width="18dp"
+                android:layout_height="18dp"
+                android:layout_gravity="top|end"
+                android:layout_margin="-3dp"
+                android:background="@drawable/bg_selection_badge">
+
+                <TextView
+                    android:id="@+id/selection_send_count"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:text="1"
+                    android:textColor="#FFFFFF"
+                    android:textSize="10sp"
+                    android:textStyle="bold"/>
+            </FrameLayout>
+        </FrameLayout>
+    </LinearLayout>
+
+</FrameLayout>

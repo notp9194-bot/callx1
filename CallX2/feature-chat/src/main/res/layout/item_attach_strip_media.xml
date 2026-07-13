@@ -47,4 +47,36 @@
         android:textColor="#FFFFFF"
         android:textSize="10sp"
         android:visibility="gone"/>
+
+    <!--
+        Selection scrim + numbered badge — see MediaSelectionState /
+        AttachSheetRecentMediaBinder. Both GONE at rest (and always GONE
+        for the camera tile at position 0, which isn't selectable).
+    -->
+    <View
+        android:id="@+id/selection_scrim"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_margin="1dp"
+        android:background="#4D0F4C3A"
+        android:visibility="gone"/>
+
+    <FrameLayout
+        android:id="@+id/selection_badge"
+        android:layout_width="20dp"
+        android:layout_height="20dp"
+        android:layout_gravity="top|end"
+        android:layout_margin="4dp"
+        android:background="@drawable/bg_selection_badge"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/selection_badge_text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:textColor="#FFFFFF"
+            android:textSize="10sp"
+            android:textStyle="bold"/>
+    </FrameLayout>
 </FrameLayout>

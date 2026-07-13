@@ -25,10 +25,17 @@ import java.util.concurrent.Executors;
  *
  * FLOW: Original → EXIF fix → Resize → WebP compress
  *   ├── Thumbnail  (~30KB,  200×200px)    ← chat list / quick preview
- *   └── Full image (~400KB, max 1280px)   ← full view
+ *   └── Full image (~400KB, max 1280px)   ← full view (default/"Standard")
+ *
+ * Two quality tiers, same as WhatsApp's attach-sheet HD toggle — neither
+ * one ever uploads the untouched original:
+ *   STANDARD (HD off, default) — current 1280×1920 @ q80, ~800KB cap.
+ *   HD       (HD toggle ON)    — still resized/compressed, just capped at
+ *                                "HD" (1920×2560 @ q92, ~3MB) instead of the
+ *                                small default, for sharper photos/screenshots.
  *
  * Usage:
- *   ImageCompressor.compress(ctx, uri, new Callback() {
+ *   ImageCompressor.compress(ctx, uri, hdEnabled, new Callback() {
  *       public void onSuccess(Result r) { upload(r); }
  *       public void onError(Exception e) { showError(); }
  *   });
@@ -37,7 +44,7 @@ public class ImageCompressor {
 
     private static final String TAG = "ImageCompressor";
 
-    // ── Config ─────────────────────────────────────────────────────────────
+    // ── Config: Standard tier (HD off — default) ─────────────────────────────
     private static final int  FULL_MAX_WIDTH   = 1280;
     private static final int  FULL_MAX_HEIGHT  = 1920;
     private static final int  THUMB_SIZE       = 200;     // square thumbnail px
@@ -45,6 +52,15 @@ public class ImageCompressor {
     private static final int  THUMB_QUALITY    = 65;
     private static final long FULL_TARGET_BYTES  = 800_000L; // 800 KB max
     private static final long THUMB_TARGET_BYTES =  50_000L; //  50 KB max
+
+    // ── Config: HD tier (HD toggle ON) ───────────────────────────────────────
+    // Still resized + re-encoded (never the raw original) — just capped much
+    // higher, matching WhatsApp's "HD" send: noticeably sharper text/detail
+    // for screenshots and photos, at a bigger-but-still-bounded file size.
+    private static final int  HD_MAX_WIDTH      = 1920;
+    private static final int  HD_MAX_HEIGHT     = 2560;
+    private static final int  HD_QUALITY        = 92;
+    private static final long HD_TARGET_BYTES   = 3_000_000L; // 3 MB max
 
     private static final ExecutorService BG = Executors.newSingleThreadExecutor();
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
@@ -91,11 +107,18 @@ public class ImageCompressor {
 
     // ── Public API ─────────────────────────────────────────────────────────
 
-    /** Compress on background thread, callback on main thread */
+    /** Compress on background thread (Standard tier — HD off), callback on main thread */
     public static void compress(Context ctx, Uri imageUri, Callback callback) {
+        compress(ctx, imageUri, false, callback);
+    }
+
+    /** Compress on background thread, callback on main thread.
+     *  @param hd false = Standard tier (default, small/fast); true = HD tier
+     *            (WhatsApp-style "HD" toggle — bigger cap, still compressed). */
+    public static void compress(Context ctx, Uri imageUri, boolean hd, Callback callback) {
         BG.execute(() -> {
             try {
-                Result r = compressSync(ctx, imageUri);
+                Result r = compressSync(ctx, imageUri, hd);
                 MAIN.post(() -> callback.onSuccess(r));
             } catch (Exception e) {
                 Log.e(TAG, "Compression failed", e);
@@ -106,20 +129,30 @@ public class ImageCompressor {
 
     // ── Core (background thread) ───────────────────────────────────────────
 
+    /** Standard tier (HD off). */
     public static Result compressSync(Context ctx, Uri uri) throws IOException {
+        return compressSync(ctx, uri, false);
+    }
+
+    public static Result compressSync(Context ctx, Uri uri, boolean hd) throws IOException {
         long originalBytes = getUriSize(ctx, uri);
 
+        int maxW     = hd ? HD_MAX_WIDTH  : FULL_MAX_WIDTH;
+        int maxH     = hd ? HD_MAX_HEIGHT : FULL_MAX_HEIGHT;
+        int quality  = hd ? HD_QUALITY    : FULL_QUALITY;
+        long target  = hd ? HD_TARGET_BYTES : FULL_TARGET_BYTES;
+
         // 1. Memory-safe decode (avoid OOM on huge images)
-        Bitmap bmp = decodeSampled(ctx, uri, FULL_MAX_WIDTH, FULL_MAX_HEIGHT);
+        Bitmap bmp = decodeSampled(ctx, uri, maxW, maxH);
 
         // 2. Fix EXIF rotation (selfies often come sideways)
         bmp = fixExifRotation(ctx, uri, bmp);
 
         // 3. Full image: resize + compress
-        Bitmap fullBmp  = resize(bmp, FULL_MAX_WIDTH, FULL_MAX_HEIGHT);
+        Bitmap fullBmp  = resize(bmp, maxW, maxH);
         int    fullW    = fullBmp.getWidth();
         int    fullH    = fullBmp.getHeight();
-        File   fullFile = writeWebP(ctx, fullBmp, "full_", FULL_QUALITY, FULL_TARGET_BYTES);
+        File   fullFile = writeWebP(ctx, fullBmp, "full_", quality, target);
 
         // 4. Thumbnail: center-crop square + compress
         Bitmap thumbBmp  = centerCropSquare(bmp, THUMB_SIZE);

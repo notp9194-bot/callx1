@@ -309,10 +309,17 @@ public class ChatMediaController {
                         sheet.dismiss();
                         launchCamera();
                     }
-                    @Override public void onMediaTapped(RecentMediaLoader.Item item) {
-                        sheet.dismiss();
-                        uploadAndSend(item.uri, item.isVideo ? "video" : "image",
-                                item.isVideo ? "video" : "image", null);
+                    @Override public void onMediaSend(List<RecentMediaLoader.Item> items, String caption, boolean isHD) {
+                        if (items.isEmpty()) return;
+                        List<Uri> uris = new ArrayList<>();
+                        for (RecentMediaLoader.Item item : items) uris.add(item.uri);
+                        // Same grouped upload pipeline the system Gallery multi-picker
+                        // uses (uploadSequentially → finishMultiUpload) — handles both
+                        // a single item and a batch, with the shared caption attached
+                        // to the resulting message. isHD threads through to the image
+                        // branch of rawUploadGroupItem so ImageCompressor picks its
+                        // HD-tier caps instead of the Standard default.
+                        uploadSequentially(uris, null, caption == null || caption.isEmpty() ? null : caption, 0, isHD);
                     }
                 });
     }
@@ -364,8 +371,13 @@ public class ChatMediaController {
     }
 
     private void uploadSequentially(List<Uri> uris, List<String> perItemCaptions, String caption, int index) {
+        uploadSequentially(uris, perItemCaptions, caption, index, false);
+    }
+
+    /** @param isHD true = compress images at the WhatsApp-style HD cap (bigger, sharper) instead of Standard. */
+    private void uploadSequentially(List<Uri> uris, List<String> perItemCaptions, String caption, int index, boolean isHD) {
         multiUploadCancelled = false;
-        uploadSequentially(uris, perItemCaptions, caption, index, new ArrayList<>());
+        uploadSequentially(uris, perItemCaptions, caption, index, new ArrayList<>(), isHD);
     }
 
     /** Call to stop an in-progress multi-media batch (e.g. tap on the upload progress bar). */
@@ -377,6 +389,11 @@ public class ChatMediaController {
 
     private void uploadSequentially(List<Uri> uris, List<String> perItemCaptions, String caption, int index,
                                     List<java.util.Map<String, Object>> collected) {
+        uploadSequentially(uris, perItemCaptions, caption, index, collected, false);
+    }
+
+    private void uploadSequentially(List<Uri> uris, List<String> perItemCaptions, String caption, int index,
+                                    List<java.util.Map<String, Object>> collected, boolean isHD) {
         final int total = uris.size();
 
         if (index >= total) {
@@ -434,13 +451,13 @@ public class ChatMediaController {
                             item.put("durationMs", durationMs);
                             if (itemCaption != null && !itemCaption.isEmpty()) item.put("caption", itemCaption);
                             collected.add(item);
-                            uploadSequentially(uris, perItemCaptions, caption, index + 1, collected);
+                            uploadSequentially(uris, perItemCaptions, caption, index + 1, collected, isHD);
                         }
                         @Override public void onError(Exception e) {
                             activity.runOnUiThread(() -> Toast.makeText(activity,
                                 "Video " + (index + 1) + " fail: " + (e != null ? e.getMessage() : "Unknown"),
                                 Toast.LENGTH_SHORT).show());
-                            uploadSequentially(uris, perItemCaptions, caption, index + 1, collected);
+                            uploadSequentially(uris, perItemCaptions, caption, index + 1, collected, isHD);
                         }
                     });
                 }
@@ -449,7 +466,30 @@ public class ChatMediaController {
                     // dropping the item entirely.
                     android.util.Log.w("ChatMediaController", "Multi-video compress failed, raw upload", e);
                     rawUploadGroupItem(uri, "video", mediaType, null, itemCaption,
-                            uris, perItemCaptions, caption, index, collected);
+                            uris, perItemCaptions, caption, index, collected, isHD);
+                }
+            });
+            return;
+        }
+
+        // IMAGE — runs through ImageCompressor first (Standard cap by
+        // default, HD cap when the sheet's HD toggle was ON), same as the
+        // single-image send path already did; the multi-select group path
+        // previously skipped this and uploaded the raw file straight to
+        // Cloudinary, which was both slower and far heavier on data than
+        // WhatsApp's actual behavior.
+        if ("image".equals(mediaType)) {
+            ImageCompressor.compress(activity, uri, isHD, new ImageCompressor.Callback() {
+                @Override public void onSuccess(ImageCompressor.Result r) {
+                    rawUploadGroupItem(Uri.fromFile(r.fullFile), "image", mediaType, fileName, itemCaption,
+                            uris, perItemCaptions, caption, index, collected, isHD);
+                }
+                @Override public void onError(Exception e) {
+                    // Compression failed — fall back to raw upload rather than
+                    // dropping the item entirely.
+                    android.util.Log.w("ChatMediaController", "Multi-image compress failed, raw upload", e);
+                    rawUploadGroupItem(uri, "image", mediaType, fileName, itemCaption,
+                            uris, perItemCaptions, caption, index, collected, isHD);
                 }
             });
             return;
@@ -459,14 +499,14 @@ public class ChatMediaController {
         // grouped message instead of being silently treated as images.
         String resType = (isAudio || isFile) ? "raw" : "image";
         rawUploadGroupItem(uri, resType, mediaType, fileName, itemCaption,
-                uris, perItemCaptions, caption, index, collected);
+                uris, perItemCaptions, caption, index, collected, isHD);
     }
 
     /** image / audio / file: single-shot upload into the in-progress group. */
     private void rawUploadGroupItem(Uri uri, String resType, String mediaType, String fileName,
                                     String itemCaption,
                                     List<Uri> uris, List<String> perItemCaptions, String caption,
-                                    int index, List<java.util.Map<String, Object>> collected) {
+                                    int index, List<java.util.Map<String, Object>> collected, boolean isHD) {
         String folder = "callx/" + mediaType;
         CloudinaryUploader.upload(activity, uri, folder, resType,
             new CloudinaryUploader.UploadCallback() {
@@ -487,7 +527,7 @@ public class ChatMediaController {
                     collected.add(item);
 
                     // Upload next item
-                    uploadSequentially(uris, perItemCaptions, caption, index + 1, collected);
+                    uploadSequentially(uris, perItemCaptions, caption, index + 1, collected, isHD);
                 }
                 @Override public void onError(String err) {
                     activity.runOnUiThread(() ->
@@ -495,7 +535,7 @@ public class ChatMediaController {
                             "File " + (index + 1) + " fail: " + (err != null ? err : "Unknown"),
                             Toast.LENGTH_SHORT).show());
                     // Continue with remaining files even if one fails
-                    uploadSequentially(uris, perItemCaptions, caption, index + 1, collected);
+                    uploadSequentially(uris, perItemCaptions, caption, index + 1, collected, isHD);
                 }
             });
     }

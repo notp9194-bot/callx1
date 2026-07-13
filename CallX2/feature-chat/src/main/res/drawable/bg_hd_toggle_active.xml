@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- HD toggle chip — ON state. Solid brand-green pill, white text (set in
+     code), same accent used by circle_attach_green / bg_selection_badge so
+     it reads as "this is the active/affirmative control" the instant the
+     sheet is dragged open, matching WhatsApp's filled-HD-pill look. -->
+<ripple xmlns:android="http://schemas.android.com/apk/res/android"
+    android:color="#33FFFFFF">
+    <item>
+        <shape android:shape="rectangle">
+            <corners android:radius="20dp"/>
+            <solid android:color="#1FA855"/>
+        </shape>
+    </item>
+</ripple>

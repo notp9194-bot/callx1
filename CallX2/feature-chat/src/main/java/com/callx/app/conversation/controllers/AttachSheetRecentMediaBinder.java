@@ -6,6 +6,8 @@ import android.util.DisplayMetrics;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewTreeObserver;
+import android.widget.EditText;
+import android.widget.TextView;
 
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
@@ -27,6 +29,18 @@ import java.util.concurrent.ExecutorService;
  * that's clipped below the collapsed peek line and only revealed when the
  * sheet is dragged up.
  *
+ * Tapping a thumbnail (strip OR grid) no longer sends immediately — it
+ * toggles a numbered multi-select (MediaSelectionState) shared by both
+ * views, same as WhatsApp/Telegram. Tapping from the STRIP (i.e. while the
+ * sheet is still collapsed/peeking) additionally drives the sheet straight
+ * to STATE_EXPANDED so the just-picked item lands in the "Recents" view
+ * still marked selected — riding the exact same eased crossfade the drag
+ * gesture already uses (BottomSheetBehavior animates programmatic
+ * setState() calls the same way it animates a released drag), so the
+ * transition is smooth rather than an instant cut. A floating caption/send
+ * bar (selection_bar) appears once anything is selected and fires
+ * Callbacks#onMediaSend with the full ordered selection.
+ *
  * Both ChatMediaController (1-1 chat) and GroupChatActivity (group chat)
  * inflate the same bottom_sheet_attach.xml, so this is a single shared
  * binder instead of two copies of the same wiring drifting apart.
@@ -45,7 +59,14 @@ public final class AttachSheetRecentMediaBinder {
 
     public interface Callbacks {
         void onCameraTapped();
-        void onMediaTapped(RecentMediaLoader.Item item);
+        /**
+         * Fired when the user taps Send on the selection bar with 1+ items picked.
+         * @param isHD whether the WhatsApp-style HD toggle (top-right of the
+         *             expanded "Recents" header) was ON at send time — true
+         *             means images should be compressed at the higher HD cap
+         *             instead of the default/Standard cap.
+         */
+        void onMediaSend(List<RecentMediaLoader.Item> items, String caption, boolean isHD);
     }
 
     public static void bind(AppCompatActivity activity, BottomSheetDialog sheet, View sheetRoot,
@@ -58,15 +79,48 @@ public final class AttachSheetRecentMediaBinder {
         View iconGridSection    = sheetRoot.findViewById(R.id.icon_grid_section);
         View expandedHeader     = sheetRoot.findViewById(R.id.expanded_header);
         View closeBtn           = sheetRoot.findViewById(R.id.btn_close_sheet);
+        View selectionBar       = sheetRoot.findViewById(R.id.selection_bar);
+        EditText captionInput   = sheetRoot.findViewById(R.id.selection_caption_input);
+        View sendBtn            = sheetRoot.findViewById(R.id.btn_selection_send);
+        TextView sendCount      = sheetRoot.findViewById(R.id.selection_send_count);
         if (bottomRow == null || topContent == null) return; // older/replaced layout — skip silently
 
+        View hdToggle           = sheetRoot.findViewById(R.id.btn_hd_toggle);
         if (closeBtn != null) closeBtn.setOnClickListener(x -> sheet.dismiss());
+
+        BottomSheetBehavior<android.widget.FrameLayout> behavior = sheet.getBehavior();
+
+        MediaSelectionState selection = new MediaSelectionState();
+
+        // WhatsApp-style HD toggle — OFF by default (Standard/compressed
+        // send), tapping flips it ON for this sheet session so the next
+        // Send uses ImageCompressor's higher HD cap instead. Purely a
+        // per-open-sheet UI flag; not persisted, same as WhatsApp resets
+        // it back to Standard the next time you open the attach sheet.
+        final boolean[] hdEnabled = {false};
+        if (hdToggle instanceof TextView) {
+            updateHdToggleVisual((TextView) hdToggle, false);
+            hdToggle.setOnClickListener(x -> {
+                hdEnabled[0] = !hdEnabled[0];
+                updateHdToggleVisual((TextView) hdToggle, hdEnabled[0]);
+            });
+        }
 
         RecentMediaStripAdapter.Listener stripListener = new RecentMediaStripAdapter.Listener() {
             @Override public void onCameraTapped() { callbacks.onCameraTapped(); }
-            @Override public void onMediaTapped(RecentMediaLoader.Item item) { callbacks.onMediaTapped(item); }
+            @Override public void onMediaToggled(RecentMediaLoader.Item item) {
+                selection.toggle(item);
+                // Tapped from the compact strip (only visible at/near peek) —
+                // smoothly drive the sheet up to the full Recents view, same
+                // as if the user had dragged it, so the pick they just made
+                // opens out into the expanded grid instead of just sitting
+                // in the small strip. The item stays selected across the move.
+                if (behavior.getState() != BottomSheetBehavior.STATE_EXPANDED) {
+                    behavior.setState(BottomSheetBehavior.STATE_EXPANDED);
+                }
+            }
         };
-        RecentMediaStripAdapter stripAdapter = new RecentMediaStripAdapter(stripListener);
+        RecentMediaStripAdapter stripAdapter = new RecentMediaStripAdapter(stripListener, selection);
         bottomRow.setLayoutManager(new LinearLayoutManager(activity, RecyclerView.HORIZONTAL, false));
         bottomRow.setAdapter(stripAdapter);
 
@@ -74,7 +128,8 @@ public final class AttachSheetRecentMediaBinder {
         if (grid != null) {
             DisplayMetrics dm = activity.getResources().getDisplayMetrics();
             int cellPx = dm.widthPixels / 4;
-            gridAdapter = new RecentMediaGridAdapter(callbacks::onMediaTapped) {
+            RecentMediaGridAdapter.Listener gridListener = item -> selection.toggle(item);
+            gridAdapter = new RecentMediaGridAdapter(gridListener, selection) {
                 @Override public VH onCreateViewHolder(ViewGroup parent, int viewType) {
                     VH h = super.onCreateViewHolder(parent, viewType);
                     ViewGroup.LayoutParams lp = h.itemView.getLayoutParams();
@@ -87,9 +142,31 @@ public final class AttachSheetRecentMediaBinder {
             grid.setLayoutManager(new GridLayoutManager(activity, 4));
             grid.setAdapter(gridAdapter);
         }
+        RecentMediaGridAdapter finalGridAdapter = gridAdapter;
+
+        // Keeps the strip + grid + floating selection bar all in sync no
+        // matter which view the toggle came from — cheap (≤60 cells) so a
+        // full notifyDataSetChanged() here isn't worth the bookkeeping a
+        // targeted notifyItemChanged(position) would need across two
+        // independently-paginated adapters.
+        selection.addListener(() -> {
+            stripAdapter.notifyDataSetChanged();
+            if (finalGridAdapter != null) finalGridAdapter.notifyDataSetChanged();
+            updateSelectionBar(activity, selection, selectionBar, sendCount);
+        });
+
+        if (sendBtn != null) {
+            sendBtn.setOnClickListener(x -> {
+                if (selection.isEmpty()) return;
+                List<RecentMediaLoader.Item> items = selection.items();
+                String caption = captionInput != null ? captionInput.getText().toString().trim() : "";
+                sheet.dismiss();
+                callbacks.onMediaSend(items, caption, hdEnabled[0]);
+                selection.clear();
+            });
+        }
 
         boolean hasPerm = hasMediaReadPermission(activity);
-        RecentMediaGridAdapter finalGridAdapter = gridAdapter;
         // Guards against firing two overlapping "load next page" queries off
         // one fast fling, and against paging forever once MediaStore is dry.
         final boolean[] loadingMore = {false};
@@ -147,7 +224,6 @@ public final class AttachSheetRecentMediaBinder {
         // Peek height = collapsed content only (icon rows + bottom camera/media
         // row) so the sheet opens compact; dragging up past that reveals the
         // Recents grid, which lives right after top_content in the layout.
-        BottomSheetBehavior<android.widget.FrameLayout> behavior = sheet.getBehavior();
         behavior.setSkipCollapsed(false);
         behavior.setState(BottomSheetBehavior.STATE_COLLAPSED);
         topContent.getViewTreeObserver().addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
@@ -164,7 +240,10 @@ public final class AttachSheetRecentMediaBinder {
         // drag — instead of the icon grid just sitting there and the grid
         // growing in underneath it. slideOffset is 0 at peek (COLLAPSED) and
         // 1 at STATE_EXPANDED, same reference BottomSheetBehavior uses for
-        // its own drag physics, so this rides the same gesture 1:1.
+        // its own drag physics, so this rides the same gesture 1:1 — including
+        // when the transition is driven programmatically (behavior.setState()
+        // from a strip tap above), since Material's BottomSheetBehavior
+        // animates setState() the same way it animates a released drag.
         //
         // Plain linear alpha read as flat/mechanical, so this also eases the
         // progress through a decelerate curve and adds a small translateY +
@@ -208,8 +287,39 @@ public final class AttachSheetRecentMediaBinder {
         }
     }
 
+    /** Fades/slides the floating caption+send bar in when 1+ items are picked, out when none are. */
+    private static void updateSelectionBar(AppCompatActivity activity, MediaSelectionState selection,
+                                            View selectionBar, TextView sendCount) {
+        if (selectionBar == null) return;
+        if (sendCount != null) sendCount.setText(String.valueOf(Math.max(1, selection.size())));
+
+        boolean shouldShow = !selection.isEmpty();
+        boolean currentlyShown = selectionBar.getVisibility() == View.VISIBLE && selectionBar.getAlpha() > 0.5f;
+        if (shouldShow == currentlyShown) return;
+
+        float driftPx = dpToPx(activity, 24f);
+        if (shouldShow) {
+            selectionBar.setVisibility(View.VISIBLE);
+            selectionBar.setAlpha(0f);
+            selectionBar.setTranslationY(driftPx);
+            selectionBar.animate().alpha(1f).translationY(0f).setDuration(180)
+                    .setInterpolator(new android.view.animation.DecelerateInterpolator(1.6f))
+                    .withEndAction(null).start();
+        } else {
+            selectionBar.animate().alpha(0f).translationY(driftPx).setDuration(150)
+                    .setInterpolator(new android.view.animation.AccelerateInterpolator())
+                    .withEndAction(() -> selectionBar.setVisibility(View.GONE)).start();
+        }
+    }
+
     private static float dpToPx(AppCompatActivity activity, float dp) {
         return dp * activity.getResources().getDisplayMetrics().density;
+    }
+
+    /** Swaps the HD chip between its filled-green (ON) and outline (OFF) look. */
+    private static void updateHdToggleVisual(TextView hdToggle, boolean enabled) {
+        hdToggle.setBackgroundResource(enabled ? R.drawable.bg_hd_toggle_active : R.drawable.bg_hd_toggle_inactive);
+        hdToggle.setTextColor(enabled ? 0xFFFFFFFF : ContextCompat.getColor(hdToggle.getContext(), R.color.text_secondary));
     }
 
     private static boolean hasMediaReadPermission(AppCompatActivity activity) {

@@ -2681,10 +2681,14 @@ public class GroupChatActivity extends AppCompatActivity
                         sheet.dismiss();
                         imagePicker.launch("image/*");
                     }
-                    @Override public void onMediaTapped(com.callx.app.conversation.controllers.RecentMediaLoader.Item item) {
-                        sheet.dismiss();
-                        uploadAndSend(item.uri, item.isVideo ? "video" : "image",
-                                item.isVideo ? "video" : "image", null);
+                    @Override public void onMediaSend(
+                            java.util.List<com.callx.app.conversation.controllers.RecentMediaLoader.Item> items,
+                            String caption, boolean isHD) {
+                        if (items.isEmpty()) return;
+                        java.util.List<Uri> uris = new java.util.ArrayList<>();
+                        for (com.callx.app.conversation.controllers.RecentMediaLoader.Item item : items) uris.add(item.uri);
+                        uploadSequentially(uris, null, caption == null || caption.isEmpty() ? null : caption,
+                                0, new java.util.ArrayList<>(), isHD);
                     }
                 });
         // Payment / Event / AI images — new chips, backend flow not wired up yet.
@@ -2795,6 +2799,13 @@ public class GroupChatActivity extends AppCompatActivity
     private void uploadSequentially(java.util.List<Uri> uris, java.util.List<String> perItemCaptions,
                                      String caption, int index,
                                      java.util.List<java.util.Map<String, Object>> collected) {
+        uploadSequentially(uris, perItemCaptions, caption, index, collected, false);
+    }
+
+    /** @param isHD true = compress images at the WhatsApp-style HD cap instead of Standard (see ImageCompressor). */
+    private void uploadSequentially(java.util.List<Uri> uris, java.util.List<String> perItemCaptions,
+                                     String caption, int index,
+                                     java.util.List<java.util.Map<String, Object>> collected, boolean isHD) {
         final int total = uris.size();
 
         if (index >= total) {
@@ -2835,15 +2846,34 @@ public class GroupChatActivity extends AppCompatActivity
                     Toast.LENGTH_SHORT).show();
         });
 
-        String folder  = isVideo ? "callx/video" : "callx/image";
-        String resType = isVideo ? "video" : "image";
+        // IMAGE — runs through ImageCompressor first (Standard cap by
+        // default, HD cap when the attach sheet's HD toggle was ON) instead
+        // of uploading the raw file straight to Cloudinary, same fix as the
+        // 1:1 chat path (ChatMediaController).
+        if (!isVideo) {
+            com.callx.app.utils.ImageCompressor.compress(this, uri, isHD,
+                new com.callx.app.utils.ImageCompressor.Callback() {
+                    @Override public void onSuccess(com.callx.app.utils.ImageCompressor.Result r) {
+                        uploadGroupImage(Uri.fromFile(r.fullFile), itemCaption,
+                                uris, perItemCaptions, caption, index, collected, isHD);
+                    }
+                    @Override public void onError(Exception e) {
+                        android.util.Log.w("GroupChat", "Multi-image compress failed, raw upload", e);
+                        uploadGroupImage(uri, itemCaption, uris, perItemCaptions, caption, index, collected, isHD);
+                    }
+                });
+            return;
+        }
+
+        String folder  = "callx/video";
+        String resType = "video";
 
         com.callx.app.utils.CloudinaryUploader.upload(this, uri, folder, resType,
             new com.callx.app.utils.CloudinaryUploader.UploadCallback() {
                 @Override public void onSuccess(com.callx.app.utils.CloudinaryUploader.Result r) {
                     java.util.Map<String, Object> item = new java.util.HashMap<>();
                     item.put("url", r.secureUrl);
-                    item.put("mediaType", isVideo ? "video" : "image");
+                    item.put("mediaType", "video");
                     if (r.thumbnailUrl != null && !r.thumbnailUrl.isEmpty())
                         item.put("thumbUrl", r.thumbnailUrl);
                     if (r.durationMs != null) {
@@ -2854,13 +2884,41 @@ public class GroupChatActivity extends AppCompatActivity
                     if (itemCaption != null && !itemCaption.isEmpty())
                         item.put("caption", itemCaption);
                     collected.add(item);
-                    uploadSequentially(uris, perItemCaptions, caption, index + 1, collected);
+                    uploadSequentially(uris, perItemCaptions, caption, index + 1, collected, isHD);
                 }
                 @Override public void onError(String err) {
                     runOnUiThread(() -> Toast.makeText(GroupChatActivity.this,
                             "File " + (index + 1) + " fail: " + (err != null ? err : "Unknown"),
                             Toast.LENGTH_SHORT).show());
-                    uploadSequentially(uris, perItemCaptions, caption, index + 1, collected);
+                    uploadSequentially(uris, perItemCaptions, caption, index + 1, collected, isHD);
+                }
+            });
+    }
+
+    /** IMAGE branch of the multi-media group upload — see uploadSequentially(). */
+    private void uploadGroupImage(Uri uri, String itemCaption,
+                                   java.util.List<Uri> uris, java.util.List<String> perItemCaptions,
+                                   String caption, int index,
+                                   java.util.List<java.util.Map<String, Object>> collected, boolean isHD) {
+        com.callx.app.utils.CloudinaryUploader.upload(this, uri, "callx/image", "image",
+            new com.callx.app.utils.CloudinaryUploader.UploadCallback() {
+                @Override public void onSuccess(com.callx.app.utils.CloudinaryUploader.Result r) {
+                    java.util.Map<String, Object> item = new java.util.HashMap<>();
+                    item.put("url", r.secureUrl);
+                    item.put("mediaType", "image");
+                    if (r.thumbnailUrl != null && !r.thumbnailUrl.isEmpty())
+                        item.put("thumbUrl", r.thumbnailUrl);
+                    if (r.bytes != null) item.put("fileSize", r.bytes);
+                    if (itemCaption != null && !itemCaption.isEmpty())
+                        item.put("caption", itemCaption);
+                    collected.add(item);
+                    uploadSequentially(uris, perItemCaptions, caption, index + 1, collected, isHD);
+                }
+                @Override public void onError(String err) {
+                    runOnUiThread(() -> Toast.makeText(GroupChatActivity.this,
+                            "File " + (index + 1) + " fail: " + (err != null ? err : "Unknown"),
+                            Toast.LENGTH_SHORT).show());
+                    uploadSequentially(uris, perItemCaptions, caption, index + 1, collected, isHD);
                 }
             });
     }

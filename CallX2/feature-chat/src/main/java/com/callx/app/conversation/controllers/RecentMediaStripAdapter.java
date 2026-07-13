@@ -31,14 +31,17 @@ public class RecentMediaStripAdapter extends RecyclerView.Adapter<RecentMediaStr
 
     public interface Listener {
         void onCameraTapped();
-        void onMediaTapped(RecentMediaLoader.Item item);
+        /** Tap toggles selection now (see MediaSelectionState) instead of sending immediately. */
+        void onMediaToggled(RecentMediaLoader.Item item);
     }
 
     private final Listener listener;
+    private final MediaSelectionState selection;
     private List<RecentMediaLoader.Item> items = Collections.emptyList();
 
-    public RecentMediaStripAdapter(Listener listener) {
+    public RecentMediaStripAdapter(Listener listener, MediaSelectionState selection) {
         this.listener = listener;
+        this.selection = selection;
         setHasStableIds(false);
     }
 
@@ -61,6 +64,8 @@ public class RecentMediaStripAdapter extends RecyclerView.Adapter<RecentMediaStr
             h.duration.setVisibility(View.GONE);
             h.thumb.setImageDrawable(null);
             h.thumb.setBackgroundResource(R.drawable.bg_media_thumb_camera);
+            h.selectionScrim.setVisibility(View.GONE);
+            h.selectionBadge.setVisibility(View.GONE);
             h.itemView.setOnClickListener(x -> listener.onCameraTapped());
             return;
         }
@@ -78,7 +83,11 @@ public class RecentMediaStripAdapter extends RecyclerView.Adapter<RecentMediaStr
         } else {
             h.duration.setVisibility(View.GONE);
         }
-        h.itemView.setOnClickListener(x -> listener.onMediaTapped(item));
+        boolean isSelected = selection.isSelected(item.uri);
+        h.selectionScrim.setVisibility(isSelected ? View.VISIBLE : View.GONE);
+        h.selectionBadge.setVisibility(isSelected ? View.VISIBLE : View.GONE);
+        if (isSelected) h.selectionBadgeText.setText(String.valueOf(selection.orderOf(item.uri)));
+        h.itemView.setOnClickListener(x -> listener.onMediaToggled(item));
     }
 
     @Override
@@ -97,11 +106,17 @@ public class RecentMediaStripAdapter extends RecyclerView.Adapter<RecentMediaStr
         final ImageView thumb;
         final ImageView cameraIcon;
         final TextView duration;
+        final View selectionScrim;
+        final View selectionBadge;
+        final TextView selectionBadgeText;
         VH(@NonNull View v) {
             super(v);
             thumb = v.findViewById(R.id.thumb);
             cameraIcon = v.findViewById(R.id.camera_icon);
             duration = v.findViewById(R.id.video_duration);
+            selectionScrim = v.findViewById(R.id.selection_scrim);
+            selectionBadge = v.findViewById(R.id.selection_badge);
+            selectionBadgeText = v.findViewById(R.id.selection_badge_text);
         }
     }
 }

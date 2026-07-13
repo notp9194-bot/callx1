@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- HD toggle chip — OFF state (default). Muted outline pill so it reads
+     as present-but-not-engaged, same visual language as bg_attach_chip but
+     with a hairline border so the chip is still clearly tappable even
+     though it's not filled. -->
+<ripple xmlns:android="http://schemas.android.com/apk/res/android"
+    android:color="#33FFFFFF">
+    <item>
+        <shape android:shape="rectangle">
+            <corners android:radius="20dp"/>
+            <solid android:color="@color/surface_input"/>
+            <stroke android:width="1dp" android:color="#4D8A94A6"/>
+        </shape>
+    </item>
+</ripple>

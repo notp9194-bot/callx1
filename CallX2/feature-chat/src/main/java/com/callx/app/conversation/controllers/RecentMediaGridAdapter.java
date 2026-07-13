@@ -28,14 +28,17 @@ import java.util.Locale;
 public class RecentMediaGridAdapter extends RecyclerView.Adapter<RecentMediaGridAdapter.VH> {
 
     public interface Listener {
-        void onMediaTapped(RecentMediaLoader.Item item);
+        /** Tap toggles selection now (see MediaSelectionState) instead of sending immediately. */
+        void onMediaToggled(RecentMediaLoader.Item item);
     }
 
     private final Listener listener;
+    private final MediaSelectionState selection;
     private List<RecentMediaLoader.Item> items = Collections.emptyList();
 
-    public RecentMediaGridAdapter(Listener listener) {
+    public RecentMediaGridAdapter(Listener listener, MediaSelectionState selection) {
         this.listener = listener;
+        this.selection = selection;
     }
 
     public void submit(List<RecentMediaLoader.Item> newItems) {
@@ -79,7 +82,11 @@ public class RecentMediaGridAdapter extends RecyclerView.Adapter<RecentMediaGrid
         } else {
             h.duration.setVisibility(View.GONE);
         }
-        h.itemView.setOnClickListener(x -> listener.onMediaTapped(item));
+        boolean isSelected = selection.isSelected(item.uri);
+        h.selectionScrim.setVisibility(isSelected ? View.VISIBLE : View.GONE);
+        h.selectionBadge.setVisibility(isSelected ? View.VISIBLE : View.GONE);
+        if (isSelected) h.selectionBadgeText.setText(String.valueOf(selection.orderOf(item.uri)));
+        h.itemView.setOnClickListener(x -> listener.onMediaToggled(item));
     }
 
     @Override
@@ -95,10 +102,16 @@ public class RecentMediaGridAdapter extends RecyclerView.Adapter<RecentMediaGrid
     static class VH extends RecyclerView.ViewHolder {
         final ImageView thumb;
         final TextView duration;
+        final View selectionScrim;
+        final View selectionBadge;
+        final TextView selectionBadgeText;
         VH(@NonNull View v) {
             super(v);
             thumb = v.findViewById(R.id.thumb);
             duration = v.findViewById(R.id.video_duration);
+            selectionScrim = v.findViewById(R.id.selection_scrim);
+            selectionBadge = v.findViewById(R.id.selection_badge);
+            selectionBadgeText = v.findViewById(R.id.selection_badge_text);
         }
     }
 }
