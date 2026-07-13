@@ -74,14 +74,14 @@ public final class RecentMediaLoader {
                 MediaStore.Images.Media._ID,
                 MediaStore.Images.Media.DATE_ADDED
         };
-        String order = MediaStore.Images.Media.DATE_ADDED + " DESC LIMIT " + limit;
+        String order = MediaStore.Images.Media.DATE_ADDED + " DESC";
 
         List<Item> out = new ArrayList<>();
         try (Cursor c = context.getContentResolver().query(uri, projection, null, null, order)) {
             if (c == null) return out;
             int idIdx = c.getColumnIndexOrThrow(MediaStore.Images.Media._ID);
             int dateIdx = c.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_ADDED);
-            while (c.moveToNext()) {
+            while (c.moveToNext() && out.size() < limit) {
                 long id = c.getLong(idIdx);
                 long dateAdded = c.getLong(dateIdx);
                 out.add(new Item(ContentUris.withAppendedId(uri, id), false, 0L, dateAdded));
@@ -102,7 +102,7 @@ public final class RecentMediaLoader {
                 MediaStore.Video.Media.DATE_ADDED,
                 MediaStore.Video.Media.DURATION
         };
-        String order = MediaStore.Video.Media.DATE_ADDED + " DESC LIMIT " + limit;
+        String order = MediaStore.Video.Media.DATE_ADDED + " DESC";
 
         List<Item> out = new ArrayList<>();
         try (Cursor c = context.getContentResolver().query(uri, projection, null, null, order)) {
@@ -110,7 +110,7 @@ public final class RecentMediaLoader {
             int idIdx = c.getColumnIndexOrThrow(MediaStore.Video.Media._ID);
             int dateIdx = c.getColumnIndexOrThrow(MediaStore.Video.Media.DATE_ADDED);
             int durIdx = c.getColumnIndex(MediaStore.Video.Media.DURATION);
-            while (c.moveToNext()) {
+            while (c.moveToNext() && out.size() < limit) {
                 long id = c.getLong(idIdx);
                 long dateAdded = c.getLong(dateIdx);
                 long duration = durIdx >= 0 ? c.getLong(durIdx) : 0L;
