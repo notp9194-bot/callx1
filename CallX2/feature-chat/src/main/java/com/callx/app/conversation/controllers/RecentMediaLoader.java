@@ -4,16 +4,27 @@ import android.content.ContentUris;
 import android.content.Context;
 import android.database.Cursor;
 import android.net.Uri;
-import android.os.Build;
 import android.provider.MediaStore;
+import android.util.Log;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 /**
- * Reads the device's recent photos/videos straight from MediaStore.Files
- * (images ∪ video, sorted by DATE_ADDED desc) — powers both the compact
+ * Reads the device's recent photos/videos — powers both the compact
  * attach-sheet strip and the expanded "Recents" grid.
+ *
+ * Images and videos are queried separately against their own dedicated
+ * MediaStore tables (MediaStore.Images.Media / MediaStore.Video.Media)
+ * instead of a single combined MediaStore.Files query. The old combined
+ * query selected VideoColumns.DURATION alongside the Files table, which
+ * some OEM ContentProvider implementations reject with an
+ * IllegalArgumentException ("no such column") when the result set includes
+ * image rows — the query blew up and the exception was silently swallowed,
+ * so the sheet always showed "No recent photos or videos" even when the
+ * device had plenty. Querying each table with only its own native columns
+ * avoids the invalid-column case entirely.
  *
  * Runs synchronously — ALWAYS call off the main thread (see
  * ChatMediaController, which dispatches this on a background executor and
@@ -21,63 +32,92 @@ import java.util.List;
  */
 public final class RecentMediaLoader {
 
+    private static final String TAG = "RecentMediaLoader";
+
     private RecentMediaLoader() {}
 
     public static final class Item {
         public final Uri uri;
         public final boolean isVideo;
         public final long durationMs;
+        public final long dateAddedSec;
 
-        Item(Uri uri, boolean isVideo, long durationMs) {
+        Item(Uri uri, boolean isVideo, long durationMs, long dateAddedSec) {
             this.uri = uri;
             this.isVideo = isVideo;
             this.durationMs = durationMs;
+            this.dateAddedSec = dateAddedSec;
         }
     }
 
     /** @param limit max items to return (strip needs ~30, grid can ask for more). */
     public static List<Item> loadRecent(Context context, int limit) {
-        List<Item> out = new ArrayList<>();
+        int safeLimit = Math.max(1, limit);
 
-        Uri filesUri = MediaStore.Files.getContentUri("external");
+        List<Item> images = queryImages(context, safeLimit);
+        List<Item> videos = queryVideos(context, safeLimit);
+
+        List<Item> merged = new ArrayList<>(images.size() + videos.size());
+        merged.addAll(images);
+        merged.addAll(videos);
+        Collections.sort(merged, (a, b) -> Long.compare(b.dateAddedSec, a.dateAddedSec));
+
+        if (merged.size() > safeLimit) {
+            merged = new ArrayList<>(merged.subList(0, safeLimit));
+        }
+        return merged;
+    }
+
+    private static List<Item> queryImages(Context context, int limit) {
+        Uri uri = MediaStore.Images.Media.EXTERNAL_CONTENT_URI;
         String[] projection = {
-                MediaStore.Files.FileColumns._ID,
-                MediaStore.Files.FileColumns.MEDIA_TYPE,
-                MediaStore.Files.FileColumns.DATE_ADDED,
-                MediaStore.Video.VideoColumns.DURATION
+                MediaStore.Images.Media._ID,
+                MediaStore.Images.Media.DATE_ADDED
         };
-        String selection = MediaStore.Files.FileColumns.MEDIA_TYPE + "=? OR "
-                + MediaStore.Files.FileColumns.MEDIA_TYPE + "=?";
-        String[] selectionArgs = {
-                String.valueOf(MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE),
-                String.valueOf(MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO)
-        };
-        String order = MediaStore.Files.FileColumns.DATE_ADDED + " DESC LIMIT " + Math.max(1, limit);
+        String order = MediaStore.Images.Media.DATE_ADDED + " DESC LIMIT " + limit;
 
-        try (Cursor c = context.getContentResolver().query(
-                filesUri, projection, selection, selectionArgs, order)) {
+        List<Item> out = new ArrayList<>();
+        try (Cursor c = context.getContentResolver().query(uri, projection, null, null, order)) {
             if (c == null) return out;
-
-            int idIdx       = c.getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID);
-            int typeIdx      = c.getColumnIndexOrThrow(MediaStore.Files.FileColumns.MEDIA_TYPE);
-            int durIdx       = c.getColumnIndex(MediaStore.Video.VideoColumns.DURATION);
-
+            int idIdx = c.getColumnIndexOrThrow(MediaStore.Images.Media._ID);
+            int dateIdx = c.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_ADDED);
             while (c.moveToNext()) {
                 long id = c.getLong(idIdx);
-                int type = c.getInt(typeIdx);
-                boolean isVideo = type == MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO;
-                long duration = (isVideo && durIdx >= 0) ? c.getLong(durIdx) : 0L;
-
-                Uri contentUri = isVideo
-                        ? MediaStore.Video.Media.EXTERNAL_CONTENT_URI
-                        : MediaStore.Images.Media.EXTERNAL_CONTENT_URI;
-                Uri itemUri = ContentUris.withAppendedId(contentUri, id);
-                out.add(new Item(itemUri, isVideo, duration));
+                long dateAdded = c.getLong(dateIdx);
+                out.add(new Item(ContentUris.withAppendedId(uri, id), false, 0L, dateAdded));
             }
-        } catch (SecurityException | IllegalArgumentException ignored) {
+        } catch (SecurityException | IllegalArgumentException e) {
             // No permission yet, or a weird OEM cursor shape — caller just gets
             // an empty strip/grid instead of a crash; the icon-grid attach
             // options (Gallery/Camera/etc.) keep working regardless.
+            Log.w(TAG, "queryImages failed", e);
+        }
+        return out;
+    }
+
+    private static List<Item> queryVideos(Context context, int limit) {
+        Uri uri = MediaStore.Video.Media.EXTERNAL_CONTENT_URI;
+        String[] projection = {
+                MediaStore.Video.Media._ID,
+                MediaStore.Video.Media.DATE_ADDED,
+                MediaStore.Video.Media.DURATION
+        };
+        String order = MediaStore.Video.Media.DATE_ADDED + " DESC LIMIT " + limit;
+
+        List<Item> out = new ArrayList<>();
+        try (Cursor c = context.getContentResolver().query(uri, projection, null, null, order)) {
+            if (c == null) return out;
+            int idIdx = c.getColumnIndexOrThrow(MediaStore.Video.Media._ID);
+            int dateIdx = c.getColumnIndexOrThrow(MediaStore.Video.Media.DATE_ADDED);
+            int durIdx = c.getColumnIndex(MediaStore.Video.Media.DURATION);
+            while (c.moveToNext()) {
+                long id = c.getLong(idIdx);
+                long dateAdded = c.getLong(dateIdx);
+                long duration = durIdx >= 0 ? c.getLong(durIdx) : 0L;
+                out.add(new Item(ContentUris.withAppendedId(uri, id), true, duration, dateAdded));
+            }
+        } catch (SecurityException | IllegalArgumentException e) {
+            Log.w(TAG, "queryVideos failed", e);
         }
         return out;
     }
