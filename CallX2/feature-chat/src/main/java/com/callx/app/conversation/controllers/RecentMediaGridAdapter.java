@@ -26,13 +26,16 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * 4-column "Recents" grid shown when the attach sheet is dragged up to
- * STATE_EXPANDED (see ChatMediaController#setupRecentsGrid). Deliberately
- * plain View-based cells, not Canvas — this list is short-lived (only
- * inflated while the sheet is open) and RecyclerView recycling already
- * keeps it smooth; canvas-rendering it would add complexity for no
- * measurable gain here. Chat message list is where canvas rendering
- * actually pays off (persistent, long-lived, high scroll volume).
+ * 4-column "Recents" grid shown in the attach sheet — camera tile at
+ * position 0 (folded in here instead of a separate horizontal strip, so
+ * the collapsed/peek state can show camera + recent thumbnails as one
+ * continuous grid, matching the reference screenshot) followed by recent
+ * gallery thumbnails. Deliberately plain View-based cells, not Canvas —
+ * this list is short-lived (only inflated while the sheet is open) and
+ * RecyclerView recycling already keeps it smooth; canvas-rendering it
+ * would add complexity for no measurable gain here. Chat message list is
+ * where canvas rendering actually pays off (persistent, long-lived, high
+ * scroll volume).
  *
  * Performance pass:
  *  - Selection taps used to notifyDataSetChanged() the whole grid, which
@@ -56,24 +59,38 @@ public class RecentMediaGridAdapter extends RecyclerView.Adapter<RecentMediaGrid
         implements ListPreloader.PreloadModelProvider<Uri> {
 
     private static final Object PAYLOAD_SELECTION = new Object();
+    private static final long CAMERA_ITEM_ID = -1L;
 
     public interface Listener {
         /** Tap toggles selection now (see MediaSelectionState) instead of sending immediately. */
         void onMediaToggled(RecentMediaLoader.Item item);
     }
 
+    /** Fired when the camera tile (position 0) is tapped. Optional — pass null if this
+     *  grid instance doesn't render a camera tile (kept off getItemCount/position math either way). */
+    public interface CameraListener {
+        void onCameraTapped();
+    }
+
     private final Context context;
     private final Listener listener;
+    private final CameraListener cameraListener;
     private final MediaSelectionState selection;
     private final int cellSizePx;
     private final RequestOptions thumbOptions;
     private List<RecentMediaLoader.Item> items = Collections.emptyList();
-    /** uri -> adapter position, rebuilt on submit()/append() for O(1) targeted notifyItemChanged. */
+    /** uri -> adapter position (item index, NOT accounting for the +1 camera-tile offset). */
     private final Map<Uri, Integer> positionByUri = new HashMap<>();
 
     public RecentMediaGridAdapter(Context context, Listener listener, MediaSelectionState selection, int cellSizePx) {
+        this(context, listener, null, selection, cellSizePx);
+    }
+
+    public RecentMediaGridAdapter(Context context, Listener listener, CameraListener cameraListener,
+                                   MediaSelectionState selection, int cellSizePx) {
         this.context = context.getApplicationContext();
         this.listener = listener;
+        this.cameraListener = cameraListener;
         this.selection = selection;
         this.cellSizePx = cellSizePx;
         this.thumbOptions = new RequestOptions()
@@ -83,6 +100,11 @@ public class RecentMediaGridAdapter extends RecyclerView.Adapter<RecentMediaGrid
                 .dontAnimate();
         setHasStableIds(true);
         selection.addToggleListener(this::notifyUriChanged);
+    }
+
+    /** +1 slot reserved for the camera tile at position 0 when this grid renders one. */
+    private int offset() {
+        return cameraListener != null ? 1 : 0;
     }
 
     public void submit(List<RecentMediaLoader.Item> newItems) {
@@ -100,7 +122,7 @@ public class RecentMediaGridAdapter extends RecyclerView.Adapter<RecentMediaGrid
         combined.addAll(more);
         items = combined;
         for (int i = start; i < items.size(); i++) positionByUri.put(items.get(i).uri, i);
-        notifyItemRangeInserted(start, more.size());
+        notifyItemRangeInserted(offset() + start, more.size());
     }
 
     private void reindex() {
@@ -111,7 +133,7 @@ public class RecentMediaGridAdapter extends RecyclerView.Adapter<RecentMediaGrid
     /** Targeted refresh triggered by MediaSelectionState.ToggleListener — no full rebind. */
     private void notifyUriChanged(Uri uri) {
         Integer pos = positionByUri.get(uri);
-        if (pos != null) notifyItemChanged(pos, PAYLOAD_SELECTION);
+        if (pos != null) notifyItemChanged(pos + offset(), PAYLOAD_SELECTION);
     }
 
     public int getLoadedCount() {
@@ -124,7 +146,8 @@ public class RecentMediaGridAdapter extends RecyclerView.Adapter<RecentMediaGrid
 
     @Override
     public long getItemId(int position) {
-        return items.get(position).uri.hashCode();
+        if (cameraListener != null && position == 0) return CAMERA_ITEM_ID;
+        return items.get(position - offset()).uri.hashCode();
     }
 
     @NonNull @Override
@@ -142,7 +165,11 @@ public class RecentMediaGridAdapter extends RecyclerView.Adapter<RecentMediaGrid
         // lambda allocation on every onBindViewHolder call; the holder
         // always dispatches whatever item is currently bound to it.
         h.itemView.setOnClickListener(x -> {
-            if (h.boundItem != null) listener.onMediaToggled(h.boundItem);
+            if (h.isCamera) {
+                if (cameraListener != null) cameraListener.onCameraTapped();
+            } else if (h.boundItem != null) {
+                listener.onMediaToggled(h.boundItem);
+            }
         });
         return h;
     }
@@ -154,11 +181,29 @@ public class RecentMediaGridAdapter extends RecyclerView.Adapter<RecentMediaGrid
 
     @Override
     public void onBindViewHolder(@NonNull VH h, int position, @NonNull List<Object> payloads) {
-        RecentMediaLoader.Item item = items.get(position);
+        boolean selectionOnly = !payloads.isEmpty() && payloads.contains(PAYLOAD_SELECTION);
+
+        if (cameraListener != null && position == 0) {
+            h.isCamera = true;
+            h.boundItem = null;
+            if (!selectionOnly) {
+                if (h.cameraIcon != null) h.cameraIcon.setVisibility(View.VISIBLE);
+                h.duration.setVisibility(View.GONE);
+                h.thumb.setImageDrawable(null);
+                h.thumb.setBackgroundResource(R.drawable.bg_media_thumb_camera);
+            }
+            h.selectionScrim.setVisibility(View.GONE);
+            h.selectionBadge.setVisibility(View.GONE);
+            return;
+        }
+
+        h.isCamera = false;
+        RecentMediaLoader.Item item = items.get(position - offset());
         h.boundItem = item;
 
-        boolean selectionOnly = !payloads.isEmpty() && payloads.contains(PAYLOAD_SELECTION);
         if (!selectionOnly) {
+            if (h.cameraIcon != null) h.cameraIcon.setVisibility(View.GONE);
+            h.thumb.setBackground(null);
             Glide.with(h.thumb).load(item.uri).apply(thumbOptions).into(h.thumb);
             if (item.isVideo) {
                 h.duration.setVisibility(View.VISIBLE);
@@ -176,7 +221,7 @@ public class RecentMediaGridAdapter extends RecyclerView.Adapter<RecentMediaGrid
 
     @Override
     public int getItemCount() {
-        return items.size();
+        return offset() + items.size();
     }
 
     private static String formatDuration(long ms) {
@@ -188,8 +233,9 @@ public class RecentMediaGridAdapter extends RecyclerView.Adapter<RecentMediaGrid
 
     @NonNull @Override
     public List<Uri> getPreloadItems(int position) {
-        if (position < 0 || position >= items.size()) return Collections.emptyList();
-        return Collections.singletonList(items.get(position).uri);
+        int idx = position - offset();
+        if (idx < 0 || idx >= items.size()) return Collections.emptyList();
+        return Collections.singletonList(items.get(idx).uri);
     }
 
     @Override
@@ -200,14 +246,17 @@ public class RecentMediaGridAdapter extends RecyclerView.Adapter<RecentMediaGrid
 
     static class VH extends RecyclerView.ViewHolder {
         final ImageView thumb;
+        final ImageView cameraIcon;
         final TextView duration;
         final View selectionScrim;
         final View selectionBadge;
         final TextView selectionBadgeText;
+        boolean isCamera;
         RecentMediaLoader.Item boundItem;
         VH(@NonNull View v) {
             super(v);
             thumb = v.findViewById(R.id.thumb);
+            cameraIcon = v.findViewById(R.id.camera_icon);
             duration = v.findViewById(R.id.video_duration);
             selectionScrim = v.findViewById(R.id.selection_scrim);
             selectionBadge = v.findViewById(R.id.selection_badge);

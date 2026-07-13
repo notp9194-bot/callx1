@@ -8,15 +8,14 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Ordered multi-select set shared between the compact bottom strip
- * (bottom_media_row, visible at peek) and the expanded "Recents" grid
- * (recents_grid) — same instance is handed to both adapters by
- * AttachSheetRecentMediaBinder so tapping a thumbnail in either place
- * keeps both views in sync, WhatsApp/Telegram numbered-badge style,
+ * Ordered multi-select set backing the attach sheet's "Recents" grid
+ * (recents_grid, camera tile + recent thumbnails, visible from the
+ * collapsed peek state onward) — handed to RecentMediaGridAdapter by
+ * AttachSheetRecentMediaBinder, WhatsApp/Telegram numbered-badge style,
  * instead of the old "tap = upload immediately, sheet closes" behavior.
  *
  * Keyed by Uri (content:// ids are stable per MediaStore row) rather than
- * list position, since the strip and grid page independently.
+ * list position, since the grid pages in more items as the user scrolls.
  */
 public final class MediaSelectionState {
 

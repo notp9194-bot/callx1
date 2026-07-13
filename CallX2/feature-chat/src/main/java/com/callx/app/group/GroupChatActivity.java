@@ -2671,9 +2671,9 @@ public class GroupChatActivity extends AppCompatActivity
         if (optLocation != null) {
             optLocation.setOnClickListener(x -> { sheet.dismiss(); locationShareController.launch(); });
         }
-        // Camera tile is now the first item of bottom_media_row (inline with
+        // Camera tile is now the first item of the Recents grid (inline with
         // recent gallery thumbnails) rather than a separate opt_camera row —
-        // see AttachSheetRecentMediaBinder.
+        // see AttachSheetRecentMediaBinder / RecentMediaGridAdapter.
         com.callx.app.conversation.controllers.AttachSheetRecentMediaBinder.bind(
                 // supportsViewOnce=false — group chat has no
                 // ChatViewOnceController-equivalent send/state-machine yet,

@@ -23,6 +23,19 @@
         android:background="#2A2A2A"
         android:scaleType="centerCrop"/>
 
+    <!--
+        Camera icon overlay — shown only for the camera tile at position 0
+        (see RecentMediaGridAdapter#onBindViewHolder), GONE for every media
+        cell so this adds nothing to the common bind path.
+    -->
+    <ImageView
+        android:id="@+id/camera_icon"
+        android:layout_width="26dp"
+        android:layout_height="26dp"
+        android:layout_gravity="center"
+        android:src="@drawable/ic_camera"
+        android:visibility="gone"/>
+
     <TextView
         android:id="@+id/video_duration"
         android:layout_width="wrap_content"

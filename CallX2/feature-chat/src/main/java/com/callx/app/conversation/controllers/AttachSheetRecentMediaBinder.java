@@ -13,7 +13,6 @@ import android.widget.TextView;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
 import androidx.recyclerview.widget.GridLayoutManager;
-import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.callx.app.chat.R;
@@ -24,23 +23,23 @@ import java.util.List;
 import java.util.concurrent.ExecutorService;
 
 /**
- * WhatsApp-style attach-sheet media: a bottom row of [camera tile, recent
- * gallery thumbnails...] (bottom_media_row) that sits right after the
- * Poll/Payment/Event/AI images icon grid, plus a 4-column "Recents" grid
- * that's clipped below the collapsed peek line and only revealed when the
- * sheet is dragged up.
+ * WhatsApp-style attach-sheet media: a 4-column "Recents" grid — camera
+ * tile at position 0 (see RecentMediaGridAdapter) followed by recent
+ * gallery thumbnails — that sits right after the Poll/Payment/Event/AI
+ * images icon grid. The grid's first ~1.5 rows are already visible at the
+ * collapsed peek height (see the peekHeight computation below); dragging
+ * the sheet up reveals the rest.
  *
- * Tapping a thumbnail (strip OR grid) no longer sends immediately — it
- * toggles a numbered multi-select (MediaSelectionState) shared by both
- * views, same as WhatsApp/Telegram. Tapping from the STRIP (i.e. while the
- * sheet is still collapsed/peeking) additionally drives the sheet straight
- * to STATE_EXPANDED so the just-picked item lands in the "Recents" view
- * still marked selected — riding the exact same eased crossfade the drag
- * gesture already uses (BottomSheetBehavior animates programmatic
- * setState() calls the same way it animates a released drag), so the
- * transition is smooth rather than an instant cut. A floating caption/send
- * bar (selection_bar) appears once anything is selected and fires
- * Callbacks#onMediaSend with the full ordered selection.
+ * Tapping a thumbnail toggles a numbered multi-select (MediaSelectionState),
+ * same as WhatsApp/Telegram. Tapping a thumbnail while the sheet is still
+ * collapsed/peeking additionally drives the sheet straight to
+ * STATE_EXPANDED so the just-picked item lands in full view still marked
+ * selected — riding the exact same eased crossfade the drag gesture
+ * already uses (BottomSheetBehavior animates programmatic setState() calls
+ * the same way it animates a released drag), so the transition is smooth
+ * rather than an instant cut. A floating caption/send bar (selection_bar)
+ * appears once anything is selected and fires Callbacks#onMediaSend with
+ * the full ordered selection.
  *
  * Both ChatMediaController (1-1 chat) and GroupChatActivity (group chat)
  * inflate the same bottom_sheet_attach.xml, so this is a single shared
@@ -53,10 +52,14 @@ public final class AttachSheetRecentMediaBinder {
     private static final int RECENT_MEDIA_LIMIT = 60;
     private static final int GRID_PAGE_SIZE = 60;
     // Fraction of the sheet's collapsed→expanded drag distance over which the
-    // icon grid/strip fade out and the "Recents" header fades in. Kept short
+    // icon grid fades out and the "Recents" header fades in. Kept short
     // (first 35% of the drag) so the crossfade finishes well before the user
     // reaches full expansion, matching the reference screenshots.
     private static final float FADE_FRACTION = 0.35f;
+    // How much of the Recents grid to reveal below the collapsed icon grid —
+    // one full row (1.0) plus half of the next row peeking out, matching the
+    // reference screenshot exactly.
+    private static final float PEEK_GRID_ROWS = 1.5f;
 
     public interface Callbacks {
         void onCameraTapped();
@@ -88,9 +91,7 @@ public final class AttachSheetRecentMediaBinder {
      */
     public static void bind(AppCompatActivity activity, BottomSheetDialog sheet, View sheetRoot,
                              ExecutorService mediaQueryExecutor, boolean supportsViewOnce, Callbacks callbacks) {
-        RecyclerView bottomRow  = sheetRoot.findViewById(R.id.bottom_media_row);
         RecyclerView grid       = sheetRoot.findViewById(R.id.recents_grid);
-        View recentsLabel       = sheetRoot.findViewById(R.id.recents_label);
         View recentsEmpty       = sheetRoot.findViewById(R.id.recents_empty);
         View topContent         = sheetRoot.findViewById(R.id.top_content);
         View iconGridSection    = sheetRoot.findViewById(R.id.icon_grid_section);
@@ -100,7 +101,7 @@ public final class AttachSheetRecentMediaBinder {
         EditText captionInput   = sheetRoot.findViewById(R.id.selection_caption_input);
         View sendBtn            = sheetRoot.findViewById(R.id.btn_selection_send);
         TextView sendCount      = sheetRoot.findViewById(R.id.selection_send_count);
-        if (bottomRow == null || topContent == null) return; // older/replaced layout — skip silently
+        if (grid == null || topContent == null) return; // older/replaced layout — skip silently
 
         View hdToggle           = sheetRoot.findViewById(R.id.btn_hd_toggle);
         View viewOnceToggle     = sheetRoot.findViewById(R.id.btn_selection_view_once);
@@ -142,80 +143,60 @@ public final class AttachSheetRecentMediaBinder {
             });
         }
 
-        RecentMediaStripAdapter.Listener stripListener = new RecentMediaStripAdapter.Listener() {
-            @Override public void onCameraTapped() { callbacks.onCameraTapped(); }
-            @Override public void onMediaToggled(RecentMediaLoader.Item item) {
-                selection.toggle(item);
-                // Tapped from the compact strip (only visible at/near peek) —
-                // smoothly drive the sheet up to the full Recents view, same
-                // as if the user had dragged it, so the pick they just made
-                // opens out into the expanded grid instead of just sitting
-                // in the small strip. The item stays selected across the move.
-                if (behavior.getState() != BottomSheetBehavior.STATE_EXPANDED) {
-                    behavior.setState(BottomSheetBehavior.STATE_EXPANDED);
-                }
+        DisplayMetrics dm = activity.getResources().getDisplayMetrics();
+        int cellPx = dm.widthPixels / 4;
+        RecentMediaGridAdapter.Listener gridListener = item -> {
+            selection.toggle(item);
+            // Tapped while the sheet is still collapsed/peeking — smoothly
+            // drive it up to the full Recents view, same as if the user had
+            // dragged it, so the pick just made opens out into the expanded
+            // grid instead of just sitting half-cut at the peek line. The
+            // item stays selected across the move.
+            if (behavior.getState() != BottomSheetBehavior.STATE_EXPANDED) {
+                behavior.setState(BottomSheetBehavior.STATE_EXPANDED);
             }
         };
-        RecentMediaStripAdapter stripAdapter = new RecentMediaStripAdapter(activity, stripListener, selection);
-        bottomRow.setLayoutManager(new LinearLayoutManager(activity, RecyclerView.HORIZONTAL, false));
-        bottomRow.setAdapter(stripAdapter);
-        // Fixed-size cells + a deeper offscreen view cache so a fast fling
-        // through the strip doesn't keep tearing down/re-inflating holders,
-        // and a disabled change-animator so a selection-only rebind doesn't
-        // pay for a flash/fade transition on every tap.
-        bottomRow.setHasFixedSize(true);
-        bottomRow.setItemViewCacheSize(12);
-        if (bottomRow.getItemAnimator() instanceof androidx.recyclerview.widget.SimpleItemAnimator) {
-            ((androidx.recyclerview.widget.SimpleItemAnimator) bottomRow.getItemAnimator())
+        RecentMediaGridAdapter.CameraListener cameraListener = callbacks::onCameraTapped;
+        RecentMediaGridAdapter gridAdapter = new RecentMediaGridAdapter(
+                activity, gridListener, cameraListener, selection, cellPx);
+        grid.setLayoutManager(new GridLayoutManager(activity, 4));
+        grid.setAdapter(gridAdapter);
+        grid.setHasFixedSize(true);
+        grid.setItemViewCacheSize(16);
+        if (grid.getItemAnimator() instanceof androidx.recyclerview.widget.SimpleItemAnimator) {
+            ((androidx.recyclerview.widget.SimpleItemAnimator) grid.getItemAnimator())
                     .setSupportsChangeAnimations(false);
         }
-        bottomRow.getRecycledViewPool().setMaxRecycledViews(0, 20);
+        grid.getRecycledViewPool().setMaxRecycledViews(0, 32);
 
-        RecentMediaGridAdapter gridAdapter = null;
-        if (grid != null) {
-            DisplayMetrics dm = activity.getResources().getDisplayMetrics();
-            int cellPx = dm.widthPixels / 4;
-            RecentMediaGridAdapter.Listener gridListener = item -> selection.toggle(item);
-            gridAdapter = new RecentMediaGridAdapter(activity, gridListener, selection, cellPx);
-            grid.setLayoutManager(new GridLayoutManager(activity, 4));
-            grid.setAdapter(gridAdapter);
-            grid.setHasFixedSize(true);
-            grid.setItemViewCacheSize(16);
-            if (grid.getItemAnimator() instanceof androidx.recyclerview.widget.SimpleItemAnimator) {
-                ((androidx.recyclerview.widget.SimpleItemAnimator) grid.getItemAnimator())
-                        .setSupportsChangeAnimations(false);
-            }
-            grid.getRecycledViewPool().setMaxRecycledViews(0, 32);
-
-            // Warms the next ~12 thumbnails below the fold via Glide's
-            // RecyclerViewPreloader so they're already decoded/cached by
-            // the time the grid scrolls to them — same idea as the
-            // Glide preloading already used for the chat list.
-            //
-            // NOTE: Glide's recyclerview-integration artifact does NOT ship
-            // a ready-made "FixedPreloadSizeProvider" class — only
-            // ViewPreloadSizeProvider (which measures an actual target
-            // view). Since we always want a fixed cell size here, we
-            // implement PreloadSizeProvider ourselves — same fix already
-            // applied in core/ChatMediaPreloader.java.
-            final int[] preloadCellSize = new int[]{cellPx, cellPx};
-            com.bumptech.glide.ListPreloader.PreloadSizeProvider<android.net.Uri> preloadSizeProvider =
-                    (item, adapterPosition, perItemPosition) -> preloadCellSize;
-            com.bumptech.glide.integration.recyclerview.RecyclerViewPreloader<android.net.Uri> preloader =
-                    new com.bumptech.glide.integration.recyclerview.RecyclerViewPreloader<>(
-                            com.bumptech.glide.Glide.with(activity),
-                            gridAdapter,
-                            preloadSizeProvider,
-                            12);
-            grid.addOnScrollListener(preloader);
-        }
+        // Warms the next ~12 thumbnails below the fold via Glide's
+        // RecyclerViewPreloader so they're already decoded/cached by
+        // the time the grid scrolls to them — same idea as the
+        // Glide preloading already used for the chat list.
+        //
+        // NOTE: Glide's recyclerview-integration artifact does NOT ship
+        // a ready-made "FixedPreloadSizeProvider" class — only
+        // ViewPreloadSizeProvider (which measures an actual target
+        // view). Since we always want a fixed cell size here, we
+        // implement PreloadSizeProvider ourselves — same fix already
+        // applied in core/ChatMediaPreloader.java.
+        final int[] preloadCellSize = new int[]{cellPx, cellPx};
+        com.bumptech.glide.ListPreloader.PreloadSizeProvider<android.net.Uri> preloadSizeProvider =
+                (item, adapterPosition, perItemPosition) -> preloadCellSize;
+        com.bumptech.glide.integration.recyclerview.RecyclerViewPreloader<android.net.Uri> preloader =
+                new com.bumptech.glide.integration.recyclerview.RecyclerViewPreloader<>(
+                        com.bumptech.glide.Glide.with(activity),
+                        gridAdapter,
+                        preloadSizeProvider,
+                        12);
+        grid.addOnScrollListener(preloader);
         RecentMediaGridAdapter finalGridAdapter = gridAdapter;
 
-        // Strip + grid each keep themselves in sync via
-        // MediaSelectionState.ToggleListener (targeted notifyItemChanged,
-        // registered inside the adapters' constructors) — this listener
-        // only has to drive the floating caption/send bar, which is a
-        // cheap alpha/visibility flip, not a RecyclerView rebind.
+        // Grid keeps itself in sync via MediaSelectionState.ToggleListener
+        // (targeted notifyItemChanged, registered inside the adapter's
+        // constructor) — this listener only has to drive the floating
+        // caption/send bar, which is a cheap alpha/visibility flip, not a
+        // RecyclerView rebind.
         selection.addListener(() -> updateSelectionBar(activity, selection, selectionBar, sendCount));
 
         if (sendBtn != null) {
@@ -238,11 +219,8 @@ public final class AttachSheetRecentMediaBinder {
             mediaQueryExecutor.execute(() -> {
                 List<RecentMediaLoader.Item> items = RecentMediaLoader.loadRecentPage(activity, 0, RECENT_MEDIA_LIMIT);
                 activity.runOnUiThread(() -> {
-                    stripAdapter.submit(items);
-                    if (finalGridAdapter != null) finalGridAdapter.submit(items);
+                    finalGridAdapter.submit(items);
                     if (recentsEmpty != null) recentsEmpty.setVisibility(items.isEmpty() ? View.VISIBLE : View.GONE);
-                    if (recentsLabel != null) recentsLabel.setVisibility(items.isEmpty() ? View.GONE : View.VISIBLE);
-                    if (grid != null) grid.setVisibility(items.isEmpty() ? View.GONE : View.VISIBLE);
                     if (items.size() < RECENT_MEDIA_LIMIT) noMorePages[0] = true;
                 });
             });
@@ -251,61 +229,60 @@ public final class AttachSheetRecentMediaBinder {
             // scrolling the grid itself, load the next page a few rows before
             // hitting the bottom — same "keep paging MediaStore" pattern
             // WhatsApp/Telegram use instead of loading everything up front.
-            if (grid != null) {
-                grid.addOnScrollListener(new RecyclerView.OnScrollListener() {
-                    @Override public void onScrolled(@androidx.annotation.NonNull RecyclerView rv, int dx, int dy) {
-                        if (dy <= 0 || loadingMore[0] || noMorePages[0] || finalGridAdapter == null) return;
-                        GridLayoutManager lm = (GridLayoutManager) rv.getLayoutManager();
-                        if (lm == null) return;
-                        int lastVisible = lm.findLastVisibleItemPosition();
-                        int total = finalGridAdapter.getLoadedCount();
-                        if (lastVisible >= total - 8) { // ~2 rows from the end
-                            loadingMore[0] = true;
-                            int offset = total;
-                            mediaQueryExecutor.execute(() -> {
-                                List<RecentMediaLoader.Item> more =
-                                        RecentMediaLoader.loadRecentPage(activity, offset, GRID_PAGE_SIZE);
-                                activity.runOnUiThread(() -> {
-                                    loadingMore[0] = false;
-                                    if (more.isEmpty()) {
-                                        noMorePages[0] = true;
-                                    } else {
-                                        finalGridAdapter.append(more);
-                                        if (more.size() < GRID_PAGE_SIZE) noMorePages[0] = true;
-                                    }
-                                });
+            grid.addOnScrollListener(new RecyclerView.OnScrollListener() {
+                @Override public void onScrolled(@androidx.annotation.NonNull RecyclerView rv, int dx, int dy) {
+                    if (dy <= 0 || loadingMore[0] || noMorePages[0]) return;
+                    GridLayoutManager lm = (GridLayoutManager) rv.getLayoutManager();
+                    if (lm == null) return;
+                    int lastVisible = lm.findLastVisibleItemPosition();
+                    int total = finalGridAdapter.getLoadedCount();
+                    if (lastVisible >= total - 8) { // ~2 rows from the end
+                        loadingMore[0] = true;
+                        int offset = total;
+                        mediaQueryExecutor.execute(() -> {
+                            List<RecentMediaLoader.Item> more =
+                                    RecentMediaLoader.loadRecentPage(activity, offset, GRID_PAGE_SIZE);
+                            activity.runOnUiThread(() -> {
+                                loadingMore[0] = false;
+                                if (more.isEmpty()) {
+                                    noMorePages[0] = true;
+                                } else {
+                                    finalGridAdapter.append(more);
+                                    if (more.size() < GRID_PAGE_SIZE) noMorePages[0] = true;
+                                }
                             });
-                        }
+                        });
                     }
-                });
-            }
-        } else {
-            if (recentsLabel != null) recentsLabel.setVisibility(View.GONE);
-            if (grid != null) grid.setVisibility(View.GONE);
+                }
+            });
         }
 
-        // Peek height = collapsed content only (icon rows + bottom camera/media
-        // row) so the sheet opens compact; dragging up past that reveals the
-        // Recents grid, which lives right after top_content in the layout.
-        behavior.setSkipCollapsed(false);
-        behavior.setState(BottomSheetBehavior.STATE_COLLAPSED);
+        // Peek height = top_content (drag handle + icon grid) PLUS
+        // PEEK_GRID_ROWS worth of the Recents grid sitting right below it —
+        // so the collapsed sheet always shows the icon grid, the camera
+        // tile, and one full row of recent thumbnails with the next row
+        // peeking out half-cut, matching the reference screenshot. Dragging
+        // up past that reveals the rest of the grid (and pages in more).
+        final int peekGridPx = Math.round(cellPx * PEEK_GRID_ROWS);
         topContent.getViewTreeObserver().addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
             @Override public void onGlobalLayout() {
                 if (topContent.getHeight() > 0) {
-                    behavior.setPeekHeight(topContent.getHeight());
+                    behavior.setSkipCollapsed(false);
+                    behavior.setPeekHeight(topContent.getHeight() + peekGridPx);
+                    behavior.setState(BottomSheetBehavior.STATE_COLLAPSED);
                     topContent.getViewTreeObserver().removeOnGlobalLayoutListener(this);
                 }
             }
         });
 
-        // Crossfade: icon grid + strip fade OUT / collapse, "Recents" header
+        // Crossfade: icon grid fades OUT / collapses, "Recents" header
         // fades IN, over the first FADE_FRACTION of the collapsed→expanded
         // drag — instead of the icon grid just sitting there and the grid
         // growing in underneath it. slideOffset is 0 at peek (COLLAPSED) and
         // 1 at STATE_EXPANDED, same reference BottomSheetBehavior uses for
         // its own drag physics, so this rides the same gesture 1:1 — including
         // when the transition is driven programmatically (behavior.setState()
-        // from a strip tap above), since Material's BottomSheetBehavior
+        // from a grid tap above), since Material's BottomSheetBehavior
         // animates setState() the same way it animates a released drag.
         //
         // Plain linear alpha read as flat/mechanical, so this also eases the
@@ -334,11 +311,6 @@ public final class AttachSheetRecentMediaBinder {
                         iconGridSection.setScaleX(scale);
                         iconGridSection.setScaleY(scale);
                         iconGridSection.setVisibility(fadeOut <= 0.02f ? View.GONE : View.VISIBLE);
-                    }
-                    if (bottomRow != null) {
-                        bottomRow.setAlpha(fadeOut);
-                        bottomRow.setTranslationY(-driftPx * eased);
-                        bottomRow.setVisibility(fadeOut <= 0.02f ? View.GONE : View.VISIBLE);
                     }
                     if (expandedHeader != null) {
                         expandedHeader.setAlpha(fadeIn);

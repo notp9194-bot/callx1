@@ -272,8 +272,9 @@ public class ChatMediaController {
                 delegate.launchLocationSharePicker();
             });
         }
-        // Camera is now the first tile of bottom_media_row (see setupRecentMedia /
-        // AttachSheetRecentMediaBinder) rather than a separate opt_camera row.
+        // Camera is now the first tile of the Recents grid (see setupRecentMedia /
+        // AttachSheetRecentMediaBinder / RecentMediaGridAdapter) rather than a
+        // separate opt_camera row.
         // Payment / Event / AI images — new chips, backend flow not wired up yet.
         // Kept as safe no-crash placeholders until those features ship.
         View optPayment = v.findViewById(R.id.opt_payment);
@@ -364,6 +365,63 @@ public class ChatMediaController {
         pendingMultiSendViewOnce = false;
 
         if (!collected.isEmpty()) {
+            // Attach-sheet single-item send (Recents grid, exactly 1 tile picked)
+            // — build this as a normal single-media message instead of a
+            // 1-item "multi_media" group. MediaGroupLayoutHelper always sizes a
+            // 1-item group to a fixed 240x200dp box, which is why single photos
+            // sent from the sheet looked wrong (square-ish/cropped) compared to
+            // the system Gallery picker's single-select path (uploadAndSend),
+            // which sizes the bubble from the real width/height via the canvas
+            // renderer. View-once stays on the multi_media path since
+            // ChatViewOnceController's wipe logic is already built around it.
+            if (collected.size() == 1 && !sendAsViewOnce) {
+                java.util.Map<String, Object> item = collected.get(0);
+                Message m = delegate.buildOutgoing();
+                Object mTypeObj = item.get("mediaType");
+                m.type = (mTypeObj instanceof String) ? (String) mTypeObj : "image";
+
+                Object url = item.get("url");
+                if (url instanceof String) {
+                    m.mediaUrl = (String) url;
+                    if ("image".equals(m.type)) m.imageUrl = (String) url;
+                }
+                Object thumbUrl = item.get("thumbUrl");
+                if (thumbUrl instanceof String) m.thumbnailUrl = (String) thumbUrl;
+
+                Object w = item.get("width");
+                Object h = item.get("height");
+                if (w instanceof Integer) m.mediaWidth  = (Integer) w;
+                if (h instanceof Integer) m.mediaHeight = (Integer) h;
+
+                Object durationMs = item.get("durationMs");
+                if (durationMs instanceof Integer) m.duration = ((Integer) durationMs).longValue();
+                else if (durationMs instanceof Long) m.duration = (Long) durationMs;
+
+                Object fileSize = item.get("fileSize");
+                if (fileSize instanceof Long) m.fileSize = (Long) fileSize;
+
+                Object fName = item.get("fileName");
+                if (fName instanceof String) m.fileName = (String) fName;
+
+                if (caption != null && !caption.isEmpty()) {
+                    m.caption = caption;
+                    m.text    = caption;
+                } else {
+                    Object itemCaption = item.get("caption");
+                    if (itemCaption instanceof String) {
+                        m.caption = (String) itemCaption;
+                        m.text    = (String) itemCaption;
+                    }
+                }
+
+                delegate.pushMessage(m, mediaPreview(m.type, m.fileName));
+                delegate.clearReply();
+                if (wasCancelled) {
+                    Toast.makeText(activity, "Cancelled — 1 bhej di gayi", Toast.LENGTH_SHORT).show();
+                }
+                return;
+            }
+
             Message m       = delegate.buildOutgoing();
             m.type          = "multi_media";
             m.mediaItems    = collected;
@@ -478,6 +536,14 @@ public class ChatMediaController {
                             if (thumbUrl != null && !thumbUrl.isEmpty()) item.put("thumbUrl", thumbUrl);
                             item.put("duration", formatDuration(durationMs));
                             item.put("durationMs", durationMs);
+                            // Real pixel dimensions — needed so a single-item batch
+                            // (see finishMultiUpload) can render with the same
+                            // aspect-ratio-correct bubble sizing as uploadAndSend's
+                            // single-video path, instead of a fixed grid cell.
+                            if (width > 0 && height > 0) {
+                                item.put("width", width);
+                                item.put("height", height);
+                            }
                             if (itemCaption != null && !itemCaption.isEmpty()) item.put("caption", itemCaption);
                             collected.add(item);
                             uploadSequentially(uris, perItemCaptions, caption, index + 1, collected, isHD);
@@ -495,7 +561,7 @@ public class ChatMediaController {
                     // dropping the item entirely.
                     android.util.Log.w("ChatMediaController", "Multi-video compress failed, raw upload", e);
                     rawUploadGroupItem(uri, "video", mediaType, null, itemCaption,
-                            uris, perItemCaptions, caption, index, collected, isHD);
+                            uris, perItemCaptions, caption, index, collected, isHD, 0, 0);
                 }
             });
             return;
@@ -510,15 +576,20 @@ public class ChatMediaController {
         if ("image".equals(mediaType)) {
             ImageCompressor.compress(activity, uri, isHD, new ImageCompressor.Callback() {
                 @Override public void onSuccess(ImageCompressor.Result r) {
+                    // Pass the compressed image's real pixel dimensions through —
+                    // needed so a single-item batch (see finishMultiUpload) can
+                    // render with the same aspect-ratio-correct bubble sizing as
+                    // uploadAndSend's single-image path, instead of a fixed
+                    // 240x200dp grid cell.
                     rawUploadGroupItem(Uri.fromFile(r.fullFile), "image", mediaType, fileName, itemCaption,
-                            uris, perItemCaptions, caption, index, collected, isHD);
+                            uris, perItemCaptions, caption, index, collected, isHD, r.fullWidth, r.fullHeight);
                 }
                 @Override public void onError(Exception e) {
                     // Compression failed — fall back to raw upload rather than
                     // dropping the item entirely.
                     android.util.Log.w("ChatMediaController", "Multi-image compress failed, raw upload", e);
                     rawUploadGroupItem(uri, "image", mediaType, fileName, itemCaption,
-                            uris, perItemCaptions, caption, index, collected, isHD);
+                            uris, perItemCaptions, caption, index, collected, isHD, 0, 0);
                 }
             });
             return;
@@ -528,14 +599,17 @@ public class ChatMediaController {
         // grouped message instead of being silently treated as images.
         String resType = (isAudio || isFile) ? "raw" : "image";
         rawUploadGroupItem(uri, resType, mediaType, fileName, itemCaption,
-                uris, perItemCaptions, caption, index, collected, isHD);
+                uris, perItemCaptions, caption, index, collected, isHD, 0, 0);
     }
 
-    /** image / audio / file: single-shot upload into the in-progress group. */
+    /** image / audio / file: single-shot upload into the in-progress group.
+     *  @param width/height real pixel dimensions when known (0/0 if not —
+     *  audio/file items, or an image whose compression fell back to raw). */
     private void rawUploadGroupItem(Uri uri, String resType, String mediaType, String fileName,
                                     String itemCaption,
                                     List<Uri> uris, List<String> perItemCaptions, String caption,
-                                    int index, List<java.util.Map<String, Object>> collected, boolean isHD) {
+                                    int index, List<java.util.Map<String, Object>> collected, boolean isHD,
+                                    int width, int height) {
         String folder = "callx/" + mediaType;
         CloudinaryUploader.upload(activity, uri, folder, resType,
             new CloudinaryUploader.UploadCallback() {
@@ -553,6 +627,10 @@ public class ChatMediaController {
                     if (fileName != null && !fileName.isEmpty()) item.put("fileName", fileName);
                     if (itemCaption != null && !itemCaption.isEmpty())
                         item.put("caption", itemCaption);
+                    if (width > 0 && height > 0) {
+                        item.put("width", width);
+                        item.put("height", height);
+                    }
                     collected.add(item);
 
                     // Upload next item

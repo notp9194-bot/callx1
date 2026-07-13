@@ -240,56 +240,26 @@
     </LinearLayout>
     <!-- /icon_grid_section -->
 
-    <!--
-        Bottom media row — camera tile (position 0, added in code) + recent
-        gallery thumbnails, one horizontal-scroll RecyclerView. This REPLACES
-        the old plain "Camera" label row — matches the reference screenshot
-        where the camera icon sits inline with recent gallery images at the
-        bottom of the sheet, not as its own separate row/button.
-        Populated by RecentMediaStripAdapter off a background MediaStore
-        query — see AttachSheetRecentMediaBinder. Tapping a thumbnail sends
-        it straight away (same upload path as the Gallery picker); tapping
-        the camera tile opens the camera.
-    -->
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/bottom_media_row"
-        android:layout_width="match_parent"
-        android:layout_height="76dp"
-        android:layout_marginTop="14dp"
-        android:clipToPadding="false"
-        android:paddingStart="12dp"
-        android:paddingEnd="12dp"
-        android:overScrollMode="never"/>
-
     </LinearLayout>
-    <!-- /top_content — collapsed (peek) state ends here -->
+    <!-- /top_content — collapsed (peek) state ends here. Peek height is
+         computed in code as top_content's height PLUS ~1.5 rows of the
+         Recents grid below (see AttachSheetRecentMediaBinder), so the
+         collapsed sheet always peeks one full row of thumbnails + half of
+         the next row, matching the reference screenshot. -->
 
     <!--
-        Expanded "Recents" section — sits below the peek line, so it's
-        clipped out of view until the sheet is dragged up past top_content's
-        height (peekHeight is set to that in code). GridLayoutManager(4)
-        RecyclerView, lazily fed the full recent-media list already loaded
-        for the strip above (no second MediaStore query). Plain View cells
-        on purpose — this list only lives while the sheet is open, so
-        Canvas rendering wouldn't pay for its own complexity here (unlike
-        the persistent chat message list, which IS canvas-rendered).
+        Recents grid — camera tile (position 0, added in
+        RecentMediaGridAdapter) + recent gallery thumbnails, 4-column
+        GridLayoutManager. Sits directly below top_content so the first
+        1-2 rows are already visible at the collapsed peek height; dragging
+        the sheet up reveals the rest (and pages in more via MediaStore —
+        see AttachSheetRecentMediaBinder's infinite-scroll listener).
     -->
-    <TextView
-        android:id="@+id/recents_label"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="18dp"
-        android:layout_marginStart="16dp"
-        android:layout_marginBottom="8dp"
-        android:text="Recents"
-        android:textColor="@color/text_primary"
-        android:textSize="15sp"
-        android:textStyle="bold"/>
-
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/recents_grid"
         android:layout_width="match_parent"
         android:layout_height="560dp"
+        android:layout_marginTop="14dp"
         android:clipToPadding="false"
         android:paddingStart="1dp"
         android:paddingEnd="1dp"
