@@ -1,132 +1,186 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+    bottom_sheet_attach.xml — Premium attach sheet (WhatsApp-style)
+
+    v2: replaced the plain "Bhejo" grid (flat circle_primary icons, no
+    depth) with a proper premium layout: drag handle, per-category
+    colored icon badges (Gallery/Location/Contact/Document/Poll/Payment
+    /Event/AI images) in rounded chip cells, and a full-width Camera
+    row at the bottom — matching the reference attach-sheet design.
+    Same view IDs kept (opt_gallery, opt_location, opt_contact,
+    opt_poll) plus new ones (opt_document, opt_payment, opt_event,
+    opt_ai_images, opt_camera) so ChatActivity's existing click
+    listeners keep working; opt_audio/opt_multi/opt_sticker/opt_gif
+    were folded into Gallery/Document per the new design — wire up
+    opt_document to the same file-picker flow opt_file used, and
+    opt_camera to the existing camera launcher.
+-->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:background="@color/surface_card"
+    android:background="@drawable/bg_bottom_sheet_round"
     android:orientation="vertical"
-    android:padding="20dp">
-    <TextView
+    android:paddingBottom="12dp">
+
+    <!-- Drag handle -->
+    <View
+        android:layout_width="36dp"
+        android:layout_height="4dp"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="10dp"
+        android:layout_marginBottom="16dp"
+        android:background="@drawable/bg_drag_handle"/>
+
+    <!-- Row 1: Gallery / Location / Contact / Document -->
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Bhejo"
-        android:textColor="?android:attr/textColorPrimary"
-        android:textSize="18sp"
-        android:textStyle="bold"
-        android:layout_marginBottom="14dp"/>
-    <GridLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:columnCount="4"
-        android:rowCount="3">
+        android:orientation="horizontal"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp">
+
         <LinearLayout android:id="@+id/opt_gallery" android:layout_width="0dp" android:layout_height="wrap_content"
-            android:layout_columnWeight="1" android:orientation="vertical" android:gravity="center"
-            android:padding="12dp" android:background="?attr/selectableItemBackground">
-            <FrameLayout android:layout_width="56dp" android:layout_height="56dp" android:background="@drawable/circle_primary">
-                <ImageView android:layout_width="28dp" android:layout_height="28dp"
+            android:layout_weight="1" android:orientation="vertical" android:gravity="center"
+            android:paddingTop="10dp" android:paddingBottom="10dp" android:layout_marginEnd="4dp"
+            android:background="@drawable/bg_attach_chip">
+            <FrameLayout android:layout_width="52dp" android:layout_height="52dp" android:background="@drawable/circle_attach_blue">
+                <ImageView android:layout_width="24dp" android:layout_height="24dp"
                     android:layout_gravity="center" android:src="@drawable/ic_gallery"/>
             </FrameLayout>
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="Photo" android:textSize="12sp"
-                android:textColor="?android:attr/textColorPrimary" android:layout_marginTop="6dp"/>
+                android:text="Gallery" android:textSize="11sp"
+                android:textColor="@color/text_primary" android:layout_marginTop="6dp"/>
         </LinearLayout>
-        <LinearLayout android:id="@+id/opt_video" android:layout_width="0dp" android:layout_height="wrap_content"
-            android:layout_columnWeight="1" android:orientation="vertical" android:gravity="center"
-            android:padding="12dp" android:background="?attr/selectableItemBackground">
-            <FrameLayout android:layout_width="56dp" android:layout_height="56dp" android:background="@drawable/circle_primary">
-                <ImageView android:layout_width="28dp" android:layout_height="28dp"
-                    android:layout_gravity="center" android:src="@drawable/ic_video"/>
-            </FrameLayout>
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="Video" android:textSize="12sp"
-                android:textColor="?android:attr/textColorPrimary" android:layout_marginTop="6dp"/>
-        </LinearLayout>
-        <LinearLayout android:id="@+id/opt_audio" android:layout_width="0dp" android:layout_height="wrap_content"
-            android:layout_columnWeight="1" android:orientation="vertical" android:gravity="center"
-            android:padding="12dp" android:background="?attr/selectableItemBackground">
-            <FrameLayout android:layout_width="56dp" android:layout_height="56dp" android:background="@drawable/circle_primary">
-                <ImageView android:layout_width="28dp" android:layout_height="28dp"
-                    android:layout_gravity="center" android:src="@drawable/ic_audio"/>
-            </FrameLayout>
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="Audio" android:textSize="12sp"
-                android:textColor="?android:attr/textColorPrimary" android:layout_marginTop="6dp"/>
-        </LinearLayout>
-        <LinearLayout android:id="@+id/opt_file" android:layout_width="0dp" android:layout_height="wrap_content"
-            android:layout_columnWeight="1" android:orientation="vertical" android:gravity="center"
-            android:padding="12dp" android:background="?attr/selectableItemBackground">
-            <FrameLayout android:layout_width="56dp" android:layout_height="56dp" android:background="@drawable/circle_primary">
-                <ImageView android:layout_width="28dp" android:layout_height="28dp"
-                    android:layout_gravity="center" android:src="@drawable/ic_file"/>
-            </FrameLayout>
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="File" android:textSize="12sp"
-                android:textColor="?android:attr/textColorPrimary" android:layout_marginTop="6dp"/>
-        </LinearLayout>
-        <LinearLayout android:id="@+id/opt_poll" android:layout_width="0dp" android:layout_height="wrap_content"
-            android:layout_columnWeight="1" android:orientation="vertical" android:gravity="center"
-            android:padding="12dp" android:background="?attr/selectableItemBackground">
-            <FrameLayout android:layout_width="56dp" android:layout_height="56dp" android:background="@drawable/circle_primary">
-                <ImageView android:layout_width="28dp" android:layout_height="28dp"
-                    android:layout_gravity="center" android:src="@drawable/ic_poll"/>
-            </FrameLayout>
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="Poll" android:textSize="12sp"
-                android:textColor="?android:attr/textColorPrimary" android:layout_marginTop="6dp"/>
-        </LinearLayout>
-        <LinearLayout android:id="@+id/opt_multi" android:layout_width="0dp" android:layout_height="wrap_content"
-            android:layout_columnWeight="1" android:orientation="vertical" android:gravity="center"
-            android:padding="12dp" android:background="?attr/selectableItemBackground">
-            <FrameLayout android:layout_width="56dp" android:layout_height="56dp" android:background="@drawable/circle_primary">
-                <ImageView android:layout_width="28dp" android:layout_height="28dp"
-                    android:layout_gravity="center" android:src="@drawable/ic_gallery"/>
-            </FrameLayout>
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="Multi" android:textSize="12sp"
-                android:textColor="?android:attr/textColorPrimary" android:layout_marginTop="6dp"/>
-        </LinearLayout>
-        <LinearLayout android:id="@+id/opt_contact" android:layout_width="0dp" android:layout_height="wrap_content"
-            android:layout_columnWeight="1" android:orientation="vertical" android:gravity="center"
-            android:padding="12dp" android:background="?attr/selectableItemBackground">
-            <FrameLayout android:layout_width="56dp" android:layout_height="56dp" android:background="@drawable/circle_primary">
-                <ImageView android:layout_width="28dp" android:layout_height="28dp"
-                    android:layout_gravity="center" android:src="@drawable/ic_person"/>
-            </FrameLayout>
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="Contact" android:textSize="12sp"
-                android:textColor="?android:attr/textColorPrimary" android:layout_marginTop="6dp"/>
-        </LinearLayout>
+
         <LinearLayout android:id="@+id/opt_location" android:layout_width="0dp" android:layout_height="wrap_content"
-            android:layout_columnWeight="1" android:orientation="vertical" android:gravity="center"
-            android:padding="12dp" android:background="?attr/selectableItemBackground">
-            <FrameLayout android:layout_width="56dp" android:layout_height="56dp" android:background="@drawable/circle_primary">
-                <ImageView android:layout_width="28dp" android:layout_height="28dp"
+            android:layout_weight="1" android:orientation="vertical" android:gravity="center"
+            android:paddingTop="10dp" android:paddingBottom="10dp" android:layout_marginEnd="4dp"
+            android:background="@drawable/bg_attach_chip">
+            <FrameLayout android:layout_width="52dp" android:layout_height="52dp" android:background="@drawable/circle_attach_green">
+                <ImageView android:layout_width="24dp" android:layout_height="24dp"
                     android:layout_gravity="center" android:src="@drawable/ic_location_pin"/>
             </FrameLayout>
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="Location" android:textSize="12sp"
-                android:textColor="?android:attr/textColorPrimary" android:layout_marginTop="6dp"/>
+                android:text="Location" android:textSize="11sp"
+                android:textColor="@color/text_primary" android:layout_marginTop="6dp"/>
         </LinearLayout>
-        <LinearLayout android:id="@+id/opt_sticker" android:layout_width="0dp" android:layout_height="wrap_content"
-            android:layout_columnWeight="1" android:orientation="vertical" android:gravity="center"
-            android:padding="12dp" android:background="?attr/selectableItemBackground">
-            <FrameLayout android:layout_width="56dp" android:layout_height="56dp" android:background="@drawable/circle_primary">
-                <ImageView android:layout_width="28dp" android:layout_height="28dp"
-                    android:layout_gravity="center" android:src="@drawable/ic_sticker"/>
+
+        <LinearLayout android:id="@+id/opt_contact" android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:orientation="vertical" android:gravity="center"
+            android:paddingTop="10dp" android:paddingBottom="10dp" android:layout_marginEnd="4dp"
+            android:background="@drawable/bg_attach_chip">
+            <FrameLayout android:layout_width="52dp" android:layout_height="52dp" android:background="@drawable/circle_attach_lightblue">
+                <ImageView android:layout_width="24dp" android:layout_height="24dp"
+                    android:layout_gravity="center" android:src="@drawable/ic_person"/>
             </FrameLayout>
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="Sticker" android:textSize="12sp"
-                android:textColor="?android:attr/textColorPrimary" android:layout_marginTop="6dp"/>
+                android:text="Contact" android:textSize="11sp"
+                android:textColor="@color/text_primary" android:layout_marginTop="6dp"/>
         </LinearLayout>
-        <LinearLayout android:id="@+id/opt_gif" android:layout_width="0dp" android:layout_height="wrap_content"
-            android:layout_columnWeight="1" android:orientation="vertical" android:gravity="center"
-            android:padding="12dp" android:background="?attr/selectableItemBackground">
-            <FrameLayout android:layout_width="56dp" android:layout_height="56dp" android:background="@drawable/circle_primary">
-                <ImageView android:layout_width="28dp" android:layout_height="28dp"
-                    android:layout_gravity="center" android:src="@drawable/ic_gif"/>
+
+        <LinearLayout android:id="@+id/opt_document" android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:orientation="vertical" android:gravity="center"
+            android:paddingTop="10dp" android:paddingBottom="10dp"
+            android:background="@drawable/bg_attach_chip">
+            <FrameLayout android:layout_width="52dp" android:layout_height="52dp" android:background="@drawable/circle_attach_indigo">
+                <ImageView android:layout_width="24dp" android:layout_height="24dp"
+                    android:layout_gravity="center" android:src="@drawable/ic_document"/>
             </FrameLayout>
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="GIF" android:textSize="12sp"
-                android:textColor="?android:attr/textColorPrimary" android:layout_marginTop="6dp"/>
+                android:text="Document" android:textSize="11sp"
+                android:textColor="@color/text_primary" android:layout_marginTop="6dp"/>
         </LinearLayout>
-    </GridLayout>
+
+    </LinearLayout>
+
+    <!-- Row 2: Poll / Payment / Event / AI images -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:layout_marginTop="4dp">
+
+        <LinearLayout android:id="@+id/opt_poll" android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:orientation="vertical" android:gravity="center"
+            android:paddingTop="10dp" android:paddingBottom="10dp" android:layout_marginEnd="4dp"
+            android:background="@drawable/bg_attach_chip">
+            <FrameLayout android:layout_width="52dp" android:layout_height="52dp" android:background="@drawable/circle_attach_orange">
+                <ImageView android:layout_width="24dp" android:layout_height="24dp"
+                    android:layout_gravity="center" android:src="@drawable/ic_poll"/>
+            </FrameLayout>
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="Poll" android:textSize="11sp"
+                android:textColor="@color/text_primary" android:layout_marginTop="6dp"/>
+        </LinearLayout>
+
+        <LinearLayout android:id="@+id/opt_payment" android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:orientation="vertical" android:gravity="center"
+            android:paddingTop="10dp" android:paddingBottom="10dp" android:layout_marginEnd="4dp"
+            android:background="@drawable/bg_attach_chip">
+            <FrameLayout android:layout_width="52dp" android:layout_height="52dp" android:background="@drawable/circle_attach_teal">
+                <ImageView android:layout_width="24dp" android:layout_height="24dp"
+                    android:layout_gravity="center" android:src="@drawable/ic_payment"/>
+            </FrameLayout>
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="Payment" android:textSize="11sp"
+                android:textColor="@color/text_primary" android:layout_marginTop="6dp"/>
+        </LinearLayout>
+
+        <LinearLayout android:id="@+id/opt_event" android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:orientation="vertical" android:gravity="center"
+            android:paddingTop="10dp" android:paddingBottom="10dp" android:layout_marginEnd="4dp"
+            android:background="@drawable/bg_attach_chip">
+            <FrameLayout android:layout_width="52dp" android:layout_height="52dp" android:background="@drawable/circle_attach_pink">
+                <ImageView android:layout_width="24dp" android:layout_height="24dp"
+                    android:layout_gravity="center" android:src="@drawable/ic_event"/>
+            </FrameLayout>
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="Event" android:textSize="11sp"
+                android:textColor="@color/text_primary" android:layout_marginTop="6dp"/>
+        </LinearLayout>
+
+        <LinearLayout android:id="@+id/opt_ai_images" android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:orientation="vertical" android:gravity="center"
+            android:paddingTop="10dp" android:paddingBottom="10dp"
+            android:background="@drawable/bg_attach_chip">
+            <FrameLayout android:layout_width="52dp" android:layout_height="52dp" android:background="@drawable/circle_attach_indigo">
+                <ImageView android:layout_width="24dp" android:layout_height="24dp"
+                    android:layout_gravity="center" android:src="@drawable/ic_ai_images"/>
+            </FrameLayout>
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="AI images" android:textSize="11sp"
+                android:textColor="@color/text_primary" android:layout_marginTop="6dp"/>
+        </LinearLayout>
+
+    </LinearLayout>
+
+    <!-- Camera — full-width row -->
+    <LinearLayout
+        android:id="@+id/opt_camera"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingTop="14dp"
+        android:paddingBottom="14dp"
+        android:layout_marginTop="10dp"
+        android:layout_marginStart="12dp"
+        android:layout_marginEnd="12dp"
+        android:background="@drawable/bg_attach_camera_row">
+
+        <FrameLayout android:layout_width="44dp" android:layout_height="44dp" android:background="@drawable/circle_attach_blue">
+            <ImageView android:layout_width="22dp" android:layout_height="22dp"
+                android:layout_gravity="center" android:src="@drawable/ic_camera"/>
+        </FrameLayout>
+
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="Camera" android:textSize="14sp" android:textStyle="bold"
+            android:textColor="@color/text_primary" android:layout_marginStart="14dp"/>
+
+    </LinearLayout>
+
 </LinearLayout>

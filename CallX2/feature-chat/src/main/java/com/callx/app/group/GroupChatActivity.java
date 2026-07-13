@@ -2645,22 +2645,20 @@ public class GroupChatActivity extends AppCompatActivity
     private void showAttachSheet() {
         BottomSheetDialog sheet = new BottomSheetDialog(this);
         View v = LayoutInflater.from(this).inflate(R.layout.bottom_sheet_attach, null);
-        v.findViewById(R.id.opt_gallery).setOnClickListener(x -> { sheet.dismiss(); imagePicker.launch("image/*"); });
-        v.findViewById(R.id.opt_video).setOnClickListener(x  -> { sheet.dismiss(); videoPicker.launch("video/*"); });
-        v.findViewById(R.id.opt_audio).setOnClickListener(x  -> { sheet.dismiss(); audioPicker.launch("audio/*"); });
-        v.findViewById(R.id.opt_file).setOnClickListener(x   -> { sheet.dismiss(); filePicker.launch("*/*"); });
+        // Gallery now opens the combined image+video picker (covers old Gallery + Video + Multi chips).
+        v.findViewById(R.id.opt_gallery).setOnClickListener(x -> {
+            sheet.dismiss();
+            multiMediaPicker.launch(new androidx.activity.result.PickVisualMediaRequest.Builder()
+                    .setMediaType(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageAndVideo.INSTANCE)
+                    .build());
+        });
+        View optDocument = v.findViewById(R.id.opt_document);
+        if (optDocument != null) {
+            optDocument.setOnClickListener(x -> { sheet.dismiss(); filePicker.launch("*/*"); });
+        }
         View optPoll = v.findViewById(R.id.opt_poll);
         if (optPoll != null) {
             optPoll.setOnClickListener(x -> { sheet.dismiss(); showCreatePollDialog(); });
-        }
-        View optMulti = v.findViewById(R.id.opt_multi);
-        if (optMulti != null) {
-            optMulti.setOnClickListener(x -> {
-                sheet.dismiss();
-                multiMediaPicker.launch(new androidx.activity.result.PickVisualMediaRequest.Builder()
-                        .setMediaType(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageAndVideo.INSTANCE)
-                        .build());
-            });
         }
         View optContact = v.findViewById(R.id.opt_contact);
         if (optContact != null) {
@@ -2670,16 +2668,22 @@ public class GroupChatActivity extends AppCompatActivity
         if (optLocation != null) {
             optLocation.setOnClickListener(x -> { sheet.dismiss(); locationShareController.launch(); });
         }
-        View optSticker = v.findViewById(R.id.opt_sticker);
-        if (optSticker != null) {
-            optSticker.setOnClickListener(x -> { sheet.dismiss(); stickerPicker.launch("image/*"); });
+        View optCamera = v.findViewById(R.id.opt_camera);
+        if (optCamera != null) {
+            optCamera.setOnClickListener(x -> { sheet.dismiss(); imagePicker.launch("image/*"); });
         }
-        View optGif = v.findViewById(R.id.opt_gif);
-        if (optGif != null) {
-            optGif.setOnClickListener(x -> {
-                sheet.dismiss();
-                gifPickerLauncher.launch(new Intent(this, com.callx.app.chat.ChatGifPickerActivity.class));
-            });
+        // Payment / Event / AI images — new chips, backend flow not wired up yet.
+        View optPayment = v.findViewById(R.id.opt_payment);
+        if (optPayment != null) {
+            optPayment.setOnClickListener(x -> { sheet.dismiss(); Toast.makeText(this, "Payments coming soon", Toast.LENGTH_SHORT).show(); });
+        }
+        View optEvent = v.findViewById(R.id.opt_event);
+        if (optEvent != null) {
+            optEvent.setOnClickListener(x -> { sheet.dismiss(); Toast.makeText(this, "Events coming soon", Toast.LENGTH_SHORT).show(); });
+        }
+        View optAiImages = v.findViewById(R.id.opt_ai_images);
+        if (optAiImages != null) {
+            optAiImages.setOnClickListener(x -> { sheet.dismiss(); Toast.makeText(this, "AI images coming soon", Toast.LENGTH_SHORT).show(); });
         }
         sheet.setContentView(v); sheet.show();
     }
