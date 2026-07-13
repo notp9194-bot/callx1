@@ -191,11 +191,21 @@ public final class AttachSheetRecentMediaBinder {
             // RecyclerViewPreloader so they're already decoded/cached by
             // the time the grid scrolls to them — same idea as the
             // Glide preloading already used for the chat list.
+            //
+            // NOTE: Glide's recyclerview-integration artifact does NOT ship
+            // a ready-made "FixedPreloadSizeProvider" class — only
+            // ViewPreloadSizeProvider (which measures an actual target
+            // view). Since we always want a fixed cell size here, we
+            // implement PreloadSizeProvider ourselves — same fix already
+            // applied in core/ChatMediaPreloader.java.
+            final int[] preloadCellSize = new int[]{cellPx, cellPx};
+            com.bumptech.glide.ListPreloader.PreloadSizeProvider<android.net.Uri> preloadSizeProvider =
+                    (item, adapterPosition, perItemPosition) -> preloadCellSize;
             com.bumptech.glide.integration.recyclerview.RecyclerViewPreloader<android.net.Uri> preloader =
                     new com.bumptech.glide.integration.recyclerview.RecyclerViewPreloader<>(
                             com.bumptech.glide.Glide.with(activity),
                             gridAdapter,
-                            new com.bumptech.glide.integration.recyclerview.FixedPreloadSizeProvider<>(cellPx, cellPx),
+                            preloadSizeProvider,
                             12);
             grid.addOnScrollListener(preloader);
         }
