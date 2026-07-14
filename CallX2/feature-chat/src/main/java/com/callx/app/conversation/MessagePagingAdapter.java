@@ -1125,6 +1125,30 @@ public class MessagePagingAdapter
         return false;
     }
 
+    // ── PERF (v176): RecycledViewPool pre-warm ──────────────────────────────
+    // Everything else in this file avoids paying inflation/construction cost
+    // *during* scroll — but the very first fling after cold-open still has to
+    // pay it at least once per view type, because the pool starts empty.
+    // Build a few TYPE_CANVAS_SENT/RECEIVED holders (the two hottest,
+    // highest-pool-size types — see setupPagingRecyclerView()'s
+    // pool.setMaxRecycledViews calls) up front and drop them straight into
+    // the RecycledViewPool, so the very first scroll finds warm views
+    // waiting instead of triggering onCreateViewHolder() +
+    // MessageBubbleCanvasView's Paint/RectF field init on the UI thread
+    // mid-fling.
+    //
+    // Call ONCE, after setRecycledViewPool(pool), posted to the next frame
+    // (not inline) so it never competes with the cold-open path this
+    // adapter already special-cases elsewhere in this file.
+    public void warmUpRecycledViewPool(@NonNull ViewGroup parent,
+                                        @NonNull RecyclerView.RecycledViewPool pool,
+                                        int countPerType) {
+        for (int i = 0; i < countPerType; i++) {
+            pool.putRecycledView(onCreateViewHolder(parent, TYPE_CANVAS_SENT));
+            pool.putRecycledView(onCreateViewHolder(parent, TYPE_CANVAS_RECEIVED));
+        }
+    }
+
     @NonNull
     @Override
     public VH onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {

@@ -1831,6 +1831,13 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         pool.setMaxRecycledViews(11 /* TYPE_CANVAS_SENT */,     18);
         pool.setMaxRecycledViews(12 /* TYPE_CANVAS_RECEIVED */, 18);
         binding.rvMessages.setRecycledViewPool(pool);
+        // PERF (v176): warm the pool with a few TYPE_CANVAS_SENT/RECEIVED
+        // holders BEFORE the user's first scroll, so the very first fling
+        // never pays onCreateViewHolder() cost mid-gesture. Posted (not
+        // inline) so it runs after the current cold-open frame, not during
+        // it — see MessagePagingAdapter.warmUpRecycledViewPool() doc.
+        binding.rvMessages.post(() ->
+                pagingAdapter.warmUpRecycledViewPool(binding.rvMessages, pool, 6));
         // PERF: scroll-ahead image preloading — fast fling ke dauran agli
         // ~8 items ki thumbnail Glide cache mein pehle se fetch ho jaati
         // hai, taaki late-load blank image na dikhe. Size (200,200) wahi

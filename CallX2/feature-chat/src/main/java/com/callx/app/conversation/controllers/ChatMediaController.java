@@ -589,7 +589,7 @@ public class ChatMediaController {
         // item even if an earlier item in the batch failed to upload.
         final String itemCaption = (perItemCaptions != null && index < perItemCaptions.size())
                 ? perItemCaptions.get(index) : null;
-        String rawMime = activity.getContentResolver().getType(uri);
+        String rawMime = resolveMimeType(activity, uri);
         final String mediaType = classifyMediaType(rawMime);
         final boolean isVideo  = "video".equals(mediaType);
         final boolean isAudio  = "audio".equals(mediaType);
@@ -741,6 +741,32 @@ public class ChatMediaController {
         if (rawMime.startsWith("audio")) return "audio";
         if (rawMime.startsWith("image")) return "image";
         return "file";
+    }
+
+    // BUG FIX: ContentResolver.getType(uri) reliably resolves MIME for
+    // content:// URIs (queries the owning provider), but for file:// URIs —
+    // which is exactly what MediaEditActivity/VideoOverlayBaker hand back
+    // for an edited video (Uri.fromFile(output)) — it frequently returns
+    // null. When that happened, classifyMediaType(null) fell through to
+    // "file", so an edited video was uploaded via the generic raw-file
+    // path (CloudinaryUploader, resource_type=raw) instead of the video
+    // pipeline (VideoCompressor + VideoUploader) — raw uploads hit a much
+    // lower Cloudinary size/type ceiling, so the edited (re-encoded, often
+    // larger) video came back "Upload failed (400)" while an untouched
+    // video — still a content:// URI, MIME resolves fine — went through
+    // normally. Falling back to the file extension when getType() is null
+    // fixes this without touching the (working) content:// path at all.
+    private static String resolveMimeType(android.content.Context ctx, Uri uri) {
+        String mime = ctx.getContentResolver().getType(uri);
+        if (mime != null) return mime;
+        String path = uri.toString();
+        int dot = path.lastIndexOf('.');
+        if (dot < 0) return null;
+        String ext = path.substring(dot + 1).toLowerCase(java.util.Locale.ROOT);
+        // Strip any trailing query string / fragment that snuck into the extension.
+        int cut = ext.indexOf('?');
+        if (cut >= 0) ext = ext.substring(0, cut);
+        return android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext);
     }
 
     private static String formatDuration(long ms) {
