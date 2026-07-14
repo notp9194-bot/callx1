@@ -502,7 +502,7 @@
                 android:src="@drawable/ic_send"
                 android:scaleType="center"
                 android:padding="10dp"
-                android:background="@drawable/bg_btn_accept_gradient"
+                android:background="@drawable/bg_media_edit_send_btn"
                 android:contentDescription="Send"/>
         </LinearLayout>
     </LinearLayout>

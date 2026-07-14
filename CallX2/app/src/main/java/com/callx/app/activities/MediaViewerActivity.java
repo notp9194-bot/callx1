@@ -156,9 +156,18 @@ public class MediaViewerActivity extends AppCompatActivity {
         binding.btnSelectDelete.setOnClickListener(v -> deleteSelection());
         binding.btnSelectStar.setOnClickListener(v -> starSelection());
 
+        // WhatsApp-style "Edit" shortcut — set by showImageActionSheet's Edit
+        // option so the viewer jumps straight into MediaEditActivity instead
+        // of making the user tap the pencil a second time once the viewer is
+        // open. No-op for video (edit isn't supported there).
+        boolean autoEdit = getIntent().getBooleanExtra("autoEdit", false);
+
         String mediaItemsJson = getIntent().getStringExtra("mediaItemsJson");
         if (mediaItemsJson != null && !mediaItemsJson.isEmpty()) {
             setupGalleryMode(mediaItemsJson, getIntent().getIntExtra("startIndex", 0));
+            if (autoEdit && !isGalleryActiveVideo()) {
+                binding.getRoot().post(this::onEditClicked);
+            }
             return;
         }
 
@@ -180,6 +189,9 @@ public class MediaViewerActivity extends AppCompatActivity {
             binding.ivFull.setVisibility(View.VISIBLE);
             binding.player.setVisibility(View.GONE);
             binding.btnEdit.setVisibility(View.VISIBLE);
+            if (autoEdit) {
+                binding.getRoot().post(this::onEditClicked);
+            }
 
             String thumbUrl = getIntent().getStringExtra("thumbUrl");
             loadImageProgressive(url, thumbUrl);

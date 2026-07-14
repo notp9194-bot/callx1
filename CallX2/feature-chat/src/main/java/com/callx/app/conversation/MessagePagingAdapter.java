@@ -4871,11 +4871,20 @@ public class MessagePagingAdapter
         handleWrap.addView(handle);
         root.addView(handleWrap);
 
-        // Options: View, Share, Forward, Star, Delete
-        String[] labels  = {"🖼  View",  "↗  Share", "↪  Forward", "⭐  Star", "🗑  Delete"};
-        int[]    colors  = {0xFFFFFFFF,  0xFFFFFFFF,  0xFFFFFFFF,  0xFFFFFFFF,  0xFFFF5252 };
+        // Options: View, Edit, Share, Forward, Star, Delete
+        // BUG FIX: "Edit" was missing here entirely, and "View" never passed
+        // chatId/messageId — so even opening the viewer and tapping ITS edit
+        // pencil always hit MediaViewerActivity's "Can't edit — not opened
+        // from a chat" guard (replyChatId/replyMessageId were always null
+        // for single-image messages, since this bottom sheet is the only
+        // entry point into MediaViewerActivity for them). Grouped-media taps
+        // already passed chatId/messageId correctly — only this single-media
+        // sheet was missing it.
+        String[] labels  = {"🖼  View", "✏️  Edit", "↗  Share", "↪  Forward", "⭐  Star", "🗑  Delete"};
+        int[]    colors  = {0xFFFFFFFF,  0xFFFFFFFF,  0xFFFFFFFF,  0xFFFFFFFF,  0xFFFFFFFF,  0xFFFF5252 };
 
         boolean isOwnMsg = currentUid != null && currentUid.equals(m.senderId);
+        final String sheetMessageId = (m.messageId != null && !m.messageId.isEmpty()) ? m.messageId : m.id;
 
         for (int idx = 0; idx < labels.length; idx++) {
             // Skip Delete if not own message
@@ -4892,15 +4901,44 @@ public class MessagePagingAdapter
             tv.setOnClickListener(v -> {
                 bsd.dismiss();
                 switch (label) {
-                    case "🖼  View":
+                    case "🖼  View": {
                         android.content.Intent i = new android.content.Intent()
                                 .setClassName(ctx.getPackageName(),
                                         "com.callx.app.activities.MediaViewerActivity");
                         i.putExtra("url",      fullUrl);
                         i.putExtra("thumbUrl", thumbForViewer);
                         i.putExtra("type",     "image");
+                        // FIX: chatId/messageId weren't passed before, so
+                        // MediaViewerActivity's own Edit pencil couldn't work
+                        // once inside the viewer either.
+                        if (chatId != null && sheetMessageId != null) {
+                            i.putExtra("chatId",    chatId);
+                            i.putExtra("messageId", sheetMessageId);
+                        }
                         ctx.startActivity(i);
                         break;
+                    }
+                    case "✏️  Edit": {
+                        // WhatsApp-style: go straight into the full-screen
+                        // editor instead of making the user View first, then
+                        // tap Edit again inside the viewer.
+                        android.content.Intent ei = new android.content.Intent()
+                                .setClassName(ctx.getPackageName(),
+                                        "com.callx.app.activities.MediaViewerActivity");
+                        ei.putExtra("url",      fullUrl);
+                        ei.putExtra("thumbUrl", thumbForViewer);
+                        ei.putExtra("type",     "image");
+                        ei.putExtra("autoEdit", true);
+                        if (chatId != null && sheetMessageId != null) {
+                            ei.putExtra("chatId",    chatId);
+                            ei.putExtra("messageId", sheetMessageId);
+                        } else {
+                            android.widget.Toast.makeText(ctx, "Can't edit — not opened from a chat", android.widget.Toast.LENGTH_SHORT).show();
+                            break;
+                        }
+                        ctx.startActivity(ei);
+                        break;
+                    }
                     case "↗  Share":
                         android.content.Intent share = new android.content.Intent(
                                 android.content.Intent.ACTION_SEND);

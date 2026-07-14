@@ -465,12 +465,24 @@ public class MediaEditActivity extends AppCompatActivity {
                 @Override public void onProgressChanged(SeekBar sb, int p, boolean u) {
                     int size = Math.max(2, p);
                     drawOverlay.setActiveWidthDp(size);
-                    // Animate the large dot to reflect current size
+                    // Animate the large dot to reflect current size.
+                    // dotBrushLarge's parent (brushSizeRow) is a LinearLayout,
+                    // so its LayoutParams must be LinearLayout.LayoutParams —
+                    // passing FrameLayout.LayoutParams here threw a
+                    // ClassCastException on every seekbar move (the crash on
+                    // brush-size adjust).
                     if (dotBrushLarge != null) {
                         int dotPx = Math.max(dp(6), Math.min(dp(28), (int)(size * getResources().getDisplayMetrics().density * 0.8f)));
-                        android.widget.FrameLayout.LayoutParams lp2 =
-                                new android.widget.FrameLayout.LayoutParams(dotPx, dotPx);
-                        dotBrushLarge.setLayoutParams(lp2);
+                        ViewGroup.LayoutParams existing = dotBrushLarge.getLayoutParams();
+                        if (existing instanceof LinearLayout.LayoutParams) {
+                            LinearLayout.LayoutParams lp2 = (LinearLayout.LayoutParams) existing;
+                            lp2.width  = dotPx;
+                            lp2.height = dotPx;
+                            dotBrushLarge.setLayoutParams(lp2);
+                        } else {
+                            LinearLayout.LayoutParams lp2 = new LinearLayout.LayoutParams(dotPx, dotPx);
+                            dotBrushLarge.setLayoutParams(lp2);
+                        }
                     }
                 }
                 @Override public void onStartTrackingTouch(SeekBar sb) {}
@@ -716,7 +728,14 @@ public class MediaEditActivity extends AppCompatActivity {
         mediaContainer.setOnTouchListener((v, event) -> {
             if (drawModeActive) return false; // let draw overlay handle it
             gd.onTouchEvent(event);
-            return false;
+            // Returning false here meant ACTION_DOWN was never "consumed",
+            // so Android never delivered the follow-up ACTION_MOVE/ACTION_UP
+            // events to this listener at all — the GestureDetector never
+            // saw a full gesture and onFling() could never fire, which is
+            // why "swipe up for filters" appeared to do nothing. Returning
+            // true consumes the whole touch stream here so the detector
+            // actually gets to see it.
+            return true;
         });
     }
 
@@ -991,10 +1010,30 @@ public class MediaEditActivity extends AppCompatActivity {
                 canvas.drawBitmap(out.copy(Bitmap.Config.ARGB_8888, false), 0, 0, fp);
             }
 
+            // ── Screen → photo-pixel mapping ──────────────────────────────
+            // Overlay positions (xFrac/yFrac) and stroke points are recorded
+            // normalized against the *editor's* full-screen preview view —
+            // but that view uses scaleType="fitCenter", so the photo itself
+            // is letterboxed inside it whenever the photo's aspect ratio
+            // doesn't match the screen's. The old code multiplied fractions
+            // straight through by out.getWidth()/out.getHeight() as if the
+            // photo filled the whole view, which put stickers/text/strokes
+            // in the wrong spot (sometimes entirely outside the photo) on
+            // every non-matching aspect ratio — edits looked right in the
+            // editor (everything overlaid the same screen region) but were
+            // shifted or missing once baked into the sent photo. Computing
+            // the same fitCenter rect here and mapping through it fixes that.
+            int viewW = Math.max(1, ivPreview.getWidth());
+            int viewH = Math.max(1, ivPreview.getHeight());
+            float fitScale = Math.min((float) viewW / out.getWidth(), (float) viewH / out.getHeight());
+            if (fitScale <= 0f) fitScale = 1f;
+            float dispW = out.getWidth()  * fitScale;
+            float dispH = out.getHeight() * fitScale;
+            float offX  = (viewW - dispW) / 2f;
+            float offY  = (viewH - dispH) / 2f;
+
             // Overlays (stickers / text)
             float density = getResources().getDisplayMetrics().density;
-            float scaleW  = (float) out.getWidth()  / Math.max(1, ivPreview.getWidth());
-            float scaleH  = (float) out.getHeight() / Math.max(1, ivPreview.getHeight());
             for (OverlayItem ov : st.overlays) {
                 Paint tp = new Paint(Paint.ANTI_ALIAS_FLAG);
                 tp.setColor(ov.color);
@@ -1009,10 +1048,15 @@ public class MediaEditActivity extends AppCompatActivity {
                     tf = Typeface.DEFAULT;
                 }
                 tp.setTypeface(tf);
-                float ts = ov.textSizeSp * density * ov.scale * scaleW;
+                // Text was rendered on-screen at textSizeSp*density px; convert
+                // to photo-pixel space through the same fitCenter scale so it
+                // ends up the same relative size on the sent photo.
+                float ts = (ov.textSizeSp * density * ov.scale) / fitScale;
                 tp.setTextSize(ts);
-                float x = ov.xFrac * out.getWidth();
-                float y = ov.yFrac * out.getHeight();
+                float screenX = ov.xFrac * viewW;
+                float screenY = ov.yFrac * viewH;
+                float x = (screenX - offX) / fitScale;
+                float y = (screenY - offY) / fitScale;
                 if (ov.hasBg) {
                     float tw = tp.measureText(ov.text);
                     Paint bgP = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -1027,10 +1071,10 @@ public class MediaEditActivity extends AppCompatActivity {
                 canvas.restore();
             }
 
-            // Freehand strokes
-            float strokeScale = scaleW * density;
+            // Freehand strokes — same screen→photo remap as overlays above.
             DrawOverlayView.drawStrokes(canvas, st.strokes,
-                    out.getWidth(), out.getHeight(), strokeScale);
+                    out.getWidth(), out.getHeight(),
+                    viewW, viewH, offX, offY, fitScale, density);
 
             return out;
         } catch (Exception e) {

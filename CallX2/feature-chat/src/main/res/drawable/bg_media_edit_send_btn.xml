@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Send button background for MediaEditActivity's bottom bar.
+
+  The layout previously pointed at "@drawable/bg_btn_accept_gradient",
+  which only exists in the app/ and feature-calls/ modules — feature-chat
+  only depends on :core, so that reference could not resolve and would
+  fail the resource-linking step at build time. This drawable lives in
+  feature-chat itself instead.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
+    <gradient
+        android:type="linear"
+        android:angle="45"
+        android:startColor="#25D366"
+        android:endColor="#128C7E"/>
+</shape>

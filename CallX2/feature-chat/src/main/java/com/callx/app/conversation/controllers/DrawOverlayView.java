@@ -264,6 +264,7 @@ public class DrawOverlayView extends View {
     /**
      * Bakes all strokes onto a Canvas at target resolution.
      * Used by MediaEditActivity when compositing the final send-out bitmap.
+     * See the fitCenter-mapping note above the parameter list below.
      *
      * @param canvas      destination canvas (full-res photo bitmap)
      * @param strokes     stroke list from EditState
@@ -272,15 +273,19 @@ public class DrawOverlayView extends View {
      * @param strokeScale density scale factor (fullResPx / viewPx)
      */
     public static void drawStrokes(Canvas canvas, List<Stroke> strokes,
-                                   float targetW, float targetH, float strokeScale) {
+                                   float targetW, float targetH,
+                                   float viewW, float viewH,
+                                   float offX, float offY, float fitScale,
+                                   float density) {
         if (strokes == null || strokes.isEmpty()) return;
+        if (fitScale <= 0f) fitScale = 1f;
 
         // Save layer for CLEAR mode to work correctly
         int sc = canvas.saveLayer(0, 0, targetW, targetH, null);
 
         for (Stroke s : strokes) {
             if (s.points.isEmpty()) continue;
-            float strokePx = s.widthDp * strokeScale;
+            float strokePx = (s.widthDp * density) / fitScale;
 
             Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
             p.setStyle(Paint.Style.STROKE);
@@ -297,24 +302,34 @@ public class DrawOverlayView extends View {
 
             if (s.points.size() == 1) {
                 PointF pt = s.points.get(0);
+                float px = ((pt.x * viewW) - offX) / fitScale;
+                float py = ((pt.y * viewH) - offY) / fitScale;
                 Paint dot = new Paint(p);
                 dot.setStyle(Paint.Style.FILL);
-                canvas.drawCircle(pt.x * targetW, pt.y * targetH, strokePx / 2f, dot);
+                canvas.drawCircle(px, py, strokePx / 2f, dot);
                 continue;
             }
 
             Path path = new Path();
             PointF first = s.points.get(0);
-            path.moveTo(first.x * targetW, first.y * targetH);
+            float fx = ((first.x * viewW) - offX) / fitScale;
+            float fy = ((first.y * viewH) - offY) / fitScale;
+            path.moveTo(fx, fy);
             for (int i = 1; i < s.points.size() - 1; i++) {
                 PointF p1 = s.points.get(i);
                 PointF p2 = s.points.get(i + 1);
-                float midX = (p1.x + p2.x) / 2f * targetW;
-                float midY = (p1.y + p2.y) / 2f * targetH;
-                path.quadTo(p1.x * targetW, p1.y * targetH, midX, midY);
+                float x1 = ((p1.x * viewW) - offX) / fitScale;
+                float y1 = ((p1.y * viewH) - offY) / fitScale;
+                float x2 = ((p2.x * viewW) - offX) / fitScale;
+                float y2 = ((p2.y * viewH) - offY) / fitScale;
+                float midX = (x1 + x2) / 2f;
+                float midY = (y1 + y2) / 2f;
+                path.quadTo(x1, y1, midX, midY);
             }
             PointF last = s.points.get(s.points.size() - 1);
-            path.lineTo(last.x * targetW, last.y * targetH);
+            float lx = ((last.x * viewW) - offX) / fitScale;
+            float ly = ((last.y * viewH) - offY) / fitScale;
+            path.lineTo(lx, ly);
             canvas.drawPath(path, p);
         }
 
