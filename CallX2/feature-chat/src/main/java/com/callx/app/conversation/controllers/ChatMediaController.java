@@ -529,6 +529,21 @@ public class ChatMediaController {
         }
     }
 
+    /**
+     * Sends a single already-edited media URI as a brand-new message —
+     * used by MediaViewerActivity's "Edit" action (view a sent/received
+     * photo in the chat, tweak it in MediaEditActivity, and resend), via
+     * {@link com.callx.app.conversation.GalleryEditBridge}. Reuses the
+     * exact same sequential-upload pipeline the attach sheet's own Edit
+     * flow (see mediaEditLauncher above) already sends through.
+     */
+    public void sendEditedMedia(Uri uri, String caption, boolean isHD) {
+        if (uri == null) return;
+        List<Uri> uris = new ArrayList<>();
+        uris.add(uri);
+        uploadSequentially(uris, null, caption == null || caption.isEmpty() ? null : caption, 0, isHD);
+    }
+
     private void uploadSequentially(List<Uri> uris, List<String> perItemCaptions, String caption, int index) {
         uploadSequentially(uris, perItemCaptions, caption, index, false);
     }

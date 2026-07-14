@@ -38,7 +38,7 @@ public class DrawOverlayView extends View {
         }
     }
 
-    private final List<Stroke> strokes = new ArrayList<>();
+    private List<Stroke> strokes = new ArrayList<>();
     private Stroke current;
     private final Paint paint = new Paint();
     private int activeColor = Color.RED;
@@ -80,10 +80,21 @@ public class DrawOverlayView extends View {
         invalidate();
     }
 
-    /** Restores previously-recorded strokes (e.g. switching back to an item already drawn on). */
-    public void setStrokes(List<Stroke> restored) {
-        strokes.clear();
-        if (restored != null) strokes.addAll(restored);
+    /**
+     * Binds this view directly to the caller's own backing list (e.g.
+     * MediaEditActivity's per-item EditState.strokes) instead of copying
+     * into a separate internal list. This matters: previously, drawing on
+     * screen only ever appended to this view's own private `strokes`
+     * field, while the "final send" bake step read from the caller's
+     * EditState.strokes — a different list that never got the new points
+     * — so freehand drawing showed up live but silently vanished from the
+     * baked/sent photo. Binding the same list reference means every stroke
+     * drawn here IS the caller's state, with no separate sync step needed
+     * and no way for the two to drift apart when switching between
+     * multiple selected photos.
+     */
+    public void bindStrokes(List<Stroke> backing) {
+        this.strokes = (backing != null) ? backing : new ArrayList<>();
         invalidate();
     }
 

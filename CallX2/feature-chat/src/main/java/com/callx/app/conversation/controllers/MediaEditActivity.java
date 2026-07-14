@@ -326,7 +326,15 @@ public class MediaEditActivity extends AppCompatActivity {
         v.setRotation(overlay.rotationDeg);
     }
 
-    /** Single-finger drag to move, two-finger pinch to scale + rotate — same UX pattern used by ReelPhotoEditorActivity's stickers. */
+    /**
+     * Single-finger drag to move, two-finger pinch to scale + rotate — same
+     * UX pattern used by ReelPhotoEditorActivity's stickers. A parallel
+     * GestureDetector rides the same touch stream (without consuming it
+     * itself) to add: long-press → delete this overlay (sticker or text),
+     * single tap on a TEXT overlay → reopen the edit dialog to change its
+     * wording/color in place. Emoji stickers have nothing to edit, so a
+     * tap on them is a no-op — long-press is still how they're removed.
+     */
     private void attachDragAndPinch(View v, OverlayItem overlay) {
         final float[] lastTouch = new float[2];
         final float[] startDist = {0f};
@@ -334,7 +342,21 @@ public class MediaEditActivity extends AppCompatActivity {
         final float[] startAngle = {0f};
         final float[] startRotation = {overlay.rotationDeg};
 
+        GestureDetector tapDetector = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
+            @Override public boolean onDown(MotionEvent e) { return true; }
+
+            @Override public boolean onSingleTapConfirmed(MotionEvent e) {
+                if (!overlay.isEmoji) editTextOverlay(overlay, v);
+                return true;
+            }
+
+            @Override public void onLongPress(MotionEvent e) {
+                removeOverlay(overlay, v);
+            }
+        });
+
         v.setOnTouchListener((view, event) -> {
+            tapDetector.onTouchEvent(event);
             int parentW = stickerLayer.getWidth();
             int parentH = stickerLayer.getHeight();
             switch (event.getActionMasked()) {
@@ -395,6 +417,68 @@ public class MediaEditActivity extends AppCompatActivity {
         float dx = e.getX(0) - e.getX(1);
         float dy = e.getY(0) - e.getY(1);
         return (float) Math.toDegrees(Math.atan2(dy, dx));
+    }
+
+    /** Long-press → delete this sticker/text overlay entirely. */
+    private void removeOverlay(OverlayItem overlay, View v) {
+        current().overlays.remove(overlay);
+        stickerLayer.removeView(v);
+        Toast.makeText(this, overlay.isEmoji ? "Sticker removed" : "Text removed", Toast.LENGTH_SHORT).show();
+    }
+
+    /** Tap on an existing TEXT overlay → reopen the same-style dialog, pre-filled, to change its wording/color in place (or remove it). */
+    private void editTextOverlay(OverlayItem overlay, View v) {
+        LinearLayout container = new LinearLayout(this);
+        container.setOrientation(LinearLayout.VERTICAL);
+        container.setPadding(dp(20), dp(16), dp(20), dp(4));
+
+        final EditText input = new EditText(this);
+        input.setHint("Type something...");
+        input.setTextSize(18f);
+        input.setText(overlay.text);
+        input.setSelection(input.getText().length());
+        container.addView(input);
+
+        final int[] chosenColor = {overlay.color};
+        LinearLayout swatches = new LinearLayout(this);
+        swatches.setOrientation(LinearLayout.HORIZONTAL);
+        swatches.setPadding(0, dp(14), 0, 0);
+        List<View> swatchViews = new ArrayList<>();
+        for (int color : TEXT_COLORS) {
+            View dot = new View(this);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(28), dp(28));
+            lp.setMarginEnd(dp(10));
+            dot.setLayoutParams(lp);
+            dot.setBackgroundColor(color);
+            dot.setOnClickListener(vv -> {
+                chosenColor[0] = color;
+                for (View sv : swatchViews) sv.setAlpha(sv == vv ? 1f : 0.4f);
+            });
+            dot.setAlpha(color == overlay.color ? 1f : 0.4f);
+            swatchViews.add(dot);
+            swatches.addView(dot);
+        }
+        container.addView(swatches);
+
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("Edit text")
+                .setView(container)
+                .setPositiveButton("Save", (dialog, which) -> {
+                    String text = input.getText() != null ? input.getText().toString().trim() : "";
+                    if (text.isEmpty()) {
+                        removeOverlay(overlay, v);
+                        return;
+                    }
+                    overlay.text = text;
+                    overlay.color = chosenColor[0];
+                    if (v instanceof TextView) {
+                        ((TextView) v).setText(text);
+                        ((TextView) v).setTextColor(chosenColor[0]);
+                    }
+                })
+                .setNeutralButton("Remove", (dialog, which) -> removeOverlay(overlay, v))
+                .setNegativeButton("Cancel", null)
+                .show();
     }
 
     // ── Draw (pencil) tool ───────────────────────────────────────────────
@@ -601,7 +685,7 @@ public class MediaEditActivity extends AppCompatActivity {
 
         stickerLayer.removeAllViews();
         for (OverlayItem overlay : st.overlays) renderOverlayView(overlay);
-        drawOverlay.setStrokes(st.strokes);
+        drawOverlay.bindStrokes(st.strokes);
     }
 
     private void deleteCurrent() {

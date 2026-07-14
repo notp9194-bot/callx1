@@ -500,6 +500,22 @@ public class GroupChatActivity extends AppCompatActivity
                 if (gm != null) applyGalleryItemAction(gm, pa);
             }
         }
+
+        // MediaViewerActivity "Edit" action handoff — view a sent/received
+        // photo, tweak it in MediaEditActivity, and resend as a new
+        // message (see GalleryEditBridge, and ChatActivity's matching
+        // 1-1 chat handoff).
+        if (groupId != null) {
+            com.callx.app.conversation.GalleryEditBridge.Pending editPending =
+                    com.callx.app.conversation.GalleryEditBridge.consumeIfMatches(groupId);
+            if (editPending != null) {
+                java.util.List<Uri> uris = new java.util.ArrayList<>();
+                uris.add(Uri.parse(editPending.uri));
+                uploadSequentially(uris, null,
+                        editPending.caption == null || editPending.caption.isEmpty() ? null : editPending.caption,
+                        0, new java.util.ArrayList<>(), editPending.isHD);
+            }
+        }
     }
 
     @Override

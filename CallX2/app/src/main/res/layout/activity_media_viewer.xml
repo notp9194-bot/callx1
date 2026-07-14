@@ -80,6 +80,15 @@
             android:layout_weight="1"/>
 
         <ImageButton
+            android:id="@+id/btn_edit"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:src="@drawable/ic_edit"
+            android:tint="@color/white"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Edit"/>
+
+        <ImageButton
             android:id="@+id/btn_save"
             android:layout_width="48dp"
             android:layout_height="48dp"

@@ -767,6 +767,16 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             }
         }
 
+        // MediaViewerActivity "Edit" action handoff — view a sent/received
+        // photo, tweak it in MediaEditActivity, and resend as a new
+        // message (see GalleryEditBridge).
+        if (chatId != null && mediaController != null) {
+            GalleryEditBridge.Pending editPending = GalleryEditBridge.consumeIfMatches(chatId);
+            if (editPending != null) {
+                mediaController.sendEditedMedia(Uri.parse(editPending.uri), editPending.caption, editPending.isHD);
+            }
+        }
+
         // PERF: warm the Glide cache with the last 10 image-bearing messages so
         // the first scroll feels instant — decoded Bitmaps land in Glide's LRU
         // memory cache before the user ever touches the list.

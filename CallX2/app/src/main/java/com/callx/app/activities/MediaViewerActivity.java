@@ -1,13 +1,18 @@
 package com.callx.app.activities;
 
+import android.app.Activity;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.LinearLayout;
+import android.widget.Toast;
 
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.content.FileProvider;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
@@ -74,6 +79,9 @@ public class MediaViewerActivity extends AppCompatActivity {
     private DatabaseReference playbackRef;
     private boolean playbackPublished = false;
 
+    // ── "Edit" action (WhatsApp-style: view a photo → edit → resend) ────
+    private ActivityResultLauncher<Intent> mediaEditLauncher;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -118,6 +126,30 @@ public class MediaViewerActivity extends AppCompatActivity {
         // for single-media mode) instead of being a dead placeholder.
         binding.btnMoreOptions.setOnClickListener(v -> showMoreOptionsMenu());
 
+        // "Edit" — WhatsApp-style: view a photo in the chat, tweak it in
+        // the same full-screen editor the attach sheet uses, and resend
+        // it as a new message (see GalleryEditBridge for the handoff back
+        // to ChatActivity / GroupChatActivity).
+        mediaEditLauncher = registerForActivityResult(
+                new ActivityResultContracts.StartActivityForResult(),
+                result -> {
+                    if (result.getResultCode() != Activity.RESULT_OK || result.getData() == null) return;
+                    ArrayList<String> resultUris = result.getData().getStringArrayListExtra(
+                            com.callx.app.conversation.controllers.MediaEditActivity.RESULT_URIS);
+                    if (resultUris == null || resultUris.isEmpty()) return;
+                    String caption = result.getData().getStringExtra(
+                            com.callx.app.conversation.controllers.MediaEditActivity.RESULT_CAPTION);
+                    boolean editedHD = result.getData().getBooleanExtra(
+                            com.callx.app.conversation.controllers.MediaEditActivity.RESULT_HD, false);
+                    if (replyChatId != null) {
+                        com.callx.app.conversation.GalleryEditBridge.requestSend(
+                                replyChatId, resultUris.get(0), caption, editedHD);
+                    }
+                    finish();
+                    overridePendingTransition(0, 0);
+                });
+        binding.btnEdit.setOnClickListener(v -> onEditClicked());
+
         // #1 fix — selection-mode toolbar wiring
         binding.btnSelectClose.setOnClickListener(v -> exitSelectMode());
         binding.btnSelectForward.setOnClickListener(v -> forwardSelection());
@@ -135,6 +167,7 @@ public class MediaViewerActivity extends AppCompatActivity {
         if ("video".equals(type)) {
             binding.player.setVisibility(View.VISIBLE);
             binding.ivFull.setVisibility(View.GONE);
+            binding.btnEdit.setVisibility(View.GONE); // editor only supports photos
             playVideo(url);
 
             // For video — tap player toggles top bar
@@ -146,6 +179,7 @@ public class MediaViewerActivity extends AppCompatActivity {
         } else {
             binding.ivFull.setVisibility(View.VISIBLE);
             binding.player.setVisibility(View.GONE);
+            binding.btnEdit.setVisibility(View.VISIBLE);
 
             String thumbUrl = getIntent().getStringExtra("thumbUrl");
             loadImageProgressive(url, thumbUrl);
@@ -212,6 +246,7 @@ public class MediaViewerActivity extends AppCompatActivity {
         binding.mediaPager.setCurrentItem(start, false);
         updatePageCounter(start);
         sharedUrl = safeStr(galleryItems.get(start).get("url"));
+        binding.btnEdit.setVisibility(isGalleryActiveVideo() ? View.GONE : View.VISIBLE);
 
         binding.mediaPager.registerOnPageChangeCallback(new androidx.viewpager2.widget.ViewPager2.OnPageChangeCallback() {
             @Override public void onPageSelected(int position) {
@@ -219,6 +254,7 @@ public class MediaViewerActivity extends AppCompatActivity {
                 galleryActivePos = position;
                 sharedUrl = safeStr(galleryItems.get(position).get("url"));
                 updatePageCounter(position);
+                binding.btnEdit.setVisibility(isGalleryActiveVideo() ? View.GONE : View.VISIBLE);
             }
         });
         galleryActivePos = start;
@@ -467,6 +503,56 @@ public class MediaViewerActivity extends AppCompatActivity {
                 })
                 .setNegativeButton("Cancel", null)
                 .show();
+    }
+
+    // ── "Edit" — view a photo, tweak it in MediaEditActivity, resend ─────
+    private void onEditClicked() {
+        if (isGalleryActiveVideo()) {
+            Toast.makeText(this, "Only photos can be edited", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (replyChatId == null || replyMessageId == null) {
+            Toast.makeText(this, "Can't edit — not opened from a chat", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        String url = sharedUrl;
+        if (url == null || url.isEmpty()) return;
+
+        // MediaEditActivity reads via ContentResolver, so a remote http(s)
+        // URL won't work directly — resolve to the same locally-cached
+        // File that Save/Share already use, downloading first if needed.
+        File cached = MediaCache.getCached(this, url);
+        if (cached != null) {
+            launchEditorFor(cached);
+            return;
+        }
+        showLoading(true);
+        MediaCache.get(this, url, new MediaCache.Callback() {
+            @Override public void onReady(File file) {
+                showLoading(false);
+                launchEditorFor(file);
+            }
+            @Override public void onError(String reason) {
+                showLoading(false);
+                Toast.makeText(MediaViewerActivity.this, "Couldn't load photo for editing", Toast.LENGTH_SHORT).show();
+            }
+        });
+    }
+
+    private void launchEditorFor(File file) {
+        Uri contentUri = FileProvider.getUriForFile(this, getPackageName() + ".fileprovider", file);
+        grantUriPermission(getPackageName(), contentUri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+
+        Intent intent = new Intent(this, com.callx.app.conversation.controllers.MediaEditActivity.class);
+        ArrayList<String> uris = new ArrayList<>();
+        uris.add(contentUri.toString());
+        ArrayList<Integer> videoFlags = new ArrayList<>();
+        videoFlags.add(0);
+        intent.putStringArrayListExtra(com.callx.app.conversation.controllers.MediaEditActivity.EXTRA_URIS, uris);
+        intent.putIntegerArrayListExtra(com.callx.app.conversation.controllers.MediaEditActivity.EXTRA_IS_VIDEO, videoFlags);
+        intent.putExtra(com.callx.app.conversation.controllers.MediaEditActivity.EXTRA_CAPTION, "");
+        intent.putExtra(com.callx.app.conversation.controllers.MediaEditActivity.EXTRA_HD, false);
+        mediaEditLauncher.launch(intent);
     }
 
     // ── #3 — Save current media to device gallery ────────────────────────
