@@ -56,9 +56,12 @@ import com.callx.app.utils.ChatThemeManager;
  *     overlaid on the image itself, WhatsApp-style.
  *   • a multi-image/video grid (bindMediaGroup, both SENT and RECEIVED) —
  *     mirrors MediaGroupLayoutHelper's 1/2/3/4/5-9/10+ layout rules, video
- *     play-icon + duration badge, "+N" overflow on the last cell, and a
- *     group caption scrim overlapping the grid's bottom edge. See
- *     isCanvasEligible() in MessagePagingAdapter for exactly what qualifies
+ *     play-icon + duration badge, "+N" overflow on the last cell, and (when
+ *     captioned) a Telegram-style caption row BELOW the grid — never an
+ *     overlay on the images — followed by a normal text-bubble
+ *     timestamp/tick footer; captionless groups keep the translucent
+ *     corner pill instead. See isCanvasEligible() in MessagePagingAdapter
+ *     for exactly what qualifies
  *     (plain image/video cells only, no per-item captions).
  *   • for RECEIVED groups specifically: the same manual download-gate
  *     treatment as MediaGroupLayoutHelper's old grid — a full-grid dim
@@ -765,7 +768,11 @@ public class MessageBubbleCanvasView extends View {
     // layout's appearance can never be affected by an unrelated Paint
     // mutation happening on some other view or some other code path.
     // Only plain, non-deleted text bubbles use this cache.
-    private static final int TEXT_LAYOUT_CACHE_CAPACITY = 150;
+    // PERF: bumped from 150 — this cache now also serves single-image/video
+    // and media-group captions (see isMedia/isMediaGroup measure branches),
+    // not just plain text bubbles, so it holds more distinct entries per
+    // screenful of chat than before.
+    private static final int TEXT_LAYOUT_CACHE_CAPACITY = 220;
     private static final Object sTextLayoutCacheLock = new Object();
     private static final java.util.LinkedHashMap<String, CachedTextLayout> sTextLayoutCache =
             new java.util.LinkedHashMap<String, CachedTextLayout>(64, 0.75f, true) {
@@ -991,6 +998,25 @@ public class MessageBubbleCanvasView extends View {
 
     String messageText = "";
     String footerTimeText = "";
+    // PERF: footerTimeText gets measured with footerPaint up to 3-4 times
+    // in a single bind/measure/draw cycle (computeSizeSignature's footer
+    // reserve, the branch's own footerReserveWidth/captionFooterReserve,
+    // and twice inside drawFooter). measureText() walks every glyph, so
+    // this is real repeated cost — cache it per distinct string instance
+    // (a fresh formatted timestamp string arrives on essentially every
+    // bind anyway, so this only dedupes WITHIN one bind's several call
+    // sites, which is exactly where the redundancy actually lives).
+    private String footerTimeTextWidthCacheRef;
+    private float footerTimeTextWidthCache;
+    float footerTimeTextWidth() {
+        if (footerTimeText != footerTimeTextWidthCacheRef) {
+            footerTimeTextWidthCache = footerPaint.measureText(footerTimeText);
+            footerTimeTextWidthCacheRef = footerTimeText;
+        }
+        return footerTimeTextWidthCache;
+    }
+    // Reused across every drawFooter() call — see its PERF comment.
+    private final Paint.FontMetrics footerFmScratch = new Paint.FontMetrics();
     boolean sent = false;
     boolean read = false;
     boolean delivered = false;
@@ -1244,10 +1270,15 @@ public class MessageBubbleCanvasView extends View {
     Bitmap[] groupBitmaps = new Bitmap[0];
     final RectF[] groupRects = new RectF[GROUP_MAX_VISIBLE];
     int groupVisibleCount = 0;
+    // PERF: computeGroupGridDims() was called once in onMeasure and again
+    // in onLayout for the exact same groupVisibleCount — same result,
+    // wasted work, plus a `new int[2]` allocation each time. onMeasure now
+    // stores its result here so onLayout just reads it back.
+    int cachedGroupGridW, cachedGroupGridH;
     int groupRemaining = 0; // >0 only on the last visible cell when total > GROUP_MAX_VISIBLE
     boolean groupHasCaption = false;
     StaticLayout groupCaptionLayout;
-    final RectF groupContentRect = new RectF(); // whole grid area (no reply/caption)
+    final RectF groupContentRect = new RectF(); // grid-only area (no reply, no caption row — caption is a separate row below this rect)
     final Paint groupCellBgPaint = new Paint();
     final Paint groupBitmapPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
     final Paint groupScrimPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -3671,16 +3702,37 @@ public class MessageBubbleCanvasView extends View {
             int captionBlockHeight = 0;
 
             if (mediaHasCaption) {
-                float captionFooterReserve = footerPaint.measureText(footerTimeText)
+                float captionFooterReserve = footerTimeTextWidth()
                         + (sent ? (TICK_SIZE_DP + TICK_GAP_DP) * density : 0)
                         + FOOTER_GAP_DP * density
                         + expiryReserveWidth();
-                textLayout = StaticLayout.Builder
-                        .obtain(messageText, 0, messageText.length(), textPaint, maxTextWidth)
-                        .setAlignment(Layout.Alignment.ALIGN_NORMAL)
-                        .setLineSpacing(0f, 1f)
-                        .setIncludePad(false)
-                        .build();
+                // PERF: media captions are plain runs of text measured at the
+                // exact same maxTextWidth a text bubble uses, so they can
+                // share the SAME background-precomputed cache (see the
+                // plain-text branch below + entityToModel()'s precompute
+                // call) instead of needing a dedicated cache — a caption
+                // that was precomputed off the UI thread skips the
+                // StaticLayout.Builder...build() line-breaking cost here
+                // entirely.
+                CachedTextLayout cachedCaption = null;
+                if (!messageText.isEmpty()) {
+                    String capCacheKey = messageText.length() + "_" + messageText.hashCode()
+                            + "_" + maxTextWidth;
+                    synchronized (sTextLayoutCacheLock) {
+                        cachedCaption = sTextLayoutCache.get(capCacheKey);
+                    }
+                }
+                if (cachedCaption != null) {
+                    textLayout = cachedCaption.layout;
+                    textLayout.getPaint().setColor(textPaint.getColor());
+                } else {
+                    textLayout = StaticLayout.Builder
+                            .obtain(messageText, 0, messageText.length(), textPaint, maxTextWidth)
+                            .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                            .setLineSpacing(0f, 1f)
+                            .setIncludePad(false)
+                            .build();
+                }
                 captionWidth = maxLineWidth(textLayout);
                 int lastLineW = (int) Math.ceil(textLayout.getLineWidth(textLayout.getLineCount() - 1));
                 captionWidth = Math.max(captionWidth, (int) (lastLineW + captionFooterReserve));
@@ -3962,7 +4014,7 @@ public class MessageBubbleCanvasView extends View {
             float footerTxtH = ffm.descent - ffm.ascent;
 
             // Footer (timestamp) reserved width/height
-            footerReserveWidth = footerPaint.measureText(footerTimeText)
+            footerReserveWidth = footerTimeTextWidth()
                     + (sent ? (TICK_SIZE_DP + TICK_GAP_DP) * density : 0)
                     + FOOTER_GAP_DP * density
                     + expiryReserveWidth();
@@ -3988,25 +4040,64 @@ public class MessageBubbleCanvasView extends View {
 
         } else if (isMediaGroup) {
             // ── Media-group grid (multi-image/video) ──
+            // Telegram-style caption: a real row BELOW the grid (never an
+            // overlay/scrim on top of the images), with the same textPaint
+            // + normal text-bubble footer (timestamp+tick) treatment as the
+            // single-image caption path below (isMedia) — see MediaGroupRenderer.draw().
             int[] dims = computeGroupGridDims(groupVisibleCount);
             int gridW = dims[0];
             int gridH = dims[1];
+            cachedGroupGridW = gridW;
+            cachedGroupGridH = gridH;
+            int groupCaptionWidth = 0;
+            int groupCaptionBlockHeight = 0;
 
             if (groupHasCaption) {
-                groupCaptionLayout = StaticLayout.Builder
-                        .obtain(messageText, 0, messageText.length(), groupCaptionTextPaint,
-                                Math.max(1, Math.min(gridW - dp(8), maxTextWidth)))
-                        .setAlignment(Layout.Alignment.ALIGN_NORMAL)
-                        .setMaxLines(3)
-                        .setEllipsize(TextUtils.TruncateAt.END)
-                        .setIncludePad(false)
-                        .build();
+                float captionFooterReserve = footerTimeTextWidth()
+                        + (sent ? (TICK_SIZE_DP + TICK_GAP_DP) * density : 0)
+                        + FOOTER_GAP_DP * density
+                        + expiryReserveWidth();
+                // PERF: same shared background-precomputed cache the plain-
+                // text bubble and single-image caption use — see that
+                // branch's comment. A group caption that arrived here via
+                // entityToModel()'s off-UI-thread precompute call skips the
+                // StaticLayout.Builder...build() cost entirely on scroll.
+                CachedTextLayout cachedGroupCaption = null;
+                if (!messageText.isEmpty()) {
+                    String capCacheKey = messageText.length() + "_" + messageText.hashCode()
+                            + "_" + maxTextWidth;
+                    synchronized (sTextLayoutCacheLock) {
+                        cachedGroupCaption = sTextLayoutCache.get(capCacheKey);
+                    }
+                }
+                if (cachedGroupCaption != null) {
+                    groupCaptionLayout = cachedGroupCaption.layout;
+                    groupCaptionLayout.getPaint().setColor(textPaint.getColor());
+                } else {
+                    groupCaptionLayout = StaticLayout.Builder
+                            .obtain(messageText, 0, messageText.length(), textPaint, maxTextWidth)
+                            .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                            .setLineSpacing(0f, 1f)
+                            .setIncludePad(false)
+                            .build();
+                }
+                groupCaptionWidth = maxLineWidth(groupCaptionLayout);
+                int lastLineW = (int) Math.ceil(groupCaptionLayout.getLineWidth(groupCaptionLayout.getLineCount() - 1));
+                groupCaptionWidth = Math.max(groupCaptionWidth, (int) (lastLineW + captionFooterReserve));
+                groupCaptionBlockHeight = Math.round(MEDIA_CAPTION_GAP_DP * density)
+                        + groupCaptionLayout.getHeight() + vPad + footerHeight;
+                footerReserveWidth = captionFooterReserve;
             } else {
                 groupCaptionLayout = null;
             }
 
-            bubbleContentWidth = Math.min(Math.max(gridW, replyBoxContentWidth), maxTextWidth);
-            bubbleHeight = replyBoxHeight + replyGap + vPad + gridH + vPad;
+            bubbleContentWidth = Math.min(
+                    Math.max(gridW, Math.max(replyBoxContentWidth, groupCaptionWidth)), maxTextWidth);
+            // Captionless groups keep the tight vPad margin around the grid
+            // (translucent pill overlay handles the timestamp there);
+            // captioned groups get the same margin plus the caption+footer
+            // block below, exactly like the captioned single-image bubble.
+            bubbleHeight = replyBoxHeight + replyGap + vPad + gridH + vPad + groupCaptionBlockHeight;
 
         } else if (isFileBubble) {
             // ── File card (fixed 240dp wide) ─────────────────────────────────
@@ -4021,7 +4112,7 @@ public class MessageBubbleCanvasView extends View {
             float iconH   = FILE_ICON_COL_DP * density;
             float contentH = Math.max(iconH, rowPad + nameLineH + 2f * density + metaLineH + rowPad);
             fileCardHeight  = contentH;
-            footerReserveWidth = footerPaint.measureText(footerTimeText)
+            footerReserveWidth = footerTimeTextWidth()
                     + (sent ? (TICK_SIZE_DP + TICK_GAP_DP) * density : 0)
                     + FOOTER_GAP_DP * density
                     + expiryReserveWidth();
@@ -4033,7 +4124,7 @@ public class MessageBubbleCanvasView extends View {
             // ── Audio row (fixed-width, like the legacy ll_audio row) —
             // no caption, so bubbleHeight is just the row itself plus the
             // normal text-bubble footer below it. ──
-            footerReserveWidth = footerPaint.measureText(footerTimeText)
+            footerReserveWidth = footerTimeTextWidth()
                     + (sent ? (TICK_SIZE_DP + TICK_GAP_DP) * density : 0)
                     + FOOTER_GAP_DP * density
                     + expiryReserveWidth();
@@ -4046,7 +4137,7 @@ public class MessageBubbleCanvasView extends View {
 
         } else {
             // ── Plain text bubble ──
-            footerReserveWidth = footerPaint.measureText(footerTimeText)
+            footerReserveWidth = footerTimeTextWidth()
                     + (sent ? (TICK_SIZE_DP + TICK_GAP_DP) * density : 0)
                     + FOOTER_GAP_DP * density
                     + expiryReserveWidth();
@@ -4312,8 +4403,14 @@ public class MessageBubbleCanvasView extends View {
         if (isMediaGroup) {
             float gridTop = bubbleTop + replyBoxHeight + replyGap + vPad;
             layoutGroupCells(bubbleLeft + hPad, gridTop);
+            // groupContentRect is just the grid's own bounds — the caption
+            // (when present) is a separate row below it, not part of this
+            // rect, so it never overlaps the images. gridH comes from
+            // onMeasure's cachedGroupGridH — same groupVisibleCount always
+            // gives the same result, so no need to recompute + reallocate here.
+            int groupGridH = cachedGroupGridH;
             groupContentRect.set(bubbleLeft + hPad, gridTop,
-                    bubbleLeft + bubbleWidth - hPad, bubbleTop + bubbleHeight - vPad);
+                    bubbleLeft + bubbleWidth - hPad, gridTop + groupGridH);
 
             if (!groupHasCaption) {
                 float pillPadH = MEDIA_PILL_PADDING_H_DP * density;
@@ -4574,7 +4671,7 @@ public class MessageBubbleCanvasView extends View {
         } else if (isPoll) {
             pollRenderer.draw(canvas);
         } else if (isMediaGroup) {
-            mediaGroupRenderer.draw(canvas);
+            mediaGroupRenderer.draw(canvas, vPad);
         } else if (isMedia) {
             drawMediaWithOptionalCache(canvas, hPad, vPad);
         } else if (isAudio) {
@@ -4720,7 +4817,7 @@ public class MessageBubbleCanvasView extends View {
      * digit-count flip, e.g. "9:59" -> "10:00".
      */
     private String computeSizeSignature() {
-        float footerReserve = footerPaint.measureText(footerTimeText)
+        float footerReserve = footerTimeTextWidth()
                 + (sent ? (TICK_SIZE_DP + TICK_GAP_DP) * density : 0)
                 + FOOTER_GAP_DP * density
                 + expiryReserveWidth();
@@ -4819,7 +4916,7 @@ public class MessageBubbleCanvasView extends View {
     }
 
     void drawFooter(Canvas canvas, float footerBaselineY, float footerRightX) {
-        float timeX = footerRightX - footerPaint.measureText(footerTimeText)
+        float timeX = footerRightX - footerTimeTextWidth()
                 - (sent ? (TICK_SIZE_DP + TICK_GAP_DP) * density : 0);
         canvas.drawText(footerTimeText, timeX, footerBaselineY, footerPaint);
 
@@ -4827,9 +4924,15 @@ public class MessageBubbleCanvasView extends View {
         // taps on the "✏️ edited" tag (baked into footerTimeText by the
         // caller) — recomputed on every draw so it always tracks the
         // footer's actual on-screen position for this bind.
-        Paint.FontMetrics footerFm = footerPaint.getFontMetrics();
-        footerTextRect.set(timeX, footerBaselineY + footerFm.ascent,
-                timeX + footerPaint.measureText(footerTimeText), footerBaselineY + footerFm.descent);
+        // PERF: getFontMetrics() with no args allocates a fresh FontMetrics
+        // object every call — drawFooter() now runs for media/media-group
+        // captions too (not just text bubbles/audio/file), so this fires
+        // on every newly-recorded bubble during a fling. The (FontMetrics)
+        // overload fills a reused instance instead, so this line no longer
+        // allocates at all.
+        footerPaint.getFontMetrics(footerFmScratch);
+        footerTextRect.set(timeX, footerBaselineY + footerFmScratch.ascent,
+                timeX + footerTimeTextWidth(), footerBaselineY + footerFmScratch.descent);
 
         if (hasExpiry) {
             canvas.drawText(expiryText, timeX - expiryReserveWidth(), footerBaselineY, expiryPaint);

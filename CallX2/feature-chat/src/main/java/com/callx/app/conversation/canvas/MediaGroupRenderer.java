@@ -54,11 +54,6 @@ final class MediaGroupRenderer {
     private final float[] itemCaptionGradientTop = new float[MessageBubbleCanvasView.GROUP_MAX_VISIBLE];
     private final float[] itemCaptionGradientBottom = new float[MessageBubbleCanvasView.GROUP_MAX_VISIBLE];
 
-    // Group-level caption scrim gradient — single slot, same rebuild-on-change rule.
-    private LinearGradient groupScrimGradient;
-    private float groupScrimGradientTop = Float.NaN;
-    private float groupScrimGradientBottom = Float.NaN;
-
     // ── Ellipsize cache — per-cell file/audio label and per-item caption
     // only actually change on rebind, but the old code ran
     // TextUtils.ellipsize() on every single draw() during scroll, for every
@@ -71,7 +66,7 @@ final class MediaGroupRenderer {
     private final float[] cellCaptionMaxW = new float[MessageBubbleCanvasView.GROUP_MAX_VISIBLE];
     private final CharSequence[] cellCaptionDisplay = new CharSequence[MessageBubbleCanvasView.GROUP_MAX_VISIBLE];
 
-    void draw(Canvas canvas) {
+    void draw(Canvas canvas, float vPad) {
         float cellR = MessageBubbleCanvasView.GROUP_CORNER_R * host.density;
         for (int i = 0; i < host.groupVisibleCount; i++) {
             RectF rect = host.groupRects[i];
@@ -272,22 +267,17 @@ final class MediaGroupRenderer {
         }
 
         if (host.groupHasCaption && host.groupCaptionLayout != null) {
-            float scrimTop = host.groupContentRect.bottom - MessageBubbleCanvasView.GROUP_CAPTION_SCRIM_H_DP * host.density;
-            float scrimBottom = host.groupContentRect.bottom;
-            if (groupScrimGradient == null || groupScrimGradientTop != scrimTop || groupScrimGradientBottom != scrimBottom) {
-                groupScrimGradient = new LinearGradient(
-                        0, scrimTop, 0, scrimBottom, 0x00000000, 0xAA000000, Shader.TileMode.CLAMP);
-                groupScrimGradientTop = scrimTop;
-                groupScrimGradientBottom = scrimBottom;
-            }
-            host.groupScrimPaint.setShader(groupScrimGradient);
-            canvas.drawRect(host.groupContentRect.left, scrimTop, host.groupContentRect.right, host.groupContentRect.bottom, host.groupScrimPaint);
-
+            // Telegram-style: caption is its own row BELOW the grid (never
+            // an overlay/scrim on top of the images), followed by the same
+            // timestamp+tick footer row a text bubble uses — mirrors
+            // MediaRenderer's single-image caption path exactly.
+            float captionTop = host.groupContentRect.bottom + MessageBubbleCanvasView.MEDIA_CAPTION_GAP_DP * host.density;
             canvas.save();
-            canvas.translate(host.groupContentRect.left + 4 * host.density,
-                    host.groupContentRect.bottom - host.groupCaptionLayout.getHeight() - 4 * host.density);
+            canvas.translate(host.groupContentRect.left, captionTop);
             host.groupCaptionLayout.draw(canvas);
             canvas.restore();
+
+            host.drawFooter(canvas, host.bubbleRect.bottom - vPad * 0.4f, host.groupContentRect.right);
         } else {
             // Captionless group: translucent timestamp/tick pill overlaid
             // on the grid's bottom-right corner — same treatment as the

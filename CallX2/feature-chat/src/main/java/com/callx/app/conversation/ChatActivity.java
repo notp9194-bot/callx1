@@ -2624,6 +2624,16 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             com.callx.app.conversation.canvas.MessageBubbleCanvasView
                     .precomputeTextLayoutIfPossible(m.text, Boolean.TRUE.equals(m.deleted));
         }
+        // PERF: single-image/video captions and media-group captions are
+        // plain text runs measured at the exact same maxTextWidth a text
+        // bubble uses (see MessageBubbleCanvasView's isMedia/isMediaGroup
+        // measure branches), so they share this same cache — no dedicated
+        // caption cache needed.
+        if (m != null && m.caption != null && !m.caption.isEmpty()
+                && ("image".equals(m.type) || "video".equals(m.type) || "multi_media".equals(m.type))) {
+            com.callx.app.conversation.canvas.MessageBubbleCanvasView
+                    .precomputeTextLayoutIfPossible(m.caption, false);
+        }
         if (m != null && "poll".equals(m.type) && m.pollOptions != null) {
             for (String opt : m.pollOptions) {
                 com.callx.app.conversation.canvas.MessageBubbleCanvasView

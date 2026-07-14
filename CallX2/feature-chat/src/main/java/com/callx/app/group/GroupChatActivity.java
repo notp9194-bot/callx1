@@ -1231,6 +1231,14 @@ public class GroupChatActivity extends AppCompatActivity
             com.callx.app.conversation.canvas.MessageBubbleCanvasView
                     .precomputeTextLayoutIfPossible(m.text, Boolean.TRUE.equals(m.deleted));
         }
+        // PERF: same shared cache reuse as 1:1 ChatActivity — single-image/
+        // video and media-group captions measure at the same maxTextWidth
+        // a text bubble uses, so precompute feeds the same cache.
+        if (m.caption != null && !m.caption.isEmpty()
+                && ("image".equals(m.type) || "video".equals(m.type) || "multi_media".equals(m.type))) {
+            com.callx.app.conversation.canvas.MessageBubbleCanvasView
+                    .precomputeTextLayoutIfPossible(m.caption, false);
+        }
         if ("poll".equals(m.type) && m.pollOptions != null) {
             for (String opt : m.pollOptions) {
                 com.callx.app.conversation.canvas.MessageBubbleCanvasView
