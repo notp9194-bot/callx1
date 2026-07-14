@@ -1,0 +1,393 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Full-screen chat-attach image editor.
+
+  Structure (back to front, all inside rootMediaEdit):
+   - mediaContainer: the photo + sticker/text overlays + freehand-draw overlay.
+     A GestureDetector on this container turns a fast upward fling into
+     openFilterPanel() (see MediaEditActivity#setupFilterSwipeGesture).
+   - topToolbar: close / download / HD / rotate / sticker / Aa / pencil.
+   - emojiRow / textEntryRow / drawToolsRow: contextual rows shown while a
+     tool is active; only one is visible at a time.
+   - bottomBar: delete + thumbnail strip (top line) and caption + send
+     (bottom line) — the normal, non-filter-panel state.
+   - swipeHint: "Swipe up for filters" pinned just above bottomBar.
+   - filterPanel: slides up from below the screen to replace bottomBar when
+     the filter carousel (Screenshot 3) is open.
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/rootMediaEdit"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#000000"
+    android:fitsSystemWindows="false">
+
+    <!-- ── Photo + overlays ─────────────────────────────────────────── -->
+    <FrameLayout
+        android:id="@+id/mediaContainer"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+
+        <ImageView
+            android:id="@+id/ivPreview"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:scaleType="fitCenter"
+            android:contentDescription="@null"
+            tools:src="@android:color/darker_gray"/>
+
+        <!-- Video items: read-only preview, no edit tools apply. -->
+        <ImageView
+            android:id="@+id/ivVideoPlayBadge"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:layout_gravity="center"
+            android:padding="14dp"
+            android:background="@drawable/bg_media_edit_video_badge"
+            android:src="@drawable/ic_media_edit_send"
+            android:visibility="gone"
+            android:contentDescription="@null"/>
+
+        <!-- Draggable/pinchable text + emoji stickers live here. -->
+        <FrameLayout
+            android:id="@+id/stickerLayer"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"/>
+
+        <com.callx.app.conversation.controllers.DrawOverlayView
+            android:id="@+id/drawOverlay"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"/>
+    </FrameLayout>
+
+    <!-- ── Top toolbar ──────────────────────────────────────────────── -->
+    <LinearLayout
+        android:id="@+id/topToolbar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="10dp"
+        android:paddingEnd="14dp"
+        android:paddingTop="36dp"
+        android:paddingBottom="10dp"
+        android:background="#66000000">
+
+        <ImageButton
+            android:id="@+id/btnEditClose"
+            style="?android:attr/borderlessButtonStyle"
+            android:layout_width="42dp"
+            android:layout_height="42dp"
+            android:background="@drawable/bg_media_edit_toolbtn"
+            android:src="@drawable/ic_media_edit_close"
+            android:scaleType="center"
+            android:padding="9dp"
+            android:contentDescription="Close"/>
+
+        <View android:layout_width="0dp" android:layout_height="1dp" android:layout_weight="1"/>
+
+        <ImageButton
+            android:id="@+id/btnEditDownload"
+            style="?android:attr/borderlessButtonStyle"
+            android:layout_width="42dp"
+            android:layout_height="42dp"
+            android:layout_marginEnd="6dp"
+            android:background="@drawable/bg_media_edit_toolbtn"
+            android:src="@drawable/ic_media_edit_download"
+            android:scaleType="center"
+            android:padding="9dp"
+            android:contentDescription="Download"/>
+
+        <TextView
+            android:id="@+id/btnEditHd"
+            android:layout_width="42dp"
+            android:layout_height="42dp"
+            android:layout_marginEnd="6dp"
+            android:gravity="center"
+            android:text="HD"
+            android:textStyle="bold"
+            android:textSize="13sp"
+            android:textColor="#FFFFFF"
+            android:background="@drawable/bg_hd_toggle_inactive"/>
+
+        <ImageButton
+            android:id="@+id/btnEditRotate"
+            style="?android:attr/borderlessButtonStyle"
+            android:layout_width="42dp"
+            android:layout_height="42dp"
+            android:layout_marginEnd="6dp"
+            android:background="@drawable/bg_media_edit_toolbtn"
+            android:src="@drawable/ic_media_edit_rotate"
+            android:scaleType="center"
+            android:padding="9dp"
+            android:contentDescription="Rotate"/>
+
+        <ImageButton
+            android:id="@+id/btnEditSticker"
+            style="?android:attr/borderlessButtonStyle"
+            android:layout_width="42dp"
+            android:layout_height="42dp"
+            android:layout_marginEnd="6dp"
+            android:background="@drawable/bg_media_edit_toolbtn"
+            android:src="@drawable/ic_media_edit_sticker"
+            android:scaleType="center"
+            android:padding="9dp"
+            android:contentDescription="Sticker"/>
+
+        <ImageButton
+            android:id="@+id/btnEditText"
+            style="?android:attr/borderlessButtonStyle"
+            android:layout_width="42dp"
+            android:layout_height="42dp"
+            android:layout_marginEnd="6dp"
+            android:background="@drawable/bg_media_edit_toolbtn"
+            android:src="@drawable/ic_media_edit_text"
+            android:scaleType="center"
+            android:padding="9dp"
+            android:contentDescription="Add text"/>
+
+        <ImageButton
+            android:id="@+id/btnEditDraw"
+            style="?android:attr/borderlessButtonStyle"
+            android:layout_width="42dp"
+            android:layout_height="42dp"
+            android:background="@drawable/bg_media_edit_toolbtn"
+            android:src="@drawable/ic_media_edit_draw"
+            android:scaleType="center"
+            android:padding="9dp"
+            android:contentDescription="Draw"/>
+    </LinearLayout>
+
+    <!-- ── Emoji picker row (shown when sticker tool active) ───────── -->
+    <HorizontalScrollView
+        android:id="@+id/emojiRow"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:layout_marginBottom="150dp"
+        android:background="#88000000"
+        android:visibility="gone"
+        android:scrollbars="none">
+        <LinearLayout
+            android:id="@+id/emojiRowContent"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp"/>
+    </HorizontalScrollView>
+
+    <!-- ── Draw tools row (color swatches + undo + done) ───────────── -->
+    <LinearLayout
+        android:id="@+id/drawToolsRow"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:layout_marginBottom="150dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="#88000000"
+        android:paddingStart="14dp"
+        android:paddingEnd="14dp"
+        android:paddingTop="10dp"
+        android:paddingBottom="10dp"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:id="@+id/drawColorRow"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"/>
+
+        <ImageButton
+            android:id="@+id/btnDrawUndo"
+            style="?android:attr/borderlessButtonStyle"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:background="@drawable/bg_media_edit_toolbtn"
+            android:src="@drawable/ic_media_edit_undo"
+            android:scaleType="center"
+            android:padding="7dp"
+            android:layout_marginEnd="8dp"
+            android:contentDescription="Undo stroke"/>
+
+        <ImageButton
+            android:id="@+id/btnDrawDone"
+            style="?android:attr/borderlessButtonStyle"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:background="@drawable/bg_media_edit_toolbtn_active"
+            android:src="@drawable/ic_media_edit_check"
+            android:scaleType="center"
+            android:padding="7dp"
+            android:contentDescription="Done drawing"/>
+    </LinearLayout>
+
+    <!-- ── Swipe-up hint ─────────────────────────────────────────────── -->
+    <TextView
+        android:id="@+id/tvSwipeHint"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="146dp"
+        android:text="▲  Swipe up for filters"
+        android:textColor="#CCFFFFFF"
+        android:textSize="12sp"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:paddingTop="4dp"
+        android:paddingBottom="4dp"
+        android:background="@drawable/bg_media_edit_caption_pill"/>
+
+    <!-- ── Bottom bar: delete + thumbnails, caption + send ─────────── -->
+    <LinearLayout
+        android:id="@+id/bottomBar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:orientation="vertical"
+        android:background="#99000000"
+        android:paddingTop="8dp"
+        android:paddingBottom="18dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:paddingBottom="8dp">
+
+            <ImageButton
+                android:id="@+id/btnEditDelete"
+                style="?android:attr/borderlessButtonStyle"
+                android:layout_width="38dp"
+                android:layout_height="38dp"
+                android:background="@drawable/circle_media_edit_delete"
+                android:src="@drawable/ic_media_edit_delete"
+                android:scaleType="center"
+                android:padding="8dp"
+                android:layout_marginEnd="10dp"
+                android:contentDescription="Delete"/>
+
+            <HorizontalScrollView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:scrollbars="none">
+                <LinearLayout
+                    android:id="@+id/thumbStripContent"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"/>
+            </HorizontalScrollView>
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp">
+
+            <EditText
+                android:id="@+id/etCaption"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:hint="Add a caption..."
+                android:textColor="#FFFFFF"
+                android:textColorHint="#AAFFFFFF"
+                android:textSize="15sp"
+                android:background="@drawable/bg_media_edit_caption_pill"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:paddingTop="10dp"
+                android:paddingBottom="10dp"
+                android:maxLines="4"
+                android:inputType="textCapSentences|textMultiLine"/>
+
+            <ImageButton
+                android:id="@+id/btnEditSend"
+                style="?android:attr/borderlessButtonStyle"
+                android:layout_width="46dp"
+                android:layout_height="46dp"
+                android:layout_marginStart="10dp"
+                android:background="@drawable/circle_media_edit_send"
+                android:src="@drawable/ic_media_edit_send"
+                android:scaleType="center"
+                android:padding="12dp"
+                android:contentDescription="Send"/>
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- ── Filter carousel panel (Screenshot 3) ─────────────────────── -->
+    <LinearLayout
+        android:id="@+id/filterPanel"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:orientation="vertical"
+        android:background="#CC000000"
+        android:visibility="invisible"
+        android:paddingBottom="18dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:paddingTop="10dp"
+            android:paddingBottom="6dp">
+
+            <ImageButton
+                android:id="@+id/btnFilterCollapse"
+                style="?android:attr/borderlessButtonStyle"
+                android:layout_width="34dp"
+                android:layout_height="34dp"
+                android:background="@android:color/transparent"
+                android:src="@drawable/ic_media_edit_chevron_down"
+                android:scaleType="center"
+                android:padding="4dp"
+                android:contentDescription="Collapse filters"/>
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:gravity="center"
+                android:text="Filters"
+                android:textColor="#FFFFFF"
+                android:textStyle="bold"
+                android:textSize="14sp"/>
+
+            <View android:layout_width="34dp" android:layout_height="34dp"/>
+        </LinearLayout>
+
+        <HorizontalScrollView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:scrollbars="none">
+            <LinearLayout
+                android:id="@+id/filterStripContent"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:paddingTop="6dp"
+                android:paddingBottom="6dp"/>
+        </HorizontalScrollView>
+    </LinearLayout>
+
+</FrameLayout>

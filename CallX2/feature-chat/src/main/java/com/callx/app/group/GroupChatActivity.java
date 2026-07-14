@@ -196,6 +196,7 @@ public class GroupChatActivity extends AppCompatActivity
     private ActivityResultLauncher<Intent> gifPickerLauncher;
     private ActivityResultLauncher<String> wallpaperPicker;
     private androidx.activity.result.ActivityResultLauncher<androidx.activity.result.PickVisualMediaRequest> multiMediaPicker;
+    private ActivityResultLauncher<Intent> mediaEditLauncher;
     private static final int MAX_MULTI_PICK = 30;
     private final VoiceRecorder recorder = new VoiceRecorder();
 
@@ -2638,6 +2639,26 @@ public class GroupChatActivity extends AppCompatActivity
                     if (uri == null) return;
                     uploadAndSend(uri, "file", "raw", FileUtils.fileName(this, uri));
                 });
+        // Result of the full-screen editor opened from the attach sheet's
+        // "Edit" action — see onMediaEdit below and ChatMediaController's
+        // matching launcher for the 1-1 chat equivalent.
+        mediaEditLauncher = registerForActivityResult(
+                new ActivityResultContracts.StartActivityForResult(),
+                result -> {
+                    if (result.getResultCode() != Activity.RESULT_OK || result.getData() == null) return;
+                    java.util.ArrayList<String> uriStrings = result.getData().getStringArrayListExtra(
+                            com.callx.app.conversation.controllers.MediaEditActivity.RESULT_URIS);
+                    if (uriStrings == null || uriStrings.isEmpty()) return;
+                    java.util.List<Uri> uris = new java.util.ArrayList<>();
+                    for (String s : uriStrings) uris.add(Uri.parse(s));
+                    String caption = result.getData().getStringExtra(
+                            com.callx.app.conversation.controllers.MediaEditActivity.RESULT_CAPTION);
+                    boolean isHD = result.getData().getBooleanExtra(
+                            com.callx.app.conversation.controllers.MediaEditActivity.RESULT_HD, false);
+                    uploadSequentially(uris, null, caption == null || caption.isEmpty() ? null : caption,
+                            0, new java.util.ArrayList<>(), isHD);
+                });
+
         multiMediaPicker = registerForActivityResult(
                 new androidx.activity.result.contract.ActivityResultContracts.PickMultipleVisualMedia(MAX_MULTI_PICK),
                 uris -> {
@@ -2721,6 +2742,26 @@ public class GroupChatActivity extends AppCompatActivity
                         for (com.callx.app.conversation.controllers.RecentMediaLoader.Item item : items) uris.add(item.uri);
                         uploadSequentially(uris, null, caption == null || caption.isEmpty() ? null : caption,
                                 0, new java.util.ArrayList<>(), isHD);
+                    }
+                    @Override public void onMediaEdit(
+                            java.util.List<com.callx.app.conversation.controllers.RecentMediaLoader.Item> items,
+                            String caption, boolean isHD) {
+                        if (items.isEmpty()) return;
+                        java.util.ArrayList<String> uriStrings = new java.util.ArrayList<>();
+                        java.util.ArrayList<Integer> videoFlags = new java.util.ArrayList<>();
+                        for (com.callx.app.conversation.controllers.RecentMediaLoader.Item item : items) {
+                            uriStrings.add(item.uri.toString());
+                            videoFlags.add(item.isVideo ? 1 : 0);
+                        }
+                        Intent intent = new Intent(GroupChatActivity.this,
+                                com.callx.app.conversation.controllers.MediaEditActivity.class);
+                        intent.putStringArrayListExtra(
+                                com.callx.app.conversation.controllers.MediaEditActivity.EXTRA_URIS, uriStrings);
+                        intent.putIntegerArrayListExtra(
+                                com.callx.app.conversation.controllers.MediaEditActivity.EXTRA_IS_VIDEO, videoFlags);
+                        intent.putExtra(com.callx.app.conversation.controllers.MediaEditActivity.EXTRA_CAPTION, caption);
+                        intent.putExtra(com.callx.app.conversation.controllers.MediaEditActivity.EXTRA_HD, isHD);
+                        mediaEditLauncher.launch(intent);
                     }
                 });
         // Payment / Event / AI images — new chips, backend flow not wired up yet.

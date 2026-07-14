@@ -67,6 +67,7 @@ public class ChatMediaController {
     private ActivityResultLauncher<Uri>     cameraCapturer;
     private ActivityResultLauncher<String>  wallpaperPicker;
     private ActivityResultLauncher<PickVisualMediaRequest> multiMediaPicker;
+    private ActivityResultLauncher<Intent>  mediaEditLauncher;
 
     // Practical cap on a single multi-select grab (PickMultipleVisualMedia itself
     // has no max on API 34+ photo picker; OEM galleries below that vary).
@@ -218,6 +219,26 @@ public class ChatMediaController {
                         uploadAndSend(cameraOutputUri, "image", "image", null);
                 });
 
+        // Result of the full-screen editor opened from the attach sheet's
+        // "Edit" action (see AttachSheetRecentMediaBinder#onMediaEdit below)
+        // — RESULT_OK hands back the final edited/baked URIs + caption +
+        // HD flag, which feed straight into the same sequential-upload
+        // pipeline the Recents grid's own Send button uses.
+        mediaEditLauncher = activity.registerForActivityResult(
+                new ActivityResultContracts.StartActivityForResult(),
+                result -> {
+                    if (result.getResultCode() != android.app.Activity.RESULT_OK || result.getData() == null) return;
+                    java.util.ArrayList<String> uriStrings =
+                            result.getData().getStringArrayListExtra(MediaEditActivity.RESULT_URIS);
+                    if (uriStrings == null || uriStrings.isEmpty()) return;
+                    List<Uri> uris = new ArrayList<>();
+                    for (String s : uriStrings) uris.add(Uri.parse(s));
+                    String caption = result.getData().getStringExtra(MediaEditActivity.RESULT_CAPTION);
+                    boolean isHD = result.getData().getBooleanExtra(MediaEditActivity.RESULT_HD, false);
+                    pendingMultiSendViewOnce = false;
+                    uploadSequentially(uris, null, caption == null || caption.isEmpty() ? null : caption, 0, isHD);
+                });
+
         multiMediaPicker = activity.registerForActivityResult(
                 new PickMultipleVisualMedia(MAX_MULTI_PICK),
                 uris -> {
@@ -358,7 +379,27 @@ public class ChatMediaController {
                         pendingMultiSendViewOnce = isViewOnce;
                         uploadSequentially(uris, null, caption == null || caption.isEmpty() ? null : caption, 0, isHD);
                     }
+                    @Override public void onMediaEdit(List<RecentMediaLoader.Item> items, String caption, boolean isHD) {
+                        launchMediaEditor(items, caption, isHD);
+                    }
                 });
+    }
+
+    /** Builds the MediaEditActivity intent from the attach sheet's current selection and launches it. */
+    private void launchMediaEditor(List<RecentMediaLoader.Item> items, String caption, boolean isHD) {
+        if (items.isEmpty()) return;
+        java.util.ArrayList<String> uriStrings = new java.util.ArrayList<>();
+        java.util.ArrayList<Integer> videoFlags = new java.util.ArrayList<>();
+        for (RecentMediaLoader.Item item : items) {
+            uriStrings.add(item.uri.toString());
+            videoFlags.add(item.isVideo ? 1 : 0);
+        }
+        Intent intent = new Intent(activity, MediaEditActivity.class);
+        intent.putStringArrayListExtra(MediaEditActivity.EXTRA_URIS, uriStrings);
+        intent.putIntegerArrayListExtra(MediaEditActivity.EXTRA_IS_VIDEO, videoFlags);
+        intent.putExtra(MediaEditActivity.EXTRA_CAPTION, caption);
+        intent.putExtra(MediaEditActivity.EXTRA_HD, isHD);
+        mediaEditLauncher.launch(intent);
     }
 
     // ── Multi media: sequential upload, grouped into ONE message ─────────────

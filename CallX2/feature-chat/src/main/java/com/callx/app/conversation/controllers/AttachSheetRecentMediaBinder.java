@@ -88,6 +88,14 @@ public final class AttachSheetRecentMediaBinder {
          *             (single flag for the whole batch, same as WhatsApp).
          */
         void onMediaSend(List<RecentMediaLoader.Item> items, String caption, boolean isHD, boolean isViewOnce);
+        /**
+         * "Edit" (pencil) was tapped in the selection bar with 1+ items
+         * picked — hand the ordered selection off to MediaEditActivity
+         * instead of sending straight away. Same isHD/caption plumbing as
+         * onMediaSend so the editor can seed its HD toggle/caption field
+         * and hand both back once the user hits Send there.
+         */
+        void onMediaEdit(List<RecentMediaLoader.Item> items, String caption, boolean isHD);
     }
 
     public static void bind(AppCompatActivity activity, BottomSheetDialog sheet, View sheetRoot,
@@ -114,6 +122,7 @@ public final class AttachSheetRecentMediaBinder {
         EditText captionInput   = sheetRoot.findViewById(R.id.selection_caption_input);
         View sendBtn            = sheetRoot.findViewById(R.id.btn_selection_send);
         TextView sendCount      = sheetRoot.findViewById(R.id.selection_send_count);
+        View editBtn            = sheetRoot.findViewById(R.id.btn_selection_edit);
         if (grid == null || topContent == null) return; // older/replaced layout — skip silently
 
         View hdToggle           = sheetRoot.findViewById(R.id.btn_hd_toggle);
@@ -259,6 +268,18 @@ public final class AttachSheetRecentMediaBinder {
             });
         }
 
+        if (editBtn instanceof ImageView) {
+            ((ImageView) editBtn).setColorFilter(android.graphics.Color.parseColor("#FF8A8A8A"));
+            editBtn.setOnClickListener(x -> {
+                if (selection.isEmpty()) return;
+                List<RecentMediaLoader.Item> items = selection.items();
+                String caption = captionInput != null ? captionInput.getText().toString().trim() : "";
+                sheet.dismiss();
+                callbacks.onMediaEdit(items, caption, hdEnabled[0]);
+                selection.clear();
+            });
+        }
+
         boolean hasPerm = hasMediaReadPermission(activity);
         // Guards against firing two overlapping "load next page" queries off
         // one fast fling, and against paging forever once MediaStore is dry.
@@ -360,19 +381,27 @@ public final class AttachSheetRecentMediaBinder {
         topContent.getViewTreeObserver().addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
             @Override public void onGlobalLayout() {
                 if (topContent.getHeight() > 0) {
-                    // Re-derive and re-apply the overshoot-fix ceiling now that the
-                    // dialog window has actually laid out — the very first call
-                    // (right after bind(), before show()) can be measured against
-                    // a decor view that hasn't settled into its real size yet
-                    // (window insets/IME not applied), which is what let the
-                    // ceiling end up too tall and the sheet overshoot above y=0.
-                    int refreshedMaxHeightPx = computeMaxSheetHeightPx(activity);
-                    if (refreshedMaxHeightPx > 0) behavior.setMaxHeight(refreshedMaxHeightPx);
-
-                    behavior.setSkipCollapsed(false);
-                    behavior.setPeekHeight(topContent.getHeight() + peekGridPx);
-                    behavior.setState(BottomSheetBehavior.STATE_COLLAPSED);
                     topContent.getViewTreeObserver().removeOnGlobalLayoutListener(this);
+                    // Fast-fling overshoot fix: calling behavior.setMaxHeight()
+                    // (which internally calls requestLayout()) from inside this
+                    // callback fires WHILE CoordinatorLayout is still mid layout
+                    // traversal, so the corrected re-measure can get deferred a
+                    // frame later instead of landing immediately. A quick upward
+                    // fling released in that gap still gets settled against the
+                    // earlier, less-precise ceiling — that's what sent the sheet
+                    // climbing past y=0 specifically on fast drags while a slow
+                    // drag (which naturally waits out that gap) landed correctly.
+                    // Posting this instead lets the current traversal finish
+                    // first, so the refined ceiling is fully committed as its
+                    // own clean frame before the sheet can respond to a gesture.
+                    topContent.post(() -> {
+                        int refreshedMaxHeightPx = computeMaxSheetHeightPx(activity);
+                        if (refreshedMaxHeightPx > 0) behavior.setMaxHeight(refreshedMaxHeightPx);
+
+                        behavior.setSkipCollapsed(false);
+                        behavior.setPeekHeight(topContent.getHeight() + peekGridPx);
+                        behavior.setState(BottomSheetBehavior.STATE_COLLAPSED);
+                    });
                 }
             }
         });
@@ -490,6 +519,19 @@ public final class AttachSheetRecentMediaBinder {
             windowHeightPx = activity.getResources().getDisplayMetrics().heightPixels;
         }
         int topGapPx = Math.round(dpToPx(activity, 24f)); // sliver of chat stays visible, like the reference
+
+        // Never trust the decorView-based measurement in isolation — right
+        // after the dialog window attaches it can briefly read taller than
+        // the real screen (that gap is exactly what let a fast fling,
+        // released before the corrected re-measure lands, settle with the
+        // sheet's top above y=0). Clamping against the plain DisplayMetrics
+        // screen height too means the very first value handed to
+        // setMaxHeight() is always the more conservative of the two, so it
+        // can never be too tall — the later refresh can only tighten it
+        // further, never loosen it past a safe bound.
+        int rawScreenHeightPx = activity.getResources().getDisplayMetrics().heightPixels;
+        windowHeightPx = Math.min(windowHeightPx, rawScreenHeightPx);
+
         return windowHeightPx - statusBarInsetPx - topGapPx;
     }
 

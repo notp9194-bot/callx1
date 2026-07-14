@@ -45,5 +45,15 @@
             android:windowSoftInputMode="adjustResize"
             android:label="Choose GIF"/>
 
+        <!-- Full-screen photo editor opened from the attach sheet's "Edit"
+             action — rotate/crop, sticker, text, freehand draw, and the
+             swipe-up filter carousel. Launched via ActivityResultLauncher
+             from ChatMediaController / GroupChatActivity. -->
+        <activity android:name="com.callx.app.conversation.controllers.MediaEditActivity"
+            android:exported="false"
+            android:theme="@style/Theme.AppCompat.NoActionBar"
+            android:windowSoftInputMode="adjustResize"
+            android:screenOrientation="portrait"/>
+
     </application>
 </manifest>

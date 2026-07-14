@@ -352,6 +352,26 @@
             android:inputType="textCapSentences"/>
 
         <!--
+            Edit — opens the full-screen photo editor (MediaEditActivity)
+            for the current selection before it's sent: rotate/crop,
+            stickers, text, freehand draw, and the swipe-up filter carousel
+            (None/Pop/B&W/Cool/Chrome/Film). Sits right before the
+            view-once/send controls, same position WhatsApp uses for its
+            own pencil-edit affordance.
+        -->
+        <ImageView
+            android:id="@+id/btn_selection_edit"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_marginStart="6dp"
+            android:padding="8dp"
+            android:src="@drawable/ic_edit"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Edit"
+            android:clickable="true"
+            android:focusable="true"/>
+
+        <!--
             View-once toggle — WhatsApp-style "1-in-a-circle" icon that marks
             the whole selection to be sent as a view-once message (single
             image/video → opens once then deletes; multiple items → grouped

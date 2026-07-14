@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="52dp"
+    android:layout_height="52dp"
+    android:layout_marginEnd="8dp">
+
+    <ImageView
+        android:id="@+id/ivThumb"
+        android:layout_width="52dp"
+        android:layout_height="52dp"
+        android:scaleType="centerCrop"
+        android:background="@drawable/bg_media_edit_thumb_selected"
+        android:contentDescription="@null"/>
+
+    <ImageView
+        android:id="@+id/ivThumbVideoBadge"
+        android:layout_width="16dp"
+        android:layout_height="16dp"
+        android:layout_gravity="center"
+        android:src="@drawable/ic_media_edit_send"
+        android:visibility="gone"
+        android:contentDescription="@null"/>
+
+    <ImageButton
+        android:id="@+id/btnThumbRemove"
+        style="?android:attr/borderlessButtonStyle"
+        android:layout_width="18dp"
+        android:layout_height="18dp"
+        android:layout_gravity="top|end"
+        android:layout_margin="1dp"
+        android:background="@drawable/circle_media_edit_delete"
+        android:src="@drawable/ic_media_edit_close"
+        android:scaleType="center"
+        android:padding="4dp"
+        android:contentDescription="Remove"/>
+</FrameLayout>
