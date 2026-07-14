@@ -13,8 +13,6 @@ import android.widget.TextView;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
 import androidx.core.view.ViewCompat;
-import androidx.core.view.WindowCompat;
-import androidx.core.view.WindowInsetsCompat;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
@@ -154,23 +152,24 @@ public final class AttachSheetRecentMediaBinder {
 
         BottomSheetBehavior<android.widget.FrameLayout> behavior = sheet.getBehavior();
 
-        // Root-cause fix for the "sheet bottom floats above the nav bar on
-        // first expand" bug: every maxHeight ceiling below this used to be
-        // computed off the HOST ACTIVITY's window/decorView. But
-        // BottomSheetDialog opens its OWN separate Window — on an
-        // edge-to-edge activity that dialog window doesn't automatically
-        // inherit the activity's edge-to-edge state or inset dispatch, so
-        // measuring against the activity window could disagree with what
-        // CoordinatorLayout inside the DIALOG's window actually gets,
-        // especially on the very first frame before the dialog's own
-        // WindowInsets have been dispatched. Force this dialog's window to
-        // edge-to-edge explicitly so it draws full-bleed behind the nav bar
-        // exactly like the rest of the chat screen, and do all ceiling
-        // math (below) off THIS window's decorView/insets instead of the
-        // activity's.
-        if (sheet.getWindow() != null) {
-            WindowCompat.setDecorFitsSystemWindows(sheet.getWindow(), false);
-        }
+        // v182 root-cause fix: earlier versions (see NavBarFix / NavBarFix2)
+        // forced this dialog's window edge-to-edge
+        // (WindowCompat.setDecorFitsSystemWindows(window, false)) hoping to
+        // make the sheet draw full-bleed behind the nav bar. That was
+        // actually the CAUSE of the bug, not the fix: the window manager
+        // doesn't finish resizing an edge-to-edge dialog window to its true
+        // full-bleed bounds within the very first layout pass, so
+        // BottomSheetBehavior's very first STATE_EXPANDED measurement landed
+        // against the OLD, system-bar-respecting (shorter) bounds — leaving
+        // a visible gap between the sheet and the real screen bottom, with
+        // the chat showing through underneath, until some later relayout
+        // (e.g. scrolling the grid) picked up the corrected bounds and the
+        // sheet visibly "snapped" down into place. Deliberately leaving this
+        // dialog in its DEFAULT, non-edge-to-edge mode means the window
+        // manager hands us the final, nav-bar-excluded decorView bounds
+        // synchronously on the very first layout — there's no WindowInsets
+        // timing race left to get wrong, and no edge-to-edge ceiling math
+        // needed either (see computeMaxSheetHeightPx below).
 
         MediaSelectionState selection = new MediaSelectionState();
 
@@ -204,35 +203,21 @@ public final class AttachSheetRecentMediaBinder {
         // parent-clamped bounds. Giving it that ceiling up front makes drag
         // and scroll agree from the start.
         //
-        // v154 computed this ceiling from raw DisplayMetrics (dm.heightPixels)
-        // and it could *still* overshoot. Reason: DisplayMetrics reports the
-        // physical screen size, not the actual height the CoordinatorLayout
-        // inside this dialog gets — those differ whenever the dialog window
-        // isn't perfectly edge-to-edge (theme insets, multi-window/split
-        // screen, a resized window while the caption EditText has IME
-        // focus, etc). If our ceiling ends up LARGER than that real parent
-        // height, BottomSheetBehavior's `expandedOffset = parentHeight -
-        // maxHeight` goes NEGATIVE — the sheet's top gets pushed above y=0,
-        // i.e. exactly this bug.
-        //
-        // Fix: derive the ceiling from real WindowInsetsCompat on the decor
-        // view (correctly accounts for the status bar / display cutouts)
-        // instead of the legacy "status_bar_height" dimen lookup, and
-        // re-apply it a second time once the dialog window has actually
-        // settled (see the topContent layout listener below) so a
-        // too-early first measurement can't leave a stale value behind.
+        // Now that this dialog is deliberately NOT edge-to-edge (see the
+        // comment above), the ceiling is just this window's own decorView
+        // height minus a small top gap — no status-bar/nav-bar inset math
+        // needed, since a non-edge-to-edge window's decorView already
+        // excludes both. Re-applied once more once the dialog window has
+        // actually settled (see the topContent layout listener below) so a
+        // too-early first measurement (decorView not laid out yet) can't
+        // leave a stale value behind.
         int maxSheetHeightPx = computeMaxSheetHeightPx(activity, sheet);
         if (maxSheetHeightPx > 0) behavior.setMaxHeight(maxSheetHeightPx);
 
-        // Authoritative recompute: WindowInsetsCompat delivered to the
-        // DIALOG's own root view is the actual moment this window knows
-        // its real status-bar/nav-bar bounds — more reliable than the
-        // "topContent measured > 0" heuristic below, which only proves the
-        // sheet's CONTENT has a size, not that the window's insets have
-        // settled. Re-applying maxHeight/peekHeight right here means the
-        // very first STATE_EXPANDED (including the tap-while-collapsed
-        // case a few lines down) already uses the correct ceiling instead
-        // of a stale/estimated one.
+        // Safety net for rotation / multi-window resize / IME show-hide:
+        // recompute the same ceiling whenever this window's insets are
+        // (re)dispatched, so a later configuration change can't leave a
+        // stale maxHeight behind either.
         ViewCompat.setOnApplyWindowInsetsListener(sheetRoot, (view, windowInsets) -> {
             int refreshedMaxHeightPx = computeMaxSheetHeightPx(activity, sheet);
             if (refreshedMaxHeightPx > 0) behavior.setMaxHeight(refreshedMaxHeightPx);
@@ -521,17 +506,16 @@ public final class AttachSheetRecentMediaBinder {
 
     /**
      * Real ceiling for BottomSheetBehavior#setMaxHeight — see the
-     * "Overshoot fix" comment in bind() for why this can't just be
-     * `DisplayMetrics.heightPixels - status_bar_height dimen`.
+     * "Overshoot fix" comment in bind().
      *
-     * IMPORTANT: measures off the BottomSheetDialog's OWN window, not the
-     * host activity's. BottomSheetDialog opens a separate Window from the
-     * activity, and on an edge-to-edge screen that dialog window has its
-     * own independent WindowInsets dispatch/timing — reading the
-     * activity's decorView/insets here was the actual root cause of the
-     * sheet landing short of the screen edge (floating above the nav bar)
-     * specifically on the very first expand, before anything had forced
-     * the two windows' measurements back into agreement. Falls back to the
+     * This dialog is deliberately left in its DEFAULT, non-edge-to-edge
+     * mode (see the comment at the top of bind()), so its decorView is
+     * already laid out by the window manager to sit strictly between the
+     * status bar and the navigation bar — no separate inset math needed to
+     * find the "usable" height, and no edge-to-edge WindowInsets dispatch
+     * timing race that could hand us a stale/wrong bound. Measures off the
+     * BottomSheetDialog's OWN window, not the host activity's, since
+     * BottomSheetDialog opens its own separate Window. Falls back to the
      * activity's window only if the dialog's own window isn't available
      * yet (called from bind(), before sheet.show()).
      */
@@ -540,58 +524,19 @@ public final class AttachSheetRecentMediaBinder {
         View decorView = dialogWindow != null ? dialogWindow.getDecorView()
                                                : activity.getWindow().getDecorView();
         int windowHeightPx = decorView.getHeight();
-        int statusBarInsetPx = 0;
-        WindowInsetsCompat insets = ViewCompat.getRootWindowInsets(decorView);
-        if (insets == null) {
-            // Dialog window insets not dispatched yet — the activity's are
-            // the closest available approximation for this early call.
-            insets = ViewCompat.getRootWindowInsets(activity.getWindow().getDecorView());
-        }
-        if (insets != null) {
-            statusBarInsetPx = insets.getInsets(WindowInsetsCompat.Type.statusBars()).top;
-        }
-        if (statusBarInsetPx <= 0) {
-            // Fallback for the pre-layout call: legacy dimen lookup.
-            int statusBarResId = activity.getResources().getIdentifier(
-                    "status_bar_height", "dimen", "android");
-            if (statusBarResId > 0) {
-                statusBarInsetPx = activity.getResources().getDimensionPixelSize(statusBarResId);
-            }
-        }
         if (windowHeightPx <= 0) {
-            // Decor view not laid out yet — best available estimate.
+            // Decor view not laid out yet (e.g. the pre-show call from
+            // bind()) — best available estimate until the first real layout
+            // pass lands; the topContent global-layout listener below (and
+            // the insets-listener safety net) recompute this once real
+            // geometry exists, so an approximate value here is never
+            // load-bearing. DisplayMetrics#heightPixels already excludes
+            // both system bars, matching what this non-edge-to-edge
+            // decorView will settle to.
             windowHeightPx = activity.getResources().getDisplayMetrics().heightPixels;
         }
         int topGapPx = Math.round(dpToPx(activity, 24f)); // sliver of chat stays visible, like the reference
-
-        // Never trust the decorView-based measurement in isolation — right
-        // after the dialog window attaches it can briefly read taller than
-        // the real screen (that gap is exactly what let a fast fling,
-        // released before the corrected re-measure lands, settle with the
-        // sheet's top above y=0). Clamping against the plain DisplayMetrics
-        // screen height too means the very first value handed to
-        // setMaxHeight() is always the more conservative of the two, so it
-        // can never be too tall — the later refresh can only tighten it
-        // further, never loosen it past a safe bound.
-        //
-        // DisplayMetrics#heightPixels excludes the navigation bar, while the
-        // dialog's decorView is edge-to-edge (now explicitly forced so via
-        // WindowCompat.setDecorFitsSystemWindows in bind()) and genuinely
-        // extends behind it. Clamping straight against heightPixels
-        // therefore shrank the ceiling by the navigation bar's height, so
-        // on the very first STATE_EXPANDED layout the bottom selection bar
-        // landed short of the screen edge — floating above the nav bar with
-        // a gap instead of sitting right above it. Add the nav bar inset
-        // back in so the clamp matches the decorView's true edge-to-edge
-        // height.
-        int navBarInsetPx = 0;
-        if (insets != null) {
-            navBarInsetPx = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom;
-        }
-        int rawScreenHeightPx = activity.getResources().getDisplayMetrics().heightPixels + navBarInsetPx;
-        windowHeightPx = Math.min(windowHeightPx, rawScreenHeightPx);
-
-        return windowHeightPx - statusBarInsetPx - topGapPx;
+        return windowHeightPx - topGapPx;
     }
 
     /** Swaps the HD chip between its filled-green (ON) and outline (OFF) look. */
