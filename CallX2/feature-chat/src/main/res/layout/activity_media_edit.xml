@@ -381,7 +381,7 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:background="@drawable/bg_chat_input_capsule"
+                android:background="@drawable/bg_media_edit_caption_pill"
                 android:paddingStart="14dp"
                 android:paddingEnd="14dp"
                 android:paddingTop="9dp"
