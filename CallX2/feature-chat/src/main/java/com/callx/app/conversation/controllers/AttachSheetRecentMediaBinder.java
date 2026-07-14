@@ -12,6 +12,9 @@ import android.widget.TextView;
 
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsCompat;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
@@ -151,6 +154,24 @@ public final class AttachSheetRecentMediaBinder {
 
         BottomSheetBehavior<android.widget.FrameLayout> behavior = sheet.getBehavior();
 
+        // Root-cause fix for the "sheet bottom floats above the nav bar on
+        // first expand" bug: every maxHeight ceiling below this used to be
+        // computed off the HOST ACTIVITY's window/decorView. But
+        // BottomSheetDialog opens its OWN separate Window — on an
+        // edge-to-edge activity that dialog window doesn't automatically
+        // inherit the activity's edge-to-edge state or inset dispatch, so
+        // measuring against the activity window could disagree with what
+        // CoordinatorLayout inside the DIALOG's window actually gets,
+        // especially on the very first frame before the dialog's own
+        // WindowInsets have been dispatched. Force this dialog's window to
+        // edge-to-edge explicitly so it draws full-bleed behind the nav bar
+        // exactly like the rest of the chat screen, and do all ceiling
+        // math (below) off THIS window's decorView/insets instead of the
+        // activity's.
+        if (sheet.getWindow() != null) {
+            WindowCompat.setDecorFitsSystemWindows(sheet.getWindow(), false);
+        }
+
         MediaSelectionState selection = new MediaSelectionState();
 
         // WhatsApp-style HD toggle — OFF by default (Standard/compressed
@@ -200,8 +221,24 @@ public final class AttachSheetRecentMediaBinder {
         // re-apply it a second time once the dialog window has actually
         // settled (see the topContent layout listener below) so a
         // too-early first measurement can't leave a stale value behind.
-        int maxSheetHeightPx = computeMaxSheetHeightPx(activity);
+        int maxSheetHeightPx = computeMaxSheetHeightPx(activity, sheet);
         if (maxSheetHeightPx > 0) behavior.setMaxHeight(maxSheetHeightPx);
+
+        // Authoritative recompute: WindowInsetsCompat delivered to the
+        // DIALOG's own root view is the actual moment this window knows
+        // its real status-bar/nav-bar bounds — more reliable than the
+        // "topContent measured > 0" heuristic below, which only proves the
+        // sheet's CONTENT has a size, not that the window's insets have
+        // settled. Re-applying maxHeight/peekHeight right here means the
+        // very first STATE_EXPANDED (including the tap-while-collapsed
+        // case a few lines down) already uses the correct ceiling instead
+        // of a stale/estimated one.
+        ViewCompat.setOnApplyWindowInsetsListener(sheetRoot, (view, windowInsets) -> {
+            int refreshedMaxHeightPx = computeMaxSheetHeightPx(activity, sheet);
+            if (refreshedMaxHeightPx > 0) behavior.setMaxHeight(refreshedMaxHeightPx);
+            return windowInsets;
+        });
+        ViewCompat.requestApplyInsets(sheetRoot);
         // --------------------------------------------------------------------
         RecentMediaGridAdapter.Listener gridListener = item -> {
             selection.toggle(item);
@@ -395,7 +432,7 @@ public final class AttachSheetRecentMediaBinder {
                     // first, so the refined ceiling is fully committed as its
                     // own clean frame before the sheet can respond to a gesture.
                     topContent.post(() -> {
-                        int refreshedMaxHeightPx = computeMaxSheetHeightPx(activity);
+                        int refreshedMaxHeightPx = computeMaxSheetHeightPx(activity, sheet);
                         if (refreshedMaxHeightPx > 0) behavior.setMaxHeight(refreshedMaxHeightPx);
 
                         behavior.setSkipCollapsed(false);
@@ -487,24 +524,31 @@ public final class AttachSheetRecentMediaBinder {
      * "Overshoot fix" comment in bind() for why this can't just be
      * `DisplayMetrics.heightPixels - status_bar_height dimen`.
      *
-     * Uses the decor view's *actual current* height (its real window size
-     * right now, not the physical screen size) together with
-     * WindowInsetsCompat's status-bar inset (correct on notches/cutouts,
-     * and reflects the IME inset too if the keyboard happens to be up
-     * already) so the ceiling always matches what CoordinatorLayout will
-     * really measure against. Falls back to DisplayMetrics only if the
-     * decor view hasn't been laid out yet (height == 0), which can happen
-     * on the very first call made right after bind(), before show()).
+     * IMPORTANT: measures off the BottomSheetDialog's OWN window, not the
+     * host activity's. BottomSheetDialog opens a separate Window from the
+     * activity, and on an edge-to-edge screen that dialog window has its
+     * own independent WindowInsets dispatch/timing — reading the
+     * activity's decorView/insets here was the actual root cause of the
+     * sheet landing short of the screen edge (floating above the nav bar)
+     * specifically on the very first expand, before anything had forced
+     * the two windows' measurements back into agreement. Falls back to the
+     * activity's window only if the dialog's own window isn't available
+     * yet (called from bind(), before sheet.show()).
      */
-    private static int computeMaxSheetHeightPx(AppCompatActivity activity) {
-        View decorView = activity.getWindow().getDecorView();
+    private static int computeMaxSheetHeightPx(AppCompatActivity activity, BottomSheetDialog sheet) {
+        android.view.Window dialogWindow = sheet.getWindow();
+        View decorView = dialogWindow != null ? dialogWindow.getDecorView()
+                                               : activity.getWindow().getDecorView();
         int windowHeightPx = decorView.getHeight();
         int statusBarInsetPx = 0;
-        androidx.core.view.WindowInsetsCompat insets =
-                androidx.core.view.ViewCompat.getRootWindowInsets(decorView);
+        WindowInsetsCompat insets = ViewCompat.getRootWindowInsets(decorView);
+        if (insets == null) {
+            // Dialog window insets not dispatched yet — the activity's are
+            // the closest available approximation for this early call.
+            insets = ViewCompat.getRootWindowInsets(activity.getWindow().getDecorView());
+        }
         if (insets != null) {
-            statusBarInsetPx = insets.getInsets(
-                    androidx.core.view.WindowInsetsCompat.Type.statusBars()).top;
+            statusBarInsetPx = insets.getInsets(WindowInsetsCompat.Type.statusBars()).top;
         }
         if (statusBarInsetPx <= 0) {
             // Fallback for the pre-layout call: legacy dimen lookup.
@@ -531,18 +575,18 @@ public final class AttachSheetRecentMediaBinder {
         // further, never loosen it past a safe bound.
         //
         // DisplayMetrics#heightPixels excludes the navigation bar, while the
-        // dialog's decorView is edge-to-edge and genuinely extends behind it.
-        // Clamping straight against heightPixels therefore shrank the ceiling
-        // by the navigation bar's height, so on the very first STATE_EXPANDED
-        // layout (before any nested-scroll pass forced CoordinatorLayout to
-        // re-settle against the sheet's real bounds) the bottom selection bar
-        // landed short of the screen edge — floating above the nav bar with a
-        // gap instead of sitting right above it. Add the nav bar inset back
-        // in so the clamp matches the decorView's true edge-to-edge height.
+        // dialog's decorView is edge-to-edge (now explicitly forced so via
+        // WindowCompat.setDecorFitsSystemWindows in bind()) and genuinely
+        // extends behind it. Clamping straight against heightPixels
+        // therefore shrank the ceiling by the navigation bar's height, so
+        // on the very first STATE_EXPANDED layout the bottom selection bar
+        // landed short of the screen edge — floating above the nav bar with
+        // a gap instead of sitting right above it. Add the nav bar inset
+        // back in so the clamp matches the decorView's true edge-to-edge
+        // height.
         int navBarInsetPx = 0;
         if (insets != null) {
-            navBarInsetPx = insets.getInsets(
-                    androidx.core.view.WindowInsetsCompat.Type.navigationBars()).bottom;
+            navBarInsetPx = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom;
         }
         int rawScreenHeightPx = activity.getResources().getDisplayMetrics().heightPixels + navBarInsetPx;
         windowHeightPx = Math.min(windowHeightPx, rawScreenHeightPx);
