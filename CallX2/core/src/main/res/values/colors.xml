@@ -10,6 +10,10 @@
     <color name="surface_chat_bg">#ECE5DD</color>
     <color name="surface_input">#F1F3F8</color>
     <color name="bar_background">#0F4C3A</color>
+    <color name="header_gradient_start">#1B6E7A</color>
+    <color name="header_gradient_end">#0B1622</color>
+    <color name="online_dot_green">#3DDC5A</color>
+    <color name="call_btn_translucent">#40FFFFFF</color>
     <color name="bar_on_background">#FFFFFF</color>
     <color name="text_primary">#0F172A</color>
     <color name="chat_input_text">#000000</color>
