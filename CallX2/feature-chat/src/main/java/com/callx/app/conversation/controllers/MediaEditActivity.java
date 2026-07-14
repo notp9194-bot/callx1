@@ -37,6 +37,7 @@ import androidx.core.content.FileProvider;
 
 import com.bumptech.glide.Glide;
 import com.callx.app.chat.R;
+import com.callx.app.media.VideoOverlayBaker;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -66,7 +67,9 @@ import java.util.concurrent.Executors;
  *  ✅ Filters — same filter carousel (applied as color LUT on thumbnail preview)
  *  ✅ Play/pause inline preview
  *  ✅ HD toggle
- *  ✅ Stickers/Text can be placed on video (baked into first frame for thumbnail)
+ *  ✅ Stickers/Text/Draw are baked directly into the video's pixels on
+ *     send via {@link VideoOverlayBaker} (Media3 Transformer re-encode) —
+ *     not just shown in the editor preview.
  *
  * Multi-item:
  *  ✅ Thumbnail strip at bottom — tap to switch items
@@ -139,6 +142,7 @@ public class MediaEditActivity extends AppCompatActivity {
     private int                   currentIndex = 0;
     private boolean               isHD         = false;
     private boolean               drawModeActive = false;
+    private boolean               swipeHintBounced = false;
 
     // ── Views ─────────────────────────────────────────────────────────────
     private ImageView    ivPreview;
@@ -853,7 +857,36 @@ public class MediaEditActivity extends AppCompatActivity {
         }
 
         // Swipe hint
-        if (tvSwipeHint != null) tvSwipeHint.setVisibility(isVideo ? View.GONE : View.VISIBLE);
+        if (tvSwipeHint != null) {
+            tvSwipeHint.setVisibility(isVideo ? View.GONE : View.VISIBLE);
+            if (!isVideo && !swipeHintBounced) {
+                swipeHintBounced = true;
+                playSwipeHintAttentionBounce();
+            }
+        }
+    }
+
+    /**
+     * One-shot attention animation for the "Swipe up for filters" chip —
+     * a few small bounces the very first time it's shown, so a first-time
+     * user actually notices the feature instead of the chip just sitting
+     * there as static text they might tune out.
+     */
+    private void playSwipeHintAttentionBounce() {
+        if (tvSwipeHint == null) return;
+        tvSwipeHint.postDelayed(() -> {
+            if (tvSwipeHint == null) return;
+            tvSwipeHint.animate()
+                    .translationYBy(-dp(14))
+                    .setDuration(260)
+                    .setInterpolator(new OvershootInterpolator())
+                    .withEndAction(() -> tvSwipeHint.animate()
+                            .translationYBy(dp(14))
+                            .setDuration(260)
+                            .setInterpolator(new OvershootInterpolator())
+                            .start())
+                    .start();
+        }, 500);
     }
 
     private void loadImageWithFilter(EditState st) {
@@ -933,52 +966,108 @@ public class MediaEditActivity extends AppCompatActivity {
 
     private void bakeAndSend() {
         Toast.makeText(this, "Preparing…", Toast.LENGTH_SHORT).show();
+        processItemForSend(0, new ArrayList<>());
+    }
 
-        bgExec.submit(() -> {
-            ArrayList<String> resultUris = new ArrayList<>();
-            try {
-                for (EditState st : items) {
-                    if (st.deleted) continue;
-                    if (st.isVideo) {
-                        // Videos: return effective URI (trimmed or original)
-                        resultUris.add(st.effectiveUri().toString());
-                    } else if (st.hasEdits()) {
-                        Bitmap baked = bakeBitmap(st);
-                        if (baked != null) {
-                            File outDir = new File(getCacheDir(), "media_edit_out");
-                            if (!outDir.exists()) outDir.mkdirs();
-                            File f = new File(outDir, "edit_" + UUID.randomUUID() + ".jpg");
-                            try (FileOutputStream fos = new FileOutputStream(f)) {
-                                baked.compress(Bitmap.CompressFormat.JPEG,
-                                        isHD ? 95 : 82, fos);
-                            }
-                            Uri fileUri = FileProvider.getUriForFile(this,
-                                    getPackageName() + ".fileprovider", f);
-                            resultUris.add(fileUri.toString());
-                            baked.recycle();
-                        } else {
-                            resultUris.add(st.uri.toString());
-                        }
-                    } else {
-                        resultUris.add(st.uri.toString());
-                    }
+    /**
+     * Processes items one at a time and recurses into the next once each is
+     * ready, then finishes the activity with the accumulated result.
+     *
+     * Photos are baked (rotation + filter + stickers + drawing) on the
+     * background executor, same as before. Videos with stickers/text/draw
+     * edits now go through {@link VideoOverlayBaker} — which must run on
+     * the main thread — so those edits are actually burned into the video
+     * file instead of only ever having been visible in the editor preview
+     * and vanishing once the original video was sent. Videos with no such
+     * edits (trim-only or untouched) skip straight through with no re-encode.
+     */
+    private void processItemForSend(int index, ArrayList<String> resultUris) {
+        if (index >= items.size()) {
+            Intent res = new Intent();
+            res.putStringArrayListExtra(RESULT_URIS, resultUris);
+            String cap = etCaption.getText() != null ? etCaption.getText().toString() : "";
+            res.putExtra(RESULT_CAPTION, cap);
+            res.putExtra(RESULT_HD, isHD);
+            setResult(Activity.RESULT_OK, res);
+            finish();
+            return;
+        }
+
+        EditState st = items.get(index);
+        if (st.deleted) {
+            processItemForSend(index + 1, resultUris);
+            return;
+        }
+
+        if (st.isVideo) {
+            if (st.overlays.isEmpty() && st.strokes.isEmpty()) {
+                // Trim-only or untouched — no need to re-encode.
+                resultUris.add(st.effectiveUri().toString());
+                processItemForSend(index + 1, resultUris);
+                return;
+            }
+
+            Toast.makeText(this, "Rendering video edits…", Toast.LENGTH_SHORT).show();
+            Uri videoUri = st.effectiveUri();
+            int[] size = VideoOverlayBaker.readDisplaySize(this, videoUri);
+            int videoW = size[0] > 0 ? size[0] : 720;
+            int videoH = size[1] > 0 ? size[1] : 1280;
+            Bitmap overlayBitmap = renderOverlayBitmapForVideo(st, videoW, videoH);
+
+            VideoOverlayBaker.bakeOverlay(this, videoUri, overlayBitmap, new VideoOverlayBaker.Callback() {
+                @Override public void onProgress(int percent) { /* no progress UI needed for one-off sends */ }
+
+                @Override public void onSuccess(Uri outputUri) {
+                    resultUris.add(outputUri.toString());
+                    processItemForSend(index + 1, resultUris);
                 }
 
-                final ArrayList<String> finalUris = resultUris;
-                runOnUiThread(() -> {
-                    Intent res = new Intent();
-                    res.putStringArrayListExtra(RESULT_URIS, finalUris);
-                    String cap = etCaption.getText() != null ? etCaption.getText().toString() : "";
-                    res.putExtra(RESULT_CAPTION, cap);
-                    res.putExtra(RESULT_HD, isHD);
-                    setResult(Activity.RESULT_OK, res);
-                    finish();
-                });
-            } catch (Exception e) {
-                runOnUiThread(() ->
-                    Toast.makeText(this, "Error preparing media: " + e.getMessage(),
-                            Toast.LENGTH_LONG).show());
+                @Override public void onError(Exception e) {
+                    android.util.Log.e("MediaEditActivity", "Video overlay bake failed", e);
+                    Toast.makeText(MediaEditActivity.this,
+                            "Couldn't render video edits, sending original video",
+                            Toast.LENGTH_SHORT).show();
+                    resultUris.add(videoUri.toString());
+                    processItemForSend(index + 1, resultUris);
+                }
+            });
+            return;
+        }
+
+        // Photo path — unchanged, baked on the background executor.
+        bgExec.submit(() -> {
+            String uriStr;
+            if (st.hasEdits()) {
+                Bitmap baked = bakeBitmap(st);
+                if (baked != null) {
+                    String out;
+                    try {
+                        File outDir = new File(getCacheDir(), "media_edit_out");
+                        if (!outDir.exists()) outDir.mkdirs();
+                        File f = new File(outDir, "edit_" + UUID.randomUUID() + ".jpg");
+                        try (FileOutputStream fos = new FileOutputStream(f)) {
+                            baked.compress(Bitmap.CompressFormat.JPEG, isHD ? 95 : 82, fos);
+                        }
+                        Uri fileUri = FileProvider.getUriForFile(this,
+                                getPackageName() + ".fileprovider", f);
+                        out = fileUri.toString();
+                    } catch (Exception e) {
+                        out = st.uri.toString();
+                    } finally {
+                        baked.recycle();
+                    }
+                    uriStr = out;
+                } else {
+                    uriStr = st.uri.toString();
+                }
+            } else {
+                uriStr = st.uri.toString();
             }
+            String finalUriStr = uriStr;
+            runOnUiThread(() -> {
+                resultUris.add(finalUriStr);
+                processItemForSend(index + 1, resultUris);
+            });
         });
     }
 
@@ -1020,77 +1109,101 @@ public class MediaEditActivity extends AppCompatActivity {
                 canvas.drawBitmap(out.copy(Bitmap.Config.ARGB_8888, false), 0, 0, fp);
             }
 
-            // ── Screen → photo-pixel mapping ──────────────────────────────
-            // Overlay positions (xFrac/yFrac) and stroke points are recorded
-            // normalized against the *editor's* full-screen preview view —
-            // but that view uses scaleType="fitCenter", so the photo itself
-            // is letterboxed inside it whenever the photo's aspect ratio
-            // doesn't match the screen's. The old code multiplied fractions
-            // straight through by out.getWidth()/out.getHeight() as if the
-            // photo filled the whole view, which put stickers/text/strokes
-            // in the wrong spot (sometimes entirely outside the photo) on
-            // every non-matching aspect ratio — edits looked right in the
-            // editor (everything overlaid the same screen region) but were
-            // shifted or missing once baked into the sent photo. Computing
-            // the same fitCenter rect here and mapping through it fixes that.
-            int viewW = Math.max(1, ivPreview.getWidth());
-            int viewH = Math.max(1, ivPreview.getHeight());
-            float fitScale = Math.min((float) viewW / out.getWidth(), (float) viewH / out.getHeight());
-            if (fitScale <= 0f) fitScale = 1f;
-            float dispW = out.getWidth()  * fitScale;
-            float dispH = out.getHeight() * fitScale;
-            float offX  = (viewW - dispW) / 2f;
-            float offY  = (viewH - dispH) / 2f;
-
-            // Overlays (stickers / text)
-            float density = getResources().getDisplayMetrics().density;
-            for (OverlayItem ov : st.overlays) {
-                Paint tp = new Paint(Paint.ANTI_ALIAS_FLAG);
-                tp.setColor(ov.color);
-                Typeface tf;
-                try {
-                    tf = Typeface.create(ov.fontFamily,
-                            (ov.isBold && ov.isItalic) ? Typeface.BOLD_ITALIC
-                          : ov.isBold  ? Typeface.BOLD
-                          : ov.isItalic? Typeface.ITALIC
-                          : Typeface.NORMAL);
-                } catch (Exception e) {
-                    tf = Typeface.DEFAULT;
-                }
-                tp.setTypeface(tf);
-                // Text was rendered on-screen at textSizeSp*density px; convert
-                // to photo-pixel space through the same fitCenter scale so it
-                // ends up the same relative size on the sent photo.
-                float ts = (ov.textSizeSp * density * ov.scale) / fitScale;
-                tp.setTextSize(ts);
-                float screenX = ov.xFrac * viewW;
-                float screenY = ov.yFrac * viewH;
-                float x = (screenX - offX) / fitScale;
-                float y = (screenY - offY) / fitScale;
-                if (ov.hasBg) {
-                    float tw = tp.measureText(ov.text);
-                    Paint bgP = new Paint(Paint.ANTI_ALIAS_FLAG);
-                    bgP.setColor(0xCC000000);
-                    canvas.drawRoundRect(x - tw / 2 - dp(6), y - ts,
-                            x + tw / 2 + dp(6), y + dp(6), dp(8), dp(8), bgP);
-                }
-                canvas.save();
-                canvas.translate(x, y);
-                canvas.rotate(ov.rotationDeg);
-                canvas.drawText(ov.text, -tp.measureText(ov.text) / 2f, 0, tp);
-                canvas.restore();
-            }
-
-            // Freehand strokes — same screen→photo remap as overlays above.
-            DrawOverlayView.drawStrokes(canvas, st.strokes,
-                    out.getWidth(), out.getHeight(),
-                    viewW, viewH, offX, offY, fitScale, density);
+            paintOverlaysAndStrokes(canvas, st, out.getWidth(), out.getHeight());
 
             return out;
         } catch (Exception e) {
             android.util.Log.e("MediaEditActivity", "bakeBitmap failed", e);
             return null;
         }
+    }
+
+    /**
+     * Draws an item's stickers/text overlays and freehand strokes onto {@code canvas},
+     * mapping their editor-recorded screen fractions into {@code contentW x contentH}
+     * pixel space (the photo's own pixels, or — for video — a transparent bitmap sized
+     * to match the video's display dimensions).
+     *
+     * Shared by {@link #bakeBitmap} (photos) and {@link #renderOverlayBitmapForVideo}
+     * (videos) so both paths use the exact same fitCenter screen→content mapping and
+     * can't drift out of sync with each other.
+     */
+    private void paintOverlaysAndStrokes(Canvas canvas, EditState st, int contentW, int contentH) {
+        // ── Screen → content-pixel mapping ────────────────────────────────
+        // Overlay positions (xFrac/yFrac) and stroke points are recorded
+        // normalized against the *editor's* full-screen preview view — but
+        // that view uses scaleType="fitCenter", so the photo/video itself
+        // is letterboxed inside it whenever its aspect ratio doesn't match
+        // the screen's. Multiplying fractions straight through by
+        // contentW/contentH as if the content filled the whole view would
+        // put stickers/text/strokes in the wrong spot (sometimes entirely
+        // outside the content) on every non-matching aspect ratio. Computing
+        // the same fitCenter rect here and mapping through it fixes that.
+        int viewW = Math.max(1, ivPreview.getWidth());
+        int viewH = Math.max(1, ivPreview.getHeight());
+        float fitScale = Math.min((float) viewW / contentW, (float) viewH / contentH);
+        if (fitScale <= 0f) fitScale = 1f;
+        float dispW = contentW * fitScale;
+        float dispH = contentH * fitScale;
+        float offX  = (viewW - dispW) / 2f;
+        float offY  = (viewH - dispH) / 2f;
+
+        // Overlays (stickers / text)
+        float density = getResources().getDisplayMetrics().density;
+        for (OverlayItem ov : st.overlays) {
+            Paint tp = new Paint(Paint.ANTI_ALIAS_FLAG);
+            tp.setColor(ov.color);
+            Typeface tf;
+            try {
+                tf = Typeface.create(ov.fontFamily,
+                        (ov.isBold && ov.isItalic) ? Typeface.BOLD_ITALIC
+                      : ov.isBold  ? Typeface.BOLD
+                      : ov.isItalic? Typeface.ITALIC
+                      : Typeface.NORMAL);
+            } catch (Exception e) {
+                tf = Typeface.DEFAULT;
+            }
+            tp.setTypeface(tf);
+            // Text was rendered on-screen at textSizeSp*density px; convert
+            // to content-pixel space through the same fitCenter scale so it
+            // ends up the same relative size on the sent photo/video.
+            float ts = (ov.textSizeSp * density * ov.scale) / fitScale;
+            tp.setTextSize(ts);
+            float screenX = ov.xFrac * viewW;
+            float screenY = ov.yFrac * viewH;
+            float x = (screenX - offX) / fitScale;
+            float y = (screenY - offY) / fitScale;
+            if (ov.hasBg) {
+                float tw = tp.measureText(ov.text);
+                Paint bgP = new Paint(Paint.ANTI_ALIAS_FLAG);
+                bgP.setColor(0xCC000000);
+                canvas.drawRoundRect(x - tw / 2 - dp(6), y - ts,
+                        x + tw / 2 + dp(6), y + dp(6), dp(8), dp(8), bgP);
+            }
+            canvas.save();
+            canvas.translate(x, y);
+            canvas.rotate(ov.rotationDeg);
+            canvas.drawText(ov.text, -tp.measureText(ov.text) / 2f, 0, tp);
+            canvas.restore();
+        }
+
+        // Freehand strokes — same screen→content remap as overlays above.
+        DrawOverlayView.drawStrokes(canvas, st.strokes,
+                contentW, contentH,
+                viewW, viewH, offX, offY, fitScale, density);
+    }
+
+    /**
+     * Renders this video item's stickers/text overlays and freehand strokes onto a
+     * transparent bitmap sized to the video's own (rotation-corrected) display
+     * dimensions, ready to be burned into the video's pixels by {@link VideoOverlayBaker}.
+     */
+    private Bitmap renderOverlayBitmapForVideo(EditState st, int videoW, int videoH) {
+        Bitmap bitmap = Bitmap.createBitmap(
+                Math.max(1, videoW), Math.max(1, videoH), Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(bitmap);
+        paintOverlaysAndStrokes(canvas, st, videoW, videoH);
+        return bitmap;
     }
 
     // ── Overlay rendering ─────────────────────────────────────────────────

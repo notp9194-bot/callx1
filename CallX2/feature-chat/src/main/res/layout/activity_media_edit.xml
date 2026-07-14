@@ -396,22 +396,6 @@
 
     </LinearLayout>
 
-    <!-- ── Swipe hint ────────────────────────────────────────────────── -->
-    <TextView
-        android:id="@+id/tvSwipeHint"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom|center_horizontal"
-        android:layout_marginBottom="122dp"
-        android:text="↑ Swipe for filters"
-        android:textColor="#AAFFFFFF"
-        android:textSize="12sp"
-        android:background="#44000000"
-        android:paddingStart="12dp"
-        android:paddingEnd="12dp"
-        android:paddingTop="5dp"
-        android:paddingBottom="5dp"/>
-
     <!-- ── Bottom bar (delete + thumbs / caption + send) ────────────── -->
     <LinearLayout
         android:id="@+id/bottomBar"
@@ -505,6 +489,49 @@
                 android:background="@drawable/bg_media_edit_send_btn"
                 android:contentDescription="Send"/>
         </LinearLayout>
+    </LinearLayout>
+
+    <!-- ── Swipe-up-for-filters hint chip ───────────────────────────────
+         Declared AFTER bottomBar so it draws IN FRONT of it — previously
+         this lived before bottomBar in the tree, so bottomBar's own
+         near-opaque background (#EE000000, ~142dp tall) painted right
+         over it and nobody ever saw the hint. Positioned with enough
+         bottom margin to float clear above the bar instead of behind it,
+         and gets a one-shot bounce animation (see showCurrentItem()/
+         playSwipeHintAttentionBounce()) the first time a photo is shown
+         so first-time users actually notice the feature. -->
+    <LinearLayout
+        android:id="@+id/tvSwipeHint"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="158dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="@drawable/bg_media_edit_swipe_hint"
+        android:paddingStart="14dp"
+        android:paddingEnd="14dp"
+        android:paddingTop="7dp"
+        android:paddingBottom="7dp"
+        android:elevation="4dp">
+
+        <TextView
+            android:id="@+id/ivSwipeHintArrow"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="6dp"
+            android:text="↑"
+            android:textColor="#FFFFFFFF"
+            android:textSize="14sp"
+            android:textStyle="bold"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Swipe up for filters"
+            android:textColor="#FFFFFFFF"
+            android:textSize="13sp"
+            android:textStyle="bold"/>
     </LinearLayout>
 
     <!-- ── Filter panel (slides up from below) ──────────────────────── -->

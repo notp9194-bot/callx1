@@ -126,9 +126,9 @@ import com.callx.app.utils.ChatThemeManager;
  *     180dp-square slot/mediaRect/footer-pill machinery, just with a
  *     play-circle+triangle glyph centered on the thumbnail and a duration
  *     badge in the bottom-left corner (drawVideoPlayOverlay), mirroring
- *     the legacy fl_video/iv_video_thumb bubble. Never has a caption, same
- *     as that legacy case. Tapping the thumbnail fires onImageClick(),
- *     same trigger point as tapping an image bubble.
+ *     the legacy fl_video/iv_video_thumb bubble. Supports a caption below
+ *     the thumbnail same as a single image does. Tapping the thumbnail
+ *     fires onImageClick(), same trigger point as tapping an image bubble.
  *   • a link-preview card (setLinkPreview/setLinkPreviewThumbBitmap/
  *     clearLinkPreview) — mirrors layout_msg_link_preview.xml
  *     (stub_link_preview): optional OG-image thumbnail, domain label,
@@ -2126,17 +2126,19 @@ public class MessageBubbleCanvasView extends View {
      * Bind this view to a single "video" message — reuses the exact same
      * 180dp-square slot as bindMedia() (mediaRect/mediaBitmap/footer pill),
      * just with the play-glyph + duration-badge overlay drawn on top
-     * (drawMedia()) and no caption support, mirroring the legacy
-     * fl_video/iv_video_thumb case which never binds a caption either.
+     * (drawMedia()). Captions now work here too — MediaRenderer's caption
+     * block (mediaHasCaption/textLayout) was always generic and never
+     * actually gated on isVideoMedia; this method was simply hardcoding
+     * null instead of threading the caption through to bindMedia().
      * Pass thumb=null if not yet decoded; setMediaBitmap() swaps it in
      * later exactly as it does for bindMedia(). Video never shows the
      * manual download gate — same "streams directly" precedent as video
      * cells inside a media group (see setMediaDownloadGate() doc).
      */
-    public void bindVideo(@Nullable Bitmap thumb, @Nullable String duration, String timeText,
-                          boolean isSent, boolean isRead, boolean isDelivered,
+    public void bindVideo(@Nullable Bitmap thumb, @Nullable String caption, @Nullable String duration,
+                          String timeText, boolean isSent, boolean isRead, boolean isDelivered,
                           @Nullable String aspectKey, float knownAspectRatio) {
-        bindMedia(thumb, null, timeText, isSent, isRead, isDelivered, aspectKey, knownAspectRatio);
+        bindMedia(thumb, caption, timeText, isSent, isRead, isDelivered, aspectKey, knownAspectRatio);
         this.isVideoMedia = true;
         this.videoDuration = duration;
         invalidate();

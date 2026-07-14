@@ -126,10 +126,10 @@ public class MediaViewerActivity extends AppCompatActivity {
         // for single-media mode) instead of being a dead placeholder.
         binding.btnMoreOptions.setOnClickListener(v -> showMoreOptionsMenu());
 
-        // "Edit" — WhatsApp-style: view a photo in the chat, tweak it in
-        // the same full-screen editor the attach sheet uses, and resend
-        // it as a new message (see GalleryEditBridge for the handoff back
-        // to ChatActivity / GroupChatActivity).
+        // "Edit" — WhatsApp-style: view a photo OR video in the chat, tweak
+        // it in the same full-screen editor the attach sheet uses, and
+        // resend it as a new message (see GalleryEditBridge for the handoff
+        // back to ChatActivity / GroupChatActivity).
         mediaEditLauncher = registerForActivityResult(
                 new ActivityResultContracts.StartActivityForResult(),
                 result -> {
@@ -159,13 +159,14 @@ public class MediaViewerActivity extends AppCompatActivity {
         // WhatsApp-style "Edit" shortcut — set by showImageActionSheet's Edit
         // option so the viewer jumps straight into MediaEditActivity instead
         // of making the user tap the pencil a second time once the viewer is
-        // open. No-op for video (edit isn't supported there).
+        // open. Works for video too now — MediaEditActivity fully supports
+        // video (trim/stickers/text/draw, baked into the actual video on send).
         boolean autoEdit = getIntent().getBooleanExtra("autoEdit", false);
 
         String mediaItemsJson = getIntent().getStringExtra("mediaItemsJson");
         if (mediaItemsJson != null && !mediaItemsJson.isEmpty()) {
             setupGalleryMode(mediaItemsJson, getIntent().getIntExtra("startIndex", 0));
-            if (autoEdit && !isGalleryActiveVideo()) {
+            if (autoEdit) {
                 binding.getRoot().post(this::onEditClicked);
             }
             return;
@@ -176,8 +177,11 @@ public class MediaViewerActivity extends AppCompatActivity {
         if ("video".equals(type)) {
             binding.player.setVisibility(View.VISIBLE);
             binding.ivFull.setVisibility(View.GONE);
-            binding.btnEdit.setVisibility(View.GONE); // editor only supports photos
+            binding.btnEdit.setVisibility(View.VISIBLE);
             playVideo(url);
+            if (autoEdit) {
+                binding.getRoot().post(this::onEditClicked);
+            }
 
             // For video — tap player toggles top bar
             binding.player.setOnClickListener(v -> toggleUI());
@@ -258,7 +262,7 @@ public class MediaViewerActivity extends AppCompatActivity {
         binding.mediaPager.setCurrentItem(start, false);
         updatePageCounter(start);
         sharedUrl = safeStr(galleryItems.get(start).get("url"));
-        binding.btnEdit.setVisibility(isGalleryActiveVideo() ? View.GONE : View.VISIBLE);
+        binding.btnEdit.setVisibility(View.VISIBLE);
 
         binding.mediaPager.registerOnPageChangeCallback(new androidx.viewpager2.widget.ViewPager2.OnPageChangeCallback() {
             @Override public void onPageSelected(int position) {
@@ -266,7 +270,7 @@ public class MediaViewerActivity extends AppCompatActivity {
                 galleryActivePos = position;
                 sharedUrl = safeStr(galleryItems.get(position).get("url"));
                 updatePageCounter(position);
-                binding.btnEdit.setVisibility(isGalleryActiveVideo() ? View.GONE : View.VISIBLE);
+                binding.btnEdit.setVisibility(View.VISIBLE);
             }
         });
         galleryActivePos = start;
@@ -517,41 +521,38 @@ public class MediaViewerActivity extends AppCompatActivity {
                 .show();
     }
 
-    // ── "Edit" — view a photo, tweak it in MediaEditActivity, resend ─────
+    // ── "Edit" — view a photo/video, tweak it in MediaEditActivity, resend ─
     private void onEditClicked() {
-        if (isGalleryActiveVideo()) {
-            Toast.makeText(this, "Only photos can be edited", Toast.LENGTH_SHORT).show();
-            return;
-        }
         if (replyChatId == null || replyMessageId == null) {
             Toast.makeText(this, "Can't edit — not opened from a chat", Toast.LENGTH_SHORT).show();
             return;
         }
         String url = sharedUrl;
         if (url == null || url.isEmpty()) return;
+        boolean isVideo = isGalleryActiveVideo();
 
         // MediaEditActivity reads via ContentResolver, so a remote http(s)
         // URL won't work directly — resolve to the same locally-cached
         // File that Save/Share already use, downloading first if needed.
         File cached = MediaCache.getCached(this, url);
         if (cached != null) {
-            launchEditorFor(cached);
+            launchEditorFor(cached, isVideo);
             return;
         }
         showLoading(true);
         MediaCache.get(this, url, new MediaCache.Callback() {
             @Override public void onReady(File file) {
                 showLoading(false);
-                launchEditorFor(file);
+                launchEditorFor(file, isVideo);
             }
             @Override public void onError(String reason) {
                 showLoading(false);
-                Toast.makeText(MediaViewerActivity.this, "Couldn't load photo for editing", Toast.LENGTH_SHORT).show();
+                Toast.makeText(MediaViewerActivity.this, "Couldn't load media for editing", Toast.LENGTH_SHORT).show();
             }
         });
     }
 
-    private void launchEditorFor(File file) {
+    private void launchEditorFor(File file, boolean isVideo) {
         Uri contentUri = FileProvider.getUriForFile(this, getPackageName() + ".fileprovider", file);
         grantUriPermission(getPackageName(), contentUri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
 
@@ -559,7 +560,7 @@ public class MediaViewerActivity extends AppCompatActivity {
         ArrayList<String> uris = new ArrayList<>();
         uris.add(contentUri.toString());
         ArrayList<Integer> videoFlags = new ArrayList<>();
-        videoFlags.add(0);
+        videoFlags.add(isVideo ? 1 : 0);
         intent.putStringArrayListExtra(com.callx.app.conversation.controllers.MediaEditActivity.EXTRA_URIS, uris);
         intent.putIntegerArrayListExtra(com.callx.app.conversation.controllers.MediaEditActivity.EXTRA_IS_VIDEO, videoFlags);
         intent.putExtra(com.callx.app.conversation.controllers.MediaEditActivity.EXTRA_CAPTION, "");

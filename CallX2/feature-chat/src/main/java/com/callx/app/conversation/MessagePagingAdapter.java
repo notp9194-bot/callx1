@@ -1997,16 +1997,13 @@ public class MessagePagingAdapter
             cv.setGroupDownloadGate(cellPending);
         } else if (isImage) {
             final String fullUrl = m.mediaUrl != null ? m.mediaUrl : m.text;
-            // No caption support for single "image" messages in this codebase
-            // (m.text/m.mediaUrl is the URL, not a caption — see bindMessage()'s
-            // "image"/"gif" case) — always captionless here.
             // Known width/height captured at send time (see ChatMediaController)
             // beats waiting for Glide to decode — sizes the bubble correctly on
             // the very first layout pass even for images never seen before.
             float knownRatio = (m.mediaWidth != null && m.mediaHeight != null
                     && m.mediaWidth > 0 && m.mediaHeight > 0)
                     ? (float) m.mediaWidth / m.mediaHeight : 0f;
-            cv.bindMedia(null, null, timeStr, sent, isRead, isDelivered, fullUrl, knownRatio);
+            cv.bindMedia(null, m.caption, timeStr, sent, isRead, isDelivered, fullUrl, knownRatio);
             cv.setDeletedStyle(false); // clears any italic/dim state a recycled view carried from a deleted message
 
             // Mirrors bindDownloadOverlay(): sent images (and any received
@@ -2258,7 +2255,7 @@ public class MessagePagingAdapter
             float vKnownRatio = (m.mediaWidth != null && m.mediaHeight != null
                     && m.mediaWidth > 0 && m.mediaHeight > 0)
                     ? (float) m.mediaWidth / m.mediaHeight : 0f;
-            cv.bindVideo(null, durText, timeStr, sent, isRead, isDelivered, vThumbUrl, vKnownRatio);
+            cv.bindVideo(null, m.caption, durText, timeStr, sent, isRead, isDelivered, vThumbUrl, vKnownRatio);
             cv.setDeletedStyle(false);
             if (vThumbUrl != null && !vThumbUrl.isEmpty()) {
                 // PERF #1: check decoded-Bitmap pool before Glide decode
