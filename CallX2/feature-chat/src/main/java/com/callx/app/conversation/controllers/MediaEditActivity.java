@@ -1000,7 +1000,17 @@ public class MediaEditActivity extends AppCompatActivity {
                     base.getWidth(), base.getHeight(), m, true);
             if (out != base) base.recycle();
 
-            Canvas canvas = new Canvas(out);
+            Canvas canvas;
+            // Belt-and-suspenders: even with inMutable=true above, force
+            // ARGB_8888 + mutable right before handing to Canvas, in case
+            // any OEM decoder quirk or future code path slips an immutable
+            // / non-ARGB_8888 bitmap through here again.
+            if (!out.isMutable() || out.getConfig() != Bitmap.Config.ARGB_8888) {
+                Bitmap converted = out.copy(Bitmap.Config.ARGB_8888, true);
+                out.recycle();
+                out = converted;
+            }
+            canvas = new Canvas(out);
 
             // Filter
             if (st.filterIndex > 0) {
@@ -1253,6 +1263,22 @@ public class MediaEditActivity extends AppCompatActivity {
         while ((b.outWidth / sample) > maxDim || (b.outHeight / sample) > maxDim) sample *= 2;
         b.inJustDecodeBounds = false;
         b.inSampleSize = sample;
+        // BUG FIX: BitmapFactory.decodeStream() returns an IMMUTABLE bitmap
+        // by default. bakeBitmap() wraps its (possibly-unrotated) result in
+        // a Canvas to draw the filter/stickers/text/freehand strokes onto —
+        // and when rotationDeg == 0 (i.e. the user filtered/stickered/drew
+        // WITHOUT also rotating, by far the common case), Bitmap.createBitmap()
+        // with an identity matrix returns this SAME decoded bitmap instead of
+        // a fresh copy, so `new Canvas(out)` was throwing
+        // "IllegalStateException: Immutable bitmap passed to Canvas
+        // constructor". That exception was silently caught in bakeBitmap(),
+        // which returned null, and bakeAndSend() then fell back to sending
+        // the ORIGINAL un-edited file — every edit except crop (which bakes
+        // in its own activity and never reaches this code path) silently
+        // disappeared on send. inMutable=true makes the decoded bitmap
+        // already mutable, so Canvas always works, whether or not rotation
+        // actually changed anything.
+        b.inMutable = true;
         try (java.io.InputStream in = getContentResolver().openInputStream(uri)) {
             Bitmap bmp = BitmapFactory.decodeStream(in, null, b);
             if (bmp == null) throw new IllegalStateException("decode returned null");
