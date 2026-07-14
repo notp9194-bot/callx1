@@ -504,6 +504,13 @@ public class MediaEditActivity extends AppCompatActivity {
         View mediaContainer = findViewById(R.id.mediaContainer);
         GestureDetector detector = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
             @Override
+            public boolean onDown(MotionEvent e) {
+                // Must return true so the framework keeps routing the rest
+                // of this gesture (MOVE/UP) our way — see note below.
+                return true;
+            }
+
+            @Override
             public boolean onFling(MotionEvent e1, MotionEvent e2, float velocityX, float velocityY) {
                 if (e1 == null) return false;
                 float deltaY = e2.getY() - e1.getY();
@@ -519,11 +526,19 @@ public class MediaEditActivity extends AppCompatActivity {
             }
         });
         mediaContainer.setOnTouchListener((v, event) -> {
-            // Let the gesture detector see every touch, but never consume it —
-            // stickers/draw overlay above it must keep receiving their own
-            // events for drag/pinch/draw to keep working.
             detector.onTouchEvent(event);
-            return false;
+            // NOTE: this used to `return false` unconditionally. An
+            // OnTouchListener that returns false on ACTION_DOWN tells the
+            // parent ViewGroup "I'm not handling this gesture", so Android
+            // never delivers the follow-up ACTION_MOVE/ACTION_UP events to
+            // this view — the GestureDetector only ever saw the DOWN event
+            // and could never detect a fling. Returning true keeps the
+            // whole gesture flowing here. Stickers/draw overlay are
+            // separate child views layered above this one, so a touch that
+            // starts on one of them is still consumed by that child first —
+            // this listener only ever fires for touches that land on the
+            // empty photo area, so drag/pinch/draw is unaffected.
+            return true;
         });
     }
 
