@@ -37,6 +37,7 @@ import com.callx.app.utils.CloudinaryUploader;
 import com.callx.app.utils.FileUtils;
 import com.callx.app.utils.ImageCompressor;
 import com.callx.app.utils.VideoCompressor;
+import com.callx.app.utils.VideoQualityPreferences;
 import com.callx.app.utils.VideoUploader;
 import com.callx.app.utils.VoiceRecorder;
 import com.callx.app.conversation.MultiMediaPreviewDialog;
@@ -610,7 +611,10 @@ public class ChatMediaController {
         // single-video sends (previously multi-select skipped compression
         // entirely and uploaded the raw file — huge size/data cost).
         if (isVideo) {
-            VideoCompressor.compress(activity, uri, new VideoCompressor.Callback() {
+            VideoQualityPreferences.Quality qual = isBakedOverlayVideo(uri)
+                    ? VideoQualityPreferences.Quality.ORIGINAL
+                    : VideoQualityPreferences.Quality.STANDARD;
+            VideoCompressor.compress(activity, uri, qual, new VideoCompressor.Callback() {
                 @Override public void onProgress(int percent) { /* batch-level toast only */ }
                 @Override public void onSuccess(VideoCompressor.Result vr) {
                     VideoUploader.upload(activity, vr, new VideoUploader.UploadCallback() {
@@ -735,6 +739,22 @@ public class ChatMediaController {
     }
 
     /** image / video / audio / file classifier from a content:// mime type. */
+    // PERF (ultra): a video edited with stickers/text/drawing is already
+    // fully re-encoded once by VideoOverlayBaker (Media3 Transformer) before
+    // it ever reaches this controller — see MediaEditActivity.processItemForSend().
+    // Running it through VideoCompressor's normal STANDARD-quality pass here
+    // would decode + encode the WHOLE video a second time for no quality
+    // benefit (the baker's output is already a clean H.264/AAC mp4), roughly
+    // doubling processing time and battery for every overlay-edited video.
+    // Detect that case via the baker's known output folder and pass
+    // Quality.ORIGINAL, which VideoCompressor already special-cases as a
+    // pure passthrough (metadata read + thumbnail only, no transcode) —
+    // see VideoCompressor.compressSync()'s ORIGINAL branch.
+    private static boolean isBakedOverlayVideo(Uri uri) {
+        String s = uri.toString();
+        return s.contains("media_edit_video_out");
+    }
+
     private static String classifyMediaType(String rawMime) {
         if (rawMime == null) return "file";
         if (rawMime.startsWith("video")) return "video";
@@ -972,7 +992,10 @@ public class ChatMediaController {
             binding.uploadProgress.setMax(100);
             binding.uploadProgress.setProgress(0);
 
-            VideoCompressor.compress(activity, uri, new VideoCompressor.Callback() {
+            VideoQualityPreferences.Quality qual = isBakedOverlayVideo(uri)
+                    ? VideoQualityPreferences.Quality.ORIGINAL
+                    : VideoQualityPreferences.Quality.STANDARD;
+            VideoCompressor.compress(activity, uri, qual, new VideoCompressor.Callback() {
                 @Override public void onProgress(int percent) {
                     binding.uploadProgress.setProgress(percent / 2);
                 }

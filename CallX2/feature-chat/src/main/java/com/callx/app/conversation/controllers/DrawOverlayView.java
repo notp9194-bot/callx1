@@ -207,6 +207,18 @@ public class DrawOverlayView extends View {
         canvas.drawBitmap(offscreen, 0, 0, null);
     }
 
+    // PERF (ultra): drawSingleStrokeOnOffscreen() runs on EVERY ACTION_MOVE
+    // while the user is actively drawing — 60-100+ times/sec during a fast
+    // drag once historical batched points are counted. It used to allocate
+    // a fresh Paint (sometimes two) and a fresh Path on every single call,
+    // which is real GC pressure sitting directly in the most latency-
+    // sensitive path in the whole editor (a live finger-drag gesture).
+    // Reused instead of reallocated below — identical visual output, zero
+    // allocation in the hot path.
+    private final Paint reusableStrokePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint reusableDotPaint    = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Path  reusablePath        = new Path();
+
     /**
      * Draws one stroke onto the offscreen bitmap.
      * Eraser strokes use CLEAR xfer mode so they genuinely remove pixels.
@@ -216,7 +228,9 @@ public class DrawOverlayView extends View {
         float density = getResources().getDisplayMetrics().density;
         float strokePx = s.widthDp * density;
 
-        Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        Paint p = reusableStrokePaint;
+        p.reset();
+        p.setAntiAlias(true);
         p.setStyle(Paint.Style.STROKE);
         p.setStrokeCap(Paint.Cap.ROUND);
         p.setStrokeJoin(Paint.Join.ROUND);
@@ -235,13 +249,18 @@ public class DrawOverlayView extends View {
         if (s.points.size() == 1) {
             // Single-point tap → draw a filled circle
             PointF pt = s.points.get(0);
-            Paint dot = new Paint(p);
+            Paint dot = reusableDotPaint;
+            dot.reset();
+            dot.setAntiAlias(true);
             dot.setStyle(Paint.Style.FILL);
+            dot.setColor(p.getColor());
+            dot.setXfermode(p.getXfermode());
             offscreenCanvas.drawCircle(pt.x * w, pt.y * h, strokePx / 2f, dot);
             return;
         }
 
-        Path path = new Path();
+        Path path = reusablePath;
+        path.reset();
         PointF first = s.points.get(0);
         path.moveTo(first.x * w, first.y * h);
         for (int i = 1; i < s.points.size() - 1; i++) {
@@ -256,6 +275,7 @@ public class DrawOverlayView extends View {
         path.lineTo(last.x * w, last.y * h);
         offscreenCanvas.drawPath(path, p);
     }
+
 
     // ═════════════════════════════════════════════════════════════════════
     // Static bake helper (called by MediaEditActivity for final send export)

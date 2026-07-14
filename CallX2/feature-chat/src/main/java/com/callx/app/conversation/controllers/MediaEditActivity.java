@@ -784,11 +784,31 @@ public class MediaEditActivity extends AppCompatActivity {
         }
     }
 
+    // PERF (ultra): switchToItem() used to call the full rebuildThumbStrip()
+    // above on every single tap while swiping through a multi-image edit
+    // session — re-inflating every thumb View and re-triggering Glide loads
+    // for ALL items, just to move a highlight from one thumb to another.
+    // For a session with many items this meant a visible strip flicker and
+    // real inflate/Glide-lookup cost on every swipe. Structure only changes
+    // on init/delete (those still call the full rebuildThumbStrip()); a
+    // plain switch just needs the alpha updated on the views that already
+    // exist, so do exactly that instead.
+    private void updateThumbStripHighlight() {
+        if (thumbStripContent == null) return;
+        int visibleIdx = 0;
+        for (int i = 0; i < items.size(); i++) {
+            if (items.get(i).deleted) continue;
+            View child = thumbStripContent.getChildAt(visibleIdx);
+            if (child != null) child.setAlpha(i == currentIndex ? 1f : 0.55f);
+            visibleIdx++;
+        }
+    }
+
     private void switchToItem(int idx) {
         if (idx < 0 || idx >= items.size() || items.get(idx).deleted) return;
         saveCurrentDrawState();
         currentIndex = idx;
-        rebuildThumbStrip();
+        updateThumbStripHighlight();
         showCurrentItem();
     }
 
@@ -889,15 +909,29 @@ public class MediaEditActivity extends AppCompatActivity {
         }, 500);
     }
 
+    // PERF/CORRECTNESS (ultra): loadImageWithFilter() used to spawn a brand
+    // new raw Thread on every call. Swiping quickly through a multi-image
+    // edit session called this once per swipe, so several full-resolution
+    // decodes could be running concurrently — wasted CPU, and if an OLDER
+    // decode finished after a NEWER one, its stale bitmap would overwrite
+    // the correct preview the user was already looking at.
+    // Fix: route through the existing single-thread bgExec (no thread
+    // creation cost, and decodes now run strictly one-at-a-time instead of
+    // piling up) and stamp each request with a generation counter so a
+    // late-arriving stale decode is silently dropped instead of painted.
+    private volatile int previewLoadGeneration = 0;
+
     private void loadImageWithFilter(EditState st) {
+        final int myGeneration = ++previewLoadGeneration;
         // Load bitmap, apply rotation matrix + filter ColorMatrix
-        new Thread(() -> {
+        bgExec.submit(() -> {
             try {
                 Bitmap bmp = decodeSampledBitmap(st.uri, 1080);
                 Matrix m = new Matrix();
                 m.postRotate(st.rotationDeg);
                 Bitmap rotated = Bitmap.createBitmap(bmp, 0, 0, bmp.getWidth(), bmp.getHeight(), m, true);
                 runOnUiThread(() -> {
+                    if (myGeneration != previewLoadGeneration) return; // stale — user already moved on
                     ivPreview.setRotation(0); // already rotated
                     if (st.filterIndex > 0) {
                         android.graphics.ColorMatrix cm = new android.graphics.ColorMatrix(
@@ -909,10 +943,12 @@ public class MediaEditActivity extends AppCompatActivity {
                     ivPreview.setImageBitmap(rotated);
                 });
             } catch (Exception e) {
-                runOnUiThread(() ->
-                    Glide.with(this).load(st.effectiveUri()).into(ivPreview));
+                runOnUiThread(() -> {
+                    if (myGeneration != previewLoadGeneration) return;
+                    Glide.with(this).load(st.effectiveUri()).into(ivPreview);
+                });
             }
-        }).start();
+        });
     }
 
     // ── Download ──────────────────────────────────────────────────────────
