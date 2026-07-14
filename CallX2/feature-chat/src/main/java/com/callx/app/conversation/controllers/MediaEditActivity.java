@@ -150,6 +150,8 @@ public class MediaEditActivity extends AppCompatActivity {
     private TextView     btnEditHd, btnEditTrim;
     private HorizontalScrollView emojiRowScroll;
     private LinearLayout emojiRowContent, thumbStripContent, filterStripContent, drawColorRow;
+    private final List<ImageView> filterCheckViews = new ArrayList<>();
+    private boolean filterPanelOpen = false;
     private View         emojiRow, drawToolsRow, filterPanel, bottomBar, tvSwipeHint;
     private EditText     etCaption;
     private SeekBar      sbBrushSize;
@@ -378,6 +380,8 @@ public class MediaEditActivity extends AppCompatActivity {
     private void hideAllToolRows() {
         if (emojiRow     != null) emojiRow.setVisibility(View.GONE);
         if (drawToolsRow != null) drawToolsRow.setVisibility(View.GONE);
+        if (bottomBar    != null) bottomBar.setVisibility(View.VISIBLE);
+        if (tvSwipeHint  != null && !current().isVideo) tvSwipeHint.setVisibility(View.VISIBLE);
         drawModeActive = false;
         drawOverlay.setDrawingEnabled(false);
     }
@@ -393,134 +397,321 @@ public class MediaEditActivity extends AppCompatActivity {
 
     // ── Draw tools ────────────────────────────────────────────────────────
 
+    /** Currently selected draw color (default red); synced with eraser state. */
+    private int     activeDrawColor = Color.RED;
+    private boolean eraserActive    = false;
+    private View    dotBrushSmall, dotBrushLarge;
+
     private void setupDrawTools() {
-        // Color dots
+        dotBrushSmall = findViewById(R.id.dotBrushSmall);
+        dotBrushLarge = findViewById(R.id.dotBrushLarge);
+
+        // ── Color swatches — circular, with border ring on selected ──
         if (drawColorRow != null) {
-            for (int color : TEXT_COLORS) {
+            drawColorRow.removeAllViews();
+            int[] colors = {
+                Color.WHITE, Color.BLACK,
+                0xFFFF5252, 0xFFFF9800, 0xFFFFEB3B,
+                0xFF4CAF50, 0xFF2196F3, 0xFF9C27B0,
+                0xFFFF4081, 0xFF00BCD4
+            };
+            for (int color : colors) {
+                android.widget.FrameLayout wrapper = new android.widget.FrameLayout(this);
+                LinearLayout.LayoutParams wlp = new LinearLayout.LayoutParams(dp(38), dp(38));
+                wlp.setMarginEnd(dp(6));
+                wrapper.setLayoutParams(wlp);
+
+                // Outer ring (white border — visible when selected)
+                View ring = new View(this);
+                android.widget.FrameLayout.LayoutParams rlp =
+                        new android.widget.FrameLayout.LayoutParams(dp(38), dp(38));
+                ring.setLayoutParams(rlp);
+                ring.setBackground(makeCircle(Color.WHITE));
+                ring.setAlpha(0f); // hidden by default
+                wrapper.addView(ring);
+
+                // Color circle
                 View dot = new View(this);
-                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(26), dp(26));
-                lp.setMarginEnd(dp(10));
-                dot.setLayoutParams(lp);
-                dot.setBackgroundColor(color);
+                android.widget.FrameLayout.LayoutParams dlp =
+                        new android.widget.FrameLayout.LayoutParams(dp(28), dp(28));
+                dlp.gravity = android.view.Gravity.CENTER;
+                dot.setLayoutParams(dlp);
+                dot.setBackground(makeCircle(color));
+                wrapper.addView(dot);
+
                 final int dotColor = color;
-                dot.setOnClickListener(v -> {
-                    drawOverlay.setActiveColor(dotColor);
-                    // Highlight selected
-                    for (int ci = 0; ci < drawColorRow.getChildCount(); ci++) {
-                        drawColorRow.getChildAt(ci).setAlpha(0.5f);
-                    }
-                    dot.setAlpha(1f);
+                final View dotRing = ring;
+                wrapper.setOnClickListener(v -> {
+                    selectDrawColor(dotColor, dotRing);
                 });
-                dot.setAlpha(color == Color.RED ? 1f : 0.5f);
-                drawColorRow.addView(dot);
+                drawColorRow.addView(wrapper);
+            }
+            // Select default (first = white)
+            if (drawColorRow.getChildCount() > 0) {
+                View firstRing = ((android.widget.FrameLayout) drawColorRow.getChildAt(0))
+                        .getChildAt(0);
+                firstRing.setAlpha(1f);
+                activeDrawColor = Color.WHITE;
+                drawOverlay.setActiveColor(activeDrawColor);
             }
         }
 
-        // Brush size slider
+        // ── Brush size slider ──
         if (sbBrushSize != null) {
-            sbBrushSize.setMax(40);
-            sbBrushSize.setProgress(6);
+            sbBrushSize.setMax(44);
+            sbBrushSize.setProgress(8);
+            drawOverlay.setActiveWidthDp(8);
             sbBrushSize.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
                 @Override public void onProgressChanged(SeekBar sb, int p, boolean u) {
-                    drawOverlay.setActiveWidthDp(Math.max(2, p));
+                    int size = Math.max(2, p);
+                    drawOverlay.setActiveWidthDp(size);
+                    // Animate the large dot to reflect current size
+                    if (dotBrushLarge != null) {
+                        int dotPx = Math.max(dp(6), Math.min(dp(28), (int)(size * getResources().getDisplayMetrics().density * 0.8f)));
+                        android.widget.FrameLayout.LayoutParams lp2 =
+                                new android.widget.FrameLayout.LayoutParams(dotPx, dotPx);
+                        dotBrushLarge.setLayoutParams(lp2);
+                    }
                 }
                 @Override public void onStartTrackingTouch(SeekBar sb) {}
                 @Override public void onStopTrackingTouch(SeekBar sb) {}
             });
         }
 
-        // Undo
-        View btnUndo = findViewById(R.id.btnDrawUndo);
-        if (btnUndo != null) btnUndo.setOnClickListener(v -> drawOverlay.undoLastStroke());
-
-        // Done
-        View btnDrawDone = findViewById(R.id.btnDrawDone);
-        if (btnDrawDone != null) btnDrawDone.setOnClickListener(v -> {
-            drawModeActive = false;
-            drawOverlay.setDrawingEnabled(false);
-            if (drawToolsRow != null) drawToolsRow.setVisibility(View.GONE);
+        // ── Eraser toggle ──
+        View btnEraser = findViewById(R.id.btnDrawEraser);
+        if (btnEraser != null) btnEraser.setOnClickListener(v -> {
+            eraserActive = !eraserActive;
+            if (eraserActive) {
+                drawOverlay.setEraserMode(true);
+                btnEraser.setAlpha(1f);
+                btnEraser.setBackgroundColor(0x4440C060);
+            } else {
+                drawOverlay.setEraserMode(false);
+                drawOverlay.setActiveColor(activeDrawColor);
+                btnEraser.setAlpha(0.7f);
+                btnEraser.setBackground(getDrawable(R.drawable.bg_media_edit_toolbtn));
+            }
         });
+
+        // ── Undo ──
+        View btnUndo = findViewById(R.id.btnDrawUndo);
+        if (btnUndo != null) btnUndo.setOnClickListener(v -> {
+            drawOverlay.undoLastStroke();
+        });
+
+        // ── Clear all ──
+        View btnClear = findViewById(R.id.btnDrawClear);
+        if (btnClear != null) btnClear.setOnClickListener(v -> {
+            new android.app.AlertDialog.Builder(this)
+                .setMessage("Clear all drawing?")
+                .setPositiveButton("Clear", (d, w) -> {
+                    drawOverlay.clearStrokes();
+                    current().strokes.clear();
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+        });
+
+        // ── Done ──
+        View btnDrawDone = findViewById(R.id.btnDrawDone);
+        if (btnDrawDone != null) btnDrawDone.setOnClickListener(v -> exitDrawMode());
+    }
+
+    /** Selects a color swatch — highlights its ring, updates overlay. */
+    private void selectDrawColor(int color, View selectedRing) {
+        // Deselect all rings
+        if (drawColorRow != null) {
+            for (int ci = 0; ci < drawColorRow.getChildCount(); ci++) {
+                android.widget.FrameLayout wrapper =
+                        (android.widget.FrameLayout) drawColorRow.getChildAt(ci);
+                wrapper.getChildAt(0).setAlpha(0f);
+            }
+        }
+        // Activate this ring
+        if (selectedRing != null) selectedRing.setAlpha(1f);
+        // Apply color
+        activeDrawColor = color;
+        eraserActive    = false;
+        drawOverlay.setActiveColor(color);
+        // Reset eraser button style
+        View btnEraser = findViewById(R.id.btnDrawEraser);
+        if (btnEraser != null) {
+            btnEraser.setAlpha(0.7f);
+            btnEraser.setBackground(getDrawable(R.drawable.bg_media_edit_toolbtn));
+        }
+    }
+
+    /** Builds a circular ShapeDrawable of the given fill color. */
+    private android.graphics.drawable.ShapeDrawable makeCircle(int color) {
+        android.graphics.drawable.ShapeDrawable d =
+                new android.graphics.drawable.ShapeDrawable(new android.graphics.drawable.shapes.OvalShape());
+        d.getPaint().setColor(color);
+        return d;
     }
 
     private void toggleDrawMode() {
-        drawModeActive = !drawModeActive;
-        drawOverlay.setDrawingEnabled(drawModeActive);
-        if (drawToolsRow != null) drawToolsRow.setVisibility(drawModeActive ? View.VISIBLE : View.GONE);
-        if (emojiRow     != null) emojiRow.setVisibility(View.GONE);
-        if (filterPanel  != null && drawModeActive) closeFilterPanel();
-        if (drawModeActive && btnEditDraw != null) btnEditDraw.setAlpha(1f);
-        else if (btnEditDraw != null) btnEditDraw.setAlpha(0.7f);
+        if (drawModeActive) {
+            exitDrawMode();
+        } else {
+            enterDrawMode();
+        }
+    }
+
+    private void enterDrawMode() {
+        drawModeActive = true;
+        drawOverlay.setDrawingEnabled(true);
+        if (filterPanel != null) closeFilterPanel();
+        if (emojiRow    != null) emojiRow.setVisibility(View.GONE);
+
+        // Hide the caption/send bottom bar — draw panel replaces it
+        if (bottomBar   != null) bottomBar.setVisibility(View.GONE);
+        if (tvSwipeHint != null) tvSwipeHint.setVisibility(View.GONE);
+
+        if (drawToolsRow != null) drawToolsRow.setVisibility(View.VISIBLE);
+        if (btnEditDraw  != null) btnEditDraw.setAlpha(1f);
+    }
+
+    private void exitDrawMode() {
+        drawModeActive = false;
+        drawOverlay.setDrawingEnabled(false);
+        eraserActive = false;
+
+        if (drawToolsRow != null) drawToolsRow.setVisibility(View.GONE);
+
+        // Restore the normal bottom bar
+        if (bottomBar   != null) bottomBar.setVisibility(View.VISIBLE);
+        if (tvSwipeHint != null && !current().isVideo) tvSwipeHint.setVisibility(View.VISIBLE);
+
+        if (btnEditDraw != null) btnEditDraw.setAlpha(0.7f);
     }
 
     // ── Filter panel ──────────────────────────────────────────────────────
 
     private void setupFilterPanel() {
         if (filterStripContent == null) return;
+        filterCheckViews.clear();
         filterStripContent.removeAllViews();
-        for (int fi = 0; fi < MediaFilters.NAMES.length; fi++) {
-            final int filterIdx = fi;
-            View item = getLayoutInflater().inflate(R.layout.item_media_edit_filter, filterStripContent, false);
-            TextView label = item.findViewById(R.id.tvFilterName);
-            if (label != null) label.setText(MediaFilters.NAMES[fi]);
-
-            // Filter thumbnail — use a small colour-shifted swatch as preview
-            ImageView thumb = item.findViewById(R.id.ivFilterThumb);
-            if (thumb != null) {
-                int previewColor = MediaFilters.previewColor(fi);
-                thumb.setBackgroundColor(previewColor);
-            }
-
-            item.setOnClickListener(v -> {
-                current().filterIndex = filterIdx;
-                showCurrentItem();
-                // Highlight
-                for (int c = 0; c < filterStripContent.getChildCount(); c++) {
-                    filterStripContent.getChildAt(c).setAlpha(0.6f);
-                }
-                item.setAlpha(1f);
-            });
-            item.setAlpha(fi == 0 ? 1f : 0.6f);
-            filterStripContent.addView(item);
+        for (int i = 0; i < MediaFilters.NAMES.length; i++) {
+            final int index = i;
+            View row = getLayoutInflater().inflate(R.layout.item_media_edit_filter, filterStripContent, false);
+            ImageView thumb = row.findViewById(R.id.ivFilterThumb);
+            ImageView check = row.findViewById(R.id.ivFilterCheck);
+            TextView label  = row.findViewById(R.id.tvFilterName);
+            if (label != null) label.setText(MediaFilters.NAMES[i]);
+            filterCheckViews.add(check);
+            row.setOnClickListener(v -> applyFilter(index));
+            filterStripContent.addView(row);
         }
+        View btnCollapse = findViewById(R.id.btnFilterCollapse);
+        if (btnCollapse != null) btnCollapse.setOnClickListener(v -> closeFilterPanel());
+    }
 
-        View btnCollapseFilter = findViewById(R.id.btnCollapseFilter);
-        if (btnCollapseFilter != null) btnCollapseFilter.setOnClickListener(v -> closeFilterPanel());
+    /**
+     * Loads the current item's image into every filter thumbnail via Glide,
+     * then applies the appropriate ColorMatrix so each thumb shows a live
+     * preview of what that filter will look like on the actual photo.
+     * Must be called each time the filter panel is opened (item may have changed).
+     */
+    private void refreshFilterThumbs() {
+        Uri uri = current().effectiveUri();
+        for (int i = 0; i < filterCheckViews.size(); i++) {
+            final int fi = i;
+            View row = filterStripContent.getChildAt(i);
+            if (row == null) continue;
+            ImageView thumb = row.findViewById(R.id.ivFilterThumb);
+            ImageView check = filterCheckViews.get(i);
+            if (thumb != null) {
+                // Load photo, then apply filter ColorMatrix as overlay
+                Glide.with(this).load(uri).centerCrop()
+                        .listener(new com.bumptech.glide.request.RequestListener<android.graphics.drawable.Drawable>() {
+                            @Override public boolean onLoadFailed(@androidx.annotation.Nullable com.bumptech.glide.load.engine.GlideException e,
+                                    Object model, com.bumptech.glide.request.target.Target<android.graphics.drawable.Drawable> target, boolean isFirstResource) { return false; }
+                            @Override public boolean onResourceReady(android.graphics.drawable.Drawable resource,
+                                    Object model, com.bumptech.glide.request.target.Target<android.graphics.drawable.Drawable> target,
+                                    com.bumptech.glide.load.DataSource dataSource, boolean isFirstResource) {
+                                thumb.setColorFilter(fi == 0 ? null : MediaFilters.filterFor(fi));
+                                return false;
+                            }
+                        })
+                        .into(thumb);
+            }
+            if (check != null) {
+                check.setVisibility(i == current().filterIndex ? View.VISIBLE : View.GONE);
+            }
+        }
+    }
+
+    /**
+     * Applies filter instantly to the preview ImageView (no background thread
+     * needed — ColorMatrixColorFilter is applied directly). Mirrors WhatsApp's
+     * instant tap-to-preview behaviour.
+     */
+    private void applyFilter(int index) {
+        EditState st = current();
+        if (st.isVideo) return;
+        st.filterIndex = index;
+        // Instant live preview on the main ImageView
+        ivPreview.setColorFilter(index == 0 ? null : MediaFilters.filterFor(index));
+        // Update checkmark visibility in the strip
+        for (int i = 0; i < filterCheckViews.size(); i++) {
+            ImageView check = filterCheckViews.get(i);
+            if (check != null) check.setVisibility(i == index ? View.VISIBLE : View.GONE);
+        }
     }
 
     private void openFilterPanel() {
-        if (filterPanel == null) return;
+        if (filterPanel == null || filterPanelOpen) return;
+        if (current().isVideo) return; // no filters on video
+        filterPanelOpen = true;
+        refreshFilterThumbs();
         filterPanel.setVisibility(View.VISIBLE);
-        filterPanel.setTranslationY(filterPanel.getHeight());
-        filterPanel.animate().translationY(0).setDuration(280)
-                .setInterpolator(new OvershootInterpolator(1.2f)).start();
         if (bottomBar   != null) bottomBar.setVisibility(View.GONE);
         if (tvSwipeHint != null) tvSwipeHint.setVisibility(View.GONE);
+        filterPanel.setTranslationY(filterPanel.getHeight() > 0 ? filterPanel.getHeight() : dp(220));
+        filterPanel.animate().translationY(0).setDuration(220).start();
     }
 
     private void closeFilterPanel() {
-        if (filterPanel == null) return;
-        filterPanel.animate().translationY(filterPanel.getHeight()).setDuration(220)
+        if (!filterPanelOpen) return;
+        filterPanelOpen = false;
+        float slideAmt = filterPanel.getHeight() > 0 ? filterPanel.getHeight() : dp(220);
+        filterPanel.animate().translationY(slideAmt).setDuration(200)
                 .withEndAction(() -> {
-                    filterPanel.setVisibility(View.GONE);
+                    filterPanel.setVisibility(View.INVISIBLE);
                     if (bottomBar   != null) bottomBar.setVisibility(View.VISIBLE);
-                    if (tvSwipeHint != null) tvSwipeHint.setVisibility(View.VISIBLE);
+                    if (!current().isVideo && tvSwipeHint != null)
+                        tvSwipeHint.setVisibility(View.VISIBLE);
                 }).start();
     }
 
-    // ── Swipe-up gesture → filter panel ──────────────────────────────────
+    // ── Swipe-up gesture → open filter panel; swipe-down → close ─────────
 
     private void setupFilterSwipeGesture() {
         View mediaContainer = findViewById(R.id.mediaContainer);
         if (mediaContainer == null) return;
         GestureDetector gd = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
-            @Override public boolean onFling(MotionEvent e1, MotionEvent e2, float vx, float vy) {
-                if (e1 != null && e2 != null && (e1.getY() - e2.getY()) > 80 && Math.abs(vy) > 400) {
+            @Override
+            public boolean onDown(MotionEvent e) {
+                // Return true so the GestureDetector keeps routing MOVE/UP events.
+                return true;
+            }
+            @Override
+            public boolean onFling(MotionEvent e1, MotionEvent e2, float velocityX, float velocityY) {
+                if (e1 == null) return false;
+                float deltaY = e2.getY() - e1.getY();
+                // Swipe UP → open filter panel
+                if (!filterPanelOpen && deltaY < -80 && velocityY < -400) {
                     openFilterPanel();
+                    return true;
+                }
+                // Swipe DOWN → close filter panel
+                if (filterPanelOpen && deltaY > 80 && velocityY > 400) {
+                    closeFilterPanel();
                     return true;
                 }
                 return false;
             }
-            @Override public boolean onDown(MotionEvent e) { return true; }
         });
         mediaContainer.setOnTouchListener((v, event) -> {
             if (drawModeActive) return false; // let draw overlay handle it

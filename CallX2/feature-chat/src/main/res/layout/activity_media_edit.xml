@@ -219,83 +219,181 @@
             android:gravity="center_vertical"/>
     </HorizontalScrollView>
 
-    <!-- ── Draw tools row (shown while draw mode active) ────────────── -->
+    <!-- ══════════════════════════════════════════════════════════════════
+         Draw tools panel — slides up from BOTTOM, fully replaces bottomBar
+         while pencil/draw mode is active. Contains:
+           Row 1 : color palette (horizontal scroll of circles)
+           Row 2 : eraser toggle | brush size label | SeekBar | brush preview dot
+           Row 3 : Undo  ·  spacer  ·  Done
+         All rows are always visible — no marginBottom hack needed because
+         bottomBar is hidden programmatically when this panel shows.
+         ══════════════════════════════════════════════════════════════════ -->
     <LinearLayout
         android:id="@+id/drawToolsRow"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
-        android:layout_marginBottom="118dp"
         android:orientation="vertical"
-        android:background="#CC000000"
-        android:paddingStart="12dp"
-        android:paddingEnd="12dp"
-        android:paddingTop="8dp"
-        android:paddingBottom="6dp"
+        android:background="#EE111111"
+        android:paddingBottom="20dp"
+        android:elevation="8dp"
         android:visibility="gone">
 
-        <!-- Color dot row -->
-        <LinearLayout
-            android:id="@+id/drawColorRow"
-            android:layout_width="wrap_content"
-            android:layout_height="32dp"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:layout_marginBottom="6dp"/>
+        <!-- ── Row 0: thin top drag handle indicator ── -->
+        <View
+            android:layout_width="36dp"
+            android:layout_height="3dp"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginTop="8dp"
+            android:layout_marginBottom="10dp"
+            android:background="#55FFFFFF"/>
 
-        <!-- Brush size row -->
+        <!-- ── Row 1: Color swatches (horizontal scroll) ── -->
+        <HorizontalScrollView
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:scrollbars="none"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:clipToPadding="false">
+
+            <LinearLayout
+                android:id="@+id/drawColorRow"
+                android:layout_width="wrap_content"
+                android:layout_height="match_parent"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"/>
+        </HorizontalScrollView>
+
+        <!-- ── Row 2: Eraser + Size label + SeekBar + preview dot ── -->
         <LinearLayout
             android:id="@+id/brushSizeRow"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
+            android:layout_height="48dp"
             android:orientation="horizontal"
             android:gravity="center_vertical"
-            android:layout_marginBottom="6dp">
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:layout_marginTop="4dp">
 
+            <!-- Eraser toggle -->
             <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Size"
-                android:textColor="#AAAAAA"
-                android:textSize="12sp"
+                android:id="@+id/btnDrawEraser"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:text="⌫"
+                android:textSize="18sp"
+                android:textColor="#CCFFFFFF"
+                android:gravity="center"
+                android:background="@drawable/bg_media_edit_toolbtn"
+                android:layout_marginEnd="10dp"
+                android:clickable="true"
+                android:focusable="true"
+                android:contentDescription="Eraser"/>
+
+            <!-- Small brush preview dot (left) -->
+            <View
+                android:id="@+id/dotBrushSmall"
+                android:layout_width="4dp"
+                android:layout_height="4dp"
+                android:background="#AAFFFFFF"
                 android:layout_marginEnd="8dp"/>
 
+            <!-- Brush size SeekBar -->
             <SeekBar
                 android:id="@+id/sbBrushSize"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:max="40"
-                android:progress="6"
+                android:max="44"
+                android:progress="8"
                 android:progressTint="#FFFFFF"
                 android:thumbTint="#FFFFFF"/>
 
-            <!-- Undo -->
-            <TextView
+            <!-- Large brush preview dot (right) -->
+            <View
+                android:id="@+id/dotBrushLarge"
+                android:layout_width="20dp"
+                android:layout_height="20dp"
+                android:background="#AAFFFFFF"
+                android:layout_marginStart="8dp"/>
+
+        </LinearLayout>
+
+        <!-- ── Row 3: Undo · Eraser hint · Done ── -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:layout_marginTop="2dp">
+
+            <!-- Undo button -->
+            <LinearLayout
                 android:id="@+id/btnDrawUndo"
                 android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="↩ Undo"
-                android:textColor="#FFFFFF"
+                android:layout_height="36dp"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:background="@drawable/bg_media_edit_toolbtn"
+                android:paddingStart="14dp"
+                android:paddingEnd="14dp"
+                android:clickable="true"
+                android:focusable="true">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="↩"
+                    android:textColor="#FFFFFF"
+                    android:textSize="16sp"
+                    android:layout_marginEnd="5dp"/>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Undo"
+                    android:textColor="#DDDDDD"
+                    android:textSize="13sp"/>
+            </LinearLayout>
+
+            <View android:layout_width="0dp" android:layout_height="1dp" android:layout_weight="1"/>
+
+            <!-- Clear all strokes -->
+            <TextView
+                android:id="@+id/btnDrawClear"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:text="Clear"
+                android:textColor="#FF6666"
                 android:textSize="13sp"
-                android:paddingStart="12dp"
-                android:paddingEnd="6dp"
+                android:gravity="center"
+                android:paddingStart="14dp"
+                android:paddingEnd="14dp"
+                android:background="@drawable/bg_media_edit_toolbtn"
+                android:layout_marginEnd="8dp"
                 android:clickable="true"
                 android:focusable="true"/>
 
-            <!-- Done -->
+            <!-- Done drawing -->
             <TextView
                 android:id="@+id/btnDrawDone"
                 android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
+                android:layout_height="36dp"
                 android:text="Done"
-                android:textColor="#40C060"
-                android:textSize="13sp"
+                android:textColor="#000000"
+                android:textSize="14sp"
                 android:textStyle="bold"
-                android:paddingStart="8dp"
+                android:gravity="center"
+                android:background="#40C060"
+                android:paddingStart="22dp"
+                android:paddingEnd="22dp"
                 android:clickable="true"
                 android:focusable="true"/>
         </LinearLayout>
+
     </LinearLayout>
 
     <!-- ── Swipe hint ────────────────────────────────────────────────── -->
@@ -427,7 +525,7 @@
             android:orientation="horizontal">
 
             <TextView
-                android:id="@+id/btnCollapseFilter"
+                android:id="@+id/btnFilterCollapse"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="↓ Filters"

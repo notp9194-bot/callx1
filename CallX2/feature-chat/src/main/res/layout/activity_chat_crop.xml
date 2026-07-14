@@ -1,6 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Chat Image Crop Screen — interactive drag-handle crop with aspect-ratio presets.
+  WhatsApp-grade crop screen.
+
+  Layout stack (back → front):
+   1. CropOverlayView — fills remaining space, renders image + dim overlay
+      + rule-of-thirds grid + corner/edge handles. Handles all touch:
+        • Near a handle → resize crop box
+        • Elsewhere     → pan / pinch-zoom the image under the box
+   2. Top bar: Cancel | "Crop" title | Rotate icon | Done
+   3. Bottom bar: aspect-ratio chip strip + current aspect label
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
@@ -9,18 +17,19 @@
     android:background="#000000"
     android:fitsSystemWindows="false">
 
-    <!-- ── Top bar ─────────────────────────────────────────────────────── -->
+    <!-- ── Top bar ────────────────────────────────────────────────── -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:paddingStart="12dp"
-        android:paddingEnd="16dp"
+        android:paddingStart="6dp"
+        android:paddingEnd="10dp"
         android:paddingTop="36dp"
         android:paddingBottom="10dp"
-        android:background="#BB000000">
+        android:background="#CC000000">
 
+        <!-- Cancel -->
         <TextView
             android:id="@+id/chat_crop_btn_cancel"
             android:layout_width="wrap_content"
@@ -28,10 +37,14 @@
             android:text="Cancel"
             android:textColor="#AAAAAA"
             android:textSize="15sp"
-            android:paddingEnd="12dp"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp"
             android:clickable="true"
             android:focusable="true"/>
 
+        <!-- Title -->
         <TextView
             android:layout_width="0dp"
             android:layout_height="wrap_content"
@@ -43,6 +56,20 @@
             android:gravity="center"
             android:fontFamily="sans-serif-medium"/>
 
+        <!-- Rotate 90° button -->
+        <ImageButton
+            android:id="@+id/chat_crop_btn_rotate"
+            style="?android:attr/borderlessButtonStyle"
+            android:layout_width="42dp"
+            android:layout_height="42dp"
+            android:src="@drawable/ic_media_edit_rotate"
+            android:scaleType="center"
+            android:padding="9dp"
+            android:background="@drawable/bg_media_edit_toolbtn"
+            android:layout_marginEnd="6dp"
+            android:contentDescription="Rotate 90°"/>
+
+        <!-- Done -->
         <TextView
             android:id="@+id/chat_crop_btn_done"
             android:layout_width="wrap_content"
@@ -59,29 +86,49 @@
             android:focusable="true"/>
     </LinearLayout>
 
-    <!-- ── Crop view (fills remaining space) ───────────────────────────── -->
+    <!-- ── Crop canvas — fills all remaining space ────────────────── -->
     <com.callx.app.conversation.controllers.CropOverlayView
         android:id="@+id/chat_crop_view"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"/>
 
-    <!-- ── Aspect ratio preset chips ────────────────────────────────────── -->
-    <HorizontalScrollView
+    <!-- ── Bottom bar: aspect chips + label ──────────────────────── -->
+    <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="56dp"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
         android:background="#111111"
-        android:scrollbars="none"
-        android:fillViewport="false">
+        android:paddingTop="10dp"
+        android:paddingBottom="12dp">
 
-        <LinearLayout
-            android:id="@+id/chat_crop_aspect_row"
+        <!-- Current aspect ratio label -->
+        <TextView
+            android:id="@+id/chat_crop_aspect_label"
             android:layout_width="wrap_content"
-            android:layout_height="match_parent"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:paddingStart="12dp"
-            android:paddingEnd="12dp"/>
-    </HorizontalScrollView>
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal"
+            android:text="Free"
+            android:textColor="#AAAAAA"
+            android:textSize="12sp"
+            android:layout_marginBottom="8dp"/>
+
+        <!-- Aspect ratio chip scroll strip -->
+        <HorizontalScrollView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:scrollbars="none"
+            android:fillViewport="false">
+
+            <LinearLayout
+                android:id="@+id/chat_crop_aspect_row"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"/>
+        </HorizontalScrollView>
+    </LinearLayout>
 
 </LinearLayout>
