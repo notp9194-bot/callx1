@@ -529,7 +529,22 @@ public final class AttachSheetRecentMediaBinder {
         // setMaxHeight() is always the more conservative of the two, so it
         // can never be too tall — the later refresh can only tighten it
         // further, never loosen it past a safe bound.
-        int rawScreenHeightPx = activity.getResources().getDisplayMetrics().heightPixels;
+        //
+        // DisplayMetrics#heightPixels excludes the navigation bar, while the
+        // dialog's decorView is edge-to-edge and genuinely extends behind it.
+        // Clamping straight against heightPixels therefore shrank the ceiling
+        // by the navigation bar's height, so on the very first STATE_EXPANDED
+        // layout (before any nested-scroll pass forced CoordinatorLayout to
+        // re-settle against the sheet's real bounds) the bottom selection bar
+        // landed short of the screen edge — floating above the nav bar with a
+        // gap instead of sitting right above it. Add the nav bar inset back
+        // in so the clamp matches the decorView's true edge-to-edge height.
+        int navBarInsetPx = 0;
+        if (insets != null) {
+            navBarInsetPx = insets.getInsets(
+                    androidx.core.view.WindowInsetsCompat.Type.navigationBars()).bottom;
+        }
+        int rawScreenHeightPx = activity.getResources().getDisplayMetrics().heightPixels + navBarInsetPx;
         windowHeightPx = Math.min(windowHeightPx, rawScreenHeightPx);
 
         return windowHeightPx - statusBarInsetPx - topGapPx;
