@@ -1,0 +1,323 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Chat Sticker Picker — full tabbed picker (Emoji / Text / GIF / Trending).
+  Dark bottom-sheet style to match the media editor.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="#121212"
+    android:fitsSystemWindows="false">
+
+    <!-- ── Top handle + close ──────────────────────────────────────────── -->
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="52dp"
+        android:paddingTop="8dp">
+
+        <View
+            android:layout_width="36dp"
+            android:layout_height="4dp"
+            android:layout_gravity="top|center_horizontal"
+            android:background="#55FFFFFF"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:text="Add Sticker"
+            android:textColor="#FFFFFF"
+            android:textSize="16sp"
+            android:textStyle="bold"/>
+
+        <ImageButton
+            android:id="@+id/chat_sticker_btn_close"
+            style="?android:attr/borderlessButtonStyle"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:layout_gravity="end|center_vertical"
+            android:layout_marginEnd="8dp"
+            android:src="@drawable/ic_media_edit_close"
+            android:scaleType="center"
+            android:padding="10dp"
+            android:contentDescription="Close"/>
+    </FrameLayout>
+
+    <!-- ── Tab row ─────────────────────────────────────────────────────── -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:orientation="horizontal"
+        android:background="#1E1E1E">
+
+        <TextView
+            android:id="@+id/chat_sticker_tab_emoji"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:text="😊 Emoji"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp"
+            android:gravity="center"
+            android:clickable="true"
+            android:focusable="true"/>
+
+        <TextView
+            android:id="@+id/chat_sticker_tab_text"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:text="Aa Text"
+            android:textColor="#AAAAAA"
+            android:textSize="13sp"
+            android:gravity="center"
+            android:clickable="true"
+            android:focusable="true"/>
+
+        <TextView
+            android:id="@+id/chat_sticker_tab_gif"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:text="GIF"
+            android:textColor="#AAAAAA"
+            android:textSize="13sp"
+            android:gravity="center"
+            android:clickable="true"
+            android:focusable="true"/>
+
+        <TextView
+            android:id="@+id/chat_sticker_tab_trending"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:text="🔥 Hot"
+            android:textColor="#AAAAAA"
+            android:textSize="13sp"
+            android:gravity="center"
+            android:clickable="true"
+            android:focusable="true"/>
+    </LinearLayout>
+
+    <!-- ── Search bar (emoji / gif / trending) ─────────────────────────── -->
+    <EditText
+        android:id="@+id/chat_sticker_search"
+        android:layout_width="match_parent"
+        android:layout_height="42dp"
+        android:layout_marginStart="12dp"
+        android:layout_marginEnd="12dp"
+        android:layout_marginTop="8dp"
+        android:layout_marginBottom="4dp"
+        android:background="#2A2A2A"
+        android:paddingStart="14dp"
+        android:paddingEnd="14dp"
+        android:hint="Search emoji…"
+        android:textColorHint="#666666"
+        android:textColor="#FFFFFF"
+        android:textSize="14sp"
+        android:inputType="text"
+        android:singleLine="true"
+        android:imeOptions="actionSearch"
+        android:visibility="visible"/>
+
+    <!-- ── Emoji / GIF / Trending grid ─────────────────────────────────── -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/chat_sticker_rv"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:clipToPadding="false"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp"
+        android:paddingTop="4dp"
+        android:paddingBottom="16dp"/>
+
+    <!-- ── Text editor (shown when TEXT tab is active) ─────────────────── -->
+    <LinearLayout
+        android:id="@+id/chat_sticker_text_editor"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:visibility="gone"
+        android:background="#121212">
+
+        <!-- Large text input -->
+        <EditText
+            android:id="@+id/chat_sticker_text_input"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:layout_marginStart="16dp"
+            android:layout_marginEnd="16dp"
+            android:layout_marginTop="12dp"
+            android:background="#1E1E1E"
+            android:padding="14dp"
+            android:hint="Type your text…"
+            android:textColorHint="#666666"
+            android:textColor="#FFFFFF"
+            android:textSize="22sp"
+            android:gravity="center"
+            android:inputType="text|textMultiLine"
+            android:maxLines="4"/>
+
+        <!-- Font color picker -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Color"
+            android:textColor="#AAAAAA"
+            android:textSize="12sp"
+            android:paddingStart="16dp"
+            android:paddingTop="10dp"
+            android:paddingBottom="6dp"/>
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/chat_sticker_rv_colors"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:clipToPadding="false"/>
+
+        <!-- Font family picker -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Font"
+            android:textColor="#AAAAAA"
+            android:textSize="12sp"
+            android:paddingStart="16dp"
+            android:paddingTop="8dp"
+            android:paddingBottom="6dp"/>
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/chat_sticker_rv_fonts"
+            android:layout_width="match_parent"
+            android:layout_height="40dp"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:clipToPadding="false"/>
+
+        <!-- Bold / Italic / Alignment / Background row -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:paddingTop="6dp">
+
+            <TextView
+                android:id="@+id/chat_sticker_btn_bold"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:text="B"
+                android:textColor="#FFFFFF"
+                android:textSize="17sp"
+                android:textStyle="bold"
+                android:gravity="center"
+                android:background="#2A2A2A"
+                android:layout_marginEnd="8dp"
+                android:alpha="0.45"
+                android:clickable="true"
+                android:focusable="true"/>
+
+            <TextView
+                android:id="@+id/chat_sticker_btn_italic"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:text="I"
+                android:textColor="#FFFFFF"
+                android:textSize="17sp"
+                android:textStyle="italic"
+                android:gravity="center"
+                android:background="#2A2A2A"
+                android:layout_marginEnd="8dp"
+                android:alpha="0.45"
+                android:clickable="true"
+                android:focusable="true"/>
+
+            <View android:layout_width="0dp" android:layout_height="1dp" android:layout_weight="1"/>
+
+            <TextView
+                android:id="@+id/chat_sticker_btn_align_left"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:text="⫷"
+                android:textColor="#FFFFFF"
+                android:textSize="16sp"
+                android:gravity="center"
+                android:background="#2A2A2A"
+                android:layout_marginEnd="6dp"
+                android:alpha="0.45"
+                android:clickable="true"
+                android:focusable="true"/>
+
+            <TextView
+                android:id="@+id/chat_sticker_btn_align_center"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:text="≡"
+                android:textColor="#FFFFFF"
+                android:textSize="16sp"
+                android:gravity="center"
+                android:background="#2A2A2A"
+                android:layout_marginEnd="6dp"
+                android:alpha="1"
+                android:clickable="true"
+                android:focusable="true"/>
+
+            <TextView
+                android:id="@+id/chat_sticker_btn_align_right"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:text="⫸"
+                android:textColor="#FFFFFF"
+                android:textSize="16sp"
+                android:gravity="center"
+                android:background="#2A2A2A"
+                android:layout_marginEnd="8dp"
+                android:alpha="0.45"
+                android:clickable="true"
+                android:focusable="true"/>
+
+            <TextView
+                android:id="@+id/chat_sticker_btn_bg"
+                android:layout_width="wrap_content"
+                android:layout_height="40dp"
+                android:text="Bg"
+                android:textColor="#FFFFFF"
+                android:textSize="13sp"
+                android:gravity="center"
+                android:background="#2A2A2A"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:alpha="0.45"
+                android:clickable="true"
+                android:focusable="true"/>
+        </LinearLayout>
+
+        <!-- Done button -->
+        <TextView
+            android:id="@+id/chat_sticker_btn_text_done"
+            android:layout_width="match_parent"
+            android:layout_height="50dp"
+            android:layout_marginStart="16dp"
+            android:layout_marginEnd="16dp"
+            android:layout_marginTop="8dp"
+            android:layout_marginBottom="16dp"
+            android:text="Add Text"
+            android:textColor="#000000"
+            android:textSize="15sp"
+            android:textStyle="bold"
+            android:gravity="center"
+            android:background="#FFFFFF"
+            android:clickable="true"
+            android:focusable="true"/>
+
+    </LinearLayout>
+
+</LinearLayout>

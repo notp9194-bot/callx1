@@ -30,30 +30,52 @@
             android:excludeFromRecents="true"
             android:noHistory="true"/>
 
-        <!-- Contact share picker — launched via startActivityForResult from ChatActivity / GroupChatActivity -->
+        <!-- Contact share picker -->
         <activity android:name="com.callx.app.chat.ContactSharePickerActivity"
             android:exported="false"/>
 
-        <!-- Location share picker — launched via startActivityForResult from ChatActivity / GroupChatActivity -->
+        <!-- Location share picker -->
         <activity android:name="com.callx.app.chat.LocationSharePickerActivity"
             android:exported="false"/>
 
-        <!-- GIF picker (Tenor search) — launched via ActivityResultLauncher from
-             ChatMediaController / GroupChatActivity's attach sheet "GIF" option. -->
+        <!-- GIF picker (Tenor search) -->
         <activity android:name="com.callx.app.chat.ChatGifPickerActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize"
             android:label="Choose GIF"/>
 
-        <!-- Full-screen photo editor opened from the attach sheet's "Edit"
-             action — rotate/crop, sticker, text, freehand draw, and the
-             swipe-up filter carousel. Launched via ActivityResultLauncher
-             from ChatMediaController / GroupChatActivity. -->
+        <!-- ──────────────────────────────────────────────────────────────
+             MEDIA EDITING SYSTEM — comprehensive production-level editors
+             ────────────────────────────────────────────────────────────── -->
+
+        <!-- Main photo/video editor: rotate, crop, stickers, text, draw, filters, video trim -->
         <activity android:name="com.callx.app.conversation.controllers.MediaEditActivity"
             android:exported="false"
             android:theme="@style/Theme.AppCompat.NoActionBar"
             android:windowSoftInputMode="adjustResize"
             android:screenOrientation="portrait"/>
+
+        <!-- Dedicated video trim screen: dual-handle range selector + MediaMuxer trim -->
+        <activity android:name="com.callx.app.conversation.controllers.ChatVideoTrimActivity"
+            android:exported="false"
+            android:theme="@style/Theme.AppCompat.NoActionBar"
+            android:screenOrientation="portrait"
+            android:label="Trim Video"/>
+
+        <!-- Dedicated image crop screen: drag-handle crop + aspect-ratio presets -->
+        <activity android:name="com.callx.app.conversation.controllers.ChatImageCropActivity"
+            android:exported="false"
+            android:theme="@style/Theme.AppCompat.NoActionBar"
+            android:screenOrientation="portrait"
+            android:label="Crop Image"/>
+
+        <!-- Full sticker/emoji/text/GIF picker: tabbed, searchable, font picker -->
+        <activity android:name="com.callx.app.conversation.controllers.ChatStickerPickerActivity"
+            android:exported="false"
+            android:theme="@style/Theme.AppCompat.NoActionBar"
+            android:windowSoftInputMode="adjustResize"
+            android:screenOrientation="portrait"
+            android:label="Add Sticker"/>
 
     </application>
 </manifest>

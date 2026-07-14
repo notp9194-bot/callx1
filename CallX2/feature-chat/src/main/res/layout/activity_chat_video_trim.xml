@@ -1,0 +1,221 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Chat Video Trim Screen — production-level video range selector.
+  Dark theme matching the rest of the media editor.
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#000000"
+    android:fitsSystemWindows="false">
+
+    <!-- ── Top bar ─────────────────────────────────────────────────────── -->
+    <LinearLayout
+        android:id="@+id/chat_trim_topbar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="12dp"
+        android:paddingEnd="16dp"
+        android:paddingTop="36dp"
+        android:paddingBottom="10dp"
+        android:background="#BB000000">
+
+        <ImageButton
+            android:id="@+id/chat_trim_btn_close"
+            style="?android:attr/borderlessButtonStyle"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:src="@drawable/ic_media_edit_close"
+            android:scaleType="center"
+            android:padding="10dp"
+            android:contentDescription="Close"/>
+
+        <TextView
+            android:id="@+id/chat_trim_title"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Trim Video"
+            android:textColor="#FFFFFF"
+            android:textSize="17sp"
+            android:textStyle="bold"
+            android:gravity="center"
+            android:fontFamily="sans-serif-medium"/>
+
+        <!-- Done / Trim button -->
+        <TextView
+            android:id="@+id/chat_trim_btn_done"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:text="Trim"
+            android:textColor="#000000"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:gravity="center"
+            android:background="#40C060"
+            android:paddingStart="20dp"
+            android:paddingEnd="20dp"
+            android:clickable="true"
+            android:focusable="true"/>
+    </LinearLayout>
+
+    <!-- ── Video preview ────────────────────────────────────────────────── -->
+    <VideoView
+        android:id="@+id/chat_trim_preview"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_gravity="center"
+        android:layout_marginTop="82dp"
+        android:layout_marginBottom="220dp"/>
+
+    <!-- ── Play button centred on video ────────────────────────────────── -->
+    <TextView
+        android:id="@+id/chat_trim_btn_play"
+        android:layout_width="64dp"
+        android:layout_height="64dp"
+        android:layout_gravity="center"
+        android:layout_marginBottom="120dp"
+        android:text="▶"
+        android:textColor="#FFFFFF"
+        android:textSize="28sp"
+        android:gravity="center"
+        android:background="#80000000"
+        android:clickable="true"
+        android:focusable="true"/>
+
+    <!-- ── Bottom trim controls ─────────────────────────────────────────── -->
+    <LinearLayout
+        android:id="@+id/chat_trim_bottom_panel"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:orientation="vertical"
+        android:background="#EE111111"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingTop="14dp"
+        android:paddingBottom="28dp">
+
+        <!-- Max duration hint -->
+        <TextView
+            android:id="@+id/chat_trim_tv_max_hint"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Max 60s for chat"
+            android:textColor="#FFCC66"
+            android:textSize="12sp"
+            android:gravity="center"
+            android:paddingBottom="8dp"
+            android:visibility="gone"/>
+
+        <!-- Frame thumbnail strip -->
+        <LinearLayout
+            android:id="@+id/chat_trim_frame_strip"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:orientation="horizontal"
+            android:clipToPadding="false"
+            android:background="#222222"/>
+
+        <!-- Start/End time labels -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:paddingTop="6dp"
+            android:paddingBottom="2dp">
+
+            <TextView
+                android:id="@+id/chat_trim_tv_start"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="0:00"
+                android:textColor="#AAAAAA"
+                android:textSize="12sp"/>
+
+            <TextView
+                android:id="@+id/chat_trim_tv_duration"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="0:00 selected"
+                android:textColor="#FFFFFF"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:gravity="center"/>
+
+            <TextView
+                android:id="@+id/chat_trim_tv_end"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="0:00"
+                android:textColor="#AAAAAA"
+                android:textSize="12sp"
+                android:gravity="end"/>
+        </LinearLayout>
+
+        <!-- Start trim seek bar -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="START"
+            android:textColor="#888888"
+            android:textSize="10sp"
+            android:paddingTop="4dp"/>
+
+        <SeekBar
+            android:id="@+id/chat_trim_sb_start"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:max="1000"
+            android:progressTint="#40C060"
+            android:thumbTint="#40C060"/>
+
+        <!-- End trim seek bar -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="END"
+            android:textColor="#888888"
+            android:textSize="10sp"
+            android:paddingTop="4dp"/>
+
+        <SeekBar
+            android:id="@+id/chat_trim_sb_end"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:max="1000"
+            android:progressTint="#FF6060"
+            android:thumbTint="#FF6060"/>
+
+        <!-- Cancel button -->
+        <TextView
+            android:id="@+id/chat_trim_btn_cancel"
+            android:layout_width="match_parent"
+            android:layout_height="40dp"
+            android:text="Cancel"
+            android:textColor="#AAAAAA"
+            android:textSize="14sp"
+            android:gravity="center"
+            android:paddingTop="10dp"
+            android:clickable="true"
+            android:focusable="true"/>
+
+    </LinearLayout>
+
+    <!-- ── Trim progress bar ─────────────────────────────────────────────── -->
+    <ProgressBar
+        android:id="@+id/chat_trim_progress"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="4dp"
+        android:layout_gravity="bottom"
+        android:progressTint="#40C060"
+        android:max="100"
+        android:visibility="gone"/>
+
+</FrameLayout>

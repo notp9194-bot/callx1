@@ -1,7 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Rotate/refresh icon for the rotate tool -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="24dp" android:height="24dp"
-    android:viewportWidth="24" android:viewportHeight="24">
-    <path android:fillColor="#FFFFFFFF"
-        android:pathData="M12,6v3l4,-4 -4,-4v3c-4.42,0 -8,3.58 -8,8 0,1.57 0.46,3.03 1.24,4.26L6.7,14.8C6.25,13.97 6,13.02 6,12c0,-3.31 2.69,-6 6,-6zM18,12c0,3.31 -2.69,6 -6,6v-3l-4,4 4,4v-3c4.42,0 8,-3.58 8,-8 0,-1.57 -0.46,-3.03 -1.24,-4.26L17.3,9.2C17.75,10.03 18,10.98 18,12z"/>
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M12,6 V3 L8,7 L12,11 V8 C15.31,8 18,10.69 18,14
+                          C18,17.31 15.31,20 12,20 C8.69,20 6,17.31 6,14
+                          H4 C4,18.42 7.58,22 12,22 C16.42,22 20,18.42 20,14
+                          C20,9.58 16.42,6 12,6 Z"/>
 </vector>
