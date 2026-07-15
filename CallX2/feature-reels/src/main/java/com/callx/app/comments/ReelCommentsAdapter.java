@@ -13,6 +13,8 @@ import com.bumptech.glide.request.RequestOptions;
 import com.callx.app.reels.R;
 import com.callx.app.models.ReelComment;
 import com.callx.app.utils.FirebaseUtils;
+import com.callx.app.utils.AvatarUrlBuilder;
+import android.util.LruCache;
 import android.content.Intent;
 import com.google.firebase.database.DataSnapshot;
 import com.google.firebase.database.DatabaseError;
@@ -43,7 +45,16 @@ import com.callx.app.cache.StatusCacheManager;
 public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapter.VH> {
 
     // ── Avatar cache (uid → photoUrl) — avoids repeated Firebase reads ─────
-    private static final HashMap<String, String> avatarCache = new HashMap<>();
+    // PERF FIX: was an unbounded HashMap that grew for the lifetime of the
+    // process (every uid ever scrolled past, never evicted) — a long
+    // session across many reels/comment threads could leak a meaningful
+    // amount of memory. Bounded LruCache caps it at 200 uids and evicts the
+    // least-recently-used entries automatically.
+    private static final LruCache<String, String> avatarCache = new LruCache<>(200);
+
+    // Avatar decode/target size in px — comment avatar is a fixed 36dp
+    // CircleImageView, we request 2x for retina sharpness.
+    private static final int AVATAR_SIZE_DP = 36;
 
     // ── Listener ──────────────────────────────────────────────────────────
     public interface OnCommentActionListener {
@@ -300,8 +311,16 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
 
     private void loadAvatarInto(Context ctx, CircleImageView iv, String url) {
         try {
-            Glide.with(ctx).load(url)
-                .apply(RequestOptions.circleCropTransform())
+            // Routed through the central AvatarUrlBuilder — exact size,
+            // 2x retina, auto-format Cloudinary variant — and .override()
+            // pins the Glide decode size so RecyclerView recycling never
+            // decodes larger than the 36dp circle needs.
+            int sizePx = AvatarUrlBuilder.dpToPx(ctx, AVATAR_SIZE_DP) * 2;
+            String resizedUrl = AvatarUrlBuilder.build(ctx, url, AVATAR_SIZE_DP);
+            Glide.with(ctx).load(resizedUrl)
+                .apply(new RequestOptions()
+                    .circleCrop()
+                    .override(sizePx, sizePx))
                 .placeholder(R.drawable.ic_person)
                 .error(R.drawable.ic_person)
                 .into(iv);

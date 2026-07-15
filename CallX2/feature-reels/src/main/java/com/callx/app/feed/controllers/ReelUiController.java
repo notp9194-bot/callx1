@@ -20,6 +20,7 @@ import com.callx.app.explore.HashtagReelsActivity;
 import com.callx.app.models.ReelModel;
 import com.callx.app.reels.R;
 import com.callx.app.utils.FirebaseUtils;
+import com.callx.app.utils.AvatarUrlBuilder;
 import com.google.firebase.database.FirebaseDatabase;
 import com.google.firebase.database.ServerValue;
 import de.hdodenhof.circleimageview.CircleImageView;
@@ -207,12 +208,22 @@ public class ReelUiController {
         }
 
         // Owner avatar + story ring
+        // PERF FIX: routed through the central AvatarUrlBuilder (exact
+        // size, 2x retina, auto-format Cloudinary variant) instead of
+        // loading the raw stored ownerPhoto URL, and .override() pins the
+        // Glide decode size so recycling never decodes more than needed.
         if (ivOwnerAvatar != null && delegate.isAdded() && delegate.getContext() != null) {
             String photoUrl = reel.ownerPhoto;
             if (photoUrl != null && !photoUrl.isEmpty()) {
-                Glide.with(delegate.requireContext())
-                    .load(photoUrl)
-                    .apply(new RequestOptions().circleCrop().placeholder(R.drawable.ic_person))
+                android.content.Context avatarCtx = delegate.requireContext();
+                int sizePx = AvatarUrlBuilder.dpToPx(avatarCtx, 34) * 2; // 34dp view, 2x retina
+                String resizedUrl = AvatarUrlBuilder.build(avatarCtx, photoUrl, 34);
+                Glide.with(avatarCtx)
+                    .load(resizedUrl)
+                    .apply(new RequestOptions()
+                        .circleCrop()
+                        .override(sizePx, sizePx)
+                        .placeholder(R.drawable.ic_person))
                     .into(ivOwnerAvatar);
             } else {
                 ivOwnerAvatar.setImageResource(R.drawable.ic_person);

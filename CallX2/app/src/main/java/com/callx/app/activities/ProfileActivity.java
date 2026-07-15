@@ -18,6 +18,7 @@ import com.callx.app.databinding.ActivityProfileBinding;
 import com.callx.app.db.AppDatabase;
 import com.callx.app.db.entity.UserEntity;
 import com.callx.app.utils.CloudinaryUploader;
+import com.callx.app.utils.AvatarUrlBuilder;
 import com.callx.app.utils.FirebaseUtils;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.UserProfileChangeRequest;
@@ -88,7 +89,8 @@ public class ProfileActivity extends AppCompatActivity {
                         String cachedThumb = orEmpty(cached.thumbUrl);
                         String cacheDisplayUrl = !cachedThumb.isEmpty() ? cachedThumb : currentPhoto;
                         if (!cacheDisplayUrl.isEmpty()) {
-                            Glide.with(ProfileActivity.this).load(cacheDisplayUrl)
+                            Glide.with(ProfileActivity.this)
+                                .load(AvatarUrlBuilder.build(ProfileActivity.this, cacheDisplayUrl, 120))
                                 .into(binding.ivAvatar);
                         }
                     });
@@ -126,7 +128,8 @@ public class ProfileActivity extends AppCompatActivity {
                     currentPhoto = photo;
                     String displayThumb = !thumb.isEmpty() ? thumb : photo;
                     if (!displayThumb.isEmpty()) {
-                        Glide.with(ProfileActivity.this).load(displayThumb)
+                        Glide.with(ProfileActivity.this)
+                            .load(AvatarUrlBuilder.build(ProfileActivity.this, displayThumb, 120))
                             .into(binding.ivAvatar);
                     }
 
@@ -166,7 +169,8 @@ public class ProfileActivity extends AppCompatActivity {
                         db.userDao().updateThumb(currentUid, thumbUrl);
                     });
                     // Profile screen mein bhi thumb dikhao (snap fast)
-                    Glide.with(ProfileActivity.this).load(thumbUrl)
+                    Glide.with(ProfileActivity.this)
+                        .load(AvatarUrlBuilder.build(ProfileActivity.this, thumbUrl, 120))
                         .into(binding.ivAvatar);
                 }
 
@@ -182,7 +186,8 @@ public class ProfileActivity extends AppCompatActivity {
                         db.userDao().updatePhoto(currentUid, photoUrl);
                     });
                     // Profile screen par full photo reload karo
-                    Glide.with(ProfileActivity.this).load(photoUrl)
+                    Glide.with(ProfileActivity.this)
+                        .load(AvatarUrlBuilder.build(ProfileActivity.this, photoUrl, 120))
                         .into(binding.ivAvatar);
                     Toast.makeText(ProfileActivity.this,
                         "Profile photo update ho gayi", Toast.LENGTH_SHORT).show();
