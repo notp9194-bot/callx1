@@ -173,12 +173,14 @@ public class CommunityRepository {
     // ─────────────────────────────────────────────────────────────
 
     public void createCommunity(String ownerUid, String ownerName, String ownerPhoto,
-                                String name, String description, SimpleCallback cb) {
+                                String name, String description, @Nullable String iconUrl,
+                                ResultCallback<String> cb) {
         String id = UUID.randomUUID().toString();
         long now = System.currentTimeMillis();
         Map<String, Object> data = new HashMap<>();
         data.put("name", name);
         data.put("description", description != null ? description : "");
+        data.put("iconUrl", iconUrl != null ? iconUrl : "");
         data.put("ownerUid", ownerUid);
         data.put("memberCount", 1L);
         data.put("groupCount", 0L);
@@ -202,12 +204,12 @@ public class CommunityRepository {
         batch.put("community_by_owner/" + ownerUid, id);
 
         mFirebase.getReference().updateChildren(batch, (err, ref) -> {
-            if (err != null) { cb.onComplete(false, err.getMessage()); return; }
+            if (err != null) { cb.onResult(null); return; }
             CommunityEntity entity = new CommunityEntity();
             entity.id = id; entity.name = name; entity.description = description;
             entity.ownerUid = ownerUid; entity.memberCount = 1; entity.createdAt = now;
             mExecutor.execute(() -> mDao.insertCommunity(entity));
-            cb.onComplete(true, null);
+            cb.onResult(id);
         });
     }
 
