@@ -36,11 +36,49 @@ public class CloudinaryUploader {
      * back a usable URL either way.
      */
     public static String deriveThumbUrl(String secureUrl, int size) {
+        return deriveThumbUrl(secureUrl, size, "auto");
+    }
+
+    /**
+     * Same as deriveThumbUrl(url, size) but with an explicit Cloudinary
+     * delivery format instead of "f_auto". f_auto is a per-request guess
+     * (content negotiation off the request's Accept header) — it's usually
+     * WebP/AVIF on modern devices but isn't guaranteed, so callers that want
+     * a predictable, always-WebP payload size (e.g. a grid pre-computing an
+     * expected byte budget) should pass "webp" explicitly here instead.
+     */
+    public static String deriveThumbUrl(String secureUrl, int size, String format) {
         if (secureUrl == null || secureUrl.isEmpty()) return secureUrl;
         String marker = "/upload/";
         int idx = secureUrl.indexOf(marker);
         if (idx < 0) return secureUrl; // not a Cloudinary delivery URL we recognize — use as-is
-        String transform = "w_" + size + ",h_" + size + ",c_fill,q_auto,f_auto/";
+        String f = (format == null || format.isEmpty()) ? "auto" : format;
+        String transform = "w_" + size + ",h_" + size + ",c_fill,q_auto,f_" + f + "/";
+        return secureUrl.substring(0, idx + marker.length())
+                + transform
+                + secureUrl.substring(idx + marker.length());
+    }
+
+    /**
+     * PERF FIX (reels player — codec forcing): derives a video delivery URL
+     * that pins Cloudinary's video codec transformation (vc_<codec>) so the
+     * player pulls an AV1/HEVC-encoded stream instead of whatever default
+     * (often H.264) Cloudinary would otherwise pick. AV1/HEVC give the same
+     * visual quality at roughly 30-50% less bandwidth than H.264, so reel
+     * open → first-frame time drops and less mobile data is used per view.
+     *
+     * No-op (returns the original URL unchanged) for any non-Cloudinary URL,
+     * or one that doesn't contain "/upload/" — callers always get back a
+     * playable URL either way, and a device that can't hardware-decode the
+     * requested codec should pass "auto" instead (see CodecSupport).
+     */
+    public static String deriveVideoCodecUrl(String secureUrl, String codec) {
+        if (secureUrl == null || secureUrl.isEmpty()) return secureUrl;
+        if (codec == null || codec.isEmpty()) return secureUrl;
+        String marker = "/upload/";
+        int idx = secureUrl.indexOf(marker);
+        if (idx < 0) return secureUrl;
+        String transform = "vc_" + codec + "/";
         return secureUrl.substring(0, idx + marker.length())
                 + transform
                 + secureUrl.substring(idx + marker.length());

@@ -1437,6 +1437,7 @@ public class ReelUploadActivity extends AppCompatActivity {
                             ReelUploadActivity b = ref.get();
                             if (b == null || b.isFinishing() || b.isDestroyed()) return;
                             FirebaseUtils.getReelsByUserRef(myUid).child(reelId).setValue(true);
+                            generateAndAttachBlurHash(b, reelId, reel.thumbUrl);
                             Toast.makeText(b, "Photo reel posted! 🎉", Toast.LENGTH_SHORT).show();
                             b.setResult(RESULT_OK);
                             b.layoutUploadProgress.setVisibility(View.GONE);
@@ -1583,6 +1584,7 @@ public class ReelUploadActivity extends AppCompatActivity {
                         if (b == null || b.isFinishing() || b.isDestroyed()) return;
 
                         FirebaseUtils.getReelsByUserRef(myUid).child(finalReelId).setValue(true);
+                        generateAndAttachBlurHash(b, finalReelId, reel.thumbUrl);
 
                         Toast.makeText(b, "Reel posted! 🎉", Toast.LENGTH_SHORT).show();
                         b.setResult(RESULT_OK);
@@ -1896,6 +1898,36 @@ public class ReelUploadActivity extends AppCompatActivity {
             try { previewPlayer.release(); } catch (Exception ignored) {}
             previewPlayer = null;
         }
+    }
+
+    // ── BlurHash (grid placeholder) ─────────────────────────────────────
+
+    /**
+     * Fire-and-forget: derives a tiny (32px) Cloudinary variant of the
+     * already-uploaded thumbUrl, decodes it, encodes a BlurHash string, and
+     * patches it onto the reel's Firebase record. Runs entirely after the
+     * post is already saved/visible, so a slow network or a failure here
+     * never delays or blocks publishing — the grid just falls back to the
+     * old icon placeholder for this reel until (if ever) it succeeds.
+     */
+    private static void generateAndAttachBlurHash(android.content.Context ctx, String reelId, String thumbUrl) {
+        if (reelId == null || reelId.isEmpty() || thumbUrl == null || thumbUrl.isEmpty()) return;
+        new Thread(() -> {
+            try {
+                String tinyUrl = com.callx.app.utils.CloudinaryUploader.deriveThumbUrl(thumbUrl, 32, "webp");
+                android.graphics.Bitmap bmp = Glide.with(ctx.getApplicationContext())
+                        .asBitmap()
+                        .load(tinyUrl)
+                        .submit(32, 32)
+                        .get();
+                if (bmp == null) return;
+                String hash = com.callx.app.utils.BlurHash.encode(bmp, 4, 3);
+                if (hash == null || hash.isEmpty()) return;
+                FirebaseUtils.getReelsRef().child(reelId).child("blurHash").setValue(hash);
+            } catch (Exception ignored) {
+                // Non-critical — reel already posted successfully either way.
+            }
+        }).start();
     }
 
     @Override

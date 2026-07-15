@@ -50,9 +50,11 @@ import com.callx.app.db.entity.*;
         CommunityEventEntity.class,
         CommunityNotificationEntity.class,
         CommunityScheduledPostEntity.class,
-        CommunityModerationLogEntity.class
+        CommunityModerationLogEntity.class,
+        // Reels grid offline cache (v33)
+        ReelThumbCacheEntity.class
     },
-    version = 32,
+    version = 33,
     exportSchema = false
 )
 public abstract class AppDatabase extends RoomDatabase {
@@ -79,6 +81,9 @@ public abstract class AppDatabase extends RoomDatabase {
     public abstract CommunityNotificationDao communityNotificationDao();
     public abstract CommunityScheduledPostDao communityScheduledPostDao();
     public abstract CommunityModerationLogDao communityModerationLogDao();
+
+    // Reels grid offline cache (v33)
+    public abstract ReelThumbCacheDao reelThumbCacheDao();
 
     // ─── Migrations ───────────────────────────────────────────────────────────
 
@@ -225,6 +230,32 @@ public abstract class AppDatabase extends RoomDatabase {
         }
     };
 
+    /**
+     * Migration 32 → 33
+     * New table: reel_thumb_cache — offline-first profile reels grid (advance #6).
+     */
+    static final Migration MIGRATION_32_33 = new Migration(32, 33) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase db) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS reel_thumb_cache ("
+                    + "reelId TEXT NOT NULL PRIMARY KEY, "
+                    + "ownerUid TEXT, "
+                    + "tab INTEGER NOT NULL DEFAULT 0, "
+                    + "thumbUrl TEXT, "
+                    + "blurHash TEXT, "
+                    + "caption TEXT, "
+                    + "duration INTEGER NOT NULL DEFAULT 0, "
+                    + "viewsCount INTEGER NOT NULL DEFAULT 0, "
+                    + "likesCount INTEGER NOT NULL DEFAULT 0, "
+                    + "commentsCount INTEGER NOT NULL DEFAULT 0, "
+                    + "timestamp INTEGER NOT NULL DEFAULT 0, "
+                    + "sortOrder INTEGER NOT NULL DEFAULT 0, "
+                    + "cachedAt INTEGER NOT NULL DEFAULT 0)");
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_reel_thumb_cache_ownerUid_tab_timestamp "
+                    + "ON reel_thumb_cache (ownerUid, tab, timestamp)");
+        }
+    };
+
     // ─── Singleton ────────────────────────────────────────────────────────────
 
     /** True once the singleton Room instance has been built this process (no I/O needed to check). */
@@ -240,7 +271,7 @@ public abstract class AppDatabase extends RoomDatabase {
                                     ctx.getApplicationContext(),
                                     AppDatabase.class,
                                     "callx_database")
-                            .addMigrations(MIGRATION_30_31, MIGRATION_31_32)
+                            .addMigrations(MIGRATION_30_31, MIGRATION_31_32, MIGRATION_32_33)
                             .fallbackToDestructiveMigrationFrom(1, 2, 3, 4, 5, 6, 7, 8,
                                     9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
                                     21, 22, 23, 24, 25, 26, 27, 28, 29)

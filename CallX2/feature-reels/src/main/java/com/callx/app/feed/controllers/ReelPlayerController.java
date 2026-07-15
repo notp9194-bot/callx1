@@ -807,16 +807,34 @@ public class ReelPlayerController {
         String url1080 = reel.video1080 != null && !reel.video1080.isEmpty() ? reel.video1080 : null;
         String fallback = reel.videoUrl != null ? reel.videoUrl : "";
 
+        String chosen;
         switch (cap) {
-            case Q480P:   return url480  != null ? url480  : fallback;
-            case Q720P:   return url720  != null ? url720  : fallback;
-            case Q1080P:  return url1080 != null ? url1080 : fallback;
-            case Q360P:   return url480  != null ? url480  : fallback; // 480 is closest
+            case Q480P:   chosen = url480  != null ? url480  : fallback; break;
+            case Q720P:   chosen = url720  != null ? url720  : fallback; break;
+            case Q1080P:  chosen = url1080 != null ? url1080 : fallback; break;
+            case Q360P:   chosen = url480  != null ? url480  : fallback; break; // 480 is closest
             case AUTO:
             default:
                 // Auto: pick based on best available
-                return url1080 != null ? url1080 : (url720 != null ? url720 : fallback);
+                chosen = url1080 != null ? url1080 : (url720 != null ? url720 : fallback);
         }
+        return applyPreferredCodec(chosen);
+    }
+
+    /**
+     * PERF (advance #1 — AV1/HEVC codec forcing): wraps the chosen progressive
+     * Cloudinary video URL with a vc_<codec> transform matching the best
+     * codec this device can hardware-decode (see CodecSupport). Skipped for
+     * HLS/DASH manifests (.m3u8/.mpd) — those are handled by
+     * AdaptiveStreamingManager and already carry their own codec ladder —
+     * and for non-Cloudinary URLs, where deriveVideoCodecUrl() is a no-op.
+     */
+    private static String applyPreferredCodec(String url) {
+        if (url == null || url.isEmpty()) return url;
+        if (url.contains(".m3u8") || url.contains(".mpd")) return url;
+        String codec = com.callx.app.utils.CodecSupport.preferredVideoCodec();
+        if ("auto".equals(codec)) return url; // no hardware AV1/HEVC — don't force a transcode
+        return com.callx.app.utils.CloudinaryUploader.deriveVideoCodecUrl(url, codec);
     }
 
     // ── NetworkQualityMonitor integration ─────────────────────────────────────

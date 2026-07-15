@@ -181,8 +181,14 @@ public class UserReelsActivity extends AppCompatActivity
         setupTabs();
         setupFilterChips();
         setupMultiSelectBar();
-        loadFromRoom(); // Offline-first: Room se instant load
+        loadFromRoom(); // Offline-first: Room se instant load (profile header)
+        loadReelGridFromRoom(); // Offline-first: Room se instant load (reels grid — advance #6)
         loadUserProfile();
+        if (isSelf) {
+            // Advance #3 — one-time, battery/network-friendly backfill of
+            // BlurHash for reels posted before that feature shipped.
+            com.callx.app.workers.BlurHashBackfillWorker.enqueueFor(getApplicationContext(), targetUid);
+        }
         loadFollowState();
         loadVerifiedStatus();
         loadMutualFollowers();
@@ -1048,7 +1054,16 @@ public class UserReelsActivity extends AppCompatActivity
           btnViewAllReels.setVisibility(show ? View.VISIBLE : View.GONE);
       }
 
-      private void finishLoading(boolean refresh, int tab) {
+      private List<ReelModel> dataForTab(int tab) {
+        switch (tab) {
+            case TAB_LIKED:  return likedTabData;
+            case TAB_SAVED:  return savedTabData;
+            case TAB_REPOST: return repostsTabData;
+            default:         return reelsTabData;
+        }
+    }
+
+    private void finishLoading(boolean refresh, int tab) {
         if (isFinishing() || isDestroyed()) return;
         isLoadingMore = false;
         adapter.setSkeletonMode(false);
@@ -1056,6 +1071,8 @@ public class UserReelsActivity extends AppCompatActivity
         if (swipeRefresh != null) swipeRefresh.setRefreshing(false);
         if (progressBar  != null) progressBar.setVisibility(View.GONE);
         if (tab == activeTab) { refreshEmptyState(); updateViewAllButton(); }
+        List<ReelModel> tabData = dataForTab(tab);
+        if (!tabData.isEmpty()) cacheGridPage(tab, tabData);
     }
 
     private void refreshEmptyState() {
@@ -1631,6 +1648,36 @@ public class UserReelsActivity extends AppCompatActivity
     // ── Profile data ──────────────────────────────────────────────────────
 
     // ── Offline-first: Room se naam + photo turant dikhao ──────────────────
+    // ── Reels grid offline-first warm-start (advance #6) ─────────────────
+    // Room se cached first page turant dikhao — Firebase response se pehle
+    // hi grid khaali na dikhe. loadCurrentTab(true) abhi bhi chalega aur
+    // fresh data aane par yeh silently replace ho jayega.
+    private void loadReelGridFromRoom() {
+        if (targetUid == null || targetUid.isEmpty()) return;
+        dbExecutor.execute(() -> {
+            List<ReelModel> cached = com.callx.app.cache.ReelThumbCacheManager
+                    .loadPageBlocking(getApplicationContext(), targetUid, TAB_REELS, PAGE_SIZE);
+            if (cached.isEmpty()) return;
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                if (!reelsTabData.isEmpty()) return; // Firebase already won the race — don't clobber
+                reelsTabData.addAll(cached);
+                if (activeTab == TAB_REELS) {
+                    adapter.notifyDataSetChanged();
+                    refreshEmptyState();
+                    updateViewAllButton();
+                }
+            });
+        });
+    }
+
+    // Firebase se aaya fresh page → Room mein save + next-screen prefetch cache mein bhi daal do
+    private void cacheGridPage(int tab, List<ReelModel> data) {
+        if (tab != TAB_REELS) return; // sirf apni "reels" grid ko hi persist karo (liked/saved dusre ke data hain)
+        com.callx.app.cache.ReelThumbCacheManager.savePage(getApplicationContext(), targetUid, tab, data);
+        com.callx.app.cache.ReelGridPrefetchCache.put(targetUid, tab, data);
+    }
+
     private void loadFromRoom() {
         if (targetUid == null || targetUid.isEmpty()) return;
         dbExecutor.execute(() -> {

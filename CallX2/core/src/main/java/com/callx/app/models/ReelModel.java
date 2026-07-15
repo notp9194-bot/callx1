@@ -21,6 +21,16 @@ public class ReelModel {
     public String  thumbUrl;
 
     /**
+     * BlurHash string derived from thumbUrl at upload time (see
+     * ReelUploadActivity / BlurHash.java). Decodes offline into a small,
+     * color-accurate blurred bitmap for use as a grid placeholder — no
+     * network request needed, unlike the old flat icon placeholder.
+     * Null/empty for reels posted before this feature shipped; UI falls
+     * back to the previous placeholder behavior in that case.
+     */
+    public String  blurHash;
+
+    /**
      * Returns the best available thumbnail URL.
      * Firebase saves as "thumbnailUrl", legacy code reads "thumbUrl" —
      * this resolves both so share cards always get a non-empty URL.

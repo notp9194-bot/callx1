@@ -73,6 +73,11 @@ package com.callx.app.profile;
       private GridLayoutManager layoutManager;
       private ReelModel         pinnedReel = null;
 
+      // Advance #2 — predictive prefetch: set true for one loader cycle
+      // right after a ReelGridPrefetchCache hit so showLoader() doesn't
+      // wipe the just-primed grid.
+      private boolean suppressNextLoaderFlash = false;
+
       @Override
       protected void onCreate(Bundle savedInstanceState) {
           super.onCreate(savedInstanceState);
@@ -92,7 +97,35 @@ package com.callx.app.profile;
           setupSwipeRefresh();
           setupScrollPagination();
           loadPinnedReel();
+          primeFromPrefetchCache();
           loadCurrentTab(true);
+      }
+
+      // Advance #2 — predictive prefetch: if UserReelsActivity already warmed
+      // this exact (uid, tab) first page in ReelGridPrefetchCache, render it
+      // immediately (no spinner) while loadCurrentTab(true) still refreshes
+      // silently underneath for correctness.
+      private void primeFromPrefetchCache() {
+          List<ReelModel> prefetched = com.callx.app.cache.ReelGridPrefetchCache.get(targetUid, activeTab);
+          if (prefetched == null || prefetched.isEmpty()) return;
+          com.callx.app.cache.ReelGridPrefetchCache.consume(targetUid, activeTab);
+          suppressNextLoaderFlash = true;
+          List<ReelModel> target = tabCacheFor(activeTab);
+          target.clear();
+          target.addAll(prefetched);
+          currentData.clear();
+          currentData.addAll(target);
+          adapter.notifyDataSetChanged();
+          if (progressBar != null) progressBar.setVisibility(View.GONE);
+          if (layoutEmpty != null) layoutEmpty.setVisibility(View.GONE);
+      }
+
+      private List<ReelModel> tabCacheFor(int tab) {
+          switch (tab) {
+              case TAB_LIKED: return likedCache;
+              case TAB_SAVED: return savedCache;
+              default:        return reelsCache;
+          }
       }
 
       // Bind views
@@ -360,6 +393,15 @@ package com.callx.app.profile;
       }
 
       private void showLoader(boolean show) {
+          if (show && suppressNextLoaderFlash) {
+              // Advance #2 — grid was already warm-started from
+              // ReelGridPrefetchCache; don't flash it back to empty while
+              // the silent background refresh is in flight.
+              suppressNextLoaderFlash = false;
+              if (progressBar != null) progressBar.setVisibility(View.GONE);
+              if (layoutEmpty != null) layoutEmpty.setVisibility(View.GONE);
+              return;
+          }
           if (progressBar != null) progressBar.setVisibility(show ? View.VISIBLE : View.GONE);
           if (layoutEmpty  != null) layoutEmpty.setVisibility(View.GONE);
           if (show) { currentData.clear(); if (adapter != null) adapter.notifyDataSetChanged(); }
