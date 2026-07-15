@@ -249,15 +249,20 @@ public class ProfileActivity extends AppCompatActivity {
         com.callx.app.repository.CommunityRepository.getInstance(this)
             .checkHasCommunity(currentUid, communityId -> runOnUiThread(() -> {
                 myCommunityId = communityId;
-                binding.btnCommunity.setText(communityId != null ? "Manage Your Community" : "Enable Community");
+                binding.btnCommunity.setText(communityId != null ? "Open Your Community" : "Enable Community");
             }));
 
         binding.btnCommunity.setOnClickListener(v -> {
             if (myCommunityId != null) {
+                // Opens the Community hub (Feed / Announcements / Events /
+                // Groups / Members / Gallery tabs + compose FAB) — this is
+                // where the owner actually posts/does activity. Settings
+                // (name, description, privacy, invite link) live one level
+                // in, via the overflow menu's "Manage" action inside
+                // CommunityActivity itself — not here.
                 android.content.Intent i = new android.content.Intent(
-                        this, com.callx.app.community.ManageCommunityActivity.class);
-                i.putExtra(com.callx.app.community.ManageCommunityActivity.EXTRA_COMMUNITY_ID, myCommunityId);
-                i.putExtra(com.callx.app.community.ManageCommunityActivity.EXTRA_IS_OWNER, true);
+                        this, com.callx.app.community.CommunityActivity.class);
+                i.putExtra(com.callx.app.community.CommunityActivity.EXTRA_COMMUNITY_ID, myCommunityId);
                 startActivity(i);
             } else {
                 showCreateCommunityDialog();
@@ -299,7 +304,7 @@ public class ProfileActivity extends AppCompatActivity {
                         runOnUiThread(() -> {
                             if (newId != null) {
                                 myCommunityId = newId;
-                                binding.btnCommunity.setText("Manage Your Community");
+                                binding.btnCommunity.setText("Open Your Community");
                                 Toast.makeText(this, "Community created", Toast.LENGTH_SHORT).show();
                             } else {
                                 Toast.makeText(this, "Failed to create community", Toast.LENGTH_SHORT).show();

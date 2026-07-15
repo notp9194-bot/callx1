@@ -21,6 +21,7 @@ import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.bumptech.glide.Glide;
+import com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions;
 import com.callx.app.chat.R;
 import com.callx.app.db.entity.CommunityPostEntity;
 
@@ -68,8 +69,33 @@ public class CommunityPostAdapter extends RecyclerView.Adapter<CommunityPostAdap
                             && safeEq(a.myReactionType, b.myReactionType)
                             && safeEq(a.pollJson, b.pollJson);
                 }
+                // PERF: partial rebind — a like/comment/reaction tap or a poll
+                // vote from another member re-syncs this single post, but we
+                // don't want to redo avatar/media Glide loads and mention-span
+                // rebuilding on every tap. If ONLY the engagement fields (or
+                // ONLY the poll) changed, return a payload so onBindViewHolder
+                // can skip straight to the small sub-bind. Mirrors the
+                // PAYLOAD_STATUS / PAYLOAD_REACTIONS pattern in the chat
+                // MessagePagingAdapter.
+                @Override
+                public Object getChangePayload(@NonNull CommunityPostEntity a, @NonNull CommunityPostEntity b) {
+                    boolean pollChanged = !safeEq(a.pollJson, b.pollJson);
+                    boolean engagementChanged = a.likeCount != b.likeCount
+                            || a.commentCount != b.commentCount
+                            || !safeEq(a.reactionCountsJson, b.reactionCountsJson)
+                            || !safeEq(a.myReactionType, b.myReactionType);
+
+                    if (engagementChanged && !pollChanged) return PAYLOAD_ENGAGEMENT;
+                    if (pollChanged && !engagementChanged) return PAYLOAD_POLL;
+                    // Both changed (or neither, which areContentsTheSame would
+                    // already have caught) — fall back to a full rebind.
+                    return null;
+                }
                 private boolean safeEq(String x, String y) { return x == null ? y == null : x.equals(y); }
             };
+
+    static final String PAYLOAD_ENGAGEMENT = "engagement"; // like/comment/reaction counts + my-reaction tint
+    static final String PAYLOAD_POLL       = "poll";       // poll vote counts
 
     private final AsyncListDiffer<CommunityPostEntity> differ = new AsyncListDiffer<>(this, DIFF);
     private final Listener listener;
@@ -95,6 +121,24 @@ public class CommunityPostAdapter extends RecyclerView.Adapter<CommunityPostAdap
         View v = LayoutInflater.from(parent.getContext())
                 .inflate(R.layout.item_community_post, parent, false);
         return new VH(v);
+    }
+
+    @Override
+    public void onBindViewHolder(@NonNull VH h, int pos, @NonNull List<Object> payloads) {
+        if (!payloads.isEmpty()) {
+            CommunityPostEntity p = differ.getCurrentList().get(pos);
+            if (payloads.contains(PAYLOAD_ENGAGEMENT)) {
+                bindEngagementOnly(h, p);
+                return;
+            }
+            if (payloads.contains(PAYLOAD_POLL)) {
+                if (h.layoutPoll != null && p.pollJson != null && !p.pollJson.isEmpty()) {
+                    bindPoll(h, p);
+                }
+                return;
+            }
+        }
+        onBindViewHolder(h, pos);
     }
 
     @Override
@@ -125,11 +169,26 @@ public class CommunityPostAdapter extends RecyclerView.Adapter<CommunityPostAdap
             h.tvPostText.setVisibility(View.GONE);
         }
 
-        // Media
+        // Media — PERF: progressive load. Glide generates a cheap downsampled
+        // preview from the same URL (sizeMultiplier) and crossfades into the
+        // full-res decode once ready, instead of a blank placeholder sitting
+        // there until the full image lands. Same idea as the chat module's
+        // thumbUrl->photoUrl progressive load in MediaViewerActivity/
+        // MessagePagingAdapter — community posts don't have a separate
+        // low-res mediaThumbUrl in CommunityPostEntity yet, so this reuses
+        // the same-URL sizeMultiplier variant of that pattern.
         if (p.mediaUrl != null && !p.mediaUrl.isEmpty()) {
             h.ivMedia.setVisibility(View.VISIBLE);
-            Glide.with(h.ivMedia.getContext()).load(p.mediaUrl)
-                    .centerCrop().placeholder(R.drawable.ic_photo_library).into(h.ivMedia);
+            Glide.with(h.ivMedia.getContext())
+                    .load(p.mediaUrl)
+                    .thumbnail(Glide.with(h.ivMedia.getContext())
+                            .load(p.mediaUrl)
+                            .sizeMultiplier(0.15f)
+                            .centerCrop())
+                    .transition(DrawableTransitionOptions.withCrossFade(200))
+                    .centerCrop()
+                    .placeholder(R.drawable.ic_photo_library)
+                    .into(h.ivMedia);
             h.ivMedia.setOnClickListener(v -> { if (listener != null) listener.onMediaClicked(p); });
             boolean isVideo = "video".equals(p.mediaType);
             h.ivPlayOverlay.setVisibility(isVideo ? View.VISIBLE : View.GONE);
@@ -148,32 +207,8 @@ public class CommunityPostAdapter extends RecyclerView.Adapter<CommunityPostAdap
             }
         }
 
-        // Like count (likeCount used as total engagement summary)
-        long totalReactions = getTotalReactions(p);
-        long displayLikes = totalReactions > 0 ? totalReactions : p.likeCount;
-        h.tvLikeCount.setText(displayLikes > 0 ? String.valueOf(displayLikes) : "");
-        h.tvCommentCount.setText(p.commentCount > 0 ? String.valueOf(p.commentCount) : "");
+        bindEngagementOnly(h, p);
 
-        // Reaction row  (v31)
-        if (h.layoutReactions != null) {
-            bindReactionRow(h, p);
-        }
-
-        // My reaction — tint like button
-        boolean myReacted = p.myReactionType != null && !p.myReactionType.isEmpty();
-        h.btnLike.setImageResource(myReacted
-                ? R.drawable.ic_favorite : R.drawable.ic_favorite_border);
-        int tintColor = myReacted
-                ? ContextCompat.getColor(h.btnLike.getContext(), R.color.community_like_active)
-                : ContextCompat.getColor(h.btnLike.getContext(), android.R.color.darker_gray);
-        h.btnLike.setColorFilter(tintColor);
-
-        // Like — tap = quick LIKE, long-press = reaction picker
-        h.btnLike.setOnClickListener(v -> { if (listener != null) listener.onLike(p); });
-        h.btnLike.setOnLongClickListener(v -> {
-            if (listener != null) listener.onLongPressLike(p, v);
-            return true;
-        });
         h.btnComment.setOnClickListener(v -> { if (listener != null) listener.onComment(p); });
 
         // Options (admin/owner)
@@ -183,6 +218,35 @@ public class CommunityPostAdapter extends RecyclerView.Adapter<CommunityPostAdap
             h.btnOptions.setVisibility(canModify ? View.VISIBLE : View.GONE);
             h.btnOptions.setOnClickListener(v -> showPostOptions(v, p, isAuthor));
         }
+    }
+
+    // PERF: everything a like/comment/reaction update touches — like button
+    // icon+tint, like count, comment count, reaction chip row — split out so
+    // the PAYLOAD_ENGAGEMENT path can hit just this and skip avatar/media/
+    // text/poll rebinding entirely.
+    private void bindEngagementOnly(VH h, CommunityPostEntity p) {
+        long totalReactions = getTotalReactions(p);
+        long displayLikes = totalReactions > 0 ? totalReactions : p.likeCount;
+        h.tvLikeCount.setText(displayLikes > 0 ? String.valueOf(displayLikes) : "");
+        h.tvCommentCount.setText(p.commentCount > 0 ? String.valueOf(p.commentCount) : "");
+
+        if (h.layoutReactions != null) {
+            bindReactionRow(h, p);
+        }
+
+        boolean myReacted = p.myReactionType != null && !p.myReactionType.isEmpty();
+        h.btnLike.setImageResource(myReacted
+                ? R.drawable.ic_favorite : R.drawable.ic_favorite_border);
+        int tintColor = myReacted
+                ? ContextCompat.getColor(h.btnLike.getContext(), R.color.community_like_active)
+                : ContextCompat.getColor(h.btnLike.getContext(), android.R.color.darker_gray);
+        h.btnLike.setColorFilter(tintColor);
+
+        h.btnLike.setOnClickListener(v -> { if (listener != null) listener.onLike(p); });
+        h.btnLike.setOnLongClickListener(v -> {
+            if (listener != null) listener.onLongPressLike(p, v);
+            return true;
+        });
     }
 
     private CharSequence buildMentionSpan(String text, VH h) {

@@ -25,9 +25,11 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import com.bumptech.glide.Glide;
 import com.callx.app.chat.R;
+import com.callx.app.conversation.controllers.MediaEditActivity;
 import com.callx.app.db.entity.CommunityMemberEntity;
 import com.callx.app.repository.CommunityRepository;
 import com.callx.app.utils.CloudinaryUploader;
+import com.callx.app.utils.ImageCompressor;
 import com.google.android.material.button.MaterialButton;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseUser;
@@ -73,6 +75,7 @@ public class CommunityPostComposerActivity extends AppCompatActivity {
     private CommunityMentionSuggestionsAdapter mentionAdapter;
 
     private ActivityResultLauncher<String> mediaPicker;
+    private ActivityResultLauncher<Intent> mediaEditLauncher;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -112,11 +115,22 @@ public class CommunityPostComposerActivity extends AppCompatActivity {
 
         mediaPicker = registerForActivityResult(new ActivityResultContracts.GetContent(), uri -> {
             if (uri == null) return;
-            pickedMediaUri = uri;
-            mediaType = uri.toString().contains("video") ? "video" : "image";
-            ivMediaPreview.setVisibility(View.VISIBLE);
-            Glide.with(this).load(uri).centerCrop().into(ivMediaPreview);
+            launchMediaEditor(uri);
         });
+
+        // Result of the full-screen chat editor (crop/rotate/filters/text/
+        // stickers/draw) — same module as this Activity (feature-chat), so
+        // it's referenced directly, no cross-module reflection needed.
+        mediaEditLauncher = registerForActivityResult(
+                new ActivityResultContracts.StartActivityForResult(), result -> {
+                    if (result.getResultCode() != android.app.Activity.RESULT_OK || result.getData() == null) return;
+                    ArrayList<String> uriStrings =
+                            result.getData().getStringArrayListExtra(MediaEditActivity.RESULT_URIS);
+                    if (uriStrings == null || uriStrings.isEmpty()) return;
+                    pickedMediaUri = Uri.parse(uriStrings.get(0));
+                    ivMediaPreview.setVisibility(View.VISIBLE);
+                    Glide.with(this).load(pickedMediaUri).centerCrop().into(ivMediaPreview);
+                });
 
         btnAddMedia.setOnClickListener(v -> mediaPicker.launch("image/*,video/*"));
         btnPost.setOnClickListener(v -> submitPost(false, 0L));
@@ -130,6 +144,26 @@ public class CommunityPostComposerActivity extends AppCompatActivity {
                 allMembers = members != null ? members : new ArrayList<>();
             });
         }
+    }
+
+    // Reuse the chat module's full-screen media editor (crop/rotate/filters/
+    // text/stickers/draw for images, trim for video) instead of attaching
+    // the raw picked file — same feature-chat module, direct reference.
+    private void launchMediaEditor(Uri uri) {
+        String type = getContentResolver().getType(uri);
+        boolean isVideo = (type != null && type.startsWith("video"))
+                || uri.toString().contains("video");
+        mediaType = isVideo ? "video" : "image";
+
+        ArrayList<String> uriStrings = new ArrayList<>();
+        uriStrings.add(uri.toString());
+        ArrayList<Integer> videoFlags = new ArrayList<>();
+        videoFlags.add(isVideo ? 1 : 0);
+
+        Intent intent = new Intent(this, MediaEditActivity.class);
+        intent.putStringArrayListExtra(MediaEditActivity.EXTRA_URIS, uriStrings);
+        intent.putIntegerArrayListExtra(MediaEditActivity.EXTRA_IS_VIDEO, videoFlags);
+        mediaEditLauncher.launch(intent);
     }
 
     private void setupMentionAutocomplete() {
@@ -260,21 +294,74 @@ public class CommunityPostComposerActivity extends AppCompatActivity {
         boolean isAnnouncement = canAnnounce && cbAnnouncement != null && cbAnnouncement.isChecked();
 
         if (pickedMediaUri != null) {
-            CloudinaryUploader.upload(this, pickedMediaUri, "callx/community_posts", mediaType,
-                    new CloudinaryUploader.UploadCallback() {
-                        @Override public void onSuccess(CloudinaryUploader.Result result) {
-                            runOnUiThread(() -> doSubmit(text, result.secureUrl, mediaType,
-                                    isAnnouncement, isScheduled, scheduledAt));
-                        }
-                        @Override public void onError(String message) {
-                            runOnUiThread(() -> {
-                                btnPost.setEnabled(true);
-                                if (btnSchedule != null) btnSchedule.setEnabled(true);
-                                Toast.makeText(CommunityPostComposerActivity.this,
-                                        "Media upload failed: " + message, Toast.LENGTH_SHORT).show();
-                            });
-                        }
-                    });
+            if ("image".equals(mediaType)) {
+                // PERF: same compress-then-upload pipeline as chat's
+                // ChatMediaController — resize/re-encode to WebP before
+                // upload instead of sending the raw picked file.
+                ImageCompressor.compress(this, pickedMediaUri, new ImageCompressor.Callback() {
+                    @Override public void onSuccess(ImageCompressor.Result result) {
+                        Uri fullUri = Uri.fromFile(result.fullFile);
+                        CloudinaryUploader.upload(CommunityPostComposerActivity.this, fullUri,
+                                "callx/community_posts", mediaType,
+                                new CloudinaryUploader.UploadCallback() {
+                                    @Override public void onSuccess(CloudinaryUploader.Result r) {
+                                        result.thumbFile.delete();
+                                        result.fullFile.delete();
+                                        runOnUiThread(() -> doSubmit(text, r.secureUrl, mediaType,
+                                                isAnnouncement, isScheduled, scheduledAt));
+                                    }
+                                    @Override public void onError(String message) {
+                                        result.thumbFile.delete();
+                                        result.fullFile.delete();
+                                        runOnUiThread(() -> {
+                                            btnPost.setEnabled(true);
+                                            if (btnSchedule != null) btnSchedule.setEnabled(true);
+                                            Toast.makeText(CommunityPostComposerActivity.this,
+                                                    "Media upload failed: " + message, Toast.LENGTH_SHORT).show();
+                                        });
+                                    }
+                                });
+                    }
+                    @Override public void onError(Exception e) {
+                        // Compression failed — fall back to uploading the
+                        // original file rather than blocking the post.
+                        CloudinaryUploader.upload(CommunityPostComposerActivity.this, pickedMediaUri,
+                                "callx/community_posts", mediaType,
+                                new CloudinaryUploader.UploadCallback() {
+                                    @Override public void onSuccess(CloudinaryUploader.Result r) {
+                                        runOnUiThread(() -> doSubmit(text, r.secureUrl, mediaType,
+                                                isAnnouncement, isScheduled, scheduledAt));
+                                    }
+                                    @Override public void onError(String message) {
+                                        runOnUiThread(() -> {
+                                            btnPost.setEnabled(true);
+                                            if (btnSchedule != null) btnSchedule.setEnabled(true);
+                                            Toast.makeText(CommunityPostComposerActivity.this,
+                                                    "Media upload failed: " + message, Toast.LENGTH_SHORT).show();
+                                        });
+                                    }
+                                });
+                    }
+                });
+            } else {
+                // Video — compression is chat's separate video pipeline
+                // (trim/transcode), out of scope here; upload as-is.
+                CloudinaryUploader.upload(this, pickedMediaUri, "callx/community_posts", mediaType,
+                        new CloudinaryUploader.UploadCallback() {
+                            @Override public void onSuccess(CloudinaryUploader.Result result) {
+                                runOnUiThread(() -> doSubmit(text, result.secureUrl, mediaType,
+                                        isAnnouncement, isScheduled, scheduledAt));
+                            }
+                            @Override public void onError(String message) {
+                                runOnUiThread(() -> {
+                                    btnPost.setEnabled(true);
+                                    if (btnSchedule != null) btnSchedule.setEnabled(true);
+                                    Toast.makeText(CommunityPostComposerActivity.this,
+                                            "Media upload failed: " + message, Toast.LENGTH_SHORT).show();
+                                });
+                            }
+                        });
+            }
         } else {
             doSubmit(text, null, null, isAnnouncement, isScheduled, scheduledAt);
         }
