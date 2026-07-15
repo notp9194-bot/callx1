@@ -9,4 +9,5 @@
     <color name="divider">#E2E8F0</color>
     <color name="white">#FFFFFF</color>
     <color name="background_dark">#FF1A1A1A</color>
+    <color name="status_online">#4CAF50</color>
 </resources>

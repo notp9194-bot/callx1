@@ -120,6 +120,19 @@ public class UserReelsActivity extends AppCompatActivity
     private com.google.android.material.appbar.AppBarLayout appBarLayout;
     private boolean         isAppBarExpanded = true;
 
+    // ── Instagram-style new views ─────────────────────────────────────────
+    private ImageButton                        btnNotification;
+    private View                               layoutActionsSelf;
+    private com.google.android.material.button.MaterialButton btnEditProfile;
+    private com.google.android.material.button.MaterialButton btnDiscoverPeople;
+    private com.google.android.material.button.MaterialButton btnAddFriend;
+    private TextView                           tvDisplayName;
+    private TextView                           tvCategory;
+    private android.widget.HorizontalScrollView hsvLinkChips;
+    private android.widget.LinearLayout         llLinkChips;
+    private android.widget.HorizontalScrollView hsvHighlights;
+    private android.widget.LinearLayout         llHighlights;
+
       // ── Filter chips state ─────────────────────────────────────────────
       private static final int FILTER_ALL    = 0;
       private static final int FILTER_SHORT  = 1; // duration < 15s
@@ -264,6 +277,19 @@ public class UserReelsActivity extends AppCompatActivity
         layoutYoutube    = findViewById(R.id.layout_youtube);
         layoutOtherLink  = findViewById(R.id.layout_other_link);
         appBarLayout     = findViewById(R.id.app_bar);
+
+        // Instagram-style new view bindings
+        btnNotification   = findViewById(R.id.btn_notification);
+        layoutActionsSelf = findViewById(R.id.layout_actions_self);
+        btnEditProfile    = findViewById(R.id.btn_edit_profile);
+        btnDiscoverPeople = findViewById(R.id.btn_discover_people);
+        btnAddFriend      = findViewById(R.id.btn_add_friend);
+        tvDisplayName     = findViewById(R.id.tv_display_name);
+        tvCategory        = findViewById(R.id.tv_category);
+        hsvLinkChips      = findViewById(R.id.hsv_link_chips);
+        llLinkChips       = findViewById(R.id.ll_link_chips);
+        hsvHighlights     = findViewById(R.id.hsv_highlights);
+        llHighlights      = findViewById(R.id.ll_highlights);
     }
 
     // ── Header ────────────────────────────────────────────────────────────
@@ -330,8 +356,24 @@ public class UserReelsActivity extends AppCompatActivity
         rvReels.setNestedScrollingEnabled(true);
         rvReels.setHasFixedSize(false);
 
-        if (layoutActions != null) layoutActions.setVisibility(isSelf ? View.GONE : View.VISIBLE);
-        if (btnFollow     != null) btnFollow.setVisibility(isSelf ? View.GONE : View.VISIBLE);
+        // Instagram: own profile shows Edit/Share row; other shows Follow/Message row
+        if (layoutActionsSelf != null) layoutActionsSelf.setVisibility(isSelf ? View.VISIBLE : View.GONE);
+        if (layoutActions     != null) layoutActions.setVisibility(isSelf ? View.GONE : View.VISIBLE);
+        if (btnFollow         != null) btnFollow.setVisibility(isSelf ? View.GONE : View.VISIBLE);
+
+        // Wire up Instagram-style new buttons
+        if (btnEditProfile    != null && isSelf)
+            btnEditProfile.setOnClickListener(v ->
+                startActivity(new Intent(this, ReelEditProfileActivity.class)));
+        if (btnDiscoverPeople != null && isSelf)
+            btnDiscoverPeople.setOnClickListener(v ->
+                Toast.makeText(this, "Discover people coming soon", Toast.LENGTH_SHORT).show());
+        if (btnAddFriend      != null && !isSelf)
+            btnAddFriend.setOnClickListener(v ->
+                Toast.makeText(this, "Friend suggestion sent", Toast.LENGTH_SHORT).show());
+        if (btnNotification   != null)
+            btnNotification.setOnClickListener(v ->
+                Toast.makeText(this, "Notifications", Toast.LENGTH_SHORT).show());
 
         setupActionButtons();
         setupMoreMenu();
@@ -1727,7 +1769,14 @@ public class UserReelsActivity extends AppCompatActivity
                 String youtube   = snap.child("youtubeChannelUrl").getValue(String.class);
                 String twitter   = snap.child("twitterHandle").getValue(String.class);
 
-                if (name != null) { targetName = name; if (tvName != null) tvName.setText(name); }
+                if (name != null) {
+                    targetName = name;
+                    if (tvName != null) tvName.setText(name);
+                    if (tvDisplayName != null) {
+                        tvDisplayName.setText(name);
+                        tvDisplayName.setVisibility(View.VISIBLE);
+                    }
+                }
                 if (photo != null && !photo.isEmpty()) {
                     targetPhoto = photo;
                     String displayPhoto = (photoThumb != null && !photoThumb.isEmpty()) ? photoThumb : photo;
@@ -1739,6 +1788,9 @@ public class UserReelsActivity extends AppCompatActivity
                 if (tvBio != null) {
                     tvBio.setText(bio != null ? bio : "");
                     tvBio.setVisibility(bio != null && !bio.isEmpty() ? View.VISIBLE : View.GONE);
+                    // Populate Instagram-style link chips and story highlights
+                    final com.google.firebase.database.DataSnapshot snapFinal = snap;
+                    runOnUiThread(() -> { setupLinkChips(snapFinal); loadHighlights(); });
                 }
 
                 // Website / social links from Reels profile
@@ -1878,4 +1930,199 @@ public class UserReelsActivity extends AppCompatActivity
     @Override protected void onPause()   { super.onPause();   dismissPreviewDialog(); stopAvatarAnimation(); }
     @Override protected void onResume()  { super.onResume();  loadAvatarAndStartAnimation(); }
     @Override protected void onDestroy() { super.onDestroy(); dismissPreviewDialog(); stopAvatarAnimation(); dbExecutor.shutdown(); }
+
+    // ======================================================================
+    // Instagram-style link chips (social links as horizontal pill chips)
+    // ======================================================================
+
+    private void setupLinkChips(com.google.firebase.database.DataSnapshot snap) {
+        if (llLinkChips == null || snap == null) return;
+        llLinkChips.removeAllViews();
+
+        java.util.List<String[]> chips = new java.util.ArrayList<>();
+        String phone    = snap.child("phoneNumber").getValue(String.class);
+        if (phone    == null) phone    = snap.child("phone").getValue(String.class);
+        String whatsapp = snap.child("whatsappNumber").getValue(String.class);
+        if (whatsapp == null) whatsapp = snap.child("whatsapp").getValue(String.class);
+        String instaH   = snap.child("instagramHandle").getValue(String.class);
+        if (instaH   == null) instaH   = snap.child("instagram").getValue(String.class);
+        String yt       = snap.child("youtubeChannel").getValue(String.class);
+        if (yt       == null) yt       = snap.child("youtube").getValue(String.class);
+        String other    = snap.child("websiteUrl").getValue(String.class);
+        if (other    == null) other    = snap.child("otherLink").getValue(String.class);
+
+        if (phone    != null && !phone.isEmpty())
+            chips.add(new String[]{"Phone: " + phone,               "tel:" + phone});
+        if (whatsapp != null && !whatsapp.isEmpty())
+            chips.add(new String[]{"WhatsApp: " + whatsapp,         "https://wa.me/" + whatsapp.replaceAll("[^0-9]","")});
+        if (instaH   != null && !instaH.isEmpty())
+            chips.add(new String[]{"@" + instaH.replace("@",""),    "https://instagram.com/" + instaH.replace("@","")});
+        if (yt       != null && !yt.isEmpty())
+            chips.add(new String[]{yt,                               "https://youtube.com/@" + yt});
+        if (other    != null && !other.isEmpty())
+            chips.add(new String[]{other,                            other.startsWith("http") ? other : "https://" + other});
+
+        if (chips.isEmpty()) {
+            if (hsvLinkChips != null) hsvLinkChips.setVisibility(View.GONE);
+            return;
+        }
+
+        float d  = getResources().getDisplayMetrics().density;
+        int chipH = (int)(28 * d);
+        int hPad  = (int)(12 * d);
+        int mgnR  = (int)(8  * d);
+        int brandColor = getResources().getColor(com.callx.app.reels.R.color.brand_primary, getTheme());
+
+        for (String[] chip : chips) {
+            android.widget.TextView tv = new android.widget.TextView(this);
+            android.widget.LinearLayout.LayoutParams lp =
+                new android.widget.LinearLayout.LayoutParams(
+                    android.view.ViewGroup.LayoutParams.WRAP_CONTENT, chipH);
+            lp.setMarginEnd(mgnR);
+            tv.setLayoutParams(lp);
+            tv.setPadding(hPad, 0, hPad, 0);
+            tv.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            tv.setText(chip[0]);
+            tv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 12.5f);
+            tv.setTextColor(brandColor);
+            tv.setMaxLines(1);
+            tv.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            tv.setMaxWidth((int)(175 * d));
+            android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+            bg.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
+            bg.setCornerRadius(chipH / 2f);
+            bg.setStroke((int)(1 * d), brandColor);
+            bg.setColor(0x145B5BF6);
+            tv.setBackground(bg);
+            tv.setClickable(true);
+            tv.setFocusable(true);
+            final String url = chip[1];
+            tv.setOnClickListener(v -> {
+                try { startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))); }
+                catch (Exception ex) { Toast.makeText(this, url, Toast.LENGTH_SHORT).show(); }
+            });
+            llLinkChips.addView(tv);
+        }
+        if (hsvLinkChips != null) hsvLinkChips.setVisibility(View.VISIBLE);
+    }
+
+    // ======================================================================
+    // Story Highlights row (Instagram-style horizontal circles)
+    // ======================================================================
+
+    private void loadHighlights() {
+        if (llHighlights == null || targetUid == null) return;
+        com.google.firebase.database.FirebaseDatabase.getInstance()
+            .getReference("reels_highlights")
+            .child(targetUid)
+            .limitToLast(10)
+            .addListenerForSingleValueEvent(
+                new com.google.firebase.database.ValueEventListener() {
+                    @Override
+                    public void onDataChange(
+                            @NonNull com.google.firebase.database.DataSnapshot snap) {
+                        if (isFinishing() || isDestroyed()) return;
+                        java.util.List<com.google.firebase.database.DataSnapshot> list =
+                            new java.util.ArrayList<>();
+                        for (com.google.firebase.database.DataSnapshot s : snap.getChildren())
+                            list.add(s);
+                        java.util.Collections.reverse(list);
+                        runOnUiThread(() -> renderHighlights(list));
+                    }
+                    @Override
+                    public void onCancelled(
+                            @NonNull com.google.firebase.database.DatabaseError e) {}
+                });
+    }
+
+    private void renderHighlights(
+            java.util.List<com.google.firebase.database.DataSnapshot> items) {
+        if (llHighlights == null) return;
+        llHighlights.removeAllViews();
+        if (items.isEmpty()) {
+            if (hsvHighlights != null) hsvHighlights.setVisibility(View.GONE);
+            return;
+        }
+
+        float d         = getResources().getDisplayMetrics().density;
+        int circleSize  = (int)(68 * d);
+        int itemW       = (int)(82 * d);
+        int mgnEnd      = (int)(2  * d);
+
+        for (com.google.firebase.database.DataSnapshot item : items) {
+            String label = item.child("title").getValue(String.class);
+            String cover = item.child("coverUrl").getValue(String.class);
+            if (label == null || label.isEmpty()) label = "Story";
+
+            // Container: gradient ring + label, vertical stack
+            android.widget.LinearLayout container = new android.widget.LinearLayout(this);
+            android.widget.LinearLayout.LayoutParams clp =
+                new android.widget.LinearLayout.LayoutParams(itemW,
+                    android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+            clp.setMarginEnd(mgnEnd);
+            container.setLayoutParams(clp);
+            container.setOrientation(android.widget.LinearLayout.VERTICAL);
+            container.setGravity(android.view.Gravity.CENTER_HORIZONTAL);
+            int pH = (int)(5 * d);
+            container.setPaddingRelative(pH, 0, pH, 0);
+
+            // Instagram gradient ring (orange->pink)
+            android.widget.FrameLayout ring = new android.widget.FrameLayout(this);
+            android.widget.LinearLayout.LayoutParams rlp =
+                new android.widget.LinearLayout.LayoutParams(circleSize, circleSize);
+            ring.setLayoutParams(rlp);
+            android.graphics.drawable.GradientDrawable ringBg =
+                new android.graphics.drawable.GradientDrawable(
+                    android.graphics.drawable.GradientDrawable.Orientation.BL_TR,
+                    new int[]{0xFFE1306C, 0xFFF56040, 0xFFFCCC63});
+            ringBg.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+            ring.setBackground(ringBg);
+
+            // Avatar image
+            de.hdodenhof.circleimageview.CircleImageView img =
+                new de.hdodenhof.circleimageview.CircleImageView(this);
+            int innerSz = (int)(60 * d);
+            android.widget.FrameLayout.LayoutParams ilp =
+                new android.widget.FrameLayout.LayoutParams(innerSz, innerSz);
+            ilp.gravity = android.view.Gravity.CENTER;
+            img.setLayoutParams(ilp);
+            img.setImageResource(com.callx.app.reels.R.drawable.ic_person);
+            if (cover != null && !cover.isEmpty()) {
+                com.bumptech.glide.Glide.with(this)
+                    .load(cover)
+                    .placeholder(com.callx.app.reels.R.drawable.ic_person)
+                    .centerCrop()
+                    .into(img);
+            }
+            ring.addView(img);
+
+            // Label under circle
+            android.widget.TextView tv = new android.widget.TextView(this);
+            android.widget.LinearLayout.LayoutParams tlp =
+                new android.widget.LinearLayout.LayoutParams(
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                    android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+            tlp.topMargin = (int)(5 * d);
+            tv.setLayoutParams(tlp);
+            tv.setText(label);
+            tv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 10f);
+            tv.setGravity(android.view.Gravity.CENTER);
+            tv.setMaxLines(1);
+            tv.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            tv.setTextColor(androidx.core.content.ContextCompat.getColor(
+                this, android.R.color.tab_indicator_text));
+
+            container.addView(ring);
+            container.addView(tv);
+
+            final String lbl = label;
+            container.setClickable(true);
+            container.setFocusable(true);
+            container.setOnClickListener(v2 ->
+                Toast.makeText(this, lbl, Toast.LENGTH_SHORT).show());
+            llHighlights.addView(container);
+        }
+        if (hsvHighlights != null) hsvHighlights.setVisibility(View.VISIBLE);
+    }
+
 }
