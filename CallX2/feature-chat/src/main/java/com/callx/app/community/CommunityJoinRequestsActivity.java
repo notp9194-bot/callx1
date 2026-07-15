@@ -71,12 +71,17 @@ public class CommunityJoinRequestsActivity extends AppCompatActivity
     @Override
     public void onApprove(CommunityJoinRequestEntity request) {
         if (currentUid == null) return;
+        boolean isGroupRequest = request.groupId != null;
+        String message = isGroupRequest
+                ? "Allow " + request.requesterName + " to join this group?"
+                : "Allow " + request.requesterName + " to join the community?";
         new AlertDialog.Builder(this)
                 .setTitle("Approve Request")
-                .setMessage("Allow " + request.requesterName + " to join the community?")
+                .setMessage(message)
                 .setPositiveButton("Approve", (d, w) ->
-                        repo.approveJoinRequest(communityId, request.id, request.requesterUid,
-                                request.requesterName, request.requesterPhoto, currentUid,
+                        repo.approveJoinRequest(communityId, request.id, request.groupId,
+                                request.requesterUid, request.requesterName, request.requesterPhoto,
+                                currentUid,
                                 (success, error) -> runOnUiThread(() -> {
                                     if (!success)
                                         Toast.makeText(this, "Failed: " + error, Toast.LENGTH_SHORT).show();

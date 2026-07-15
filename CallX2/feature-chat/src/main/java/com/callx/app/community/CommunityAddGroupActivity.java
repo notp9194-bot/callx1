@@ -115,10 +115,26 @@ public class CommunityAddGroupActivity extends AppCompatActivity {
             Toast.makeText(this, "Select at least one group", Toast.LENGTH_SHORT).show();
             return;
         }
+
+        // v32: Community Access System — WhatsApp Communities-style choice:
+        // "Everyone" auto-joins any community member who taps in; "Admins only"
+        // requires an ask-to-join request approved by a community admin/owner.
+        String[] options = { "Everyone in the community can join", "Only admins can add members" };
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("Group access")
+                .setItems(options, (d, which) -> {
+                    String accessType = which == 1 ? "ADMIN_ONLY" : "OPEN";
+                    linkSelectedGroups(selected, accessType);
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    private void linkSelectedGroups(List<String> selected, String accessType) {
         btnAddSelected.setEnabled(false);
         final int[] remaining = { selected.size() };
         for (String groupId : selected) {
-            repo.addGroupToCommunity(communityId, groupId, currentUid, (success, error) -> {
+            repo.linkGroup(communityId, groupId, currentUid, accessType, (success, error) -> {
                 remaining[0]--;
                 if (remaining[0] <= 0) runOnUiThread(this::finish);
             });

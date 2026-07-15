@@ -78,6 +78,10 @@ public class CommunityJoinRequestAdapter
         if (req.message != null && !req.message.isEmpty()) {
             h.tvMessage.setVisibility(View.VISIBLE);
             h.tvMessage.setText("\"" + req.message + "\"");
+        } else if (req.groupId != null) {
+            // v32: Community Access System — ask-to-join a specific ADMIN_ONLY group
+            h.tvMessage.setVisibility(View.VISIBLE);
+            h.tvMessage.setText("Wants to join a group in this community");
         } else {
             h.tvMessage.setVisibility(View.GONE);
         }

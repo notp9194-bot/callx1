@@ -291,10 +291,23 @@ public class CommunityRepository {
 
     public void sendJoinRequest(String communityId, String requesterUid, String requesterName,
                                 String requesterPhoto, @Nullable String message, SimpleCallback cb) {
+        sendJoinRequest(communityId, null, requesterUid, requesterName, requesterPhoto, message, cb);
+    }
+
+    /**
+     * v32: Community Access System.
+     * @param groupId null = request to join the community itself (Instagram private-account style).
+     *                non-null = requester is already a community member asking to join this
+     *                specific ADMIN_ONLY linked group.
+     */
+    public void sendJoinRequest(String communityId, @Nullable String groupId, String requesterUid,
+                                String requesterName, String requesterPhoto,
+                                @Nullable String message, SimpleCallback cb) {
         String id = UUID.randomUUID().toString();
         long now = System.currentTimeMillis();
         Map<String, Object> data = new HashMap<>();
         data.put("id", id);
+        if (groupId != null) data.put("groupId", groupId);
         data.put("requesterUid", requesterUid);
         data.put("requesterName", requesterName);
         data.put("requesterPhoto", requesterPhoto != null ? requesterPhoto : "");
@@ -306,7 +319,7 @@ public class CommunityRepository {
                 .setValue(data, (err, ref) -> {
                     if (err != null) { cb.onComplete(false, err.getMessage()); return; }
                     CommunityJoinRequestEntity entity = new CommunityJoinRequestEntity();
-                    entity.id = id; entity.communityId = communityId;
+                    entity.id = id; entity.communityId = communityId; entity.groupId = groupId;
                     entity.requesterUid = requesterUid; entity.requesterName = requesterName;
                     entity.requesterPhoto = requesterPhoto; entity.status = "pending";
                     entity.message = message; entity.createdAt = now;
@@ -318,29 +331,50 @@ public class CommunityRepository {
     public void approveJoinRequest(String communityId, String requestId, String requesterUid,
                                    String requesterName, String requesterPhoto,
                                    String approverUid, SimpleCallback cb) {
+        approveJoinRequest(communityId, requestId, null, requesterUid, requesterName, requesterPhoto, approverUid, cb);
+    }
+
+    /**
+     * v32: Community Access System.
+     * @param groupId null = approving a community-join request (adds as community MEMBER).
+     *                non-null = approving an ask-to-join-group request (adds uid to that
+     *                group's own members only — requester is already a community member).
+     */
+    public void approveJoinRequest(String communityId, String requestId, @Nullable String groupId,
+                                   String requesterUid, String requesterName, String requesterPhoto,
+                                   String approverUid, SimpleCallback cb) {
         long now = System.currentTimeMillis();
         Map<String, Object> batch = new HashMap<>();
         batch.put("communities/" + communityId + "/join_requests/" + requestId + "/status", "approved");
         batch.put("communities/" + communityId + "/join_requests/" + requestId + "/processedAt", now);
         batch.put("communities/" + communityId + "/join_requests/" + requestId + "/processedByUid", approverUid);
 
-        Map<String, Object> memberData = new HashMap<>();
-        memberData.put("name", requesterName); memberData.put("photoUrl", requesterPhoto != null ? requesterPhoto : "");
-        memberData.put("role", CommunityRole.MEMBER); memberData.put("joinedAt", now);
-        memberData.put("badge", CommunityBadge.NONE); memberData.put("isMuted", false); memberData.put("isBanned", false);
-        batch.put("communities/" + communityId + "/members/" + requesterUid, memberData);
+        if (groupId != null) {
+            batch.put("groups/" + groupId + "/members/" + requesterUid, true);
+            batch.put("userGroups/" + requesterUid + "/" + groupId, true);
+        } else {
+            Map<String, Object> memberData = new HashMap<>();
+            memberData.put("name", requesterName); memberData.put("photoUrl", requesterPhoto != null ? requesterPhoto : "");
+            memberData.put("role", CommunityRole.MEMBER); memberData.put("joinedAt", now);
+            memberData.put("badge", CommunityBadge.NONE); memberData.put("isMuted", false); memberData.put("isBanned", false);
+            batch.put("communities/" + communityId + "/members/" + requesterUid, memberData);
+        }
 
         mFirebase.getReference().updateChildren(batch, (err, ref) -> {
             if (err != null) { cb.onComplete(false, err.getMessage()); return; }
             mExecutor.execute(() -> {
                 mJoinRequestDao.updateStatus(requestId, "approved", now, approverUid);
-                CommunityMemberEntity m = new CommunityMemberEntity();
-                m.communityId = communityId; m.uid = requesterUid; m.name = requesterName;
-                m.photoUrl = requesterPhoto; m.role = CommunityRole.MEMBER; m.joinedAt = now;
-                m.badge = CommunityBadge.NONE;
-                mDao.insertMember(m);
+                if (groupId == null) {
+                    CommunityMemberEntity m = new CommunityMemberEntity();
+                    m.communityId = communityId; m.uid = requesterUid; m.name = requesterName;
+                    m.photoUrl = requesterPhoto; m.role = CommunityRole.MEMBER; m.joinedAt = now;
+                    m.badge = CommunityBadge.NONE;
+                    mDao.insertMember(m);
+                }
                 postNotification(requesterUid, communityId, "join_approved",
-                        "Join Request Approved", "You have been approved to join the community.",
+                        groupId == null ? "Join Request Approved" : "Group Access Approved",
+                        groupId == null ? "You have been approved to join the community."
+                                        : "You have been approved to join the group.",
                         null, approverUid, null, null);
             });
             cb.onComplete(true, null);
@@ -376,6 +410,7 @@ public class CommunityRepository {
                         for (DataSnapshot child : s.getChildren()) {
                             CommunityJoinRequestEntity e = new CommunityJoinRequestEntity();
                             e.id = child.getKey(); e.communityId = communityId;
+                            e.groupId = child.child("groupId").getValue(String.class);
                             e.requesterUid = child.child("requesterUid").getValue(String.class);
                             e.requesterName = child.child("requesterName").getValue(String.class);
                             e.requesterPhoto = child.child("requesterPhoto").getValue(String.class);
@@ -516,6 +551,8 @@ public class CommunityRepository {
                             link.communityId = communityId; link.groupId = gs.getKey();
                             link.addedByUid = gs.child("addedByUid").getValue(String.class);
                             link.addedAt = longOrZero(gs.child("addedAt"));
+                            String accessType = gs.child("accessType").getValue(String.class);
+                            link.accessType = accessType != null ? accessType : "OPEN";
                             list.add(link);
                         }
                         mExecutor.execute(() -> {
@@ -527,17 +564,41 @@ public class CommunityRepository {
     }
 
     public void linkGroup(String communityId, String groupId, String addedByUid, SimpleCallback cb) {
+        linkGroup(communityId, groupId, addedByUid, "OPEN", cb);
+    }
+
+    /**
+     * v32: link a group with an explicit access type.
+     * "OPEN" (default, WhatsApp-style) — any community member who taps the
+     * group is auto-joined immediately.
+     * "ADMIN_ONLY" (Instagram-style) — member must send an ask-to-join
+     * request that a community admin/owner approves.
+     */
+    public void linkGroup(String communityId, String groupId, String addedByUid,
+                          String accessType, SimpleCallback cb) {
         long now = System.currentTimeMillis();
+        String type = "ADMIN_ONLY".equals(accessType) ? "ADMIN_ONLY" : "OPEN";
         Map<String, Object> data = new HashMap<>();
-        data.put("addedByUid", addedByUid); data.put("addedAt", now);
+        data.put("addedByUid", addedByUid); data.put("addedAt", now); data.put("accessType", type);
 
         communitiesRef().child(communityId).child("groups").child(groupId)
                 .setValue(data, (err, ref) -> {
                     if (err != null) { cb.onComplete(false, err.getMessage()); return; }
                     CommunityGroupLinkEntity link = new CommunityGroupLinkEntity();
                     link.communityId = communityId; link.groupId = groupId;
-                    link.addedByUid = addedByUid; link.addedAt = now;
+                    link.addedByUid = addedByUid; link.addedAt = now; link.accessType = type;
                     mExecutor.execute(() -> mDao.insertGroupLink(link));
+                    cb.onComplete(true, null);
+                });
+    }
+
+    /** v32: admin toggles a linked group between "OPEN" and "ADMIN_ONLY". */
+    public void setGroupAccessType(String communityId, String groupId, String accessType, SimpleCallback cb) {
+        String type = "ADMIN_ONLY".equals(accessType) ? "ADMIN_ONLY" : "OPEN";
+        communitiesRef().child(communityId).child("groups").child(groupId).child("accessType")
+                .setValue(type, (err, ref) -> {
+                    if (err != null) { cb.onComplete(false, err.getMessage()); return; }
+                    mExecutor.execute(() -> mDao.updateGroupAccessType(communityId, groupId, type));
                     cb.onComplete(true, null);
                 });
     }
@@ -559,6 +620,111 @@ public class CommunityRepository {
     /** Alias — CommunityGroupsFragment's naming for {@link #unlinkGroup}. */
     public void removeGroupFromCommunity(String communityId, String groupId, SimpleCallback cb) {
         unlinkGroup(communityId, groupId, cb);
+    }
+
+    /**
+     * v32: Community Access System result — mirrors WhatsApp (open groups
+     * auto-join) + Instagram (ask-to-join / pending) + Telegram (invite-link
+     * bypass, see {@link #joinCommunityByInvite}) access patterns.
+     */
+    public interface GroupAccessListener {
+        /** Already a group member, or just auto-joined an OPEN group — safe to open the chat. */
+        void onGranted();
+        /** Not a community member yet — must join/request the community first. */
+        void onNotCommunityMember();
+        /** ADMIN_ONLY group: an ask-to-join request already exists and is pending. */
+        void onRequestPending();
+        /** ADMIN_ONLY group: a fresh ask-to-join request was just created. */
+        void onRequestSent();
+        void onError(String message);
+    }
+
+    /**
+     * v32: Community Access System — call before opening a community-linked
+     * group chat. Checks community membership, then group membership, then
+     * the linked group's accessType, auto-joining OPEN groups or creating an
+     * ask-to-join request for ADMIN_ONLY ones.
+     */
+    public void resolveGroupAccess(String communityId, String groupId, String uid,
+                                   String uname, String uphoto, GroupAccessListener listener) {
+        communitiesRef().child(communityId).child("members").child(uid)
+                .addListenerForSingleValueEvent(new ValueEventListener() {
+                    @Override public void onDataChange(@Nullable DataSnapshot memberSnap) {
+                        if (memberSnap == null || !memberSnap.exists()) {
+                            listener.onNotCommunityMember();
+                            return;
+                        }
+                        mFirebase.getReference().child("groups").child(groupId).child("members").child(uid)
+                                .addListenerForSingleValueEvent(new ValueEventListener() {
+                                    @Override public void onDataChange(@Nullable DataSnapshot gMemberSnap) {
+                                        if (gMemberSnap != null && gMemberSnap.exists()) {
+                                            listener.onGranted();
+                                            return;
+                                        }
+                                        resolveGroupAccessType(communityId, groupId, uid, uname, uphoto, listener);
+                                    }
+                                    @Override public void onCancelled(@Nullable DatabaseError e) {
+                                        listener.onError(e != null ? e.getMessage() : "Access check failed");
+                                    }
+                                });
+                    }
+                    @Override public void onCancelled(@Nullable DatabaseError e) {
+                        listener.onError(e != null ? e.getMessage() : "Access check failed");
+                    }
+                });
+    }
+
+    private void resolveGroupAccessType(String communityId, String groupId, String uid,
+                                        String uname, String uphoto, GroupAccessListener listener) {
+        communitiesRef().child(communityId).child("groups").child(groupId).child("accessType")
+                .addListenerForSingleValueEvent(new ValueEventListener() {
+                    @Override public void onDataChange(@Nullable DataSnapshot s) {
+                        String type = s != null ? s.getValue(String.class) : null;
+                        if (!"ADMIN_ONLY".equals(type)) {
+                            // OPEN (default, WhatsApp-style) — auto-join the group.
+                            Map<String, Object> batch = new HashMap<>();
+                            batch.put("groups/" + groupId + "/members/" + uid, true);
+                            batch.put("userGroups/" + uid + "/" + groupId, true);
+                            mFirebase.getReference().updateChildren(batch, (err, ref) -> {
+                                if (err != null) { listener.onError(err.getMessage()); return; }
+                                listener.onGranted();
+                            });
+                            return;
+                        }
+                        findPendingGroupRequest(communityId, groupId, uid, uname, uphoto, listener);
+                    }
+                    @Override public void onCancelled(@Nullable DatabaseError e) {
+                        listener.onError(e != null ? e.getMessage() : "Access check failed");
+                    }
+                });
+    }
+
+    private void findPendingGroupRequest(String communityId, String groupId, String uid,
+                                         String uname, String uphoto, GroupAccessListener listener) {
+        communitiesRef().child(communityId).child("join_requests")
+                .orderByChild("status").equalTo("pending")
+                .addListenerForSingleValueEvent(new ValueEventListener() {
+                    @Override public void onDataChange(@Nullable DataSnapshot s) {
+                        if (s != null) {
+                            for (DataSnapshot child : s.getChildren()) {
+                                String reqGroupId = child.child("groupId").getValue(String.class);
+                                String reqUid = child.child("requesterUid").getValue(String.class);
+                                if (groupId.equals(reqGroupId) && uid.equals(reqUid)) {
+                                    listener.onRequestPending();
+                                    return;
+                                }
+                            }
+                        }
+                        sendJoinRequest(communityId, groupId, uid, uname, uphoto, null,
+                                (success, error) -> {
+                                    if (success) listener.onRequestSent();
+                                    else listener.onError(error);
+                                });
+                    }
+                    @Override public void onCancelled(@Nullable DatabaseError e) {
+                        listener.onError(e != null ? e.getMessage() : "Access check failed");
+                    }
+                });
     }
 
     public void observeAvailableGroups(String uid, ResultCallback<List<GroupEntity>> cb) {

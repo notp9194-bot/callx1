@@ -36,6 +36,11 @@ public class CommunityGroupAdapter extends RecyclerView.Adapter<CommunityGroupAd
         void onLongPress(GroupEntity group);
     }
 
+    /** v32: Community Access System — tap now routes through an access check before opening. */
+    public interface OnGroupClickListener {
+        void onGroupClick(GroupEntity group);
+    }
+
     // ── DiffUtil callback ──────────────────────────────────────────────────
     private static final DiffUtil.ItemCallback<GroupEntity> DIFF =
             new DiffUtil.ItemCallback<GroupEntity>() {
@@ -56,6 +61,7 @@ public class CommunityGroupAdapter extends RecyclerView.Adapter<CommunityGroupAd
 
     private final AsyncListDiffer<GroupEntity> differ = new AsyncListDiffer<>(this, DIFF);
     private OnGroupLongPressListener longPressListener;
+    private OnGroupClickListener clickListener;
 
     public CommunityGroupAdapter() {
         setHasStableIds(true);
@@ -67,6 +73,10 @@ public class CommunityGroupAdapter extends RecyclerView.Adapter<CommunityGroupAd
 
     public void setOnGroupLongPressListener(OnGroupLongPressListener l) {
         this.longPressListener = l;
+    }
+
+    public void setOnGroupClickListener(OnGroupClickListener l) {
+        this.clickListener = l;
     }
 
     @Override
@@ -109,8 +119,14 @@ public class CommunityGroupAdapter extends RecyclerView.Adapter<CommunityGroupAd
             h.ivGroupIcon.setPadding(pad, pad, pad, pad);
         }
 
-        // Tap → open GroupChatActivity with the same extras GroupAdapter uses
+        // Tap → v32: run through the Community Access System gate first
+        // (community membership → group membership → OPEN auto-join /
+        // ADMIN_ONLY ask-to-join), then open GroupChatActivity.
         h.itemView.setOnClickListener(v -> {
+            if (clickListener != null) {
+                clickListener.onGroupClick(g);
+                return;
+            }
             Intent i = new Intent(ctx, GroupChatActivity.class);
             i.putExtra("groupId", g.id);
             i.putExtra("groupName", g.name);

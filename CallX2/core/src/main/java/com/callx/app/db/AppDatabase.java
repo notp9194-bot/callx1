@@ -52,7 +52,7 @@ import com.callx.app.db.entity.*;
         CommunityScheduledPostEntity.class,
         CommunityModerationLogEntity.class
     },
-    version = 31,
+    version = 32,
     exportSchema = false
 )
 public abstract class AppDatabase extends RoomDatabase {
@@ -209,6 +209,22 @@ public abstract class AppDatabase extends RoomDatabase {
         }
     };
 
+    /**
+     * v32: Community Access System — mixes WhatsApp (open community groups
+     * you auto-join), Instagram (ask-to-join / approve-deny), and Telegram
+     * (invite-link based joins) patterns.
+     *   community_group_links: accessType TEXT ("OPEN" | "ADMIN_ONLY")
+     *   community_join_requests: groupId TEXT (null = community-level
+     *       request, non-null = ask-to-join a specific ADMIN_ONLY group)
+     */
+    static final Migration MIGRATION_31_32 = new Migration(31, 32) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase db) {
+            db.execSQL("ALTER TABLE community_group_links ADD COLUMN accessType TEXT NOT NULL DEFAULT 'OPEN'");
+            db.execSQL("ALTER TABLE community_join_requests ADD COLUMN groupId TEXT");
+        }
+    };
+
     // ─── Singleton ────────────────────────────────────────────────────────────
 
     /** True once the singleton Room instance has been built this process (no I/O needed to check). */
@@ -224,7 +240,7 @@ public abstract class AppDatabase extends RoomDatabase {
                                     ctx.getApplicationContext(),
                                     AppDatabase.class,
                                     "callx_database")
-                            .addMigrations(MIGRATION_30_31)
+                            .addMigrations(MIGRATION_30_31, MIGRATION_31_32)
                             .fallbackToDestructiveMigrationFrom(1, 2, 3, 4, 5, 6, 7, 8,
                                     9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
                                     21, 22, 23, 24, 25, 26, 27, 28, 29)

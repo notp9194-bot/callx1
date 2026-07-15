@@ -49,6 +49,10 @@ public interface CommunityDao {
     @Query("SELECT * FROM community_members WHERE communityId = :communityId ORDER BY role ASC, name ASC")
     List<CommunityMemberEntity> getMembersSync(String communityId);
 
+    /** v32: Community Access System — is this uid a member (and what role)? */
+    @Query("SELECT * FROM community_members WHERE communityId = :communityId AND uid = :uid LIMIT 1")
+    CommunityMemberEntity getMemberSync(String communityId, String uid);
+
     @Query("UPDATE community_members SET role = :newRole WHERE communityId = :communityId AND uid = :uid")
     void updateMemberRole(String communityId, String uid, String newRole);
 
@@ -114,6 +118,13 @@ public interface CommunityDao {
 
     @Query("DELETE FROM community_group_links WHERE communityId = :communityId AND groupId = :groupId")
     void deleteGroupLink(String communityId, String groupId);
+
+    /** v32: Community Access System — accessType lookup before opening a linked group. */
+    @Query("SELECT * FROM community_group_links WHERE communityId = :communityId AND groupId = :groupId LIMIT 1")
+    CommunityGroupLinkEntity getGroupLinkSync(String communityId, String groupId);
+
+    @Query("UPDATE community_group_links SET accessType = :accessType WHERE communityId = :communityId AND groupId = :groupId")
+    void updateGroupAccessType(String communityId, String groupId, String accessType);
 
     // ─── Helper: groups for a user (for linking) ─────────────────────────────
 

@@ -24,6 +24,14 @@ public class CommunityJoinRequestEntity {
     public String id = "";
 
     public String communityId;
+
+    /**
+     * v32: null = request to join the community itself.
+     * Non-null = requester is already a community member asking to join
+     * this specific ADMIN_ONLY linked group (Instagram "ask to join" style).
+     */
+    public String groupId;
+
     public String requesterUid;
     public String requesterName;
     public String requesterPhoto;

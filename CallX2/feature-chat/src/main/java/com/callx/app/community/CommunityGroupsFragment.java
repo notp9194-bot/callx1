@@ -93,6 +93,7 @@ public class CommunityGroupsFragment extends Fragment {
 
         adapter = new CommunityGroupAdapter();
         adapter.setOnGroupLongPressListener(this::onGroupLongPress);
+        adapter.setOnGroupClickListener(this::onGroupClick);
         rvGroups.setAdapter(adapter);
 
         // FAB — opens CommunityAddGroupActivity
@@ -137,6 +138,57 @@ public class CommunityGroupsFragment extends Fragment {
             }
         }
         fabAdd.setVisibility(isAdminOrOwner ? View.VISIBLE : View.GONE);
+    }
+
+    /**
+     * v32: Community Access System — tap gate before opening a linked group.
+     * WhatsApp-style: OPEN groups auto-join and open immediately.
+     * Instagram-style: ADMIN_ONLY groups get an ask-to-join request that a
+     * community admin/owner approves from CommunityJoinRequestsActivity.
+     */
+    private void onGroupClick(GroupEntity group) {
+        if (!isAdded() || communityId == null || currentUid == null) return;
+
+        com.google.firebase.auth.FirebaseUser user = FirebaseAuth.getInstance().getCurrentUser();
+        String myName = user != null && user.getDisplayName() != null ? user.getDisplayName() : "";
+        String myPhoto = user != null && user.getPhotoUrl() != null ? user.getPhotoUrl().toString() : null;
+
+        repo.resolveGroupAccess(communityId, group.id, currentUid, myName, myPhoto,
+                new CommunityRepository.GroupAccessListener() {
+                    @Override public void onGranted() {
+                        if (!isAdded()) return;
+                        requireActivity().runOnUiThread(() -> {
+                            Intent i = new Intent(requireContext(), com.callx.app.group.GroupChatActivity.class);
+                            i.putExtra("groupId", group.id);
+                            i.putExtra("groupName", group.name);
+                            startActivity(i);
+                        });
+                    }
+                    @Override public void onNotCommunityMember() {
+                        if (!isAdded()) return;
+                        requireActivity().runOnUiThread(() ->
+                                Toast.makeText(requireContext(),
+                                        "Join the community first to access its groups", Toast.LENGTH_SHORT).show());
+                    }
+                    @Override public void onRequestPending() {
+                        if (!isAdded()) return;
+                        requireActivity().runOnUiThread(() ->
+                                Toast.makeText(requireContext(),
+                                        "Your request to join this group is pending admin approval", Toast.LENGTH_SHORT).show());
+                    }
+                    @Override public void onRequestSent() {
+                        if (!isAdded()) return;
+                        requireActivity().runOnUiThread(() ->
+                                Toast.makeText(requireContext(),
+                                        "Ask-to-join sent — an admin needs to approve you", Toast.LENGTH_SHORT).show());
+                    }
+                    @Override public void onError(String message) {
+                        if (!isAdded()) return;
+                        requireActivity().runOnUiThread(() ->
+                                Toast.makeText(requireContext(),
+                                        "Couldn't check access: " + message, Toast.LENGTH_SHORT).show());
+                    }
+                });
     }
 
     /**

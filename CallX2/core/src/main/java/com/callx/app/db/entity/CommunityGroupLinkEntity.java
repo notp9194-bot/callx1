@@ -30,6 +30,14 @@ public class CommunityGroupLinkEntity {
     public long   addedAt;
     public long   syncedAt;
 
+    /**
+     * v32: Community Access System.
+     * "OPEN"       — any community member taps in and is auto-joined (WhatsApp-style).
+     * "ADMIN_ONLY" — member must send an ask-to-join request an admin approves (Instagram-style).
+     */
+    @NonNull
+    public String accessType = "OPEN";
+
     public CommunityGroupLinkEntity() {
         this.syncedAt = System.currentTimeMillis();
     }
