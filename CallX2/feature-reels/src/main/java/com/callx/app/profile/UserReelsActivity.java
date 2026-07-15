@@ -20,8 +20,6 @@ import androidx.media3.common.MediaItem;
 import androidx.media3.common.Player;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.ui.PlayerView;
-import androidx.coordinatorlayout.widget.CoordinatorLayout;
-import androidx.core.view.ViewCompat;
 import com.google.android.material.appbar.AppBarLayout;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
@@ -379,40 +377,29 @@ public class UserReelsActivity extends AppCompatActivity
      *
      * No NestedScrollView needed — RecyclerView scrolls freely.
      */
+    /**
+     * Pagination scroll listener.
+     * Header collapse is now handled natively via NestedSwipeRefreshLayout
+     * which properly implements NestedScrollingParent3 — no manual hack needed.
+     */
     private void setupScrollPagination() {
-          rvReels.addOnScrollListener(new RecyclerView.OnScrollListener() {
-              @Override
-              public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
-                  // HEADER SCROLL FIX: SwipeRefreshLayout only implements NestedScrollingParent v1.
-                  // CoordinatorLayout requires v2+ to collapse AppBarLayout children.
-                  // We call AppBarLayout.Behavior.onNestedPreScroll() directly to bypass the gap.
-                  if (appBarLayout != null
-                          && appBarLayout.getParent() instanceof CoordinatorLayout) {
-                      CoordinatorLayout cl = (CoordinatorLayout) appBarLayout.getParent();
-                      CoordinatorLayout.LayoutParams lp =
-                          (CoordinatorLayout.LayoutParams) appBarLayout.getLayoutParams();
-                      CoordinatorLayout.Behavior<?> b = lp.getBehavior();
-                      if (b instanceof AppBarLayout.Behavior) {
-                          ((AppBarLayout.Behavior) b).onNestedPreScroll(
-                              cl, appBarLayout, rv, 0, dy, new int[]{0, 0},
-                              ViewCompat.TYPE_NON_TOUCH);
-                      }
-                  }
+        rvReels.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            @Override
+            public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
+                if (swipeRefresh != null && !swipeRefresh.isRefreshing()) {
+                    swipeRefresh.setEnabled(isAppBarExpanded && !rv.canScrollVertically(-1));
+                }
 
-                  if (swipeRefresh != null && !swipeRefresh.isRefreshing()) {
-                      swipeRefresh.setEnabled(isAppBarExpanded && !rv.canScrollVertically(-1));
-                  }
-
-                  if (isLoadingMore) return;
-                  if (!getCurrentTabHasMore()) return;
-                  int total       = gridLayoutManager.getItemCount();
-                  int lastVisible = gridLayoutManager.findLastVisibleItemPosition();
-                  if (lastVisible >= total - 6) {
-                      loadCurrentTab(false);
-                  }
-              }
-          });
-      }
+                if (isLoadingMore) return;
+                if (!getCurrentTabHasMore()) return;
+                int total       = gridLayoutManager.getItemCount();
+                int lastVisible = gridLayoutManager.findLastVisibleItemPosition();
+                if (lastVisible >= total - 6) {
+                    loadCurrentTab(false);
+                }
+            }
+        });
+    }
 
     private boolean getCurrentTabHasMore() {
         switch (activeTab) {

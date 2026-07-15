@@ -700,7 +700,7 @@
          layout_behavior makes the RecyclerView offset below the AppBarLayout
          and shrink upward as AppBarLayout collapses.
          ═══════════════════════════════════════════════════════════════════ -->
-    <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+    <com.callx.app.profile.NestedSwipeRefreshLayout
         android:id="@+id/swipe_refresh"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
@@ -819,7 +819,7 @@
             </LinearLayout>
 
         </FrameLayout>
-    </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
+    </com.callx.app.profile.NestedSwipeRefreshLayout>
 
 
       <!-- ── View All Reels Button ────────────────────────────────────── -->
