@@ -53,6 +53,7 @@ public class ProfileActivity extends AppCompatActivity {
                 uri -> { if (uri != null) uploadAvatar(uri); });
             binding.btnChangeAvatar.setOnClickListener(v -> imagePicker.launch("image/*"));
             binding.btnSave.setOnClickListener(v -> save());
+            setupCommunityEntryPoint();
         } else {
             // Someone else's profile — read-only
             binding.btnChangeAvatar.setVisibility(View.GONE);
@@ -230,5 +231,83 @@ public class ProfileActivity extends AppCompatActivity {
     private void showAvatarZoom(String photoUrl) {
         com.callx.app.utils.DialogFullscreenHelper.showAvatarZoom(
             this, photoUrl, R.drawable.ic_person, R.drawable.ic_close);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // COMMUNITY — opt-in "Enable"/"Manage" entry point on the user's own
+    // profile. app module has a real Gradle dependency on :feature-chat
+    // (see app/build.gradle), so CommunityRepository/CommunityActivity/
+    // ManageCommunityActivity are referenced directly here — no reflection
+    // needed, unlike the cross-module Reels/X/YouTube calls in ChatActivity.
+    // ─────────────────────────────────────────────────────────────────────
+
+    private String myCommunityId;
+
+    private void setupCommunityEntryPoint() {
+        binding.btnCommunity.setVisibility(View.VISIBLE);
+        binding.btnCommunity.setText("Community");
+        com.callx.app.repository.CommunityRepository.getInstance(this)
+            .checkHasCommunity(currentUid, communityId -> runOnUiThread(() -> {
+                myCommunityId = communityId;
+                binding.btnCommunity.setText(communityId != null ? "Manage Your Community" : "Enable Community");
+            }));
+
+        binding.btnCommunity.setOnClickListener(v -> {
+            if (myCommunityId != null) {
+                android.content.Intent i = new android.content.Intent(
+                        this, com.callx.app.community.ManageCommunityActivity.class);
+                i.putExtra(com.callx.app.community.ManageCommunityActivity.EXTRA_COMMUNITY_ID, myCommunityId);
+                i.putExtra(com.callx.app.community.ManageCommunityActivity.EXTRA_IS_OWNER, true);
+                startActivity(i);
+            } else {
+                showCreateCommunityDialog();
+            }
+        });
+    }
+
+    private void showCreateCommunityDialog() {
+        android.widget.LinearLayout layout = new android.widget.LinearLayout(this);
+        layout.setOrientation(android.widget.LinearLayout.VERTICAL);
+        int pad = (int) (20 * getResources().getDisplayMetrics().density);
+        layout.setPadding(pad, pad, pad, pad);
+
+        android.widget.EditText etName = new android.widget.EditText(this);
+        etName.setHint("Community name");
+        layout.addView(etName);
+
+        android.widget.EditText etDescription = new android.widget.EditText(this);
+        etDescription.setHint("Description (optional)");
+        etDescription.setPadding(0, pad / 2, 0, 0);
+        layout.addView(etDescription);
+
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Enable Your Community")
+            .setMessage("Create a Community — a combined feed and group-chat hub linked to your profile. " +
+                    "Only contacts you choose to show it to (via \"View Community\") can find it.")
+            .setView(layout)
+            .setPositiveButton("Create", (d, w) -> {
+                String name = etName.getText().toString().trim();
+                if (name.isEmpty()) {
+                    Toast.makeText(this, "Name can't be empty", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                String description = etDescription.getText().toString().trim();
+                String myName = FirebaseAuth.getInstance().getCurrentUser() != null
+                        ? FirebaseAuth.getInstance().getCurrentUser().getDisplayName() : "";
+                com.callx.app.repository.CommunityRepository.getInstance(this)
+                    .createCommunity(currentUid, myName, currentPhoto, name, description, null, newId -> {
+                        runOnUiThread(() -> {
+                            if (newId != null) {
+                                myCommunityId = newId;
+                                binding.btnCommunity.setText("Manage Your Community");
+                                Toast.makeText(this, "Community created", Toast.LENGTH_SHORT).show();
+                            } else {
+                                Toast.makeText(this, "Failed to create community", Toast.LENGTH_SHORT).show();
+                            }
+                        });
+                    });
+            })
+            .setNegativeButton("Cancel", null)
+            .show();
     }
 }

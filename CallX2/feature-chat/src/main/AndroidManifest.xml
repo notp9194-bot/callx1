@@ -77,5 +77,28 @@
             android:screenOrientation="portrait"
             android:label="Add Sticker"/>
 
+        <!-- ──────────────────────────────────────────────────────────────
+             COMMUNITY SYSTEM — combined feed + linked group chats
+             ────────────────────────────────────────────────────────────── -->
+
+        <activity android:name="com.callx.app.community.CommunityActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
+
+        <activity android:name="com.callx.app.community.CommunityPostComposerActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
+
+        <activity android:name="com.callx.app.community.CommunityPostCommentsActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
+
+        <activity android:name="com.callx.app.community.CommunityAddGroupActivity"
+            android:exported="false"/>
+
+        <activity android:name="com.callx.app.community.ManageCommunityActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
+
     </application>
 </manifest>

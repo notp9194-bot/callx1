@@ -1,0 +1,143 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="?attr/colorSurface"
+    android:orientation="vertical">
+
+    <androidx.appcompat.widget.Toolbar
+        android:id="@+id/toolbar"
+        android:layout_width="match_parent"
+        android:layout_height="?attr/actionBarSize"
+        android:background="@color/brand_primary"
+        android:theme="@style/ThemeOverlay.AppCompat.Dark.ActionBar"/>
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="20dp">
+
+            <!-- Community Icon -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="8dp"
+                android:text="Community Icon"
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp"
+                android:textAllCaps="true"/>
+
+            <FrameLayout
+                android:layout_width="96dp"
+                android:layout_height="96dp"
+                android:layout_marginBottom="20dp">
+
+                <de.hdodenhof.circleimageview.CircleImageView
+                    android:id="@+id/iv_community_icon"
+                    android:layout_width="96dp"
+                    android:layout_height="96dp"
+                    android:background="@color/surface_input"
+                    android:padding="24dp"
+                    android:src="@drawable/ic_group"/>
+
+                <ImageView
+                    android:id="@+id/btn_change_icon"
+                    android:layout_width="28dp"
+                    android:layout_height="28dp"
+                    android:layout_gravity="bottom|end"
+                    android:background="@color/brand_primary"
+                    android:clickable="true"
+                    android:contentDescription="Change icon"
+                    android:focusable="true"
+                    android:padding="6dp"
+                    android:src="@drawable/ic_edit"
+                    android:tint="#FFFFFF"/>
+
+            </FrameLayout>
+
+            <!-- Community Name -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="4dp"
+                android:text="Community Name"
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp"
+                android:textAllCaps="true"/>
+
+            <EditText
+                android:id="@+id/et_community_name"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="20dp"
+                android:background="@color/surface_input"
+                android:hint="Enter community name"
+                android:inputType="textCapWords"
+                android:maxLines="1"
+                android:padding="12dp"
+                android:textColor="?android:attr/textColorPrimary"
+                android:textSize="15sp"/>
+
+            <!-- Community Description -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="4dp"
+                android:text="Description"
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp"
+                android:textAllCaps="true"/>
+
+            <EditText
+                android:id="@+id/et_community_description"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="28dp"
+                android:background="@color/surface_input"
+                android:gravity="top"
+                android:hint="Enter description"
+                android:inputType="textMultiLine|textCapSentences"
+                android:minLines="3"
+                android:padding="12dp"
+                android:textColor="?android:attr/textColorPrimary"
+                android:textSize="15sp"/>
+
+            <Button
+                android:id="@+id/btn_save"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="24dp"
+                android:background="@color/brand_primary"
+                android:text="Save Changes"
+                android:textColor="#FFFFFF"
+                android:textSize="15sp"/>
+
+            <!-- Divider -->
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:layout_marginBottom="24dp"
+                android:background="@color/surface_input"/>
+
+            <!-- Disable Community — Owner-only, hidden for admins -->
+            <Button
+                android:id="@+id/btn_disable_community"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="#FFEBEE"
+                android:text="Disable Community"
+                android:textColor="#C62828"
+                android:textSize="15sp"
+                android:visibility="gone"/>
+
+        </LinearLayout>
+
+    </ScrollView>
+
+</LinearLayout>

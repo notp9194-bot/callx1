@@ -285,6 +285,20 @@
                 </LinearLayout>
             </androidx.cardview.widget.CardView>
 
+            <!-- Community — own profile only. Label swaps between "Enable" (no
+                 community yet) and "Manage" (already has one) once loaded. -->
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_community"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:text="Community"
+                app:cornerRadius="14dp"
+                app:strokeColor="@color/brand_primary"
+                android:textColor="@color/brand_primary"
+                android:layout_marginTop="16dp"
+                android:visibility="gone"/>
+
             <!-- Save Button -->
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_save"

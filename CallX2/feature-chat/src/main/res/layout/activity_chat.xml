@@ -896,6 +896,7 @@
 
                 <!-- Name + status/typing (fills remaining space) -->
                 <LinearLayout
+                    android:id="@+id/ll_partner_name_row"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
@@ -1017,6 +1018,15 @@
 
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
+
+        <!-- ══════════════════════════════════════════════════════════════
+             INSTAGRAM-STYLE PROFILE CARD — big avatar + stats + Subscribe +
+             View Community. See ChatProfileCardBinder for all binding logic.
+             Collapsed by default; expands on tapping the header name row.
+             ══════════════════════════════════════════════════════════════ -->
+        <include
+            android:id="@+id/include_profile_card"
+            layout="@layout/layout_chat_profile_card"/>
 
         <!-- ══════════════════════════════════════════════════════════════
              MULTI-SELECT TOOLBAR (WhatsApp style) — visibility=gone by default

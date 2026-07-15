@@ -10,6 +10,7 @@ import androidx.room.RoomDatabase;
 import com.callx.app.cache.EncryptedDbKeyStore;
 import com.callx.app.db.dao.CallLogDao;
 import com.callx.app.db.dao.ChatDao;
+import com.callx.app.db.dao.CommunityDao;
 import com.callx.app.db.dao.GroupDao;
 import com.callx.app.db.dao.MessageDao;
 import com.callx.app.db.dao.ScheduledMessageDao;
@@ -17,6 +18,10 @@ import com.callx.app.db.dao.StatusDao;
 import com.callx.app.db.dao.UserDao;
 import com.callx.app.db.entity.CallLogEntity;
 import com.callx.app.db.entity.ChatEntity;
+import com.callx.app.db.entity.CommunityEntity;
+import com.callx.app.db.entity.CommunityGroupLinkEntity;
+import com.callx.app.db.entity.CommunityMemberEntity;
+import com.callx.app.db.entity.CommunityPostEntity;
 import com.callx.app.db.entity.GroupEntity;
 import com.callx.app.db.entity.MessageEntity;
 import com.callx.app.db.entity.ScheduledMessageEntity;
@@ -67,9 +72,13 @@ import net.sqlcipher.database.SupportFactory;
         CallLogEntity.class,
         GroupEntity.class,
         StatusEntity.class,    // v17: status cache
-        ScheduledMessageEntity.class  // v28: scheduled chat messages
+        ScheduledMessageEntity.class,  // v28: scheduled chat messages
+        CommunityEntity.class,          // v30: community system
+        CommunityMemberEntity.class,    // v30
+        CommunityGroupLinkEntity.class, // v30
+        CommunityPostEntity.class       // v30
     },
-    version = 29,
+    version = 30,
     exportSchema = true
 )
 public abstract class AppDatabase extends RoomDatabase {
@@ -85,6 +94,7 @@ public abstract class AppDatabase extends RoomDatabase {
     public abstract GroupDao             groupDao();
     public abstract StatusDao            statusDao();    // v17
     public abstract ScheduledMessageDao  scheduledMessageDao();  // v28
+    public abstract CommunityDao         communityDao();  // v30
 
     // ──────────────────────────────────────────────────────────────
     // MIGRATIONS
@@ -439,6 +449,98 @@ public abstract class AppDatabase extends RoomDatabase {
         }
     };
 
+    /** v29 → v30: Community system tables — communities, community_members,
+     *  community_group_links, community_posts (see the CommunityEntity
+     *  family + CommunityDao). Community is opt-in: rows only exist for
+     *  users who enabled one, mirrors how `groups` rows only exist for
+     *  chats the user actually joined. */
+    static final Migration MIGRATION_29_30 = new Migration(29, 30) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase db) {
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `communities` (" +
+                "`id` TEXT NOT NULL, " +
+                "`name` TEXT, " +
+                "`description` TEXT, " +
+                "`iconUrl` TEXT, " +
+                "`ownerUid` TEXT, " +
+                "`memberCount` INTEGER NOT NULL DEFAULT 0, " +
+                "`groupCount` INTEGER NOT NULL DEFAULT 0, " +
+                "`postCount` INTEGER NOT NULL DEFAULT 0, " +
+                "`createdAt` INTEGER NOT NULL DEFAULT 0, " +
+                "`syncedAt` INTEGER NOT NULL DEFAULT 0, " +
+                "PRIMARY KEY(`id`))"
+            );
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_communities_ownerUid` " +
+                "ON `communities` (`ownerUid`)"
+            );
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `community_members` (" +
+                "`communityId` TEXT NOT NULL, " +
+                "`uid` TEXT NOT NULL, " +
+                "`name` TEXT, " +
+                "`photoUrl` TEXT, " +
+                "`role` TEXT, " +
+                "`joinedAt` INTEGER NOT NULL DEFAULT 0, " +
+                "`syncedAt` INTEGER NOT NULL DEFAULT 0, " +
+                "PRIMARY KEY(`communityId`, `uid`))"
+            );
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_community_members_communityId` " +
+                "ON `community_members` (`communityId`)"
+            );
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_community_members_uid` " +
+                "ON `community_members` (`uid`)"
+            );
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `community_group_links` (" +
+                "`communityId` TEXT NOT NULL, " +
+                "`groupId` TEXT NOT NULL, " +
+                "`addedByUid` TEXT, " +
+                "`addedAt` INTEGER NOT NULL DEFAULT 0, " +
+                "`syncedAt` INTEGER NOT NULL DEFAULT 0, " +
+                "PRIMARY KEY(`communityId`, `groupId`))"
+            );
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_community_group_links_communityId` " +
+                "ON `community_group_links` (`communityId`)"
+            );
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_community_group_links_groupId` " +
+                "ON `community_group_links` (`groupId`)"
+            );
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `community_posts` (" +
+                "`id` TEXT NOT NULL, " +
+                "`communityId` TEXT, " +
+                "`authorUid` TEXT, " +
+                "`authorName` TEXT, " +
+                "`authorPhoto` TEXT, " +
+                "`text` TEXT, " +
+                "`mediaUrl` TEXT, " +
+                "`mediaType` TEXT, " +
+                "`isAnnouncement` INTEGER NOT NULL DEFAULT 0, " +
+                "`pinned` INTEGER NOT NULL DEFAULT 0, " +
+                "`likeCount` INTEGER NOT NULL DEFAULT 0, " +
+                "`commentCount` INTEGER NOT NULL DEFAULT 0, " +
+                "`pollJson` TEXT, " +
+                "`createdAt` INTEGER NOT NULL DEFAULT 0, " +
+                "`syncedAt` INTEGER NOT NULL DEFAULT 0, " +
+                "PRIMARY KEY(`id`))"
+            );
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_community_posts_communityId_isAnnouncement_createdAt` " +
+                "ON `community_posts` (`communityId`, `isAnnouncement`, `createdAt`)"
+            );
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_community_posts_communityId_mediaUrl` " +
+                "ON `community_posts` (`communityId`, `mediaUrl`)"
+            );
+        }
+    };
+
     /** v27 → v28: chat-list read receipts (ticks) + media label cache —
      *  lastMessageType/lastMessageStatus/lastMessageSenderUid/lastMessageId
      *  on the `chats` table (see ChatEntity). Lets the chat list render
@@ -585,7 +687,7 @@ public abstract class AppDatabase extends RoomDatabase {
 
         AppDatabase db = Room.databaseBuilder(ctx, AppDatabase.class, DB_NAME)
                 .openHelperFactory(factory)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29)  // v29: group-list ticks + media label cache
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30)  // v30: community system tables
                 .fallbackToDestructiveMigration()
                 // NOTE: WAL mode removed — SQLCipher 4.5.4 + Room WAL combination
                 // causes silent open failures on some devices. The write-batching

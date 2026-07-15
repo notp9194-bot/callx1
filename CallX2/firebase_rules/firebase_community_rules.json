@@ -1,0 +1,76 @@
+{
+  "_comment": "Community Module — Firebase Realtime Database Security Rules (v1)",
+  "_deploy": "firebase deploy --only database",
+  "_instructions": [
+    "1. Install Firebase CLI: npm install -g firebase-tools",
+    "2. Login: firebase login",
+    "3. In project root run: firebase deploy --only database",
+    "   OR manually paste the 'rules' object into Firebase Console → Realtime Database → Rules"
+  ],
+  "rules": {
+    "communities": {
+      "$communityId": {
+        ".read": "auth != null && (root.child('communities').child($communityId).child('members').child(auth.uid).exists() || root.child('communities').child($communityId).child('ownerUid').val() === auth.uid)",
+
+        "id":          { ".write": "auth != null" },
+        "name":        { ".write": "auth != null && (!root.child('communities').child($communityId).child('ownerUid').exists() || root.child('communities').child($communityId).child('ownerUid').val() === auth.uid || root.child('communities').child($communityId).child('members').child(auth.uid).child('role').val() === 'ADMIN')" },
+        "description": { ".write": "auth != null && (!root.child('communities').child($communityId).child('ownerUid').exists() || root.child('communities').child($communityId).child('ownerUid').val() === auth.uid || root.child('communities').child($communityId).child('members').child(auth.uid).child('role').val() === 'ADMIN')" },
+        "iconUrl":     { ".write": "auth != null && (!root.child('communities').child($communityId).child('ownerUid').exists() || root.child('communities').child($communityId).child('ownerUid').val() === auth.uid || root.child('communities').child($communityId).child('members').child(auth.uid).child('role').val() === 'ADMIN')" },
+        "ownerUid":    { ".write": "auth != null && !data.exists()" },
+        "createdAt":   { ".write": "auth != null && !data.exists()" },
+        "memberCount": { ".write": "auth != null", ".validate": "newData.isNumber() && newData.val() >= 0" },
+        "groupCount":  { ".write": "auth != null", ".validate": "newData.isNumber() && newData.val() >= 0" },
+        "postCount":   { ".write": "auth != null", ".validate": "newData.isNumber() && newData.val() >= 0" },
+
+        "members": {
+          ".read": "auth != null",
+          "$uid": {
+            ".write": "auth != null && (auth.uid === $uid || root.child('communities').child($communityId).child('ownerUid').val() === auth.uid || root.child('communities').child($communityId).child('members').child(auth.uid).child('role').val() === 'ADMIN')"
+          }
+        },
+
+        "groups": {
+          ".read": "auth != null",
+          "$groupId": {
+            ".write": "auth != null && (root.child('communities').child($communityId).child('ownerUid').val() === auth.uid || root.child('communities').child($communityId).child('members').child(auth.uid).child('role').val() === 'ADMIN')"
+          }
+        },
+
+        "posts": {
+          ".read": "auth != null",
+          "$postId": {
+            ".write": "auth != null && (!data.exists() || data.child('authorUid').val() === auth.uid || root.child('communities').child($communityId).child('ownerUid').val() === auth.uid)",
+            ".validate": "newData.hasChildren(['authorUid','createdAt']) && (newData.child('isAnnouncement').val() != true || root.child('communities').child($communityId).child('members').child(newData.child('authorUid').val()).child('role').val() === 'ADMIN' || root.child('communities').child($communityId).child('ownerUid').val() === newData.child('authorUid').val())",
+
+            "likeCount":    { ".write": "auth != null", ".validate": "newData.isNumber() && newData.val() >= 0" },
+            "commentCount": { ".write": "auth != null", ".validate": "newData.isNumber() && newData.val() >= 0" },
+            "pinned":       { ".write": "auth != null && (root.child('communities').child($communityId).child('ownerUid').val() === auth.uid || root.child('communities').child($communityId).child('members').child(auth.uid).child('role').val() === 'ADMIN')" },
+
+            "likes": {
+              "$uid": { ".write": "auth != null && auth.uid === $uid" }
+            },
+
+            "comments": {
+              ".read": "auth != null",
+              "$commentId": { ".write": "auth != null && (!data.exists() || data.child('uid').val() === auth.uid)" }
+            },
+
+            "poll": {
+              "options": { ".write": "auth != null" },
+              "voters": {
+                "$uid": { ".write": "auth != null && auth.uid === $uid" }
+              }
+            }
+          }
+        }
+      }
+    },
+
+    "community_by_owner": {
+      "$ownerUid": {
+        ".read": "auth != null",
+        ".write": "auth != null && auth.uid === $ownerUid"
+      }
+    }
+  }
+}

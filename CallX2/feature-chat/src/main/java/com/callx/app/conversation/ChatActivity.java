@@ -524,6 +524,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         screenshotNotifier = new ChatScreenshotNotifier(this);
 
         setupToolbar();
+        setupProfileCard();
         themeController.applyScreenTheme();
         setupPagingRecyclerView();   // RecyclerView + adapter ready (no Room yet)
         setupInputBar();
@@ -1674,6 +1675,25 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             popup.setOnMenuItemClickListener(item -> onOptionsItemSelected(item));
             popup.show();
         });
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // PROFILE CARD — Instagram-style card (avatar, name, Reels/X/YouTube
+    // stats, Subscribe, opt-in "View Community") below the header capsule.
+    // ─────────────────────────────────────────────────────────────────────
+
+    private com.callx.app.conversation.ChatProfileCardBinder profileCardBinder;
+
+    private void setupProfileCard() {
+        profileCardBinder = new com.callx.app.conversation.ChatProfileCardBinder(this,
+                com.callx.app.chat.databinding.LayoutChatProfileCardBinding.bind(
+                        binding.includeProfileCard.getRoot()));
+        profileCardBinder.bind(partnerUid, partnerName, partnerPhoto, partnerThumb);
+
+        View.OnClickListener toggle = v -> profileCardBinder.toggleExpanded();
+        binding.ivPartnerAvatar.setOnClickListener(v -> { openAvatarZoom(); toggle.onClick(v); });
+        View nameRow = findViewById(R.id.ll_partner_name_row);
+        if (nameRow != null) nameRow.setOnClickListener(toggle);
     }
 
     private void startCall(boolean isVideo) {

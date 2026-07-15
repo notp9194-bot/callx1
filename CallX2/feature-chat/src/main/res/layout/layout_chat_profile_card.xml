@@ -1,0 +1,172 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Instagram-style profile card — sits just below the floating header
+  capsule (cv_header_capsule) in activity_chat.xml, inside
+  ll_floating_top_stack. Collapsed (visibility="gone") by default;
+  ChatProfileCardBinder expands it with a slide+fade when the user taps
+  the header name/avatar row. See ChatProfileCardBinder for all binding
+  logic (avatar, stats, subscribe, View Community).
+-->
+<com.google.android.material.card.MaterialCardView
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/cv_profile_card"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginStart="10dp"
+    android:layout_marginEnd="10dp"
+    android:layout_marginBottom="6dp"
+    android:visibility="gone"
+    app:cardCornerRadius="20dp"
+    app:cardElevation="4dp"
+    app:cardBackgroundColor="@color/bar_background"
+    app:cardUseCompatPadding="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:gravity="center_horizontal"
+        android:paddingTop="18dp"
+        android:paddingBottom="16dp"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp">
+
+        <!-- Big avatar -->
+        <de.hdodenhof.circleimageview.CircleImageView
+            android:id="@+id/iv_profile_card_avatar"
+            android:layout_width="76dp"
+            android:layout_height="76dp"
+            android:src="@drawable/ic_person"
+            app:civ_border_width="2dp"
+            app:civ_border_color="#33FFFFFF"/>
+
+        <TextView
+            android:id="@+id/tv_profile_card_name"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:textColor="@color/white"
+            android:textSize="17sp"
+            android:textStyle="bold"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:text="Contact Name"/>
+
+        <TextView
+            android:id="@+id/tv_profile_card_handle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:textColor="#B8C1CC"
+            android:textSize="12sp"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:visibility="gone"
+            android:text="@callxid"/>
+
+        <!-- Stat chips: Reels / X / YouTube -->
+        <LinearLayout
+            android:id="@+id/ll_profile_card_stats"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="16dp"
+            android:gravity="center_vertical">
+
+            <LinearLayout
+                android:id="@+id/stat_reels"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:gravity="center_horizontal"
+                android:paddingStart="14dp"
+                android:paddingEnd="14dp"
+                android:clickable="true"
+                android:focusable="true"
+                android:background="?attr/selectableItemBackground"
+                android:visibility="gone">
+                <TextView android:id="@+id/tv_stat_reels_count" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:textColor="@color/white" android:textSize="15sp" android:textStyle="bold" android:text="0"/>
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:textColor="#B8C1CC" android:textSize="11sp" android:text="Reels"/>
+            </LinearLayout>
+
+            <View android:layout_width="1dp" android:layout_height="28dp" android:background="#26FFFFFF"/>
+
+            <LinearLayout
+                android:id="@+id/stat_x"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:gravity="center_horizontal"
+                android:paddingStart="14dp"
+                android:paddingEnd="14dp"
+                android:clickable="true"
+                android:focusable="true"
+                android:background="?attr/selectableItemBackground"
+                android:visibility="gone">
+                <TextView android:id="@+id/tv_stat_x_count" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:textColor="@color/white" android:textSize="15sp" android:textStyle="bold" android:text="0"/>
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:textColor="#B8C1CC" android:textSize="11sp" android:text="X Followers"/>
+            </LinearLayout>
+
+            <View android:layout_width="1dp" android:layout_height="28dp" android:background="#26FFFFFF"/>
+
+            <LinearLayout
+                android:id="@+id/stat_youtube"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:gravity="center_horizontal"
+                android:paddingStart="14dp"
+                android:paddingEnd="14dp"
+                android:clickable="true"
+                android:focusable="true"
+                android:background="?attr/selectableItemBackground"
+                android:visibility="gone">
+                <TextView android:id="@+id/tv_stat_youtube_count" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:textColor="@color/white" android:textSize="15sp" android:textStyle="bold" android:text="0"/>
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:textColor="#B8C1CC" android:textSize="11sp" android:text="Subscribers"/>
+            </LinearLayout>
+
+        </LinearLayout>
+
+        <!-- Action row: Subscribe / View Community -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="16dp"
+            android:gravity="center">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_profile_card_subscribe"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="36dp"
+                android:layout_weight="1"
+                android:layout_marginEnd="6dp"
+                android:textAllCaps="false"
+                android:textSize="13sp"
+                android:visibility="gone"
+                android:text="Subscribe"/>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_profile_card_view_community"
+                android:layout_width="0dp"
+                android:layout_height="36dp"
+                android:layout_weight="1"
+                android:layout_marginStart="6dp"
+                android:textAllCaps="false"
+                android:textSize="13sp"
+                android:visibility="gone"
+                android:text="View Community"/>
+
+        </LinearLayout>
+
+    </LinearLayout>
+
+</com.google.android.material.card.MaterialCardView>
