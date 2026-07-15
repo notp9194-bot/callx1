@@ -1,58 +1,63 @@
 package com.callx.app.community;
 
-import android.content.Intent;
+import android.app.AlertDialog;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
-import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 
 import com.callx.app.chat.R;
+import com.callx.app.db.entity.CommunityMemberEntity;
 import com.callx.app.db.entity.CommunityPostEntity;
 import com.callx.app.repository.CommunityRepository;
 import com.google.firebase.auth.FirebaseAuth;
 
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 /**
- * CommunityFeedFragment — the main scrollable feed tab (regular posts,
- * isAnnouncement=false). CommunityAnnouncementsFragment is a near-identical
- * sibling that observes observeAnnouncements() instead — both share
- * CommunityPostAdapter so there's exactly one post-rendering codepath.
- *
- * Reuses chat's RecyclerView performance conventions: fixed size, no item
- * animator, capped view cache — same as MessagePagingAdapter/GroupsFragment.
+ * v31: Community feed fragment.
+ * New: reaction picker on long-press of like, delete/report in post options.
  */
 public class CommunityFeedFragment extends Fragment implements CommunityPostAdapter.Listener {
 
-    private static final String ARG_COMMUNITY_ID = "communityId";
+    private static final String ARG_COMMUNITY_ID    = "communityId";
+    private static final String ARG_IS_ANNOUNCEMENT = "isAnnouncement";
 
-    protected String communityId;
-    protected String currentUid;
-    protected CommunityRepository repo;
+    private String communityId;
+    private boolean isAnnouncement;
+    private String currentUid;
+    private String myRole = CommunityRole.MEMBER;
+    private String myName = "";
 
     private RecyclerView rvFeed;
     private View emptyState;
-    private SwipeRefreshLayout swipeRefresh;
-    protected CommunityPostAdapter adapter;
+    private CommunityPostAdapter adapter;
+    private CommunityRepository repo;
 
-    /** postId -> liked-by-me — adapter has no local like-state, cached here per screen session. */
-    private final Map<String, Boolean> likedCache = new HashMap<>();
-    /** postId -> my vote index for that post's poll (if any). */
-    private final Map<String, Integer> myVotes = new HashMap<>();
+    // Reaction picker (shared, only one open at a time)
+    private CommunityReactionPickerView reactionPicker;
 
     public static CommunityFeedFragment newInstance(String communityId) {
         CommunityFeedFragment f = new CommunityFeedFragment();
         Bundle args = new Bundle();
         args.putString(ARG_COMMUNITY_ID, communityId);
+        args.putBoolean(ARG_IS_ANNOUNCEMENT, false);
+        f.setArguments(args);
+        return f;
+    }
+
+    public static CommunityFeedFragment newAnnouncementsInstance(String communityId) {
+        CommunityFeedFragment f = new CommunityFeedFragment();
+        Bundle args = new Bundle();
+        args.putString(ARG_COMMUNITY_ID, communityId);
+        args.putBoolean(ARG_IS_ANNOUNCEMENT, true);
         f.setArguments(args);
         return f;
     }
@@ -60,9 +65,13 @@ public class CommunityFeedFragment extends Fragment implements CommunityPostAdap
     @Override
     public void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        communityId = getArguments() != null ? getArguments().getString(ARG_COMMUNITY_ID) : null;
-        currentUid = FirebaseAuth.getInstance().getCurrentUser() != null
+        communityId    = getArguments() != null ? getArguments().getString(ARG_COMMUNITY_ID) : null;
+        isAnnouncement = getArguments() != null && getArguments().getBoolean(ARG_IS_ANNOUNCEMENT, false);
+        currentUid     = FirebaseAuth.getInstance().getCurrentUser() != null
                 ? FirebaseAuth.getInstance().getCurrentUser().getUid() : null;
+        myName = FirebaseAuth.getInstance().getCurrentUser() != null
+                && FirebaseAuth.getInstance().getCurrentUser().getDisplayName() != null
+                ? FirebaseAuth.getInstance().getCurrentUser().getDisplayName() : "";
         repo = CommunityRepository.getInstance(requireContext());
     }
 
@@ -77,41 +86,36 @@ public class CommunityFeedFragment extends Fragment implements CommunityPostAdap
     public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
 
-        swipeRefresh = view.findViewById(R.id.swipe_refresh);
-        rvFeed       = view.findViewById(R.id.rv_feed);
-        emptyState   = view.findViewById(R.id.layout_empty);
+        rvFeed     = view.findViewById(R.id.rv_community_feed);
+        emptyState = view.findViewById(R.id.empty_feed);
 
         LinearLayoutManager llm = new LinearLayoutManager(requireContext());
         rvFeed.setLayoutManager(llm);
-        rvFeed.setHasFixedSize(true);
-        rvFeed.setItemViewCacheSize(15);
+        rvFeed.setHasFixedSize(false);
+        rvFeed.setItemViewCacheSize(10);
         rvFeed.setItemAnimator(null);
         rvFeed.setOverScrollMode(View.OVER_SCROLL_NEVER);
 
-        adapter = new CommunityPostAdapter(this);
+        adapter = new CommunityPostAdapter(currentUid, this);
         rvFeed.setAdapter(adapter);
 
-        swipeRefresh.setOnRefreshListener(() -> {
-            if (communityId != null) repo.syncRecentPosts(communityId, isAnnouncementsTab());
-            swipeRefresh.postDelayed(() -> swipeRefresh.setRefreshing(false), 800);
+        reactionPicker = new CommunityReactionPickerView(requireContext());
+        reactionPicker.setOnReactionSelectedListener((reactionType) -> {
+            // handled via onReaction callback which is set per-post
         });
 
         if (communityId != null) {
-            observeFeedSource().observe(getViewLifecycleOwner(), this::onPostsUpdated);
-            repo.syncRecentPosts(communityId, isAnnouncementsTab());
+            if (isAnnouncement) {
+                repo.observeAnnouncements(communityId).observe(getViewLifecycleOwner(), this::onFeedUpdated);
+            } else {
+                repo.observeFeed(communityId).observe(getViewLifecycleOwner(), this::onFeedUpdated);
+            }
+            repo.observeMembers(communityId).observe(getViewLifecycleOwner(), this::onMembersUpdated);
+            repo.syncRecentPosts(communityId, isAnnouncement);
         }
     }
 
-    /** Subclass hook — CommunityAnnouncementsFragment overrides both of these. */
-    protected androidx.lifecycle.LiveData<List<CommunityPostEntity>> observeFeedSource() {
-        return repo.observeFeed(communityId);
-    }
-
-    protected boolean isAnnouncementsTab() {
-        return false;
-    }
-
-    private void onPostsUpdated(List<CommunityPostEntity> posts) {
+    private void onFeedUpdated(List<CommunityPostEntity> posts) {
         if (!isAdded()) return;
         adapter.submitList(posts);
         boolean empty = posts == null || posts.isEmpty();
@@ -119,50 +123,110 @@ public class CommunityFeedFragment extends Fragment implements CommunityPostAdap
         emptyState.setVisibility(empty ? View.VISIBLE : View.GONE);
     }
 
-    // ── CommunityPostAdapter.Listener ───────────────────────────────────────
+    private void onMembersUpdated(List<CommunityMemberEntity> members) {
+        if (!isAdded() || members == null) return;
+        for (CommunityMemberEntity m : members) {
+            if (currentUid != null && currentUid.equals(m.uid)) {
+                myRole = m.role != null ? m.role : CommunityRole.MEMBER;
+                myName = m.name != null ? m.name : myName;
+                break;
+            }
+        }
+        adapter.setAdminOrOwner(CommunityRole.isAdminOrOwner(myRole));
+    }
+
+    // ─── Listener callbacks ─────────────────────────────────────────────────────
 
     @Override
-    public void onLikeClicked(CommunityPostEntity post) {
-        if (!isAdded() || currentUid == null) return;
-        boolean wasLiked = Boolean.TRUE.equals(likedCache.get(post.id));
-        likedCache.put(post.id, !wasLiked);
-        adapter.notifyDataSetChanged(); // small list per screen; fine for an immediate optimistic like flip
-        repo.toggleLike(communityId, post.id, currentUid, (success, error) -> {
-            if (!success && isAdded()) {
-                likedCache.put(post.id, wasLiked); // revert on failure
-                requireActivity().runOnUiThread(() -> adapter.notifyDataSetChanged());
-            }
-        });
+    public void onLike(CommunityPostEntity post) {
+        // Quick tap = toggle LIKE reaction
+        if (currentUid == null || communityId == null) return;
+        String reactionType = (post.myReactionType == null || post.myReactionType.isEmpty())
+                ? CommunityReaction.LIKE : null;
+        repo.addReaction(communityId, post.id, currentUid,
+                reactionType != null ? reactionType : "", (success, error) -> {
+                    if (!success && isAdded())
+                        requireActivity().runOnUiThread(() ->
+                                Toast.makeText(requireContext(), "Failed", Toast.LENGTH_SHORT).show());
+                });
     }
 
     @Override
-    public void onCommentClicked(CommunityPostEntity post) {
+    public void onLongPressLike(CommunityPostEntity post, View anchorView) {
+        if (currentUid == null || communityId == null || !isAdded()) return;
+        if (reactionPicker.isShowing()) reactionPicker.dismiss();
+        reactionPicker.setOnReactionSelectedListener(reactionType -> {
+            repo.addReaction(communityId, post.id, currentUid, reactionType, null);
+        });
+        reactionPicker.showAtView(anchorView);
+    }
+
+    @Override
+    public void onReaction(CommunityPostEntity post, String reactionType) {
+        if (currentUid == null || communityId == null) return;
+        repo.addReaction(communityId, post.id, currentUid, reactionType, null);
+    }
+
+    @Override
+    public void onComment(CommunityPostEntity post) {
         if (!isAdded()) return;
-        Intent i = new Intent(requireContext(), CommunityPostCommentsActivity.class);
-        i.putExtra(CommunityPostCommentsActivity.EXTRA_COMMUNITY_ID, communityId);
-        i.putExtra(CommunityPostCommentsActivity.EXTRA_POST_ID, post.id);
+        android.content.Intent i = new android.content.Intent(requireContext(),
+                CommunityPostDetailActivity.class);
+        i.putExtra(CommunityPostDetailActivity.EXTRA_COMMUNITY_ID, communityId);
+        i.putExtra(CommunityPostDetailActivity.EXTRA_POST_ID, post.id);
         startActivity(i);
     }
 
     @Override
-    public void onVote(CommunityPostEntity post, int optionIndex) {
-        if (!isAdded() || currentUid == null) return;
-        myVotes.put(post.id, optionIndex);
-        repo.votePoll(communityId, post.id, currentUid, optionIndex, (success, error) -> {
-            if (!success) myVotes.remove(post.id);
-        });
+    public void onDelete(CommunityPostEntity post) {
+        if (!isAdded()) return;
+        new AlertDialog.Builder(requireContext())
+                .setTitle("Delete Post?")
+                .setMessage("This post will be permanently removed.")
+                .setPositiveButton("Delete", (d, w) -> {
+                    repo.deletePost(communityId, post.id, currentUid, myName, null,
+                            (success, error) -> {
+                                if (isAdded())
+                                    requireActivity().runOnUiThread(() ->
+                                            Toast.makeText(requireContext(),
+                                                    success ? "Post deleted" : "Failed: " + error,
+                                                    Toast.LENGTH_SHORT).show());
+                            });
+                })
+                .setNegativeButton("Cancel", null).show();
     }
 
     @Override
-    public Integer myVoteFor(CommunityPostEntity post) {
-        Integer cached = myVotes.get(post.id);
-        if (cached != null) return cached;
-        CommunityPoll poll = CommunityPoll.fromJson(post.pollJson);
-        return poll != null && currentUid != null ? poll.votedOptionOf(currentUid) : null;
+    public void onReport(CommunityPostEntity post) {
+        if (!isAdded()) return;
+        android.widget.EditText et = new android.widget.EditText(requireContext());
+        et.setHint("Reason (optional)");
+        new AlertDialog.Builder(requireContext())
+                .setTitle("Report Post")
+                .setView(et)
+                .setPositiveButton("Report", (d, w) -> {
+                    String reason = et.getText().toString().trim();
+                    repo.reportPost(communityId, post.id, currentUid,
+                            reason.isEmpty() ? "inappropriate" : reason, null);
+                    Toast.makeText(requireContext(), "Report submitted", Toast.LENGTH_SHORT).show();
+                })
+                .setNegativeButton("Cancel", null).show();
     }
 
     @Override
-    public boolean isLikedByMe(CommunityPostEntity post) {
-        return Boolean.TRUE.equals(likedCache.get(post.id));
+    public void onPollVote(CommunityPostEntity post, int optionIndex) {
+        if (currentUid == null || communityId == null) return;
+        repo.votePoll(communityId, post.id, currentUid, optionIndex, null);
+    }
+
+    @Override
+    public void onMediaClicked(CommunityPostEntity post) {
+        if (!isAdded() || post.mediaUrl == null) return;
+        android.content.Intent i = new android.content.Intent(requireContext(),
+                CommunityFullscreenMediaActivity.class);
+        i.putExtra(CommunityFullscreenMediaActivity.EXTRA_MEDIA_URL, post.mediaUrl);
+        i.putExtra(CommunityFullscreenMediaActivity.EXTRA_MEDIA_TYPE, post.mediaType);
+        i.putExtra(CommunityFullscreenMediaActivity.EXTRA_AUTHOR_NAME, post.authorName);
+        startActivity(i);
     }
 }

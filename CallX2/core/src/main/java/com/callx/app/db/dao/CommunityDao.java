@@ -1,6 +1,5 @@
 package com.callx.app.db.dao;
 
-import androidx.annotation.WorkerThread;
 import androidx.lifecycle.LiveData;
 import androidx.room.Dao;
 import androidx.room.Insert;
@@ -11,137 +10,109 @@ import com.callx.app.db.entity.CommunityEntity;
 import com.callx.app.db.entity.CommunityGroupLinkEntity;
 import com.callx.app.db.entity.CommunityMemberEntity;
 import com.callx.app.db.entity.CommunityPostEntity;
+import com.callx.app.db.entity.GroupEntity;
 
 import java.util.List;
 
 /**
- * v30: DAO for the Community offline cache (see CommunityEntity family).
- * Mirrors the GroupDao/ChatDao style already used in this file for the
- * rest of the app — sync WorkerThread methods for the offline-first
- * repository layer, LiveData queries for the UI to observe directly.
+ * v31: CommunityDao — updated with reaction counts, member moderation fields,
+ * and media-post query.
  */
 @Dao
 public interface CommunityDao {
 
-    // ── Community ────────────────────────────────────────────────────────
-    @WorkerThread
+    // ─── Communities ────────────────────────────────────────────────────────
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     void insertCommunity(CommunityEntity community);
 
-    @WorkerThread
-    @Query("SELECT * FROM communities WHERE id = :id LIMIT 1")
-    CommunityEntity getCommunitySync(String id);
+    @Query("SELECT * FROM communities WHERE id = :communityId LIMIT 1")
+    LiveData<CommunityEntity> observeCommunity(String communityId);
 
-    @Query("SELECT * FROM communities WHERE id = :id LIMIT 1")
-    LiveData<CommunityEntity> observeCommunity(String id);
+    @Query("SELECT * FROM communities WHERE id = :communityId LIMIT 1")
+    CommunityEntity getCommunitySync(String communityId);
 
-    @WorkerThread
-    @Query("SELECT id FROM communities WHERE ownerUid = :ownerUid LIMIT 1")
-    String getCommunityIdByOwnerSync(String ownerUid);
+    @Query("SELECT * FROM communities WHERE ownerUid = :ownerUid LIMIT 1")
+    CommunityEntity getCommunityByOwnerSync(String ownerUid);
 
-    @WorkerThread
-    @Query("DELETE FROM communities WHERE id = :id")
-    void deleteCommunity(String id);
+    @Query("DELETE FROM communities WHERE id = :communityId")
+    void deleteCommunity(String communityId);
 
-    @WorkerThread
-    @Query("UPDATE communities SET memberCount = :count WHERE id = :id")
-    void updateMemberCount(String id, long count);
+    // ─── Members ────────────────────────────────────────────────────────────
 
-    // ── Members ──────────────────────────────────────────────────────────
-    @WorkerThread
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    void insertMembers(List<CommunityMemberEntity> members);
-
-    @WorkerThread
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     void insertMember(CommunityMemberEntity member);
 
-    @Query("SELECT * FROM community_members WHERE communityId = :communityId ORDER BY " +
-           "CASE role WHEN 'OWNER' THEN 0 WHEN 'ADMIN' THEN 1 ELSE 2 END, name ASC")
+    @Query("SELECT * FROM community_members WHERE communityId = :communityId ORDER BY role ASC, name ASC")
     LiveData<List<CommunityMemberEntity>> observeMembers(String communityId);
 
-    @WorkerThread
-    @Query("SELECT * FROM community_members WHERE communityId = :communityId AND uid = :uid LIMIT 1")
-    CommunityMemberEntity getMemberSync(String communityId, String uid);
+    @Query("SELECT * FROM community_members WHERE communityId = :communityId ORDER BY role ASC, name ASC")
+    List<CommunityMemberEntity> getMembersSync(String communityId);
 
-    @WorkerThread
+    @Query("UPDATE community_members SET role = :newRole WHERE communityId = :communityId AND uid = :uid")
+    void updateMemberRole(String communityId, String uid, String newRole);
+
+    /** v31: mute / unmute */
+    @Query("UPDATE community_members SET isMuted = :muted WHERE communityId = :communityId AND uid = :uid")
+    void updateMemberMuted(String communityId, String uid, boolean muted);
+
+    /** v31: assign badge */
+    @Query("UPDATE community_members SET badge = :badge WHERE communityId = :communityId AND uid = :uid")
+    void updateMemberBadge(String communityId, String uid, String badge);
+
     @Query("DELETE FROM community_members WHERE communityId = :communityId AND uid = :uid")
     void deleteMember(String communityId, String uid);
 
-    @WorkerThread
-    @Query("SELECT COUNT(*) FROM community_members WHERE communityId = :communityId")
-    int getMemberCountSync(String communityId);
+    // ─── Posts ──────────────────────────────────────────────────────────────
 
-    // ── Group links ──────────────────────────────────────────────────────
-    @WorkerThread
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    void insertGroupLink(CommunityGroupLinkEntity link);
-
-    @WorkerThread
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    void insertGroupLinks(List<CommunityGroupLinkEntity> links);
-
-    @Query("SELECT groups.* FROM groups INNER JOIN community_group_links " +
-           "ON groups.id = community_group_links.groupId " +
-           "WHERE community_group_links.communityId = :communityId " +
-           "ORDER BY groups.lastMessageAt DESC")
-    LiveData<List<com.callx.app.db.entity.GroupEntity>> observeCommunityGroups(String communityId);
-
-    @WorkerThread
-    @Query("DELETE FROM community_group_links WHERE communityId = :communityId AND groupId = :groupId")
-    void deleteGroupLink(String communityId, String groupId);
-
-    @WorkerThread
-    @Query("SELECT COUNT(*) FROM community_group_links WHERE communityId = :communityId")
-    int getGroupCountSync(String communityId);
-
-    // ── Posts / feed / announcements ────────────────────────────────────
-    @WorkerThread
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     void insertPost(CommunityPostEntity post);
 
-    @WorkerThread
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     void insertPosts(List<CommunityPostEntity> posts);
 
-    @Query("SELECT * FROM community_posts WHERE communityId = :communityId AND isAnnouncement = 0 " +
-           "ORDER BY createdAt DESC")
+    @Query("SELECT * FROM community_posts WHERE communityId = :communityId AND isAnnouncement = 0 ORDER BY createdAt DESC")
     LiveData<List<CommunityPostEntity>> observeFeed(String communityId);
 
-    @Query("SELECT * FROM community_posts WHERE communityId = :communityId AND isAnnouncement = 1 " +
-           "ORDER BY pinned DESC, createdAt DESC")
+    @Query("SELECT * FROM community_posts WHERE communityId = :communityId AND isAnnouncement = 1 ORDER BY createdAt DESC")
     LiveData<List<CommunityPostEntity>> observeAnnouncements(String communityId);
 
-    @Query("SELECT * FROM community_posts WHERE communityId = :communityId AND mediaUrl IS NOT NULL " +
-           "ORDER BY createdAt DESC")
+    /** v31: media gallery — posts that have a mediaUrl */
+    @Query("SELECT * FROM community_posts WHERE communityId = :communityId AND mediaUrl IS NOT NULL AND mediaUrl != '' ORDER BY createdAt DESC")
     LiveData<List<CommunityPostEntity>> observeMediaPosts(String communityId);
 
-    @WorkerThread
-    @Query("SELECT * FROM community_posts WHERE communityId = :communityId AND isAnnouncement = :announcementsOnly " +
-           "AND createdAt < :beforeTs ORDER BY createdAt DESC LIMIT :limit")
-    List<CommunityPostEntity> getPostsPageSync(String communityId, boolean announcementsOnly, long beforeTs, int limit);
+    @Query("SELECT * FROM community_posts WHERE id = :postId LIMIT 1")
+    CommunityPostEntity getPostSync(String postId);
 
-    @WorkerThread
-    @Query("SELECT * FROM community_posts WHERE id = :id LIMIT 1")
-    CommunityPostEntity getPostSync(String id);
+    @Query("UPDATE community_posts SET pollJson = :pollJson WHERE id = :postId")
+    void updatePollJson(String postId, String pollJson);
 
-    @WorkerThread
-    @Query("UPDATE community_posts SET likeCount = :count WHERE id = :id")
-    void updateLikeCount(String id, long count);
+    /** v31: update cached reaction counts */
+    @Query("UPDATE community_posts SET reactionCountsJson = :json WHERE id = :postId")
+    void updateReactionCounts(String postId, String json);
 
-    @WorkerThread
-    @Query("UPDATE community_posts SET commentCount = :count WHERE id = :id")
-    void updateCommentCount(String id, long count);
+    /** v31: cache the current user's own reaction on a post */
+    @Query("UPDATE community_posts SET myReactionType = :reactionType WHERE id = :postId")
+    void updateMyReaction(String postId, String reactionType);
 
-    @WorkerThread
-    @Query("UPDATE community_posts SET pollJson = :pollJson WHERE id = :id")
-    void updatePollJson(String id, String pollJson);
+    @Query("DELETE FROM community_posts WHERE id = :postId")
+    void deletePost(String postId);
 
-    @WorkerThread
-    @Query("DELETE FROM community_posts WHERE id = :id")
-    void deletePost(String id);
+    // ─── Group links ─────────────────────────────────────────────────────────
 
-    @WorkerThread
-    @Query("SELECT COUNT(*) FROM community_posts WHERE communityId = :communityId AND isAnnouncement = 0")
-    int getPostCountSync(String communityId);
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    void insertGroupLink(CommunityGroupLinkEntity link);
+
+    @Query("SELECT * FROM community_group_links WHERE communityId = :communityId")
+    LiveData<List<CommunityGroupLinkEntity>> observeLinkedGroups(String communityId);
+
+    @Query("DELETE FROM community_group_links WHERE communityId = :communityId AND groupId = :groupId")
+    void deleteGroupLink(String communityId, String groupId);
+
+    // ─── Helper: groups for a user (for linking) ─────────────────────────────
+
+    @Query("SELECT g.* FROM groups g "
+            + "INNER JOIN group_members gm ON gm.groupId = g.id "
+            + "WHERE gm.uid = :uid ORDER BY g.name ASC")
+    List<GroupEntity> getGroupsForUserSync(String uid);
 }

@@ -249,6 +249,82 @@
 
         <!-- ── END BROADCAST LIST FEATURE ─────────────────────────────── -->
 
+        <!-- ══════════════════════════════════════════════════════════════ -->
+        <!-- ── COMMUNITY SYSTEM v31 — 12 Feature Upgrade                  ── -->
+        <!-- ══════════════════════════════════════════════════════════════ -->
+
+        <!-- Hub: feed, announcements, events, groups, members tabs -->
+        <activity android:name="com.callx.app.community.CommunityActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
+
+        <!-- Manage community: name/icon/privacy/invite link/disable -->
+        <activity android:name="com.callx.app.community.ManageCommunityActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
+
+        <!-- Post composer: @mention autocomplete + Schedule button -->
+        <activity android:name="com.callx.app.community.CommunityPostComposerActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
+
+        <!-- Post detail / comments -->
+        <activity android:name="com.callx.app.community.CommunityPostDetailActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
+
+        <!-- v31: Join Requests approval (private community) -->
+        <activity android:name="com.callx.app.community.CommunityJoinRequestsActivity"
+            android:exported="false"/>
+
+        <!-- v31: Community search (posts / members / groups) -->
+        <activity android:name="com.callx.app.community.CommunitySearchActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
+
+        <!-- v31: Instagram-style media gallery grid -->
+        <activity android:name="com.callx.app.community.CommunityMediaGalleryActivity"
+            android:exported="false"/>
+
+        <!-- v31: Fullscreen media viewer (image / video) -->
+        <activity android:name="com.callx.app.community.CommunityFullscreenMediaActivity"
+            android:exported="false"
+            android:theme="@style/Theme.AppCompat.NoActionBar"/>
+
+        <!-- v31: Owner analytics dashboard -->
+        <activity android:name="com.callx.app.community.CommunityAnalyticsDashboardActivity"
+            android:exported="false"/>
+
+        <!-- v31: Create community event -->
+        <activity android:name="com.callx.app.community.CommunityCreateEventActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
+
+        <!-- v31: In-app community notifications -->
+        <activity android:name="com.callx.app.community.CommunityNotificationsActivity"
+            android:exported="false"/>
+
+        <!-- v31: Admin moderation log -->
+        <activity android:name="com.callx.app.community.CommunityModerationLogActivity"
+            android:exported="false"/>
+
+        <!-- v31: Manage scheduled posts -->
+        <activity android:name="com.callx.app.community.CommunityScheduledPostsActivity"
+            android:exported="false"/>
+
+        <!-- v31: Invite link deep-link — callx://community/{id}?invite={token} -->
+        <activity android:name="com.callx.app.community.CommunityInviteLandingActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="callx" android:host="community"/>
+            </intent-filter>
+        </activity>
+
+        <!-- ── END COMMUNITY SYSTEM v31 ─────────────────────────────────── -->
+
         <activity android:name=".activities.ContactsActivity" android:exported="true"
             android:windowSoftInputMode="adjustResize">
             <!-- Handle share intents from other apps (e.g. Instagram reel share) -->

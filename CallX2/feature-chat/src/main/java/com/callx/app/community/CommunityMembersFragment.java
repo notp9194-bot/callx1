@@ -1,5 +1,7 @@
 package com.callx.app.community;
 
+import android.app.AlertDialog;
+import android.content.Intent;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -14,7 +16,6 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.callx.app.chat.R;
-import com.callx.app.community.CommunityRole;
 import com.callx.app.db.entity.CommunityMemberEntity;
 import com.callx.app.repository.CommunityRepository;
 import com.google.firebase.auth.FirebaseAuth;
@@ -22,13 +23,8 @@ import com.google.firebase.auth.FirebaseAuth;
 import java.util.List;
 
 /**
- * CommunityMembersFragment — lists all members of a community with role
- * badges (OWNER / ADMIN chip, plain for MEMBER).
- *
- * Admin-flag tradeoff (same as CommunityGroupsFragment): the long-press
- * options popup is gated by checking the current user's role from the Room
- * LiveData — plain MEMBERs don't see the popup options. Firebase rules
- * are the real server-side enforcement.
+ * v31: Members tab — lists members with role badges + member badges.
+ * Admin long-press menu now includes: Make Admin, Remove Admin, Mute/Unmute, Ban, Assign Badge.
  */
 public class CommunityMembersFragment extends Fragment {
 
@@ -42,10 +38,9 @@ public class CommunityMembersFragment extends Fragment {
     private CommunityMemberAdapter adapter;
     private CommunityRepository repo;
 
-    // Current user's role — updated when member list loads
     private String myRole = CommunityRole.MEMBER;
+    private String myName = "";
 
-    // ── Factory ────────────────────────────────────────────────────────────
     public static CommunityMembersFragment newInstance(String communityId) {
         CommunityMembersFragment f = new CommunityMembersFragment();
         Bundle args = new Bundle();
@@ -54,13 +49,15 @@ public class CommunityMembersFragment extends Fragment {
         return f;
     }
 
-    // ── Lifecycle ──────────────────────────────────────────────────────────
     @Override
     public void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         communityId = getArguments() != null ? getArguments().getString(ARG_COMMUNITY_ID) : null;
         currentUid  = FirebaseAuth.getInstance().getCurrentUser() != null
                 ? FirebaseAuth.getInstance().getCurrentUser().getUid() : null;
+        myName = FirebaseAuth.getInstance().getCurrentUser() != null
+                && FirebaseAuth.getInstance().getCurrentUser().getDisplayName() != null
+                ? FirebaseAuth.getInstance().getCurrentUser().getDisplayName() : "";
         repo = CommunityRepository.getInstance(requireContext());
     }
 
@@ -78,7 +75,6 @@ public class CommunityMembersFragment extends Fragment {
         rvMembers  = view.findViewById(R.id.rv_community_members);
         emptyState = view.findViewById(R.id.empty_community_members);
 
-        // RecyclerView setup — matching app performance conventions
         LinearLayoutManager llm = new LinearLayoutManager(requireContext());
         rvMembers.setLayoutManager(llm);
         rvMembers.setHasFixedSize(true);
@@ -97,83 +93,138 @@ public class CommunityMembersFragment extends Fragment {
 
     private void onMembersUpdated(List<CommunityMemberEntity> members) {
         if (!isAdded()) return;
-        adapter.submitList(members);
-        boolean empty = members == null || members.isEmpty();
-        rvMembers.setVisibility(empty ? View.GONE : View.VISIBLE);
-        emptyState.setVisibility(empty ? View.VISIBLE : View.GONE);
-
-        // Update cached role for current user
         if (members != null && currentUid != null) {
             for (CommunityMemberEntity m : members) {
                 if (currentUid.equals(m.uid)) {
                     myRole = m.role != null ? m.role : CommunityRole.MEMBER;
+                    myName = m.name != null ? m.name : myName;
                     break;
                 }
             }
         }
+        adapter.setMyRole(myRole);
+        adapter.submitList(members);
+        boolean empty = members == null || members.isEmpty();
+        rvMembers.setVisibility(empty ? View.GONE : View.VISIBLE);
+        emptyState.setVisibility(empty ? View.VISIBLE : View.GONE);
     }
 
-    /**
-     * Long-press on a member row: show admin actions popup.
-     * Only shown if current user is ADMIN or OWNER, and target is not OWNER.
-     */
-    private void onMemberLongPress(CommunityMemberEntity target) {
-        if (!isAdded() || communityId == null) return;
-
-        // Gate: current user must be admin/owner
+    private void onMemberLongPress(CommunityMemberEntity m) {
         if (!CommunityRole.isAdminOrOwner(myRole)) return;
+        if (currentUid != null && currentUid.equals(m.uid)) return; // can't act on yourself
 
-        // Gate: cannot action against the OWNER
-        if (CommunityRole.OWNER.equals(target.role)) return;
+        PopupMenu popup = new PopupMenu(requireContext(), requireView());
 
-        // Don't show popup for yourself (no self-remove in this UI)
-        if (currentUid != null && currentUid.equals(target.uid)) return;
+        // Role management
+        if (CommunityRole.OWNER.equals(myRole)) {
+            if (CommunityRole.ADMIN.equals(m.role)) {
+                popup.getMenu().add(0, 1, 0, "Remove Admin");
+            } else if (CommunityRole.MEMBER.equals(m.role)) {
+                popup.getMenu().add(0, 2, 0, "Make Admin");
+            }
+        }
 
-        // Build PopupMenu anchored to the tapped view
-        // (We use an AlertDialog instead since PopupMenu needs an anchor View
-        //  and we don't have one from the long-press directly)
-        String targetName = target.name != null ? target.name : "this member";
-        boolean isTargetAdmin = CommunityRole.ADMIN.equals(target.role);
+        // Mute / Unmute
+        popup.getMenu().add(0, m.isMuted ? 3 : 4, 0, m.isMuted ? "Unmute Member" : "Mute Member");
 
-        String[] options = isTargetAdmin
-                ? new String[]{"Remove as Admin", "Remove from Community"}
-                : new String[]{"Make Admin 👑", "Remove from Community"};
+        // Ban
+        popup.getMenu().add(0, 5, 0, "Ban Member");
 
-        new androidx.appcompat.app.AlertDialog.Builder(requireContext())
-                .setTitle(targetName)
-                .setItems(options, (d, which) -> {
-                    if (which == 0) {
-                        // Toggle admin
-                        String newRole = isTargetAdmin ? CommunityRole.MEMBER : CommunityRole.ADMIN;
-                        repo.updateMemberRole(communityId, target.uid, newRole,
-                                (success, error) -> {
-                                    if (!isAdded()) return;
-                                    if (!success) {
-                                        requireActivity().runOnUiThread(() ->
-                                                Toast.makeText(requireContext(),
-                                                        "Failed: " + error, Toast.LENGTH_SHORT).show());
-                                    }
-                                });
-                    } else {
-                        // Remove from community
-                        new androidx.appcompat.app.AlertDialog.Builder(requireContext())
-                                .setTitle("Remove Member")
-                                .setMessage("Remove " + targetName + " from this community?")
-                                .setPositiveButton("Remove", (d2, w2) ->
-                                        repo.removeMember(communityId, target.uid,
-                                                (success, error) -> {
-                                                    if (!isAdded()) return;
-                                                    if (!success) {
-                                                        requireActivity().runOnUiThread(() ->
-                                                                Toast.makeText(requireContext(),
-                                                                        "Failed: " + error,
-                                                                        Toast.LENGTH_SHORT).show());
-                                                    }
-                                                }))
-                                .setNegativeButton("Cancel", null)
-                                .show();
-                    }
+        // Badge assignment
+        popup.getMenu().add(0, 6, 0, "Assign Badge");
+
+        popup.setOnMenuItemClickListener(item -> {
+            switch (item.getItemId()) {
+                case 1: // Remove admin
+                    repo.setMemberRole(communityId, m.uid, CommunityRole.MEMBER, currentUid, myName, simpleToast());
+                    return true;
+                case 2: // Make admin
+                    repo.setMemberRole(communityId, m.uid, CommunityRole.ADMIN, currentUid, myName, simpleToast());
+                    return true;
+                case 3: // Unmute
+                    repo.muteMember(communityId, m.uid, false, currentUid, myName, null, simpleToast());
+                    return true;
+                case 4: // Mute
+                    showMuteReasonDialog(m);
+                    return true;
+                case 5: // Ban
+                    showBanConfirmDialog(m);
+                    return true;
+                case 6: // Badge
+                    showBadgePickerDialog(m);
+                    return true;
+                default: return false;
+            }
+        });
+        popup.show();
+    }
+
+    private void showMuteReasonDialog(CommunityMemberEntity m) {
+        android.widget.EditText et = new android.widget.EditText(requireContext());
+        et.setHint("Reason (optional)");
+        new AlertDialog.Builder(requireContext())
+                .setTitle("Mute " + m.name + "?")
+                .setMessage("Muted members can read but cannot post.")
+                .setView(et)
+                .setPositiveButton("Mute", (d, w) -> {
+                    String reason = et.getText().toString().trim();
+                    repo.muteMember(communityId, m.uid, true, currentUid, myName,
+                            reason.isEmpty() ? null : reason, simpleToast());
                 })
-                .show();
+                .setNegativeButton("Cancel", null).show();
+    }
+
+    private void showBanConfirmDialog(CommunityMemberEntity m) {
+        android.widget.EditText et = new android.widget.EditText(requireContext());
+        et.setHint("Reason (optional)");
+        new AlertDialog.Builder(requireContext())
+                .setTitle("Ban " + m.name + "?")
+                .setMessage("This removes them from the community.")
+                .setView(et)
+                .setPositiveButton("Ban", (d, w) -> {
+                    String reason = et.getText().toString().trim();
+                    repo.removeMember(communityId, m.uid, currentUid, myName,
+                            reason.isEmpty() ? null : reason, simpleToast());
+                })
+                .setNegativeButton("Cancel", null).show();
+    }
+
+    private void showBadgePickerDialog(CommunityMemberEntity m) {
+        String[] badges = {
+                CommunityBadge.NONE + " (Remove Badge)",
+                CommunityBadge.EARLY_MEMBER + " 🌱 Early Member",
+                CommunityBadge.ACTIVE + " ⚡ Active",
+                CommunityBadge.TOP_CONTRIBUTOR + " 🏆 Top Contributor",
+                CommunityBadge.VERIFIED + " ✅ Verified",
+                CommunityBadge.MODERATOR + " 🛡️ Moderator"
+        };
+        String[] badgeKeys = {
+                CommunityBadge.NONE, CommunityBadge.EARLY_MEMBER, CommunityBadge.ACTIVE,
+                CommunityBadge.TOP_CONTRIBUTOR, CommunityBadge.VERIFIED, CommunityBadge.MODERATOR
+        };
+        new AlertDialog.Builder(requireContext())
+                .setTitle("Assign Badge to " + m.name)
+                .setItems(badges, (d, which) -> {
+                    repo.setBadge(communityId, m.uid, badgeKeys[which], currentUid, myName,
+                            (success, error) -> {
+                                if (isAdded()) {
+                                    requireActivity().runOnUiThread(() ->
+                                        Toast.makeText(requireContext(),
+                                            success ? "Badge assigned" : "Failed: " + error,
+                                            Toast.LENGTH_SHORT).show());
+                                }
+                            });
+                })
+                .setNegativeButton("Cancel", null).show();
+    }
+
+    private CommunityRepository.SimpleCallback simpleToast() {
+        return (success, error) -> {
+            if (isAdded()) {
+                requireActivity().runOnUiThread(() ->
+                        Toast.makeText(requireContext(),
+                                success ? "Done" : "Failed: " + error, Toast.LENGTH_SHORT).show());
+            }
+        };
     }
 }

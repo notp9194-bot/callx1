@@ -6,15 +6,14 @@ import androidx.room.Index;
 import androidx.room.PrimaryKey;
 
 /**
- * v30: Room entity — one row per community feed/announcement post.
+ * v31: Room entity — one row per community feed/announcement post.
  * Firebase source of truth: communities/{communityId}/posts/{id}
  *
- * Covers both regular feed posts AND announcements (isAnnouncement=true) —
- * one adapter (CommunityPostAdapter) renders both, CommunityAnnouncementsFragment
- * just queries with isAnnouncement=1. A post optionally carries a poll,
- * serialized as JSON in pollJson (see community.CommunityPoll#toJson /
- * #fromJson) — kept as a single TEXT column instead of normalized poll
- * tables since polls are small (<=4 options) and always read/written whole.
+ * New in v31:
+ *  - reactionCountsJson: JSON Map<reactionType, count> for multi-emoji reactions
+ *  - myReactionType:     current user's reaction type (not persisted to Firebase — local only)
+ *  - mentionedUids:      comma-separated UIDs mentioned in the post text
+ *  - scheduledAt:        if > 0, post was originally a scheduled post
  */
 @Entity(
     tableName = "community_posts",
@@ -40,9 +39,19 @@ public class CommunityPostEntity {
     public boolean pinned;
     public long   likeCount;
     public long   commentCount;
-    public String pollJson;       // null if this post has no poll
+    public String pollJson;       // null if no poll
     public long   createdAt;
     public long   syncedAt;
+
+    // v31: Multi-emoji reactions
+    public String reactionCountsJson; // JSON map: {"LIKE":5, "LOVE":2, ...}
+    public String myReactionType;     // local-only cache of current user's reaction
+
+    // v31: @mentions
+    public String mentionedUids;      // comma-separated UIDs e.g. "uid1,uid2"
+
+    // v31: Scheduled post origin
+    public long scheduledAt;          // 0 = posted immediately; >0 = was scheduled
 
     public CommunityPostEntity() {
         this.syncedAt = System.currentTimeMillis();

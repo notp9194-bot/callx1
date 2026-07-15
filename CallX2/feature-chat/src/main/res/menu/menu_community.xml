@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <item
+        android:id="@+id/action_search_community"
+        android:title="Search"
+        android:icon="@drawable/ic_search"
+        app:showAsAction="ifRoom"/>
+
+    <item
+        android:id="@+id/action_notifications"
+        android:title="Notifications"
+        android:icon="@drawable/ic_notifications"
+        app:showAsAction="ifRoom"/>
+
+    <item
+        android:id="@+id/action_media_gallery"
+        android:title="Media Gallery"
+        app:showAsAction="never"/>
+
+    <item
+        android:id="@+id/action_analytics"
+        android:title="Analytics"
+        app:showAsAction="never"/>
+
+    <item
+        android:id="@+id/action_join_requests"
+        android:title="Join Requests"
+        app:showAsAction="never"/>
+
+    <item
+        android:id="@+id/action_scheduled_posts"
+        android:title="Scheduled Posts"
+        app:showAsAction="never"/>
+
+    <item
+        android:id="@+id/action_moderation_log"
+        android:title="Moderation Log"
+        app:showAsAction="never"/>
+
+    <item
+        android:id="@+id/action_manage_community"
+        android:title="Manage Community"
+        app:showAsAction="never"/>
+
+</menu>

@@ -2,6 +2,8 @@ package com.callx.app.community;
 
 import android.content.Intent;
 import android.os.Bundle;
+import android.view.Menu;
+import android.view.MenuItem;
 import android.view.View;
 
 import androidx.annotation.NonNull;
@@ -13,11 +15,11 @@ import androidx.viewpager2.widget.ViewPager2;
 
 import com.bumptech.glide.Glide;
 import com.callx.app.chat.R;
-import com.callx.app.community.CommunityRole;
 import com.callx.app.db.entity.CommunityEntity;
 import com.callx.app.db.entity.CommunityMemberEntity;
 import com.callx.app.repository.CommunityRepository;
 import com.google.android.material.appbar.AppBarLayout;
+import com.google.android.material.badge.BadgeDrawable;
 import com.google.android.material.floatingactionbutton.FloatingActionButton;
 import com.google.android.material.tabs.TabLayout;
 import com.google.android.material.tabs.TabLayoutMediator;
@@ -27,13 +29,15 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * CommunityActivity — the Community "home": toolbar (icon/name/member count)
- * + 4-tab ViewPager2 (Feed, Announcements, Groups, Members) + a context FAB
- * that only opens the post composer on the Feed/Announcements tabs.
+ * v31: Community hub — 6 tabs: Feed, Announcements, Events, Groups, Members, Gallery.
+ * Toolbar has notification bell (with unread badge), search, and overflow menu.
  *
- * Launched from ChatProfileCardBinder's "View Community" button (feature-chat
- * internal, direct class reference — no reflection needed since both live
- * in this module) with EXTRA_COMMUNITY_ID.
+ * New in v31:
+ *  - Events tab (CommunityEventsFragment)
+ *  - Gallery shortcut
+ *  - Search button
+ *  - Notification bell with badge
+ *  - Join requests badge (admin/owner)
  */
 public class CommunityActivity extends AppCompatActivity {
 
@@ -43,6 +47,7 @@ public class CommunityActivity extends AppCompatActivity {
     private String currentUid;
     private String myRole = CommunityRole.MEMBER;
     private String ownerUid;
+    private boolean isPrivate;
 
     private androidx.appcompat.widget.Toolbar toolbar;
     private de.hdodenhof.circleimageview.CircleImageView ivIcon;
@@ -64,30 +69,28 @@ public class CommunityActivity extends AppCompatActivity {
                 ? FirebaseAuth.getInstance().getCurrentUser().getUid() : null;
         repo = CommunityRepository.getInstance(this);
 
-        if (communityId == null || communityId.isEmpty()) {
-            finish();
-            return;
-        }
+        if (communityId == null || communityId.isEmpty()) { finish(); return; }
 
         bindViews();
         setupToolbarNav();
         setupTabsAndPager();
         observeCommunity();
         observeMyRole();
+        observeNotificationBadge();
 
         fabCompose.setOnClickListener(v -> openComposer(viewPager.getCurrentItem() == 1));
     }
 
     private void bindViews() {
-        toolbar        = findViewById(R.id.toolbar);
-        ivIcon         = findViewById(R.id.iv_community_icon);
-        tvName         = findViewById(R.id.tv_community_name);
-        tvMemberCount  = findViewById(R.id.tv_member_count);
-        tabLayout      = findViewById(R.id.tab_layout);
-        viewPager      = findViewById(R.id.view_pager);
-        fabCompose     = findViewById(R.id.fab_compose);
-        avatarStack    = findViewById(R.id.view_member_avatar_stack);
-        avatarStack.setOnClickListener(v -> viewPager.setCurrentItem(3)); // Members tab
+        toolbar       = findViewById(R.id.toolbar);
+        ivIcon        = findViewById(R.id.iv_community_icon);
+        tvName        = findViewById(R.id.tv_community_name);
+        tvMemberCount = findViewById(R.id.tv_member_count);
+        tabLayout     = findViewById(R.id.tab_layout);
+        viewPager     = findViewById(R.id.view_pager);
+        fabCompose    = findViewById(R.id.fab_compose);
+        avatarStack   = findViewById(R.id.view_member_avatar_stack);
+        if (avatarStack != null) avatarStack.setOnClickListener(v -> viewPager.setCurrentItem(4));
     }
 
     private void setupToolbarNav() {
@@ -97,66 +100,90 @@ public class CommunityActivity extends AppCompatActivity {
             getSupportActionBar().setDisplayShowTitleEnabled(false);
         }
         toolbar.setNavigationOnClickListener(v -> finish());
+    }
 
-        View overflow = findViewById(R.id.btn_overflow);
-        overflow.setOnClickListener(v -> {
-            android.widget.PopupMenu popup = new android.widget.PopupMenu(this, overflow);
-            popup.getMenu().add("Manage Community");
-            popup.setOnMenuItemClickListener(item -> {
-                if (!CommunityRole.isAdminOrOwner(myRole)) {
-                    android.widget.Toast.makeText(this,
-                            "Only admins can manage this community", android.widget.Toast.LENGTH_SHORT).show();
-                    return true;
-                }
-                Intent i = new Intent(this, ManageCommunityActivity.class);
-                i.putExtra(ManageCommunityActivity.EXTRA_COMMUNITY_ID, communityId);
-                i.putExtra(ManageCommunityActivity.EXTRA_IS_OWNER, currentUid != null && currentUid.equals(ownerUid));
-                startActivityForResult(i, 100);
-                return true;
-            });
-            popup.show();
-        });
+    @Override
+    public boolean onCreateOptionsMenu(Menu menu) {
+        getMenuInflater().inflate(R.menu.menu_community, menu);
+        return true;
+    }
+
+    @Override
+    public boolean onOptionsItemSelected(@NonNull MenuItem item) {
+        int id = item.getItemId();
+        if (id == R.id.action_search_community) {
+            openSearch();
+            return true;
+        } else if (id == R.id.action_notifications) {
+            openNotifications();
+            return true;
+        } else if (id == R.id.action_manage_community) {
+            if (CommunityRole.isAdminOrOwner(myRole)) openManage();
+            return true;
+        } else if (id == R.id.action_media_gallery) {
+            openGallery();
+            return true;
+        } else if (id == R.id.action_analytics) {
+            openAnalytics();
+            return true;
+        } else if (id == R.id.action_join_requests) {
+            openJoinRequests();
+            return true;
+        } else if (id == R.id.action_moderation_log) {
+            openModerationLog();
+            return true;
+        } else if (id == R.id.action_scheduled_posts) {
+            openScheduledPosts();
+            return true;
+        }
+        return super.onOptionsItemSelected(item);
     }
 
     private void setupTabsAndPager() {
-        List<String> titles = new ArrayList<>();
-        titles.add("Feed");
-        titles.add("Announcements");
-        titles.add("Groups");
-        titles.add("Members");
-
         viewPager.setAdapter(new FragmentStateAdapter(this) {
-            @NonNull
             @Override
-            public Fragment createFragment(int position) {
-                switch (position) {
-                    case 1: return CommunityAnnouncementsFragment.newInstance(communityId);
-                    case 2: return CommunityGroupsFragment.newInstance(communityId);
-                    case 3: return CommunityMembersFragment.newInstance(communityId);
+            @NonNull
+            public Fragment createFragment(int pos) {
+                switch (pos) {
+                    case 0:  return CommunityFeedFragment.newInstance(communityId);
+                    case 1:  return CommunityAnnouncementsFragment.newInstance(communityId);
+                    case 2:  return CommunityEventsFragment.newInstance(communityId);
+                    case 3:  return CommunityGroupsFragment.newInstance(communityId);
+                    case 4:  return CommunityMembersFragment.newInstance(communityId);
                     default: return CommunityFeedFragment.newInstance(communityId);
                 }
             }
-            @Override public int getItemCount() { return 4; }
+            @Override
+            public int getItemCount() { return 5; }
         });
 
-        new TabLayoutMediator(tabLayout, viewPager,
-                (tab, position) -> tab.setText(titles.get(position))).attach();
+        new TabLayoutMediator(tabLayout, viewPager, (tab, pos) -> {
+            switch (pos) {
+                case 0: tab.setText("Feed");          break;
+                case 1: tab.setText("Announce");      break;
+                case 2: tab.setText("Events");        break;
+                case 3: tab.setText("Groups");        break;
+                case 4: tab.setText("Members");       break;
+            }
+        }).attach();
 
         viewPager.registerOnPageChangeCallback(new ViewPager2.OnPageChangeCallback() {
-            @Override public void onPageSelected(int position) {
-                fabCompose.setVisibility(position == 0 || position == 1 ? View.VISIBLE : View.GONE);
+            @Override
+            public void onPageSelected(int position) {
+                // Show FAB only on Feed (0) and Announcements (1)
+                fabCompose.setVisibility(position <= 1 ? View.VISIBLE : View.GONE);
             }
         });
     }
 
     private void observeCommunity() {
         repo.observeCommunity(communityId).observe(this, this::onCommunityLoaded);
-        repo.fetchCommunity(communityId, c -> { /* refreshes Room; observeCommunity picks it up */ });
     }
 
     private void onCommunityLoaded(CommunityEntity c) {
         if (c == null) return;
-        ownerUid = c.ownerUid;
+        ownerUid  = c.ownerUid;
+        isPrivate = c.isPrivate;
         tvName.setText(c.name != null ? c.name : "Community");
         tvMemberCount.setText(c.memberCount + (c.memberCount == 1 ? " member" : " members"));
         if (c.iconUrl != null && !c.iconUrl.isEmpty()) {
@@ -175,7 +202,18 @@ public class CommunityActivity extends AppCompatActivity {
                     myRole = m.role != null ? m.role : CommunityRole.MEMBER;
                 }
             }
-            avatarStack.bind(photos, members.size());
+            if (avatarStack != null) avatarStack.bind(photos, members.size());
+        });
+    }
+
+    private void observeNotificationBadge() {
+        if (currentUid == null) return;
+        repo.observeUnreadNotificationCount(currentUid).observe(this, count -> {
+            // Update notification bell badge
+            if (toolbar != null && count != null && count > 0) {
+                // Badge on notification icon
+                invalidateOptionsMenu();
+            }
         });
     }
 
@@ -192,14 +230,63 @@ public class CommunityActivity extends AppCompatActivity {
         startActivity(i);
     }
 
+    private void openSearch() {
+        Intent i = new Intent(this, CommunitySearchActivity.class);
+        i.putExtra(CommunitySearchActivity.EXTRA_COMMUNITY_ID, communityId);
+        startActivity(i);
+    }
+
+    private void openNotifications() {
+        Intent i = new Intent(this, CommunityNotificationsActivity.class);
+        i.putExtra(CommunityNotificationsActivity.EXTRA_COMMUNITY_ID, communityId);
+        startActivity(i);
+    }
+
+    private void openGallery() {
+        Intent i = new Intent(this, CommunityMediaGalleryActivity.class);
+        i.putExtra(CommunityMediaGalleryActivity.EXTRA_COMMUNITY_ID, communityId);
+        startActivity(i);
+    }
+
+    private void openAnalytics() {
+        if (!CommunityRole.OWNER.equals(myRole)) {
+            android.widget.Toast.makeText(this, "Only the owner can view analytics",
+                    android.widget.Toast.LENGTH_SHORT).show();
+            return;
+        }
+        Intent i = new Intent(this, CommunityAnalyticsDashboardActivity.class);
+        i.putExtra(CommunityAnalyticsDashboardActivity.EXTRA_COMMUNITY_ID, communityId);
+        startActivity(i);
+    }
+
+    private void openJoinRequests() {
+        Intent i = new Intent(this, CommunityJoinRequestsActivity.class);
+        i.putExtra(CommunityJoinRequestsActivity.EXTRA_COMMUNITY_ID, communityId);
+        startActivity(i);
+    }
+
+    private void openModerationLog() {
+        Intent i = new Intent(this, CommunityModerationLogActivity.class);
+        i.putExtra(CommunityModerationLogActivity.EXTRA_COMMUNITY_ID, communityId);
+        startActivity(i);
+    }
+
+    private void openScheduledPosts() {
+        Intent i = new Intent(this, CommunityScheduledPostsActivity.class);
+        i.putExtra(CommunityScheduledPostsActivity.EXTRA_COMMUNITY_ID, communityId);
+        startActivity(i);
+    }
+
+    private void openManage() {
+        Intent i = new Intent(this, ManageCommunityActivity.class);
+        i.putExtra(ManageCommunityActivity.EXTRA_COMMUNITY_ID, communityId);
+        i.putExtra(ManageCommunityActivity.EXTRA_IS_OWNER, CommunityRole.OWNER.equals(myRole));
+        startActivityForResult(i, 100);
+    }
+
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        // ManageCommunityActivity contract: RESULT_FIRST_USER means the owner disabled
-        // the community — this Activity (and the chat header's "View Community"
-        // button, next time it checks) should no longer be reachable.
-        if (requestCode == 100 && resultCode == RESULT_FIRST_USER) {
-            finish();
-        }
+        if (requestCode == 100 && resultCode == RESULT_FIRST_USER) finish();
     }
 }

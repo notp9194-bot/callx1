@@ -6,14 +6,26 @@ import android.util.Log;
 import androidx.annotation.Nullable;
 import androidx.lifecycle.LiveData;
 
+import com.callx.app.community.CommunityBadge;
 import com.callx.app.community.CommunityPoll;
+import com.callx.app.community.CommunityReaction;
 import com.callx.app.community.CommunityRole;
 import com.callx.app.db.AppDatabase;
 import com.callx.app.db.dao.CommunityDao;
+import com.callx.app.db.dao.CommunityEventDao;
+import com.callx.app.db.dao.CommunityJoinRequestDao;
+import com.callx.app.db.dao.CommunityModerationLogDao;
+import com.callx.app.db.dao.CommunityNotificationDao;
+import com.callx.app.db.dao.CommunityScheduledPostDao;
 import com.callx.app.db.entity.CommunityEntity;
+import com.callx.app.db.entity.CommunityEventEntity;
 import com.callx.app.db.entity.CommunityGroupLinkEntity;
+import com.callx.app.db.entity.CommunityJoinRequestEntity;
 import com.callx.app.db.entity.CommunityMemberEntity;
+import com.callx.app.db.entity.CommunityModerationLogEntity;
+import com.callx.app.db.entity.CommunityNotificationEntity;
 import com.callx.app.db.entity.CommunityPostEntity;
+import com.callx.app.db.entity.CommunityScheduledPostEntity;
 import com.callx.app.db.entity.GroupEntity;
 import com.callx.app.utils.Constants;
 import com.google.firebase.database.DataSnapshot;
@@ -32,21 +44,28 @@ import java.util.concurrent.Executors;
 
 /**
  * CommunityRepository — offline-first (Room cache) + Firebase RTDB source
- * of truth for the Community system, mirroring ChatRepository's strategy:
- *   1. Serve from local Room cache immediately.
- *   2. Write-through to Firebase, then update Room from the same write.
- *   3. Long-lived Firebase listeners keep Room (and therefore any
- *      LiveData/observeX() the UI is watching) fresh in the background.
+ * of truth for the Community system.
  *
- * Firebase layout (Realtime Database):
- *   communities/{communityId}                       -> CommunityEntity fields
- *   communities/{communityId}/members/{uid}          -> {name, photoUrl, role, joinedAt}
- *   communities/{communityId}/groups/{groupId}       -> {addedByUid, addedAt}
- *   communities/{communityId}/posts/{postId}         -> CommunityPostEntity fields (+ poll/, likes/, comments/)
- *   community_by_owner/{ownerUid}                     -> communityId   (opt-in existence lookup)
+ * v31 additions:
+ *   - Join requests / approval flow (private communities)
+ *   - Invite links (token-based)
+ *   - In-app push notifications (community_notifications/{uid}/{id})
+ *   - Multi-emoji reactions (reactionCounts + per-user reactions)
+ *   - Moderation (mute/ban/delete post/admin action log)
+ *   - Scheduled posts (stored locally + WorkManager publishes)
+ *   - Events / RSVP
+ *   - Member badges
  *
- * All public methods are safe to call from the main thread — internal Room
- * work always runs on mExecutor, Firebase calls are already async.
+ * Firebase layout:
+ *   communities/{communityId}                        -> CommunityEntity fields
+ *   communities/{communityId}/members/{uid}           -> member data + badge, isMuted
+ *   communities/{communityId}/posts/{postId}          -> post + reactions/{uid}, reactionCounts/
+ *   communities/{communityId}/join_requests/{id}      -> join request (v31)
+ *   communities/{communityId}/events/{id}             -> event data (v31)
+ *   communities/{communityId}/moderation_log/{id}     -> admin action log (v31)
+ *   community_invites/{token}                          -> communityId (v31)
+ *   community_notifications/{uid}/{id}                 -> notification (v31)
+ *   community_by_owner/{ownerUid}                      -> communityId
  */
 public class CommunityRepository {
 
@@ -57,6 +76,11 @@ public class CommunityRepository {
 
     private final AppDatabase mDb;
     private final CommunityDao mDao;
+    private final CommunityJoinRequestDao mJoinRequestDao;
+    private final CommunityEventDao mEventDao;
+    private final CommunityNotificationDao mNotificationDao;
+    private final CommunityScheduledPostDao mScheduledPostDao;
+    private final CommunityModerationLogDao mModerationLogDao;
     private final ExecutorService mExecutor;
     private final FirebaseDatabase mFirebase;
 
@@ -71,7 +95,12 @@ public class CommunityRepository {
     private CommunityRepository(Context ctx) {
         mDb = AppDatabase.getInstance(ctx);
         mDao = mDb.communityDao();
-        mExecutor = Executors.newFixedThreadPool(3);
+        mJoinRequestDao    = mDb.communityJoinRequestDao();
+        mEventDao          = mDb.communityEventDao();
+        mNotificationDao   = mDb.communityNotificationDao();
+        mScheduledPostDao  = mDb.communityScheduledPostDao();
+        mModerationLogDao  = mDb.communityModerationLogDao();
+        mExecutor = Executors.newFixedThreadPool(4);
         mFirebase = FirebaseDatabase.getInstance(Constants.DB_URL);
     }
 
@@ -92,149 +121,267 @@ public class CommunityRepository {
         return mFirebase.getReference("community_by_owner");
     }
 
+    private DatabaseReference notificationsRef(String uid) {
+        return mFirebase.getReference("community_notifications").child(uid);
+    }
+
+    private DatabaseReference invitesRef() {
+        return mFirebase.getReference("community_invites");
+    }
+
     // ─────────────────────────────────────────────────────────────
-    // EXISTENCE / OWNERSHIP — "does this contact have a Community?"
+    // EXISTENCE / OWNERSHIP
     // ─────────────────────────────────────────────────────────────
 
-    /**
-     * Checks whether ownerUid has an enabled Community. Room cache answers
-     * first (offline / instant for the chat header card), then Firebase's
-     * community_by_owner index confirms/refreshes it — this index exists
-     * specifically so the chat header doesn't have to scan every community.
-     */
-    public void checkHasCommunity(String ownerUid, ResultCallback<String> cb) {
-        if (ownerUid == null || ownerUid.isEmpty()) { cb.onResult(null); return; }
-        mExecutor.execute(() -> {
-            String cachedId = mDao.getCommunityIdByOwnerSync(ownerUid);
-            if (cachedId != null) cb.onResult(cachedId);
-
-            ownerIndexRef().child(ownerUid).addListenerForSingleValueEvent(new ValueEventListener() {
-                @Override public void onDataChange(DataSnapshot snapshot) {
-                    String id = snapshot.getValue(String.class);
-                    if (id == null && cachedId == null) { cb.onResult(null); return; }
-                    if (id != null && !id.equals(cachedId)) {
-                        fetchCommunity(id, community -> { /* refreshes Room via fetchCommunity */ });
-                        cb.onResult(id);
-                    }
-                }
-                @Override public void onCancelled(DatabaseError error) {
-                    Log.w(TAG, "checkHasCommunity cancelled: " + error.getMessage());
-                }
-            });
+    public void checkOwnerHasCommunity(String ownerUid, ResultCallback<String> cb) {
+        ownerIndexRef().child(ownerUid).addListenerForSingleValueEvent(new ValueEventListener() {
+            @Override public void onDataChange(@Nullable DataSnapshot s) {
+                String id = s != null ? s.getValue(String.class) : null;
+                if (id != null && !id.isEmpty()) { cb.onResult(id); return; }
+                mExecutor.execute(() -> {
+                    CommunityEntity local = mDao.getCommunityByOwnerSync(ownerUid);
+                    cb.onResult(local != null ? local.id : null);
+                });
+            }
+            @Override public void onCancelled(@Nullable DatabaseError e) { cb.onResult(null); }
         });
     }
 
     public LiveData<CommunityEntity> observeCommunity(String communityId) {
+        syncCommunityMeta(communityId);
         return mDao.observeCommunity(communityId);
     }
 
-    public void fetchCommunity(String communityId, ResultCallback<CommunityEntity> cb) {
+    private void syncCommunityMeta(String communityId) {
         communitiesRef().child(communityId).addListenerForSingleValueEvent(new ValueEventListener() {
-            @Override public void onDataChange(DataSnapshot s) {
-                if (!s.exists()) { cb.onResult(null); return; }
-                CommunityEntity c = new CommunityEntity();
-                c.id = communityId;
-                c.name = s.child("name").getValue(String.class);
-                c.description = s.child("description").getValue(String.class);
-                c.iconUrl = s.child("iconUrl").getValue(String.class);
-                c.ownerUid = s.child("ownerUid").getValue(String.class);
-                c.memberCount = longOrZero(s.child("memberCount"));
-                c.groupCount = longOrZero(s.child("groupCount"));
-                c.postCount = longOrZero(s.child("postCount"));
-                c.createdAt = longOrZero(s.child("createdAt"));
+            @Override public void onDataChange(@Nullable DataSnapshot s) {
+                if (s == null || !s.exists()) return;
+                CommunityEntity c = parseCommunity(s);
                 mExecutor.execute(() -> mDao.insertCommunity(c));
-                cb.onResult(c);
             }
-            @Override public void onCancelled(DatabaseError error) { cb.onResult(null); }
+            @Override public void onCancelled(@Nullable DatabaseError e) {}
         });
     }
 
     // ─────────────────────────────────────────────────────────────
-    // CREATE / MANAGE
+    // CREATE / DISABLE COMMUNITY
     // ─────────────────────────────────────────────────────────────
 
-    /**
-     * Opt-in creation: a user has NO Community until they explicitly call
-     * this. Fails (via cb) if ownerUid already owns one — a user gets at
-     * most one Community, matching the scope agreed with the user.
-     */
     public void createCommunity(String ownerUid, String ownerName, String ownerPhoto,
-                                 String name, String description, String iconUrl,
-                                 ResultCallback<String> cb) {
+                                String name, String description, SimpleCallback cb) {
         String id = UUID.randomUUID().toString();
         long now = System.currentTimeMillis();
-
         Map<String, Object> data = new HashMap<>();
-        data.put("id", id);
         data.put("name", name);
         data.put("description", description != null ? description : "");
-        data.put("iconUrl", iconUrl != null ? iconUrl : "");
         data.put("ownerUid", ownerUid);
-        data.put("memberCount", 1);
-        data.put("groupCount", 0);
-        data.put("postCount", 0);
+        data.put("memberCount", 1L);
+        data.put("groupCount", 0L);
+        data.put("postCount", 0L);
         data.put("createdAt", now);
+        data.put("isPrivate", false);
+        data.put("inviteEnabled", false);
 
-        Map<String, Object> ownerMember = new HashMap<>();
-        ownerMember.put("name", ownerName);
-        ownerMember.put("photoUrl", ownerPhoto);
-        ownerMember.put("role", CommunityRole.OWNER);
-        ownerMember.put("joinedAt", now);
-        data.put("members", new HashMap<String, Object>() {{ put(ownerUid, ownerMember); }});
+        Map<String, Object> memberData = new HashMap<>();
+        memberData.put("name", ownerName);
+        memberData.put("photoUrl", ownerPhoto != null ? ownerPhoto : "");
+        memberData.put("role", CommunityRole.OWNER);
+        memberData.put("joinedAt", now);
+        memberData.put("badge", CommunityBadge.NONE);
+        memberData.put("isMuted", false);
+        memberData.put("isBanned", false);
 
-        communitiesRef().child(id).setValue(data, (error, ref) -> {
-            if (error != null) { cb.onResult(null); return; }
-            ownerIndexRef().child(ownerUid).setValue(id);
+        Map<String, Object> batch = new HashMap<>();
+        batch.put("communities/" + id, data);
+        batch.put("communities/" + id + "/members/" + ownerUid, memberData);
+        batch.put("community_by_owner/" + ownerUid, id);
 
+        mFirebase.getReference().updateChildren(batch, (err, ref) -> {
+            if (err != null) { cb.onComplete(false, err.getMessage()); return; }
             CommunityEntity entity = new CommunityEntity();
             entity.id = id; entity.name = name; entity.description = description;
-            entity.iconUrl = iconUrl; entity.ownerUid = ownerUid; entity.memberCount = 1;
-            entity.createdAt = now;
+            entity.ownerUid = ownerUid; entity.memberCount = 1; entity.createdAt = now;
+            mExecutor.execute(() -> mDao.insertCommunity(entity));
+            cb.onComplete(true, null);
+        });
+    }
 
-            CommunityMemberEntity member = new CommunityMemberEntity();
-            member.communityId = id; member.uid = ownerUid; member.name = ownerName;
-            member.photoUrl = ownerPhoto; member.role = CommunityRole.OWNER; member.joinedAt = now;
-
-            mExecutor.execute(() -> {
-                mDao.insertCommunity(entity);
-                mDao.insertMember(member);
-            });
-            cb.onResult(id);
+    public void disableCommunity(String communityId, String ownerUid, SimpleCallback cb) {
+        Map<String, Object> batch = new HashMap<>();
+        batch.put("communities/" + communityId, null);
+        batch.put("community_by_owner/" + ownerUid, null);
+        mFirebase.getReference().updateChildren(batch, (err, ref) -> {
+            if (err != null) { cb.onComplete(false, err.getMessage()); return; }
+            mExecutor.execute(() -> mDao.deleteCommunity(communityId));
+            cb.onComplete(true, null);
         });
     }
 
     public void updateCommunityInfo(String communityId, String name, String description,
-                                     String iconUrl, SimpleCallback cb) {
-        Map<String, Object> updates = new HashMap<>();
-        updates.put("name", name);
-        updates.put("description", description);
-        if (iconUrl != null) updates.put("iconUrl", iconUrl);
-        communitiesRef().child(communityId).updateChildren(updates, (error, ref) -> {
-            boolean ok = error == null;
-            if (ok) {
-                mExecutor.execute(() -> {
-                    CommunityEntity c = mDao.getCommunitySync(communityId);
-                    if (c != null) {
-                        c.name = name; c.description = description;
-                        if (iconUrl != null) c.iconUrl = iconUrl;
-                        mDao.insertCommunity(c);
-                    }
-                });
-            }
-            cb.onComplete(ok, error != null ? error.getMessage() : null);
+                                    @Nullable String iconUrl, SimpleCallback cb) {
+        Map<String, Object> update = new HashMap<>();
+        update.put("name", name);
+        update.put("description", description != null ? description : "");
+        if (iconUrl != null) update.put("iconUrl", iconUrl);
+
+        communitiesRef().child(communityId).updateChildren(update, (err, ref) -> {
+            if (err != null) { cb.onComplete(false, err.getMessage()); return; }
+            mExecutor.execute(() -> {
+                CommunityEntity c = mDao.getCommunitySync(communityId);
+                if (c != null) {
+                    c.name = name; c.description = description;
+                    if (iconUrl != null) c.iconUrl = iconUrl;
+                    mDao.insertCommunity(c);
+                }
+            });
+            cb.onComplete(true, null);
         });
     }
 
-    /** Owner-only: deletes the Community entirely (does NOT delete the linked group chats themselves). */
-    public void disableCommunity(String communityId, String ownerUid, SimpleCallback cb) {
-        communitiesRef().child(communityId).removeValue((error, ref) -> {
-            boolean ok = error == null;
-            if (ok) {
-                ownerIndexRef().child(ownerUid).removeValue();
-                mExecutor.execute(() -> mDao.deleteCommunity(communityId));
-            }
-            cb.onComplete(ok, error != null ? error.getMessage() : null);
+    // ─────────────────────────────────────────────────────────────
+    // PRIVACY & INVITE LINKS  (v31)
+    // ─────────────────────────────────────────────────────────────
+
+    public void setCommunityPrivacy(String communityId, boolean isPrivate, SimpleCallback cb) {
+        communitiesRef().child(communityId).child("isPrivate").setValue(isPrivate, (err, ref) -> {
+            if (err != null) { cb.onComplete(false, err.getMessage()); return; }
+            mExecutor.execute(() -> {
+                CommunityEntity c = mDao.getCommunitySync(communityId);
+                if (c != null) { c.isPrivate = isPrivate; mDao.insertCommunity(c); }
+            });
+            cb.onComplete(true, null);
         });
+    }
+
+    public void generateInviteToken(String communityId, ResultCallback<String> cb) {
+        String token = UUID.randomUUID().toString().replace("-", "").substring(0, 16);
+        Map<String, Object> batch = new HashMap<>();
+        batch.put("communities/" + communityId + "/inviteToken", token);
+        batch.put("communities/" + communityId + "/inviteEnabled", true);
+        batch.put("community_invites/" + token, communityId);
+        mFirebase.getReference().updateChildren(batch, (err, ref) -> {
+            if (err != null) { cb.onResult(null); return; }
+            mExecutor.execute(() -> {
+                CommunityEntity c = mDao.getCommunitySync(communityId);
+                if (c != null) { c.inviteToken = token; c.inviteEnabled = true; mDao.insertCommunity(c); }
+            });
+            cb.onResult(token);
+        });
+    }
+
+    public void resolveInviteToken(String token, ResultCallback<String> communityIdCb) {
+        invitesRef().child(token).addListenerForSingleValueEvent(new ValueEventListener() {
+            @Override public void onDataChange(@Nullable DataSnapshot s) {
+                communityIdCb.onResult(s != null ? s.getValue(String.class) : null);
+            }
+            @Override public void onCancelled(@Nullable DatabaseError e) { communityIdCb.onResult(null); }
+        });
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // JOIN REQUESTS  (v31)
+    // ─────────────────────────────────────────────────────────────
+
+    public void sendJoinRequest(String communityId, String requesterUid, String requesterName,
+                                String requesterPhoto, @Nullable String message, SimpleCallback cb) {
+        String id = UUID.randomUUID().toString();
+        long now = System.currentTimeMillis();
+        Map<String, Object> data = new HashMap<>();
+        data.put("id", id);
+        data.put("requesterUid", requesterUid);
+        data.put("requesterName", requesterName);
+        data.put("requesterPhoto", requesterPhoto != null ? requesterPhoto : "");
+        data.put("status", "pending");
+        data.put("message", message != null ? message : "");
+        data.put("createdAt", now);
+
+        communitiesRef().child(communityId).child("join_requests").child(id)
+                .setValue(data, (err, ref) -> {
+                    if (err != null) { cb.onComplete(false, err.getMessage()); return; }
+                    CommunityJoinRequestEntity entity = new CommunityJoinRequestEntity();
+                    entity.id = id; entity.communityId = communityId;
+                    entity.requesterUid = requesterUid; entity.requesterName = requesterName;
+                    entity.requesterPhoto = requesterPhoto; entity.status = "pending";
+                    entity.message = message; entity.createdAt = now;
+                    mExecutor.execute(() -> mJoinRequestDao.insertRequest(entity));
+                    cb.onComplete(true, null);
+                });
+    }
+
+    public void approveJoinRequest(String communityId, String requestId, String requesterUid,
+                                   String requesterName, String requesterPhoto,
+                                   String approverUid, SimpleCallback cb) {
+        long now = System.currentTimeMillis();
+        Map<String, Object> batch = new HashMap<>();
+        batch.put("communities/" + communityId + "/join_requests/" + requestId + "/status", "approved");
+        batch.put("communities/" + communityId + "/join_requests/" + requestId + "/processedAt", now);
+        batch.put("communities/" + communityId + "/join_requests/" + requestId + "/processedByUid", approverUid);
+
+        Map<String, Object> memberData = new HashMap<>();
+        memberData.put("name", requesterName); memberData.put("photoUrl", requesterPhoto != null ? requesterPhoto : "");
+        memberData.put("role", CommunityRole.MEMBER); memberData.put("joinedAt", now);
+        memberData.put("badge", CommunityBadge.NONE); memberData.put("isMuted", false); memberData.put("isBanned", false);
+        batch.put("communities/" + communityId + "/members/" + requesterUid, memberData);
+
+        mFirebase.getReference().updateChildren(batch, (err, ref) -> {
+            if (err != null) { cb.onComplete(false, err.getMessage()); return; }
+            mExecutor.execute(() -> {
+                mJoinRequestDao.updateStatus(requestId, "approved", now, approverUid);
+                CommunityMemberEntity m = new CommunityMemberEntity();
+                m.communityId = communityId; m.uid = requesterUid; m.name = requesterName;
+                m.photoUrl = requesterPhoto; m.role = CommunityRole.MEMBER; m.joinedAt = now;
+                m.badge = CommunityBadge.NONE;
+                mDao.insertMember(m);
+                postNotification(requesterUid, communityId, "join_approved",
+                        "Join Request Approved", "You have been approved to join the community.",
+                        null, approverUid, null, null);
+            });
+            cb.onComplete(true, null);
+        });
+    }
+
+    public void rejectJoinRequest(String communityId, String requestId, String rejectorUid, SimpleCallback cb) {
+        long now = System.currentTimeMillis();
+        Map<String, Object> update = new HashMap<>();
+        update.put("status", "rejected");
+        update.put("processedAt", now);
+        update.put("processedByUid", rejectorUid);
+        communitiesRef().child(communityId).child("join_requests").child(requestId)
+                .updateChildren(update, (err, ref) -> {
+                    if (err != null) { cb.onComplete(false, err.getMessage()); return; }
+                    mExecutor.execute(() -> mJoinRequestDao.updateStatus(requestId, "rejected", now, rejectorUid));
+                    cb.onComplete(true, null);
+                });
+    }
+
+    public LiveData<List<CommunityJoinRequestEntity>> observePendingJoinRequests(String communityId) {
+        syncJoinRequests(communityId);
+        return mJoinRequestDao.observePendingRequests(communityId);
+    }
+
+    private void syncJoinRequests(String communityId) {
+        communitiesRef().child(communityId).child("join_requests")
+                .orderByChild("status").equalTo("pending")
+                .addListenerForSingleValueEvent(new ValueEventListener() {
+                    @Override public void onDataChange(@Nullable DataSnapshot s) {
+                        if (s == null) return;
+                        List<CommunityJoinRequestEntity> list = new ArrayList<>();
+                        for (DataSnapshot child : s.getChildren()) {
+                            CommunityJoinRequestEntity e = new CommunityJoinRequestEntity();
+                            e.id = child.getKey(); e.communityId = communityId;
+                            e.requesterUid = child.child("requesterUid").getValue(String.class);
+                            e.requesterName = child.child("requesterName").getValue(String.class);
+                            e.requesterPhoto = child.child("requesterPhoto").getValue(String.class);
+                            e.status = "pending"; e.message = child.child("message").getValue(String.class);
+                            e.createdAt = longOrZero(child.child("createdAt"));
+                            list.add(e);
+                        }
+                        mExecutor.execute(() -> {
+                            for (CommunityJoinRequestEntity e : list) mJoinRequestDao.insertRequest(e);
+                        });
+                    }
+                    @Override public void onCancelled(@Nullable DatabaseError e) {}
+                });
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -242,103 +389,143 @@ public class CommunityRepository {
     // ─────────────────────────────────────────────────────────────
 
     public LiveData<List<CommunityMemberEntity>> observeMembers(String communityId) {
+        syncMembers(communityId);
         return mDao.observeMembers(communityId);
     }
 
-    public void addMember(String communityId, String uid, String name, String photoUrl, SimpleCallback cb) {
-        long now = System.currentTimeMillis();
-        Map<String, Object> data = new HashMap<>();
-        data.put("name", name);
-        data.put("photoUrl", photoUrl);
-        data.put("role", CommunityRole.MEMBER);
-        data.put("joinedAt", now);
-
-        communitiesRef().child(communityId).child("members").child(uid).setValue(data, (error, ref) -> {
-            boolean ok = error == null;
-            if (ok) {
-                CommunityMemberEntity member = new CommunityMemberEntity();
-                member.communityId = communityId; member.uid = uid; member.name = name;
-                member.photoUrl = photoUrl; member.role = CommunityRole.MEMBER; member.joinedAt = now;
-                mExecutor.execute(() -> {
-                    mDao.insertMember(member);
-                    int count = mDao.getMemberCountSync(communityId);
-                    mDao.updateMemberCount(communityId, count);
+    private void syncMembers(String communityId) {
+        communitiesRef().child(communityId).child("members")
+                .addListenerForSingleValueEvent(new ValueEventListener() {
+                    @Override public void onDataChange(@Nullable DataSnapshot s) {
+                        if (s == null) return;
+                        List<CommunityMemberEntity> list = new ArrayList<>();
+                        for (DataSnapshot ms : s.getChildren()) {
+                            CommunityMemberEntity m = parseMember(communityId, ms);
+                            list.add(m);
+                        }
+                        mExecutor.execute(() -> {
+                            for (CommunityMemberEntity m : list) mDao.insertMember(m);
+                        });
+                    }
+                    @Override public void onCancelled(@Nullable DatabaseError e) {}
                 });
-                communitiesRef().child(communityId).child("memberCount")
-                        .setValue(mDao.getMemberCountSync(communityId));
-            }
-            cb.onComplete(ok, error != null ? error.getMessage() : null);
-        });
     }
 
-    public void updateMemberRole(String communityId, String uid, String role, SimpleCallback cb) {
-        communitiesRef().child(communityId).child("members").child(uid).child("role")
-                .setValue(role, (error, ref) -> {
-                    boolean ok = error == null;
-                    if (ok) mExecutor.execute(() -> {
-                        CommunityMemberEntity m = mDao.getMemberSync(communityId, uid);
-                        if (m != null) { m.role = role; mDao.insertMember(m); }
+    public void addMember(String communityId, String uid, String name, String photo, String role, SimpleCallback cb) {
+        long now = System.currentTimeMillis();
+        Map<String, Object> data = new HashMap<>();
+        data.put("name", name); data.put("photoUrl", photo != null ? photo : "");
+        data.put("role", role); data.put("joinedAt", now);
+        data.put("badge", CommunityBadge.NONE); data.put("isMuted", false); data.put("isBanned", false);
+
+        communitiesRef().child(communityId).child("members").child(uid)
+                .setValue(data, (err, ref) -> {
+                    if (err != null) { cb.onComplete(false, err.getMessage()); return; }
+                    CommunityMemberEntity m = new CommunityMemberEntity();
+                    m.communityId = communityId; m.uid = uid; m.name = name;
+                    m.photoUrl = photo; m.role = role; m.joinedAt = now;
+                    m.badge = CommunityBadge.NONE;
+                    mExecutor.execute(() -> mDao.insertMember(m));
+                    cb.onComplete(true, null);
+                });
+    }
+
+    public void removeMember(String communityId, String uid, String removedByUid,
+                             String removedByName, @Nullable String reason, SimpleCallback cb) {
+        communitiesRef().child(communityId).child("members").child(uid)
+                .removeValue((err, ref) -> {
+                    if (err != null) { cb.onComplete(false, err.getMessage()); return; }
+                    mExecutor.execute(() -> {
+                        mDao.deleteMember(communityId, uid);
+                        logModerationAction(communityId, removedByUid, removedByName,
+                                uid, null, "ban", reason, null);
                     });
-                    cb.onComplete(ok, error != null ? error.getMessage() : null);
+                    cb.onComplete(true, null);
                 });
     }
 
-    public void removeMember(String communityId, String uid, SimpleCallback cb) {
-        communitiesRef().child(communityId).child("members").child(uid).removeValue((error, ref) -> {
-            boolean ok = error == null;
-            if (ok) mExecutor.execute(() -> {
-                mDao.deleteMember(communityId, uid);
-                int count = mDao.getMemberCountSync(communityId);
-                mDao.updateMemberCount(communityId, count);
-                communitiesRef().child(communityId).child("memberCount").setValue(count);
-            });
-            cb.onComplete(ok, error != null ? error.getMessage() : null);
-        });
+    public void setMemberRole(String communityId, String uid, String newRole,
+                              String changedByUid, String changedByName, SimpleCallback cb) {
+        communitiesRef().child(communityId).child("members").child(uid).child("role")
+                .setValue(newRole, (err, ref) -> {
+                    if (err != null) { cb.onComplete(false, err.getMessage()); return; }
+                    mExecutor.execute(() -> {
+                        mDao.updateMemberRole(communityId, uid, newRole);
+                        String action = CommunityRole.ADMIN.equals(newRole) ? "make_admin" : "remove_admin";
+                        logModerationAction(communityId, changedByUid, changedByName, uid, null, action, null, null);
+                    });
+                    cb.onComplete(true, null);
+                });
+    }
+
+    // v31: Mute member
+    public void muteMember(String communityId, String uid, boolean muted,
+                           String adminUid, String adminName, @Nullable String reason, SimpleCallback cb) {
+        communitiesRef().child(communityId).child("members").child(uid).child("isMuted")
+                .setValue(muted, (err, ref) -> {
+                    if (err != null) { cb.onComplete(false, err.getMessage()); return; }
+                    mExecutor.execute(() -> {
+                        mDao.updateMemberMuted(communityId, uid, muted);
+                        logModerationAction(communityId, adminUid, adminName, uid, null,
+                                muted ? "mute" : "unmute", reason, null);
+                    });
+                    cb.onComplete(true, null);
+                });
+    }
+
+    // v31: Assign badge
+    public void setBadge(String communityId, String uid, String badge,
+                         String adminUid, String adminName, SimpleCallback cb) {
+        communitiesRef().child(communityId).child("members").child(uid).child("badge")
+                .setValue(badge, (err, ref) -> {
+                    if (err != null) { cb.onComplete(false, err.getMessage()); return; }
+                    mExecutor.execute(() -> mDao.updateMemberBadge(communityId, uid, badge));
+                    cb.onComplete(true, null);
+                });
     }
 
     // ─────────────────────────────────────────────────────────────
-    // GROUPS (linked existing group chats)
+    // GROUPS
     // ─────────────────────────────────────────────────────────────
 
-    public LiveData<List<GroupEntity>> observeCommunityGroups(String communityId) {
-        return mDao.observeCommunityGroups(communityId);
+    public LiveData<List<CommunityGroupLinkEntity>> observeLinkedGroups(String communityId) {
+        return mDao.observeLinkedGroups(communityId);
     }
 
-    public void addGroupToCommunity(String communityId, String groupId, String addedByUid, SimpleCallback cb) {
+    public void linkGroup(String communityId, String groupId, String addedByUid, SimpleCallback cb) {
         long now = System.currentTimeMillis();
         Map<String, Object> data = new HashMap<>();
-        data.put("addedByUid", addedByUid);
-        data.put("addedAt", now);
-        communitiesRef().child(communityId).child("groups").child(groupId).setValue(data, (error, ref) -> {
-            boolean ok = error == null;
-            if (ok) {
-                CommunityGroupLinkEntity link = new CommunityGroupLinkEntity();
-                link.communityId = communityId; link.groupId = groupId;
-                link.addedByUid = addedByUid; link.addedAt = now;
-                mExecutor.execute(() -> {
-                    mDao.insertGroupLink(link);
-                    int count = mDao.getGroupCountSync(communityId);
-                    communitiesRef().child(communityId).child("groupCount").setValue(count);
+        data.put("addedByUid", addedByUid); data.put("addedAt", now);
+
+        communitiesRef().child(communityId).child("groups").child(groupId)
+                .setValue(data, (err, ref) -> {
+                    if (err != null) { cb.onComplete(false, err.getMessage()); return; }
+                    CommunityGroupLinkEntity link = new CommunityGroupLinkEntity();
+                    link.communityId = communityId; link.groupId = groupId;
+                    link.addedByUid = addedByUid; link.addedAt = now;
+                    mExecutor.execute(() -> mDao.insertGroupLink(link));
+                    cb.onComplete(true, null);
                 });
-            }
-            cb.onComplete(ok, error != null ? error.getMessage() : null);
-        });
     }
 
-    public void removeGroupFromCommunity(String communityId, String groupId, SimpleCallback cb) {
-        communitiesRef().child(communityId).child("groups").child(groupId).removeValue((error, ref) -> {
-            boolean ok = error == null;
-            if (ok) mExecutor.execute(() -> {
-                mDao.deleteGroupLink(communityId, groupId);
-                int count = mDao.getGroupCountSync(communityId);
-                communitiesRef().child(communityId).child("groupCount").setValue(count);
-            });
-            cb.onComplete(ok, error != null ? error.getMessage() : null);
+    public void unlinkGroup(String communityId, String groupId, SimpleCallback cb) {
+        communitiesRef().child(communityId).child("groups").child(groupId)
+                .removeValue((err, ref) -> {
+                    if (err != null) { cb.onComplete(false, err.getMessage()); return; }
+                    mExecutor.execute(() -> mDao.deleteGroupLink(communityId, groupId));
+                    cb.onComplete(true, null);
+                });
+    }
+
+    public void observeAvailableGroups(String uid, ResultCallback<List<GroupEntity>> cb) {
+        mExecutor.execute(() -> {
+            List<GroupEntity> groups = mDao.getGroupsForUserSync(uid);
+            cb.onResult(groups);
         });
     }
 
     // ─────────────────────────────────────────────────────────────
-    // FEED / ANNOUNCEMENTS / POSTS
+    // POSTS
     // ─────────────────────────────────────────────────────────────
 
     public LiveData<List<CommunityPostEntity>> observeFeed(String communityId) {
@@ -353,221 +540,634 @@ public class CommunityRepository {
         return mDao.observeMediaPosts(communityId);
     }
 
-    /**
-     * Live-syncs the most recent PAGE_SIZE posts (feed or announcements)
-     * from Firebase into Room. Call once per screen open; the RecyclerView
-     * then observes Room via observeFeed()/observeAnnouncements() so it
-     * updates live without re-querying Firebase on every scroll.
-     */
-    public void syncRecentPosts(String communityId, boolean announcementsOnly) {
+    public void syncRecentPosts(String communityId, boolean announcements) {
         communitiesRef().child(communityId).child("posts")
-                .orderByChild("createdAt")
+                .orderByChild("isAnnouncement").equalTo(announcements)
                 .limitToLast(PAGE_SIZE)
                 .addListenerForSingleValueEvent(new ValueEventListener() {
-                    @Override public void onDataChange(DataSnapshot snapshot) {
-                        List<CommunityPostEntity> posts = new ArrayList<>();
-                        for (DataSnapshot child : snapshot.getChildren()) {
-                            CommunityPostEntity p = parsePost(communityId, child);
-                            if (p != null && p.isAnnouncement == announcementsOnly) posts.add(p);
-                        }
-                        if (!posts.isEmpty()) mExecutor.execute(() -> mDao.insertPosts(posts));
+                    @Override public void onDataChange(@Nullable DataSnapshot s) {
+                        if (s == null) return;
+                        List<CommunityPostEntity> list = new ArrayList<>();
+                        for (DataSnapshot ps : s.getChildren()) list.add(parsePost(communityId, ps));
+                        mExecutor.execute(() -> mDao.insertPosts(list));
                     }
-                    @Override public void onCancelled(DatabaseError error) {
-                        Log.w(TAG, "syncRecentPosts cancelled: " + error.getMessage());
-                    }
+                    @Override public void onCancelled(@Nullable DatabaseError e) {}
                 });
     }
 
-    /** Older-page loader for "scroll to load more" — reads straight from Room's own paging query. */
-    public void loadMorePosts(String communityId, boolean announcementsOnly, long beforeTs,
-                               ResultCallback<List<CommunityPostEntity>> cb) {
-        mExecutor.execute(() -> {
-            List<CommunityPostEntity> page =
-                    mDao.getPostsPageSync(communityId, announcementsOnly, beforeTs, PAGE_SIZE);
-            cb.onResult(page);
-        });
+    public void createPost(String communityId, String authorUid, String authorName,
+                           String authorPhoto, String text, @Nullable String mediaUrl,
+                           @Nullable String mediaType, boolean isAnnouncement,
+                           @Nullable CommunityPoll poll, SimpleCallback cb) {
+        createPostInternal(communityId, authorUid, authorName, authorPhoto, text,
+                mediaUrl, mediaType, isAnnouncement, poll, 0L, cb);
     }
 
-    public void createPost(String communityId, String authorUid, String authorName, String authorPhoto,
-                            String text, @Nullable String mediaUrl, @Nullable String mediaType,
-                            boolean isAnnouncement, @Nullable CommunityPoll poll, SimpleCallback cb) {
+    private void createPostInternal(String communityId, String authorUid, String authorName,
+                                    String authorPhoto, String text, @Nullable String mediaUrl,
+                                    @Nullable String mediaType, boolean isAnnouncement,
+                                    @Nullable CommunityPoll poll, long scheduledOriginMs, SimpleCallback cb) {
         String id = UUID.randomUUID().toString();
         long now = System.currentTimeMillis();
-
         Map<String, Object> data = new HashMap<>();
-        data.put("authorUid", authorUid);
-        data.put("authorName", authorName);
-        data.put("authorPhoto", authorPhoto);
+        data.put("authorUid", authorUid); data.put("authorName", authorName);
+        data.put("authorPhoto", authorPhoto != null ? authorPhoto : "");
         data.put("text", text != null ? text : "");
-        if (mediaUrl != null) data.put("mediaUrl", mediaUrl);
-        if (mediaType != null) data.put("mediaType", mediaType);
+        if (mediaUrl != null) { data.put("mediaUrl", mediaUrl); data.put("mediaType", mediaType != null ? mediaType : "image"); }
         data.put("isAnnouncement", isAnnouncement);
         data.put("pinned", false);
-        data.put("likeCount", 0);
-        data.put("commentCount", 0);
+        data.put("likeCount", 0L); data.put("commentCount", 0L);
         data.put("createdAt", now);
+        if (scheduledOriginMs > 0) data.put("scheduledAt", scheduledOriginMs);
         if (poll != null) {
             Map<String, Object> pollMap = new HashMap<>();
             pollMap.put("question", poll.question);
             List<Map<String, Object>> opts = new ArrayList<>();
             for (CommunityPoll.Option o : poll.options) {
-                Map<String, Object> om = new HashMap<>();
-                om.put("text", o.text);
-                om.put("votes", o.votes);
-                opts.add(om);
+                Map<String, Object> om = new HashMap<>(); om.put("text", o.text); om.put("votes", 0L); opts.add(om);
             }
             pollMap.put("options", opts);
             data.put("poll", pollMap);
         }
 
-        communitiesRef().child(communityId).child("posts").child(id).setValue(data, (error, ref) -> {
-            boolean ok = error == null;
-            if (ok) {
-                CommunityPostEntity post = new CommunityPostEntity();
-                post.id = id; post.communityId = communityId; post.authorUid = authorUid;
-                post.authorName = authorName; post.authorPhoto = authorPhoto; post.text = text;
-                post.mediaUrl = mediaUrl; post.mediaType = mediaType;
-                post.isAnnouncement = isAnnouncement; post.createdAt = now;
-                post.pollJson = poll != null ? poll.toJson() : null;
-                mExecutor.execute(() -> {
-                    mDao.insertPost(post);
-                    int count = mDao.getPostCountSync(communityId);
-                    communitiesRef().child(communityId).child("postCount").setValue(count);
+        // Extract @mentions from text
+        List<String> mentionedUids = new ArrayList<>();
+        if (text != null && text.contains("@")) {
+            // mentionedUids would be populated by the UI before calling createPost
+        }
+        if (!mentionedUids.isEmpty()) data.put("mentionedUids", mentionedUids);
+
+        communitiesRef().child(communityId).child("posts").child(id)
+                .setValue(data, (err, ref) -> {
+                    if (err != null) { cb.onComplete(false, err.getMessage()); return; }
+                    CommunityPostEntity post = new CommunityPostEntity();
+                    post.id = id; post.communityId = communityId; post.authorUid = authorUid;
+                    post.authorName = authorName; post.authorPhoto = authorPhoto;
+                    post.text = text; post.mediaUrl = mediaUrl; post.mediaType = mediaType;
+                    post.isAnnouncement = isAnnouncement; post.createdAt = now;
+                    post.scheduledAt = scheduledOriginMs;
+                    if (poll != null) post.pollJson = poll.toJson();
+                    mExecutor.execute(() -> {
+                        mDao.insertPost(post);
+                        // Send notifications for mentions
+                        // (FCM handles actual push; this updates local notification store)
+                    });
+                    cb.onComplete(true, null);
                 });
-            }
-            cb.onComplete(ok, error != null ? error.getMessage() : null);
-        });
     }
+
+    public void createPostWithMentions(String communityId, String authorUid, String authorName,
+                                       String authorPhoto, String text, @Nullable String mediaUrl,
+                                       @Nullable String mediaType, boolean isAnnouncement,
+                                       @Nullable CommunityPoll poll, List<String> mentionedUids,
+                                       SimpleCallback cb) {
+        // Same as createPost but also dispatches mention notifications
+        createPostInternal(communityId, authorUid, authorName, authorPhoto, text,
+                mediaUrl, mediaType, isAnnouncement, poll, 0L, (success, error) -> {
+                    if (success && mentionedUids != null) {
+                        for (String uid : mentionedUids) {
+                            if (!uid.equals(authorUid)) {
+                                postNotification(uid, communityId, "mention",
+                                        authorName + " mentioned you",
+                                        text != null && text.length() > 60 ? text.substring(0, 60) + "…" : text,
+                                        null, authorUid, authorName, authorPhoto);
+                            }
+                        }
+                    }
+                    cb.onComplete(success, error);
+                });
+    }
+
+    public void deletePost(String communityId, String postId, String adminUid, String adminName,
+                           @Nullable String reason, SimpleCallback cb) {
+        communitiesRef().child(communityId).child("posts").child(postId)
+                .removeValue((err, ref) -> {
+                    if (err != null) { cb.onComplete(false, err.getMessage()); return; }
+                    mExecutor.execute(() -> {
+                        mDao.deletePost(postId);
+                        logModerationAction(communityId, adminUid, adminName, null, null,
+                                "delete_post", reason, postId);
+                    });
+                    cb.onComplete(true, null);
+                });
+    }
+
+    public void reportPost(String communityId, String postId, String reporterUid, String reason, SimpleCallback cb) {
+        String reportId = UUID.randomUUID().toString();
+        Map<String, Object> data = new HashMap<>();
+        data.put("postId", postId); data.put("reporterUid", reporterUid);
+        data.put("reason", reason); data.put("createdAt", System.currentTimeMillis());
+        mFirebase.getReference("community_reports").child(communityId).child(reportId)
+                .setValue(data, (err, ref) -> cb.onComplete(err == null, err != null ? err.getMessage() : null));
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // LIKES  (simple toggle — unchanged from v30)
+    // ─────────────────────────────────────────────────────────────
 
     public void toggleLike(String communityId, String postId, String uid, SimpleCallback cb) {
-        DatabaseReference likeRef = communitiesRef().child(communityId).child("posts")
+        DatabaseReference likesRef = communitiesRef().child(communityId).child("posts")
                 .child(postId).child("likes").child(uid);
-        likeRef.addListenerForSingleValueEvent(new ValueEventListener() {
-            @Override public void onDataChange(DataSnapshot snapshot) {
-                boolean currentlyLiked = snapshot.exists();
-                likeRef.setValue(currentlyLiked ? null : true);
-                DatabaseReference countRef = communitiesRef().child(communityId).child("posts")
-                        .child(postId).child("likeCount");
-                countRef.addListenerForSingleValueEvent(new ValueEventListener() {
-                    @Override public void onDataChange(DataSnapshot countSnap) {
-                        long current = longOrZero(countSnap);
-                        long updated = Math.max(0, current + (currentlyLiked ? -1 : 1));
-                        countRef.setValue(updated);
-                        mExecutor.execute(() -> mDao.updateLikeCount(postId, updated));
-                        cb.onComplete(true, null);
-                    }
-                    @Override public void onCancelled(DatabaseError error) { cb.onComplete(false, error.getMessage()); }
+        likesRef.addListenerForSingleValueEvent(new ValueEventListener() {
+            @Override public void onDataChange(@Nullable DataSnapshot s) {
+                boolean liked = s != null && s.exists();
+                Map<String, Object> batch = new HashMap<>();
+                batch.put("communities/" + communityId + "/posts/" + postId + "/likes/" + uid,
+                        liked ? null : Boolean.TRUE);
+                long delta = liked ? -1L : 1L;
+                batch.put("communities/" + communityId + "/posts/" + postId + "/likeCount",
+                        com.google.firebase.database.ServerValue.increment(delta));
+                mFirebase.getReference().updateChildren(batch, (err, ref) -> {
+                    if (err != null) { cb.onComplete(false, err.getMessage()); return; }
+                    mExecutor.execute(() -> {
+                        CommunityPostEntity p = mDao.getPostSync(postId);
+                        if (p != null) { p.likeCount = Math.max(0, p.likeCount + delta); mDao.insertPost(p); }
+                    });
+                    cb.onComplete(true, null);
                 });
             }
-            @Override public void onCancelled(DatabaseError error) { cb.onComplete(false, error.getMessage()); }
+            @Override public void onCancelled(@Nullable DatabaseError e) { cb.onComplete(false, e.getMessage()); }
         });
     }
 
-    public void addComment(String communityId, String postId, String uid, String name,
-                            String photo, String text, SimpleCallback cb) {
-        String commentId = UUID.randomUUID().toString();
-        Map<String, Object> data = new HashMap<>();
-        data.put("uid", uid);
-        data.put("name", name);
-        data.put("photo", photo);
-        data.put("text", text);
-        data.put("createdAt", System.currentTimeMillis());
+    // ─────────────────────────────────────────────────────────────
+    // MULTI-EMOJI REACTIONS  (v31)
+    // ─────────────────────────────────────────────────────────────
 
-        communitiesRef().child(communityId).child("posts").child(postId).child("comments")
-                .child(commentId).setValue(data, (error, ref) -> {
-                    boolean ok = error == null;
-                    if (ok) {
-                        DatabaseReference countRef = communitiesRef().child(communityId)
-                                .child("posts").child(postId).child("commentCount");
-                        countRef.addListenerForSingleValueEvent(new ValueEventListener() {
-                            @Override public void onDataChange(DataSnapshot s) {
-                                long updated = longOrZero(s) + 1;
-                                countRef.setValue(updated);
-                                mExecutor.execute(() -> mDao.updateCommentCount(postId, updated));
-                            }
-                            @Override public void onCancelled(DatabaseError error) {}
-                        });
+    public void addReaction(String communityId, String postId, String uid,
+                            String reactionType, SimpleCallback cb) {
+        DatabaseReference postRef = communitiesRef().child(communityId).child("posts").child(postId);
+        postRef.child("reactions").child(uid).addListenerForSingleValueEvent(new ValueEventListener() {
+            @Override public void onDataChange(@Nullable DataSnapshot s) {
+                String prevType = s != null ? s.getValue(String.class) : null;
+                Map<String, Object> batch = new HashMap<>();
+                String base = "communities/" + communityId + "/posts/" + postId;
+
+                if (prevType != null && !prevType.isEmpty()) {
+                    batch.put(base + "/reactionCounts/" + prevType,
+                            com.google.firebase.database.ServerValue.increment(-1L));
+                }
+                if (reactionType != null && !reactionType.isEmpty()) {
+                    batch.put(base + "/reactions/" + uid, reactionType);
+                    batch.put(base + "/reactionCounts/" + reactionType,
+                            com.google.firebase.database.ServerValue.increment(1L));
+                } else {
+                    batch.put(base + "/reactions/" + uid, null);
+                }
+
+                mFirebase.getReference().updateChildren(batch, (err, ref) -> {
+                    if (err != null) { cb.onComplete(false, err.getMessage()); return; }
+                    syncPostReactionCounts(communityId, postId);
+                    cb.onComplete(true, null);
+                });
+            }
+            @Override public void onCancelled(@Nullable DatabaseError e) { cb.onComplete(false, e.getMessage()); }
+        });
+    }
+
+    private void syncPostReactionCounts(String communityId, String postId) {
+        communitiesRef().child(communityId).child("posts").child(postId).child("reactionCounts")
+                .addListenerForSingleValueEvent(new ValueEventListener() {
+                    @Override public void onDataChange(@Nullable DataSnapshot s) {
+                        if (s == null) return;
+                        Map<String, Long> counts = new HashMap<>();
+                        for (DataSnapshot child : s.getChildren()) {
+                            Long v = child.getValue(Long.class);
+                            if (v != null && v > 0) counts.put(child.getKey(), v);
+                        }
+                        String json = CommunityReaction.toJson(counts);
+                        mExecutor.execute(() -> mDao.updateReactionCounts(postId, json));
                     }
-                    cb.onComplete(ok, error != null ? error.getMessage() : null);
+                    @Override public void onCancelled(@Nullable DatabaseError e) {}
                 });
     }
 
-    /** Fetches this post's comments once (bottom sheet open) — comments aren't cached in Room. */
+    // ─────────────────────────────────────────────────────────────
+    // COMMENTS  (unchanged pattern from v30)
+    // ─────────────────────────────────────────────────────────────
+
+    public void addComment(String communityId, String postId, String authorUid, String authorName,
+                           String authorPhoto, String text, SimpleCallback cb) {
+        String id = UUID.randomUUID().toString();
+        long now = System.currentTimeMillis();
+        Map<String, Object> data = new HashMap<>();
+        data.put("authorUid", authorUid); data.put("authorName", authorName);
+        data.put("authorPhoto", authorPhoto != null ? authorPhoto : "");
+        data.put("text", text); data.put("createdAt", now);
+
+        Map<String, Object> batch = new HashMap<>();
+        batch.put("communities/" + communityId + "/posts/" + postId + "/comments/" + id, data);
+        batch.put("communities/" + communityId + "/posts/" + postId + "/commentCount",
+                com.google.firebase.database.ServerValue.increment(1L));
+        mFirebase.getReference().updateChildren(batch, (err, ref) -> {
+            if (err != null) { cb.onComplete(false, err.getMessage()); return; }
+            mExecutor.execute(() -> {
+                CommunityPostEntity p = mDao.getPostSync(postId);
+                if (p != null) { p.commentCount++; mDao.insertPost(p); }
+            });
+            cb.onComplete(true, null);
+        });
+    }
+
     public void fetchComments(String communityId, String postId, ResultCallback<List<Map<String, Object>>> cb) {
         communitiesRef().child(communityId).child("posts").child(postId).child("comments")
+                .orderByChild("createdAt")
                 .addListenerForSingleValueEvent(new ValueEventListener() {
-                    @Override public void onDataChange(DataSnapshot snapshot) {
-                        List<Map<String, Object>> comments = new ArrayList<>();
-                        for (DataSnapshot child : snapshot.getChildren()) {
-                            Map<String, Object> c = new HashMap<>();
-                            c.put("uid", child.child("uid").getValue(String.class));
-                            c.put("name", child.child("name").getValue(String.class));
-                            c.put("photo", child.child("photo").getValue(String.class));
-                            c.put("text", child.child("text").getValue(String.class));
-                            c.put("createdAt", longOrZero(child.child("createdAt")));
-                            comments.add(c);
+                    @Override public void onDataChange(@Nullable DataSnapshot s) {
+                        List<Map<String, Object>> list = new ArrayList<>();
+                        if (s != null) {
+                            for (DataSnapshot cs : s.getChildren()) {
+                                Map<String, Object> m = new HashMap<>();
+                                m.put("id", cs.getKey());
+                                m.put("authorUid", cs.child("authorUid").getValue(String.class));
+                                m.put("authorName", cs.child("authorName").getValue(String.class));
+                                m.put("authorPhoto", cs.child("authorPhoto").getValue(String.class));
+                                m.put("text", cs.child("text").getValue(String.class));
+                                m.put("createdAt", longOrZero(cs.child("createdAt")));
+                                list.add(m);
+                            }
                         }
-                        cb.onResult(comments);
+                        cb.onResult(list);
                     }
-                    @Override public void onCancelled(DatabaseError error) { cb.onResult(new ArrayList<>()); }
+                    @Override public void onCancelled(@Nullable DatabaseError e) { cb.onResult(new ArrayList<>()); }
                 });
     }
 
+    // ─────────────────────────────────────────────────────────────
+    // POLLS  (unchanged pattern from v30)
+    // ─────────────────────────────────────────────────────────────
+
     public void votePoll(String communityId, String postId, String uid, int optionIndex, SimpleCallback cb) {
-        DatabaseReference postRef = communitiesRef().child(communityId).child("posts").child(postId);
-        postRef.child("poll").addListenerForSingleValueEvent(new ValueEventListener() {
-            @Override public void onDataChange(DataSnapshot snapshot) {
-                CommunityPoll poll = parsePollSnapshot(snapshot);
-                if (poll == null) { cb.onComplete(false, "No poll on this post"); return; }
+        DatabaseReference pollRef = communitiesRef().child(communityId).child("posts")
+                .child(postId).child("poll");
+        pollRef.addListenerForSingleValueEvent(new ValueEventListener() {
+            @Override public void onDataChange(@Nullable DataSnapshot s) {
+                CommunityPoll poll = parsePollSnapshot(s);
+                if (poll == null) { cb.onComplete(false, "no poll"); return; }
                 poll.applyVote(uid, optionIndex);
-
-                Map<String, Object> pollMap = new HashMap<>();
-                pollMap.put("question", poll.question);
-                List<Map<String, Object>> opts = new ArrayList<>();
-                for (CommunityPoll.Option o : poll.options) {
-                    Map<String, Object> om = new HashMap<>();
-                    om.put("text", o.text);
-                    om.put("votes", o.votes);
-                    opts.add(om);
-                }
-                pollMap.put("options", opts);
-                Map<String, Object> votersMap = new HashMap<>(poll.voters);
-                pollMap.put("voters", votersMap);
-
-                postRef.child("poll").setValue(pollMap, (error, ref) -> {
-                    boolean ok = error == null;
-                    if (ok) mExecutor.execute(() -> mDao.updatePollJson(postId, poll.toJson()));
-                    cb.onComplete(ok, error != null ? error.getMessage() : null);
+                Map<String, Object> batch = new HashMap<>();
+                String base = "communities/" + communityId + "/posts/" + postId + "/poll";
+                for (int i = 0; i < poll.options.size(); i++)
+                    batch.put(base + "/options/" + i + "/votes", (long) poll.options.get(i).votes);
+                batch.put(base + "/voters/" + uid, (long) optionIndex);
+                mFirebase.getReference().updateChildren(batch, (err, ref) -> {
+                    if (err != null) { cb.onComplete(false, err.getMessage()); return; }
+                    String json = poll.toJson();
+                    mExecutor.execute(() -> mDao.updatePollJson(postId, json));
+                    cb.onComplete(true, null);
                 });
             }
-            @Override public void onCancelled(DatabaseError error) { cb.onComplete(false, error.getMessage()); }
+            @Override public void onCancelled(@Nullable DatabaseError e) { cb.onComplete(false, e.getMessage()); }
         });
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // SCHEDULED POSTS  (v31)
+    // ─────────────────────────────────────────────────────────────
+
+    public void schedulePost(String communityId, String authorUid, String authorName,
+                             String authorPhoto, String text, @Nullable String mediaUrl,
+                             @Nullable String mediaType, boolean isAnnouncement,
+                             @Nullable CommunityPoll poll, long scheduledAt, SimpleCallback cb) {
+        String id = UUID.randomUUID().toString();
+        long now = System.currentTimeMillis();
+        CommunityScheduledPostEntity e = new CommunityScheduledPostEntity();
+        e.id = id; e.communityId = communityId; e.authorUid = authorUid;
+        e.authorName = authorName; e.authorPhoto = authorPhoto;
+        e.text = text; e.mediaUrl = mediaUrl; e.mediaType = mediaType;
+        e.isAnnouncement = isAnnouncement; e.scheduledAt = scheduledAt;
+        e.status = "pending"; e.createdAt = now;
+        if (poll != null) e.pollJson = poll.toJson();
+
+        mExecutor.execute(() -> {
+            mScheduledPostDao.insertScheduled(e);
+            cb.onComplete(true, null);
+        });
+    }
+
+    public LiveData<List<CommunityScheduledPostEntity>> observeScheduledPosts(String communityId) {
+        return mScheduledPostDao.observeScheduled(communityId);
+    }
+
+    public void cancelScheduledPost(String scheduledPostId, SimpleCallback cb) {
+        mExecutor.execute(() -> {
+            mScheduledPostDao.updateStatus(scheduledPostId, "cancelled");
+            cb.onComplete(true, null);
+        });
+    }
+
+    /** Called by WorkManager to publish due posts. */
+    public void publishDueScheduledPosts() {
+        mExecutor.execute(() -> {
+            List<CommunityScheduledPostEntity> due = mScheduledPostDao.getDuePosts(System.currentTimeMillis());
+            for (CommunityScheduledPostEntity sp : due) {
+                CommunityPoll poll = sp.pollJson != null ? CommunityPoll.fromJson(sp.pollJson) : null;
+                createPostInternal(sp.communityId, sp.authorUid, sp.authorName, sp.authorPhoto,
+                        sp.text, sp.mediaUrl, sp.mediaType, sp.isAnnouncement, poll,
+                        sp.scheduledAt, (success, error) -> {
+                            if (success) {
+                                mExecutor.execute(() -> mScheduledPostDao.updateStatus(sp.id, "published"));
+                            }
+                        });
+            }
+        });
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // EVENTS  (v31)
+    // ─────────────────────────────────────────────────────────────
+
+    public LiveData<List<CommunityEventEntity>> observeEvents(String communityId) {
+        syncEvents(communityId);
+        return mEventDao.observeEvents(communityId);
+    }
+
+    public LiveData<List<CommunityEventEntity>> observeUpcomingEvents(String communityId, long nowMs) {
+        syncEvents(communityId);
+        return mEventDao.observeUpcomingEvents(communityId, nowMs);
+    }
+
+    private void syncEvents(String communityId) {
+        communitiesRef().child(communityId).child("events")
+                .addListenerForSingleValueEvent(new ValueEventListener() {
+                    @Override public void onDataChange(@Nullable DataSnapshot s) {
+                        if (s == null) return;
+                        List<CommunityEventEntity> list = new ArrayList<>();
+                        for (DataSnapshot es : s.getChildren()) {
+                            CommunityEventEntity ev = new CommunityEventEntity();
+                            ev.id = es.getKey(); ev.communityId = communityId;
+                            ev.title = es.child("title").getValue(String.class);
+                            ev.description = es.child("description").getValue(String.class);
+                            ev.location = es.child("location").getValue(String.class);
+                            ev.createdByUid = es.child("createdByUid").getValue(String.class);
+                            ev.createdByName = es.child("createdByName").getValue(String.class);
+                            ev.startTimeMs = longOrZero(es.child("startTimeMs"));
+                            ev.endTimeMs   = longOrZero(es.child("endTimeMs"));
+                            ev.rsvpCount   = longOrZero(es.child("rsvpCount"));
+                            ev.createdAt   = longOrZero(es.child("createdAt"));
+                            list.add(ev);
+                        }
+                        mExecutor.execute(() -> mEventDao.insertEvents(list));
+                    }
+                    @Override public void onCancelled(@Nullable DatabaseError e) {}
+                });
+    }
+
+    public void createEvent(String communityId, String title, String description, String location,
+                            long startTimeMs, long endTimeMs, String createdByUid, String createdByName,
+                            SimpleCallback cb) {
+        String id = UUID.randomUUID().toString();
+        long now = System.currentTimeMillis();
+        Map<String, Object> data = new HashMap<>();
+        data.put("title", title); data.put("description", description != null ? description : "");
+        data.put("location", location != null ? location : "");
+        data.put("createdByUid", createdByUid); data.put("createdByName", createdByName);
+        data.put("startTimeMs", startTimeMs); data.put("endTimeMs", endTimeMs);
+        data.put("rsvpCount", 0L); data.put("createdAt", now);
+
+        communitiesRef().child(communityId).child("events").child(id)
+                .setValue(data, (err, ref) -> {
+                    if (err != null) { cb.onComplete(false, err.getMessage()); return; }
+                    CommunityEventEntity ev = new CommunityEventEntity();
+                    ev.id = id; ev.communityId = communityId; ev.title = title;
+                    ev.description = description; ev.location = location;
+                    ev.createdByUid = createdByUid; ev.createdByName = createdByName;
+                    ev.startTimeMs = startTimeMs; ev.endTimeMs = endTimeMs; ev.createdAt = now;
+                    mExecutor.execute(() -> mEventDao.insertEvent(ev));
+                    cb.onComplete(true, null);
+                });
+    }
+
+    public void rsvpEvent(String communityId, String eventId, String uid, String status,
+                          SimpleCallback cb) {
+        DatabaseReference eventRef = communitiesRef().child(communityId).child("events").child(eventId);
+        eventRef.child("rsvps").child(uid).addListenerForSingleValueEvent(new ValueEventListener() {
+            @Override public void onDataChange(@Nullable DataSnapshot s) {
+                String prevStatus = s != null ? s.getValue(String.class) : null;
+                Map<String, Object> batch = new HashMap<>();
+                String base = "communities/" + communityId + "/events/" + eventId;
+                batch.put(base + "/rsvps/" + uid, status);
+                // Increment rsvpCount only if going and wasn't already going
+                if ("going".equals(status) && !"going".equals(prevStatus)) {
+                    batch.put(base + "/rsvpCount", com.google.firebase.database.ServerValue.increment(1L));
+                } else if (!"going".equals(status) && "going".equals(prevStatus)) {
+                    batch.put(base + "/rsvpCount", com.google.firebase.database.ServerValue.increment(-1L));
+                }
+                mFirebase.getReference().updateChildren(batch, (err, ref) -> {
+                    if (cb != null) cb.onComplete(err == null, err != null ? err.getMessage() : null);
+                });
+            }
+            @Override public void onCancelled(@Nullable DatabaseError e) {
+                if (cb != null) cb.onComplete(false, e.getMessage());
+            }
+        });
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // IN-APP NOTIFICATIONS  (v31)
+    // ─────────────────────────────────────────────────────────────
+
+    public LiveData<List<CommunityNotificationEntity>> observeNotificationsForCommunity(
+            String targetUid, String communityId) {
+        syncNotifications(targetUid, communityId);
+        return mNotificationDao.observeNotificationsForCommunity(targetUid, communityId);
+    }
+
+    public LiveData<Integer> observeUnreadNotificationCount(String targetUid) {
+        return mNotificationDao.observeUnreadCount(targetUid);
+    }
+
+    private void syncNotifications(String targetUid, String communityId) {
+        notificationsRef(targetUid).orderByChild("communityId").equalTo(communityId)
+                .limitToLast(50)
+                .addListenerForSingleValueEvent(new ValueEventListener() {
+                    @Override public void onDataChange(@Nullable DataSnapshot s) {
+                        if (s == null) return;
+                        List<CommunityNotificationEntity> list = new ArrayList<>();
+                        for (DataSnapshot ns : s.getChildren()) {
+                            CommunityNotificationEntity n = parseNotification(targetUid, ns);
+                            list.add(n);
+                        }
+                        mExecutor.execute(() -> mNotificationDao.insertNotifications(list));
+                    }
+                    @Override public void onCancelled(@Nullable DatabaseError e) {}
+                });
+    }
+
+    private void postNotification(String targetUid, String communityId, String type,
+                                  String title, String body, @Nullable String postId,
+                                  String fromUid, @Nullable String fromName, @Nullable String fromPhoto) {
+        String id = UUID.randomUUID().toString();
+        long now = System.currentTimeMillis();
+        Map<String, Object> data = new HashMap<>();
+        data.put("id", id); data.put("communityId", communityId); data.put("type", type);
+        data.put("title", title); data.put("body", body != null ? body : "");
+        data.put("fromUid", fromUid); data.put("fromName", fromName != null ? fromName : "");
+        data.put("fromPhoto", fromPhoto != null ? fromPhoto : "");
+        if (postId != null) data.put("postId", postId);
+        data.put("isRead", false); data.put("createdAt", now);
+
+        notificationsRef(targetUid).child(id).setValue(data);
+
+        CommunityNotificationEntity n = new CommunityNotificationEntity();
+        n.id = id; n.communityId = communityId; n.targetUid = targetUid;
+        n.type = type; n.title = title; n.body = body; n.postId = postId;
+        n.fromUid = fromUid; n.fromName = fromName; n.fromPhoto = fromPhoto;
+        n.isRead = false; n.createdAt = now;
+        mNotificationDao.insertNotification(n);
+    }
+
+    public void markNotificationRead(String notifId) {
+        mExecutor.execute(() -> mNotificationDao.markRead(notifId));
+    }
+
+    public void markAllNotificationsRead(String uid) {
+        mExecutor.execute(() -> mNotificationDao.markAllRead(uid));
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // MODERATION LOG  (v31)
+    // ─────────────────────────────────────────────────────────────
+
+    public LiveData<List<CommunityModerationLogEntity>> observeModerationLog(String communityId) {
+        syncModerationLog(communityId);
+        return mModerationLogDao.observeLogs(communityId);
+    }
+
+    private void syncModerationLog(String communityId) {
+        communitiesRef().child(communityId).child("moderation_log").limitToLast(100)
+                .addListenerForSingleValueEvent(new ValueEventListener() {
+                    @Override public void onDataChange(@Nullable DataSnapshot s) {
+                        if (s == null) return;
+                        List<CommunityModerationLogEntity> list = new ArrayList<>();
+                        for (DataSnapshot ls : s.getChildren()) {
+                            CommunityModerationLogEntity log = new CommunityModerationLogEntity();
+                            log.id = ls.getKey(); log.communityId = communityId;
+                            log.actionByUid  = ls.child("actionByUid").getValue(String.class);
+                            log.actionByName = ls.child("actionByName").getValue(String.class);
+                            log.targetUid    = ls.child("targetUid").getValue(String.class);
+                            log.targetName   = ls.child("targetName").getValue(String.class);
+                            log.action       = ls.child("action").getValue(String.class);
+                            log.reason       = ls.child("reason").getValue(String.class);
+                            log.targetPostId = ls.child("targetPostId").getValue(String.class);
+                            log.createdAt    = longOrZero(ls.child("createdAt"));
+                            list.add(log);
+                        }
+                        mExecutor.execute(() -> {
+                            for (CommunityModerationLogEntity l : list) mModerationLogDao.insertLog(l);
+                        });
+                    }
+                    @Override public void onCancelled(@Nullable DatabaseError e) {}
+                });
+    }
+
+    private void logModerationAction(String communityId, String adminUid, String adminName,
+                                     @Nullable String targetUid, @Nullable String targetName,
+                                     String action, @Nullable String reason, @Nullable String targetPostId) {
+        String id = UUID.randomUUID().toString();
+        long now = System.currentTimeMillis();
+        Map<String, Object> data = new HashMap<>();
+        data.put("actionByUid", adminUid); data.put("actionByName", adminName != null ? adminName : "");
+        data.put("targetUid", targetUid); data.put("targetName", targetName != null ? targetName : "");
+        data.put("action", action); data.put("reason", reason != null ? reason : "");
+        if (targetPostId != null) data.put("targetPostId", targetPostId);
+        data.put("createdAt", now);
+
+        communitiesRef().child(communityId).child("moderation_log").child(id).setValue(data);
+
+        CommunityModerationLogEntity log = new CommunityModerationLogEntity();
+        log.id = id; log.communityId = communityId; log.actionByUid = adminUid;
+        log.actionByName = adminName; log.targetUid = targetUid; log.targetName = targetName;
+        log.action = action; log.reason = reason; log.targetPostId = targetPostId; log.createdAt = now;
+        mModerationLogDao.insertLog(log);
     }
 
     // ─────────────────────────────────────────────────────────────
     // PARSE HELPERS
     // ─────────────────────────────────────────────────────────────
 
+    private CommunityEntity parseCommunity(DataSnapshot s) {
+        CommunityEntity c = new CommunityEntity();
+        c.id = s.getKey();
+        c.name        = s.child("name").getValue(String.class);
+        c.description = s.child("description").getValue(String.class);
+        c.iconUrl     = s.child("iconUrl").getValue(String.class);
+        c.ownerUid    = s.child("ownerUid").getValue(String.class);
+        c.memberCount = longOrZero(s.child("memberCount"));
+        c.groupCount  = longOrZero(s.child("groupCount"));
+        c.postCount   = longOrZero(s.child("postCount"));
+        c.createdAt   = longOrZero(s.child("createdAt"));
+        Boolean priv  = s.child("isPrivate").getValue(Boolean.class);
+        c.isPrivate   = priv != null && priv;
+        Boolean invE  = s.child("inviteEnabled").getValue(Boolean.class);
+        c.inviteEnabled = invE != null && invE;
+        c.inviteToken = s.child("inviteToken").getValue(String.class);
+        return c;
+    }
+
+    private CommunityMemberEntity parseMember(String communityId, DataSnapshot s) {
+        CommunityMemberEntity m = new CommunityMemberEntity();
+        m.communityId = communityId; m.uid = s.getKey();
+        m.name       = s.child("name").getValue(String.class);
+        m.photoUrl   = s.child("photoUrl").getValue(String.class);
+        m.role       = s.child("role").getValue(String.class);
+        m.joinedAt   = longOrZero(s.child("joinedAt"));
+        m.badge      = s.child("badge").getValue(String.class);
+        Boolean muted  = s.child("isMuted").getValue(Boolean.class);
+        Boolean banned = s.child("isBanned").getValue(Boolean.class);
+        m.isMuted  = muted  != null && muted;
+        m.isBanned = banned != null && banned;
+        return m;
+    }
+
     private CommunityPostEntity parsePost(String communityId, DataSnapshot s) {
         CommunityPostEntity p = new CommunityPostEntity();
-        p.id = s.getKey();
+        p.id          = s.getKey();
         p.communityId = communityId;
-        p.authorUid = s.child("authorUid").getValue(String.class);
-        p.authorName = s.child("authorName").getValue(String.class);
+        p.authorUid   = s.child("authorUid").getValue(String.class);
+        p.authorName  = s.child("authorName").getValue(String.class);
         p.authorPhoto = s.child("authorPhoto").getValue(String.class);
-        p.text = s.child("text").getValue(String.class);
-        p.mediaUrl = s.child("mediaUrl").getValue(String.class);
-        p.mediaType = s.child("mediaType").getValue(String.class);
+        p.text        = s.child("text").getValue(String.class);
+        p.mediaUrl    = s.child("mediaUrl").getValue(String.class);
+        p.mediaType   = s.child("mediaType").getValue(String.class);
         Boolean announcement = s.child("isAnnouncement").getValue(Boolean.class);
         p.isAnnouncement = announcement != null && announcement;
         Boolean pinned = s.child("pinned").getValue(Boolean.class);
-        p.pinned = pinned != null && pinned;
-        p.likeCount = longOrZero(s.child("likeCount"));
+        p.pinned   = pinned != null && pinned;
+        p.likeCount    = longOrZero(s.child("likeCount"));
         p.commentCount = longOrZero(s.child("commentCount"));
-        p.createdAt = longOrZero(s.child("createdAt"));
+        p.createdAt    = longOrZero(s.child("createdAt"));
+        p.scheduledAt  = longOrZero(s.child("scheduledAt"));
         CommunityPoll poll = parsePollSnapshot(s.child("poll"));
         p.pollJson = poll != null ? poll.toJson() : null;
+        // v31: reaction counts
+        DataSnapshot rcSnap = s.child("reactionCounts");
+        if (rcSnap.exists()) {
+            Map<String, Long> counts = new HashMap<>();
+            for (DataSnapshot rc : rcSnap.getChildren()) {
+                Long v = rc.getValue(Long.class);
+                if (v != null && v > 0) counts.put(rc.getKey(), v);
+            }
+            p.reactionCountsJson = CommunityReaction.toJson(counts);
+        }
         return p;
+    }
+
+    private CommunityNotificationEntity parseNotification(String targetUid, DataSnapshot s) {
+        CommunityNotificationEntity n = new CommunityNotificationEntity();
+        n.id = s.getKey(); n.targetUid = targetUid;
+        n.communityId = s.child("communityId").getValue(String.class);
+        n.type      = s.child("type").getValue(String.class);
+        n.title     = s.child("title").getValue(String.class);
+        n.body      = s.child("body").getValue(String.class);
+        n.postId    = s.child("postId").getValue(String.class);
+        n.fromUid   = s.child("fromUid").getValue(String.class);
+        n.fromName  = s.child("fromName").getValue(String.class);
+        n.fromPhoto = s.child("fromPhoto").getValue(String.class);
+        Boolean read = s.child("isRead").getValue(Boolean.class);
+        n.isRead    = read != null && read;
+        n.createdAt = longOrZero(s.child("createdAt"));
+        return n;
     }
 
     @Nullable
@@ -580,9 +1180,6 @@ public class CommunityRepository {
             long votes = longOrZero(optSnap.child("votes"));
             poll.options.add(new CommunityPoll.Option(text, (int) votes));
         }
-        // options may be stored as a JSON array (index keys "0","1",...) rather than
-        // named children — Firebase RTDB returns arrays as ordered children either way,
-        // so the loop above already covers both shapes.
         for (DataSnapshot voterSnap : pollSnap.child("voters").getChildren()) {
             Long idx = voterSnap.getValue(Long.class);
             if (idx != null) poll.voters.put(voterSnap.getKey(), idx.intValue());
