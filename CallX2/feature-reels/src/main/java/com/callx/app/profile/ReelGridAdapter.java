@@ -13,6 +13,7 @@ package com.callx.app.profile;
   import com.facebook.shimmer.ShimmerFrameLayout;
   import com.callx.app.reels.R;
   import com.callx.app.models.ReelModel;
+  import com.callx.app.utils.CloudinaryUploader;
   import java.util.ArrayList;
   import java.util.HashMap;
   import java.util.List;
@@ -25,6 +26,12 @@ package com.callx.app.profile;
       public static final int TYPE_REEL     = 1;
       public static final int TYPE_PINNED   = 2;
       private static final int SKELETON_COUNT = 12;
+
+      // Grid cells are ~1/3 screen width; pinned cell spans full width (3x wider).
+      // Load only what the cell can actually show — Cloudinary derives+caches
+      // these small variants on the fly from the same full-res thumbUrl.
+      private static final int GRID_THUMB_SIZE   = 300;
+      private static final int PINNED_THUMB_SIZE = 720;
 
       public interface OnItemClickListener       { void onItemClick(int position); }
       public interface LongPressListener         { void onLongPress(int position); }
@@ -116,7 +123,9 @@ package com.callx.app.profile;
           ReelModel r = displayList.get(idx);
 
           if (r.thumbUrl != null && !r.thumbUrl.isEmpty())
-              Glide.with(context).load(r.thumbUrl).centerCrop()
+              Glide.with(context)
+                      .load(CloudinaryUploader.deriveThumbUrl(r.thumbUrl, GRID_THUMB_SIZE))
+                      .centerCrop()
                       .placeholder(R.drawable.ic_reels).into(h.ivThumb);
           else h.ivThumb.setImageResource(R.drawable.ic_reels);
 
@@ -149,7 +158,9 @@ package com.callx.app.profile;
       private void bindPinned(PinnedVH h) {
           if (pinnedReel == null) return;
           if (pinnedReel.thumbUrl != null && !pinnedReel.thumbUrl.isEmpty())
-              Glide.with(context).load(pinnedReel.thumbUrl).centerCrop()
+              Glide.with(context)
+                      .load(CloudinaryUploader.deriveThumbUrl(pinnedReel.thumbUrl, PINNED_THUMB_SIZE))
+                      .centerCrop()
                       .placeholder(R.drawable.ic_reels).into(h.ivThumb);
           else h.ivThumb.setImageResource(R.drawable.ic_reels);
           if (pinnedReel.duration > 0) {

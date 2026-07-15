@@ -104,7 +104,7 @@ public class CommunityPostCanvasView extends View {
 
     // Media clip paths — rebuilt only on size change (avoids per-frame Path allocation).
     final Path mediaClipPath = new Path();
-    private float mediaClipW = -1f, mediaClipH = -1f;
+    float mediaClipW = -1f, mediaClipH = -1f;
     final Path[] mediaGroupClipPath = {new Path(), new Path(), new Path(), new Path()};
     final float[] mediaGroupClipW = {-1f, -1f, -1f, -1f};
     final float[] mediaGroupClipH = {-1f, -1f, -1f, -1f};
