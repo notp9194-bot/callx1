@@ -18,7 +18,6 @@
         android:orientation="vertical"
         android:padding="12dp">
 
-        <!-- Pinned badge -->
         <TextView
             android:id="@+id/tv_pinned_badge"
             android:layout_width="wrap_content"
@@ -29,7 +28,17 @@
             android:layout_marginBottom="6dp"
             android:visibility="gone"/>
 
-        <!-- Author row -->
+        <TextView
+            android:id="@+id/tv_announcement_badge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="📢 Announcement"
+            android:textSize="11sp"
+            android:textStyle="bold"
+            android:textColor="@color/colorPrimary"
+            android:layout_marginBottom="6dp"
+            android:visibility="gone"/>
+
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -68,9 +77,21 @@
 
             </LinearLayout>
 
+            <ImageView
+                android:id="@+id/btn_post_options"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:clickable="true"
+                android:focusable="true"
+                android:rotation="90"
+                android:src="@drawable/ic_send"
+                android:tint="@color/text_muted"
+                android:contentDescription="Post options"
+                android:visibility="gone"/>
+
         </LinearLayout>
 
-        <!-- Post text -->
         <TextView
             android:id="@+id/tv_post_text"
             android:layout_width="match_parent"
@@ -81,46 +102,48 @@
             android:textColor="@color/text_primary"
             android:visibility="gone"/>
 
-        <!-- Media image (16:9 ratio) -->
         <FrameLayout
             android:id="@+id/container_media"
             android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_marginTop="10dp"
-            android:visibility="gone">
+            android:layout_height="200dp"
+            android:layout_marginTop="10dp">
 
-            <!-- 16:9 enforced via paddingTop trick on FrameLayout; we use a fixed height instead for simplicity -->
             <ImageView
-                android:id="@+id/iv_media"
+                android:id="@+id/iv_post_media"
                 android:layout_width="match_parent"
-                android:layout_height="200dp"
+                android:layout_height="match_parent"
                 android:scaleType="centerCrop"
                 android:background="@color/surface_input"
-                android:contentDescription="Post media"/>
+                android:contentDescription="Post media"
+                android:visibility="gone"/>
 
-            <!-- Video play overlay -->
             <ImageView
-                android:id="@+id/iv_play_overlay"
+                android:id="@+id/iv_play_icon"
                 android:layout_width="56dp"
                 android:layout_height="56dp"
                 android:layout_gravity="center"
-                android:src="@drawable/ic_reels"
-                android:tint="@color/text_on_primary"
+                android:src="@drawable/ic_play_circle"
                 android:alpha="0.85"
                 android:visibility="gone"
                 android:contentDescription="Play video"/>
 
         </FrameLayout>
 
-        <!-- Poll block -->
         <com.callx.app.community.CommunityPollView
-            android:id="@+id/view_poll"
+            android:id="@+id/layout_poll"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="10dp"
             android:visibility="gone"/>
 
-        <!-- Action row: like + comment -->
+        <LinearLayout
+            android:id="@+id/layout_reactions"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="8dp"
+            android:visibility="gone"/>
+
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -128,67 +151,43 @@
             android:layout_marginTop="12dp"
             android:gravity="center_vertical">
 
-            <!-- Like button -->
-            <LinearLayout
+            <ImageButton
                 android:id="@+id/btn_like"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:padding="6dp"
-                android:clickable="true"
-                android:focusable="true">
+                android:src="@drawable/ic_favorite_border"
+                android:contentDescription="Like"/>
 
-                <ImageView
-                    android:id="@+id/iv_like_icon"
-                    android:layout_width="20dp"
-                    android:layout_height="20dp"
-                    android:src="@drawable/ic_star_outline"
-                    android:tint="@color/text_muted"
-                    android:contentDescription="Like"/>
+            <TextView
+                android:id="@+id/tv_like_count"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text=""
+                android:textSize="13sp"
+                android:textColor="@color/text_muted"
+                android:layout_marginStart="4dp"/>
 
-                <TextView
-                    android:id="@+id/tv_like_count"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="0"
-                    android:textSize="13sp"
-                    android:textColor="@color/text_muted"
-                    android:layout_marginStart="4dp"/>
-
-            </LinearLayout>
-
-            <!-- Comment button -->
-            <LinearLayout
+            <ImageButton
                 android:id="@+id/btn_comment"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:padding="6dp"
                 android:layout_marginStart="16dp"
-                android:clickable="true"
-                android:focusable="true">
+                android:src="@drawable/ic_reply"
+                android:tint="@color/text_muted"
+                android:contentDescription="Comments"/>
 
-                <ImageView
-                    android:layout_width="20dp"
-                    android:layout_height="20dp"
-                    android:src="@drawable/ic_reply"
-                    android:tint="@color/text_muted"
-                    android:contentDescription="Comments"/>
-
-                <TextView
-                    android:id="@+id/tv_comment_count"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="0"
-                    android:textSize="13sp"
-                    android:textColor="@color/text_muted"
-                    android:layout_marginStart="4dp"/>
-
-            </LinearLayout>
+            <TextView
+                android:id="@+id/tv_comment_count"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text=""
+                android:textSize="13sp"
+                android:textColor="@color/text_muted"
+                android:layout_marginStart="4dp"/>
 
         </LinearLayout>
 

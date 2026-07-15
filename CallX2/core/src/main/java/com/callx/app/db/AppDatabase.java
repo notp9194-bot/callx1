@@ -211,6 +211,11 @@ public abstract class AppDatabase extends RoomDatabase {
 
     // ─── Singleton ────────────────────────────────────────────────────────────
 
+    /** True once the singleton Room instance has been built this process (no I/O needed to check). */
+    public static boolean isWarm() {
+        return sInstance != null;
+    }
+
     public static AppDatabase getInstance(Context ctx) {
         if (sInstance == null) {
             synchronized (AppDatabase.class) {

@@ -24,7 +24,7 @@
         android:textColor="?attr/colorOnSurfaceVariant"/>
 
     <TextView
-        android:id="@+id/tv_scheduled_datetime"
+        android:id="@+id/tv_selected_datetime"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="16dp"
@@ -34,15 +34,34 @@
         android:textSize="16sp"
         android:textStyle="bold"
         android:textColor="?attr/colorPrimary"
-        android:gravity="center"/>
+        android:gravity="center"
+        android:visibility="gone"/>
 
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/btn_pick_schedule_date"
-        style="@style/Widget.Material3.Button.OutlinedButton"
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="12dp"
-        android:text="📅 Pick Date &amp; Time"/>
+        android:orientation="horizontal"
+        android:layout_marginTop="12dp">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_pick_date"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginEnd="8dp"
+            android:text="📅 Date"/>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_pick_time"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="8dp"
+            android:text="🕐 Time"/>
+
+    </LinearLayout>
 
     <LinearLayout
         android:layout_width="match_parent"

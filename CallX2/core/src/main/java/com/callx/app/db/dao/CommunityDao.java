@@ -106,6 +106,12 @@ public interface CommunityDao {
     @Query("SELECT * FROM community_group_links WHERE communityId = :communityId")
     LiveData<List<CommunityGroupLinkEntity>> observeLinkedGroups(String communityId);
 
+    /** v31: joined view — the actual GroupEntity rows linked to a community (for CommunityGroupsFragment / CommunityAddGroupActivity). */
+    @Query("SELECT g.* FROM groups g "
+            + "INNER JOIN community_group_links l ON l.groupId = g.id "
+            + "WHERE l.communityId = :communityId ORDER BY g.name ASC")
+    LiveData<List<GroupEntity>> observeCommunityGroups(String communityId);
+
     @Query("DELETE FROM community_group_links WHERE communityId = :communityId AND groupId = :groupId")
     void deleteGroupLink(String communityId, String groupId);
 

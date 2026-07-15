@@ -11,7 +11,7 @@
         android:background="@color/surface_bg">
 
         <androidx.recyclerview.widget.RecyclerView
-            android:id="@+id/rv_feed"
+            android:id="@+id/rv_community_feed"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:clipToPadding="false"
@@ -19,7 +19,7 @@
 
         <!-- Empty state -->
         <LinearLayout
-            android:id="@+id/layout_empty"
+            android:id="@+id/empty_feed"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:orientation="vertical"

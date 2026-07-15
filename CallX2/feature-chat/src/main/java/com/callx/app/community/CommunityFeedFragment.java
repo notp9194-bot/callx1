@@ -30,16 +30,16 @@ public class CommunityFeedFragment extends Fragment implements CommunityPostAdap
     private static final String ARG_COMMUNITY_ID    = "communityId";
     private static final String ARG_IS_ANNOUNCEMENT = "isAnnouncement";
 
-    private String communityId;
+    protected String communityId;
     private boolean isAnnouncement;
-    private String currentUid;
+    protected String currentUid;
     private String myRole = CommunityRole.MEMBER;
     private String myName = "";
 
     private RecyclerView rvFeed;
     private View emptyState;
     private CommunityPostAdapter adapter;
-    private CommunityRepository repo;
+    protected CommunityRepository repo;
 
     // Reaction picker (shared, only one open at a time)
     private CommunityReactionPickerView reactionPicker;
@@ -105,14 +105,23 @@ public class CommunityFeedFragment extends Fragment implements CommunityPostAdap
         });
 
         if (communityId != null) {
-            if (isAnnouncement) {
-                repo.observeAnnouncements(communityId).observe(getViewLifecycleOwner(), this::onFeedUpdated);
-            } else {
-                repo.observeFeed(communityId).observe(getViewLifecycleOwner(), this::onFeedUpdated);
-            }
+            observeFeedSource().observe(getViewLifecycleOwner(), this::onFeedUpdated);
             repo.observeMembers(communityId).observe(getViewLifecycleOwner(), this::onMembersUpdated);
-            repo.syncRecentPosts(communityId, isAnnouncement);
+            repo.syncRecentPosts(communityId, isAnnouncementsTab());
         }
+    }
+
+    /**
+     * Which LiveData source feeds this tab. Overridden by
+     * {@link CommunityAnnouncementsFragment} to scope to announcements only.
+     */
+    protected androidx.lifecycle.LiveData<List<CommunityPostEntity>> observeFeedSource() {
+        return isAnnouncement ? repo.observeAnnouncements(communityId) : repo.observeFeed(communityId);
+    }
+
+    /** Whether this tab instance is the announcements-only variant. */
+    protected boolean isAnnouncementsTab() {
+        return isAnnouncement;
     }
 
     private void onFeedUpdated(List<CommunityPostEntity> posts) {
@@ -171,9 +180,9 @@ public class CommunityFeedFragment extends Fragment implements CommunityPostAdap
     public void onComment(CommunityPostEntity post) {
         if (!isAdded()) return;
         android.content.Intent i = new android.content.Intent(requireContext(),
-                CommunityPostDetailActivity.class);
-        i.putExtra(CommunityPostDetailActivity.EXTRA_COMMUNITY_ID, communityId);
-        i.putExtra(CommunityPostDetailActivity.EXTRA_POST_ID, post.id);
+                CommunityPostCommentsActivity.class);
+        i.putExtra(CommunityPostCommentsActivity.EXTRA_COMMUNITY_ID, communityId);
+        i.putExtra(CommunityPostCommentsActivity.EXTRA_POST_ID, post.id);
         startActivity(i);
     }
 

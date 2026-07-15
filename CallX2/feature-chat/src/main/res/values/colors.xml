@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Alias so code can reference R.color.colorPrimary directly (theme attr @/?attr/colorPrimary
+         isn't a resolvable resource id at compile time). Keep in sync with core's brand_primary. -->
+    <color name="colorPrimary">#0F4C3A</color>
+
+    <!-- v31 Community: tint for the like button once the user has reacted. -->
+    <color name="community_like_active">#E91E63</color>
+</resources>

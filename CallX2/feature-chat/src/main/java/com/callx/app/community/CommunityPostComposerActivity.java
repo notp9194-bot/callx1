@@ -196,12 +196,14 @@ public class CommunityPostComposerActivity extends AppCompatActivity {
         View btnPickDate = dialogView.findViewById(R.id.btn_pick_date);
         View btnPickTime = dialogView.findViewById(R.id.btn_pick_time);
         View btnScheduleConfirm = dialogView.findViewById(R.id.btn_schedule_confirm);
+        View btnScheduleCancel = dialogView.findViewById(R.id.btn_schedule_cancel);
 
         Calendar cal = Calendar.getInstance();
         boolean[] datePicked = {false};
         boolean[] timePicked = {false};
 
         AlertDialog dialog = new AlertDialog.Builder(this).setView(dialogView).create();
+        if (btnScheduleCancel != null) btnScheduleCancel.setOnClickListener(v -> dialog.dismiss());
 
         btnPickDate.setOnClickListener(v -> {
             new DatePickerDialog(this, (dp, y, m, d) -> {

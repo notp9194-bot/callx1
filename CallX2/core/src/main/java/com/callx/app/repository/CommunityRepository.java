@@ -147,6 +147,11 @@ public class CommunityRepository {
         });
     }
 
+    /** Alias used by profile-card UI — same lookup semantics as {@link #checkOwnerHasCommunity}. */
+    public void checkHasCommunity(String uid, ResultCallback<String> cb) {
+        checkOwnerHasCommunity(uid, cb);
+    }
+
     public LiveData<CommunityEntity> observeCommunity(String communityId) {
         syncCommunityMeta(communityId);
         return mDao.observeCommunity(communityId);
@@ -492,6 +497,33 @@ public class CommunityRepository {
         return mDao.observeLinkedGroups(communityId);
     }
 
+    /** v31: joined GroupEntity list for a community — used by GroupsFragment/AddGroupActivity. */
+    public LiveData<List<GroupEntity>> observeCommunityGroups(String communityId) {
+        syncGroupLinks(communityId);
+        return mDao.observeCommunityGroups(communityId);
+    }
+
+    private void syncGroupLinks(String communityId) {
+        communitiesRef().child(communityId).child("groups")
+                .addListenerForSingleValueEvent(new ValueEventListener() {
+                    @Override public void onDataChange(@Nullable DataSnapshot s) {
+                        if (s == null) return;
+                        List<CommunityGroupLinkEntity> list = new ArrayList<>();
+                        for (DataSnapshot gs : s.getChildren()) {
+                            CommunityGroupLinkEntity link = new CommunityGroupLinkEntity();
+                            link.communityId = communityId; link.groupId = gs.getKey();
+                            link.addedByUid = gs.child("addedByUid").getValue(String.class);
+                            link.addedAt = longOrZero(gs.child("addedAt"));
+                            list.add(link);
+                        }
+                        mExecutor.execute(() -> {
+                            for (CommunityGroupLinkEntity l : list) mDao.insertGroupLink(l);
+                        });
+                    }
+                    @Override public void onCancelled(@Nullable DatabaseError e) {}
+                });
+    }
+
     public void linkGroup(String communityId, String groupId, String addedByUid, SimpleCallback cb) {
         long now = System.currentTimeMillis();
         Map<String, Object> data = new HashMap<>();
@@ -515,6 +547,16 @@ public class CommunityRepository {
                     mExecutor.execute(() -> mDao.deleteGroupLink(communityId, groupId));
                     cb.onComplete(true, null);
                 });
+    }
+
+    /** Alias — CommunityAddGroupActivity's naming for {@link #linkGroup}. */
+    public void addGroupToCommunity(String communityId, String groupId, String addedByUid, SimpleCallback cb) {
+        linkGroup(communityId, groupId, addedByUid, cb);
+    }
+
+    /** Alias — CommunityGroupsFragment's naming for {@link #unlinkGroup}. */
+    public void removeGroupFromCommunity(String communityId, String groupId, SimpleCallback cb) {
+        unlinkGroup(communityId, groupId, cb);
     }
 
     public void observeAvailableGroups(String uid, ResultCallback<List<GroupEntity>> cb) {

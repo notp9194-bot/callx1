@@ -11,7 +11,8 @@
         android:layout_width="match_parent"
         android:layout_height="?attr/actionBarSize"
         android:background="@color/brand_primary"
-        android:title="New Post"/>
+        android:title="New Post"
+        android:theme="@style/ThemeOverlay.AppCompat.Dark.ActionBar"/>
 
     <ScrollView
         android:layout_width="match_parent"
@@ -25,13 +26,23 @@
             android:orientation="vertical"
             android:padding="16dp">
 
+            <!-- Announcement toggle -->
+            <CheckBox
+                android:id="@+id/cb_announcement"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Post as announcement"
+                android:textColor="@color/text_primary"
+                android:layout_marginBottom="8dp"
+                android:visibility="gone"/>
+
             <!-- Post text -->
             <EditText
                 android:id="@+id/et_post_text"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:minHeight="120dp"
-                android:hint="What's on your mind?"
+                android:hint="What's on your mind? Use @ to mention someone"
                 android:inputType="textMultiLine|textCapSentences"
                 android:gravity="top|start"
                 android:background="@color/surface_card"
@@ -39,111 +50,70 @@
                 android:textSize="15sp"
                 android:textColor="@color/text_primary"/>
 
-            <!-- Photo attachment preview -->
-            <FrameLayout
-                android:id="@+id/container_image_preview"
-                android:layout_width="match_parent"
-                android:layout_height="180dp"
-                android:layout_marginTop="12dp"
-                android:visibility="gone">
-
-                <ImageView
-                    android:id="@+id/iv_image_preview"
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:scaleType="centerCrop"
-                    android:background="@color/surface_input"
-                    android:contentDescription="Image preview"/>
-
-                <ImageView
-                    android:id="@+id/btn_remove_image"
-                    android:layout_width="28dp"
-                    android:layout_height="28dp"
-                    android:layout_gravity="top|end"
-                    android:layout_margin="6dp"
-                    android:src="@drawable/ic_close"
-                    android:tint="@color/text_on_primary"
-                    android:background="@color/text_muted"
-                    android:clickable="true"
-                    android:focusable="true"
-                    android:contentDescription="Remove image"/>
-
-            </FrameLayout>
-
-            <!-- Attach photo button -->
-            <Button
-                android:id="@+id/btn_attach_photo"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:text="📷 Attach Photo"
-                android:textColor="@color/brand_primary"
-                style="?attr/borderlessButtonStyle"/>
-
-            <!-- Poll toggle -->
-            <Button
-                android:id="@+id/btn_toggle_poll"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:text="📊 Add Poll"
-                android:textColor="@color/brand_primary"
-                style="?attr/borderlessButtonStyle"/>
-
-            <!-- Poll section (hidden until toggled) -->
+            <!-- @mention suggestions popup -->
             <LinearLayout
-                android:id="@+id/layout_poll"
+                android:id="@+id/layout_mention_suggestions"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
                 android:background="@color/surface_card"
-                android:padding="12dp"
-                android:layout_marginTop="8dp"
+                android:elevation="4dp"
                 android:visibility="gone">
 
-                <TextView
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/rv_mention_suggestions"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="Poll Question"
-                    android:textStyle="bold"
-                    android:textColor="@color/text_primary"
-                    android:textSize="13sp"
-                    android:layout_marginBottom="6dp"/>
+                    android:maxHeight="200dp"/>
 
-                <EditText
-                    android:id="@+id/et_poll_question"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:hint="Ask a question…"
-                    android:inputType="textCapSentences"
-                    android:textSize="14sp"
-                    android:background="@color/surface_input"
-                    android:padding="8dp"/>
+            </LinearLayout>
 
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Options"
-                    android:textStyle="bold"
-                    android:textColor="@color/text_primary"
-                    android:textSize="13sp"
-                    android:layout_marginTop="12dp"
-                    android:layout_marginBottom="6dp"/>
+            <!-- Selected media preview -->
+            <LinearLayout
+                android:id="@+id/layout_selected_media"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:layout_marginTop="12dp">
 
-                <!-- Poll options container (options added/removed dynamically) -->
-                <LinearLayout
-                    android:id="@+id/layout_poll_options"
+                <FrameLayout
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical"/>
+                    android:layout_height="180dp">
+
+                    <ImageView
+                        android:id="@+id/iv_media_preview"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:scaleType="centerCrop"
+                        android:background="@color/surface_input"
+                        android:contentDescription="Media preview"
+                        android:visibility="gone"/>
+
+                </FrameLayout>
+
+            </LinearLayout>
+
+            <!-- Attach row -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="12dp">
 
                 <Button
-                    android:id="@+id/btn_add_poll_option"
+                    android:id="@+id/btn_add_media"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="6dp"
-                    android:text="+ Add option"
-                    android:textColor="@color/brand_primary"
+                    android:text="📷 Add Media"
+                    android:textColor="@color/colorPrimary"
+                    style="?attr/borderlessButtonStyle"/>
+
+                <Button
+                    android:id="@+id/btn_add_poll"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="📊 Add Poll"
+                    android:textColor="@color/colorPrimary"
                     style="?attr/borderlessButtonStyle"/>
 
             </LinearLayout>
@@ -152,15 +122,28 @@
 
     </ScrollView>
 
-    <!-- Submit button -->
-    <Button
-        android:id="@+id/btn_submit"
+    <!-- Submit row -->
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Post"
-        android:backgroundTint="@color/brand_primary"
-        android:textColor="@color/text_on_primary"
-        android:layout_margin="12dp"
-        android:padding="12dp"/>
+        android:orientation="horizontal"
+        android:padding="12dp">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_schedule"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="8dp"
+            android:text="Schedule"/>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_post"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Post"/>
+
+    </LinearLayout>
 
 </LinearLayout>
