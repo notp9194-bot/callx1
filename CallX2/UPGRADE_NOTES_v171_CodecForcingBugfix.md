@@ -44,3 +44,33 @@ Advances #2 (predictive prefetch-on-open), #3 (BlurHash backfill worker),
 #4 (adaptive grid thumb size), #5 (Fragment-scoped Glide), #6 (Room grid
 cache) were already correctly implemented and wired in — no changes made
 there.
+
+---
+
+# v172 — Auto-play on open (Profile → reel required a tap every time)
+
+## Root cause
+
+`ReelPlayerFragment.setUserVisibleHint(true)` (called by the host
+Activity/ViewPager2 to say "this reel is now on screen, play it") can
+arrive **before** `onCreateView()` has run. This happens reliably when
+opening a reel from Profile via `SingleReelPlayerActivity`: ViewPager2's
+`FragmentStateAdapter` attaches the fragment to the `FragmentManager`
+first, and only creates its view on a later pass.
+
+When that race happens, `ReelPlayerController.startPlayback()` finds
+`playerView` still null and silently returns without doing anything. The
+player ends up prepared (buffered, ready) but never told to actually
+`play()`. The reel sits there paused until the user taps it once —
+`togglePlayPause()` calls `startPlayback()` again, and this time the view
+exists, so it works. Hence: every single reel opened from Profile needed
+one manual tap.
+
+## Fix
+
+`ReelPlayerFragment.onCreateView()` now re-applies the pending visible
+state (`applyVisibleState(true)`) right after the view is fully bound and
+the player is prepared, if `isVisible` was already set to `true` by an
+earlier (premature) `setUserVisibleHint(true)` call. This closes the race
+without touching `SingleReelPlayerActivity`'s or `ReelsFragment`'s
+existing page-change logic.

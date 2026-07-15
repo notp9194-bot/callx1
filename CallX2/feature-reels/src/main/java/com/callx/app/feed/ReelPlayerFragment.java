@@ -225,6 +225,13 @@ public class ReelPlayerFragment extends Fragment
             playerController.preparePlayerSilently();
         }
 
+        // BUGFIX: if setUserVisibleHint(true) already arrived before this view
+        // existed (see applyVisibleState() doc), start playback now instead of
+        // leaving the reel paused until the user taps it.
+        if (isVisible) {
+            applyVisibleState(true);
+        }
+
         return v;
     }
 
@@ -248,6 +255,26 @@ public class ReelPlayerFragment extends Fragment
 
     public void setUserVisibleHint(boolean visible) {
         isVisible = visible;
+        applyVisibleState(visible);
+    }
+
+    /**
+     * BUGFIX: setUserVisibleHint(true) can arrive from the host
+     * Activity/ViewPager2 (e.g. SingleReelPlayerActivity opening a reel from
+     * Profile) BEFORE onCreateView() has actually run — ViewPager2's
+     * FragmentStateAdapter attaches the fragment to the FragmentManager
+     * first and creates its view on a later pass. When that race happens,
+     * startPlayback() finds playerView still null and silently no-ops, so
+     * the reel sits there prepared-but-paused until the user taps once
+     * (which calls startPlayback() again, this time with a view). That's
+     * why every reel opened from Profile needed a manual tap.
+     *
+     * Fix: onCreateView() below calls this again once views are bound, if
+     * isVisible was already true when the view finished creating — so the
+     * pending "become visible" request that no-op'd earlier actually takes
+     * effect without needing a tap.
+     */
+    private void applyVisibleState(boolean visible) {
         if (visible) {
             playerController.startPlayback();
             uiController.startDiscAnimation();
