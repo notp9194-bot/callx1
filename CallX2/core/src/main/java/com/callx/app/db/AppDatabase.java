@@ -33,9 +33,13 @@ import com.callx.app.db.entity.*;
         // User
         UserEntity.class,
         // Chat / Groups
+        ChatEntity.class,
         GroupEntity.class,
         GroupMemberEntity.class,
         MessageEntity.class,
+        CallLogEntity.class,
+        ScheduledMessageEntity.class,
+        StatusEntity.class,
         // Community (original)
         CommunityEntity.class,
         CommunityMemberEntity.class,
@@ -58,9 +62,13 @@ public abstract class AppDatabase extends RoomDatabase {
     // ─── DAOs ────────────────────────────────────────────────────────────────
 
     public abstract UserDao userDao();
+    public abstract ChatDao chatDao();
     public abstract GroupDao groupDao();
     public abstract GroupMemberDao groupMemberDao();
     public abstract MessageDao messageDao();
+    public abstract CallLogDao callLogDao();
+    public abstract ScheduledMessageDao scheduledMessageDao();
+    public abstract StatusDao statusDao();
 
     // Community original
     public abstract CommunityDao communityDao();
