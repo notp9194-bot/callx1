@@ -198,9 +198,18 @@ public class CommunityRepository {
         memberData.put("isMuted", false);
         memberData.put("isBanned", false);
 
+        // NOTE: "members" must be nested INSIDE `data` (not as a sibling
+        // batch entry) — Firebase updateChildren() throws IllegalArgumentException
+        // synchronously if a multi-path update contains both a path and a
+        // child of that same path (e.g. "communities/{id}" and
+        // "communities/{id}/members/{uid}" together). Nesting avoids the
+        // path-conflict entirely.
+        Map<String, Object> membersMap = new HashMap<>();
+        membersMap.put(ownerUid, memberData);
+        data.put("members", membersMap);
+
         Map<String, Object> batch = new HashMap<>();
         batch.put("communities/" + id, data);
-        batch.put("communities/" + id + "/members/" + ownerUid, memberData);
         batch.put("community_by_owner/" + ownerUid, id);
 
         mFirebase.getReference().updateChildren(batch, (err, ref) -> {
