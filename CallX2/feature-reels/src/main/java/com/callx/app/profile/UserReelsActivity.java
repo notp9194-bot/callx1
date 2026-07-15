@@ -91,8 +91,10 @@ public class UserReelsActivity extends AppCompatActivity
     private View            layoutPhone, layoutWhatsapp, layoutInstagram, layoutYoutube, layoutOtherLink;
     private TextView        tvEmptyTitle, tvEmptySubtitle;
     private Button          btnFollow;
-    private ImageButton     btnBack, btnMore, btnShareProfile, btnCreatorHub, btnSettings;
-    private ImageButton     btnMessage, btnAudioCall, btnVideoCall, btnOpenX, btnOpenYoutube;
+    private ImageButton     btnBack, btnMore, btnCreatorHub, btnSettings;
+    private android.widget.Button btnShareProfile; // MaterialButton in layout → Button base class
+    private android.widget.Button btnMessage; // MaterialButton in layout → Button base class
+    private ImageButton     btnAudioCall, btnVideoCall, btnOpenX, btnOpenYoutube;
     private LinearLayout    layoutActions;
 
     // ── Avatar peek animation fields ──────────────────────────────────────
