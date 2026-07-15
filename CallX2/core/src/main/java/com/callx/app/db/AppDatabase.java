@@ -98,6 +98,24 @@ public abstract class AppDatabase extends RoomDatabase {
             db.execSQL("ALTER TABLE community_posts ADD COLUMN mentionedUids TEXT");
             db.execSQL("ALTER TABLE community_posts ADD COLUMN scheduledAt INTEGER NOT NULL DEFAULT 0");
 
+            // ── New table: group_members (v31 — offline cache, was missing) ───
+            db.execSQL("CREATE TABLE IF NOT EXISTS group_members ("
+                    + "groupId TEXT NOT NULL, "
+                    + "uid TEXT NOT NULL, "
+                    + "name TEXT, "
+                    + "role TEXT, "
+                    + "photoUrl TEXT, "
+                    + "thumbUrl TEXT, "
+                    + "online INTEGER NOT NULL DEFAULT 0, "
+                    + "lastSeen INTEGER, "
+                    + "joinedAt INTEGER NOT NULL DEFAULT 0, "
+                    + "syncedAt INTEGER NOT NULL DEFAULT 0, "
+                    + "PRIMARY KEY(groupId, uid))");
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_group_members_groupId "
+                    + "ON group_members (groupId)");
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_group_members_uid "
+                    + "ON group_members (uid)");
+
             // ── New table: community_join_requests ────────────────────────────
             db.execSQL("CREATE TABLE IF NOT EXISTS community_join_requests ("
                     + "id TEXT NOT NULL PRIMARY KEY, "
