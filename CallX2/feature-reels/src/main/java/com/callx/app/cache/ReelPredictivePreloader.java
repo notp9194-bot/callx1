@@ -315,20 +315,32 @@ public class ReelPredictivePreloader {
 
     // ── URL selection ─────────────────────────────────────────────────────────
 
+    /**
+     * BUGFIX: must apply the same codec transform ReelPlayerController uses
+     * for actual playback (see CodecSupport.applyToUrl doc) — otherwise this
+     * preloader's cached bytes live under a different key than what the
+     * player requests, and get re-downloaded from scratch on play, doubling
+     * data usage for every reel this preloader touches.
+     */
     private String pickBestUrl(ReelModel reel, NetworkQualityMonitor.Quality q) {
+        String chosen;
         switch (q) {
             case WIFI:
             case ETHERNET:
             case CELLULAR_5G:
-                return reel.video1080 != null ? reel.video1080
-                     : reel.video720  != null ? reel.video720  : reel.videoUrl;
+                chosen = reel.video1080 != null ? reel.video1080
+                       : reel.video720  != null ? reel.video720  : reel.videoUrl;
+                break;
             case CELLULAR_4G:
-                return reel.video720 != null ? reel.video720 : reel.videoUrl;
+                chosen = reel.video720 != null ? reel.video720 : reel.videoUrl;
+                break;
             case CELLULAR_3G:
-                return reel.video480 != null ? reel.video480 : reel.videoUrl;
+                chosen = reel.video480 != null ? reel.video480 : reel.videoUrl;
+                break;
             default:
-                return reel.videoUrl;
+                chosen = reel.videoUrl;
         }
+        return com.callx.app.utils.CodecSupport.applyToUrl(chosen);
     }
 
     private long resolveBytes(NetworkQualityMonitor.Quality q) {

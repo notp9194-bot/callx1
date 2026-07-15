@@ -97,6 +97,9 @@ public class ReelPlayerController {
     /** Consecutive stall-free seconds — used for auto upgrade decision */
     private long    qoeStallFreeStartMs = 0;
     private static final long STALL_FREE_UPGRADE_MS = 20_000; // 20s stall-free → try upgrade
+    /** BUGFIX: guards against retry loops when a codec-forced URL fails to play — see onPlayerError. */
+    private boolean codecFallbackAttempted = false;
+
     /** Optional reference to the feed preloader — synced when cap changes */
     private com.callx.app.cache.ReelVideoPreloader preloader;
 
@@ -220,9 +223,10 @@ public class ReelPlayerController {
                 @Override
                 public void onError(PlaybackException e) {
                     if (!delegate.isAdded()) return;
+                    Log.e(TAG, "Playback error: " + e.getMessage());
+                    if (tryCodecFallback()) return; // retrying — leave buffering UI as-is
                     progressBuffering.setVisibility(View.GONE);
                     ivThumb.setVisibility(View.VISIBLE);
-                    Log.e(TAG, "Playback error: " + e.getMessage());
                 }
             }
         );
@@ -330,9 +334,10 @@ public class ReelPlayerController {
             @Override
             public void onPlayerError(@NonNull PlaybackException error) {
                 if (!delegate.isAdded()) return;
+                Log.e(TAG, "Player error: " + error.getMessage());
+                if (tryCodecFallback()) return; // retrying with plain URL — don't show error state yet
                 progressBuffering.setVisibility(View.GONE);
                 ivThumb.setVisibility(View.VISIBLE);
-                Log.e(TAG, "Player error: " + error.getMessage());
             }
         });
 
@@ -516,7 +521,40 @@ public class ReelPlayerController {
         delegate.requireContext().startActivity(intent);
     }
 
+    /**
+     * BUGFIX: called from both player-error paths. If this reel's stream URL
+     * was codec-transformed (vc_h265/vc_av01) and hasn't already been retried,
+     * disables codec forcing for the whole session (CodecSupport) and rebuilds
+     * this player against the plain URL. Without this, an account/plan that
+     * can't actually produce the requested codec transform makes every reel
+     * fail to play with no way to recover.
+     *
+     * @return true if a retry was kicked off (caller should not show error UI yet)
+     */
+    private boolean tryCodecFallback() {
+        if (codecFallbackAttempted) return false;
+        if (com.callx.app.utils.CodecSupport.isDisabledForSession()) return false; // already plain — real failure
+        codecFallbackAttempted = true;
+        com.callx.app.utils.CodecSupport.disableForSession();
+        Log.w(TAG, "Retrying playback without forced codec transform");
+        progressHandler.post(() -> {
+            if (!delegate.isAdded() || delegate.getContext() == null) return;
+            boolean wasPlaying = player != null && player.isPlaying();
+            if (player != null) {
+                player.release();
+                player = null;
+            }
+            preparePlayerSilently();
+            if (player != null && wasPlaying) {
+                player.setVolume(isMuted ? 0f : 1f);
+                player.play();
+            }
+        });
+        return true;
+    }
+
     public void releasePlayer() {
+        codecFallbackAttempted = false; // next reel gets its own fresh fallback attempt
         stopProgressTracking();
         unregisterNetworkQualityListener();
         delegate.stopPhotoSlideshow();
@@ -830,11 +868,13 @@ public class ReelPlayerController {
      * and for non-Cloudinary URLs, where deriveVideoCodecUrl() is a no-op.
      */
     private static String applyPreferredCodec(String url) {
-        if (url == null || url.isEmpty()) return url;
-        if (url.contains(".m3u8") || url.contains(".mpd")) return url;
-        String codec = com.callx.app.utils.CodecSupport.preferredVideoCodec();
-        if ("auto".equals(codec)) return url; // no hardware AV1/HEVC — don't force a transcode
-        return com.callx.app.utils.CloudinaryUploader.deriveVideoCodecUrl(url, codec);
+        // BUGFIX: delegate to CodecSupport.applyToUrl() — the single shared
+        // implementation also used by ReelVideoPreloader / ReelPredictivePreloader.
+        // Previously this method duplicated the same logic independently, which
+        // was harmless by itself, but made it easy for the two copies to drift
+        // (they briefly did — see those classes) and computed URLs that no
+        // longer matched, doubling network downloads. Keep it centralized.
+        return com.callx.app.utils.CodecSupport.applyToUrl(url);
     }
 
     // ── NetworkQualityMonitor integration ─────────────────────────────────────

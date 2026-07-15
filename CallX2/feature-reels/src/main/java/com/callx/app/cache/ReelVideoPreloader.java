@@ -131,22 +131,34 @@ public class ReelVideoPreloader {
         }
     }
 
-    /** Pick the same quality URL the player would choose for this cap */
+    /**
+     * Pick the same quality URL the player would choose for this cap.
+     *
+     * BUGFIX: must also apply CodecSupport.applyToUrl() — ReelPlayerController
+     * appends a vc_<codec> transform to the URL it actually hands ExoPlayer.
+     * If this preloader caches bytes under the plain (untransformed) URL,
+     * CacheDataSource never finds a hit when playback requests the
+     * codec-transformed URL, so every reel silently downloads twice: once
+     * wasted here, once again for real playback. Always keep this in sync
+     * with ReelPlayerController.pickQualityUrl().
+     */
     private String pickQualityUrl(ReelModel reel, AdaptiveStreamingManager.QualityCap cap) {
         String url480  = reel.video480  != null && !reel.video480.isEmpty()  ? reel.video480  : null;
         String url720  = reel.video720  != null && !reel.video720.isEmpty()  ? reel.video720  : null;
         String url1080 = reel.video1080 != null && !reel.video1080.isEmpty() ? reel.video1080 : null;
         String fallback = reel.videoUrl != null ? reel.videoUrl : "";
 
+        String chosen;
         switch (cap) {
-            case Q480P:  return url480  != null ? url480  : fallback;
-            case Q720P:  return url720  != null ? url720  : fallback;
-            case Q1080P: return url1080 != null ? url1080 : fallback;
-            case Q360P:  return url480  != null ? url480  : fallback;
+            case Q480P:  chosen = url480  != null ? url480  : fallback; break;
+            case Q720P:  chosen = url720  != null ? url720  : fallback; break;
+            case Q1080P: chosen = url1080 != null ? url1080 : fallback; break;
+            case Q360P:  chosen = url480  != null ? url480  : fallback; break;
             case AUTO:
             default:
-                return url1080 != null ? url1080 : (url720 != null ? url720 : fallback);
+                chosen = url1080 != null ? url1080 : (url720 != null ? url720 : fallback);
         }
+        return com.callx.app.utils.CodecSupport.applyToUrl(chosen);
     }
 
     /** Bytes to preload based on network quality */
