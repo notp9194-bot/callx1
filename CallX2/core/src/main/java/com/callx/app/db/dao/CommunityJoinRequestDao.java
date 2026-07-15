@@ -25,6 +25,10 @@ public interface CommunityJoinRequestDao {
     @Query("SELECT COUNT(*) FROM community_join_requests WHERE communityId = :communityId AND status = 'pending'")
     LiveData<Integer> observePendingCount(String communityId);
 
+    /** v33: sync check for "did I already request to join this community?" — used by the join gate. */
+    @Query("SELECT COUNT(*) FROM community_join_requests WHERE communityId = :communityId AND requesterUid = :uid AND status = 'pending' AND groupId IS NULL")
+    int countMyPendingSync(String communityId, String uid);
+
     @Query("UPDATE community_join_requests SET status = :status, processedAt = :processedAt, processedByUid = :processedByUid WHERE id = :requestId")
     void updateStatus(String requestId, String status, long processedAt, String processedByUid);
 

@@ -125,4 +125,92 @@
         app:tint="@color/text_on_primary"
         android:visibility="gone"/>
 
+    <!-- v33: Join gate — shown instead of the tabs/feed until the current
+         user is a confirmed member of this community. Feed/Members/Groups/
+         Events must never be reachable before this resolves to "member". -->
+    <LinearLayout
+        android:id="@+id/group_join_gate"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_gravity="center"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:paddingStart="32dp"
+        android:paddingEnd="32dp"
+        android:background="@color/surface_bg"
+        android:visibility="gone"
+        app:layout_behavior="@string/appbar_scrolling_view_behavior">
+
+        <de.hdodenhof.circleimageview.CircleImageView
+            android:id="@+id/iv_gate_icon"
+            android:layout_width="88dp"
+            android:layout_height="88dp"
+            android:src="@drawable/ic_group"
+            android:layout_marginBottom="16dp"/>
+
+        <TextView
+            android:id="@+id/tv_gate_name"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Community"
+            android:textColor="@color/text_primary"
+            android:textSize="20sp"
+            android:textStyle="bold"
+            android:gravity="center"
+            android:maxLines="2"
+            android:ellipsize="end"/>
+
+        <TextView
+            android:id="@+id/tv_gate_description"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text=""
+            android:textColor="@color/text_secondary"
+            android:textSize="14sp"
+            android:gravity="center"
+            android:maxLines="4"
+            android:ellipsize="end"/>
+
+        <TextView
+            android:id="@+id/tv_gate_member_count"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text=""
+            android:textColor="@color/text_secondary"
+            android:textSize="13sp"
+            android:gravity="center"/>
+
+        <TextView
+            android:id="@+id/tv_gate_status"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text=""
+            android:textColor="@color/text_secondary"
+            android:textSize="13sp"
+            android:gravity="center"
+            android:visibility="gone"/>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_gate_join"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:minWidth="180dp"
+            android:text="Join Community"
+            app:backgroundTint="@color/brand_primary"
+            android:textColor="@color/text_on_primary"
+            app:cornerRadius="24dp"/>
+
+        <ProgressBar
+            android:id="@+id/progress_gate"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:visibility="gone"/>
+
+    </LinearLayout>
+
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

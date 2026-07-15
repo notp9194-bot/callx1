@@ -81,6 +81,36 @@ public interface CommunityDao {
     @Query("SELECT * FROM community_posts WHERE communityId = :communityId AND isAnnouncement = 1 ORDER BY createdAt DESC")
     LiveData<List<CommunityPostEntity>> observeAnnouncements(String communityId);
 
+    // PERF: bounded/windowed variants of the two queries above.
+    //
+    // Room LiveData is invalidation-based: ANY write to community_posts
+    // (a single member liking one post, voting on one poll, etc.) re-runs
+    // EVERY currently-observed query against that table and re-emits its
+    // full result, regardless of how many rows actually changed. An
+    // unbounded `ORDER BY createdAt DESC` feed query means that cost grows
+    // with the community's entire lifetime post count — a community that's
+    // been active for months can have thousands of locally-synced rows even
+    // though the UI only ever shows the most recent ones, so a single like
+    // from any member re-queries and re-diffs the whole history on every
+    // tap. Capping with LIMIT keeps that cost constant no matter how big
+    // the community's history has grown.
+    @Query("SELECT * FROM community_posts WHERE communityId = :communityId AND isAnnouncement = 0 ORDER BY createdAt DESC LIMIT :limit")
+    LiveData<List<CommunityPostEntity>> observeFeedWindowed(String communityId, int limit);
+
+    @Query("SELECT * FROM community_posts WHERE communityId = :communityId AND isAnnouncement = 1 ORDER BY createdAt DESC LIMIT :limit")
+    LiveData<List<CommunityPostEntity>> observeAnnouncementsWindowed(String communityId, int limit);
+
+    /** PERF: keyset ("load older") pagination for posts already cached
+     *  locally — same cursor-based technique as MessageKeysetPagingSource
+     *  (WHERE createdAt < :beforeCreatedAt instead of an OFFSET), answered
+     *  directly by the existing (communityId, isAnnouncement, createdAt)
+     *  index. Lets the feed fragment page through everything Room already
+     *  has on-device, purely locally, as the user scrolls past the initial
+     *  windowed page — no network round-trip needed for history that's
+     *  already synced. */
+    @Query("SELECT * FROM community_posts WHERE communityId = :communityId AND isAnnouncement = :isAnnouncement AND createdAt < :beforeCreatedAt ORDER BY createdAt DESC LIMIT :limit")
+    List<CommunityPostEntity> getOlderPostsSync(String communityId, boolean isAnnouncement, long beforeCreatedAt, int limit);
+
     /** v31: media gallery — posts that have a mediaUrl */
     @Query("SELECT * FROM community_posts WHERE communityId = :communityId AND mediaUrl IS NOT NULL AND mediaUrl != '' ORDER BY createdAt DESC")
     LiveData<List<CommunityPostEntity>> observeMediaPosts(String communityId);

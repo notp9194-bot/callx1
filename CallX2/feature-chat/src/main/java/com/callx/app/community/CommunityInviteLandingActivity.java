@@ -68,12 +68,15 @@ public class CommunityInviteLandingActivity extends AppCompatActivity {
                 return;
             }
 
-            // Add as member (if community is public) or send join request (if private)
-            repo.observeCommunity(communityId).observeForever(community -> {
-                if (community == null) {
-                    runOnUiThread(() -> { Toast.makeText(this, "Community not found", Toast.LENGTH_SHORT).show(); finish(); });
-                    return;
-                }
+            // Add as member (if community is public) or send join request (if private).
+            // v33: use a removable Observer (not a bare lambda) so we can detach it after
+            // the first real emission — observeForever() otherwise leaks past finish().
+            final androidx.lifecycle.LiveData<com.callx.app.db.entity.CommunityEntity> liveCommunity =
+                    repo.observeCommunity(communityId);
+            final androidx.lifecycle.Observer<com.callx.app.db.entity.CommunityEntity>[] observerHolder = new androidx.lifecycle.Observer[1];
+            observerHolder[0] = community -> {
+                if (community == null) return; // wait for the real value instead of finishing on the initial null
+                liveCommunity.removeObserver(observerHolder[0]);
 
                 final String uid = currentUid;
                 final String name = currentName != null ? currentName : "Member";
@@ -100,7 +103,8 @@ public class CommunityInviteLandingActivity extends AppCompatActivity {
                                 finish();
                             }));
                 }
-            });
+            };
+            liveCommunity.observeForever(observerHolder[0]);
         });
     }
 }

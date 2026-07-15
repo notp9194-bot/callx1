@@ -1,58 +1,56 @@
 package com.callx.app.community;
 
-import android.text.SpannableString;
-import android.text.Spanned;
-import android.text.TextUtils;
-import android.text.format.DateUtils;
-import android.text.style.ForegroundColorSpan;
-import android.view.LayoutInflater;
-import android.view.View;
+import android.graphics.Bitmap;
 import android.view.ViewGroup;
-import android.widget.ImageButton;
-import android.widget.ImageView;
-import android.widget.LinearLayout;
-import android.widget.PopupMenu;
-import android.widget.TextView;
 
 import androidx.annotation.NonNull;
-import androidx.core.content.ContextCompat;
 import androidx.recyclerview.widget.AsyncListDiffer;
 import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.bumptech.glide.Glide;
-import com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions;
-import com.callx.app.chat.R;
+import com.bumptech.glide.load.DecodeFormat;
+import com.bumptech.glide.load.engine.DiskCacheStrategy;
+import com.bumptech.glide.request.RequestOptions;
+import com.bumptech.glide.request.target.CustomTarget;
+import com.bumptech.glide.request.target.Target;
+import com.bumptech.glide.request.transition.Transition;
+import com.callx.app.community.canvas.CommunityPostCanvasView;
+import com.callx.app.community.canvas.OnPostClickListener;
 import com.callx.app.db.entity.CommunityPostEntity;
 
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
-
-import de.hdodenhof.circleimageview.CircleImageView;
 
 /**
- * v31: Feed post adapter.
+ * v32: Feed post adapter — now backed by CommunityPostCanvasView (Canvas
+ * rendering) instead of the inflated item_community_post.xml tree, mirroring
+ * the chat module's MessageBubbleCanvasView migration: one custom View per
+ * row draws its own header/text/media/poll/reactions/engagement bar, no
+ * child-view inflate or measure/layout pass.
  *
- * New in v31:
- *  - Multi-emoji reaction row (shows reaction counts beneath each post)
- *  - Long-press on like button opens CommunityReactionPickerView
- *  - @mention spans rendered in blue
- *  - Admin post options menu (Delete Post, Report Post)
- *  - Muted/scheduled origin indicator
+ * Avatar and single-media bitmaps are still fetched with Glide (asBitmap +
+ * CustomTarget), same as MessagePagingAdapter does for its canvas bubbles —
+ * the canvas view only ever receives already-decoded Bitmaps, never a URL.
  */
 public class CommunityPostAdapter extends RecyclerView.Adapter<CommunityPostAdapter.VH> {
 
     public interface Listener {
         void onLike(CommunityPostEntity post);
         void onComment(CommunityPostEntity post);
-        void onLongPressLike(CommunityPostEntity post, View anchorView);
+        void onLongPressLike(CommunityPostEntity post, android.view.View anchorView);
         void onReaction(CommunityPostEntity post, String reactionType);
         void onDelete(CommunityPostEntity post);
         void onReport(CommunityPostEntity post);
         void onPollVote(CommunityPostEntity post, int optionIndex);
         void onMediaClicked(CommunityPostEntity post);
+        /** New in v32 — share action from the engagement bar. Default no-op so any
+         *  pre-existing implementer of this interface keeps compiling unchanged. */
+        default void onShare(CommunityPostEntity post) {}
+        /** New in v32 — tapped the author avatar/name. */
+        default void onAuthorClick(CommunityPostEntity post) {}
+        /** New in v32 — tapped an @mention span inside the post text. */
+        default void onMentionClick(CommunityPostEntity post, String rawMention) {}
     }
 
     private static final DiffUtil.ItemCallback<CommunityPostEntity> DIFF =
@@ -71,12 +69,10 @@ public class CommunityPostAdapter extends RecyclerView.Adapter<CommunityPostAdap
                 }
                 // PERF: partial rebind — a like/comment/reaction tap or a poll
                 // vote from another member re-syncs this single post, but we
-                // don't want to redo avatar/media Glide loads and mention-span
-                // rebuilding on every tap. If ONLY the engagement fields (or
-                // ONLY the poll) changed, return a payload so onBindViewHolder
-                // can skip straight to the small sub-bind. Mirrors the
-                // PAYLOAD_STATUS / PAYLOAD_REACTIONS pattern in the chat
-                // MessagePagingAdapter.
+                // don't want to redo avatar/media Glide loads on every tap.
+                // If ONLY the engagement fields (or ONLY the poll) changed,
+                // return a payload so onBindViewHolder can skip straight to
+                // the canvas view's updateEngagementOnly()/updatePollOnly().
                 @Override
                 public Object getChangePayload(@NonNull CommunityPostEntity a, @NonNull CommunityPostEntity b) {
                     boolean pollChanged = !safeEq(a.pollJson, b.pollJson);
@@ -87,15 +83,13 @@ public class CommunityPostAdapter extends RecyclerView.Adapter<CommunityPostAdap
 
                     if (engagementChanged && !pollChanged) return PAYLOAD_ENGAGEMENT;
                     if (pollChanged && !engagementChanged) return PAYLOAD_POLL;
-                    // Both changed (or neither, which areContentsTheSame would
-                    // already have caught) — fall back to a full rebind.
                     return null;
                 }
                 private boolean safeEq(String x, String y) { return x == null ? y == null : x.equals(y); }
             };
 
-    static final String PAYLOAD_ENGAGEMENT = "engagement"; // like/comment/reaction counts + my-reaction tint
-    static final String PAYLOAD_POLL       = "poll";       // poll vote counts
+    static final String PAYLOAD_ENGAGEMENT = "engagement";
+    static final String PAYLOAD_POLL       = "poll";
 
     private final AsyncListDiffer<CommunityPostEntity> differ = new AsyncListDiffer<>(this, DIFF);
     private final Listener listener;
@@ -118,198 +112,138 @@ public class CommunityPostAdapter extends RecyclerView.Adapter<CommunityPostAdap
     @NonNull
     @Override
     public VH onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-        View v = LayoutInflater.from(parent.getContext())
-                .inflate(R.layout.item_community_post, parent, false);
-        return new VH(v);
+        CommunityPostCanvasView cv = new CommunityPostCanvasView(parent.getContext());
+        cv.setLayoutParams(new RecyclerView.LayoutParams(
+                RecyclerView.LayoutParams.MATCH_PARENT, RecyclerView.LayoutParams.WRAP_CONTENT));
+        return new VH(cv);
     }
 
     @Override
     public void onBindViewHolder(@NonNull VH h, int pos, @NonNull List<Object> payloads) {
+        CommunityPostEntity p = differ.getCurrentList().get(pos);
         if (!payloads.isEmpty()) {
-            CommunityPostEntity p = differ.getCurrentList().get(pos);
             if (payloads.contains(PAYLOAD_ENGAGEMENT)) {
-                bindEngagementOnly(h, p);
+                h.canvasView.updateEngagementOnly(p);
                 return;
             }
             if (payloads.contains(PAYLOAD_POLL)) {
-                if (h.layoutPoll != null && p.pollJson != null && !p.pollJson.isEmpty()) {
-                    bindPoll(h, p);
-                }
+                h.canvasView.updatePollOnly(p, currentUid);
                 return;
             }
         }
         onBindViewHolder(h, pos);
     }
 
+    // PERF: lazily-built, shared RequestOptions — override() constrains Glide's
+    // decode to the actual on-screen pixel size instead of the previous
+    // asBitmap()+CustomTarget default of Target.SIZE_ORIGINAL, which meant a
+    // full-resolution camera photo (e.g. 4000x3000) was fully decoded into
+    // memory just to render into a ~40dp avatar circle or a 200dp media card.
+    // PREFER_RGB_565 halves per-pixel memory for photos that don't need an
+    // alpha channel, which is true for both avatars and post media here.
+    private RequestOptions avatarRequestOptions;
+    private RequestOptions mediaRequestOptions;
+
+    private RequestOptions avatarRequestOptions(android.content.Context ctx) {
+        if (avatarRequestOptions == null) {
+            int px = CommunityPostCanvasView.avatarPx(ctx);
+            avatarRequestOptions = RequestOptions.circleCropTransform()
+                    .override(px, px)
+                    .format(DecodeFormat.PREFER_RGB_565)
+                    .diskCacheStrategy(DiskCacheStrategy.ALL);
+        }
+        return avatarRequestOptions;
+    }
+
+    private RequestOptions mediaRequestOptions(android.content.Context ctx) {
+        if (mediaRequestOptions == null) {
+            int h = CommunityPostCanvasView.mediaHeightPx(ctx);
+            int w = Math.min(ctx.getResources().getDisplayMetrics().widthPixels, 1080);
+            mediaRequestOptions = RequestOptions.centerCropTransform()
+                    .override(w, h)
+                    .format(DecodeFormat.PREFER_RGB_565)
+                    .diskCacheStrategy(DiskCacheStrategy.ALL);
+        }
+        return mediaRequestOptions;
+    }
+
     @Override
     public void onBindViewHolder(@NonNull VH h, int pos) {
         CommunityPostEntity p = differ.getCurrentList().get(pos);
+        CommunityPostCanvasView cv = h.canvasView;
 
-        // Author
-        h.tvAuthorName.setText(p.authorName != null ? p.authorName : "Member");
-        h.tvTimestamp.setText(p.createdAt > 0
-                ? DateUtils.getRelativeTimeSpanString(p.createdAt,
-                System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS) : "");
+        cv.bind(p, isAdminOrOwner, currentUid);
+        wireClickListener(cv, p);
+
+        // PERF: cancel whatever this (recycled) holder was still loading
+        // before starting new requests — previously a brand-new anonymous
+        // CustomTarget was created on every bind with nothing ever clearing
+        // the old one, so a fast fling could leave several completed decodes
+        // racing to land on a view that had already scrolled past them.
+        if (h.avatarTarget != null) Glide.with(cv.getContext()).clear(h.avatarTarget);
+        if (h.mediaTarget != null) Glide.with(cv.getContext()).clear(h.mediaTarget);
 
         if (p.authorPhoto != null && !p.authorPhoto.isEmpty()) {
-            Glide.with(h.ivAuthorAvatar.getContext()).load(p.authorPhoto)
-                    .circleCrop().placeholder(R.drawable.ic_person).into(h.ivAuthorAvatar);
+            h.avatarTarget = new CustomTarget<Bitmap>() {
+                @Override
+                public void onResourceReady(@NonNull Bitmap resource, Transition<? super Bitmap> transition) {
+                    cv.setAuthorAvatarBitmap(p.id, resource);
+                }
+                @Override
+                public void onLoadCleared(android.graphics.drawable.Drawable placeholder) {
+                    cv.setAuthorAvatarBitmap(p.id, null);
+                }
+            };
+            Glide.with(cv.getContext()).asBitmap()
+                    .load(p.authorPhoto)
+                    .apply(avatarRequestOptions(cv.getContext()))
+                    .into(h.avatarTarget);
         } else {
-            h.ivAuthorAvatar.setImageResource(R.drawable.ic_person);
+            h.avatarTarget = null;
         }
 
-        // Announcement banner
-        h.tvAnnouncementBadge.setVisibility(p.isAnnouncement ? View.VISIBLE : View.GONE);
-
-        // Post text with @mention highlight
-        if (p.text != null && !p.text.isEmpty()) {
-            h.tvPostText.setVisibility(View.VISIBLE);
-            h.tvPostText.setText(buildMentionSpan(p.text, h));
-        } else {
-            h.tvPostText.setVisibility(View.GONE);
-        }
-
-        // Media — PERF: progressive load. Glide generates a cheap downsampled
-        // preview from the same URL (sizeMultiplier) and crossfades into the
-        // full-res decode once ready, instead of a blank placeholder sitting
-        // there until the full image lands. Same idea as the chat module's
-        // thumbUrl->photoUrl progressive load in MediaViewerActivity/
-        // MessagePagingAdapter — community posts don't have a separate
-        // low-res mediaThumbUrl in CommunityPostEntity yet, so this reuses
-        // the same-URL sizeMultiplier variant of that pattern.
         if (p.mediaUrl != null && !p.mediaUrl.isEmpty()) {
-            h.ivMedia.setVisibility(View.VISIBLE);
-            Glide.with(h.ivMedia.getContext())
+            h.mediaTarget = new CustomTarget<Bitmap>() {
+                @Override
+                public void onResourceReady(@NonNull Bitmap resource, Transition<? super Bitmap> transition) {
+                    cv.setMediaBitmap(p.id, resource);
+                }
+                @Override
+                public void onLoadCleared(android.graphics.drawable.Drawable placeholder) {
+                    cv.setMediaBitmap(p.id, null);
+                }
+            };
+            Glide.with(cv.getContext()).asBitmap()
                     .load(p.mediaUrl)
-                    .thumbnail(Glide.with(h.ivMedia.getContext())
-                            .load(p.mediaUrl)
-                            .sizeMultiplier(0.15f)
-                            .centerCrop())
-                    .transition(DrawableTransitionOptions.withCrossFade(200))
-                    .centerCrop()
-                    .placeholder(R.drawable.ic_photo_library)
-                    .into(h.ivMedia);
-            h.ivMedia.setOnClickListener(v -> { if (listener != null) listener.onMediaClicked(p); });
-            boolean isVideo = "video".equals(p.mediaType);
-            h.ivPlayOverlay.setVisibility(isVideo ? View.VISIBLE : View.GONE);
+                    .apply(mediaRequestOptions(cv.getContext()))
+                    .into(h.mediaTarget);
         } else {
-            h.ivMedia.setVisibility(View.GONE);
-            h.ivPlayOverlay.setVisibility(View.GONE);
-        }
-
-        // Poll
-        if (h.layoutPoll != null) {
-            if (p.pollJson != null && !p.pollJson.isEmpty()) {
-                h.layoutPoll.setVisibility(View.VISIBLE);
-                bindPoll(h, p);
-            } else {
-                h.layoutPoll.setVisibility(View.GONE);
-            }
-        }
-
-        bindEngagementOnly(h, p);
-
-        h.btnComment.setOnClickListener(v -> { if (listener != null) listener.onComment(p); });
-
-        // Options (admin/owner)
-        boolean isAuthor = currentUid != null && currentUid.equals(p.authorUid);
-        boolean canModify = isAdminOrOwner || isAuthor;
-        if (h.btnOptions != null) {
-            h.btnOptions.setVisibility(canModify ? View.VISIBLE : View.GONE);
-            h.btnOptions.setOnClickListener(v -> showPostOptions(v, p, isAuthor));
+            h.mediaTarget = null;
         }
     }
 
-    // PERF: everything a like/comment/reaction update touches — like button
-    // icon+tint, like count, comment count, reaction chip row — split out so
-    // the PAYLOAD_ENGAGEMENT path can hit just this and skip avatar/media/
-    // text/poll rebinding entirely.
-    private void bindEngagementOnly(VH h, CommunityPostEntity p) {
-        long totalReactions = getTotalReactions(p);
-        long displayLikes = totalReactions > 0 ? totalReactions : p.likeCount;
-        h.tvLikeCount.setText(displayLikes > 0 ? String.valueOf(displayLikes) : "");
-        h.tvCommentCount.setText(p.commentCount > 0 ? String.valueOf(p.commentCount) : "");
-
-        if (h.layoutReactions != null) {
-            bindReactionRow(h, p);
-        }
-
-        boolean myReacted = p.myReactionType != null && !p.myReactionType.isEmpty();
-        h.btnLike.setImageResource(myReacted
-                ? R.drawable.ic_favorite : R.drawable.ic_favorite_border);
-        int tintColor = myReacted
-                ? ContextCompat.getColor(h.btnLike.getContext(), R.color.community_like_active)
-                : ContextCompat.getColor(h.btnLike.getContext(), android.R.color.darker_gray);
-        h.btnLike.setColorFilter(tintColor);
-
-        h.btnLike.setOnClickListener(v -> { if (listener != null) listener.onLike(p); });
-        h.btnLike.setOnLongClickListener(v -> {
-            if (listener != null) listener.onLongPressLike(p, v);
-            return true;
+    private void wireClickListener(CommunityPostCanvasView cv, CommunityPostEntity p) {
+        cv.setOnPostClickListener(new OnPostClickListener() {
+            @Override public void onPostClick() { /* no-op: whole-card tap has no default action */ }
+            @Override public void onPostLongClick() { /* no-op: no card-level context menu yet */ }
+            @Override public void onAuthorClick() { if (listener != null) listener.onAuthorClick(p); }
+            @Override public void onOptionsClick() { showPostOptions(cv, p); }
+            @Override public void onMentionClick(String rawMention) { if (listener != null) listener.onMentionClick(p, rawMention); }
+            @Override public void onMediaClick() { if (listener != null) listener.onMediaClicked(p); }
+            @Override public void onPollOptionClick(int optionIndex) { if (listener != null) listener.onPollVote(p, optionIndex); }
+            @Override public void onReactionsClick() { /* no-op: reaction-details sheet not wired yet, same as legacy layoutReactions (no click listener) */ }
+            @Override public void onLikeClick() { if (listener != null) listener.onLike(p); }
+            @Override public void onLikeLongClick(android.view.View anchorView) {
+                if (listener != null) listener.onLongPressLike(p, anchorView);
+            }
+            @Override public void onCommentClick() { if (listener != null) listener.onComment(p); }
+            @Override public void onShareClick() { if (listener != null) listener.onShare(p); }
         });
     }
 
-    private CharSequence buildMentionSpan(String text, VH h) {
-        if (!text.contains("@")) return text;
-        SpannableString ss = new SpannableString(text);
-        int mentionColor = ContextCompat.getColor(h.tvPostText.getContext(), R.color.colorPrimary);
-        int start = 0;
-        while (true) {
-            int at = text.indexOf('@', start);
-            if (at < 0) break;
-            int end = at + 1;
-            while (end < text.length() && (Character.isLetterOrDigit(text.charAt(end)) || text.charAt(end) == '_')) end++;
-            if (end > at + 1) {
-                ss.setSpan(new ForegroundColorSpan(mentionColor), at, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            }
-            start = end;
-        }
-        return ss;
-    }
-
-    private void bindReactionRow(VH h, CommunityPostEntity p) {
-        Map<String, Long> counts = CommunityReaction.fromJson(p.reactionCountsJson);
-        if (counts == null || counts.isEmpty()) {
-            h.layoutReactions.setVisibility(View.GONE);
-            return;
-        }
-        h.layoutReactions.setVisibility(View.VISIBLE);
-        h.layoutReactions.removeAllViews();
-
-        // Sort by count desc
-        List<Map.Entry<String, Long>> entries = new ArrayList<>(counts.entrySet());
-        entries.sort((a, b) -> Long.compare(b.getValue(), a.getValue()));
-
-        for (Map.Entry<String, Long> entry : entries) {
-            if (entry.getValue() <= 0) continue;
-            String emoji = CommunityReaction.getEmoji(entry.getKey());
-            TextView chip = new TextView(h.layoutReactions.getContext());
-            chip.setText(emoji + " " + entry.getValue());
-            chip.setTextSize(12f);
-            chip.setPadding(12, 4, 12, 4);
-            chip.setBackground(ContextCompat.getDrawable(chip.getContext(), R.drawable.bg_reaction_chip));
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            lp.setMarginEnd(6);
-            chip.setLayoutParams(lp);
-            h.layoutReactions.addView(chip);
-        }
-    }
-
-    private long getTotalReactions(CommunityPostEntity p) {
-        Map<String, Long> counts = CommunityReaction.fromJson(p.reactionCountsJson);
-        if (counts == null) return 0L;
-        long total = 0L;
-        for (Long v : counts.values()) if (v != null) total += v;
-        return total;
-    }
-
-    private void bindPoll(VH h, CommunityPostEntity p) {
-        // Poll binding handled by CommunityPollView if inflated, otherwise skipped
-    }
-
-    private void showPostOptions(View anchor, CommunityPostEntity p, boolean isAuthor) {
-        PopupMenu popup = new PopupMenu(anchor.getContext(), anchor);
+    private void showPostOptions(CommunityPostCanvasView anchor, CommunityPostEntity p) {
+        boolean isAuthor = currentUid != null && currentUid.equals(p.authorUid);
+        android.widget.PopupMenu popup = new android.widget.PopupMenu(anchor.getContext(), anchor);
         if (isAdminOrOwner || isAuthor) popup.getMenu().add(0, 1, 0, "Delete Post");
         popup.getMenu().add(0, 2, 0, "Report Post");
         popup.setOnMenuItemClickListener(item -> {
@@ -323,39 +257,31 @@ public class CommunityPostAdapter extends RecyclerView.Adapter<CommunityPostAdap
     @Override
     public void onViewRecycled(@NonNull VH h) {
         super.onViewRecycled(h);
-        try { Glide.with(h.ivAuthorAvatar.getContext()).clear(h.ivAuthorAvatar); } catch (Exception ignored) {}
-        try { Glide.with(h.ivMedia.getContext()).clear(h.ivMedia); } catch (Exception ignored) {}
+        // PERF: cancel any still-in-flight avatar/media loads for this row
+        // now that it's leaving the screen, instead of letting them finish
+        // decoding in the background only to be discarded by the currentUid
+        // guard in setAuthorAvatarBitmap()/setMediaBitmap(). Frees up Glide's
+        // decode executor for the rows actually becoming visible.
+        if (h.avatarTarget != null) {
+            Glide.with(h.canvasView.getContext()).clear(h.avatarTarget);
+            h.avatarTarget = null;
+        }
+        if (h.mediaTarget != null) {
+            Glide.with(h.canvasView.getContext()).clear(h.mediaTarget);
+            h.mediaTarget = null;
+        }
     }
 
     @Override
     public int getItemCount() { return differ.getCurrentList().size(); }
 
     static class VH extends RecyclerView.ViewHolder {
-        CircleImageView ivAuthorAvatar;
-        TextView tvAuthorName, tvTimestamp, tvPostText, tvAnnouncementBadge;
-        TextView tvLikeCount, tvCommentCount;
-        ImageView ivMedia, ivPlayOverlay;
-        ImageButton btnLike, btnComment;
-        ImageView btnOptions;
-        LinearLayout layoutReactions;
-        View layoutPoll;
-
-        VH(@NonNull View itemView) {
+        final CommunityPostCanvasView canvasView;
+        Target<Bitmap> avatarTarget;
+        Target<Bitmap> mediaTarget;
+        VH(@NonNull CommunityPostCanvasView itemView) {
             super(itemView);
-            ivAuthorAvatar      = itemView.findViewById(R.id.iv_author_avatar);
-            tvAuthorName        = itemView.findViewById(R.id.tv_author_name);
-            tvTimestamp         = itemView.findViewById(R.id.tv_timestamp);
-            tvPostText          = itemView.findViewById(R.id.tv_post_text);
-            tvAnnouncementBadge = itemView.findViewById(R.id.tv_announcement_badge);
-            tvLikeCount         = itemView.findViewById(R.id.tv_like_count);
-            tvCommentCount      = itemView.findViewById(R.id.tv_comment_count);
-            ivMedia             = itemView.findViewById(R.id.iv_post_media);
-            ivPlayOverlay       = itemView.findViewById(R.id.iv_play_icon);
-            btnLike             = itemView.findViewById(R.id.btn_like);
-            btnComment          = itemView.findViewById(R.id.btn_comment);
-            btnOptions          = itemView.findViewById(R.id.btn_post_options);
-            layoutReactions     = itemView.findViewById(R.id.layout_reactions);
-            layoutPoll          = itemView.findViewById(R.id.layout_poll);
+            this.canvasView = itemView;
         }
     }
 }

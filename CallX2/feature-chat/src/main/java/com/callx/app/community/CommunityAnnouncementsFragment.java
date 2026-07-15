@@ -24,7 +24,9 @@ public class CommunityAnnouncementsFragment extends CommunityFeedFragment {
 
     @Override
     protected LiveData<List<CommunityPostEntity>> observeFeedSource() {
-        return repo.observeAnnouncements(communityId);
+        // PERF: windowed, not unbounded — see CommunityFeedFragment.WINDOW_SIZE
+        // and CommunityDao.observeAnnouncementsWindowed's javadoc.
+        return repo.observeAnnouncementsWindowed(communityId, WINDOW_SIZE);
     }
 
     @Override

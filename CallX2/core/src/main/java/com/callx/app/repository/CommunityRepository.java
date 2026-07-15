@@ -92,6 +92,19 @@ public class CommunityRepository {
         void onResult(@Nullable T value);
     }
 
+    /** v33: Join-gate check result for {@link #checkMembership}. */
+    public interface MembershipCallback {
+        void onResult(boolean isMember);
+    }
+
+    /** v33: Preview fetch result for {@link #fetchCommunityPreview} — used by the join gate. */
+    public interface PreviewCallback {
+        /** Community readable (public, or already a member). */
+        void onLoaded(CommunityEntity community);
+        /** Read denied — private community and caller isn't a member yet (per Firebase rules). */
+        void onPrivateLocked();
+    }
+
     private CommunityRepository(Context ctx) {
         mDb = AppDatabase.getInstance(ctx);
         mDao = mDb.communityDao();
@@ -291,6 +304,65 @@ public class CommunityRepository {
                 communityIdCb.onResult(s != null ? s.getValue(String.class) : null);
             }
             @Override public void onCancelled(@Nullable DatabaseError e) { communityIdCb.onResult(null); }
+        });
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // JOIN GATE  (v33) — used by CommunityActivity before showing
+    // Feed/Members/Groups/Events to anyone who isn't a member yet.
+    // ─────────────────────────────────────────────────────────────
+
+    /**
+     * v33: Am I already a member of this community?
+     * Relies on the Firebase rule for communities/{id}/members/{uid}, whose
+     * .read check is "the caller is already in this community's members
+     * map" — so reading this exact node (uid == auth.uid) either succeeds
+     * (member) or is permission-denied (not a member). This works for both
+     * public and private communities and needs no extra top-level read.
+     */
+    public void checkMembership(String communityId, String uid, MembershipCallback cb) {
+        communitiesRef().child(communityId).child("members").child(uid)
+                .addListenerForSingleValueEvent(new ValueEventListener() {
+                    @Override public void onDataChange(@Nullable DataSnapshot s) {
+                        cb.onResult(s != null && s.exists());
+                    }
+                    @Override public void onCancelled(@Nullable DatabaseError e) {
+                        // Permission denied == not a member (private community, no access yet).
+                        cb.onResult(false);
+                    }
+                });
+    }
+
+    /**
+     * v33: Fetch community info to render the join gate (icon/name/description/
+     * member count) before the caller has joined. Public communities are
+     * readable per rules; private ones will deny the read, which is reported
+     * via {@link PreviewCallback#onPrivateLocked()} rather than treated as an error.
+     */
+    public void fetchCommunityPreview(String communityId, PreviewCallback cb) {
+        communitiesRef().child(communityId).addListenerForSingleValueEvent(new ValueEventListener() {
+            @Override public void onDataChange(@Nullable DataSnapshot s) {
+                if (s == null || !s.exists()) { cb.onPrivateLocked(); return; }
+                CommunityEntity c = parseCommunity(s);
+                mExecutor.execute(() -> mDao.insertCommunity(c));
+                cb.onLoaded(c);
+            }
+            @Override public void onCancelled(@Nullable DatabaseError e) {
+                cb.onPrivateLocked();
+            }
+        });
+    }
+
+    /**
+     * v33: Have I already sent a join request for this community that's still
+     * pending? join_requests/{communityId} is only readable by owner/admin
+     * per rules, so this checks the local Room copy written when {@link
+     * #sendJoinRequest} succeeds — accurate for the device that sent it.
+     */
+    public void hasPendingJoinRequest(String communityId, String uid, ResultCallback<Boolean> cb) {
+        mExecutor.execute(() -> {
+            boolean pending = mJoinRequestDao.countMyPendingSync(communityId, uid) > 0;
+            cb.onResult(pending);
         });
     }
 
@@ -753,6 +825,29 @@ public class CommunityRepository {
 
     public LiveData<List<CommunityPostEntity>> observeAnnouncements(String communityId) {
         return mDao.observeAnnouncements(communityId);
+    }
+
+    /** PERF: bounded feed window — see CommunityDao.observeFeedWindowed's
+     *  javadoc. Use this instead of observeFeed()/observeAnnouncements() for
+     *  any screen that renders the feed in a scrolling list; combine with
+     *  loadOlderPostsLocal() below for "load more on scroll". */
+    public LiveData<List<CommunityPostEntity>> observeFeedWindowed(String communityId, int limit) {
+        return mDao.observeFeedWindowed(communityId, limit);
+    }
+
+    public LiveData<List<CommunityPostEntity>> observeAnnouncementsWindowed(String communityId, int limit) {
+        return mDao.observeAnnouncementsWindowed(communityId, limit);
+    }
+
+    /** PERF: pages further back through whatever this device already has
+     *  cached in Room for this community, older than `beforeCreatedAt`. Pure
+     *  local read (no Firebase round-trip) — see CommunityDao.getOlderPostsSync. */
+    public void loadOlderPostsLocal(String communityId, boolean isAnnouncement, long beforeCreatedAt,
+                                     int limit, ResultCallback<List<CommunityPostEntity>> cb) {
+        mExecutor.execute(() -> {
+            List<CommunityPostEntity> older = mDao.getOlderPostsSync(communityId, isAnnouncement, beforeCreatedAt, limit);
+            if (cb != null) cb.onResult(older);
+        });
     }
 
     public LiveData<List<CommunityPostEntity>> observeMediaPosts(String communityId) {
