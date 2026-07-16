@@ -54,14 +54,16 @@ import java.util.*;
 /**
  * UserReelsActivity — Full production reel profile screen.
  *
- * SCROLLING FIX v3:
+ * SCROLLING FIX v4:
  *  - Removed NestedScrollView entirely.
  *  - Removed SwipeRefreshLayout (pull-to-refresh) entirely.
  *  - Profile header, tabs now live ABOVE a plain FrameLayout + RecyclerView.
  *  - RecyclerView gets match_parent height and owns all scrolling.
- *  - RecyclerView is a native NestedScrollingChild, so AppBarLayout collapses
- *    on scroll with no manual onNestedPreScroll workaround needed.
- *  - Pagination uses RecyclerView.OnScrollListener.
+ *  - Header collapse/expand is driven explicitly via AppBarLayout.setExpanded()
+ *    from the RecyclerView's scroll listener (see setupScrollPagination) —
+ *    this does NOT depend on implicit nested-scroll propagation working,
+ *    so it's guaranteed to move the header regardless of view-hierarchy quirks.
+ *  - Pagination uses the same RecyclerView.OnScrollListener.
  */
 public class UserReelsActivity extends AppCompatActivity
         implements ReelGridAdapter.LongPressListener,
@@ -341,20 +343,33 @@ public class UserReelsActivity extends AppCompatActivity
         }
     }
 
-    // ── Scroll listener for pagination ─────────────────────────────────────
+    // ── Scroll listener for header collapse + pagination ────────────────────
 
     /**
-     * SCROLLING FIX: RecyclerView now sits directly in a plain FrameLayout
-     * under CoordinatorLayout (no SwipeRefreshLayout in between), so it's a
-     * native NestedScrollingChild2 and drives AppBarLayout's collapse on its
-     * own — no manual onNestedPreScroll forwarding needed.
-     *
-     * This listener now only handles pagination.
+     * SCROLLING FIX v4: previously this relied purely on RecyclerView's
+     * automatic nested-scroll propagation up to CoordinatorLayout to collapse
+     * the AppBarLayout. That chain was silently failing (header never moved
+     * at all), so this now ALSO explicitly drives the header via
+     * AppBarLayout.setExpanded() based on scroll direction/position —
+     * this does not depend on nested-scroll dispatch working correctly,
+     * so the header is guaranteed to collapse/expand on scroll.
      */
+    private boolean headerExpanded = true;
+
     private void setupScrollPagination() {
           rvReels.addOnScrollListener(new RecyclerView.OnScrollListener() {
               @Override
               public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
+                  if (appBarLayout != null) {
+                      if (dy > 4 && headerExpanded) {
+                          headerExpanded = false;
+                          appBarLayout.setExpanded(false, true);
+                      } else if (dy < -4 && !rv.canScrollVertically(-1) && !headerExpanded) {
+                          headerExpanded = true;
+                          appBarLayout.setExpanded(true, true);
+                      }
+                  }
+
                   if (isLoadingMore) return;
                   if (!getCurrentTabHasMore()) return;
                   int total       = gridLayoutManager.getItemCount();
