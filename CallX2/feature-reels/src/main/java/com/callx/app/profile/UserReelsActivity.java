@@ -85,7 +85,7 @@ public class UserReelsActivity extends AppCompatActivity
     private CircleImageView ivAvatar;
     private ImageView       ivVerified;
     private View            viewStoryRing;
-    private TextView        tvName, tvReelCount, tvFollowers, tvFollowing, tvBio;
+    private TextView        tvName, tvDisplayName, tvReelCount, tvFollowers, tvFollowing, tvBio;
     private TextView        tvMutualFollowers;
     private LinearLayout    layoutMutualFollowers;
     private CircleImageView ivMutual1, ivMutual2, ivMutual3;
@@ -179,6 +179,16 @@ public class UserReelsActivity extends AppCompatActivity
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_user_reels);
 
+        // Remove the gray system nav-bar strip — make it transparent so it
+        // blends with the screen background (Instagram-style, no solid bar).
+        getWindow().setNavigationBarColor(android.graphics.Color.TRANSPARENT);
+        boolean isNightMode = (getResources().getConfiguration().uiMode
+                & android.content.res.Configuration.UI_MODE_NIGHT_MASK)
+                == android.content.res.Configuration.UI_MODE_NIGHT_YES;
+        androidx.core.view.WindowInsetsControllerCompat insetsController =
+                androidx.core.view.WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
+        insetsController.setAppearanceLightNavigationBars(!isNightMode);
+
         targetUid   = getIntent().getStringExtra(EXTRA_UID);
         targetName  = getIntent().getStringExtra(EXTRA_NAME);
         targetPhoto = getIntent().getStringExtra(EXTRA_PHOTO);
@@ -222,6 +232,7 @@ public class UserReelsActivity extends AppCompatActivity
         ivVerified           = findViewById(R.id.iv_verified);
         viewStoryRing        = findViewById(R.id.view_story_ring);
         tvName               = findViewById(R.id.tv_name);
+        tvDisplayName        = findViewById(R.id.tv_display_name);
         tvReelCount          = findViewById(R.id.tv_reel_count);
         tvFollowers          = findViewById(R.id.tv_followers);
         tvFollowing          = findViewById(R.id.tv_following);
@@ -297,7 +308,7 @@ public class UserReelsActivity extends AppCompatActivity
             finish();
         });
 
-        if (targetName  != null) tvName.setText(targetName);
+        if (targetName  != null) { tvName.setText(targetName); if (tvDisplayName != null) tvDisplayName.setText(targetName); }
         if (targetPhoto != null && !targetPhoto.isEmpty())
             Glide.with(this).load(targetPhoto).circleCrop()
                 .placeholder(R.drawable.ic_person).into(ivAvatar);
@@ -2238,6 +2249,7 @@ public class UserReelsActivity extends AppCompatActivity
                 if (cached.name != null && !cached.name.isEmpty()) {
                     targetName = cached.name;
                     if (tvName != null) tvName.setText(cached.name);
+                    if (tvDisplayName != null) tvDisplayName.setText(cached.name);
                 }
                 // Avatar — thumb fast, fallback full photo
                 String url = (cached.thumbUrl != null && !cached.thumbUrl.isEmpty())
@@ -2288,7 +2300,7 @@ public class UserReelsActivity extends AppCompatActivity
                 String youtube   = snap.child("youtubeChannelUrl").getValue(String.class);
                 String twitter   = snap.child("twitterHandle").getValue(String.class);
 
-                if (name != null) { targetName = name; if (tvName != null) tvName.setText(name); }
+                if (name != null) { targetName = name; if (tvName != null) tvName.setText(name); if (tvDisplayName != null) tvDisplayName.setText(name); }
                 if (photo != null && !photo.isEmpty()) {
                     targetPhoto = photo;
                     String displayPhoto = (photoThumb != null && !photoThumb.isEmpty()) ? photoThumb : photo;

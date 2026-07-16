@@ -205,70 +205,86 @@
                         android:backgroundTint="@color/status_online"/>
                 </FrameLayout>
 
-                <!-- Stats: Reels | Followers | Following -->
+                <!-- Right column: display name (Instagram-style, above stats) + Stats row -->
                 <LinearLayout
                     android:layout_width="0dp" android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:orientation="horizontal"
-                    android:gravity="center"
-                    android:layout_marginStart="8dp">
+                    android:orientation="vertical"
+                    android:layout_marginStart="12dp">
 
-                    <!-- Reels count -->
+                    <!-- Display name — large, bold, right of avatar (Instagram-style) -->
+                    <TextView android:id="@+id/tv_display_name"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="username"
+                        android:textSize="18sp"
+                        android:fontFamily="sans-serif-bold"
+                        android:textColor="?attr/colorOnSurface"
+                        android:maxLines="1" android:ellipsize="end"
+                        android:layout_marginBottom="6dp"/>
+
+                    <!-- Stats: Reels | Followers | Following -->
                     <LinearLayout
-                        android:layout_width="0dp" android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:orientation="vertical"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:orientation="horizontal"
                         android:gravity="center">
-                        <TextView android:id="@+id/tv_reel_count"
-                            android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="0"
-                            android:textSize="18sp"
-                            android:fontFamily="sans-serif-bold"
-                            android:textColor="?attr/colorOnSurface"/>
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="Reels"
-                            android:textSize="11sp"
-                            android:textColor="?attr/colorOnSurfaceVariant"/>
-                    </LinearLayout>
 
-                    <!-- Followers count (clickable) -->
-                    <LinearLayout android:id="@+id/layout_followers_click"
-                        android:layout_width="0dp" android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:orientation="vertical"
-                        android:gravity="center"
-                        android:clickable="true" android:focusable="true"
-                        android:foreground="?attr/selectableItemBackground">
-                        <TextView android:id="@+id/tv_followers"
-                            android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="0"
-                            android:textSize="18sp"
-                            android:fontFamily="sans-serif-bold"
-                            android:textColor="?attr/colorOnSurface"/>
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="Followers"
-                            android:textSize="11sp"
-                            android:textColor="?attr/colorOnSurfaceVariant"/>
-                    </LinearLayout>
+                        <!-- Reels count -->
+                        <LinearLayout
+                            android:layout_width="0dp" android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical"
+                            android:gravity="center">
+                            <TextView android:id="@+id/tv_reel_count"
+                                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                                android:text="0"
+                                android:textSize="18sp"
+                                android:fontFamily="sans-serif-bold"
+                                android:textColor="?attr/colorOnSurface"/>
+                            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                                android:text="Reels"
+                                android:textSize="11sp"
+                                android:textColor="?attr/colorOnSurfaceVariant"/>
+                        </LinearLayout>
 
-                    <!-- Following count (clickable) -->
-                    <LinearLayout android:id="@+id/layout_following_click"
-                        android:layout_width="0dp" android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:orientation="vertical"
-                        android:gravity="center"
-                        android:clickable="true" android:focusable="true"
-                        android:foreground="?attr/selectableItemBackground">
-                        <TextView android:id="@+id/tv_following"
-                            android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="0"
-                            android:textSize="18sp"
-                            android:fontFamily="sans-serif-bold"
-                            android:textColor="?attr/colorOnSurface"/>
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="Following"
-                            android:textSize="11sp"
-                            android:textColor="?attr/colorOnSurfaceVariant"/>
+                        <!-- Followers count (clickable) -->
+                        <LinearLayout android:id="@+id/layout_followers_click"
+                            android:layout_width="0dp" android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical"
+                            android:gravity="center"
+                            android:clickable="true" android:focusable="true"
+                            android:foreground="?attr/selectableItemBackground">
+                            <TextView android:id="@+id/tv_followers"
+                                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                                android:text="0"
+                                android:textSize="18sp"
+                                android:fontFamily="sans-serif-bold"
+                                android:textColor="?attr/colorOnSurface"/>
+                            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                                android:text="Followers"
+                                android:textSize="11sp"
+                                android:textColor="?attr/colorOnSurfaceVariant"/>
+                        </LinearLayout>
+
+                        <!-- Following count (clickable) -->
+                        <LinearLayout android:id="@+id/layout_following_click"
+                            android:layout_width="0dp" android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical"
+                            android:gravity="center"
+                            android:clickable="true" android:focusable="true"
+                            android:foreground="?attr/selectableItemBackground">
+                            <TextView android:id="@+id/tv_following"
+                                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                                android:text="0"
+                                android:textSize="18sp"
+                                android:fontFamily="sans-serif-bold"
+                                android:textColor="?attr/colorOnSurface"/>
+                            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                                android:text="Following"
+                                android:textSize="11sp"
+                                android:textColor="?attr/colorOnSurfaceVariant"/>
+                        </LinearLayout>
                     </LinearLayout>
                 </LinearLayout>
             </LinearLayout>
