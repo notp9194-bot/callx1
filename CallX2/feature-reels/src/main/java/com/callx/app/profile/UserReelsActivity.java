@@ -20,12 +20,9 @@ import androidx.media3.common.MediaItem;
 import androidx.media3.common.Player;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.ui.PlayerView;
-import androidx.coordinatorlayout.widget.CoordinatorLayout;
-import androidx.core.view.ViewCompat;
 import com.google.android.material.appbar.AppBarLayout;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
-import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 import com.google.android.material.tabs.TabLayout;
 
 import com.bumptech.glide.Glide;
@@ -57,12 +54,14 @@ import java.util.*;
 /**
  * UserReelsActivity — Full production reel profile screen.
  *
- * SCROLLING FIX v2:
+ * SCROLLING FIX v3:
  *  - Removed NestedScrollView entirely.
- *  - Profile header, tabs now live ABOVE the SwipeRefreshLayout + RecyclerView.
+ *  - Removed SwipeRefreshLayout (pull-to-refresh) entirely.
+ *  - Profile header, tabs now live ABOVE a plain FrameLayout + RecyclerView.
  *  - RecyclerView gets match_parent height and owns all scrolling.
- *  - Pagination uses RecyclerView.OnScrollListener (no NestedScrollView needed).
- *  - SwipeRefreshLayout enabled only when RV is at top (canScrollVertically(-1) == false).
+ *  - RecyclerView is a native NestedScrollingChild, so AppBarLayout collapses
+ *    on scroll with no manual onNestedPreScroll workaround needed.
+ *  - Pagination uses RecyclerView.OnScrollListener.
  */
 public class UserReelsActivity extends AppCompatActivity
         implements ReelGridAdapter.LongPressListener,
@@ -109,7 +108,6 @@ public class UserReelsActivity extends AppCompatActivity
       private UserSeriesGridAdapter seriesAdapter;
     private ProgressBar     progressBar;
     private View            layoutEmpty;
-    private SwipeRefreshLayout swipeRefresh;
     private View            layoutMultiSelectBar;
     private TextView        tvSelectedCount;
     private ImageButton     btnShareSelected, btnDeleteSelected, btnCancelSelect, btnDeleteAll;
@@ -120,7 +118,6 @@ public class UserReelsActivity extends AppCompatActivity
     private View            btnRepostSection;
     private View            btnSeriesSection;
     private com.google.android.material.appbar.AppBarLayout appBarLayout;
-    private boolean         isAppBarExpanded = true;
 
       // ── Filter chips state ─────────────────────────────────────────────
       private static final int FILTER_ALL    = 0;
@@ -176,7 +173,6 @@ public class UserReelsActivity extends AppCompatActivity
 
         bindViews();
         setupHeader();
-        setupSwipeRefresh();
         setupScrollPagination();
         setupTabs();
         setupFilterChips();
@@ -242,7 +238,6 @@ public class UserReelsActivity extends AppCompatActivity
         llFilterChips        = findViewById(R.id.ll_filter_chips);
         progressBar          = findViewById(R.id.progress_bar);
         layoutEmpty          = findViewById(R.id.layout_empty);
-        swipeRefresh         = findViewById(R.id.swipe_refresh);
         btnViewAllReels      = findViewById(R.id.btn_view_all_reels);
         layoutMultiSelectBar = findViewById(R.id.layout_multi_select_bar);
         tvSelectedCount      = findViewById(R.id.tv_selected_count);
@@ -327,8 +322,9 @@ public class UserReelsActivity extends AppCompatActivity
         rvReels.setAdapter(adapter);
         rvReels.addItemDecoration(new ReelGridAdapter.WhiteGridDecoration(this));
         // KEY FIX: RecyclerView must NOT have nested scrolling disabled.
-        // It lives directly inside SwipeRefreshLayout (no NestedScrollView wrapper),
-        // so it scrolls normally on its own.
+        // It lives directly inside a plain FrameLayout (no SwipeRefreshLayout,
+        // no NestedScrollView wrapper), so it scrolls normally on its own and
+        // drives AppBarLayout's collapse natively via nested scrolling.
         rvReels.setNestedScrollingEnabled(true);
         rvReels.setHasFixedSize(false);
 
@@ -345,64 +341,20 @@ public class UserReelsActivity extends AppCompatActivity
         }
     }
 
-    // ── SwipeRefresh ──────────────────────────────────────────────────────
-
-    private void setupSwipeRefresh() {
-        if (swipeRefresh == null) return;
-        swipeRefresh.setColorSchemeResources(R.color.brand_primary);
-        swipeRefresh.setOnRefreshListener(() -> {
-            exitMultiSelectMode();
-            loadCurrentTab(true);
-            if (activeTab == TAB_REELS) loadPinnedReel();
-        });
-        swipeRefresh.setEnabled(true);
-
-        // Instagram-style: disable pull-to-refresh while AppBarLayout is mid-collapse.
-        // SwipeRefreshLayout must only activate when the header is fully expanded AND
-        // the RecyclerView has not scrolled (i.e., the user is truly at the very top).
-        if (appBarLayout != null) {
-            appBarLayout.addOnOffsetChangedListener((abl, verticalOffset) -> {
-                isAppBarExpanded = (verticalOffset == 0);
-                if (swipeRefresh != null && !swipeRefresh.isRefreshing()) {
-                    swipeRefresh.setEnabled(isAppBarExpanded && !rvReels.canScrollVertically(-1));
-                }
-            });
-        }
-    }
-
-    // ── Scroll listener for pagination + SwipeRefresh guard ───────────────
+    // ── Scroll listener for pagination ─────────────────────────────────────
 
     /**
-     * SCROLLING FIX: RecyclerView.OnScrollListener handles both:
-     *  1. Disabling SwipeRefresh when not at top (prevents gesture conflict)
-     *  2. Triggering pagination when near the bottom
+     * SCROLLING FIX: RecyclerView now sits directly in a plain FrameLayout
+     * under CoordinatorLayout (no SwipeRefreshLayout in between), so it's a
+     * native NestedScrollingChild2 and drives AppBarLayout's collapse on its
+     * own — no manual onNestedPreScroll forwarding needed.
      *
-     * No NestedScrollView needed — RecyclerView scrolls freely.
+     * This listener now only handles pagination.
      */
     private void setupScrollPagination() {
           rvReels.addOnScrollListener(new RecyclerView.OnScrollListener() {
               @Override
               public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
-                  // HEADER SCROLL FIX: SwipeRefreshLayout only implements NestedScrollingParent v1.
-                  // CoordinatorLayout requires v2+ to collapse AppBarLayout children.
-                  // We call AppBarLayout.Behavior.onNestedPreScroll() directly to bypass the gap.
-                  if (appBarLayout != null
-                          && appBarLayout.getParent() instanceof CoordinatorLayout) {
-                      CoordinatorLayout cl = (CoordinatorLayout) appBarLayout.getParent();
-                      CoordinatorLayout.LayoutParams lp =
-                          (CoordinatorLayout.LayoutParams) appBarLayout.getLayoutParams();
-                      CoordinatorLayout.Behavior<?> b = lp.getBehavior();
-                      if (b instanceof AppBarLayout.Behavior) {
-                          ((AppBarLayout.Behavior) b).onNestedPreScroll(
-                              cl, appBarLayout, rv, 0, dy, new int[]{0, 0},
-                              ViewCompat.TYPE_NON_TOUCH);
-                      }
-                  }
-
-                  if (swipeRefresh != null && !swipeRefresh.isRefreshing()) {
-                      swipeRefresh.setEnabled(isAppBarExpanded && !rv.canScrollVertically(-1));
-                  }
-
                   if (isLoadingMore) return;
                   if (!getCurrentTabHasMore()) return;
                   int total       = gridLayoutManager.getItemCount();
@@ -569,7 +521,6 @@ public class UserReelsActivity extends AppCompatActivity
             layoutPrivateAccount.setVisibility(blocked ? View.VISIBLE : View.GONE);
         if (rvReels    != null) rvReels.setVisibility(blocked ? View.GONE : View.VISIBLE);
         if (tabLayout  != null) { tabLayout.setAlpha(blocked ? 0.4f : 1f); tabLayout.setEnabled(!blocked); }
-        if (swipeRefresh != null) swipeRefresh.setEnabled(!blocked);
     }
 
     // ── Stats clicks ──────────────────────────────────────────────────────
@@ -1093,7 +1044,6 @@ public class UserReelsActivity extends AppCompatActivity
                 adapter.notifyItemRangeInserted(insertStart, insertCount);
             }
         }
-        if (swipeRefresh != null) swipeRefresh.setRefreshing(false);
         if (progressBar  != null) progressBar.setVisibility(View.GONE);
         if (tab == activeTab) { refreshEmptyState(); updateViewAllButton(); }
         List<ReelModel> tabData = dataForTab(tab);

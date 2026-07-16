@@ -8,10 +8,12 @@
       Profile header section (scroll|exitUntilCollapsed)
                                      — collapses as user scrolls, disappears up
       TabLayout (noScroll)           — stays pinned just below top nav once collapsed
-      SwipeRefreshLayout             — fills remaining height, scrolls with AppBarLayout
+      content_container (FrameLayout) — fills remaining height, scrolls with AppBarLayout
 
     Result: avatar/stats/bio/actions scroll up and collapse; tabs pin; grid is
     the single scroll container — exactly like Instagram.
+    Pull-to-refresh removed — RecyclerView is a native NestedScrollingChild,
+    so it drives AppBarLayout's collapse directly without any workaround.
 -->
 <androidx.coordinatorlayout.widget.CoordinatorLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
@@ -697,11 +699,11 @@
 
     <!-- ═══════════════════════════════════════════════════════════════════
          Main scroll area — RecyclerView (with AppBarLayout coordination)
-         layout_behavior makes the RecyclerView offset below the AppBarLayout
+         layout_behavior makes this container offset below the AppBarLayout
          and shrink upward as AppBarLayout collapses.
          ═══════════════════════════════════════════════════════════════════ -->
-    <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
-        android:id="@+id/swipe_refresh"
+    <FrameLayout
+        android:id="@+id/content_container"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         app:layout_behavior="@string/appbar_scrolling_view_behavior">
@@ -819,7 +821,7 @@
             </LinearLayout>
 
         </FrameLayout>
-    </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
+    </FrameLayout>
 
 
       <!-- ── View All Reels Button ────────────────────────────────────── -->
@@ -835,7 +837,7 @@
           android:textSize="14sp"
           android:fontFamily="sans-serif-medium"
           android:visibility="gone"
-          app:layout_anchor="@id/swipe_refresh"
+          app:layout_anchor="@id/content_container"
           app:layout_anchorGravity="bottom"
           app:strokeColor="@color/brand_primary"
           app:rippleColor="@color/brand_primary"
