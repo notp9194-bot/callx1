@@ -427,53 +427,59 @@ public class UserReelsActivity extends AppCompatActivity
     private int nestedDragLastRawY;
     private boolean isNestedDragging = false;
 
+    // Kept for readability at the call site; actual driving now happens in
+    // dispatchTouchEvent() below, which is guaranteed to see every touch event
+    // regardless of RecyclerView's internal OnItemTouchListener chain.
     private void setupHeaderNestedDrag() {
-        rvReels.addOnItemTouchListener(new RecyclerView.OnItemTouchListener() {
-            @Override
-            public boolean onInterceptTouchEvent(@NonNull RecyclerView rv, @NonNull MotionEvent e) {
-                forwardToHeader(rv, e);
-                return false; // never steal the touch — grid keeps scrolling/clicking normally
-            }
-            @Override
-            public void onTouchEvent(@NonNull RecyclerView rv, @NonNull MotionEvent e) {
-                forwardToHeader(rv, e);
-            }
-            @Override
-            public void onRequestDisallowInterceptTouchEvent(boolean disallow) { }
+        // no-op — see dispatchTouchEvent()
+    }
 
-            private void forwardToHeader(RecyclerView rv, MotionEvent e) {
-                if (appBarLayout == null) return;
-                switch (e.getActionMasked()) {
-                    case MotionEvent.ACTION_DOWN:
-                        nestedDragLastRawY = (int) e.getRawY();
-                        isNestedDragging = true;
-                        break;
-                    case MotionEvent.ACTION_MOVE: {
-                        if (!isNestedDragging) break;
-                        int curY = (int) e.getRawY();
-                        int dy = nestedDragLastRawY - curY; // finger up => positive => collapse
-                        nestedDragLastRawY = curY;
-                        if (dy == 0) break;
-                        if (appBarLayout.getParent() instanceof CoordinatorLayout) {
-                            CoordinatorLayout cl = (CoordinatorLayout) appBarLayout.getParent();
-                            CoordinatorLayout.LayoutParams lp =
-                                (CoordinatorLayout.LayoutParams) appBarLayout.getLayoutParams();
-                            CoordinatorLayout.Behavior<?> b = lp.getBehavior();
-                            if (b instanceof AppBarLayout.Behavior) {
-                                ((AppBarLayout.Behavior) b).onNestedPreScroll(
-                                    cl, appBarLayout, rv, 0, dy, new int[]{0, 0},
-                                    ViewCompat.TYPE_TOUCH);
-                            }
-                        }
-                        break;
+    /**
+     * Guaranteed-to-fire touch hook. The previous RecyclerView.OnItemTouchListener
+     * approach silently stopped working — likely swallowed by another
+     * OnItemTouchListener (item click/long-press detection) registered on the same
+     * RecyclerView, since only the FIRST listener that intercepts a gesture keeps
+     * getting events. dispatchTouchEvent() at the Activity level sees every touch
+     * before any child view does, so it can't be starved like that. We only ever
+     * observe here (never consume), so normal grid scrolling/clicks are untouched.
+     */
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent ev) {
+        driveHeaderCollapseFromRawTouch(ev);
+        return super.dispatchTouchEvent(ev);
+    }
+
+    private void driveHeaderCollapseFromRawTouch(MotionEvent e) {
+        if (appBarLayout == null || rvReels == null) return;
+        switch (e.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN:
+                nestedDragLastRawY = (int) e.getRawY();
+                isNestedDragging = true;
+                break;
+            case MotionEvent.ACTION_MOVE: {
+                if (!isNestedDragging) break;
+                int curY = (int) e.getRawY();
+                int dy = nestedDragLastRawY - curY; // finger up => positive => collapse
+                nestedDragLastRawY = curY;
+                if (dy == 0) break;
+                if (appBarLayout.getParent() instanceof CoordinatorLayout) {
+                    CoordinatorLayout cl = (CoordinatorLayout) appBarLayout.getParent();
+                    CoordinatorLayout.LayoutParams lp =
+                        (CoordinatorLayout.LayoutParams) appBarLayout.getLayoutParams();
+                    CoordinatorLayout.Behavior<?> b = lp.getBehavior();
+                    if (b instanceof AppBarLayout.Behavior) {
+                        ((AppBarLayout.Behavior) b).onNestedPreScroll(
+                            cl, appBarLayout, rvReels, 0, dy, new int[]{0, 0},
+                            ViewCompat.TYPE_TOUCH);
                     }
-                    case MotionEvent.ACTION_UP:
-                    case MotionEvent.ACTION_CANCEL:
-                        isNestedDragging = false;
-                        break;
                 }
+                break;
             }
-        });
+            case MotionEvent.ACTION_UP:
+            case MotionEvent.ACTION_CANCEL:
+                isNestedDragging = false;
+                break;
+        }
     }
 
     private boolean getCurrentTabHasMore() {
