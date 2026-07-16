@@ -104,6 +104,13 @@ public class UserReelsActivity extends AppCompatActivity
     private ImageButton     btnMessage, btnAudioCall, btnVideoCall, btnOpenX, btnOpenYoutube;
     private LinearLayout    layoutActions;
 
+    // ── Story Highlights ──────────────────────────────────────────────────
+    private androidx.recyclerview.widget.RecyclerView rvHighlights;
+    private android.widget.HorizontalScrollView       hsvHighlights;
+    private android.view.View                         dividerHighlights;
+    private HighlightsRowAdapter                      highlightsAdapter;
+    private final java.util.List<HighlightsRowAdapter.HighlightAlbum> highlightAlbums = new java.util.ArrayList<>();
+
     // ── Avatar peek animation fields ──────────────────────────────────────
     private CircleImageView ivAnimChat, ivAnimX, ivAnimYoutube;
     private final Handler   animHandler    = new Handler(Looper.getMainLooper());
@@ -188,6 +195,8 @@ public class UserReelsActivity extends AppCompatActivity
         loadFromRoom(); // Offline-first: Room se instant load (profile header)
         loadReelGridFromRoom(); // Offline-first: Room se instant load (reels grid — advance #6)
         loadUserProfile();
+        setupHighlights();
+        loadHighlights();
         if (isSelf) {
             // Advance #3 — one-time, battery/network-friendly backfill of
             // BlurHash for reels posted before that feature shipped.
@@ -275,6 +284,9 @@ public class UserReelsActivity extends AppCompatActivity
         btnCtaCall       = findViewById(R.id.btn_cta_call);
         layoutInstagramCta = findViewById(R.id.layout_instagram_cta);
         layoutExtraActions = findViewById(R.id.layout_extra_actions);
+        rvHighlights       = findViewById(R.id.rv_highlights);
+        hsvHighlights      = findViewById(R.id.hsv_highlights);
+        dividerHighlights  = findViewById(R.id.divider_highlights);
     }
 
     // ── Header ────────────────────────────────────────────────────────────
@@ -636,6 +648,230 @@ public class UserReelsActivity extends AppCompatActivity
     }
 
     // ── Verified Badge (Feature 9) ────────────────────────────────────────
+
+    // ══════════════════════════════════════════════════════════════════════
+    // Story Highlights — Instagram-style horizontal album row
+    // Firebase: statusHighlights/{uid}/{albumId}/{statusId}
+    // ══════════════════════════════════════════════════════════════════════
+
+    /**
+     * Set up the horizontal highlights RecyclerView with LinearLayoutManager.
+     * Must be called once after bindViews(). Data is injected by loadHighlights().
+     */
+    private void setupHighlights() {
+        if (rvHighlights == null) return;
+        rvHighlights.setLayoutManager(new androidx.recyclerview.widget.LinearLayoutManager(
+                this, androidx.recyclerview.widget.LinearLayoutManager.HORIZONTAL, false));
+        rvHighlights.setHasFixedSize(false);
+        rvHighlights.setNestedScrollingEnabled(false);
+        rebuildHighlightsAdapter();
+    }
+
+    /** Rebuild and attach a fresh adapter from the current highlightAlbums list. */
+    private void rebuildHighlightsAdapter() {
+        java.util.List<HighlightsRowAdapter.HighlightAlbum> adapterItems = new java.util.ArrayList<>();
+        if (isSelf) adapterItems.add(HighlightsRowAdapter.HighlightAlbum.newButton()); // "+" first
+        adapterItems.addAll(highlightAlbums);
+
+        highlightsAdapter = new HighlightsRowAdapter(adapterItems, isSelf,
+                new HighlightsRowAdapter.Listener() {
+
+            @Override public void onAlbumClicked(HighlightsRowAdapter.HighlightAlbum album) {
+                openHighlightAlbum(album);
+            }
+
+            @Override public void onAlbumLongPressed(HighlightsRowAdapter.HighlightAlbum album, int pos) {
+                showHighlightManageSheet(album, pos);
+            }
+
+            @Override public void onNewClicked() {
+                openManageHighlights();
+            }
+        });
+        if (rvHighlights != null) rvHighlights.setAdapter(highlightsAdapter);
+    }
+
+    /**
+     * Load highlight albums from Firebase.
+     * Path: statusHighlights/{targetUid}/{albumId}/<statusItems>
+     * Builds one HighlightAlbum per albumId using the first child as the cover.
+     */
+    private void loadHighlights() {
+        if (targetUid == null) return;
+
+        com.google.firebase.database.FirebaseDatabase.getInstance()
+            .getReference("statusHighlights")
+            .child(targetUid)
+            .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
+
+            @Override
+            public void onDataChange(@androidx.annotation.NonNull com.google.firebase.database.DataSnapshot snap) {
+                highlightAlbums.clear();
+
+                for (com.google.firebase.database.DataSnapshot albumSnap : snap.getChildren()) {
+                    String albumId = albumSnap.getKey();
+                    if (albumId == null) continue;
+
+                    String albumName    = null;
+                    String coverUrl     = null;
+                    String coverBgColor = null;
+                    int    itemCount    = 0;
+
+                    for (com.google.firebase.database.DataSnapshot item : albumSnap.getChildren()) {
+                        itemCount++;
+                        if (itemCount == 1) {
+                            // Use first item as cover
+                            try {
+                                String hn = item.child("highlightAlbumName").getValue(String.class);
+                                if (hn != null) albumName = hn;
+                                String tu = item.child("thumbnailUrl").getValue(String.class);
+                                String mu = item.child("mediaUrl").getValue(String.class);
+                                coverUrl = (tu != null && !tu.isEmpty()) ? tu : mu;
+                                coverBgColor = item.child("bgColor").getValue(String.class);
+                            } catch (Exception ignored) {}
+                        }
+                    }
+
+                    if (itemCount == 0) continue; // skip empty albums
+                    if (albumName == null || albumName.isEmpty()) albumName = toDisplayName(albumId);
+
+                    highlightAlbums.add(new HighlightsRowAdapter.HighlightAlbum(
+                            albumId, albumName, coverUrl, coverBgColor, itemCount));
+                }
+
+                runOnUiThread(() -> {
+                    boolean hasContent = !highlightAlbums.isEmpty() || isSelf;
+                    if (hsvHighlights  != null) hsvHighlights.setVisibility(hasContent ? android.view.View.VISIBLE : android.view.View.GONE);
+                    if (dividerHighlights != null) dividerHighlights.setVisibility(hasContent ? android.view.View.VISIBLE : android.view.View.GONE);
+                    rebuildHighlightsAdapter();
+                });
+            }
+
+            @Override public void onCancelled(@androidx.annotation.NonNull com.google.firebase.database.DatabaseError e) {
+                // Silently fail — highlights are non-critical
+                if (isSelf) {
+                    runOnUiThread(() -> {
+                        if (hsvHighlights != null) hsvHighlights.setVisibility(android.view.View.VISIBLE);
+                        rebuildHighlightsAdapter();
+                    });
+                }
+            }
+        });
+    }
+
+    /**
+     * Open StatusViewerActivity for a specific highlight album.
+     * Uses Class.forName to avoid hard cross-module dependency.
+     */
+    private void openHighlightAlbum(HighlightsRowAdapter.HighlightAlbum album) {
+        try {
+            Class<?> cls = Class.forName("com.callx.app.viewer.StatusViewerActivity");
+            android.content.Intent i = new android.content.Intent(this, cls);
+            i.putExtra("ownerUid",  targetUid);
+            i.putExtra("ownerName", album.albumName);
+            i.putExtra("highlightAlbumId", album.albumId);
+            startActivity(i);
+        } catch (ClassNotFoundException ex) {
+            Toast.makeText(this, album.albumName, Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    /**
+     * Open StatusHighlightsActivity so the self-user can manage all albums
+     * (create new, re-order, rename, delete).
+     */
+    private void openManageHighlights() {
+        try {
+            Class<?> cls = Class.forName("com.callx.app.highlights.StatusHighlightsActivity");
+            android.content.Intent i = new android.content.Intent(this, cls);
+            i.putExtra("ownerUid", targetUid);
+            startActivity(i);
+        } catch (ClassNotFoundException ex) {
+            Toast.makeText(this, "Highlights manager not available", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    /**
+     * Long-press context sheet for self user: rename album, delete album.
+     */
+    private void showHighlightManageSheet(HighlightsRowAdapter.HighlightAlbum album, int adapterPos) {
+        if (isFinishing() || isDestroyed()) return;
+
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle(album.albumName)
+            .setItems(new String[]{"✏  Rename album", "🗑  Delete album"}, (d, which) -> {
+                if (which == 0) showHighlightRenameDialog(album, adapterPos);
+                else            confirmDeleteHighlight(album, adapterPos);
+            })
+            .setNegativeButton("Cancel", null)
+            .show();
+    }
+
+    private void showHighlightRenameDialog(HighlightsRowAdapter.HighlightAlbum album, int adapterPos) {
+        android.widget.EditText et = new android.widget.EditText(this);
+        et.setText(album.albumName);
+        et.setSelection(album.albumName != null ? album.albumName.length() : 0);
+        int pad = (int)(16 * getResources().getDisplayMetrics().density);
+        et.setPadding(pad, pad / 2, pad, pad / 2);
+
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Rename highlight")
+            .setView(et)
+            .setPositiveButton("Save", (d, w) -> {
+                String newName = et.getText().toString().trim();
+                if (newName.isEmpty()) return;
+                // Update every item in the album on Firebase
+                com.google.firebase.database.FirebaseDatabase.getInstance()
+                    .getReference("statusHighlights")
+                    .child(targetUid)
+                    .child(album.albumId)
+                    .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
+                        @Override public void onDataChange(@androidx.annotation.NonNull com.google.firebase.database.DataSnapshot snap) {
+                            for (com.google.firebase.database.DataSnapshot child : snap.getChildren())
+                                child.getRef().child("highlightAlbumName").setValue(newName);
+                        }
+                        @Override public void onCancelled(@androidx.annotation.NonNull com.google.firebase.database.DatabaseError e) {}
+                    });
+                album.albumName = newName;
+                if (highlightsAdapter != null) highlightsAdapter.notifyItemChanged(adapterPos);
+            })
+            .setNegativeButton("Cancel", null)
+            .show();
+    }
+
+    private void confirmDeleteHighlight(HighlightsRowAdapter.HighlightAlbum album, int adapterPos) {
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Delete \"" + album.albumName + "\"?")
+            .setMessage("This will permanently remove this highlight album.")
+            .setPositiveButton("Delete", (d, w) -> {
+                com.google.firebase.database.FirebaseDatabase.getInstance()
+                    .getReference("statusHighlights")
+                    .child(targetUid)
+                    .child(album.albumId)
+                    .removeValue();
+                highlightAlbums.remove(album);
+                rebuildHighlightsAdapter();
+                if (highlightAlbums.isEmpty() && !isSelf) {
+                    if (hsvHighlights    != null) hsvHighlights.setVisibility(android.view.View.GONE);
+                    if (dividerHighlights != null) dividerHighlights.setVisibility(android.view.View.GONE);
+                }
+            })
+            .setNegativeButton("Cancel", null)
+            .show();
+    }
+
+    /** "album_id" → "Album Id" */
+    private static String toDisplayName(String id) {
+        if (id == null) return "";
+        String[] parts = id.replace("_", " ").replace("-", " ").split(" ");
+        StringBuilder sb = new StringBuilder();
+        for (String p : parts) {
+            if (p.isEmpty()) continue;
+            if (sb.length() > 0) sb.append(" ");
+            sb.append(Character.toUpperCase(p.charAt(0))).append(p.substring(1));
+        }
+        return sb.toString();
+    }
 
     private void loadVerifiedStatus() {
         FirebaseUtils.getUserRef(targetUid).child("isVerified")

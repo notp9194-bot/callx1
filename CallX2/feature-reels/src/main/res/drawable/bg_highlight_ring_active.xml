@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Instagram-style gradient ring for highlight bubbles with active stories -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <gradient
+        android:type="sweep"
+        android:startColor="#F58529"
+        android:centerColor="#DD2A7B"
+        android:endColor="#8134AF"
+        android:centerX="0.5"
+        android:centerY="0.5"/>
+</shape>
