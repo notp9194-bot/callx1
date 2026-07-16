@@ -218,7 +218,29 @@ public class AudioMixHelper {
 
     /**
      * Generic PCM extractor — works on MP4 (video+audio), AAC, or any
-     * MediaExtractor-supported container. Returns 16-bit mono PCM at 44100 Hz.
+     * MediaExtractor-supported container.
+     *
+     * FIXED: Returns normalised 16-bit MONO PCM at exactly 44100 Hz so that
+     * every caller (mic track, music track, voiceover) ends up on the same
+     * timeline and the mixed output plays at the correct speed.
+     *
+     * Two bugs were present before this fix that both cause "audio sounds slow":
+     *
+     *  1. STEREO → MONO not handled.
+     *     Music files (Cloudinary / Firebase originals) are almost always
+     *     stereo (2 channels).  The old code read every PCM short straight
+     *     into the sample list, so a 1-second stereo clip produced
+     *     44100 × 2 = 88 200 shorts.  Those 88 200 shorts were then encoded
+     *     as 44100-Hz mono, creating a 2-second clip — exactly half speed.
+     *
+     *  2. SAMPLE-RATE mismatch not handled.
+     *     Many music files are mastered at 48 000 Hz.  The encoder always
+     *     writes 44100 Hz.  48 000 raw samples encoded at 44100 Hz produce
+     *     audio that is 48000/44100 ≈ 8.8 % too slow and slightly lower in
+     *     pitch.
+     *
+     * Fix: after decoding, downmix multi-channel audio to mono, then
+     * linearly resample to 44100 Hz if the source rate differs.
      */
     private static short[] extractPcmFromFile(String filePath, int maxSamples) throws Exception {
         MediaExtractor extractor = new MediaExtractor();
@@ -239,21 +261,28 @@ public class AudioMixHelper {
         }
 
         extractor.selectTrack(audioTrack);
-        MediaFormat format = extractor.getTrackFormat(audioTrack);
+        MediaFormat inputFormat = extractor.getTrackFormat(audioTrack);
+
+        // Read declared format properties — will be confirmed/overridden by
+        // INFO_OUTPUT_FORMAT_CHANGED once decoding starts.
+        int srcSampleRate   = inputFormat.containsKey(MediaFormat.KEY_SAMPLE_RATE)
+                ? inputFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE) : 44100;
+        int srcChannelCount = inputFormat.containsKey(MediaFormat.KEY_CHANNEL_COUNT)
+                ? inputFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT) : 1;
 
         MediaCodec codec = MediaCodec.createDecoderByType(
-                format.getString(MediaFormat.KEY_MIME));
-        codec.configure(format, null, null, 0);
+                inputFormat.getString(MediaFormat.KEY_MIME));
+        codec.configure(inputFormat, null, null, 0);
         codec.start();
 
-        // Collect all raw PCM output
-        java.util.ArrayList<Short> samples = new java.util.ArrayList<>(44100 * 60);
+        // Collect raw PCM output (still multi-channel / original sample-rate at this stage)
+        java.util.ArrayList<Short> rawSamples = new java.util.ArrayList<>(44100 * 60);
         MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
-        boolean inputDone = false;
+        boolean inputDone  = false;
         boolean outputDone = false;
         long timeoutUs = 10_000;
 
-        while (!outputDone && samples.size() < maxSamples) {
+        while (!outputDone) {
             if (!inputDone) {
                 int inIdx = codec.dequeueInputBuffer(timeoutUs);
                 if (inIdx >= 0) {
@@ -272,12 +301,34 @@ public class AudioMixHelper {
             }
 
             int outIdx = codec.dequeueOutputBuffer(info, timeoutUs);
-            if (outIdx >= 0) {
+            if (outIdx == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                // Codec output format is the ground truth — override declared values
+                MediaFormat outFmt = codec.getOutputFormat();
+                if (outFmt.containsKey(MediaFormat.KEY_SAMPLE_RATE))
+                    srcSampleRate   = outFmt.getInteger(MediaFormat.KEY_SAMPLE_RATE);
+                if (outFmt.containsKey(MediaFormat.KEY_CHANNEL_COUNT))
+                    srcChannelCount = outFmt.getInteger(MediaFormat.KEY_CHANNEL_COUNT);
+            } else if (outIdx >= 0) {
                 ByteBuffer outBuf = codec.getOutputBuffer(outIdx);
                 if (outBuf != null && info.size > 0) {
                     ShortBuffer shortBuf = outBuf.asShortBuffer();
-                    while (shortBuf.hasRemaining() && samples.size() < maxSamples) {
-                        samples.add(shortBuf.get());
+                    if (srcChannelCount <= 1) {
+                        // Mono — take samples directly
+                        while (shortBuf.hasRemaining()) {
+                            rawSamples.add(shortBuf.get());
+                        }
+                    } else {
+                        // Multi-channel (stereo / surround) → downmix to mono.
+                        // Average all channel samples in each frame to preserve
+                        // correct duration: N stereo frames → N mono samples,
+                        // not 2N samples that would halve the playback speed.
+                        while (shortBuf.remaining() >= srcChannelCount) {
+                            long sum = 0;
+                            for (int c = 0; c < srcChannelCount; c++) {
+                                sum += shortBuf.get();
+                            }
+                            rawSamples.add((short) (sum / srcChannelCount));
+                        }
                     }
                 }
                 codec.releaseOutputBuffer(outIdx, false);
@@ -291,9 +342,43 @@ public class AudioMixHelper {
         codec.release();
         extractor.release();
 
-        short[] result = new short[samples.size()];
-        for (int i = 0; i < samples.size(); i++) result[i] = samples.get(i);
-        return result;
+        short[] pcm = new short[rawSamples.size()];
+        for (int i = 0; i < pcm.length; i++) pcm[i] = rawSamples.get(i);
+
+        // Resample to the target 44100 Hz used by encodePcmToAac().
+        // Without this, music mastered at 48 000 Hz (very common) plays
+        // ~8.8 % too slowly after encoding, and 22050 Hz content plays 2× fast.
+        final int TARGET_SAMPLE_RATE = 44100;
+        if (srcSampleRate != TARGET_SAMPLE_RATE && srcSampleRate > 0 && pcm.length > 0) {
+            pcm = resamplePcm(pcm, srcSampleRate, TARGET_SAMPLE_RATE);
+        }
+
+        // Honour the caller's maxSamples cap (used to trim music to mic length)
+        if (pcm.length > maxSamples) {
+            short[] trimmed = new short[maxSamples];
+            System.arraycopy(pcm, 0, trimmed, 0, maxSamples);
+            return trimmed;
+        }
+        return pcm;
+    }
+
+    /**
+     * Linear-interpolation resampler.
+     * Simple and fast — adequate quality for speech/music in short clips.
+     * Converts {@code input} from {@code srcRate} Hz to {@code dstRate} Hz.
+     */
+    private static short[] resamplePcm(short[] input, int srcRate, int dstRate) {
+        if (srcRate == dstRate || input.length == 0) return input;
+        int dstLen = (int) ((long) input.length * dstRate / srcRate);
+        short[] output = new short[dstLen];
+        for (int i = 0; i < dstLen; i++) {
+            float srcPos = (float) i * srcRate / dstRate;
+            int   idx0   = (int) srcPos;
+            int   idx1   = Math.min(idx0 + 1, input.length - 1);
+            float frac   = srcPos - idx0;
+            output[i] = (short) (input[idx0] * (1f - frac) + input[idx1] * frac);
+        }
+        return output;
     }
 
     // ── Step 4: Mix PCM ────────────────────────────────────────────────────
