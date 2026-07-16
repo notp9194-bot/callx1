@@ -119,6 +119,8 @@ public class UserReelsActivity extends AppCompatActivity
     private View            layoutFollowingClick;
     private View            btnRepostSection;
     private View            btnSeriesSection;
+    private com.google.android.material.appbar.AppBarLayout appBarLayout;
+    private boolean         isAppBarExpanded = true;
 
       // ── Filter chips state ─────────────────────────────────────────────
       private static final int FILTER_ALL    = 0;
@@ -202,83 +204,68 @@ public class UserReelsActivity extends AppCompatActivity
 
     // ── Bind views ────────────────────────────────────────────────────────
 
-    private View headerView, tabsView, chipsView;
-
     private void bindViews() {
-        // ── Root layout (top bar / grid / overlays) — still a normal findViewById ──
-        btnBack              = findViewById(R.id.btn_back);
-        tvName               = findViewById(R.id.tv_name);
+        ivAvatar             = findViewById(R.id.iv_avatar);
         ivVerified           = findViewById(R.id.iv_verified);
+        viewStoryRing        = findViewById(R.id.view_story_ring);
+        tvName               = findViewById(R.id.tv_name);
+        tvReelCount          = findViewById(R.id.tv_reel_count);
+        tvFollowers          = findViewById(R.id.tv_followers);
+        tvFollowing          = findViewById(R.id.tv_following);
+        tvBio                = findViewById(R.id.tv_bio);
+        tvMutualFollowers    = findViewById(R.id.tv_mutual_followers);
+        layoutMutualFollowers= findViewById(R.id.layout_mutual_followers);
+        ivMutual1            = findViewById(R.id.iv_mutual_1);
+        ivMutual2            = findViewById(R.id.iv_mutual_2);
+        ivMutual3            = findViewById(R.id.iv_mutual_3);
+        tvEmptyTitle         = findViewById(R.id.tv_empty_title);
+        tvEmptySubtitle      = findViewById(R.id.tv_empty_subtitle);
+        btnFollow            = findViewById(R.id.btn_follow);
+        btnBack              = findViewById(R.id.btn_back);
         btnShareProfile      = findViewById(R.id.btn_share_profile);
         btnCreatorHub        = findViewById(R.id.btn_creator_hub);
         btnSettings          = findViewById(R.id.btn_settings);
         btnMore              = findViewById(R.id.btn_more);
-
+        btnMessage           = findViewById(R.id.btn_message);
+        btnAudioCall         = findViewById(R.id.btn_audio_call);
+        btnVideoCall         = findViewById(R.id.btn_video_call);
+        btnOpenX             = findViewById(R.id.btn_open_x);
+        btnOpenYoutube       = findViewById(R.id.btn_open_youtube);
+        ivAnimChat           = findViewById(R.id.iv_anim_chat);
+        ivAnimX              = findViewById(R.id.iv_anim_x);
+        ivAnimYoutube        = findViewById(R.id.iv_anim_youtube);
+        layoutActions        = findViewById(R.id.layout_actions);
+        tabLayout            = findViewById(R.id.tab_layout);
         rvReels              = findViewById(R.id.rv_reels);
-        rvSeries             = findViewById(R.id.rv_series);
+          rvSeries             = findViewById(R.id.rv_series);
+        hsvFilterChips       = findViewById(R.id.hsv_filter_chips);
+        llFilterChips        = findViewById(R.id.ll_filter_chips);
         progressBar          = findViewById(R.id.progress_bar);
         layoutEmpty          = findViewById(R.id.layout_empty);
-        tvEmptyTitle         = findViewById(R.id.tv_empty_title);
-        tvEmptySubtitle      = findViewById(R.id.tv_empty_subtitle);
         swipeRefresh         = findViewById(R.id.swipe_refresh);
         btnViewAllReels      = findViewById(R.id.btn_view_all_reels);
         layoutMultiSelectBar = findViewById(R.id.layout_multi_select_bar);
         tvSelectedCount      = findViewById(R.id.tv_selected_count);
         btnShareSelected     = findViewById(R.id.btn_share_selected);
         layoutPrivateAccount = findViewById(R.id.layout_private_account);
+        layoutFollowersClick = findViewById(R.id.layout_followers_click);
+        layoutFollowingClick = findViewById(R.id.layout_following_click);
+        btnRepostSection     = findViewById(R.id.btn_repost_section);
+        btnSeriesSection     = findViewById(R.id.btn_series_section);
         btnDeleteSelected    = findViewById(R.id.btn_delete_selected);
         btnCancelSelect      = findViewById(R.id.btn_cancel_select);
         btnDeleteAll         = findViewById(R.id.btn_delete_all);
-
-        // ── Header / tabs / filter-chips: inflated standalone (NOT part of the
-        // Activity's own view tree) — they become items 0/1/2 inside rv_reels's
-        // ConcatAdapter in setupHeader(), so the whole screen scrolls as ONE native
-        // list, exactly like Instagram's own profile. Every id that used to live
-        // inside the old AppBarLayout now resolves against these inflated views. ──
-        LayoutInflater inflater = LayoutInflater.from(this);
-        headerView = inflater.inflate(R.layout.view_profile_header_row, rvReels, false);
-        tabsView   = inflater.inflate(R.layout.view_profile_tabs_row, rvReels, false);
-        chipsView  = inflater.inflate(R.layout.view_filter_chips_row, rvReels, false);
-
-        ivAvatar              = headerView.findViewById(R.id.iv_avatar);
-        viewStoryRing         = headerView.findViewById(R.id.view_story_ring);
-        tvReelCount           = headerView.findViewById(R.id.tv_reel_count);
-        tvFollowers           = headerView.findViewById(R.id.tv_followers);
-        tvFollowing           = headerView.findViewById(R.id.tv_following);
-        tvBio                 = headerView.findViewById(R.id.tv_bio);
-        tvMutualFollowers     = headerView.findViewById(R.id.tv_mutual_followers);
-        layoutMutualFollowers = headerView.findViewById(R.id.layout_mutual_followers);
-        ivMutual1             = headerView.findViewById(R.id.iv_mutual_1);
-        ivMutual2             = headerView.findViewById(R.id.iv_mutual_2);
-        ivMutual3             = headerView.findViewById(R.id.iv_mutual_3);
-        btnFollow             = headerView.findViewById(R.id.btn_follow);
-        btnMessage            = headerView.findViewById(R.id.btn_message);
-        btnAudioCall          = headerView.findViewById(R.id.btn_audio_call);
-        btnVideoCall          = headerView.findViewById(R.id.btn_video_call);
-        btnOpenX              = headerView.findViewById(R.id.btn_open_x);
-        btnOpenYoutube        = headerView.findViewById(R.id.btn_open_youtube);
-        ivAnimChat            = headerView.findViewById(R.id.iv_anim_chat);
-        ivAnimX               = headerView.findViewById(R.id.iv_anim_x);
-        ivAnimYoutube         = headerView.findViewById(R.id.iv_anim_youtube);
-        layoutActions         = headerView.findViewById(R.id.layout_actions);
-        layoutFollowersClick  = headerView.findViewById(R.id.layout_followers_click);
-        layoutFollowingClick  = headerView.findViewById(R.id.layout_following_click);
-        btnRepostSection      = headerView.findViewById(R.id.btn_repost_section);
-        btnSeriesSection      = headerView.findViewById(R.id.btn_series_section);
-        tvPhone               = headerView.findViewById(R.id.tv_phone);
-        tvWhatsapp            = headerView.findViewById(R.id.tv_whatsapp);
-        tvInstagram           = headerView.findViewById(R.id.tv_instagram);
-        tvYoutube             = headerView.findViewById(R.id.tv_youtube);
-        tvOtherLink           = headerView.findViewById(R.id.tv_other_link);
-        layoutPhone           = headerView.findViewById(R.id.layout_phone);
-        layoutWhatsapp        = headerView.findViewById(R.id.layout_whatsapp);
-        layoutInstagram       = headerView.findViewById(R.id.layout_instagram);
-        layoutYoutube         = headerView.findViewById(R.id.layout_youtube);
-        layoutOtherLink       = headerView.findViewById(R.id.layout_other_link);
-
-        tabLayout        = (TabLayout) tabsView;
-        hsvFilterChips    = (HorizontalScrollView) chipsView;
-        llFilterChips     = chipsView.findViewById(R.id.ll_filter_chips);
+        tvPhone          = findViewById(R.id.tv_phone);
+        tvWhatsapp       = findViewById(R.id.tv_whatsapp);
+        tvInstagram      = findViewById(R.id.tv_instagram);
+        tvYoutube        = findViewById(R.id.tv_youtube);
+        tvOtherLink      = findViewById(R.id.tv_other_link);
+        layoutPhone      = findViewById(R.id.layout_phone);
+        layoutWhatsapp   = findViewById(R.id.layout_whatsapp);
+        layoutInstagram  = findViewById(R.id.layout_instagram);
+        layoutYoutube    = findViewById(R.id.layout_youtube);
+        layoutOtherLink  = findViewById(R.id.layout_other_link);
+        appBarLayout     = findViewById(R.id.app_bar);
     }
 
     // ── Header ────────────────────────────────────────────────────────────
@@ -294,21 +281,17 @@ public class UserReelsActivity extends AppCompatActivity
             Glide.with(this).load(targetPhoto).circleCrop()
                 .placeholder(R.drawable.ic_person).into(ivAvatar);
 
-        // Share / Creator Hub / Settings are no longer shown as separate top-bar icons —
-        // they are now entries inside the 3-dot (More) menu, wired in setupMoreMenu().
-        // Keeping these listeners assigned is harmless (views stay GONE) and lets
-        // setupMoreMenu() reuse the exact same actions.
         if (btnShareProfile != null) btnShareProfile.setOnClickListener(v -> shareProfile());
 
         if (btnCreatorHub != null) {
-            btnCreatorHub.setVisibility(View.GONE);
-            btnCreatorHub.setOnClickListener(v ->
+            btnCreatorHub.setVisibility(isSelf ? View.VISIBLE : View.GONE);
+            if (isSelf) btnCreatorHub.setOnClickListener(v ->
                 startActivity(new Intent(this, ReelCreatorHubActivity.class)));
         }
 
         if (btnSettings != null) {
-            btnSettings.setVisibility(View.GONE);
-            btnSettings.setOnClickListener(v -> {
+            btnSettings.setVisibility(isSelf ? View.VISIBLE : View.GONE);
+            if (isSelf) btnSettings.setOnClickListener(v -> {
                 // Reel profile edit — reels/users/{uid} node
                 startActivity(new Intent(this, ReelEditProfileActivity.class));
             });
@@ -336,19 +319,12 @@ public class UserReelsActivity extends AppCompatActivity
         gridLayoutManager = new GridLayoutManager(this, 3);
         gridLayoutManager.setSpanSizeLookup(new GridLayoutManager.SpanSizeLookup() {
             @Override public int getSpanSize(int position) {
-                // positions 0/1/2 = header / tabs / filter-chips — each takes the full row
-                if (position < 3) return 3;
-                return adapter.getItemViewType(position - 3) == ReelGridAdapter.TYPE_PINNED ? 3 : 1;
+                return adapter.getItemViewType(position) == ReelGridAdapter.TYPE_PINNED ? 3 : 1;
             }
         });
 
         rvReels.setLayoutManager(gridLayoutManager);
-        rvReels.setAdapter(new androidx.recyclerview.widget.ConcatAdapter(
-            new SingleViewAdapter(headerView),
-            new SingleViewAdapter(tabsView),
-            new SingleViewAdapter(chipsView),
-            adapter
-        ));
+        rvReels.setAdapter(adapter);
         rvReels.addItemDecoration(new ReelGridAdapter.WhiteGridDecoration(this));
         // KEY FIX: RecyclerView must NOT have nested scrolling disabled.
         // It lives directly inside SwipeRefreshLayout (no NestedScrollView wrapper),
@@ -356,10 +332,8 @@ public class UserReelsActivity extends AppCompatActivity
         rvReels.setNestedScrollingEnabled(true);
         rvReels.setHasFixedSize(false);
 
-        // Message/Call/X/YouTube row and the Follow button are no longer shown inline —
-        // they're now items inside the 3-dot (More) menu (see setupMoreMenu()).
-        if (layoutActions != null) layoutActions.setVisibility(View.GONE);
-        if (btnFollow     != null) btnFollow.setVisibility(View.GONE);
+        if (layoutActions != null) layoutActions.setVisibility(isSelf ? View.GONE : View.VISIBLE);
+        if (btnFollow     != null) btnFollow.setVisibility(isSelf ? View.GONE : View.VISIBLE);
 
         setupActionButtons();
         setupMoreMenu();
@@ -381,27 +355,52 @@ public class UserReelsActivity extends AppCompatActivity
             loadCurrentTab(true);
             if (activeTab == TAB_REELS) loadPinnedReel();
         });
-        // Header/tabs/chips are now just the first items of rv_reels itself (see
-        // setupHeader()'s ConcatAdapter wiring), so "at the very top" is simply
-        // "the list hasn't scrolled at all" — no AppBarLayout offset to track anymore.
-        swipeRefresh.setEnabled(!rvReels.canScrollVertically(-1));
+        swipeRefresh.setEnabled(true);
+
+        // Instagram-style: disable pull-to-refresh while AppBarLayout is mid-collapse.
+        // SwipeRefreshLayout must only activate when the header is fully expanded AND
+        // the RecyclerView has not scrolled (i.e., the user is truly at the very top).
+        if (appBarLayout != null) {
+            appBarLayout.addOnOffsetChangedListener((abl, verticalOffset) -> {
+                isAppBarExpanded = (verticalOffset == 0);
+                if (swipeRefresh != null && !swipeRefresh.isRefreshing()) {
+                    swipeRefresh.setEnabled(isAppBarExpanded && !rvReels.canScrollVertically(-1));
+                }
+            });
+        }
     }
 
     // ── Scroll listener for pagination + SwipeRefresh guard ───────────────
 
     /**
-     * Header/tabs/filter-chips are ordinary items inside rv_reels's ConcatAdapter
-     * now (see setupHeader()), so the RecyclerView scrolls them natively — no
-     * AppBarLayout, no CoordinatorLayout, no manual nested-scroll forwarding.
-     * That removes the whole class of bugs we kept hitting (gap on collapse,
-     * header not moving at all): there's nothing left to keep in sync.
+     * SCROLLING FIX: RecyclerView.OnScrollListener handles both:
+     *  1. Disabling SwipeRefresh when not at top (prevents gesture conflict)
+     *  2. Triggering pagination when near the bottom
+     *
+     * No NestedScrollView needed — RecyclerView scrolls freely.
      */
     private void setupScrollPagination() {
           rvReels.addOnScrollListener(new RecyclerView.OnScrollListener() {
               @Override
               public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
+                  // HEADER SCROLL FIX: SwipeRefreshLayout only implements NestedScrollingParent v1.
+                  // CoordinatorLayout requires v2+ to collapse AppBarLayout children.
+                  // We call AppBarLayout.Behavior.onNestedPreScroll() directly to bypass the gap.
+                  if (appBarLayout != null
+                          && appBarLayout.getParent() instanceof CoordinatorLayout) {
+                      CoordinatorLayout cl = (CoordinatorLayout) appBarLayout.getParent();
+                      CoordinatorLayout.LayoutParams lp =
+                          (CoordinatorLayout.LayoutParams) appBarLayout.getLayoutParams();
+                      CoordinatorLayout.Behavior<?> b = lp.getBehavior();
+                      if (b instanceof AppBarLayout.Behavior) {
+                          ((AppBarLayout.Behavior) b).onNestedPreScroll(
+                              cl, appBarLayout, rv, 0, dy, new int[]{0, 0},
+                              ViewCompat.TYPE_NON_TOUCH);
+                      }
+                  }
+
                   if (swipeRefresh != null && !swipeRefresh.isRefreshing()) {
-                      swipeRefresh.setEnabled(!rv.canScrollVertically(-1));
+                      swipeRefresh.setEnabled(isAppBarExpanded && !rv.canScrollVertically(-1));
                   }
 
                   if (isLoadingMore) return;
@@ -1013,6 +1012,11 @@ public class UserReelsActivity extends AppCompatActivity
                                 boolean refresh, int tab) {
         final int[] remaining = {ids.size()};
         final List<ReelModel> fetched = new ArrayList<>();
+        // Remember where the new items will land so we can notify just that
+        // range instead of the whole grid (avoids re-binding/re-loading
+        // already-visible thumbnails on every "load more" during scroll —
+        // this was the visual "refresh" while scrolling).
+        final int insertStart = target.size();
         for (String id : ids) {
             FirebaseUtils.getReelsRef().child(id)
                 .addListenerForSingleValueEvent(new ValueEventListener() {
@@ -1024,7 +1028,7 @@ public class UserReelsActivity extends AppCompatActivity
                         if (--remaining[0] == 0) {
                             fetched.sort((a, b) -> Long.compare(b.timestamp, a.timestamp));
                             target.addAll(fetched);
-                            finishLoading(refresh, tab);
+                            finishLoading(refresh, tab, insertStart, fetched.size());
                         }
                     }
                     @Override public void onCancelled(@NonNull DatabaseError e) {
@@ -1065,10 +1069,30 @@ public class UserReelsActivity extends AppCompatActivity
     }
 
     private void finishLoading(boolean refresh, int tab) {
+        finishLoading(refresh, tab, -1, 0);
+    }
+
+    /**
+     * SCROLL REFRESH FIX: previously this always called adapter.notifyDataSetChanged(),
+     * which re-binds every visible cell (including already-loaded thumbnails) any time
+     * loadCurrentTab(false) ran during pagination — this is what looked like the grid
+     * "refreshing" every time the user scrolled to the bottom.
+     *
+     * Now: a real refresh (pull-to-refresh / tab switch, skeleton -> data swap) still does
+     * a full notifyDataSetChanged, but pagination only notifies the newly appended range,
+     * so existing cells are left untouched.
+     */
+    private void finishLoading(boolean refresh, int tab, int insertStart, int insertCount) {
         if (isFinishing() || isDestroyed()) return;
         isLoadingMore = false;
         adapter.setSkeletonMode(false);
-        adapter.notifyDataSetChanged();
+        if (tab == activeTab) {
+            if (refresh) {
+                adapter.notifyDataSetChanged();
+            } else if (insertCount > 0) {
+                adapter.notifyItemRangeInserted(insertStart, insertCount);
+            }
+        }
         if (swipeRefresh != null) swipeRefresh.setRefreshing(false);
         if (progressBar  != null) progressBar.setVisibility(View.GONE);
         if (tab == activeTab) { refreshEmptyState(); updateViewAllButton(); }
@@ -1844,75 +1868,28 @@ public class UserReelsActivity extends AppCompatActivity
 
     // ── More menu ─────────────────────────────────────────────────────────
 
-    // Menu item ids — every action button on this screen lives here now instead of
-    // as a separate on-screen button (Alina's instruction: "screen pe jitne bhi button
-    // hai sabhi ko" 3-dot menu me daalo). Back button stays outside since it's core
-    // nav, not a feature action.
-    private static final int MENU_FOLLOW          = 1;
-    private static final int MENU_MESSAGE         = 2;
-    private static final int MENU_AUDIO_CALL      = 3;
-    private static final int MENU_VIDEO_CALL      = 4;
-    private static final int MENU_OPEN_X          = 5;
-    private static final int MENU_OPEN_YOUTUBE    = 6;
-    private static final int MENU_REPOSTED        = 7;
-    private static final int MENU_SERIES          = 8;
-    private static final int MENU_SHARE_PROFILE   = 9;
-    private static final int MENU_COPY_LINK       = 10;
-    private static final int MENU_CREATOR_HUB     = 11;
-    private static final int MENU_CREATOR_DASH    = 12;
-    private static final int MENU_SETTINGS        = 13;
-    private static final int MENU_UNPIN_REEL      = 14;
-    private static final int MENU_DELETE_ALL      = 15;
-    private static final int MENU_REPORT_USER     = 16;
-
     private void setupMoreMenu() {
         if (btnMore == null) return;
         btnMore.setOnClickListener(v -> {
             PopupMenu menu = new PopupMenu(this, btnMore);
-
-            if (!isSelf) {
-                menu.getMenu().add(0, MENU_FOLLOW, 0, isFollowing ? "Following ✓" : "Follow");
-                menu.getMenu().add(0, MENU_MESSAGE, 0, "Message");
-                menu.getMenu().add(0, MENU_AUDIO_CALL, 0, "Audio Call");
-                menu.getMenu().add(0, MENU_VIDEO_CALL, 0, "Video Call");
-                menu.getMenu().add(0, MENU_OPEN_X, 0, "X Profile");
-                menu.getMenu().add(0, MENU_OPEN_YOUTUBE, 0, "YouTube Channel");
-            }
-            menu.getMenu().add(0, MENU_REPOSTED, 0, "Reposted");
-            menu.getMenu().add(0, MENU_SERIES, 0, "Series");
-            menu.getMenu().add(0, MENU_SHARE_PROFILE, 0, "Share Profile");
-            menu.getMenu().add(0, MENU_COPY_LINK, 0, "Copy Profile Link");
-            if (isSelf) {
-                menu.getMenu().add(0, MENU_CREATOR_HUB, 0, "Creator Hub");
-                menu.getMenu().add(0, MENU_CREATOR_DASH, 0, "Creator Dashboard");
-                menu.getMenu().add(0, MENU_SETTINGS, 0, "Settings / Edit Profile");
-            }
-            if (isSelf && pinnedReel != null) menu.getMenu().add(0, MENU_UNPIN_REEL, 0, "Remove Pinned Reel");
-            if (isSelf) menu.getMenu().add(0, MENU_DELETE_ALL, 0, "🗑️ Delete All Reels");
-            if (!isSelf) menu.getMenu().add(0, MENU_REPORT_USER, 0, "Report User");
-
+            menu.getMenu().add(0, 1, 0, "Share Profile");
+            menu.getMenu().add(0, 2, 0, "Copy Profile Link");
+            if (isSelf)  menu.getMenu().add(0, 5, 0, "Creator Dashboard");
+            if (isSelf && pinnedReel != null) menu.getMenu().add(0, 4, 0, "Remove Pinned Reel");
+            if (isSelf)  menu.getMenu().add(0, 6, 0, "🗑️ Delete All Reels");
+            if (!isSelf) menu.getMenu().add(0, 3, 0, "Report User");
             menu.setOnMenuItemClickListener(item -> {
                 switch (item.getItemId()) {
-                    case MENU_FOLLOW:       if (btnFollow != null) btnFollow.performClick(); break;
-                    case MENU_MESSAGE:      if (btnMessage != null) btnMessage.performClick(); break;
-                    case MENU_AUDIO_CALL:   if (btnAudioCall != null) btnAudioCall.performClick(); break;
-                    case MENU_VIDEO_CALL:   if (btnVideoCall != null) btnVideoCall.performClick(); break;
-                    case MENU_OPEN_X:       if (btnOpenX != null) btnOpenX.performClick(); break;
-                    case MENU_OPEN_YOUTUBE: if (btnOpenYoutube != null) btnOpenYoutube.performClick(); break;
-                    case MENU_REPOSTED:     if (btnRepostSection != null) btnRepostSection.performClick(); break;
-                    case MENU_SERIES:       if (btnSeriesSection != null) btnSeriesSection.performClick(); break;
-                    case MENU_SHARE_PROFILE: shareProfile(); break;
-                    case MENU_COPY_LINK:
+                    case 1: shareProfile(); break;
+                    case 2:
                         ClipboardManager cm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
                         if (cm != null) cm.setPrimaryClip(ClipData.newPlainText("Link",
                             com.callx.app.utils.Constants.DEEP_LINK_BASE_URL + "/profile/" + targetUid));
                         Toast.makeText(this, "Link copied", Toast.LENGTH_SHORT).show(); break;
-                    case MENU_CREATOR_HUB:  if (btnCreatorHub != null) btnCreatorHub.performClick(); break;
-                    case MENU_CREATOR_DASH: startActivity(new Intent(this, ReelCreatorDashboardActivity.class)); break;
-                    case MENU_SETTINGS:     if (btnSettings != null) btnSettings.performClick(); break;
-                    case MENU_UNPIN_REEL:   unpinReel(); break;
-                    case MENU_DELETE_ALL:   deleteAllReels(); break;
-                    case MENU_REPORT_USER:  Toast.makeText(this, "Report submitted. Thank you.", Toast.LENGTH_SHORT).show(); break;
+                    case 3: Toast.makeText(this, "Report submitted. Thank you.", Toast.LENGTH_SHORT).show(); break;
+                    case 4: unpinReel(); break;
+                    case 5: startActivity(new Intent(this, ReelCreatorDashboardActivity.class)); break;
+                    case 6: deleteAllReels(); break;
                 }
                 return true;
             });
@@ -1939,23 +1916,4 @@ public class UserReelsActivity extends AppCompatActivity
     @Override protected void onPause()   { super.onPause();   dismissPreviewDialog(); stopAvatarAnimation(); }
     @Override protected void onResume()  { super.onResume();  loadAvatarAndStartAnimation(); }
     @Override protected void onDestroy() { super.onDestroy(); dismissPreviewDialog(); stopAvatarAnimation(); dbExecutor.shutdown(); }
-
-    /**
-     * Wraps one already-inflated View as a single-item RecyclerView.Adapter.
-     * Used to host the profile header / tabs row / filter-chips row as real
-     * items inside rv_reels's ConcatAdapter, so the whole profile screen
-     * (header + tabs + chips + grid) scrolls as ONE native RecyclerView list —
-     * exactly like Instagram's own profile — with zero custom scroll code.
-     */
-    private static class SingleViewAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
-        private final View view;
-        SingleViewAdapter(View view) { this.view = view; }
-        @NonNull @Override
-        public RecyclerView.ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-            if (view.getParent() != null) ((ViewGroup) view.getParent()).removeView(view);
-            return new RecyclerView.ViewHolder(view) {};
-        }
-        @Override public void onBindViewHolder(@NonNull RecyclerView.ViewHolder holder, int position) { }
-        @Override public int getItemCount() { return 1; }
-    }
 }
