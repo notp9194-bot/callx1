@@ -594,52 +594,88 @@ public class UserReelsActivity extends AppCompatActivity
     }
 
     private void setupSwipeBetweenTabs() {
-        RecyclerView.OnItemTouchListener swipeListener = new RecyclerView.OnItemTouchListener() {
+        final float touchSlopPx = android.view.ViewConfiguration.get(this).getScaledTouchSlop();
+        final float swipeThresholdPx = 60 * getResources().getDisplayMetrics().density;
+        final float swipeVelocityPx  = 200 * getResources().getDisplayMetrics().density; // px/sec min fling speed
+
+        // One GestureDetector PER RecyclerView (state must not be shared between rv_reels / rv_series).
+        RecyclerView.OnItemTouchListener reelsListener =
+                buildSwipeListener(rvReels, touchSlopPx, swipeThresholdPx, swipeVelocityPx);
+        RecyclerView.OnItemTouchListener seriesListener =
+                buildSwipeListener(rvSeries, touchSlopPx, swipeThresholdPx, swipeVelocityPx);
+
+        if (rvReels  != null && reelsListener  != null) rvReels.addOnItemTouchListener(reelsListener);
+        if (rvSeries != null && seriesListener != null) rvSeries.addOnItemTouchListener(seriesListener);
+    }
+
+    private RecyclerView.OnItemTouchListener buildSwipeListener(
+            final RecyclerView rv, final float touchSlopPx, final float swipeThresholdPx, final float swipeVelocityPx) {
+        if (rv == null) return null;
+
+        final android.view.GestureDetector gestureDetector = new android.view.GestureDetector(this,
+                new android.view.GestureDetector.SimpleOnGestureListener() {
+                    @Override
+                    public boolean onFling(MotionEvent e1, MotionEvent e2, float velocityX, float velocityY) {
+                        if (e1 == null) return false;
+                        float dx = e2.getX() - e1.getX();
+                        float dy = e2.getY() - e1.getY();
+                        if (Math.abs(dx) > swipeThresholdPx
+                                && Math.abs(dx) > Math.abs(dy)
+                                && Math.abs(velocityX) > swipeVelocityPx) {
+                            // Swipe left (finger moves right→left) → next tab.
+                            // Swipe right (finger moves left→right) → previous tab.
+                            switchToTab(dx < 0 ? activeTab + 1 : activeTab - 1);
+                            return true;
+                        }
+                        return false;
+                    }
+                });
+
+        return new RecyclerView.OnItemTouchListener() {
             private float downX, downY;
-            private boolean dragging = false;
-            private final float touchSlopPx = 12 * getResources().getDisplayMetrics().density;
-            private final float swipeThresholdPx = 60 * getResources().getDisplayMetrics().density;
+            private boolean draggingHorizontally = false;
 
             @Override
-            public boolean onInterceptTouchEvent(@NonNull RecyclerView rv, @NonNull MotionEvent e) {
+            public boolean onInterceptTouchEvent(@NonNull RecyclerView recyclerView, @NonNull MotionEvent e) {
+                gestureDetector.onTouchEvent(e);
                 switch (e.getActionMasked()) {
                     case MotionEvent.ACTION_DOWN:
-                        downX = e.getX(); downY = e.getY(); dragging = false;
+                        downX = e.getX(); downY = e.getY(); draggingHorizontally = false;
                         break;
                     case MotionEvent.ACTION_MOVE:
                         float dx = e.getX() - downX, dy = e.getY() - downY;
-                        if (!dragging && Math.abs(dx) > touchSlopPx && Math.abs(dx) > Math.abs(dy)) {
-                            dragging = true;
+                        if (!draggingHorizontally && Math.abs(dx) > touchSlopPx && Math.abs(dx) > Math.abs(dy)) {
+                            draggingHorizontally = true;
+                            // Stop the AppBarLayout/CoordinatorLayout from stealing the
+                            // gesture mid-swipe so the fling always reaches onFling().
+                            android.view.ViewParent p = recyclerView.getParent();
+                            if (p != null) p.requestDisallowInterceptTouchEvent(true);
                         }
-                        return dragging;
+                        return draggingHorizontally;
                     case MotionEvent.ACTION_UP:
                     case MotionEvent.ACTION_CANCEL:
-                        dragging = false;
+                        draggingHorizontally = false;
+                        android.view.ViewParent parent = recyclerView.getParent();
+                        if (parent != null) parent.requestDisallowInterceptTouchEvent(false);
                         break;
                 }
                 return false;
             }
 
             @Override
-            public void onTouchEvent(@NonNull RecyclerView rv, @NonNull MotionEvent e) {
-                if (!dragging) return;
+            public void onTouchEvent(@NonNull RecyclerView recyclerView, @NonNull MotionEvent e) {
+                gestureDetector.onTouchEvent(e);
                 if (e.getActionMasked() == MotionEvent.ACTION_UP
                         || e.getActionMasked() == MotionEvent.ACTION_CANCEL) {
-                    float dx = e.getX() - downX;
-                    if (Math.abs(dx) > swipeThresholdPx) {
-                        // Swipe left (finger moves right→left) → next tab.
-                        // Swipe right (finger moves left→right) → previous tab.
-                        switchToTab(dx < 0 ? activeTab + 1 : activeTab - 1);
-                    }
-                    dragging = false;
+                    draggingHorizontally = false;
+                    android.view.ViewParent parent = recyclerView.getParent();
+                    if (parent != null) parent.requestDisallowInterceptTouchEvent(false);
                 }
             }
 
             @Override
             public void onRequestDisallowInterceptTouchEvent(boolean disallow) {}
         };
-        if (rvReels  != null) rvReels.addOnItemTouchListener(swipeListener);
-        if (rvSeries != null) rvSeries.addOnItemTouchListener(swipeListener);
     }
 
     // ── Privacy ───────────────────────────────────────────────────────────
