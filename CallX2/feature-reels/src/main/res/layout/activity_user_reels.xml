@@ -1,19 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    activity_user_reels.xml — Instagram-Style Profile v3
+    activity_user_reels.xml — Instagram-Style Profile v4
     =====================================================
-    CoordinatorLayout + AppBarLayout scroll behavior:
+    CoordinatorLayout scroll behavior:
 
-      Top nav bar (noScroll)         — always pinned at top
-      Profile header section (scroll|exitUntilCollapsed)
-                                     — collapses as user scrolls, disappears up
-      TabLayout (noScroll)           — stays pinned just below top nav once collapsed
+      Top nav bar (plain fixed view, OUTSIDE AppBarLayout) — always pinned at top
+      AppBarLayout, offset below nav bar:
+        Child 1 — Profile header (scroll|exitUntilCollapsed) — collapses on scroll
+        Child 2 — TabLayout (noScroll)                       — pins once header collapses
       content_container (FrameLayout) — fills remaining height, scrolls with AppBarLayout
+
+    Nav bar was previously AppBarLayout's Child 1 (pinned, ahead of the
+    scrollable header) — that ordering is unreliable with CoordinatorLayout.
+    Moving it fully outside the AppBarLayout so the AppBarLayout only has the
+    standard [scroll, then pin] child order is the configuration that
+    consistently drives header collapse correctly.
 
     Result: avatar/stats/bio/actions scroll up and collapse; tabs pin; grid is
     the single scroll container — exactly like Instagram.
-    Pull-to-refresh removed — RecyclerView is a native NestedScrollingChild,
-    so it drives AppBarLayout's collapse directly without any workaround.
 -->
 <androidx.coordinatorlayout.widget.CoordinatorLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
@@ -68,36 +72,24 @@
             android:tint="#FF4444" android:contentDescription="Delete All"/>
     </LinearLayout>
 
-    <!-- ════════════════════════════════════════════════════════════
-         AppBarLayout:
-           Child 1 — Top nav bar          (noScroll — always visible)
-           Child 2 — Profile header       (scroll|exitUntilCollapsed)
-           Child 3 — TabLayout            (noScroll — pins below nav)
-         ════════════════════════════════════════════════════════════ -->
-    <com.google.android.material.appbar.AppBarLayout
-        android:id="@+id/app_bar"
+    <!-- ── Top nav bar — fixed, OUTSIDE AppBarLayout, always visible ── -->
+    <LinearLayout
+        android:id="@+id/layout_top_nav"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:layout_height="52dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="4dp"
+        android:paddingEnd="4dp"
         android:background="?attr/colorSurface"
-        android:elevation="0dp"
-        app:liftOnScroll="false">
+        android:elevation="8dp"
+        android:layout_gravity="top">
 
-        <!-- ── CHILD 1: Top nav bar — always pinned ── -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="52dp"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:paddingStart="4dp"
-            android:paddingEnd="4dp"
-            android:background="?attr/colorSurface"
-            app:layout_scrollFlags="noScroll">
-
-            <ImageButton android:id="@+id/btn_back"
-                android:layout_width="48dp" android:layout_height="48dp"
-                android:src="@drawable/ic_arrow_back"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:tint="?attr/colorOnSurface"
+        <ImageButton android:id="@+id/btn_back"
+            android:layout_width="48dp" android:layout_height="48dp"
+            android:src="@drawable/ic_arrow_back"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:tint="?attr/colorOnSurface"
                 android:contentDescription="Back"/>
 
             <!-- Username + verified badge -->
@@ -158,7 +150,21 @@
                 android:padding="9dp"/>
         </LinearLayout>
 
-        <!-- ── CHILD 2: Collapsible profile header (scrolls up and disappears) ── -->
+    <!-- ════════════════════════════════════════════════════════════
+         AppBarLayout — offset below the fixed nav bar:
+           Child 1 — Profile header  (scroll|exitUntilCollapsed)
+           Child 2 — TabLayout       (noScroll — pins once header collapses)
+         ════════════════════════════════════════════════════════════ -->
+    <com.google.android.material.appbar.AppBarLayout
+        android:id="@+id/app_bar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="52dp"
+        android:background="?attr/colorSurface"
+        android:elevation="0dp"
+        app:liftOnScroll="false">
+
+        <!-- ── CHILD 1: Collapsible profile header (scrolls up and disappears) ── -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -662,7 +668,7 @@
 
         </LinearLayout>
 
-        <!-- ── CHILD 3: TabLayout — pinned (noScroll), sticks below top nav once header collapses ── -->
+        <!-- ── CHILD 2: TabLayout — pinned (noScroll), sticks below top nav once header collapses ── -->
         <com.google.android.material.tabs.TabLayout
             android:id="@+id/tab_layout"
             android:layout_width="match_parent"

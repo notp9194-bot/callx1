@@ -346,13 +346,18 @@ public class UserReelsActivity extends AppCompatActivity
     // ── Scroll listener for header collapse + pagination ────────────────────
 
     /**
-     * SCROLLING FIX v4: previously this relied purely on RecyclerView's
-     * automatic nested-scroll propagation up to CoordinatorLayout to collapse
-     * the AppBarLayout. That chain was silently failing (header never moved
-     * at all), so this now ALSO explicitly drives the header via
-     * AppBarLayout.setExpanded() based on scroll direction/position —
-     * this does not depend on nested-scroll dispatch working correctly,
-     * so the header is guaranteed to collapse/expand on scroll.
+     * SCROLLING FIX v5: root cause of the header never collapsing was the
+     * AppBarLayout child ORDER — it had a pinned (noScroll) nav bar BEFORE
+     * the scrollable header, which is an unreliable configuration for
+     * CoordinatorLayout. The nav bar now lives entirely outside the
+     * AppBarLayout (see activity_user_reels.xml), so AppBarLayout only has
+     * the standard [scroll, then pin] child order.
+     *
+     * Kept the explicit AppBarLayout.setExpanded() driving as well (belt and
+     * suspenders) — it doesn't depend on nested-scroll dispatch working at
+     * all, so the header is guaranteed to move on scroll even if something
+     * else in the view hierarchy interferes with the native nested-scroll
+     * chain.
      */
     private boolean headerExpanded = true;
 
