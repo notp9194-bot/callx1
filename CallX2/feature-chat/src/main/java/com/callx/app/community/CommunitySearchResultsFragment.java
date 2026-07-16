@@ -1,11 +1,10 @@
 package com.callx.app.community;
 
-import android.content.Intent;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.Toast;
+import android.widget.TextView;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -16,22 +15,14 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.callx.app.chat.R;
 import com.callx.app.db.entity.CommunityMemberEntity;
 import com.callx.app.db.entity.CommunityPostEntity;
-import com.callx.app.db.entity.GroupEntity;
 import com.callx.app.repository.CommunityRepository;
-import com.google.firebase.auth.FirebaseAuth;
-import com.google.firebase.auth.FirebaseUser;
 
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * v32: Search results fragment used inside CommunitySearchActivity.
+ * v31: Search results fragment used inside CommunitySearchActivity.
  * mode: "posts" | "members" | "groups"
- *
- * v32 UPGRADE: "groups" mode fully implemented — previously showed
- * "Search groups coming soon". Now fetches community-linked groups from
- * CommunityRepository (Room + Firebase), filters by name/description,
- * and navigates via the same resolveGroupAccess() used by CommunityGroupsFragment.
  */
 public class CommunitySearchResultsFragment extends Fragment {
 
@@ -47,13 +38,12 @@ public class CommunitySearchResultsFragment extends Fragment {
 
     private List<CommunityPostEntity>   allPosts   = new ArrayList<>();
     private List<CommunityMemberEntity> allMembers = new ArrayList<>();
-    private List<GroupEntity>           allGroups  = new ArrayList<>();
     private String currentQuery = "";
 
-    // Adapters
-    private CommunityPostSearchAdapter   postSearchAdapter;
+    // Adapter for posts
+    private CommunityPostSearchAdapter postSearchAdapter;
+    // Adapter for members
     private CommunityMemberSearchAdapter memberSearchAdapter;
-    private CommunityGroupAdapter        groupAdapter;
 
     public static CommunitySearchResultsFragment newInstance(String communityId, String mode) {
         CommunitySearchResultsFragment f = new CommunitySearchResultsFragment();
@@ -101,23 +91,14 @@ public class CommunitySearchResultsFragment extends Fragment {
                     });
                 }
                 break;
-
             case "groups":
-                // v32: Full group search — replaces old "coming soon" stub.
-                // Uses CommunityGroupAdapter with the same click → resolveGroupAccess()
-                // flow as CommunityGroupsFragment for consistent behaviour.
-                groupAdapter = new CommunityGroupAdapter();
-                groupAdapter.setOnGroupClickListener(this::openGroup);
-                rvResults.setAdapter(groupAdapter);
-                if (communityId != null) {
-                    // observeCommunityGroups returns all groups linked to this community
-                    repo.observeCommunityGroups(communityId).observe(getViewLifecycleOwner(), groups -> {
-                        allGroups = groups != null ? groups : new ArrayList<>();
-                        applyQuery(currentQuery);
-                    });
-                }
+                // Show group names — use a simple text adapter stub
+                TextView tv = new TextView(requireContext());
+                tv.setPadding(32, 32, 32, 32);
+                tv.setText("Search groups coming soon");
+                // For now use empty state
+                layoutEmpty.setVisibility(View.VISIBLE);
                 break;
-
             default: // posts
                 postSearchAdapter = new CommunityPostSearchAdapter();
                 rvResults.setAdapter(postSearchAdapter);
@@ -142,115 +123,37 @@ public class CommunitySearchResultsFragment extends Fragment {
         String q = query != null ? query.toLowerCase().trim() : "";
 
         switch (mode) {
-            case "members": {
-                List<CommunityMemberEntity> filtered = new ArrayList<>();
+            case "members":
+                List<CommunityMemberEntity> filteredMembers = new ArrayList<>();
                 for (CommunityMemberEntity m : allMembers) {
-                    if (q.isEmpty() || (m.name != null && m.name.toLowerCase().contains(q))) {
-                        filtered.add(m);
+                    if (m.name != null && m.name.toLowerCase().contains(q)) {
+                        filteredMembers.add(m);
                     }
                 }
-                if (memberSearchAdapter != null) memberSearchAdapter.submitList(filtered);
-                boolean empty = filtered.isEmpty() && !q.isEmpty();
-                rvResults.setVisibility(empty ? View.GONE : View.VISIBLE);
-                if (layoutEmpty != null) layoutEmpty.setVisibility(empty ? View.VISIBLE : View.GONE);
+                if (memberSearchAdapter != null) memberSearchAdapter.submitList(filteredMembers);
+                boolean emptyM = filteredMembers.isEmpty();
+                rvResults.setVisibility(emptyM && !q.isEmpty() ? View.GONE : View.VISIBLE);
+                layoutEmpty.setVisibility(emptyM && !q.isEmpty() ? View.VISIBLE : View.GONE);
                 break;
-            }
-
-            case "groups": {
-                List<GroupEntity> filtered = new ArrayList<>();
-                for (GroupEntity g : allGroups) {
-                    if (q.isEmpty()
-                            || (g.name != null && g.name.toLowerCase().contains(q))
-                            || (g.description != null && g.description.toLowerCase().contains(q))) {
-                        filtered.add(g);
-                    }
-                }
-                if (groupAdapter != null) groupAdapter.submitList(filtered);
-                boolean empty = filtered.isEmpty();
-                rvResults.setVisibility(empty ? View.GONE : View.VISIBLE);
-                if (layoutEmpty != null) layoutEmpty.setVisibility(empty ? View.VISIBLE : View.GONE);
-                break;
-            }
-
-            default: { // posts
+            default: // posts
                 if (q.isEmpty()) {
                     if (postSearchAdapter != null) postSearchAdapter.submitList(new ArrayList<>());
-                    if (layoutEmpty != null) layoutEmpty.setVisibility(View.VISIBLE);
+                    layoutEmpty.setVisibility(View.VISIBLE);
                     rvResults.setVisibility(View.GONE);
                     return;
                 }
-                List<CommunityPostEntity> filtered = new ArrayList<>();
+                List<CommunityPostEntity> filteredPosts = new ArrayList<>();
                 for (CommunityPostEntity p : allPosts) {
                     if ((p.text != null && p.text.toLowerCase().contains(q))
                             || (p.authorName != null && p.authorName.toLowerCase().contains(q))) {
-                        filtered.add(p);
+                        filteredPosts.add(p);
                     }
                 }
-                if (postSearchAdapter != null) postSearchAdapter.submitList(filtered);
-                boolean empty = filtered.isEmpty();
-                rvResults.setVisibility(empty ? View.GONE : View.VISIBLE);
-                if (layoutEmpty != null) layoutEmpty.setVisibility(empty ? View.VISIBLE : View.GONE);
+                if (postSearchAdapter != null) postSearchAdapter.submitList(filteredPosts);
+                boolean emptyP = filteredPosts.isEmpty();
+                rvResults.setVisibility(emptyP ? View.GONE : View.VISIBLE);
+                layoutEmpty.setVisibility(emptyP ? View.VISIBLE : View.GONE);
                 break;
-            }
         }
-    }
-
-    // ─────────────────────────────────────────────────────────────────────
-    // Group navigation — mirrors CommunityGroupsFragment.onGroupClick()
-    // ─────────────────────────────────────────────────────────────────────
-
-    private void openGroup(GroupEntity group) {
-        if (!isAdded() || communityId == null) return;
-
-        FirebaseUser user = FirebaseAuth.getInstance().getCurrentUser();
-        String myUid   = user != null ? user.getUid() : null;
-        String myName  = user != null && user.getDisplayName() != null ? user.getDisplayName() : "";
-        String myPhoto = user != null && user.getPhotoUrl() != null ? user.getPhotoUrl().toString() : null;
-
-        if (myUid == null) {
-            Toast.makeText(requireContext(), "Please log in first", Toast.LENGTH_SHORT).show();
-            return;
-        }
-
-        repo.resolveGroupAccess(communityId, group.id, myUid, myName, myPhoto,
-                new CommunityRepository.GroupAccessListener() {
-                    @Override public void onGranted() {
-                        if (!isAdded()) return;
-                        requireActivity().runOnUiThread(() -> {
-                            Intent i = new Intent(requireContext(),
-                                    com.callx.app.group.GroupChatActivity.class);
-                            i.putExtra("groupId",   group.id);
-                            i.putExtra("groupName", group.name);
-                            startActivity(i);
-                        });
-                    }
-                    @Override public void onNotCommunityMember() {
-                        if (!isAdded()) return;
-                        requireActivity().runOnUiThread(() ->
-                                Toast.makeText(requireContext(),
-                                        "Join the community first to access its groups",
-                                        Toast.LENGTH_SHORT).show());
-                    }
-                    @Override public void onRequestPending() {
-                        if (!isAdded()) return;
-                        requireActivity().runOnUiThread(() ->
-                                Toast.makeText(requireContext(),
-                                        "Your join request is pending admin approval",
-                                        Toast.LENGTH_SHORT).show());
-                    }
-                    @Override public void onRequestSent() {
-                        if (!isAdded()) return;
-                        requireActivity().runOnUiThread(() ->
-                                Toast.makeText(requireContext(),
-                                        "Join request sent — wait for admin approval",
-                                        Toast.LENGTH_SHORT).show());
-                    }
-                    @Override public void onError(String msg) {
-                        if (!isAdded()) return;
-                        requireActivity().runOnUiThread(() ->
-                                Toast.makeText(requireContext(),
-                                        "Error: " + msg, Toast.LENGTH_SHORT).show());
-                    }
-                });
     }
 }

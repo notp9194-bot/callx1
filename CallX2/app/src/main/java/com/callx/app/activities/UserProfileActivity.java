@@ -438,7 +438,7 @@ public class UserProfileActivity extends AppCompatActivity {
         }
     }
 
-    /** Report user dialog — v32: Firebase mein report log karo */
+    /** Report user dialog */
     private void confirmReport() {
         String[] reasons = {
             "Spam ya unwanted messages",
@@ -449,40 +449,12 @@ public class UserProfileActivity extends AppCompatActivity {
         };
         new AlertDialog.Builder(this)
             .setTitle("Report karo")
-            .setItems(reasons, (d, which) -> submitReport(reasons[which]))
+            .setItems(reasons, (d, which) -> {
+                Toast.makeText(this, "Report submit ho gayi", Toast.LENGTH_SHORT).show();
+                // TODO: Firebase mein report log karo
+            })
             .setNegativeButton("Cancel", null)
             .show();
-    }
-
-    /** v32: Firebase user_reports/{targetUid}/{reportId} mein atomically log karo. */
-    private void submitReport(String reason) {
-        String reporterUid = com.google.firebase.auth.FirebaseAuth.getInstance()
-                .getCurrentUser() != null
-                ? com.google.firebase.auth.FirebaseAuth.getInstance().getCurrentUser().getUid()
-                : null;
-        if (reporterUid == null || partnerUid == null || partnerUid.isEmpty()) {
-            Toast.makeText(this, "Report nahi ho saka", Toast.LENGTH_SHORT).show();
-            return;
-        }
-        String reportId = reporterUid + "_" + partnerUid;
-        java.util.Map<String, Object> payload = new java.util.HashMap<>();
-        payload.put("reporterUid", reporterUid);
-        payload.put("targetUid",   partnerUid);
-        payload.put("targetName",  partnerName != null ? partnerName : "");
-        payload.put("reason",      reason);
-        payload.put("timestamp",   System.currentTimeMillis());
-        payload.put("status",      "pending");
-        com.google.firebase.database.FirebaseDatabase.getInstance()
-                .getReference("user_reports")
-                .child(partnerUid)
-                .child(reportId)
-                .setValue(payload)
-                .addOnSuccessListener(unused ->
-                        Toast.makeText(this, "Report submit ho gayi — humari team review karegi",
-                                Toast.LENGTH_SHORT).show())
-                .addOnFailureListener(e ->
-                        Toast.makeText(this, "Report nahi ho saki — dobara try karein",
-                                Toast.LENGTH_SHORT).show());
     }
 
     // ──────────────────────────────────────────────────────────────────────

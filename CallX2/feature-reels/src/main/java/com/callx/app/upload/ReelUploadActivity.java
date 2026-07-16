@@ -1812,6 +1812,55 @@ public class ReelUploadActivity extends AppCompatActivity {
                 }
                 @Override public void onComplete(DatabaseError e, boolean committed, DataSnapshot s) {}
             });
+
+            // ✅ FIX: attribute this reel's bottom "sound" label to the sound's
+            // ORIGINAL creator instead of whatever text happened to be sitting
+            // in the upload screen's music field. That field gets pre-filled
+            // with the sound's raw title — which, for reused "original audio"
+            // sounds, is literally the string "Original audio" — so a reused
+            // sound looked byte-identical to a brand-new original recording
+            // and the real creator's name disappeared. Read title/artist
+            // straight from the sound node (source of truth) and write those
+            // onto THIS reel, resolving the creator's name if it wasn't
+            // already denormalised onto the sound.
+            soundRef.addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override
+                public void onDataChange(@NonNull DataSnapshot s) {
+                    String title  = s.child("title").getValue(String.class);
+                    String artist = s.child("artist").getValue(String.class);
+                    String soundCreatorUid = s.child("creatorUid").getValue(String.class);
+
+                    java.util.Map<String, Object> reelUpdate = new java.util.HashMap<>();
+                    reelUpdate.put("musicName",
+                        title != null && !title.isEmpty() ? title : "Original audio");
+
+                    if (artist != null && !artist.isEmpty()) {
+                        reelUpdate.put("musicArtist", artist);
+                        FirebaseUtils.getReelsRef().child(reelId).updateChildren(reelUpdate);
+                    } else if (soundCreatorUid != null && !soundCreatorUid.isEmpty()) {
+                        FirebaseUtils.db().getReference("users").child(soundCreatorUid).child("name")
+                            .addListenerForSingleValueEvent(new ValueEventListener() {
+                                @Override
+                                public void onDataChange(@NonNull DataSnapshot us) {
+                                    String creatorName = us.getValue(String.class);
+                                    if (creatorName != null && !creatorName.isEmpty()) {
+                                        reelUpdate.put("musicArtist", creatorName);
+                                    }
+                                    FirebaseUtils.getReelsRef().child(reelId).updateChildren(reelUpdate);
+                                }
+                                @Override
+                                public void onCancelled(@NonNull DatabaseError e) {
+                                    FirebaseUtils.getReelsRef().child(reelId).updateChildren(reelUpdate);
+                                }
+                            });
+                    } else {
+                        FirebaseUtils.getReelsRef().child(reelId).updateChildren(reelUpdate);
+                    }
+                }
+
+                @Override
+                public void onCancelled(@NonNull DatabaseError e) { /* leave client-typed values as-is */ }
+            });
             return;
         }
 
