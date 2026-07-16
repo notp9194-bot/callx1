@@ -13,6 +13,8 @@
         </activity>
         <activity android:name="com.callx.app.compose.NewStatusActivity"
             android:exported="false"/>
+        <activity android:name="com.callx.app.highlights.StatusHighlightsActivity"
+            android:exported="false"/>
 
         <service android:name="com.callx.app.services.StatusBackgroundService"
             android:exported="false"

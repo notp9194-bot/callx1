@@ -434,59 +434,70 @@ public class FollowConnectionsActivity extends AppCompatActivity {
         boolean empty = filteredItems[tab].isEmpty();
         showEmpty(tab, empty && allItems[tab].isEmpty() && query.isEmpty());
 
-        // Cross-tab search hint — only from Following tab when no local results
-        if (empty && !query.isEmpty() && tab == TAB_FOLLOWING) {
-            checkCrossTabs(query);
+        // Cross-tab search hint — works from ANY tab (Followers / Following / Mutual)
+        if (empty && !query.isEmpty()) {
+            checkCrossTabs(tab, query);
         }
     }
 
+    private static final String[] TAB_LABELS = {"Followers", "Following", "Mutual Followers"};
+
     /**
-     * Cross-tab search: if query found in Followers or Mutual but not Following,
-     * show a friendly hint dialog: avatar + name + "Found in Followers" chip.
+     * Cross-tab search: if query found in a DIFFERENT tab than the one currently
+     * being searched, show a compact hint dialog: avatar + name + highlighted
+     * "Found in <Tab>" chip, regardless of which tab (Followers/Following/Mutual)
+     * the user was searching in.
      */
-    private void checkCrossTabs(String query) {
+    private void checkCrossTabs(int currentTab, String query) {
         String lq = query.toLowerCase(Locale.getDefault());
         UserItem found = null;
-        String   foundIn = null;
+        int foundTab = -1;
 
-        for (UserItem u : allItems[TAB_FOLLOWERS]) {
-            String name = u.name != null ? u.name.toLowerCase(Locale.getDefault()) : "";
-            if (name.contains(lq)) { found = u; foundIn = "Followers"; break; }
-        }
-        if (found == null) {
-            for (UserItem u : allItems[TAB_MUTUAL]) {
+        outer:
+        for (int t = 0; t < TAB_COUNT; t++) {
+            if (t == currentTab) continue;
+            for (UserItem u : allItems[t]) {
                 String name = u.name != null ? u.name.toLowerCase(Locale.getDefault()) : "";
-                if (name.contains(lq)) { found = u; foundIn = "Mutual Followers"; break; }
+                if (name.contains(lq)) { found = u; foundTab = t; break outer; }
             }
         }
         if (found == null || isFinishing() || isDestroyed()) return;
 
-        final UserItem target = found;
-        final String   list   = foundIn;
+        final UserItem target   = found;
+        final int      foundIdx = foundTab;
 
         // Debounce — only show after search settles
         viewPager.postDelayed(() -> {
             String current = etSearch != null ? etSearch.getText().toString().trim() : "";
             if (!current.equalsIgnoreCase(query) || isFinishing() || isDestroyed()) return;
-            showCrossTabDialog(target, list);
+            showCrossTabDialog(target, foundIdx);
         }, 600);
     }
 
-    private void showCrossTabDialog(UserItem user, String listName) {
+    private void showCrossTabDialog(UserItem user, int foundTabIdx) {
         if (isFinishing() || isDestroyed()) return;
         Context ctx = this;
         float density = getResources().getDisplayMetrics().density;
+        String listName = TAB_LABELS[foundTabIdx];
 
-        // Build custom dialog view
+        // ── Compact card, rounded on all 4 corners ──────────────────────────
         LinearLayout root = new LinearLayout(ctx);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setGravity(android.view.Gravity.CENTER);
-        int pad = (int)(24 * density);
-        root.setPadding(pad, pad, pad, (int)(16 * density));
+        int padH = (int) (20 * density), padTop = (int) (20 * density), padBottom = (int) (10 * density);
+        root.setPadding(padH, padTop, padH, padBottom);
+
+        android.graphics.drawable.GradientDrawable cardBg = new android.graphics.drawable.GradientDrawable();
+        cardBg.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
+        cardBg.setCornerRadius(22 * density);
+        cardBg.setColor(0xFFFFFFFF);
+        root.setBackground(cardBg);
+        root.setLayoutParams(new ViewGroup.LayoutParams(
+                (int) (260 * density), ViewGroup.LayoutParams.WRAP_CONTENT));
 
         // Avatar
         CircleImageView iv = new CircleImageView(ctx);
-        int avSz = (int)(60 * density);
+        int avSz = (int) (52 * density);
         iv.setImageResource(R.drawable.ic_person);
         if (user.photo != null && !user.photo.isEmpty()) {
             Glide.with(ctx).load(user.photo)
@@ -500,13 +511,15 @@ public class FollowConnectionsActivity extends AppCompatActivity {
         // Name
         TextView tvName = new TextView(ctx);
         tvName.setText(user.name != null ? user.name : user.uid);
-        tvName.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 16f);
+        tvName.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 15f);
         tvName.setTypeface(null, android.graphics.Typeface.BOLD);
         tvName.setTextColor(0xFF111111);
         tvName.setGravity(android.view.Gravity.CENTER);
+        tvName.setMaxLines(1);
+        tvName.setEllipsize(android.text.TextUtils.TruncateAt.END);
         LinearLayout.LayoutParams nameLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        nameLp.topMargin = (int)(10 * density);
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        nameLp.topMargin = (int) (8 * density);
         root.addView(tvName, nameLp);
 
         // "Found in: [chip]" row
@@ -515,48 +528,96 @@ public class FollowConnectionsActivity extends AppCompatActivity {
         chipRow.setGravity(android.view.Gravity.CENTER);
         LinearLayout.LayoutParams crLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        crLp.topMargin = (int)(6 * density);
+        crLp.topMargin = (int) (6 * density);
         root.addView(chipRow, crLp);
 
         TextView foundLabel = new TextView(ctx);
         foundLabel.setText("Found in  ");
-        foundLabel.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 13f);
+        foundLabel.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 12f);
         foundLabel.setTextColor(0xFF888888);
         chipRow.addView(foundLabel);
 
-        // Highlighted chip
+        // Highlighted chip — one colour per tab
         TextView chip = new TextView(ctx);
         chip.setText(listName);
-        chip.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 12f);
+        chip.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 11f);
         chip.setTextColor(0xFFFFFFFF);
-        int hPad = (int)(10 * density), vPad = (int)(4 * density);
+        int hPad = (int) (10 * density), vPad = (int) (3 * density);
         chip.setPadding(hPad, vPad, hPad, vPad);
         android.graphics.drawable.GradientDrawable chipBg = new android.graphics.drawable.GradientDrawable();
         chipBg.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
         chipBg.setCornerRadius(20 * density);
-        chipBg.setColor(listName.equals("Followers") ? 0xFF6C5CE7 : 0xFF00B894);
+        int[] chipColors = {0xFF6C5CE7, 0xFF00B894, 0xFFFF7675}; // Followers / Following / Mutual
+        chipBg.setColor(chipColors[foundTabIdx]);
         chip.setBackground(chipBg);
         chip.setTypeface(null, android.graphics.Typeface.BOLD);
         chipRow.addView(chip);
 
-        AlertDialog dialog = new AlertDialog.Builder(ctx)
-            .setView(root)
-            .setPositiveButton("Open " + listName, (d, w) -> {
-                // Switch to correct tab
-                int goTo = listName.equals("Followers") ? TAB_FOLLOWERS : TAB_MUTUAL;
-                if (viewPager != null) viewPager.setCurrentItem(goTo, true);
-                if (etSearch  != null) etSearch.setText(user.name);
-            })
-            .setNegativeButton("View Profile", (d, w) -> {
-                Intent i = new Intent(this, UserReelsActivity.class);
-                i.putExtra(UserReelsActivity.EXTRA_UID,   user.uid);
-                i.putExtra(UserReelsActivity.EXTRA_NAME,  user.name);
-                i.putExtra(UserReelsActivity.EXTRA_PHOTO, user.photo);
-                startActivity(i);
-            })
-            .setNeutralButton("Cancel", null)
-            .create();
+        // Divider
+        View divider = new View(ctx);
+        LinearLayout.LayoutParams divLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, (int) (density));
+        divLp.topMargin = (int) (16 * density);
+        divider.setBackgroundColor(0xFFEDEDED);
+        root.addView(divider, divLp);
+
+        // ── Compact action row (2 buttons, no default AlertDialog chrome) ───
+        LinearLayout btnRow = new LinearLayout(ctx);
+        btnRow.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams btnRowLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        btnRowLp.topMargin = (int) (10 * density);
+        root.addView(btnRow, btnRowLp);
+
+        AlertDialog dialog = new AlertDialog.Builder(ctx).setView(root).create();
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setBackgroundDrawable(
+                    new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
+        }
+
+        TextView btnView = new TextView(ctx);
+        btnView.setText("View Profile");
+        styleCompactDialogBtn(btnView, false, density);
+        btnView.setOnClickListener(v -> {
+            dialog.dismiss();
+            Intent i = new Intent(FollowConnectionsActivity.this, UserReelsActivity.class);
+            i.putExtra(UserReelsActivity.EXTRA_UID,   user.uid);
+            i.putExtra(UserReelsActivity.EXTRA_NAME,  user.name);
+            i.putExtra(UserReelsActivity.EXTRA_PHOTO, user.photo);
+            startActivity(i);
+        });
+        btnRow.addView(btnView, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        TextView btnOpen = new TextView(ctx);
+        btnOpen.setText("Open " + listName);
+        styleCompactDialogBtn(btnOpen, true, density);
+        btnOpen.setOnClickListener(v -> {
+            dialog.dismiss();
+            if (viewPager != null) viewPager.setCurrentItem(foundTabIdx, true);
+            if (etSearch  != null) etSearch.setText(user.name);
+        });
+        LinearLayout.LayoutParams openLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        openLp.leftMargin = (int) (8 * density);
+        btnRow.addView(btnOpen, openLp);
+
         dialog.show();
+    }
+
+    private void styleCompactDialogBtn(TextView btn, boolean filled, float density) {
+        btn.setGravity(android.view.Gravity.CENTER);
+        btn.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 12.5f);
+        btn.setTypeface(null, android.graphics.Typeface.BOLD);
+        btn.setPadding(0, (int) (11 * density), 0, (int) (11 * density));
+        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+        bg.setCornerRadius(14 * density);
+        if (filled) {
+            bg.setColor(getResources().getColor(R.color.brand_primary, null));
+            btn.setTextColor(0xFFFFFFFF);
+        } else {
+            bg.setColor(0xFFF2F2F2);
+            btn.setTextColor(0xFF444444);
+        }
+        btn.setBackground(bg);
     }
 
     // ══════════════════════════════════════════════════════════════════════

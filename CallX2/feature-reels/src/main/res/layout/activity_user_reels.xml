@@ -82,7 +82,7 @@
         android:paddingStart="4dp"
         android:paddingEnd="4dp"
         android:background="?attr/colorSurface"
-        android:elevation="8dp"
+        android:elevation="2dp"
         android:layout_gravity="top">
 
         <ImageButton android:id="@+id/btn_back"
@@ -272,38 +272,6 @@
                     </LinearLayout>
                 </LinearLayout>
             </LinearLayout>
-
-            <!-- ══ Story Highlights Row — Instagram style ══
-                 Horizontal scrollable row of circle-ring story albums.
-                 Self view: first item = "+ New" button.
-                 Tap → play all stories in album. Long-press (self) → rename / delete.
-            -->
-            <HorizontalScrollView
-                android:id="@+id/hsv_highlights"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:scrollbars="none"
-                android:paddingStart="4dp"
-                android:paddingEnd="4dp"
-                android:paddingBottom="4dp"
-                android:visibility="gone">
-
-                <androidx.recyclerview.widget.RecyclerView
-                    android:id="@+id/rv_highlights"
-                    android:layout_width="wrap_content"
-                    android:layout_height="110dp"
-                    android:orientation="horizontal"
-                    android:nestedScrollingEnabled="false"
-                    android:overScrollMode="never"/>
-
-            </HorizontalScrollView>
-
-            <!-- Thin divider below highlights (only shown when highlights visible) -->
-            <View android:id="@+id/divider_highlights"
-                android:layout_width="match_parent"
-                android:layout_height="0.5dp"
-                android:background="@color/divider"
-                android:visibility="gone"/>
 
             <!-- Bio (max 3 lines, tap to expand) -->
             <TextView android:id="@+id/tv_bio"
@@ -684,6 +652,39 @@
                 </LinearLayout>
             </LinearLayout>
 
+            <!-- ══ Story Highlights Row — Instagram style ══
+                 Horizontal scrollable row of circle-ring story albums.
+                 Self view: first item = "+ New" button.
+                 Tap → play all stories in album. Long-press (self) → rename / delete.
+                 Positioned below the Video Call / X / YouTube action button row.
+            -->
+            <HorizontalScrollView
+                android:id="@+id/hsv_highlights"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:scrollbars="none"
+                android:paddingStart="4dp"
+                android:paddingEnd="4dp"
+                android:paddingBottom="4dp"
+                android:visibility="gone">
+
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/rv_highlights"
+                    android:layout_width="wrap_content"
+                    android:layout_height="110dp"
+                    android:orientation="horizontal"
+                    android:nestedScrollingEnabled="false"
+                    android:overScrollMode="never"/>
+
+            </HorizontalScrollView>
+
+            <!-- Thin divider below highlights (only shown when highlights visible) -->
+            <View android:id="@+id/divider_highlights"
+                android:layout_width="match_parent"
+                android:layout_height="0.5dp"
+                android:background="@color/divider"
+                android:visibility="gone"/>
+
             <!-- Divider -->
             <View android:layout_width="match_parent" android:layout_height="0.5dp"
                 android:background="@color/divider"
@@ -705,7 +706,7 @@
             android:layout_width="match_parent"
             android:layout_height="44dp"
             app:layout_scrollFlags="noScroll"
-            app:tabMode="scrollable"
+            app:tabMode="fixed"
             app:tabGravity="fill"
             app:tabSelectedTextColor="?attr/colorOnSurface"
             app:tabTextColor="?attr/colorOnSurfaceVariant"

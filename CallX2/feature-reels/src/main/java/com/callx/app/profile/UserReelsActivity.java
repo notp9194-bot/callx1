@@ -136,8 +136,8 @@ public class UserReelsActivity extends AppCompatActivity
 
       // ── Filter chips state ─────────────────────────────────────────────
       private static final int FILTER_ALL    = 0;
-      private static final int FILTER_SHORT  = 1; // duration < 15s
-      private static final int FILTER_LONG   = 2; // duration > 30s
+      private static final int FILTER_OLDEST = 1; // sorted by timestamp ascending
+      private static final int FILTER_NEWEST = 2; // sorted by timestamp descending
       private static final int FILTER_VIEWED = 3; // most viewed
       private int              activeFilter  = FILTER_ALL;
       private android.widget.HorizontalScrollView hsvFilterChips;
@@ -353,6 +353,7 @@ public class UserReelsActivity extends AppCompatActivity
         // drives AppBarLayout's collapse natively via nested scrolling.
         rvReels.setNestedScrollingEnabled(true);
         rvReels.setHasFixedSize(false);
+        setupSwipeBetweenTabs();
 
         // Instagram-style CTA buttons visible only for other users
         if (layoutInstagramCta  != null) layoutInstagramCta.setVisibility(isSelf ? View.GONE : View.VISIBLE);
@@ -423,44 +424,104 @@ public class UserReelsActivity extends AppCompatActivity
     }
 
 
-      // ── Filter Chips ──────────────────────────────────────────────────────
+      // ── Filter Popup (Reels tab only, shown on re-tap of the tab icon) ─────
 
       private void setupFilterChips() {
-          if (llFilterChips == null) return;
-          String[] labels = {"All", "Short (<15s)", "Long (>30s)", "Most Viewed"};
-          int[] filters   = {FILTER_ALL, FILTER_SHORT, FILTER_LONG, FILTER_VIEWED};
+          // Old always-visible chip row is retired — filters now live in a
+          // compact popup that only appears when the user re-taps the Reels
+          // tab, and only while that tab is active (see onTabReselected()).
+          if (hsvFilterChips != null) hsvFilterChips.setVisibility(android.view.View.GONE);
+      }
 
-          for (int fi = 0; fi < labels.length; fi++) {
-              final int filter = filters[fi];
-              android.widget.TextView chip = new android.widget.TextView(this);
-              android.view.ViewGroup.MarginLayoutParams lp =
-                  new android.widget.LinearLayout.LayoutParams(
-                      android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
-                      (int)(32 * getResources().getDisplayMetrics().density));
-              ((android.widget.LinearLayout.LayoutParams)lp).setMarginEnd(
-                  (int)(8 * getResources().getDisplayMetrics().density));
-              chip.setLayoutParams(lp);
-              int ph = (int)(14 * getResources().getDisplayMetrics().density);
-              chip.setPadding(ph, 0, ph, 0);
-              chip.setGravity(android.view.Gravity.CENTER);
-              chip.setText(labels[fi]);
-              chip.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 12f);
-              chip.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
-              chip.setTag(filter);
-              updateChipStyle(chip, filter == activeFilter);
-              chip.setOnClickListener(v -> {
-                  activeFilter = filter;
-                  for (int c = 0; c < llFilterChips.getChildCount(); c++) {
-                      android.view.View child = llFilterChips.getChildAt(c);
-                      if (child instanceof android.widget.TextView) {
-                          updateChipStyle((android.widget.TextView) child,
-                              child.getTag() != null && (int) child.getTag() == filter);
-                      }
-                  }
-                  applyFilter();
-              });
-              llFilterChips.addView(chip);
+      private void updateChipStyle(android.widget.TextView chip, boolean selected) {
+          if (selected) {
+              chip.setTextColor(android.graphics.Color.BLACK);
+              chip.setBackgroundResource(R.drawable.bg_filter_chip_selected);
+          } else {
+              chip.setTextColor(android.graphics.Color.WHITE);
+              chip.setBackgroundResource(R.drawable.bg_filter_chip_unselected);
           }
+      }
+
+      /** Resolve the tappable view for a given TabLayout tab position (used as popup anchor). */
+      private android.view.View tabAnchorView(TabLayout.Tab tab) {
+          try {
+              android.view.ViewGroup strip = (android.view.ViewGroup) tabLayout.getChildAt(0);
+              if (strip != null && tab.getPosition() < strip.getChildCount()) {
+                  return strip.getChildAt(tab.getPosition());
+              }
+          } catch (Exception ignored) {}
+          return tabLayout;
+      }
+
+      /**
+       * Compact popup — Instagram-style small card with a checkmark next to
+       * the active filter. Only ever invoked for the Reels tab.
+       */
+      private void showFilterPopup(TabLayout.Tab tab) {
+          if (isFinishing() || isDestroyed()) return;
+          android.view.View anchor = tabAnchorView(tab);
+          float density = getResources().getDisplayMetrics().density;
+
+          android.widget.LinearLayout menu = new android.widget.LinearLayout(this);
+          menu.setOrientation(android.widget.LinearLayout.VERTICAL);
+          android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+          bg.setColor(0xFFFAFAFA);
+          bg.setCornerRadius(16 * density);
+          menu.setBackground(bg);
+          menu.setElevation(8 * density);
+          int padV = (int) (4 * density);
+          menu.setPadding(0, padV, 0, padV);
+
+          android.widget.PopupWindow popup = new android.widget.PopupWindow(
+                  menu, (int) (190 * density), android.view.ViewGroup.LayoutParams.WRAP_CONTENT, true);
+          popup.setElevation(8 * density);
+          popup.setOutsideTouchable(true);
+          popup.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
+
+          String[] labels = {"All", "Oldest", "Newest", "Most viewed"};
+          int[]    filters = {FILTER_ALL, FILTER_OLDEST, FILTER_NEWEST, FILTER_VIEWED};
+
+          for (int i = 0; i < labels.length; i++) {
+              final int filter = filters[i];
+              android.widget.LinearLayout row = new android.widget.LinearLayout(this);
+              row.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+              row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+              row.setPadding((int) (18 * density), (int) (13 * density), (int) (18 * density), (int) (13 * density));
+              row.setBackground(getResources().getDrawable(android.R.drawable.list_selector_background, null));
+
+              android.widget.TextView tv = new android.widget.TextView(this);
+              tv.setText(labels[i]);
+              tv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14.5f);
+              tv.setTextColor(0xFF111111);
+              android.widget.LinearLayout.LayoutParams tvLp = new android.widget.LinearLayout.LayoutParams(
+                      0, android.view.ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+              row.addView(tv, tvLp);
+
+              if (filter == activeFilter) {
+                  android.widget.TextView check = new android.widget.TextView(this);
+                  check.setText("\u2713");
+                  check.setTextColor(getResources().getColor(R.color.brand_primary, null));
+                  check.setTypeface(null, android.graphics.Typeface.BOLD);
+                  check.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 16f);
+                  row.addView(check);
+              }
+
+              row.setOnClickListener(v -> {
+                  activeFilter = filter;
+                  applyFilter();
+                  popup.dismiss();
+              });
+              menu.addView(row);
+
+              if (i < labels.length - 1) {
+                  android.view.View divider = new android.view.View(this);
+                  divider.setBackgroundColor(0xFFEDEDED);
+                  menu.addView(divider, android.view.ViewGroup.LayoutParams.MATCH_PARENT, (int) density);
+              }
+          }
+
+          popup.showAsDropDown(anchor, 0, (int) (6 * density));
       }
 
       private void updateChipStyle(android.widget.TextView chip, boolean selected) {
@@ -478,13 +539,13 @@ public class UserReelsActivity extends AppCompatActivity
           List<ReelModel> source = activeTabData();
           List<ReelModel> filtered;
           switch (activeFilter) {
-              case FILTER_SHORT:
-                  filtered = new ArrayList<>();
-                  for (ReelModel r : source) { if (r.duration > 0 && r.duration < 15000) filtered.add(r); }
+              case FILTER_OLDEST:
+                  filtered = new ArrayList<>(source);
+                  filtered.sort((a, b2) -> Long.compare(a.timestamp, b2.timestamp));
                   break;
-              case FILTER_LONG:
-                  filtered = new ArrayList<>();
-                  for (ReelModel r : source) { if (r.duration > 30000) filtered.add(r); }
+              case FILTER_NEWEST:
+                  filtered = new ArrayList<>(source);
+                  filtered.sort((a, b2) -> Long.compare(b2.timestamp, a.timestamp));
                   break;
               case FILTER_VIEWED:
                   filtered = new ArrayList<>(source);
@@ -513,8 +574,13 @@ public class UserReelsActivity extends AppCompatActivity
             }
             @Override public void onTabUnselected(TabLayout.Tab tab) {}
             @Override public void onTabReselected(TabLayout.Tab tab) {
-                if (activeTab != TAB_SERIES && rvReels != null) rvReels.smoothScrollToPosition(0);
-                if (activeTab == TAB_SERIES && rvSeries != null) rvSeries.smoothScrollToPosition(0);
+                if (activeTab == TAB_REELS) {
+                    showFilterPopup(tab);
+                } else if (activeTab == TAB_SERIES && rvSeries != null) {
+                    rvSeries.smoothScrollToPosition(0);
+                } else if (rvReels != null) {
+                    rvReels.smoothScrollToPosition(0);
+                }
             }
         });
     }
@@ -526,6 +592,64 @@ public class UserReelsActivity extends AppCompatActivity
             case TAB_REPOST: return repostsTabData;
             default:         return reelsTabData;
         }
+    }
+
+    // ── Swipe left/right on the grid to switch tabs (mirrors the 5 icon tabs) ──
+
+    private void switchToTab(int newPos) {
+        if (newPos < TAB_REELS || newPos > TAB_SERIES) return; // out of range — no-op at edges
+        if (tabLayout == null) return;
+        TabLayout.Tab t = tabLayout.getTabAt(newPos);
+        if (t != null) t.select();
+    }
+
+    private void setupSwipeBetweenTabs() {
+        RecyclerView.OnItemTouchListener swipeListener = new RecyclerView.OnItemTouchListener() {
+            private float downX, downY;
+            private boolean dragging = false;
+            private final float touchSlopPx = 12 * getResources().getDisplayMetrics().density;
+            private final float swipeThresholdPx = 60 * getResources().getDisplayMetrics().density;
+
+            @Override
+            public boolean onInterceptTouchEvent(@NonNull RecyclerView rv, @NonNull MotionEvent e) {
+                switch (e.getActionMasked()) {
+                    case MotionEvent.ACTION_DOWN:
+                        downX = e.getX(); downY = e.getY(); dragging = false;
+                        break;
+                    case MotionEvent.ACTION_MOVE:
+                        float dx = e.getX() - downX, dy = e.getY() - downY;
+                        if (!dragging && Math.abs(dx) > touchSlopPx && Math.abs(dx) > Math.abs(dy)) {
+                            dragging = true;
+                        }
+                        return dragging;
+                    case MotionEvent.ACTION_UP:
+                    case MotionEvent.ACTION_CANCEL:
+                        dragging = false;
+                        break;
+                }
+                return false;
+            }
+
+            @Override
+            public void onTouchEvent(@NonNull RecyclerView rv, @NonNull MotionEvent e) {
+                if (!dragging) return;
+                if (e.getActionMasked() == MotionEvent.ACTION_UP
+                        || e.getActionMasked() == MotionEvent.ACTION_CANCEL) {
+                    float dx = e.getX() - downX;
+                    if (Math.abs(dx) > swipeThresholdPx) {
+                        // Swipe left (finger moves right→left) → next tab.
+                        // Swipe right (finger moves left→right) → previous tab.
+                        switchToTab(dx < 0 ? activeTab + 1 : activeTab - 1);
+                    }
+                    dragging = false;
+                }
+            }
+
+            @Override
+            public void onRequestDisallowInterceptTouchEvent(boolean disallow) {}
+        };
+        if (rvReels  != null) rvReels.addOnItemTouchListener(swipeListener);
+        if (rvSeries != null) rvSeries.addOnItemTouchListener(swipeListener);
     }
 
     // ── Privacy ───────────────────────────────────────────────────────────
@@ -789,7 +913,7 @@ public class UserReelsActivity extends AppCompatActivity
             android.content.Intent i = new android.content.Intent(this, cls);
             i.putExtra("ownerUid", targetUid);
             startActivity(i);
-        } catch (ClassNotFoundException ex) {
+        } catch (ClassNotFoundException | android.content.ActivityNotFoundException ex) {
             Toast.makeText(this, "Highlights manager not available", Toast.LENGTH_SHORT).show();
         }
     }
