@@ -63,16 +63,6 @@ import java.util.*;
  *  - RecyclerView gets match_parent height and owns all scrolling.
  *  - Pagination uses RecyclerView.OnScrollListener (no NestedScrollView needed).
  *  - SwipeRefreshLayout enabled only when RV is at top (canScrollVertically(-1) == false).
- *
- * SCROLLING FIX v3 (header collapse gap):
- *  - SwipeRefreshLayout only implements NestedScrollingParent v1, so it never
- *    forwards RecyclerView's scroll to CoordinatorLayout/AppBarLayout.Behavior.
- *  - v2 patched this with a raw onNestedPreScroll() call per onScrolled(), but
- *    always with TYPE_NON_TOUCH and with no onStartNestedScroll()/onStopNestedScroll(),
- *    so the header would freeze mid-collapse instead of snapping fully open/closed.
- *  - v3 drives the full nested-scroll lifecycle (start → preScroll with the
- *    correct touch/fling type → stop) so the header always finishes fully
- *    collapsed or fully expanded — no more gap. See setupScrollPagination().
  */
 public class UserReelsActivity extends AppCompatActivity
         implements ReelGridAdapter.LongPressListener,
@@ -291,17 +281,21 @@ public class UserReelsActivity extends AppCompatActivity
             Glide.with(this).load(targetPhoto).circleCrop()
                 .placeholder(R.drawable.ic_person).into(ivAvatar);
 
+        // Share / Creator Hub / Settings are no longer shown as separate top-bar icons —
+        // they are now entries inside the 3-dot (More) menu, wired in setupMoreMenu().
+        // Keeping these listeners assigned is harmless (views stay GONE) and lets
+        // setupMoreMenu() reuse the exact same actions.
         if (btnShareProfile != null) btnShareProfile.setOnClickListener(v -> shareProfile());
 
         if (btnCreatorHub != null) {
-            btnCreatorHub.setVisibility(isSelf ? View.VISIBLE : View.GONE);
-            if (isSelf) btnCreatorHub.setOnClickListener(v ->
+            btnCreatorHub.setVisibility(View.GONE);
+            btnCreatorHub.setOnClickListener(v ->
                 startActivity(new Intent(this, ReelCreatorHubActivity.class)));
         }
 
         if (btnSettings != null) {
-            btnSettings.setVisibility(isSelf ? View.VISIBLE : View.GONE);
-            if (isSelf) btnSettings.setOnClickListener(v -> {
+            btnSettings.setVisibility(View.GONE);
+            btnSettings.setOnClickListener(v -> {
                 // Reel profile edit — reels/users/{uid} node
                 startActivity(new Intent(this, ReelEditProfileActivity.class));
             });
@@ -342,8 +336,10 @@ public class UserReelsActivity extends AppCompatActivity
         rvReels.setNestedScrollingEnabled(true);
         rvReels.setHasFixedSize(false);
 
-        if (layoutActions != null) layoutActions.setVisibility(isSelf ? View.GONE : View.VISIBLE);
-        if (btnFollow     != null) btnFollow.setVisibility(isSelf ? View.GONE : View.VISIBLE);
+        // Message/Call/X/YouTube row and the Follow button are no longer shown inline —
+        // they're now items inside the 3-dot (More) menu (see setupMoreMenu()).
+        if (layoutActions != null) layoutActions.setVisibility(View.GONE);
+        if (btnFollow     != null) btnFollow.setVisibility(View.GONE);
 
         setupActionButtons();
         setupMoreMenu();
@@ -382,124 +378,102 @@ public class UserReelsActivity extends AppCompatActivity
 
     // ── Scroll listener for pagination + SwipeRefresh guard ───────────────
 
-    // Tracks whether we've told AppBarLayout.Behavior that a nested scroll is
-    // in progress (needed so it can be told, correctly, when it ends).
-    private boolean appBarNestedScrollActive = false;
-    // TYPE_TOUCH while the finger is down / dragging, TYPE_NON_TOUCH during a fling.
-    private int     appBarNestedScrollType   = ViewCompat.TYPE_TOUCH;
-
     /**
-     * HEADER SCROLL FIX v3: root cause of the earlier "gap" bug —
-     * SwipeRefreshLayout only implements NestedScrollingParent v1, so it never
-     * forwards RecyclerView's nested-scroll dispatch up to CoordinatorLayout,
-     * which is what normally drives AppBarLayout.Behavior. The old code patched
-     * this by manually calling onNestedPreScroll() on every onScrolled(), but:
-     *   1. It always passed TYPE_NON_TOUCH, even for a finger-driven drag, so
-     *      the Behavior's internal state didn't match the real gesture type.
-     *   2. It never called onStartNestedScroll()/onStopNestedScroll(), so the
-     *      Behavior never got a "gesture ended" signal to settle/snap fully —
-     *      it would stop moving mid-collapse the moment scroll deltas stopped
-     *      arriving, leaving a visible gap between the header and the tabs.
+     * SCROLLING FIX: RecyclerView.OnScrollListener handles:
+     *  1. Disabling SwipeRefresh when not at top (prevents gesture conflict)
+     *  2. Triggering pagination when near the bottom
      *
-     * Fix: drive the full NestedScrollingParent lifecycle ourselves — start,
-     * repeated pre-scroll (with the correct touch/fling type), then stop —
-     * so AppBarLayout.Behavior always finishes each gesture fully collapsed
-     * or fully expanded, never stuck in between.
+     * Header collapse itself is handled separately by setupHeaderNestedDrag() below —
+     * see that method's comment for why the old approach here left a gap.
      */
     private void setupScrollPagination() {
-        // Touch tracking: know when the user's finger is actually down/up so we
-        // can start/stop the nested-scroll lifecycle with the correct type.
-        rvReels.setOnTouchListener((v, event) -> {
-            switch (event.getActionMasked()) {
-                case MotionEvent.ACTION_DOWN:
-                    appBarNestedScrollType = ViewCompat.TYPE_TOUCH;
-                    startAppBarNestedScroll();
-                    break;
-                case MotionEvent.ACTION_UP:
-                case MotionEvent.ACTION_CANCEL:
-                    // Only stop here if no fling is about to take over; if a fling
-                    // starts, onScrollStateChanged(SETTLING) will re-start it with
-                    // TYPE_NON_TOUCH before this has a chance to leave a gap.
-                    rvReels.post(() -> {
-                        if (rvReels.getScrollState() == RecyclerView.SCROLL_STATE_IDLE) {
-                            stopAppBarNestedScroll();
+          rvReels.addOnScrollListener(new RecyclerView.OnScrollListener() {
+              @Override
+              public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
+                  if (swipeRefresh != null && !swipeRefresh.isRefreshing()) {
+                      swipeRefresh.setEnabled(isAppBarExpanded && !rv.canScrollVertically(-1));
+                  }
+
+                  if (isLoadingMore) return;
+                  if (!getCurrentTabHasMore()) return;
+                  int total       = gridLayoutManager.getItemCount();
+                  int lastVisible = gridLayoutManager.findLastVisibleItemPosition();
+                  if (lastVisible >= total - 6) {
+                      loadCurrentTab(false);
+                  }
+              }
+          });
+          setupHeaderNestedDrag();
+      }
+
+    // ── Header collapse — real fix for the "gap" bug ───────────────────────
+    /**
+     * ROOT CAUSE of the old bug: the previous code fed the header-collapse behavior
+     * with `dy` taken from RecyclerView.onScrolled(), i.e. the amount the grid itself
+     * had ALREADY scrolled. That amount is capped by the grid's own content height
+     * (item count * row height - viewport height). Whenever a profile had few reels
+     * (short grid), the grid could only ever scroll a small distance, so the header
+     * never received enough cumulative delta to fully collapse — leaving a visible
+     * gap between the collapsed header and the tab bar.
+     *
+     * FIX: drive the header purely off the user's raw finger movement (independent of
+     * how much the grid itself can scroll), exactly like real nested-scroll pre-scroll
+     * does. We attach an OnItemTouchListener that never intercepts (so clicks / normal
+     * grid scrolling still work untouched), but on every ACTION_MOVE forwards the raw
+     * screen-Y delta straight to AppBarLayout.Behavior#onNestedPreScroll first. Once
+     * the header is fully collapsed, onNestedPreScroll's own min/max clamping makes
+     * further calls a no-op, so it never over-collapses or fights the grid.
+     */
+    private int nestedDragLastRawY;
+    private boolean isNestedDragging = false;
+
+    private void setupHeaderNestedDrag() {
+        rvReels.addOnItemTouchListener(new RecyclerView.OnItemTouchListener() {
+            @Override
+            public boolean onInterceptTouchEvent(@NonNull RecyclerView rv, @NonNull MotionEvent e) {
+                forwardToHeader(rv, e);
+                return false; // never steal the touch — grid keeps scrolling/clicking normally
+            }
+            @Override
+            public void onTouchEvent(@NonNull RecyclerView rv, @NonNull MotionEvent e) {
+                forwardToHeader(rv, e);
+            }
+            @Override
+            public void onRequestDisallowInterceptTouchEvent(boolean disallow) { }
+
+            private void forwardToHeader(RecyclerView rv, MotionEvent e) {
+                if (appBarLayout == null) return;
+                switch (e.getActionMasked()) {
+                    case MotionEvent.ACTION_DOWN:
+                        nestedDragLastRawY = (int) e.getRawY();
+                        isNestedDragging = true;
+                        break;
+                    case MotionEvent.ACTION_MOVE: {
+                        if (!isNestedDragging) break;
+                        int curY = (int) e.getRawY();
+                        int dy = nestedDragLastRawY - curY; // finger up => positive => collapse
+                        nestedDragLastRawY = curY;
+                        if (dy == 0) break;
+                        if (appBarLayout.getParent() instanceof CoordinatorLayout) {
+                            CoordinatorLayout cl = (CoordinatorLayout) appBarLayout.getParent();
+                            CoordinatorLayout.LayoutParams lp =
+                                (CoordinatorLayout.LayoutParams) appBarLayout.getLayoutParams();
+                            CoordinatorLayout.Behavior<?> b = lp.getBehavior();
+                            if (b instanceof AppBarLayout.Behavior) {
+                                ((AppBarLayout.Behavior) b).onNestedPreScroll(
+                                    cl, appBarLayout, rv, 0, dy, new int[]{0, 0},
+                                    ViewCompat.TYPE_TOUCH);
+                            }
                         }
-                    });
-                    break;
-            }
-            return false; // never consume — let RecyclerView handle the touch normally
-        });
-
-        rvReels.addOnScrollListener(new RecyclerView.OnScrollListener() {
-            @Override
-            public void onScrollStateChanged(@NonNull RecyclerView rv, int newState) {
-                if (newState == RecyclerView.SCROLL_STATE_SETTLING) {
-                    // A fling just started (finger already lifted) — non-touch type.
-                    appBarNestedScrollType = ViewCompat.TYPE_NON_TOUCH;
-                    startAppBarNestedScroll();
-                } else if (newState == RecyclerView.SCROLL_STATE_IDLE) {
-                    stopAppBarNestedScroll();
-                }
-            }
-
-            @Override
-            public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
-                dispatchAppBarPreScroll(rv, dy);
-
-                if (swipeRefresh != null && !swipeRefresh.isRefreshing()) {
-                    swipeRefresh.setEnabled(isAppBarExpanded && !rv.canScrollVertically(-1));
-                }
-
-                if (isLoadingMore) return;
-                if (!getCurrentTabHasMore()) return;
-                int total       = gridLayoutManager.getItemCount();
-                int lastVisible = gridLayoutManager.findLastVisibleItemPosition();
-                if (lastVisible >= total - 6) {
-                    loadCurrentTab(false);
+                        break;
+                    }
+                    case MotionEvent.ACTION_UP:
+                    case MotionEvent.ACTION_CANCEL:
+                        isNestedDragging = false;
+                        break;
                 }
             }
         });
-    }
-
-    private AppBarLayout.Behavior getAppBarBehavior() {
-        if (appBarLayout == null || !(appBarLayout.getParent() instanceof CoordinatorLayout)) {
-            return null;
-        }
-        CoordinatorLayout.LayoutParams lp =
-            (CoordinatorLayout.LayoutParams) appBarLayout.getLayoutParams();
-        CoordinatorLayout.Behavior<?> b = lp.getBehavior();
-        return (b instanceof AppBarLayout.Behavior) ? (AppBarLayout.Behavior) b : null;
-    }
-
-    private void startAppBarNestedScroll() {
-        if (appBarNestedScrollActive) return;
-        AppBarLayout.Behavior behavior = getAppBarBehavior();
-        if (behavior == null) return;
-        CoordinatorLayout cl = (CoordinatorLayout) appBarLayout.getParent();
-        behavior.onStartNestedScroll(
-            cl, appBarLayout, rvReels, rvReels,
-            ViewCompat.SCROLL_AXIS_VERTICAL, appBarNestedScrollType);
-        appBarNestedScrollActive = true;
-    }
-
-    private void dispatchAppBarPreScroll(RecyclerView rv, int dy) {
-        AppBarLayout.Behavior behavior = getAppBarBehavior();
-        if (behavior == null) return;
-        if (!appBarNestedScrollActive) startAppBarNestedScroll();
-        CoordinatorLayout cl = (CoordinatorLayout) appBarLayout.getParent();
-        behavior.onNestedPreScroll(
-            cl, appBarLayout, rv, 0, dy, new int[]{0, 0}, appBarNestedScrollType);
-    }
-
-    private void stopAppBarNestedScroll() {
-        if (!appBarNestedScrollActive) return;
-        AppBarLayout.Behavior behavior = getAppBarBehavior();
-        appBarNestedScrollActive = false;
-        if (behavior == null) return;
-        CoordinatorLayout cl = (CoordinatorLayout) appBarLayout.getParent();
-        // This is what actually lets AppBarLayout settle/snap fully closed or
-        // open instead of freezing mid-collapse — the missing piece before.
-        behavior.onStopNestedScroll(cl, appBarLayout, rvReels, appBarNestedScrollType);
     }
 
     private boolean getCurrentTabHasMore() {
@@ -1931,28 +1905,75 @@ public class UserReelsActivity extends AppCompatActivity
 
     // ── More menu ─────────────────────────────────────────────────────────
 
+    // Menu item ids — every action button on this screen lives here now instead of
+    // as a separate on-screen button (Alina's instruction: "screen pe jitne bhi button
+    // hai sabhi ko" 3-dot menu me daalo). Back button stays outside since it's core
+    // nav, not a feature action.
+    private static final int MENU_FOLLOW          = 1;
+    private static final int MENU_MESSAGE         = 2;
+    private static final int MENU_AUDIO_CALL      = 3;
+    private static final int MENU_VIDEO_CALL      = 4;
+    private static final int MENU_OPEN_X          = 5;
+    private static final int MENU_OPEN_YOUTUBE    = 6;
+    private static final int MENU_REPOSTED        = 7;
+    private static final int MENU_SERIES          = 8;
+    private static final int MENU_SHARE_PROFILE   = 9;
+    private static final int MENU_COPY_LINK       = 10;
+    private static final int MENU_CREATOR_HUB     = 11;
+    private static final int MENU_CREATOR_DASH    = 12;
+    private static final int MENU_SETTINGS        = 13;
+    private static final int MENU_UNPIN_REEL      = 14;
+    private static final int MENU_DELETE_ALL      = 15;
+    private static final int MENU_REPORT_USER     = 16;
+
     private void setupMoreMenu() {
         if (btnMore == null) return;
         btnMore.setOnClickListener(v -> {
             PopupMenu menu = new PopupMenu(this, btnMore);
-            menu.getMenu().add(0, 1, 0, "Share Profile");
-            menu.getMenu().add(0, 2, 0, "Copy Profile Link");
-            if (isSelf)  menu.getMenu().add(0, 5, 0, "Creator Dashboard");
-            if (isSelf && pinnedReel != null) menu.getMenu().add(0, 4, 0, "Remove Pinned Reel");
-            if (isSelf)  menu.getMenu().add(0, 6, 0, "🗑️ Delete All Reels");
-            if (!isSelf) menu.getMenu().add(0, 3, 0, "Report User");
+
+            if (!isSelf) {
+                menu.getMenu().add(0, MENU_FOLLOW, 0, isFollowing ? "Following ✓" : "Follow");
+                menu.getMenu().add(0, MENU_MESSAGE, 0, "Message");
+                menu.getMenu().add(0, MENU_AUDIO_CALL, 0, "Audio Call");
+                menu.getMenu().add(0, MENU_VIDEO_CALL, 0, "Video Call");
+                menu.getMenu().add(0, MENU_OPEN_X, 0, "X Profile");
+                menu.getMenu().add(0, MENU_OPEN_YOUTUBE, 0, "YouTube Channel");
+            }
+            menu.getMenu().add(0, MENU_REPOSTED, 0, "Reposted");
+            menu.getMenu().add(0, MENU_SERIES, 0, "Series");
+            menu.getMenu().add(0, MENU_SHARE_PROFILE, 0, "Share Profile");
+            menu.getMenu().add(0, MENU_COPY_LINK, 0, "Copy Profile Link");
+            if (isSelf) {
+                menu.getMenu().add(0, MENU_CREATOR_HUB, 0, "Creator Hub");
+                menu.getMenu().add(0, MENU_CREATOR_DASH, 0, "Creator Dashboard");
+                menu.getMenu().add(0, MENU_SETTINGS, 0, "Settings / Edit Profile");
+            }
+            if (isSelf && pinnedReel != null) menu.getMenu().add(0, MENU_UNPIN_REEL, 0, "Remove Pinned Reel");
+            if (isSelf) menu.getMenu().add(0, MENU_DELETE_ALL, 0, "🗑️ Delete All Reels");
+            if (!isSelf) menu.getMenu().add(0, MENU_REPORT_USER, 0, "Report User");
+
             menu.setOnMenuItemClickListener(item -> {
                 switch (item.getItemId()) {
-                    case 1: shareProfile(); break;
-                    case 2:
+                    case MENU_FOLLOW:       if (btnFollow != null) btnFollow.performClick(); break;
+                    case MENU_MESSAGE:      if (btnMessage != null) btnMessage.performClick(); break;
+                    case MENU_AUDIO_CALL:   if (btnAudioCall != null) btnAudioCall.performClick(); break;
+                    case MENU_VIDEO_CALL:   if (btnVideoCall != null) btnVideoCall.performClick(); break;
+                    case MENU_OPEN_X:       if (btnOpenX != null) btnOpenX.performClick(); break;
+                    case MENU_OPEN_YOUTUBE: if (btnOpenYoutube != null) btnOpenYoutube.performClick(); break;
+                    case MENU_REPOSTED:     if (btnRepostSection != null) btnRepostSection.performClick(); break;
+                    case MENU_SERIES:       if (btnSeriesSection != null) btnSeriesSection.performClick(); break;
+                    case MENU_SHARE_PROFILE: shareProfile(); break;
+                    case MENU_COPY_LINK:
                         ClipboardManager cm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
                         if (cm != null) cm.setPrimaryClip(ClipData.newPlainText("Link",
                             com.callx.app.utils.Constants.DEEP_LINK_BASE_URL + "/profile/" + targetUid));
                         Toast.makeText(this, "Link copied", Toast.LENGTH_SHORT).show(); break;
-                    case 3: Toast.makeText(this, "Report submitted. Thank you.", Toast.LENGTH_SHORT).show(); break;
-                    case 4: unpinReel(); break;
-                    case 5: startActivity(new Intent(this, ReelCreatorDashboardActivity.class)); break;
-                    case 6: deleteAllReels(); break;
+                    case MENU_CREATOR_HUB:  if (btnCreatorHub != null) btnCreatorHub.performClick(); break;
+                    case MENU_CREATOR_DASH: startActivity(new Intent(this, ReelCreatorDashboardActivity.class)); break;
+                    case MENU_SETTINGS:     if (btnSettings != null) btnSettings.performClick(); break;
+                    case MENU_UNPIN_REEL:   unpinReel(); break;
+                    case MENU_DELETE_ALL:   deleteAllReels(); break;
+                    case MENU_REPORT_USER:  Toast.makeText(this, "Report submitted. Thank you.", Toast.LENGTH_SHORT).show(); break;
                 }
                 return true;
             });

@@ -123,13 +123,16 @@
                     android:visibility="gone"/>
             </LinearLayout>
 
-            <!-- Top-right icons -->
+            <!-- Top-right icons: moved into 3-dot (More) menu — kept as GONE views so
+                 existing findViewById()/click-listener code keeps working untouched;
+                 they are never shown, all their actions are now menu items in setupMoreMenu(). -->
             <ImageButton android:id="@+id/btn_share_profile"
                 android:layout_width="44dp" android:layout_height="44dp"
                 android:src="@drawable/ic_send"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:tint="?attr/colorOnSurface"
-                android:contentDescription="Share" android:padding="11dp"/>
+                android:contentDescription="Share" android:padding="11dp"
+                android:visibility="gone"/>
 
             <ImageButton android:id="@+id/btn_creator_hub"
                 android:layout_width="40dp" android:layout_height="40dp"
@@ -595,16 +598,20 @@
             <!-- Divider -->
             <View android:layout_width="match_parent" android:layout_height="0.5dp"
                 android:background="@color/divider"
-                android:layout_marginTop="4dp"/>
+                android:layout_marginTop="4dp"
+                android:visibility="gone"/>
 
-            <!-- Repost + Series row -->
+            <!-- Repost + Series row: moved into 3-dot (More) menu as "Reposted" / "Series" items.
+                 Kept GONE (not removed) so btnRepostSection/btnSeriesSection findViewById() and
+                 their click logic in setupRepostSeriesButtons() keep working, just triggered from the menu now. -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
                 android:paddingStart="16dp" android:paddingEnd="16dp"
                 android:paddingTop="4dp" android:paddingBottom="6dp"
-                android:gravity="center">
+                android:gravity="center"
+                android:visibility="gone">
 
                 <LinearLayout android:id="@+id/btn_repost_section"
                     android:layout_width="0dp" android:layout_height="wrap_content"
