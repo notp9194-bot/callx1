@@ -380,27 +380,22 @@ public class UserReelsActivity extends AppCompatActivity
      * AppBarLayout (see activity_user_reels.xml), so AppBarLayout only has
      * the standard [scroll, then pin] child order.
      *
-     * Kept the explicit AppBarLayout.setExpanded() driving as well (belt and
-     * suspenders) — it doesn't depend on nested-scroll dispatch working at
-     * all, so the header is guaranteed to move on scroll even if something
-     * else in the view hierarchy interferes with the native nested-scroll
-     * chain.
+     * The header's scroll flags (scroll|exitUntilCollapsed) + the content
+     * container's app:layout_behavior="appbar_scrolling_view_behavior" are
+     * enough for CoordinatorLayout to drive the collapse natively — no
+     * manual AppBarLayout.setExpanded() driving is needed (that was causing
+     * scroll flicker/junk by fighting the native nested-scroll animation).
      */
-    private boolean headerExpanded = true;
-
     private void setupScrollPagination() {
           rvReels.addOnScrollListener(new RecyclerView.OnScrollListener() {
               @Override
               public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
-                  if (appBarLayout != null) {
-                      if (dy > 4 && headerExpanded) {
-                          headerExpanded = false;
-                          appBarLayout.setExpanded(false, true);
-                      } else if (dy < -4 && !rv.canScrollVertically(-1) && !headerExpanded) {
-                          headerExpanded = true;
-                          appBarLayout.setExpanded(true, true);
-                      }
-                  }
+                  // NOTE: AppBarLayout collapse/expand is already driven natively by
+                  // CoordinatorLayout's nested-scroll (app:layout_behavior=
+                  // "@string/appbar_scrolling_view_behavior" + the header's own
+                  // scroll flags). Manually calling appBarLayout.setExpanded(..., true)
+                  // here as well fights that ongoing touch-driven offset animation and
+                  // is what was causing the scroll/flicker/junk pattern — removed.
 
                   if (isLoadingMore) return;
                   if (!getCurrentTabHasMore()) return;
@@ -598,7 +593,7 @@ public class UserReelsActivity extends AppCompatActivity
         final float swipeThresholdPx = 60 * getResources().getDisplayMetrics().density;
         final float swipeVelocityPx  = 200 * getResources().getDisplayMetrics().density; // px/sec min fling speed
 
-        // One GestureDetector PER RecyclerView (state must not be shared between rv_reels / rv_series).
+        // One GestureDetector PER view (state must not be shared between rv_reels / rv_series / layout_empty).
         RecyclerView.OnItemTouchListener reelsListener =
                 buildSwipeListener(rvReels, touchSlopPx, swipeThresholdPx, swipeVelocityPx);
         RecyclerView.OnItemTouchListener seriesListener =
@@ -606,13 +601,28 @@ public class UserReelsActivity extends AppCompatActivity
 
         if (rvReels  != null && reelsListener  != null) rvReels.addOnItemTouchListener(reelsListener);
         if (rvSeries != null && seriesListener != null) rvSeries.addOnItemTouchListener(seriesListener);
+
+        // IMPORTANT: refreshEmptyState() sets rvReels.setVisibility(GONE) and shows
+        // layoutEmpty instead whenever the active tab (Liked/Saved/Reposts) has no
+        // items. Since a GONE view receives no touch events at all, the swipe
+        // listener above never fires there — which is why swiping used to get
+        // stuck on the first empty tab and couldn't go further. Attach the same
+        // fling detection to layoutEmpty as a plain touch listener so swiping keeps
+        // working through empty tabs too.
+        if (layoutEmpty != null) {
+            final android.view.GestureDetector emptyStateDetector =
+                    createTabSwipeGestureDetector(swipeThresholdPx, swipeVelocityPx);
+            layoutEmpty.setOnTouchListener((v, e) -> {
+                emptyStateDetector.onTouchEvent(e);
+                return false; // don't swallow taps on any CTA buttons inside the empty state
+            });
+        }
     }
 
-    private RecyclerView.OnItemTouchListener buildSwipeListener(
-            final RecyclerView rv, final float touchSlopPx, final float swipeThresholdPx, final float swipeVelocityPx) {
-        if (rv == null) return null;
-
-        final android.view.GestureDetector gestureDetector = new android.view.GestureDetector(this,
+    /** Builds a GestureDetector that switches tabs on a left/right fling. */
+    private android.view.GestureDetector createTabSwipeGestureDetector(
+            final float swipeThresholdPx, final float swipeVelocityPx) {
+        return new android.view.GestureDetector(this,
                 new android.view.GestureDetector.SimpleOnGestureListener() {
                     @Override
                     public boolean onFling(MotionEvent e1, MotionEvent e2, float velocityX, float velocityY) {
@@ -630,6 +640,14 @@ public class UserReelsActivity extends AppCompatActivity
                         return false;
                     }
                 });
+    }
+
+    private RecyclerView.OnItemTouchListener buildSwipeListener(
+            final RecyclerView rv, final float touchSlopPx, final float swipeThresholdPx, final float swipeVelocityPx) {
+        if (rv == null) return null;
+
+        final android.view.GestureDetector gestureDetector =
+                createTabSwipeGestureDetector(swipeThresholdPx, swipeVelocityPx);
 
         return new RecyclerView.OnItemTouchListener() {
             private float downX, downY;
