@@ -65,6 +65,8 @@ public class ReelEditorActivity extends AppCompatActivity {
 
     public static final String EXTRA_VIDEO_URI           = "editor_video_uri";
     public static final String EXTRA_IS_FILE_PATH        = "is_file_path";
+    /** Pass true from SoundDetailActivity "Use in Video" to auto-open the audio mixer. */
+    public static final String EXTRA_OPEN_AUDIO_MIXER    = "open_audio_mixer";
     public static final String EXTRA_IS_DUET             = "editor_is_duet";
     public static final String EXTRA_DUET_ORIGINAL_ID    = "editor_duet_original_id";
     public static final String EXTRA_DUET_ORIGINAL_URL   = "editor_duet_original_url";
@@ -141,6 +143,10 @@ public class ReelEditorActivity extends AppCompatActivity {
     // True when ReelCameraActivity already replaced mic audio with the selected
     // sound. Must be forwarded to ReelUploadActivity so it skips a second mix.
     private boolean audioAlreadyReplaced  = false;
+    // True when coming from "Use in Video" (SoundDetailActivity gallery flow):
+    // the mixer is auto-opened once the player is ready so user can balance volumes.
+    private boolean openAudioMixerOnLoad  = false;
+    private boolean mixerAutoOpened       = false; // guard: open only once
 
     // ── Tool result storage ───────────────────────────────────────────────
     // Filters
@@ -205,6 +211,8 @@ public class ReelEditorActivity extends AppCompatActivity {
         if (su != null && !su.isEmpty()) preSelectedSoundUrl   = su;
         // FIX: carry the "already replaced" flag from camera so upload skips re-mixing
         audioAlreadyReplaced = getIntent().getBooleanExtra("audio_already_replaced", false);
+        // "Use in Video" gallery flow: auto-open mixer once player is ready
+        openAudioMixerOnLoad = getIntent().getBooleanExtra(EXTRA_OPEN_AUDIO_MIXER, false);
 
         if (videoUriStr == null || videoUriStr.isEmpty()) {
             Toast.makeText(this, "No video to edit", Toast.LENGTH_SHORT).show();
@@ -598,6 +606,31 @@ public class ReelEditorActivity extends AppCompatActivity {
                     progressBuffering.setVisibility(
                         state == Player.STATE_BUFFERING ? View.VISIBLE : View.GONE);
                 updatePlayPauseIcon();
+
+                // "Use in Video" gallery flow: auto-open the audio mixer once the
+                // player has buffered enough to start, so the user can balance
+                // "Original video audio" vs "Reused sound" volumes immediately.
+                if (state == Player.STATE_READY
+                        && openAudioMixerOnLoad
+                        && !mixerAutoOpened
+                        && !preSelectedSoundUrl.isEmpty()) {
+                    mixerAutoOpened = true;
+                    // Small delay so the UI is fully settled before opening mixer
+                    new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
+                        () -> {
+                            if (!isFinishing() && !isDestroyed()) {
+                                Intent mi = new Intent(ReelEditorActivity.this,
+                                        ReelAudioMixerActivity.class);
+                                mi.putExtra(ReelAudioMixerActivity.EXTRA_VIDEO_URI,    videoUriStr);
+                                mi.putExtra(ReelAudioMixerActivity.EXTRA_IS_FILE_PATH, isFilePath);
+                                mi.putExtra(ReelAudioMixerActivity.EXTRA_MUSIC_URL,    preSelectedSoundUrl);
+                                mi.putExtra(ReelAudioMixerActivity.EXTRA_MUSIC_TITLE,  preSelectedSoundTitle);
+                                mi.putExtra(ReelAudioMixerActivity.EXTRA_MUSIC_ARTIST, "");
+                                mi.putExtra(ReelAudioMixerActivity.EXTRA_SOUND_ID,     preSelectedSoundId);
+                                startActivityForResult(mi, REQ_AUDIO_MIXER);
+                            }
+                        }, 600);
+                }
             }
             @Override public void onIsPlayingChanged(boolean p) { updatePlayPauseIcon(); }
         });

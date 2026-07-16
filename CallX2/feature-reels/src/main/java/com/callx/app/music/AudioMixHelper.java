@@ -144,10 +144,23 @@ public class AudioMixHelper {
         short[] micPcm = extractPcmFromVideo(videoPath);
         mainHandler.post(() -> callback.onProgress(40));
 
-        // Step 3: Decode music audio (trimmed to mic length)
+        // Step 3: Decode music audio — full decode, then loop or trim to match video length.
+        // Loop behaviour: if the reused sound is shorter than the video (e.g. a 15-second
+        // sound used on a 60-second gallery video), repeat it seamlessly until the video ends.
         short[] musicPcm = null;
         if (musicFile != null) {
-            musicPcm = extractPcmFromFile(musicFile.getAbsolutePath(), micPcm.length);
+            musicPcm = extractPcmFromFile(musicFile.getAbsolutePath(), Integer.MAX_VALUE);
+            if (musicPcm.length > 0 && micPcm.length > 0) {
+                if (musicPcm.length < micPcm.length) {
+                    // Sound shorter than video → loop it
+                    musicPcm = loopPcm(musicPcm, micPcm.length);
+                } else if (musicPcm.length > micPcm.length) {
+                    // Sound longer than video → trim it
+                    short[] trimmed = new short[micPcm.length];
+                    System.arraycopy(musicPcm, 0, trimmed, 0, micPcm.length);
+                    musicPcm = trimmed;
+                }
+            }
         }
         mainHandler.post(() -> callback.onProgress(55));
 
@@ -360,6 +373,20 @@ public class AudioMixHelper {
             return trimmed;
         }
         return pcm;
+    }
+
+    /**
+     * Loops {@code source} PCM samples until {@code targetLength} samples are produced.
+     * Used when the reused sound is shorter than the video — instead of silence at the
+     * end, the sound repeats seamlessly (same behaviour as Instagram's "Use Audio").
+     */
+    private static short[] loopPcm(short[] source, int targetLength) {
+        if (source == null || source.length == 0) return new short[targetLength];
+        short[] out = new short[targetLength];
+        for (int i = 0; i < targetLength; i++) {
+            out[i] = source[i % source.length];
+        }
+        return out;
     }
 
     /**

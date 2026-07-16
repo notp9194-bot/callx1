@@ -110,6 +110,10 @@ public class SoundDetailActivity extends AppCompatActivity implements Player.Lis
     private boolean       isLoadingMoreReels = false;
     private boolean       hasMoreReels       = true;
 
+    // ─── Request codes ─────────────────────────────────────────────────────────
+    /** Gallery video picker launched from "Use in Video" button */
+    private static final int REQ_GALLERY_VIDEO = 701;
+
     // ─── State ─────────────────────────────────────────────────────────────────
     private String  soundId, soundTitle, soundUrl, artist, coverUrl, genre;
     private int     durationMs, bpm;
@@ -1007,11 +1011,12 @@ public class SoundDetailActivity extends AppCompatActivity implements Player.Lis
         });
 
         if (btnUseSoundGallery != null) btnUseSoundGallery.setOnClickListener(v -> {
-            Intent i = new Intent(this, ReelUploadActivity.class);
-            i.putExtra("selected_sound_id",    soundId);
-            i.putExtra("selected_sound_title", soundTitle);
-            i.putExtra("selected_sound_url",   soundUrl);
-            startActivity(i);
+            // Let user pick a video from the gallery first, then open editor with
+            // the mixer auto-launched so they can balance original + reused sound.
+            Intent pick = new Intent(Intent.ACTION_PICK,
+                    android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI);
+            pick.setType("video/*");
+            startActivityForResult(pick, REQ_GALLERY_VIDEO);
         });
 
         if (btnTrimStart != null) btnTrimStart.setVisibility(View.GONE);
@@ -1025,6 +1030,39 @@ public class SoundDetailActivity extends AppCompatActivity implements Player.Lis
                 pausePlayback();
                 hideMiniPlayer();
             });
+        }
+    }
+
+    // ───────────────────────────────────────────────────────────────────────────
+    //  Activity result — gallery video picker ("Use in Video" flow)
+    // ───────────────────────────────────────────────────────────────────────────
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+
+        if (requestCode == REQ_GALLERY_VIDEO && resultCode == RESULT_OK && data != null) {
+            android.net.Uri videoUri = data.getData();
+            if (videoUri == null) {
+                Toast.makeText(this, "Could not read selected video", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            // Open ReelEditorActivity with:
+            //  • the gallery video
+            //  • the reused sound pre-selected
+            //  • open_audio_mixer=true  →  editor auto-launches the mixer so user
+            //    can adjust "Original video volume" vs "Reused sound volume"
+            Intent intent = new Intent(this, com.callx.app.editor.ReelEditorActivity.class);
+            intent.putExtra(com.callx.app.editor.ReelEditorActivity.EXTRA_VIDEO_URI,
+                    videoUri.toString());
+            intent.putExtra(com.callx.app.editor.ReelEditorActivity.EXTRA_IS_FILE_PATH, false);
+            intent.putExtra("selected_sound_id",    soundId    != null ? soundId    : "");
+            intent.putExtra("selected_sound_title", soundTitle != null ? soundTitle : "");
+            intent.putExtra("selected_sound_url",   soundUrl   != null ? soundUrl   : "");
+            // Tell the editor to open the audio mixer immediately so the user can
+            // balance the original video audio against the reused sound.
+            intent.putExtra(com.callx.app.editor.ReelEditorActivity.EXTRA_OPEN_AUDIO_MIXER, true);
+            startActivity(intent);
         }
     }
 
