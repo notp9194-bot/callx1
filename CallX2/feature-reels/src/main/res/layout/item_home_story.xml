@@ -29,7 +29,7 @@
             android:layout_gravity="center"
             android:src="@drawable/ic_person"
             app:civ_border_width="2.5dp"
-            app:civ_border_color="@color/brand_primary"/>
+            app:civ_border_color="@android:color/white"/>
 
         <ImageView
             android:id="@+id/iv_story_seen_ring"

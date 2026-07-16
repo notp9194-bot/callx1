@@ -394,9 +394,10 @@ public class HomeFragment extends Fragment {
             ImageView ivGradientRing = storyView.findViewById(R.id.iv_reel_story_gradient_ring);
 
             if (entry.hasReelStory) {
-                // Show gradient sweep ring — hides the plain border
+                // Show gradient sweep ring, with a white gap between ring and avatar (Instagram-style)
                 if (ivGradientRing != null) ivGradientRing.setVisibility(View.VISIBLE);
-                avatar.setBorderWidth(0);
+                avatar.setBorderColor(0xFFFFFFFF);
+                avatar.setBorderWidth(dpToPx(3));
                 if (ivSeenRing != null) ivSeenRing.setVisibility(View.GONE);
             } else if (entry.hasUnseen) {
                 // Brand color ring for unseen WhatsApp-style status
