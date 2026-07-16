@@ -119,8 +119,6 @@ public class UserReelsActivity extends AppCompatActivity
     private View            layoutFollowingClick;
     private View            btnRepostSection;
     private View            btnSeriesSection;
-    private com.google.android.material.appbar.AppBarLayout appBarLayout;
-    private boolean         isAppBarExpanded = true;
 
       // ── Filter chips state ─────────────────────────────────────────────
       private static final int FILTER_ALL    = 0;
@@ -204,68 +202,83 @@ public class UserReelsActivity extends AppCompatActivity
 
     // ── Bind views ────────────────────────────────────────────────────────
 
+    private View headerView, tabsView, chipsView;
+
     private void bindViews() {
-        ivAvatar             = findViewById(R.id.iv_avatar);
-        ivVerified           = findViewById(R.id.iv_verified);
-        viewStoryRing        = findViewById(R.id.view_story_ring);
-        tvName               = findViewById(R.id.tv_name);
-        tvReelCount          = findViewById(R.id.tv_reel_count);
-        tvFollowers          = findViewById(R.id.tv_followers);
-        tvFollowing          = findViewById(R.id.tv_following);
-        tvBio                = findViewById(R.id.tv_bio);
-        tvMutualFollowers    = findViewById(R.id.tv_mutual_followers);
-        layoutMutualFollowers= findViewById(R.id.layout_mutual_followers);
-        ivMutual1            = findViewById(R.id.iv_mutual_1);
-        ivMutual2            = findViewById(R.id.iv_mutual_2);
-        ivMutual3            = findViewById(R.id.iv_mutual_3);
-        tvEmptyTitle         = findViewById(R.id.tv_empty_title);
-        tvEmptySubtitle      = findViewById(R.id.tv_empty_subtitle);
-        btnFollow            = findViewById(R.id.btn_follow);
+        // ── Root layout (top bar / grid / overlays) — still a normal findViewById ──
         btnBack              = findViewById(R.id.btn_back);
+        tvName               = findViewById(R.id.tv_name);
+        ivVerified           = findViewById(R.id.iv_verified);
         btnShareProfile      = findViewById(R.id.btn_share_profile);
         btnCreatorHub        = findViewById(R.id.btn_creator_hub);
         btnSettings          = findViewById(R.id.btn_settings);
         btnMore              = findViewById(R.id.btn_more);
-        btnMessage           = findViewById(R.id.btn_message);
-        btnAudioCall         = findViewById(R.id.btn_audio_call);
-        btnVideoCall         = findViewById(R.id.btn_video_call);
-        btnOpenX             = findViewById(R.id.btn_open_x);
-        btnOpenYoutube       = findViewById(R.id.btn_open_youtube);
-        ivAnimChat           = findViewById(R.id.iv_anim_chat);
-        ivAnimX              = findViewById(R.id.iv_anim_x);
-        ivAnimYoutube        = findViewById(R.id.iv_anim_youtube);
-        layoutActions        = findViewById(R.id.layout_actions);
-        tabLayout            = findViewById(R.id.tab_layout);
+
         rvReels              = findViewById(R.id.rv_reels);
-          rvSeries             = findViewById(R.id.rv_series);
-        hsvFilterChips       = findViewById(R.id.hsv_filter_chips);
-        llFilterChips        = findViewById(R.id.ll_filter_chips);
+        rvSeries             = findViewById(R.id.rv_series);
         progressBar          = findViewById(R.id.progress_bar);
         layoutEmpty          = findViewById(R.id.layout_empty);
+        tvEmptyTitle         = findViewById(R.id.tv_empty_title);
+        tvEmptySubtitle      = findViewById(R.id.tv_empty_subtitle);
         swipeRefresh         = findViewById(R.id.swipe_refresh);
         btnViewAllReels      = findViewById(R.id.btn_view_all_reels);
         layoutMultiSelectBar = findViewById(R.id.layout_multi_select_bar);
         tvSelectedCount      = findViewById(R.id.tv_selected_count);
         btnShareSelected     = findViewById(R.id.btn_share_selected);
         layoutPrivateAccount = findViewById(R.id.layout_private_account);
-        layoutFollowersClick = findViewById(R.id.layout_followers_click);
-        layoutFollowingClick = findViewById(R.id.layout_following_click);
-        btnRepostSection     = findViewById(R.id.btn_repost_section);
-        btnSeriesSection     = findViewById(R.id.btn_series_section);
         btnDeleteSelected    = findViewById(R.id.btn_delete_selected);
         btnCancelSelect      = findViewById(R.id.btn_cancel_select);
         btnDeleteAll         = findViewById(R.id.btn_delete_all);
-        tvPhone          = findViewById(R.id.tv_phone);
-        tvWhatsapp       = findViewById(R.id.tv_whatsapp);
-        tvInstagram      = findViewById(R.id.tv_instagram);
-        tvYoutube        = findViewById(R.id.tv_youtube);
-        tvOtherLink      = findViewById(R.id.tv_other_link);
-        layoutPhone      = findViewById(R.id.layout_phone);
-        layoutWhatsapp   = findViewById(R.id.layout_whatsapp);
-        layoutInstagram  = findViewById(R.id.layout_instagram);
-        layoutYoutube    = findViewById(R.id.layout_youtube);
-        layoutOtherLink  = findViewById(R.id.layout_other_link);
-        appBarLayout     = findViewById(R.id.app_bar);
+
+        // ── Header / tabs / filter-chips: inflated standalone (NOT part of the
+        // Activity's own view tree) — they become items 0/1/2 inside rv_reels's
+        // ConcatAdapter in setupHeader(), so the whole screen scrolls as ONE native
+        // list, exactly like Instagram's own profile. Every id that used to live
+        // inside the old AppBarLayout now resolves against these inflated views. ──
+        LayoutInflater inflater = LayoutInflater.from(this);
+        headerView = inflater.inflate(R.layout.view_profile_header_row, rvReels, false);
+        tabsView   = inflater.inflate(R.layout.view_profile_tabs_row, rvReels, false);
+        chipsView  = inflater.inflate(R.layout.view_filter_chips_row, rvReels, false);
+
+        ivAvatar              = headerView.findViewById(R.id.iv_avatar);
+        viewStoryRing         = headerView.findViewById(R.id.view_story_ring);
+        tvReelCount           = headerView.findViewById(R.id.tv_reel_count);
+        tvFollowers           = headerView.findViewById(R.id.tv_followers);
+        tvFollowing           = headerView.findViewById(R.id.tv_following);
+        tvBio                 = headerView.findViewById(R.id.tv_bio);
+        tvMutualFollowers     = headerView.findViewById(R.id.tv_mutual_followers);
+        layoutMutualFollowers = headerView.findViewById(R.id.layout_mutual_followers);
+        ivMutual1             = headerView.findViewById(R.id.iv_mutual_1);
+        ivMutual2             = headerView.findViewById(R.id.iv_mutual_2);
+        ivMutual3             = headerView.findViewById(R.id.iv_mutual_3);
+        btnFollow             = headerView.findViewById(R.id.btn_follow);
+        btnMessage            = headerView.findViewById(R.id.btn_message);
+        btnAudioCall          = headerView.findViewById(R.id.btn_audio_call);
+        btnVideoCall          = headerView.findViewById(R.id.btn_video_call);
+        btnOpenX              = headerView.findViewById(R.id.btn_open_x);
+        btnOpenYoutube        = headerView.findViewById(R.id.btn_open_youtube);
+        ivAnimChat            = headerView.findViewById(R.id.iv_anim_chat);
+        ivAnimX               = headerView.findViewById(R.id.iv_anim_x);
+        ivAnimYoutube         = headerView.findViewById(R.id.iv_anim_youtube);
+        layoutActions         = headerView.findViewById(R.id.layout_actions);
+        layoutFollowersClick  = headerView.findViewById(R.id.layout_followers_click);
+        layoutFollowingClick  = headerView.findViewById(R.id.layout_following_click);
+        btnRepostSection      = headerView.findViewById(R.id.btn_repost_section);
+        btnSeriesSection      = headerView.findViewById(R.id.btn_series_section);
+        tvPhone               = headerView.findViewById(R.id.tv_phone);
+        tvWhatsapp            = headerView.findViewById(R.id.tv_whatsapp);
+        tvInstagram           = headerView.findViewById(R.id.tv_instagram);
+        tvYoutube             = headerView.findViewById(R.id.tv_youtube);
+        tvOtherLink           = headerView.findViewById(R.id.tv_other_link);
+        layoutPhone           = headerView.findViewById(R.id.layout_phone);
+        layoutWhatsapp        = headerView.findViewById(R.id.layout_whatsapp);
+        layoutInstagram       = headerView.findViewById(R.id.layout_instagram);
+        layoutYoutube         = headerView.findViewById(R.id.layout_youtube);
+        layoutOtherLink       = headerView.findViewById(R.id.layout_other_link);
+
+        tabLayout        = (TabLayout) tabsView;
+        hsvFilterChips    = (HorizontalScrollView) chipsView;
+        llFilterChips     = chipsView.findViewById(R.id.ll_filter_chips);
     }
 
     // ── Header ────────────────────────────────────────────────────────────
@@ -323,12 +336,19 @@ public class UserReelsActivity extends AppCompatActivity
         gridLayoutManager = new GridLayoutManager(this, 3);
         gridLayoutManager.setSpanSizeLookup(new GridLayoutManager.SpanSizeLookup() {
             @Override public int getSpanSize(int position) {
-                return adapter.getItemViewType(position) == ReelGridAdapter.TYPE_PINNED ? 3 : 1;
+                // positions 0/1/2 = header / tabs / filter-chips — each takes the full row
+                if (position < 3) return 3;
+                return adapter.getItemViewType(position - 3) == ReelGridAdapter.TYPE_PINNED ? 3 : 1;
             }
         });
 
         rvReels.setLayoutManager(gridLayoutManager);
-        rvReels.setAdapter(adapter);
+        rvReels.setAdapter(new androidx.recyclerview.widget.ConcatAdapter(
+            new SingleViewAdapter(headerView),
+            new SingleViewAdapter(tabsView),
+            new SingleViewAdapter(chipsView),
+            adapter
+        ));
         rvReels.addItemDecoration(new ReelGridAdapter.WhiteGridDecoration(this));
         // KEY FIX: RecyclerView must NOT have nested scrolling disabled.
         // It lives directly inside SwipeRefreshLayout (no NestedScrollView wrapper),
@@ -361,37 +381,27 @@ public class UserReelsActivity extends AppCompatActivity
             loadCurrentTab(true);
             if (activeTab == TAB_REELS) loadPinnedReel();
         });
-        swipeRefresh.setEnabled(true);
-
-        // Instagram-style: disable pull-to-refresh while AppBarLayout is mid-collapse.
-        // SwipeRefreshLayout must only activate when the header is fully expanded AND
-        // the RecyclerView has not scrolled (i.e., the user is truly at the very top).
-        if (appBarLayout != null) {
-            appBarLayout.addOnOffsetChangedListener((abl, verticalOffset) -> {
-                isAppBarExpanded = (verticalOffset == 0);
-                if (swipeRefresh != null && !swipeRefresh.isRefreshing()) {
-                    swipeRefresh.setEnabled(isAppBarExpanded && !rvReels.canScrollVertically(-1));
-                }
-            });
-        }
+        // Header/tabs/chips are now just the first items of rv_reels itself (see
+        // setupHeader()'s ConcatAdapter wiring), so "at the very top" is simply
+        // "the list hasn't scrolled at all" — no AppBarLayout offset to track anymore.
+        swipeRefresh.setEnabled(!rvReels.canScrollVertically(-1));
     }
 
     // ── Scroll listener for pagination + SwipeRefresh guard ───────────────
 
     /**
-     * SCROLLING FIX: RecyclerView.OnScrollListener handles:
-     *  1. Disabling SwipeRefresh when not at top (prevents gesture conflict)
-     *  2. Triggering pagination when near the bottom
-     *
-     * Header collapse itself is handled separately by setupHeaderNestedDrag() below —
-     * see that method's comment for why the old approach here left a gap.
+     * Header/tabs/filter-chips are ordinary items inside rv_reels's ConcatAdapter
+     * now (see setupHeader()), so the RecyclerView scrolls them natively — no
+     * AppBarLayout, no CoordinatorLayout, no manual nested-scroll forwarding.
+     * That removes the whole class of bugs we kept hitting (gap on collapse,
+     * header not moving at all): there's nothing left to keep in sync.
      */
     private void setupScrollPagination() {
           rvReels.addOnScrollListener(new RecyclerView.OnScrollListener() {
               @Override
               public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
                   if (swipeRefresh != null && !swipeRefresh.isRefreshing()) {
-                      swipeRefresh.setEnabled(isAppBarExpanded && !rv.canScrollVertically(-1));
+                      swipeRefresh.setEnabled(!rv.canScrollVertically(-1));
                   }
 
                   if (isLoadingMore) return;
@@ -403,84 +413,7 @@ public class UserReelsActivity extends AppCompatActivity
                   }
               }
           });
-          setupHeaderNestedDrag();
       }
-
-    // ── Header collapse — real fix for the "gap" bug ───────────────────────
-    /**
-     * ROOT CAUSE of the old bug: the previous code fed the header-collapse behavior
-     * with `dy` taken from RecyclerView.onScrolled(), i.e. the amount the grid itself
-     * had ALREADY scrolled. That amount is capped by the grid's own content height
-     * (item count * row height - viewport height). Whenever a profile had few reels
-     * (short grid), the grid could only ever scroll a small distance, so the header
-     * never received enough cumulative delta to fully collapse — leaving a visible
-     * gap between the collapsed header and the tab bar.
-     *
-     * FIX: drive the header purely off the user's raw finger movement (independent of
-     * how much the grid itself can scroll), exactly like real nested-scroll pre-scroll
-     * does. We attach an OnItemTouchListener that never intercepts (so clicks / normal
-     * grid scrolling still work untouched), but on every ACTION_MOVE forwards the raw
-     * screen-Y delta straight to AppBarLayout.Behavior#onNestedPreScroll first. Once
-     * the header is fully collapsed, onNestedPreScroll's own min/max clamping makes
-     * further calls a no-op, so it never over-collapses or fights the grid.
-     */
-    private int nestedDragLastRawY;
-    private boolean isNestedDragging = false;
-
-    // Kept for readability at the call site; actual driving now happens in
-    // dispatchTouchEvent() below, which is guaranteed to see every touch event
-    // regardless of RecyclerView's internal OnItemTouchListener chain.
-    private void setupHeaderNestedDrag() {
-        // no-op — see dispatchTouchEvent()
-    }
-
-    /**
-     * Guaranteed-to-fire touch hook. The previous RecyclerView.OnItemTouchListener
-     * approach silently stopped working — likely swallowed by another
-     * OnItemTouchListener (item click/long-press detection) registered on the same
-     * RecyclerView, since only the FIRST listener that intercepts a gesture keeps
-     * getting events. dispatchTouchEvent() at the Activity level sees every touch
-     * before any child view does, so it can't be starved like that. We only ever
-     * observe here (never consume), so normal grid scrolling/clicks are untouched.
-     */
-    @Override
-    public boolean dispatchTouchEvent(MotionEvent ev) {
-        driveHeaderCollapseFromRawTouch(ev);
-        return super.dispatchTouchEvent(ev);
-    }
-
-    private void driveHeaderCollapseFromRawTouch(MotionEvent e) {
-        if (appBarLayout == null || rvReels == null) return;
-        switch (e.getActionMasked()) {
-            case MotionEvent.ACTION_DOWN:
-                nestedDragLastRawY = (int) e.getRawY();
-                isNestedDragging = true;
-                break;
-            case MotionEvent.ACTION_MOVE: {
-                if (!isNestedDragging) break;
-                int curY = (int) e.getRawY();
-                int dy = nestedDragLastRawY - curY; // finger up => positive => collapse
-                nestedDragLastRawY = curY;
-                if (dy == 0) break;
-                if (appBarLayout.getParent() instanceof CoordinatorLayout) {
-                    CoordinatorLayout cl = (CoordinatorLayout) appBarLayout.getParent();
-                    CoordinatorLayout.LayoutParams lp =
-                        (CoordinatorLayout.LayoutParams) appBarLayout.getLayoutParams();
-                    CoordinatorLayout.Behavior<?> b = lp.getBehavior();
-                    if (b instanceof AppBarLayout.Behavior) {
-                        ((AppBarLayout.Behavior) b).onNestedPreScroll(
-                            cl, appBarLayout, rvReels, 0, dy, new int[]{0, 0},
-                            ViewCompat.TYPE_TOUCH);
-                    }
-                }
-                break;
-            }
-            case MotionEvent.ACTION_UP:
-            case MotionEvent.ACTION_CANCEL:
-                isNestedDragging = false;
-                break;
-        }
-    }
 
     private boolean getCurrentTabHasMore() {
         switch (activeTab) {
@@ -2006,4 +1939,23 @@ public class UserReelsActivity extends AppCompatActivity
     @Override protected void onPause()   { super.onPause();   dismissPreviewDialog(); stopAvatarAnimation(); }
     @Override protected void onResume()  { super.onResume();  loadAvatarAndStartAnimation(); }
     @Override protected void onDestroy() { super.onDestroy(); dismissPreviewDialog(); stopAvatarAnimation(); dbExecutor.shutdown(); }
+
+    /**
+     * Wraps one already-inflated View as a single-item RecyclerView.Adapter.
+     * Used to host the profile header / tabs row / filter-chips row as real
+     * items inside rv_reels's ConcatAdapter, so the whole profile screen
+     * (header + tabs + chips + grid) scrolls as ONE native RecyclerView list —
+     * exactly like Instagram's own profile — with zero custom scroll code.
+     */
+    private static class SingleViewAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
+        private final View view;
+        SingleViewAdapter(View view) { this.view = view; }
+        @NonNull @Override
+        public RecyclerView.ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+            if (view.getParent() != null) ((ViewGroup) view.getParent()).removeView(view);
+            return new RecyclerView.ViewHolder(view) {};
+        }
+        @Override public void onBindViewHolder(@NonNull RecyclerView.ViewHolder holder, int position) { }
+        @Override public int getItemCount() { return 1; }
+    }
 }

@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- view_profile_tabs_row.xml — Reels/Liked/Saved icon tabs.
+     Item position 1 inside rv_reels's ConcatAdapter. -->
+        <com.google.android.material.tabs.TabLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/tab_layout"
+    android:layout_width="match_parent"
+    android:layout_height="44dp"
+            app:tabMode="fixed"
+            app:tabGravity="fill"
+            app:tabSelectedTextColor="?attr/colorOnSurface"
+            app:tabTextColor="?attr/colorOnSurfaceVariant"
+            app:tabIndicatorColor="?attr/colorOnSurface"
+            app:tabIndicatorHeight="1dp"
+            app:tabPaddingStart="-1dp"
+            app:tabPaddingEnd="-1dp">
+
+            <!-- Icon-only tabs — Instagram style -->
+            <com.google.android.material.tabs.TabItem
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:icon="@drawable/ic_reels"/>
+
+            <com.google.android.material.tabs.TabItem
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:icon="@drawable/ic_heart"/>
+
+            <com.google.android.material.tabs.TabItem
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:icon="@drawable/ic_bookmark"/>
+
+        </com.google.android.material.tabs.TabLayout>
+
