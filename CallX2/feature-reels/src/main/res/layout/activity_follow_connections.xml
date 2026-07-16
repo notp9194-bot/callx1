@@ -60,8 +60,7 @@
         app:tabIndicatorColor="?attr/colorOnSurface"
         app:tabIndicatorHeight="2dp"
         app:tabPaddingStart="0dp"
-        app:tabPaddingEnd="0dp"
-        app:tabTextAppearance="@style/Widget.MaterialComponents.Tab"/>
+        app:tabPaddingEnd="0dp"/>
 
     <!-- Divider below tabs -->
     <View
