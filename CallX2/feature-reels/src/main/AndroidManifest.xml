@@ -223,7 +223,11 @@
             android:exported="false"
             android:screenOrientation="portrait"/>
 
-        <!-- Followers / Following -->
+        <!-- Followers / Following — unified tabbed screen -->
+        <activity android:name="com.callx.app.followers.FollowConnectionsActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
+        <!-- Legacy individual activities kept for deep links / backwards compat -->
         <activity android:name="com.callx.app.followers.FollowersListActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize"/>

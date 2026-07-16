@@ -569,9 +569,11 @@ public class UserReelsActivity extends AppCompatActivity
         if (isAccountPrivate && !isFollowing && !isSelf) {
             Toast.makeText(this, "This account is private", Toast.LENGTH_SHORT).show(); return;
         }
-        Intent i = new Intent(this, FollowersListActivity.class);
-        i.putExtra(FollowersListActivity.EXTRA_UID,  targetUid);
-        i.putExtra(FollowersListActivity.EXTRA_NAME, targetName != null ? targetName : "");
+        Intent i = new Intent(this, com.callx.app.followers.FollowConnectionsActivity.class);
+        i.putExtra(com.callx.app.followers.FollowConnectionsActivity.EXTRA_UID,       targetUid);
+        i.putExtra(com.callx.app.followers.FollowConnectionsActivity.EXTRA_NAME,      targetName != null ? targetName : "");
+        i.putExtra(com.callx.app.followers.FollowConnectionsActivity.EXTRA_IS_SELF,   isSelf);
+        i.putExtra(com.callx.app.followers.FollowConnectionsActivity.EXTRA_START_TAB, com.callx.app.followers.FollowConnectionsActivity.TAB_FOLLOWERS);
         startActivity(i);
     }
 
@@ -579,10 +581,11 @@ public class UserReelsActivity extends AppCompatActivity
         if (isAccountPrivate && !isFollowing && !isSelf) {
             Toast.makeText(this, "This account is private", Toast.LENGTH_SHORT).show(); return;
         }
-        Intent i = new Intent(this, FollowingListActivity.class);
-        i.putExtra(FollowingListActivity.EXTRA_UID,     targetUid);
-        i.putExtra(FollowingListActivity.EXTRA_NAME,    targetName != null ? targetName : "");
-        i.putExtra(FollowingListActivity.EXTRA_IS_SELF, isSelf);
+        Intent i = new Intent(this, com.callx.app.followers.FollowConnectionsActivity.class);
+        i.putExtra(com.callx.app.followers.FollowConnectionsActivity.EXTRA_UID,       targetUid);
+        i.putExtra(com.callx.app.followers.FollowConnectionsActivity.EXTRA_NAME,      targetName != null ? targetName : "");
+        i.putExtra(com.callx.app.followers.FollowConnectionsActivity.EXTRA_IS_SELF,   isSelf);
+        i.putExtra(com.callx.app.followers.FollowConnectionsActivity.EXTRA_START_TAB, com.callx.app.followers.FollowConnectionsActivity.TAB_FOLLOWING);
         startActivity(i);
     }
 
@@ -987,12 +990,14 @@ public class UserReelsActivity extends AppCompatActivity
     }
 
     private void openMutualFollowers() {
-        if (mutualUidsList.isEmpty()) return;
-        Intent i = new Intent(this, MutualFollowersActivity.class);
-        i.putStringArrayListExtra(MutualFollowersActivity.EXTRA_UIDS,
-                new ArrayList<>(mutualUidsList));
-        i.putExtra(MutualFollowersActivity.EXTRA_TARGET_NAME,
-                targetName != null ? targetName : "");
+        Intent i = new Intent(this, com.callx.app.followers.FollowConnectionsActivity.class);
+        i.putExtra(com.callx.app.followers.FollowConnectionsActivity.EXTRA_UID,       targetUid);
+        i.putExtra(com.callx.app.followers.FollowConnectionsActivity.EXTRA_NAME,      targetName != null ? targetName : "");
+        i.putExtra(com.callx.app.followers.FollowConnectionsActivity.EXTRA_IS_SELF,   isSelf);
+        i.putExtra(com.callx.app.followers.FollowConnectionsActivity.EXTRA_START_TAB, com.callx.app.followers.FollowConnectionsActivity.TAB_MUTUAL);
+        if (!mutualUidsList.isEmpty())
+            i.putStringArrayListExtra(com.callx.app.followers.FollowConnectionsActivity.EXTRA_MUTUAL_UIDS,
+                    new ArrayList<>(mutualUidsList));
         startActivity(i);
     }
 
