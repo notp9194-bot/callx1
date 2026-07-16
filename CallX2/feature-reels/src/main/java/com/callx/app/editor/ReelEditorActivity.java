@@ -135,9 +135,12 @@ public class ReelEditorActivity extends AppCompatActivity {
     private int     multiDuetTotal     = 0;
 
     // ── Pre-selected sound ───────────────────────────────────────────────
-    private String preSelectedSoundId    = "";
-    private String preSelectedSoundTitle = "";
-    private String preSelectedSoundUrl   = "";
+    private String  preSelectedSoundId    = "";
+    private String  preSelectedSoundTitle = "";
+    private String  preSelectedSoundUrl   = "";
+    // True when ReelCameraActivity already replaced mic audio with the selected
+    // sound. Must be forwarded to ReelUploadActivity so it skips a second mix.
+    private boolean audioAlreadyReplaced  = false;
 
     // ── Tool result storage ───────────────────────────────────────────────
     // Filters
@@ -200,6 +203,8 @@ public class ReelEditorActivity extends AppCompatActivity {
         if (si != null && !si.isEmpty()) preSelectedSoundId    = si;
         if (st != null && !st.isEmpty()) preSelectedSoundTitle = st;
         if (su != null && !su.isEmpty()) preSelectedSoundUrl   = su;
+        // FIX: carry the "already replaced" flag from camera so upload skips re-mixing
+        audioAlreadyReplaced = getIntent().getBooleanExtra("audio_already_replaced", false);
 
         if (videoUriStr == null || videoUriStr.isEmpty()) {
             Toast.makeText(this, "No video to edit", Toast.LENGTH_SHORT).show();
@@ -953,6 +958,10 @@ public class ReelEditorActivity extends AppCompatActivity {
             intent.putExtra(ReelUploadActivity.EXTRA_SOUND_TITLE, preSelectedSoundTitle);
         if (!preSelectedSoundUrl.isEmpty())
             intent.putExtra(ReelUploadActivity.EXTRA_SOUND_URL,   preSelectedSoundUrl);
+
+        // FIX: forward camera-stage replacement flag → upload will skip a second mix
+        if (audioAlreadyReplaced)
+            intent.putExtra("audio_already_replaced", true);
 
         // Audio mix
         intent.putExtra("mix_orig_vol",       mixOrigVol);
