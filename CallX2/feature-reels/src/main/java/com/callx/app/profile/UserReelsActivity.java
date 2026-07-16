@@ -1635,9 +1635,9 @@ public class UserReelsActivity extends AppCompatActivity
             btnFollow.setText("Following  ▾");
             btnFollow.setTextColor(0xFF222222);
             try {
-                btnFollow.setBackground(android.graphics.drawable.DrawableCompat
-                    .wrap(androidx.core.content.ContextCompat.getDrawable(
-                        this, R.drawable.bg_btn_outline_pill)).mutate());
+                android.graphics.drawable.Drawable d =
+                    androidx.core.content.ContextCompat.getDrawable(this, R.drawable.bg_btn_outline_pill);
+                btnFollow.setBackground(d != null ? d.mutate() : null);
             } catch (Exception e) {
                 btnFollow.setBackgroundColor(0xFFEEEEEE);
             }
@@ -1645,9 +1645,9 @@ public class UserReelsActivity extends AppCompatActivity
             btnFollow.setText("Follow");
             btnFollow.setTextColor(0xFFFFFFFF);
             try {
-                btnFollow.setBackground(android.graphics.drawable.DrawableCompat
-                    .wrap(androidx.core.content.ContextCompat.getDrawable(
-                        this, R.drawable.bg_btn_follow_pill)).mutate());
+                android.graphics.drawable.Drawable d =
+                    androidx.core.content.ContextCompat.getDrawable(this, R.drawable.bg_btn_follow_pill);
+                btnFollow.setBackground(d != null ? d.mutate() : null);
             } catch (Exception e) {
                 btnFollow.setBackgroundColor(0xFF6C5CE7);
             }
