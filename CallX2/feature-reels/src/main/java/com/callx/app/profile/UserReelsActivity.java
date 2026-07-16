@@ -524,16 +524,6 @@ public class UserReelsActivity extends AppCompatActivity
           popup.showAsDropDown(anchor, 0, (int) (6 * density));
       }
 
-      private void updateChipStyle(android.widget.TextView chip, boolean selected) {
-          if (selected) {
-              chip.setTextColor(android.graphics.Color.BLACK);
-              chip.setBackgroundResource(R.drawable.bg_filter_chip_selected);
-          } else {
-              chip.setTextColor(android.graphics.Color.WHITE);
-              chip.setBackgroundResource(R.drawable.bg_filter_chip_unselected);
-          }
-      }
-
       private void applyFilter() {
           if (adapter == null) return;
           List<ReelModel> source = activeTabData();
