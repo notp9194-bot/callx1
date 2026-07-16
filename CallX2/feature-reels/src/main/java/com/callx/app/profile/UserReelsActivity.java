@@ -92,8 +92,14 @@ public class UserReelsActivity extends AppCompatActivity
     private List<String>    mutualUidsList = new ArrayList<>();
     private TextView        tvPhone, tvWhatsapp, tvInstagram, tvYoutube, tvOtherLink;
     private View            layoutPhone, layoutWhatsapp, layoutInstagram, layoutYoutube, layoutOtherLink;
+    private android.widget.HorizontalScrollView hsvBioLinks;
+    private LinearLayout    llBioChips;
     private TextView        tvEmptyTitle, tvEmptySubtitle;
     private Button          btnFollow;
+    private Button          btnMessageCta;
+    private android.view.View btnCtaCall;
+    private LinearLayout    layoutInstagramCta;
+    private LinearLayout    layoutExtraActions;
     private ImageButton     btnBack, btnMore, btnShareProfile, btnCreatorHub, btnSettings;
     private ImageButton     btnMessage, btnAudioCall, btnVideoCall, btnOpenX, btnOpenYoutube;
     private LinearLayout    layoutActions;
@@ -263,6 +269,12 @@ public class UserReelsActivity extends AppCompatActivity
         layoutYoutube    = findViewById(R.id.layout_youtube);
         layoutOtherLink  = findViewById(R.id.layout_other_link);
         appBarLayout     = findViewById(R.id.app_bar);
+        hsvBioLinks      = findViewById(R.id.hsv_bio_links);
+        llBioChips       = findViewById(R.id.ll_bio_chips);
+        btnMessageCta    = findViewById(R.id.btn_message_cta);
+        btnCtaCall       = findViewById(R.id.btn_cta_call);
+        layoutInstagramCta = findViewById(R.id.layout_instagram_cta);
+        layoutExtraActions = findViewById(R.id.layout_extra_actions);
     }
 
     // ── Header ────────────────────────────────────────────────────────────
@@ -330,12 +342,14 @@ public class UserReelsActivity extends AppCompatActivity
         rvReels.setNestedScrollingEnabled(true);
         rvReels.setHasFixedSize(false);
 
-        if (layoutActions != null) layoutActions.setVisibility(isSelf ? View.GONE : View.VISIBLE);
-        if (btnFollow     != null) btnFollow.setVisibility(isSelf ? View.GONE : View.VISIBLE);
+        // Instagram-style CTA buttons visible only for other users
+        if (layoutInstagramCta  != null) layoutInstagramCta.setVisibility(isSelf ? View.GONE : View.VISIBLE);
+        if (layoutExtraActions  != null) layoutExtraActions.setVisibility(isSelf ? View.GONE : View.VISIBLE);
+        if (layoutActions       != null) layoutActions.setVisibility(View.GONE); // legacy bar hidden
+        if (btnFollow           != null) btnFollow.setVisibility(isSelf ? View.GONE : View.VISIBLE);
 
         setupActionButtons();
         setupMoreMenu();
-        setupRepostSeriesButtons();
 
         if (ivAvatar != null) {
             ivAvatar.setOnClickListener(v -> openStatusIfAvailable());
@@ -390,6 +404,8 @@ public class UserReelsActivity extends AppCompatActivity
         switch (activeTab) {
             case TAB_LIKED:  return likedHasMore;
             case TAB_SAVED:  return savedHasMore;
+            case TAB_REPOST: return repostsHasMore;
+            case TAB_SERIES: return false;
             default:         return reelsHasMore;
         }
     }
@@ -476,46 +492,26 @@ public class UserReelsActivity extends AppCompatActivity
             @Override public void onTabSelected(TabLayout.Tab tab) {
                 activeTab = tab.getPosition();
                 exitMultiSelectMode();
-                // rvSeries hidden for all 3 tabs now
-                if (rvSeries != null) rvSeries.setVisibility(android.view.View.GONE);
-                if (rvReels  != null) rvReels.setVisibility(android.view.View.VISIBLE);
-                adapter.notifyDataSetChanged();
-                if (activeTabData().isEmpty()) loadCurrentTab(true);
+                boolean isSeries = (activeTab == TAB_SERIES);
+                if (rvSeries != null) rvSeries.setVisibility(isSeries ? android.view.View.VISIBLE : android.view.View.GONE);
+                if (rvReels  != null) rvReels.setVisibility(isSeries  ? android.view.View.GONE   : android.view.View.VISIBLE);
+                if (!isSeries) adapter.notifyDataSetChanged();
+                if (isSeries ? seriesTabData.isEmpty() : activeTabData().isEmpty()) loadCurrentTab(true);
                 else { refreshEmptyState(); updateViewAllButton(); }
             }
             @Override public void onTabUnselected(TabLayout.Tab tab) {}
             @Override public void onTabReselected(TabLayout.Tab tab) {
-                rvReels.smoothScrollToPosition(0);
+                if (activeTab != TAB_SERIES && rvReels != null) rvReels.smoothScrollToPosition(0);
+                if (activeTab == TAB_SERIES && rvSeries != null) rvSeries.smoothScrollToPosition(0);
             }
         });
-    }
-
-    /** Repost and Series buttons — open dedicated screens */
-    private void setupRepostSeriesButtons() {
-        if (btnRepostSection != null) {
-            btnRepostSection.setOnClickListener(v -> {
-                Intent i = new Intent(this, UserRepostedReelsActivity.class);
-                i.putExtra(UserRepostedReelsActivity.EXTRA_UID,      targetUid);
-                i.putExtra(UserRepostedReelsActivity.EXTRA_USERNAME, orEmpty(targetName));
-                startActivity(i);
-            });
-        }
-        if (btnSeriesSection != null) {
-            btnSeriesSection.setOnClickListener(v -> openSeriesScreen());
-        }
-    }
-
-    private void openSeriesScreen() {
-        Intent i = new Intent(this, UserSeriesListActivity.class);
-        i.putExtra(UserSeriesListActivity.EXTRA_UID,  targetUid);
-        i.putExtra(UserSeriesListActivity.EXTRA_NAME, orEmpty(targetName));
-        startActivity(i);
     }
 
     private List<ReelModel> activeTabData() {
         switch (activeTab) {
             case TAB_LIKED:  return likedTabData;
             case TAB_SAVED:  return savedTabData;
+            case TAB_REPOST: return repostsTabData;
             default:         return reelsTabData;
         }
     }
@@ -813,6 +809,8 @@ public class UserReelsActivity extends AppCompatActivity
         switch (activeTab) {
             case TAB_LIKED:  loadLikedReels(refresh);    break;
             case TAB_SAVED:  loadSavedReels(refresh);    break;
+            case TAB_REPOST: loadRepostedReels(refresh); break;
+            case TAB_SERIES: loadSeriesTab(refresh);     break;
             default:         loadUserReels(refresh);     break;
         }
     }
@@ -1071,9 +1069,10 @@ public class UserReelsActivity extends AppCompatActivity
     }
 
     private void refreshEmptyState() {
+        if (activeTab == TAB_SERIES) return; // series tab manages own empty state
         boolean empty = activeTabData().isEmpty() && !adapter.hasPinned();
         if (layoutEmpty != null) layoutEmpty.setVisibility(empty ? View.VISIBLE : View.GONE);
-        rvReels.setVisibility(empty ? View.GONE : View.VISIBLE);
+        if (rvReels != null) rvReels.setVisibility(empty ? View.GONE : View.VISIBLE);
         if (tvEmptyTitle == null) return;
         switch (activeTab) {
             case TAB_LIKED:
@@ -1082,6 +1081,9 @@ public class UserReelsActivity extends AppCompatActivity
             case TAB_SAVED:
                 tvEmptyTitle.setText("No Saved Reels");
                 if (tvEmptySubtitle != null) tvEmptySubtitle.setText("Saved reels will appear here."); break;
+            case TAB_REPOST:
+                tvEmptyTitle.setText("No Reposts");
+                if (tvEmptySubtitle != null) tvEmptySubtitle.setText("Reposted reels will appear here."); break;
             default:
                 tvEmptyTitle.setText("No Reels Yet");
                 if (tvEmptySubtitle != null) tvEmptySubtitle.setText("This creator hasn't posted any reels yet.");
@@ -1379,7 +1381,17 @@ public class UserReelsActivity extends AppCompatActivity
             }
         });
 
-        if (btnFollow != null) btnFollow.setOnClickListener(v -> toggleFollow());
+        if (btnFollow     != null) btnFollow.setOnClickListener(v -> toggleFollow());
+        if (btnMessageCta != null) btnMessageCta.setOnClickListener(v ->
+            launchActivity("com.callx.app.conversation.ChatActivity",
+                new String[]{"partnerUid","partnerName","partnerPhoto"},
+                new String[]{targetUid, orEmpty(targetName), orEmpty(targetPhoto)}));
+        if (btnCtaCall != null) btnCtaCall.setOnClickListener(v -> {
+            String cid = FirebaseDatabase.getInstance().getReference("calls").push().getKey();
+            launchActivity("com.callx.app.call.CallActivity",
+                new String[]{"partnerUid","partnerName","partnerPhoto","isCaller","video","callId"},
+                new Object[]{targetUid, orEmpty(targetName), orEmpty(targetPhoto), true, false, orEmpty(cid)});
+        });
     }
 
     // ── Avatar Peek Animation ─────────────────────────────────────────────
@@ -1604,31 +1616,163 @@ public class UserReelsActivity extends AppCompatActivity
     private void toggleFollow() {
         String myUid = safeMyUid();
         if (myUid == null) return;
-        isFollowing = !isFollowing;
+        if (isFollowing) {
+            // Show Instagram-style "Following" bottom sheet instead of immediately unfollowing
+            showFollowingOptionsSheet();
+            return;
+        }
+        isFollowing = true;
         updateFollowButton();
         applyPrivacyState();
-        if (isFollowing) {
-            FirebaseUtils.getReelFollowsRef(myUid).child(targetUid).setValue(true);
-            FirebaseUtils.getReelFollowersRef(targetUid).child(myUid).setValue(true);
-            updateFollowerCountUI(1);
-        } else {
-            FirebaseUtils.getReelFollowsRef(myUid).child(targetUid).removeValue();
-            FirebaseUtils.getReelFollowersRef(targetUid).child(myUid).removeValue();
-            updateFollowerCountUI(-1);
-        }
+        FirebaseUtils.getReelFollowsRef(myUid).child(targetUid).setValue(true);
+        FirebaseUtils.getReelFollowersRef(targetUid).child(myUid).setValue(true);
+        updateFollowerCountUI(1);
     }
 
     private void updateFollowButton() {
         if (btnFollow == null) return;
         if (isFollowing) {
-            btnFollow.setText("Following");
-            btnFollow.setBackgroundColor(0xFF333333);
-            btnFollow.setTextColor(0xFFCCCCCC);
+            btnFollow.setText("Following  ▾");
+            btnFollow.setTextColor(0xFF222222);
+            try {
+                btnFollow.setBackground(android.graphics.drawable.DrawableCompat
+                    .wrap(androidx.core.content.ContextCompat.getDrawable(
+                        this, R.drawable.bg_btn_outline_pill)).mutate());
+            } catch (Exception e) {
+                btnFollow.setBackgroundColor(0xFFEEEEEE);
+            }
         } else {
-            try { btnFollow.setBackgroundColor(getResources().getColor(R.color.brand_primary, null)); }
-            catch (Exception e) { btnFollow.setBackgroundColor(0xFF6C5CE7); }
-            btnFollow.setTextColor(0xFFFFFFFF);
             btnFollow.setText("Follow");
+            btnFollow.setTextColor(0xFFFFFFFF);
+            try {
+                btnFollow.setBackground(android.graphics.drawable.DrawableCompat
+                    .wrap(androidx.core.content.ContextCompat.getDrawable(
+                        this, R.drawable.bg_btn_follow_pill)).mutate());
+            } catch (Exception e) {
+                btnFollow.setBackgroundColor(0xFF6C5CE7);
+            }
+        }
+    }
+
+    /**
+     * Instagram-style "Following" bottom sheet.
+     * Shows: Add to Close Friends, Add to favorites, Mute, Restrict, Unfollow.
+     */
+    private void showFollowingOptionsSheet() {
+        if (isFinishing() || isDestroyed()) return;
+        android.view.View sheetView = android.view.LayoutInflater.from(this)
+            .inflate(android.R.layout.simple_list_item_1, null);
+
+        com.google.android.material.bottomsheet.BottomSheetDialog sheet =
+            new com.google.android.material.bottomsheet.BottomSheetDialog(this);
+
+        // Build sheet layout programmatically
+        android.widget.LinearLayout container = new android.widget.LinearLayout(this);
+        container.setOrientation(android.widget.LinearLayout.VERTICAL);
+        container.setPadding(0, 24, 0, 40);
+        container.setBackgroundColor(android.graphics.Color.WHITE);
+
+        // Title
+        android.widget.TextView title = new android.widget.TextView(this);
+        title.setText(targetName != null ? targetName : "");
+        title.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 16f);
+        title.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.BOLD));
+        title.setGravity(android.view.Gravity.CENTER);
+        title.setPadding(0, 0, 0, 16);
+        title.setTextColor(0xFF111111);
+        container.addView(title);
+
+        // Divider
+        android.view.View div = new android.view.View(this);
+        div.setBackgroundColor(0xFFEEEEEE);
+        android.widget.LinearLayout.LayoutParams divLp = new android.widget.LinearLayout.LayoutParams(
+            android.view.ViewGroup.LayoutParams.MATCH_PARENT, 1);
+        container.addView(div, divLp);
+
+        // Option rows
+        String[] labels   = {"Add to Close Friends list", "Add to favorites", "Mute", "Restrict", "Unfollow"};
+        int[]    iconRes  = {
+            android.R.drawable.star_on,
+            android.R.drawable.btn_star_big_off,
+            android.R.drawable.ic_lock_idle_lock,
+            android.R.drawable.ic_menu_close_clear_cancel,
+            android.R.drawable.ic_delete
+        };
+        boolean[] hasArrow = {false, false, true, true, false};
+
+        for (int i = 0; i < labels.length; i++) {
+            final int idx = i;
+            android.widget.LinearLayout row = new android.widget.LinearLayout(this);
+            row.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+            row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            int ph = (int)(20 * getResources().getDisplayMetrics().density);
+            int pv = (int)(16 * getResources().getDisplayMetrics().density);
+            row.setPadding(ph, pv, ph, pv);
+            row.setBackground(obtainStyledAttributes(
+                new int[]{android.R.attr.selectableItemBackground})
+                .getDrawable(0));
+            row.setClickable(true); row.setFocusable(true);
+
+            android.widget.TextView tv = new android.widget.TextView(this);
+            tv.setText(labels[idx]);
+            tv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 15f);
+            tv.setTextColor(idx == 4 ? 0xFFE53935 : 0xFF111111); // Unfollow in red
+            tv.setLayoutParams(new android.widget.LinearLayout.LayoutParams(
+                0, android.view.ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+            row.addView(tv);
+
+            if (hasArrow[idx]) {
+                android.widget.TextView arrow = new android.widget.TextView(this);
+                arrow.setText("›");
+                arrow.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 20f);
+                arrow.setTextColor(0xFF888888);
+                row.addView(arrow);
+            }
+
+            row.setOnClickListener(v -> {
+                sheet.dismiss();
+                handleFollowingSheetOption(idx);
+            });
+
+            container.addView(row);
+
+            // Light divider between rows (not after last)
+            if (i < labels.length - 1) {
+                android.view.View rowDiv = new android.view.View(this);
+                rowDiv.setBackgroundColor(0xFFF2F2F2);
+                android.widget.LinearLayout.LayoutParams rdLp =
+                    new android.widget.LinearLayout.LayoutParams(
+                        android.view.ViewGroup.LayoutParams.MATCH_PARENT, 1);
+                int lm = (int)(20 * getResources().getDisplayMetrics().density);
+                rdLp.setMarginStart(lm);
+                container.addView(rowDiv, rdLp);
+            }
+        }
+
+        sheet.setContentView(container);
+        sheet.show();
+    }
+
+    private void handleFollowingSheetOption(int idx) {
+        String myUid = safeMyUid();
+        switch (idx) {
+            case 0: // Add to Close Friends
+                Toast.makeText(this, "Added to Close Friends", Toast.LENGTH_SHORT).show(); break;
+            case 1: // Add to favorites
+                Toast.makeText(this, "Added to Favorites", Toast.LENGTH_SHORT).show(); break;
+            case 2: // Mute
+                Toast.makeText(this, "Muted", Toast.LENGTH_SHORT).show(); break;
+            case 3: // Restrict
+                Toast.makeText(this, "Restricted", Toast.LENGTH_SHORT).show(); break;
+            case 4: // Unfollow
+                if (myUid == null) return;
+                isFollowing = false;
+                updateFollowButton();
+                applyPrivacyState();
+                FirebaseUtils.getReelFollowsRef(myUid).child(targetUid).removeValue();
+                FirebaseUtils.getReelFollowersRef(targetUid).child(myUid).removeValue();
+                updateFollowerCountUI(-1);
+                break;
         }
     }
 
@@ -1749,29 +1893,28 @@ public class UserReelsActivity extends AppCompatActivity
                     tvBio.setVisibility(bio != null && !bio.isEmpty() ? View.VISIBLE : View.GONE);
                 }
 
-                // Website / social links from Reels profile
-                bindSocialRow(layoutPhone, tvPhone, website,
-                    !isEmpty(website) ? (website.startsWith("http") ? website : "https://" + website) : null,
-                    website);
-
-                String waNum = null; // Reels profile mein WhatsApp nahi hota
-                bindSocialRow(layoutWhatsapp, tvWhatsapp, null, null, null);
-
-                // Instagram
-                String igHandle = !isEmpty(instagram)
-                    ? (instagram.startsWith("http") ? instagram : "https://instagram.com/" + instagram.replace("@",""))
-                    : null;
-                bindSocialRow(layoutInstagram, tvInstagram, instagram, igHandle,
-                    !isEmpty(instagram) ? (instagram.startsWith("@") ? instagram : "@" + instagram) : null);
-
-                // YouTube
-                bindSocialRow(layoutYoutube, tvYoutube, youtube, youtube, youtube);
-
-                // Twitter/X
-                String otherUrl = !isEmpty(twitter)
-                    ? (twitter.startsWith("http") ? twitter : "https://x.com/" + twitter.replace("@",""))
-                    : null;
-                bindSocialRow(layoutOtherLink, tvOtherLink, twitter, otherUrl, twitter);
+                // Website / social links from Reels profile — build compact chip row
+                java.util.List<String[]> links = new java.util.ArrayList<>();
+                if (!isEmpty(website)) {
+                    String websiteUrl = website.startsWith("http") ? website : "https://" + website;
+                    links.add(new String[]{"📞", website, websiteUrl});
+                }
+                if (!isEmpty(instagram)) {
+                    String igLabel = instagram.startsWith("@") ? instagram : "@" + instagram;
+                    String igUrl = instagram.startsWith("http") ? instagram
+                        : "https://instagram.com/" + instagram.replace("@", "");
+                    links.add(new String[]{"📷", igLabel, igUrl});
+                }
+                if (!isEmpty(youtube)) {
+                    links.add(new String[]{"▶", youtube, youtube});
+                }
+                if (!isEmpty(twitter)) {
+                    String twLabel = twitter.startsWith("@") ? twitter : "@" + twitter;
+                    String twUrl = twitter.startsWith("http") ? twitter
+                        : "https://x.com/" + twitter.replace("@", "");
+                    links.add(new String[]{"✗", twLabel, twUrl});
+                }
+                buildBioChips(links);
 
                 // FIX: Room mein save karo — next time offline instantly dikhega
                 saveToRoom(name, photo, photoThumb, bio);
@@ -1794,6 +1937,77 @@ public class UserReelsActivity extends AppCompatActivity
         });
     }
 
+
+    // ── Bio chip row ─────────────────────────────────────────────────────
+
+    /**
+     * Build compact chip row in hsv_bio_links (Screenshot 2 style).
+     * Each chip: rounded border pill with icon + label, all in one scrollable row.
+     * @param links list of {iconEmoji, displayLabel, clickUrl}
+     */
+    private void buildBioChips(java.util.List<String[]> links) {
+        if (llBioChips == null || hsvBioLinks == null) return;
+        llBioChips.removeAllViews();
+        if (links.isEmpty()) {
+            hsvBioLinks.setVisibility(View.GONE);
+            return;
+        }
+        hsvBioLinks.setVisibility(View.VISIBLE);
+        float density = getResources().getDisplayMetrics().density;
+        int hPad  = (int)(12 * density);
+        int vPad  = (int)(7  * density);
+        int mEnd  = (int)(8  * density);
+        int corner= (int)(20 * density);
+
+        for (String[] link : links) {
+            String emoji   = link[0];
+            String label   = link[1];
+            String url     = link[2];
+
+            android.widget.TextView chip = new android.widget.TextView(this);
+            android.widget.LinearLayout.LayoutParams lp =
+                new android.widget.LinearLayout.LayoutParams(
+                    android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                    android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+            lp.setMarginEnd(mEnd);
+            chip.setLayoutParams(lp);
+            chip.setPadding(hPad, vPad, hPad, vPad);
+            chip.setText(emoji + "  " + label);
+            chip.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 12f);
+            chip.setTextColor(0xFF222222);
+            chip.setSingleLine(true);
+            chip.setMaxEms(12);
+            chip.setEllipsize(android.text.TextUtils.TruncateAt.END);
+
+            // Rounded border background
+            android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+            bg.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
+            bg.setCornerRadius(corner);
+            bg.setColor(0xFFF5F5F5);
+            bg.setStroke((int)(1 * density), 0xFFCCCCCC);
+            chip.setBackground(bg);
+
+            if (url != null && !url.isEmpty()) {
+                chip.setClickable(true);
+                chip.setFocusable(true);
+                chip.setOnClickListener(v -> {
+                    try {
+                        startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)));
+                    } catch (Exception ex) {
+                        Toast.makeText(this, "Cannot open link", Toast.LENGTH_SHORT).show();
+                    }
+                });
+                chip.setOnLongClickListener(v -> {
+                    android.content.ClipboardManager cm =
+                        (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                    if (cm != null) cm.setPrimaryClip(android.content.ClipData.newPlainText("copy", url));
+                    Toast.makeText(this, "Copied!", Toast.LENGTH_SHORT).show();
+                    return true;
+                });
+            }
+            llBioChips.addView(chip);
+        }
+    }
 
     // ── Social link helper ──────────────────────────────────────────────
     private boolean isEmpty(String s) { return s == null || s.trim().isEmpty(); }

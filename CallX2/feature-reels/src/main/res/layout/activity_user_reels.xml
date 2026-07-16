@@ -336,119 +336,55 @@
                     android:maxLines="2" android:lineSpacingMultiplier="1.2"/>
             </LinearLayout>
 
-            <!-- Social links: Phone -->
+            <!-- ── Bio links — compact chip row (Screenshot 2 style) ── -->
+            <HorizontalScrollView
+                android:id="@+id/hsv_bio_links"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:scrollbars="none"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:layout_marginTop="6dp"
+                android:layout_marginBottom="2dp"
+                android:visibility="gone">
+                <LinearLayout
+                    android:id="@+id/ll_bio_chips"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"/>
+            </HorizontalScrollView>
+
+            <!-- Hidden legacy link views — kept for Java binding compatibility -->
             <LinearLayout android:id="@+id/layout_phone"
-                android:layout_width="match_parent" android:layout_height="40dp"
-                android:orientation="horizontal" android:gravity="center_vertical"
-                android:paddingStart="16dp" android:paddingEnd="16dp"
-                android:clickable="true" android:focusable="true"
-                android:foreground="?attr/selectableItemBackground"
+                android:layout_width="match_parent" android:layout_height="0dp"
                 android:visibility="gone">
-                <ImageView android:layout_width="16dp" android:layout_height="16dp"
-                    android:src="@drawable/ic_phone"
-                    android:tint="@color/brand_primary"
-                    android:contentDescription="Phone"/>
                 <TextView android:id="@+id/tv_phone"
-                    android:layout_width="0dp" android:layout_height="wrap_content"
-                    android:layout_weight="1" android:layout_marginStart="10dp"
-                    android:textSize="13sp" android:textColor="@color/brand_primary"
-                    android:singleLine="true"/>
-                <ImageView android:layout_width="14dp" android:layout_height="14dp"
-                    android:src="@drawable/ic_arrow_forward"
-                    android:tint="?attr/colorOnSurfaceVariant"
-                    android:contentDescription="Open"/>
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"/>
             </LinearLayout>
-
-            <!-- WhatsApp -->
             <LinearLayout android:id="@+id/layout_whatsapp"
-                android:layout_width="match_parent" android:layout_height="40dp"
-                android:orientation="horizontal" android:gravity="center_vertical"
-                android:paddingStart="16dp" android:paddingEnd="16dp"
-                android:clickable="true" android:focusable="true"
-                android:foreground="?attr/selectableItemBackground"
+                android:layout_width="match_parent" android:layout_height="0dp"
                 android:visibility="gone">
-                <ImageView android:layout_width="16dp" android:layout_height="16dp"
-                    android:src="@drawable/ic_whatsapp"
-                    android:tint="#25D366"
-                    android:contentDescription="WhatsApp"/>
                 <TextView android:id="@+id/tv_whatsapp"
-                    android:layout_width="0dp" android:layout_height="wrap_content"
-                    android:layout_weight="1" android:layout_marginStart="10dp"
-                    android:textSize="13sp" android:textColor="#25D366"
-                    android:singleLine="true"/>
-                <ImageView android:layout_width="14dp" android:layout_height="14dp"
-                    android:src="@drawable/ic_arrow_forward"
-                    android:tint="?attr/colorOnSurfaceVariant"
-                    android:contentDescription="Open"/>
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"/>
             </LinearLayout>
-
-            <!-- Instagram -->
             <LinearLayout android:id="@+id/layout_instagram"
-                android:layout_width="match_parent" android:layout_height="40dp"
-                android:orientation="horizontal" android:gravity="center_vertical"
-                android:paddingStart="16dp" android:paddingEnd="16dp"
-                android:clickable="true" android:focusable="true"
-                android:foreground="?attr/selectableItemBackground"
+                android:layout_width="match_parent" android:layout_height="0dp"
                 android:visibility="gone">
-                <ImageView android:layout_width="16dp" android:layout_height="16dp"
-                    android:src="@drawable/ic_instagram"
-                    android:tint="#E1306C"
-                    android:contentDescription="Instagram"/>
                 <TextView android:id="@+id/tv_instagram"
-                    android:layout_width="0dp" android:layout_height="wrap_content"
-                    android:layout_weight="1" android:layout_marginStart="10dp"
-                    android:textSize="13sp" android:textColor="#E1306C"
-                    android:singleLine="true"/>
-                <ImageView android:layout_width="14dp" android:layout_height="14dp"
-                    android:src="@drawable/ic_arrow_forward"
-                    android:tint="?attr/colorOnSurfaceVariant"
-                    android:contentDescription="Open"/>
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"/>
             </LinearLayout>
-
-            <!-- YouTube -->
             <LinearLayout android:id="@+id/layout_youtube"
-                android:layout_width="match_parent" android:layout_height="40dp"
-                android:orientation="horizontal" android:gravity="center_vertical"
-                android:paddingStart="16dp" android:paddingEnd="16dp"
-                android:clickable="true" android:focusable="true"
-                android:foreground="?attr/selectableItemBackground"
+                android:layout_width="match_parent" android:layout_height="0dp"
                 android:visibility="gone">
-                <ImageView android:layout_width="16dp" android:layout_height="16dp"
-                    android:src="@drawable/ic_youtube"
-                    android:tint="#FF0000"
-                    android:contentDescription="YouTube"/>
                 <TextView android:id="@+id/tv_youtube"
-                    android:layout_width="0dp" android:layout_height="wrap_content"
-                    android:layout_weight="1" android:layout_marginStart="10dp"
-                    android:textSize="13sp" android:textColor="#FF0000"
-                    android:singleLine="true"/>
-                <ImageView android:layout_width="14dp" android:layout_height="14dp"
-                    android:src="@drawable/ic_arrow_forward"
-                    android:tint="?attr/colorOnSurfaceVariant"
-                    android:contentDescription="Open"/>
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"/>
             </LinearLayout>
-
-            <!-- Other link -->
             <LinearLayout android:id="@+id/layout_other_link"
-                android:layout_width="match_parent" android:layout_height="40dp"
-                android:orientation="horizontal" android:gravity="center_vertical"
-                android:paddingStart="16dp" android:paddingEnd="16dp"
-                android:clickable="true" android:focusable="true"
-                android:foreground="?attr/selectableItemBackground"
+                android:layout_width="match_parent" android:layout_height="0dp"
                 android:visibility="gone">
-                <ImageView android:layout_width="16dp" android:layout_height="16dp"
-                    android:src="@drawable/ic_link"
-                    android:tint="@color/brand_primary"
-                    android:contentDescription="Link"/>
                 <TextView android:id="@+id/tv_other_link"
-                    android:layout_width="0dp" android:layout_height="wrap_content"
-                    android:layout_weight="1" android:layout_marginStart="10dp"
-                    android:textSize="13sp" android:textColor="@color/brand_primary"
-                    android:singleLine="true" android:ellipsize="end"/>
-                <ImageView android:layout_width="14dp" android:layout_height="14dp"
-                    android:src="@drawable/ic_arrow_forward"
-                    android:tint="?attr/colorOnSurfaceVariant"
-                    android:contentDescription="Open"/>
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"/>
             </LinearLayout>
 
             <!-- ── Instagram-style CTA buttons (shown for other user) ── -->
@@ -459,25 +395,143 @@
                 android:paddingStart="12dp" android:paddingEnd="12dp"
                 android:paddingTop="10dp" android:paddingBottom="6dp">
 
-                <!-- Follow / Following button — wide, full row, Instagram style -->
-                <Button android:id="@+id/btn_follow"
+                <!-- Instagram-style 3-button row: Following ▾ | Message | Call -->
+                <LinearLayout android:id="@+id/layout_instagram_cta"
                     android:layout_width="match_parent"
                     android:layout_height="36dp"
-                    android:text="Follow"
-                    android:textSize="14sp"
-                    android:fontFamily="sans-serif-bold"
-                    app:textAllCaps="false"
-                    android:background="@color/brand_primary"
-                    android:textColor="#FFFFFF"
-                    android:layout_marginBottom="10dp"
-                    android:visibility="gone"/>
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginBottom="8dp"
+                    android:visibility="gone">
 
-                <!-- Action icon buttons: Message | Call | Video | X | YouTube -->
-                <LinearLayout android:id="@+id/layout_actions"
+                    <!-- Following ▾ / Follow pill -->
+                    <Button android:id="@+id/btn_follow"
+                        android:layout_width="0dp"
+                        android:layout_height="36dp"
+                        android:layout_weight="2.2"
+                        android:text="Follow"
+                        android:textSize="14sp"
+                        android:fontFamily="sans-serif-medium"
+                        app:textAllCaps="false"
+                        android:background="@drawable/bg_btn_follow_pill"
+                        android:textColor="#FFFFFF"
+                        android:layout_marginEnd="6dp"/>
+
+                    <!-- Message pill -->
+                    <Button android:id="@+id/btn_message_cta"
+                        android:layout_width="0dp"
+                        android:layout_height="36dp"
+                        android:layout_weight="2"
+                        android:text="Message"
+                        android:textSize="14sp"
+                        android:fontFamily="sans-serif-medium"
+                        app:textAllCaps="false"
+                        android:background="@drawable/bg_btn_outline_pill"
+                        android:textColor="?attr/colorOnSurface"
+                        android:layout_marginEnd="6dp"/>
+
+                    <!-- Call / suggest circle button -->
+                    <androidx.appcompat.widget.AppCompatImageButton android:id="@+id/btn_cta_call"
+                        android:layout_width="36dp"
+                        android:layout_height="36dp"
+                        android:src="@drawable/ic_phone"
+                        android:background="@drawable/bg_btn_outline_pill"
+                        android:tint="?attr/colorOnSurface"
+                        android:padding="8dp"
+                        android:contentDescription="Call"/>
+                </LinearLayout>
+
+                <!-- Second row: Video | X | YouTube (smaller pill buttons) -->
+                <LinearLayout android:id="@+id/layout_extra_actions"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
                     android:gravity="center"
+                    android:layout_marginBottom="4dp"
+                    android:visibility="gone">
+
+                    <!-- Video Call pill -->
+                    <LinearLayout
+                        android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical" android:gravity="center">
+                        <androidx.appcompat.widget.AppCompatImageButton android:id="@+id/btn_video_call"
+                            android:layout_width="40dp" android:layout_height="40dp"
+                            android:src="@drawable/ic_video_call"
+                            android:background="@drawable/bg_circle_action"
+                            android:tint="#A855F7"
+                            android:padding="10dp"
+                            android:contentDescription="Video Call"/>
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="Video" android:textSize="10sp"
+                            android:textColor="?attr/colorOnSurfaceVariant"
+                            android:layout_marginTop="3dp"/>
+                    </LinearLayout>
+
+                    <!-- X profile pill -->
+                    <LinearLayout
+                        android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical" android:gravity="center">
+                        <FrameLayout android:layout_width="40dp" android:layout_height="40dp"
+                            android:clipChildren="false">
+                            <androidx.appcompat.widget.AppCompatImageButton android:id="@+id/btn_open_x"
+                                android:layout_width="40dp" android:layout_height="40dp"
+                                android:src="@drawable/ic_x_logo"
+                                android:background="@drawable/bg_social_x_btn"
+                                android:tint="@color/white"
+                                android:padding="10dp"
+                                android:contentDescription="View X Profile"/>
+                            <de.hdodenhof.circleimageview.CircleImageView
+                                android:id="@+id/iv_anim_x"
+                                android:layout_width="20dp" android:layout_height="20dp"
+                                android:layout_gravity="center"
+                                android:elevation="4dp"
+                                android:visibility="invisible"
+                                app:civ_border_width="1.5dp"
+                                app:civ_border_color="#000000"/>
+                        </FrameLayout>
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="X" android:textSize="10sp"
+                            android:textColor="?attr/colorOnSurfaceVariant"
+                            android:layout_marginTop="3dp"/>
+                    </LinearLayout>
+
+                    <!-- YouTube pill -->
+                    <LinearLayout
+                        android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical" android:gravity="center">
+                        <FrameLayout android:layout_width="40dp" android:layout_height="40dp"
+                            android:clipChildren="false">
+                            <androidx.appcompat.widget.AppCompatImageButton android:id="@+id/btn_open_youtube"
+                                android:layout_width="40dp" android:layout_height="40dp"
+                                android:src="@drawable/ic_youtube"
+                                android:background="@drawable/bg_social_youtube_btn"
+                                android:tint="@color/white"
+                                android:padding="10dp"
+                                android:contentDescription="View YouTube Channel"/>
+                            <de.hdodenhof.circleimageview.CircleImageView
+                                android:id="@+id/iv_anim_youtube"
+                                android:layout_width="20dp" android:layout_height="20dp"
+                                android:layout_gravity="center"
+                                android:elevation="4dp"
+                                android:visibility="invisible"
+                                app:civ_border_width="1.5dp"
+                                app:civ_border_color="#FF0000"/>
+                        </FrameLayout>
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="YouTube" android:textSize="10sp"
+                            android:textColor="?attr/colorOnSurfaceVariant"
+                            android:layout_marginTop="3dp"/>
+                    </LinearLayout>
+                </LinearLayout>
+
+                <!-- Hidden legacy action bar (keeps old icon-button IDs alive for Java) -->
+                <LinearLayout android:id="@+id/layout_actions"
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:orientation="horizontal"
                     android:visibility="gone">
 
                     <!-- Message -->
@@ -605,66 +659,13 @@
                 android:background="@color/divider"
                 android:layout_marginTop="4dp"/>
 
-            <!-- Repost + Series row -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:paddingStart="16dp" android:paddingEnd="16dp"
-                android:paddingTop="4dp" android:paddingBottom="6dp"
-                android:gravity="center">
-
-                <LinearLayout android:id="@+id/btn_repost_section"
-                    android:layout_width="0dp" android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="horizontal"
-                    android:gravity="center"
-                    android:background="?attr/selectableItemBackgroundBorderless"
-                    android:clickable="true" android:focusable="true"
-                    android:paddingTop="10dp" android:paddingBottom="10dp">
-                    <ImageView
-                        android:layout_width="20dp" android:layout_height="20dp"
-                        android:src="@drawable/ic_repost"
-                        android:tint="#FF6B35"
-                        android:contentDescription="Reposts"/>
-                    <TextView
-                        android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="Reposted"
-                        android:textSize="13sp"
-                        android:textColor="#FF6B35"
-                        android:layout_marginStart="6dp"
-                        android:fontFamily="sans-serif-medium"/>
-                </LinearLayout>
-
-                <View android:layout_width="1dp" android:layout_height="24dp"
-                    android:background="@color/divider"/>
-
-                <LinearLayout android:id="@+id/btn_series_section"
-                    android:layout_width="0dp" android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="horizontal"
-                    android:gravity="center"
-                    android:background="?attr/selectableItemBackgroundBorderless"
-                    android:clickable="true" android:focusable="true"
-                    android:paddingTop="10dp" android:paddingBottom="10dp">
-                    <ImageView
-                        android:layout_width="20dp" android:layout_height="20dp"
-                        android:src="@drawable/ic_duet_series"
-                        android:tint="#A855F7"
-                        android:contentDescription="Series"/>
-                    <TextView
-                        android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="Series"
-                        android:textSize="13sp"
-                        android:textColor="#A855F7"
-                        android:layout_marginStart="6dp"
-                        android:fontFamily="sans-serif-medium"/>
-                </LinearLayout>
-            </LinearLayout>
-
-            <!-- Divider before tabs -->
-            <View android:layout_width="match_parent" android:layout_height="0.5dp"
-                android:background="@color/divider"/>
+            <!-- Hidden stub views keep old Java references alive -->
+            <LinearLayout android:id="@+id/btn_repost_section"
+                android:layout_width="match_parent" android:layout_height="0dp"
+                android:visibility="gone"/>
+            <LinearLayout android:id="@+id/btn_series_section"
+                android:layout_width="match_parent" android:layout_height="0dp"
+                android:visibility="gone"/>
 
         </LinearLayout>
 
@@ -674,7 +675,7 @@
             android:layout_width="match_parent"
             android:layout_height="44dp"
             app:layout_scrollFlags="noScroll"
-            app:tabMode="fixed"
+            app:tabMode="scrollable"
             app:tabGravity="fill"
             app:tabSelectedTextColor="?attr/colorOnSurface"
             app:tabTextColor="?attr/colorOnSurfaceVariant"
@@ -683,7 +684,7 @@
             app:tabPaddingStart="-1dp"
             app:tabPaddingEnd="-1dp">
 
-            <!-- Icon-only tabs — Instagram style -->
+            <!-- Icon-only tabs — Instagram style: Reels | Liked | Saved | Repost | Series -->
             <com.google.android.material.tabs.TabItem
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
@@ -698,6 +699,16 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:icon="@drawable/ic_bookmark"/>
+
+            <com.google.android.material.tabs.TabItem
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:icon="@drawable/ic_repost"/>
+
+            <com.google.android.material.tabs.TabItem
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:icon="@drawable/ic_duet_series"/>
 
         </com.google.android.material.tabs.TabLayout>
 
