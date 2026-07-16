@@ -372,9 +372,17 @@ public class ReelDuetController {
             reel.musicArtist != null && !reel.musicArtist.isEmpty()
                 ? reel.musicArtist
                 : (reel.ownerName != null ? reel.ownerName : ""));
-        // Pass creator uid so SoundDetailActivity skips an extra Firebase read.
-        // For original audio, the reel poster (reel.uid) IS the creator.
-        if (reel.uid != null && !reel.uid.isEmpty()) {
+        // Pass creator uid so SoundDetailActivity skips an extra Firebase read
+        // — but ONLY when this reel is the sound's own source (reel.uid IS
+        // the creator). If this reel merely REUSED someone else's sound
+        // (soundId != "orig_" + this reel's id), reel.uid is the poster, not
+        // the creator — passing it here made every reused-sound reel open
+        // SoundDetailActivity attributed to the wrong (poster's) uid instead
+        // of the real original creator. Leave it unset in that case so
+        // SoundDetailActivity resolves creatorUid from the sound node itself.
+        boolean isOwnSoundSource = reel.reelId != null
+            && soundId != null && soundId.equals("orig_" + reel.reelId);
+        if (isOwnSoundSource && reel.uid != null && !reel.uid.isEmpty()) {
             i.putExtra(SoundDetailActivity.EXTRA_CREATOR_UID, reel.uid);
         }
         if (reel.originalAudioUrl != null && !reel.originalAudioUrl.isEmpty()) {
