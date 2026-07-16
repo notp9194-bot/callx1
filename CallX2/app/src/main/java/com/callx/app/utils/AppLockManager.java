@@ -305,4 +305,48 @@ public class AppLockManager {
             return input;
         }
     }
+
+    // ── Per-chat lock  (v32) ──────────────────────────────────────────────
+    // Stores a Set of chatIds that the user has individually locked.
+    // The lock only applies when the global AppLock is also enabled — if the
+    // user disables AppLock entirely, per-chat locks are silently bypassed
+    // (matching WhatsApp's behaviour).
+
+    private static final String KEY_LOCKED_CHATS = "locked_chats_v1";
+
+    /**
+     * Returns true if this specific chat is individually locked AND the
+     * global AppLock is enabled (has a PIN/pattern/fingerprint set).
+     */
+    public boolean isLockedForChat(String chatId) {
+        if (chatId == null || chatId.isEmpty()) return false;
+        if (!isEnabled()) return false; // global lock must be active
+        String stored = prefs.getString(KEY_LOCKED_CHATS, "");
+        return stored.contains("|" + chatId + "|");
+    }
+
+    /**
+     * Set or clear the individual lock for a specific chat.
+     * Idempotent — calling setLockedForChat(id, true) twice is safe.
+     */
+    public void setLockedForChat(String chatId, boolean locked) {
+        if (chatId == null || chatId.isEmpty()) return;
+        String stored = prefs.getString(KEY_LOCKED_CHATS, "");
+        boolean already = stored.contains("|" + chatId + "|");
+        if (locked == already) return; // no change needed
+        if (locked) {
+            stored = stored + chatId + "|";
+            if (!stored.startsWith("|")) stored = "|" + stored;
+        } else {
+            stored = stored.replace("|" + chatId + "|", "|");
+        }
+        prefs.edit().putString(KEY_LOCKED_CHATS, stored).apply();
+    }
+
+    /**
+     * Remove all per-chat locks (called when AppLock is disabled globally).
+     */
+    public void clearAllChatLocks() {
+        prefs.edit().remove(KEY_LOCKED_CHATS).apply();
+    }
 }
