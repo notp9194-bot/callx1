@@ -14,7 +14,22 @@
         <item name="colorPrimaryVariant">@color/brand_primary_dark</item>
         <item name="colorSecondary">@color/brand_accent</item>
         <item name="colorOnPrimary">@color/text_on_primary</item>
-        <item name="android:windowBackground">@color/surface_bg</item>
+
+        <!-- Force pure white (phone's light-mode white) app-wide.
+             Without these, Material3's baseline theme falls back to its
+             default lavender-tinted surface color (~#FFFBFE) everywhere
+             ?attr/colorSurface is used, giving the whole app a faint
+             pink/purple cast in light mode. -->
+        <item name="android:windowBackground">@color/white</item>
+        <item name="colorSurface">@color/white</item>
+        <item name="colorSurfaceVariant">@color/white</item>
+        <item name="colorSurfaceContainer">@color/white</item>
+        <item name="colorSurfaceContainerHigh">@color/white</item>
+        <item name="colorSurfaceContainerHighest">@color/white</item>
+        <item name="colorSurfaceContainerLow">@color/white</item>
+        <item name="colorSurfaceContainerLowest">@color/white</item>
+        <item name="colorOnSurface">@color/text_primary</item>
+        <item name="colorOnSurfaceVariant">@color/text_secondary</item>
         <!-- Transparent status/nav bar so edge-to-edge works correctly -->
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
