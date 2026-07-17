@@ -10,6 +10,7 @@ import android.graphics.drawable.Drawable;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Log;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.animation.LinearInterpolator;
@@ -678,6 +679,8 @@ public class SoundDetailActivity extends AppCompatActivity implements Player.Lis
                     }
                 }
                 if (page.size() < REELS_PAGE_SIZE) hasMoreReels = false;
+                Log.d("SoundDetail", "primary page (sounds/" + soundId + "/reels): got " + page.size()
+                    + ", hasMoreReels=" + hasMoreReels);
 
                 if (page.isEmpty() && reelItems.isEmpty() && lastReelKey == null) {
                     hasMoreReels = false;
@@ -793,6 +796,8 @@ public class SoundDetailActivity extends AppCompatActivity implements Player.Lis
 
         int insertStart = reelItems.size();
         reelItems.addAll(page);
+        Log.d("SoundDetail", "finishAppendingPage: +" + page.size() + " -> total=" + reelItems.size()
+            + " declaredCount=" + declaredReelCount + " hasMoreReels=" + hasMoreReels);
         if (reelThumbAdapter != null) {
             reelThumbAdapter.notifyItemRangeInserted(insertStart, page.size());
             // Force the whole wrap_content chain to remeasure after items are
@@ -841,11 +846,15 @@ public class SoundDetailActivity extends AppCompatActivity implements Player.Lis
         if (soundId == null || soundId.isEmpty() || isFinishing() || isDestroyed()) return;
         reconciledMissingReels = true;
 
+        Log.d("SoundDetail", "reconciling: loaded=" + reelItems.size()
+            + " declared=" + declaredReelCount + " soundId=" + soundId);
+
         FirebaseUtils.db().getReference("reels")
             .orderByChild("musicId").equalTo(soundId)
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(@NonNull DataSnapshot snap) {
                     if (isFinishing() || isDestroyed()) return;
+                    Log.d("SoundDetail", "reconcile query returned " + snap.getChildrenCount() + " total matches");
                     List<ReelThumbItem> missing = new ArrayList<>();
                     Map<String, Object> selfHeal = new HashMap<>();
                     for (DataSnapshot s : snap.getChildren()) {
@@ -879,7 +888,9 @@ public class SoundDetailActivity extends AppCompatActivity implements Player.Lis
                         }
                     }
                 }
-                @Override public void onCancelled(@NonNull DatabaseError e) { /* best-effort reconciliation */ }
+                @Override public void onCancelled(@NonNull DatabaseError e) {
+                    Log.w("SoundDetail", "reconcile query cancelled: " + e.getMessage());
+                }
             });
     }
 
