@@ -180,6 +180,8 @@ public class ReelEditorActivity extends AppCompatActivity {
     private int    mixFadeInMs       = 0;
     private int    mixFadeOutMs      = 0;
     private float  mixPitchSemitones = 0f;
+    /** ✅ NEW: peak-normalize flag from ReelAudioMixerActivity */
+    private boolean mixNormalize     = false;
     private int    musicStartMs      = 0;
     private int    musicEndMs        = 0;
     private long[] beatTimesMs       = null;
@@ -885,6 +887,7 @@ public class ReelEditorActivity extends AppCompatActivity {
                 mixFadeInMs       = data.getIntExtra(ReelAudioMixerActivity.RESULT_FADE_IN_MS,        0);
                 mixFadeOutMs      = data.getIntExtra(ReelAudioMixerActivity.RESULT_FADE_OUT_MS,       0);
                 mixPitchSemitones = data.getFloatExtra(ReelAudioMixerActivity.RESULT_PITCH_SEMITONES, 0f);
+                mixNormalize      = data.getBooleanExtra(ReelAudioMixerActivity.RESULT_NORMALIZE,     false);
                 if (player != null) player.setVolume(mixOrigVol);
                 updateBadge("audio", "🎵 Audio Mix");
                 Toast.makeText(this, "Audio mix applied ✓", Toast.LENGTH_SHORT).show();
@@ -1036,6 +1039,7 @@ public class ReelEditorActivity extends AppCompatActivity {
         intent.putExtra("mix_fade_in_ms",      mixFadeInMs);
         intent.putExtra("mix_fade_out_ms",     mixFadeOutMs);
         intent.putExtra("mix_pitch_semitones", mixPitchSemitones);
+        intent.putExtra("mix_normalize",       mixNormalize);
         if (musicStartMs > 0) intent.putExtra("music_start_ms", musicStartMs);
         if (musicEndMs   > 0) intent.putExtra("music_end_ms",   musicEndMs);
 

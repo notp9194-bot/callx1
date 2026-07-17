@@ -1,5 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#000000">
+
+<ScrollView
     android:id="@+id/scroll_sound_detail"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -714,3 +719,49 @@
 
     </LinearLayout>
 </ScrollView>
+
+    <!-- ──────────────────── Floating "Use audio / Save" bar ────────────────────
+         Instagram jaisa behaviour: jab top ka "Use audio" button scroll ho kar
+         upar chala jaata hai tab yeh niche float hota hai; wapas top pe scroll
+         karte hi gayab ho jaata hai. Scroll-driven show/hide SoundDetailActivity
+         ke onScrollChangeListener se control hota hai. -->
+    <LinearLayout
+        android:id="@+id/layout_floating_sound_actions"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="20dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:elevation="8dp"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/btn_floating_use_audio"
+            android:layout_width="wrap_content"
+            android:layout_height="44dp"
+            android:minWidth="150dp"
+            android:gravity="center"
+            android:text="🎵  Use audio"
+            android:textColor="@color/white"
+            android:textSize="14sp"
+            android:fontFamily="sans-serif-medium"
+            android:paddingHorizontal="20dp"
+            android:background="@drawable/bg_pill_dark_solid"
+            android:layout_marginEnd="10dp"/>
+
+        <TextView
+            android:id="@+id/btn_floating_save"
+            android:layout_width="wrap_content"
+            android:layout_height="44dp"
+            android:minWidth="90dp"
+            android:gravity="center"
+            android:text="🔖  Save"
+            android:textColor="@color/white"
+            android:textSize="14sp"
+            android:fontFamily="sans-serif-medium"
+            android:paddingHorizontal="18dp"
+            android:background="@drawable/bg_pill_dark_solid"/>
+    </LinearLayout>
+
+</FrameLayout>

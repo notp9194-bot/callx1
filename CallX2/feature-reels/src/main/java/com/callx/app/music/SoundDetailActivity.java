@@ -102,6 +102,11 @@ public class SoundDetailActivity extends AppCompatActivity implements Player.Lis
     private ImageButton  btnMiniPlayPause, btnMiniClose;
     private boolean      miniPlayerActive = false;
 
+    // ✅ NEW: floating "Use audio / Save" bar (Instagram-style — shows once the
+    // top Use-sound buttons scroll out of view, hides again near the top)
+    private View         layoutFloatingActions;
+    private TextView     btnFloatingUseAudio, btnFloatingSave;
+
     // ─── Reels grid pagination ─────────────────────────────────────────────────
     private static final int REELS_PAGE_SIZE     = 12;
     private ScrollView  scrollSoundDetail;
@@ -273,6 +278,11 @@ public class SoundDetailActivity extends AppCompatActivity implements Player.Lis
         tvMiniTitle      = findViewById(R.id.tv_mini_title);
         btnMiniPlayPause = findViewById(R.id.btn_mini_play_pause);
         btnMiniClose     = findViewById(R.id.btn_mini_close);
+
+        // ✅ NEW: floating Use audio / Save bar
+        layoutFloatingActions = findViewById(R.id.layout_floating_sound_actions);
+        btnFloatingUseAudio   = findViewById(R.id.btn_floating_use_audio);
+        btnFloatingSave       = findViewById(R.id.btn_floating_save);
 
         // Pagination
         scrollSoundDetail       = findViewById(R.id.scroll_sound_detail);
@@ -530,6 +540,9 @@ public class SoundDetailActivity extends AppCompatActivity implements Player.Lis
                     showShimmer(false);
                     updatePlayButtonState();
                     updateTrimButtonVisibility();
+                    // ✅ NEW: content just became visible — recompute once layout settles
+                    if (scrollSoundDetail != null)
+                        scrollSoundDetail.post(SoundDetailActivity.this::updateFloatingSoundActionsVisibility);
                 }
 
                 @Override public void onCancelled(@NonNull DatabaseError e) {
@@ -597,12 +610,19 @@ public class SoundDetailActivity extends AppCompatActivity implements Player.Lis
             Intent i = new Intent(this, SingleReelPlayerActivity.class);
             i.putStringArrayListExtra(SingleReelPlayerActivity.EXTRA_REEL_IDS, ids);
             i.putExtra(SingleReelPlayerActivity.EXTRA_START_POSITION, position);
+            // ✅ NEW: only this entry point turns on the "Use in Camera / Use in
+            // Video" pill — Instagram-style, sound-page-only behaviour.
+            i.putExtra(SingleReelPlayerActivity.EXTRA_SHOW_SOUND_ACTIONS, true);
+            i.putExtra(SingleReelPlayerActivity.EXTRA_SOUND_ID,    soundId);
+            i.putExtra(SingleReelPlayerActivity.EXTRA_SOUND_TITLE, soundTitle);
+            i.putExtra(SingleReelPlayerActivity.EXTRA_SOUND_URL,   soundUrl);
             startActivity(i);
         });
         rvReels.setAdapter(reelThumbAdapter);
 
         if (scrollSoundDetail != null) {
             scrollSoundDetail.setOnScrollChangeListener((View.OnScrollChangeListener) (v, scrollX, scrollY, oldX, oldY) -> {
+                updateFloatingSoundActionsVisibility(); // ✅ NEW — runs on every scroll tick, both directions
                 if (scrollY <= oldY || rvReels == null || isLoadingMoreReels || !hasMoreReels) return;
                 int gridBottom    = rvReels.getBottom();
                 int visibleBottom = scrollY + scrollSoundDetail.getHeight();
@@ -1002,6 +1022,11 @@ public class SoundDetailActivity extends AppCompatActivity implements Player.Lis
             });
         }
 
+        // ✅ NEW: floating bar — Save mirrors the top save button; Use audio
+        // opens the small center dialog (Use in Camera / Use in Video).
+        if (btnFloatingSave != null) btnFloatingSave.setOnClickListener(v -> toggleSave());
+        if (btnFloatingUseAudio != null) btnFloatingUseAudio.setOnClickListener(v -> showUseAudioDialog());
+
         if (btnPlayPause != null) btnPlayPause.setOnClickListener(v -> togglePlayPause());
 
         if (btnUseSoundCamera != null) btnUseSoundCamera.setOnClickListener(v -> {
@@ -1299,6 +1324,46 @@ public class SoundDetailActivity extends AppCompatActivity implements Player.Lis
     private void updateSaveButton() {
         if (btnSaveSound != null)
             btnSaveSound.setImageResource(isSaved ? R.drawable.ic_bookmark_filled : R.drawable.ic_bookmark);
+        if (btnFloatingSave != null)
+            btnFloatingSave.setText(isSaved ? "✅  Saved" : "🔖  Save");
+    }
+
+    // ── ✅ NEW: floating "Use audio / Save" bar ─────────────────────────────
+
+    /**
+     * Instagram jaisa behaviour: top wale "Use in Camera / Use with Video"
+     * buttons jab scroll ho kar screen ke upar chale jaate hain, tab yeh
+     * floating bar niche dikhta hai; wapas top pe scroll karte hi gayab.
+     * Dono direction (up/down) par chalta hai — sirf pagination ka scroll
+     * listener down-only tha, isse alag rakha gaya hai.
+     */
+    private void updateFloatingSoundActionsVisibility() {
+        if (layoutFloatingActions == null || btnUseSoundCamera == null || scrollSoundDetail == null) return;
+        if (btnUseSoundCamera.getVisibility() != View.VISIBLE) {
+            layoutFloatingActions.setVisibility(View.GONE);
+            return;
+        }
+        int[] btnLoc    = new int[2];
+        int[] scrollLoc = new int[2];
+        btnUseSoundCamera.getLocationOnScreen(btnLoc);
+        scrollSoundDetail.getLocationOnScreen(scrollLoc);
+        boolean topButtonsScrolledAway = (btnLoc[1] + btnUseSoundCamera.getHeight()) < scrollLoc[1];
+        layoutFloatingActions.setVisibility(topButtonsScrolledAway ? View.VISIBLE : View.GONE);
+    }
+
+    /** Small centered dialog — "Use in Camera" / "Use in Video" — opened from the floating "Use audio" pill. */
+    private void showUseAudioDialog() {
+        String[] options = { "🎥  Use in Camera", "🎬  Use in Video" };
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle(soundTitle != null && !soundTitle.isEmpty() ? soundTitle : "Use this sound")
+            .setItems(options, (dialog, which) -> {
+                // Reuse the exact same logic the top buttons already run —
+                // no duplicated flow, no risk of the two paths drifting apart.
+                if (which == 0 && btnUseSoundCamera != null) btnUseSoundCamera.performClick();
+                else if (which == 1 && btnUseSoundGallery != null) btnUseSoundGallery.performClick();
+            })
+            .setNegativeButton("Cancel", null)
+            .show();
     }
 
     private String formatMs(int ms) {

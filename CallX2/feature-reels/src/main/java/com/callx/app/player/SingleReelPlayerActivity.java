@@ -3,10 +3,19 @@ package com.callx.app.player;
 import com.callx.app.feed.ReelsFragment;
 import com.callx.app.profile.UserReelsActivity;
 import com.callx.app.library.SavedReelsActivity;
+import com.callx.app.camera.ReelCameraActivity;
+import com.callx.app.upload.ReelUploadActivity;
 
+import android.content.Intent;
+import android.graphics.Color;
+import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
+import android.view.Gravity;
 import android.view.View;
+import android.widget.FrameLayout;
+import android.widget.LinearLayout;
 import android.widget.ProgressBar;
+import android.widget.TextView;
 import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
@@ -42,11 +51,21 @@ import java.util.List;
  *   i.putExtra(EXTRA_START_POSITION, position);
  *   startActivity(i);
  *
+ * Usage (from SoundDetailActivity's "reels using this sound" grid — shows the
+ * Instagram-style "Use in Camera / Use in Video" pill at the bottom):
+ *   i.putExtra(EXTRA_SHOW_SOUND_ACTIONS, true);
+ *   i.putExtra(EXTRA_SOUND_ID,    soundId);
+ *   i.putExtra(EXTRA_SOUND_TITLE, soundTitle);
+ *   i.putExtra(EXTRA_SOUND_URL,   soundUrl);
+ *
  * Features:
  *  ✅ Full-screen vertical ViewPager2 — bilkul ReelsFragment jaisa
  *  ✅ Starting position pe seedha jump karta hai
  *  ✅ Back button
  *  ✅ offscreenPageLimit=2
+ *  ✅ NEW: "Use in Camera / Use in Video" pill — sirf tab dikhta hai jab yeh
+ *     screen SoundDetailActivity ke reel-grid se khuli ho (Instagram jaisa
+ *     "Use audio" bar), profile grid / saved / chat-bubble se nahi.
  */
 public class SingleReelPlayerActivity extends AppCompatActivity {
 
@@ -56,6 +75,12 @@ public class SingleReelPlayerActivity extends AppCompatActivity {
     public static final String EXTRA_START_POSITION = "start_position";
     public static final String EXTRA_TITLE          = "title";
 
+    // ✅ NEW: only set when launched from SoundDetailActivity's reel grid
+    public static final String EXTRA_SHOW_SOUND_ACTIONS = "show_sound_actions";
+    public static final String EXTRA_SOUND_ID           = "sound_id";
+    public static final String EXTRA_SOUND_TITLE        = "sound_title";
+    public static final String EXTRA_SOUND_URL          = "sound_url";
+
     private ViewPager2   vpReels;
     private ReelsAdapter adapter;
     private ProgressBar  progressBar;
@@ -63,6 +88,10 @@ public class SingleReelPlayerActivity extends AppCompatActivity {
     private final List<ReelModel> reels = new ArrayList<>();
     private ValueEventListener    reelsListener;
     private int                   startPosition = 0;
+
+    // ✅ NEW: sound-action bar state
+    private boolean showSoundActions;
+    private String  soundId, soundTitle, soundUrl;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -77,6 +106,15 @@ public class SingleReelPlayerActivity extends AppCompatActivity {
         String uid      = getIntent().getStringExtra(EXTRA_UID);
         ArrayList<String> reelIds = getIntent().getStringArrayListExtra(EXTRA_REEL_IDS);
         String singleReelId = getIntent().getStringExtra(EXTRA_REEL_ID);
+
+        // ✅ NEW: sound-action bar — only present when SoundDetailActivity sent us here
+        showSoundActions = getIntent().getBooleanExtra(EXTRA_SHOW_SOUND_ACTIONS, false);
+        soundId    = getIntent().getStringExtra(EXTRA_SOUND_ID);
+        soundTitle = getIntent().getStringExtra(EXTRA_SOUND_TITLE);
+        soundUrl   = getIntent().getStringExtra(EXTRA_SOUND_URL);
+        if (showSoundActions && soundId != null && !soundId.isEmpty()) {
+            setupSoundActionBar();
+        }
 
         adapter = new ReelsAdapter(this);
         vpReels.setAdapter(adapter);
@@ -231,5 +269,82 @@ public class SingleReelPlayerActivity extends AppCompatActivity {
     protected void onDestroy() {
         if (reelsListener != null) FirebaseUtils.getReelsRef().removeEventListener(reelsListener);
         super.onDestroy();
+    }
+
+    // ── ✅ NEW: "Use in Camera / Use in Video" pill ─────────────────────────
+    // Instagram jaisa "Use audio" bar — yahan ek pill ke andar do overlapping
+    // action zones hain (thin divider se split), taaki chota footprint rahe.
+    // Sirf tab dikhta hai jab is screen ko SoundDetailActivity ke reel-grid
+    // se kholaa gaya ho (EXTRA_SHOW_SOUND_ACTIONS), profile/saved/chat-bubble
+    // grids se nahi — waisa hi jaisa Instagram sirf sound page ke andar se
+    // reel play karne par dikhata hai.
+    private void setupSoundActionBar() {
+        View root = vpReels != null ? (View) vpReels.getParent() : null;
+        if (!(root instanceof FrameLayout)) return;
+        FrameLayout container = (FrameLayout) root;
+        float dp = getResources().getDisplayMetrics().density;
+
+        LinearLayout pill = new LinearLayout(this);
+        pill.setOrientation(LinearLayout.HORIZONTAL);
+        pill.setGravity(Gravity.CENTER);
+
+        GradientDrawable pillBg = new GradientDrawable();
+        pillBg.setColor(Color.WHITE);
+        pillBg.setCornerRadius(999f * dp);
+        pill.setBackground(pillBg);
+        pill.setElevation(6f * dp);
+
+        TextView tvCamera = mkSoundActionHalf("Use in Camera");
+        TextView tvVideo  = mkSoundActionHalf("Use in Video");
+
+        View divider = new View(this);
+        LinearLayout.LayoutParams divLp =
+            new LinearLayout.LayoutParams((int)(1*dp), (int)(24*dp));
+        divider.setBackgroundColor(0x33000000);
+
+        tvCamera.setOnClickListener(v -> {
+            Intent i = new Intent(SingleReelPlayerActivity.this, ReelCameraActivity.class);
+            i.putExtra("selected_sound_id",       soundId);
+            i.putExtra("selected_sound_title",     soundTitle);
+            i.putExtra("selected_sound_url",       soundUrl);
+            i.putExtra("replace_audio_with_sound", true);
+            startActivity(i);
+        });
+        tvVideo.setOnClickListener(v -> {
+            Intent i = new Intent(SingleReelPlayerActivity.this, ReelUploadActivity.class);
+            i.putExtra("selected_sound_id",    soundId);
+            i.putExtra("selected_sound_title", soundTitle);
+            i.putExtra("selected_sound_url",   soundUrl);
+            startActivity(i);
+        });
+
+        pill.addView(tvCamera);
+        pill.addView(divider, divLp);
+        pill.addView(tvVideo);
+
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT);
+        lp.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
+        lp.bottomMargin = (int) (28 * dp);
+        container.addView(pill, lp);
+    }
+
+    private TextView mkSoundActionHalf(String label) {
+        float dp = getResources().getDisplayMetrics().density;
+        TextView tv = new TextView(this);
+        tv.setText(label);
+        tv.setTextColor(Color.BLACK);
+        tv.setTextSize(13f);
+        tv.setGravity(Gravity.CENTER);
+        tv.setPadding((int)(18*dp), (int)(12*dp), (int)(18*dp), (int)(12*dp));
+        tv.setBackground(androidx.core.content.ContextCompat.getDrawable(this, resolveRippleRes()));
+        return tv;
+    }
+
+    /** Resolves the theme's borderless ripple drawable resource id. */
+    private int resolveRippleRes() {
+        android.util.TypedValue outValue = new android.util.TypedValue();
+        getTheme().resolveAttribute(android.R.attr.selectableItemBackground, outValue, true);
+        return outValue.resourceId;
     }
 }

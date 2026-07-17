@@ -191,6 +191,8 @@ public class ReelUploadActivity extends AppCompatActivity {
     private int   mixFadeInMs        = 0;
     private int   mixFadeOutMs       = 0;
     private float mixPitchSemitones  = 0f;
+    /** ✅ NEW: peak-normalize flag forwarded from ReelAudioMixerActivity */
+    private boolean mixNormalize     = false;
     private int   musicStartMs       = 0;
     private int   musicEndMs         = 0;
 
@@ -437,6 +439,7 @@ public class ReelUploadActivity extends AppCompatActivity {
         mixFadeInMs       = i.getIntExtra("mix_fade_in_ms",       0);
         mixFadeOutMs      = i.getIntExtra("mix_fade_out_ms",      0);
         mixPitchSemitones = i.getFloatExtra("mix_pitch_semitones", 0f);
+        mixNormalize      = i.getBooleanExtra("mix_normalize",     false);
         musicStartMs      = i.getIntExtra("music_start_ms",       0);
         musicEndMs        = i.getIntExtra("music_end_ms",          0);
 
@@ -1198,6 +1201,7 @@ public class ReelUploadActivity extends AppCompatActivity {
         cfg.fadeInMs      = mixFadeInMs;
         cfg.fadeOutMs     = mixFadeOutMs;
         cfg.pitchSemitones= mixPitchSemitones;
+        cfg.normalize     = mixNormalize;
         AudioMixHelper.mixAndExportWithConfig(
             this,
             rawVideoPath,

@@ -63,6 +63,8 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
     public static final String RESULT_FADE_IN_MS      = "result_fade_in_ms";
     public static final String RESULT_FADE_OUT_MS     = "result_fade_out_ms";
     public static final String RESULT_PITCH_SEMITONES = "result_pitch_semitones";
+    /** ✅ NEW: peak-normalize toggle result */
+    public static final String RESULT_NORMALIZE       = "result_normalize";
 
     private static final int REQ_MIC          = 501;
     /** ✅ NEW: request codes for SoundDetail and "Change Music" pickers */
@@ -100,6 +102,8 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
     private int   fadeInMs       = 0;
     private int   fadeOutMs      = 0;
     private float pitchSemitones = 0f;
+    /** ✅ NEW: peak-normalize toggle state */
+    private boolean normalizeOn  = false;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
 
@@ -171,6 +175,25 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
         half.setMargins((int)(4*dp),0,(int)(4*dp),0);
         row.addView(btnFI, half); row.addView(btnFO, half);
         root.addView(row);
+
+        // ✅ NEW: Normalize toggle — peak-normalizes the mixed music track so
+        // quiet tracks aren't drowned out and loud ones don't clip.
+        android.widget.LinearLayout normRow = new android.widget.LinearLayout(this);
+        normRow.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+        normRow.setPadding((int)(12*dp),(int)(8*dp),(int)(12*dp),0);
+        android.widget.Button btnNorm = mkFadeBtn("Normalize");
+        btnNorm.setOnClickListener(v -> {
+            normalizeOn = !normalizeOn;
+            btnNorm.setAlpha(normalizeOn ? 1f : 0.5f);
+            btnNorm.setText(normalizeOn ? "✓ Normalize" : "Normalize");
+        });
+        android.widget.LinearLayout.LayoutParams full =
+            new android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT);
+        full.setMargins((int)(4*dp),0,(int)(4*dp),0);
+        normRow.addView(btnNorm, full);
+        root.addView(normRow);
 
         android.widget.TextView tvPL = new android.widget.TextView(this);
         tvPL.setText("Pitch: 0.0 semitones"); tvPL.setTextColor(0xFFFFFFFF); tvPL.setTextSize(13f);
@@ -494,6 +517,7 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
         result.putExtra(RESULT_FADE_IN_MS,      fadeInMs);
         result.putExtra(RESULT_FADE_OUT_MS,     fadeOutMs);
         result.putExtra(RESULT_PITCH_SEMITONES, pitchSemitones);
+        result.putExtra(RESULT_NORMALIZE,       normalizeOn);
         setResult(RESULT_OK, result);
         finish();
     }

@@ -167,6 +167,9 @@ public class CallxApp extends Application {
         com.callx.app.notifications.ReelNotificationWorker.schedule(this);
         // YouTube background polling worker — killed/background state notifications
         com.callx.app.notifications.YouTubeNotificationWorker.schedule(this);
+        // ✅ FIX: Trending Sound worker was built but never scheduled anywhere,
+        // so it never actually ran. Enqueue it here alongside the other workers.
+        com.callx.app.workers.TrendingSoundWorker.scheduleIfNeeded(this);
 
         // Activity lifecycle + AppLock wiring — must be main thread
         com.callx.app.utils.PresenceManager.getInstance().init(this);
