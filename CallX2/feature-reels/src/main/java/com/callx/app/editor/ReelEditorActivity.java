@@ -132,6 +132,7 @@ public class ReelEditorActivity extends AppCompatActivity {
     private TextView      tvTextPreview;
     private View          btnNext, btnAddText;
     private ProgressBar   progressBuffering;
+    private ImageButton   btnToolEffects;
     private ImageButton   btnToolFilters, btnToolStickers, btnToolSubtitles,
                           btnToolTransitions, btnToolVoice, btnToolAudioMixer, btnToolThumbnail;
     /** ✅ NEW: music chip / tool button — opens SoundDetail (if sound selected) or MusicPicker */
@@ -1339,7 +1340,7 @@ public class ReelEditorActivity extends AppCompatActivity {
         draft.trimStartMs = trimStartMs;
         draft.trimEndMs   = trimEndMs;
         draft.filterName  = filterName  != null ? filterName  : "";
-        draft.durationMs  = videoDurationMs;
+        draft.durationMs  = totalDurationMs;
 
         // Save async (thumbnail extracted in background)
         LocalDraftsManager.saveAsync(this, draft, () ->
