@@ -111,6 +111,23 @@
             android:exported="false"
             android:screenOrientation="portrait"/>
 
+        <!-- ✅ Sound System v3 — Search / Playlist Detail / Beat Sync / Remix / Analytics v2 -->
+        <activity android:name="com.callx.app.music.SoundSearchActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"/>
+        <activity android:name="com.callx.app.music.PlaylistDetailActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"/>
+        <activity android:name="com.callx.app.music.BeatSyncEditorActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"/>
+        <activity android:name="com.callx.app.music.SoundRemixActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"/>
+
         <!-- Analytics / Creator -->
         <activity android:name="com.callx.app.analytics.ReelAnalyticsActivity"
             android:exported="false"/>

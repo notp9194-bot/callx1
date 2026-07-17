@@ -63,13 +63,15 @@ public class ReelTrendingAudioActivity extends AppCompatActivity {
     private ProgressBar  progress;
     private TextView     tvEmpty;
 
-    private final List<Audio> allTracks    = new ArrayList<>();
-    private final List<Audio> displayed    = new ArrayList<>();
-    private final Set<String> savedIds     = new HashSet<>();
+    private final List<Audio> allTracks       = new ArrayList<>();
+    private final List<Audio> allSoundsTracks = new ArrayList<>(); // ✅ Feature 1: sounds/ node
+    private final List<Audio> displayed       = new ArrayList<>();
+    private final Set<String> savedIds        = new HashSet<>();
     private AudioAdapter adapter;
     private String  myUid;
     private String  currentTab   = "trending";
     private String  selectedGenre= "all";
+    private String  dateFilter   = "all";   // "today" | "week" | "all"
     private MediaPlayer mediaPlayer;
     private String  playingId    = null;
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -113,6 +115,22 @@ public class ReelTrendingAudioActivity extends AppCompatActivity {
         if (tabViral    != null) tabViral.setOnClickListener(v    -> switchTab("viral"));
         if (tabNew      != null) tabNew.setOnClickListener(v      -> switchTab("new"));
         if (tabSaved    != null) tabSaved.setOnClickListener(v    -> switchTab("saved"));
+        // ✅ Feature 1: "Sounds" tab — loads user-created original audio from sounds/ node
+        View tabSounds = findViewById(R.id.tab_audio_sounds);
+        View indSounds = findViewById(R.id.ind_audio_sounds);
+        if (tabSounds != null) tabSounds.setOnClickListener(v -> {
+            if (indSounds != null) {
+                if (indTrending != null) indTrending.setVisibility(View.GONE);
+                if (indViral    != null) indViral.setVisibility(View.GONE);
+                if (indNew      != null) indNew.setVisibility(View.GONE);
+                if (indSaved    != null) indSaved.setVisibility(View.GONE);
+                indSounds.setVisibility(View.VISIBLE);
+            }
+            currentTab = "sounds";
+            if (allSoundsTracks.isEmpty()) loadSoundsTab();
+            else filterDisplayed(etSearch != null && etSearch.getText() != null
+                ? etSearch.getText().toString().trim() : "");
+        });
 
         adapter = new AudioAdapter(displayed,
             audio -> previewAudio(audio),
@@ -194,6 +212,50 @@ public class ReelTrendingAudioActivity extends AppCompatActivity {
                     adapter.notifyDataSetChanged();
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) {}
+            });
+    }
+
+    /**
+     * ✅ Feature 1: Load user-created original audio from sounds/ node,
+     * ordered by reel_count desc (limitToLast + reverse = highest first).
+     * Applies dateFilter: "today" / "week" / "all".
+     */
+    private void loadSoundsTab() {
+        if (progress != null) progress.setVisibility(View.VISIBLE);
+        FirebaseUtils.db().getReference("sounds")
+            .orderByChild("reel_count").limitToLast(80)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    if (isFinishing() || isDestroyed()) return;
+                    if (progress != null) progress.setVisibility(View.GONE);
+                    allSoundsTracks.clear();
+                    long now = System.currentTimeMillis();
+                    for (DataSnapshot s : snap.getChildren()) {
+                        Audio a = new Audio();
+                        a.id         = s.getKey();
+                        a.title      = s.child("title").getValue(String.class);
+                        if (a.title == null || a.title.isEmpty()) continue;
+                        a.artist     = s.child("artist").getValue(String.class);
+                        a.audioUrl   = s.child("audioUrl").getValue(String.class);
+                        a.coverUrl   = s.child("coverUrl").getValue(String.class);
+                        a.genre      = "Original";
+                        Long rc      = s.child("reel_count").getValue(Long.class);
+                        a.usageCount = rc != null ? rc : 0;
+                        Long ca      = s.child("created_at").getValue(Long.class);
+                        a.addedAt    = ca != null ? ca : 0;
+                        a.bpm        = 0;
+                        a.trendingRank = Boolean.TRUE.equals(
+                            s.child("is_trending").getValue(Boolean.class)) ? 1L : 0L;
+                        allSoundsTracks.add(a);
+                    }
+                    Collections.reverse(allSoundsTracks); // highest reel_count first
+                    filterDisplayed(etSearch != null && etSearch.getText() != null
+                        ? etSearch.getText().toString().trim() : "");
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) {
+                    if (progress != null) progress.setVisibility(View.GONE);
+                    filterDisplayed("");
+                }
             });
     }
 
@@ -317,6 +379,24 @@ public class ReelTrendingAudioActivity extends AppCompatActivity {
             case "saved":
                 source = new ArrayList<>();
                 for (Audio a : allTracks) if (savedIds.contains(a.id)) source.add(a);
+                break;
+
+            case "sounds": // ✅ Feature 1: user-created original audio from sounds/ node
+                source = new ArrayList<>(allSoundsTracks);
+                // Apply date filter
+                if ("today".equals(dateFilter)) {
+                    long cutToday = now - 24L * 60 * 60 * 1000;
+                    source.removeIf(a -> a.addedAt < cutToday);
+                } else if ("week".equals(dateFilter)) {
+                    long cutWeek = now - 7L * 24 * 60 * 60 * 1000;
+                    source.removeIf(a -> a.addedAt < cutWeek);
+                }
+                // Sort trending sounds first, then by reel_count
+                source.sort((x, y) -> {
+                    if (x.trendingRank > 0 && y.trendingRank == 0) return -1;
+                    if (y.trendingRank > 0 && x.trendingRank == 0) return 1;
+                    return Long.compare(y.usageCount, x.usageCount);
+                });
                 break;
 
             default:

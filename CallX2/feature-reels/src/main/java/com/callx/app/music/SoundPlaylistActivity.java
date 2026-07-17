@@ -167,9 +167,11 @@ public class SoundPlaylistActivity extends AppCompatActivity {
             setResult(RESULT_OK, result);
             finish();
         } else {
-            // Open playlist detail (reuse or create PlaylistDetailActivity)
-            Toast.makeText(this, "Playlist: " + p.name + " (" + p.soundCount + " sounds)",
-                Toast.LENGTH_SHORT).show();
+            // ✅ Feature 3: Open PlaylistDetailActivity to browse and manage sounds inside
+            Intent i = new Intent(this, PlaylistDetailActivity.class);
+            i.putExtra(PlaylistDetailActivity.EXTRA_PLAYLIST_ID,   p.id);
+            i.putExtra(PlaylistDetailActivity.EXTRA_PLAYLIST_NAME, p.name);
+            startActivity(i);
         }
     }
 

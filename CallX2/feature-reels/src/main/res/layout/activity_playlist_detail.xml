@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="#000000">
+
+    <!-- Toolbar -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="4dp"
+        android:paddingEnd="12dp"
+        android:background="#1A1A1A">
+
+        <ImageButton
+            android:id="@+id/btn_playlist_detail_back"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:src="@drawable/ic_back"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Back"/>
+
+        <TextView
+            android:id="@+id/tv_playlist_detail_title"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textColor="#FFFFFF"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:paddingStart="8dp"/>
+
+        <Button
+            android:id="@+id/btn_playlist_detail_add"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:text="+ Add"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp"
+            android:backgroundTint="#FF3B5C"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"/>
+    </LinearLayout>
+
+    <!-- Swipe hint -->
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="← Swipe left to remove a sound"
+        android:textColor="#555555"
+        android:textSize="11sp"
+        android:paddingStart="16dp"
+        android:paddingTop="6dp"
+        android:paddingBottom="4dp"/>
+
+    <!-- Loading -->
+    <ProgressBar
+        android:id="@+id/progress_playlist_sounds"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="24dp"
+        android:indeterminateTint="#FF3B5C"
+        android:visibility="gone"/>
+
+    <!-- Empty -->
+    <TextView
+        android:id="@+id/tv_playlist_sounds_empty"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="This playlist is empty.\nTap '+ Add' to add sounds."
+        android:textColor="#666666"
+        android:textSize="14sp"
+        android:gravity="center"
+        android:padding="48dp"
+        android:visibility="gone"/>
+
+    <!-- List -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/rv_playlist_sounds"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:clipToPadding="false"
+        android:paddingBottom="16dp"/>
+
+</LinearLayout>

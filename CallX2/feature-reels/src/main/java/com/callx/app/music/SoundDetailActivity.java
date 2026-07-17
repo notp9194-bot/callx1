@@ -1057,6 +1057,8 @@ public class SoundDetailActivity extends AppCompatActivity implements Player.Lis
                 popup.getMenu().add(0, 2, 1, "Add to playlist");
                 popup.getMenu().add(0, 3, 2, "Copy link");
                 popup.getMenu().add(0, 4, 3, "Not interested");
+                popup.getMenu().add(0, 7, 4, "🔍 Search Sounds");
+                popup.getMenu().add(0, 8, 5, "🎚 Remix this Sound");
 
                 // Creator-only options — only shown if current user owns this sound
                 String myUid = FirebaseAuth.getInstance().getUid();
@@ -1064,8 +1066,8 @@ public class SoundDetailActivity extends AppCompatActivity implements Player.Lis
                         && creatorUid != null
                         && myUid.equals(creatorUid);
                 if (isMySound) {
-                    popup.getMenu().add(0, 5, 4, "Upload Sound");
-                    popup.getMenu().add(0, 6, 5, "View Analytics");
+                    popup.getMenu().add(0, 5, 6, "Upload Sound");
+                    popup.getMenu().add(0, 6, 7, "View Analytics");
                 }
 
                 popup.setOnMenuItemClickListener(item -> {
@@ -1093,7 +1095,22 @@ public class SoundDetailActivity extends AppCompatActivity implements Player.Lis
                         case 6: // View Analytics (creator only)
                             Intent ai = new Intent(this, SoundAnalyticsActivity.class);
                             ai.putExtra(SoundAnalyticsActivity.EXTRA_SOUND_ID, soundId);
+                            ai.putExtra(SoundAnalyticsActivity.EXTRA_SOUND_TITLE, soundTitle);
                             startActivity(ai);
+                            return true;
+
+                        case 7: // 🔍 Search Sounds — Feature 2
+                            startActivity(new Intent(this, SoundSearchActivity.class));
+                            return true;
+
+                        case 8: // 🎚 Remix this Sound — Feature 5
+                            Intent ri = new Intent(this, SoundRemixActivity.class);
+                            ri.putExtra(SoundRemixActivity.EXTRA_SOUND_A_ID,    soundId    != null ? soundId    : "");
+                            ri.putExtra(SoundRemixActivity.EXTRA_SOUND_A_TITLE, soundTitle != null ? soundTitle : "");
+                            ri.putExtra(SoundRemixActivity.EXTRA_SOUND_A_URL,   soundUrl   != null ? soundUrl   : "");
+                            ri.putExtra(SoundRemixActivity.EXTRA_SOUND_A_COVER, coverUrl   != null ? coverUrl   : "");
+                            ri.putExtra(SoundRemixActivity.EXTRA_SOUND_A_ARTIST,artist     != null ? artist     : "");
+                            startActivity(ri);
                             return true;
 
                         default:

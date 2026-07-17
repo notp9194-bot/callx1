@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="72dp"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:paddingStart="12dp"
+    android:paddingEnd="12dp"
+    android:background="?attr/selectableItemBackground">
+
+    <!-- Cover art -->
+    <ImageView
+        android:id="@+id/iv_sound_search_cover"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:scaleType="centerCrop"
+        android:background="#2A2A2A"/>
+
+    <!-- Text block -->
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:paddingStart="12dp"
+        android:paddingEnd="8dp">
+
+        <TextView
+            android:id="@+id/tv_sound_search_title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:maxLines="1"
+            android:ellipsize="end"/>
+
+        <TextView
+            android:id="@+id/tv_sound_search_artist"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="#AAAAAA"
+            android:textSize="12sp"
+            android:maxLines="1"
+            android:ellipsize="end"/>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:id="@+id/tv_sound_search_meta"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:textColor="#666666"
+                android:textSize="11sp"
+                android:maxLines="1"/>
+
+            <TextView
+                android:id="@+id/tv_sound_search_badge"
+                android:layout_width="wrap_content"
+                android:layout_height="18dp"
+                android:paddingStart="6dp"
+                android:paddingEnd="6dp"
+                android:textColor="#FF3B5C"
+                android:textSize="10sp"
+                android:textStyle="bold"
+                android:background="#1FFF3B5C"
+                android:gravity="center"/>
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- Use button -->
+    <Button
+        android:id="@+id/btn_sound_search_use"
+        android:layout_width="52dp"
+        android:layout_height="32dp"
+        android:text="Use"
+        android:textColor="#FFFFFF"
+        android:textSize="12sp"
+        android:backgroundTint="#FF3B5C"
+        android:paddingStart="0dp"
+        android:paddingEnd="0dp"/>
+
+</LinearLayout>
