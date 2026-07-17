@@ -1781,45 +1781,48 @@ public class ReelUploadActivity extends AppCompatActivity {
         com.google.firebase.database.DatabaseReference soundRef =
             FirebaseUtils.db().getReference("sounds").child(soundId);
 
-        // Always link this reel → real sound entity (so SoundDetailActivity,
-        // "Use this sound" etc. behave the same for original audio as for any
-        // other sound).
-        FirebaseUtils.getReelsRef().child(reelId).child("musicId").setValue(soundId);
-
-        // Add this reel into the sound's own reel list (drives "Reels with
-        // this sound" grid + total count on SoundDetailActivity).
+        // ✅ FIX: "N Reels" label drifting ahead of the actual grid.
+        // Previously this was three independent writes (musicId setValue,
+        // reels/{reelId} setValue, reel_count transaction) with no failure
+        // handling. If any single one of them dropped (flaky connection, app
+        // killed mid-upload, etc.) the counter could increment without the
+        // grid entry ever landing — SoundDetailActivity would then show
+        // "10 Reels" while the grid only had 6. Folding the link + list entry
+        // + counter bump into ONE atomic multi-path update means they can only
+        // ever succeed or fail together, so they can no longer drift apart for
+        // any *new* reel. (SoundDetailActivity separately self-heals any
+        // pre-existing drift from before this fix.)
         java.util.Map<String, Object> reelEntry = new java.util.HashMap<>();
         reelEntry.put("thumbnailUrl", thumbUrl != null ? thumbUrl : "");
         reelEntry.put("videoUrl",     videoUrl != null ? videoUrl : "");
         reelEntry.put("ownerUid",     ownerUid != null ? ownerUid : "");
-        soundRef.child("reels").child(reelId).setValue(reelEntry);
 
-        // Bump reel_count via transaction (works whether the sound node
-        // already existed or is being created for the first time).
-        soundRef.child("reel_count").runTransaction(new Transaction.Handler() {
-            @NonNull @Override
-            public Transaction.Result doTransaction(@NonNull MutableData d) {
-                Long cur = d.getValue(Long.class);
-                d.setValue((cur != null ? cur : 0) + 1);
-                return Transaction.success(d);
-            }
-            @Override public void onComplete(DatabaseError e, boolean committed, DataSnapshot s) {
-                // ✅ Trending badge: trending_rank was always being written as 0
-                // and nothing ever updated it, so the "🔥 Trending" badge could
-                // never actually show. Instead of a precise global leaderboard
-                // rank (which needs a real backend job to compute safely across
-                // many concurrent writers), use a simple, race-safe threshold:
-                // once a sound crosses TRENDING_REEL_THRESHOLD uses, flip a
-                // boolean flag. SoundDetailActivity shows the badge off this
-                // flag directly — no separate ranking computation needed.
-                if (e == null && committed && s != null) {
-                    Long count = s.getValue(Long.class);
-                    if (count != null && count >= TRENDING_REEL_THRESHOLD) {
-                        soundRef.child("is_trending").setValue(true);
+        java.util.Map<String, Object> atomicUpdate = new java.util.HashMap<>();
+        atomicUpdate.put("reels/" + reelId + "/musicId", soundId);
+        atomicUpdate.put("sounds/" + soundId + "/reels/" + reelId, reelEntry);
+        atomicUpdate.put("sounds/" + soundId + "/reel_count", ServerValue.increment(1));
+
+        FirebaseUtils.db().getReference().updateChildren(atomicUpdate)
+            .addOnSuccessListener(unused -> {
+                // Trending badge: read the fresh count once to flip is_trending
+                // past the threshold. Race-safe since it's read-then-compare on
+                // a value the atomic increment above just committed server-side.
+                soundRef.child("reel_count").addListenerForSingleValueEvent(new ValueEventListener() {
+                    @Override public void onDataChange(@NonNull DataSnapshot s) {
+                        Long count = s.getValue(Long.class);
+                        if (count != null && count >= TRENDING_REEL_THRESHOLD) {
+                            soundRef.child("is_trending").setValue(true);
+                        }
                     }
-                }
-            }
-        });
+                    @Override public void onCancelled(@NonNull DatabaseError e) { }
+                });
+            })
+            .addOnFailureListener(e -> {
+                // Best-effort single retry — better than silently dropping the
+                // link and leaving the reel invisible on its own sound page.
+                Log.w("ReelUpload", "registerOrLinkSound update failed, retrying once: " + e.getMessage());
+                FirebaseUtils.db().getReference().updateChildren(atomicUpdate);
+            });
 
         if (usingExistingSound) {
             // Existing sound already has its own title/artist/cover — don't

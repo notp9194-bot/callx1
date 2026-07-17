@@ -114,6 +114,15 @@ public class SoundDetailActivity extends AppCompatActivity implements Player.Lis
     private String       lastReelKey        = null;
     private boolean       isLoadingMoreReels = false;
     private boolean       hasMoreReels       = true;
+    // ✅ FIX: "10 Reels" label vs grid mismatch — sounds/{id}/reel_count can drift
+    // ahead of sounds/{id}/reels (the denormalised list) if a write ever partially
+    // fails. declaredReelCount lets us notice the grid came up short and reconcile
+    // against the real source of truth (the top-level reels collection) instead of
+    // silently showing fewer reels than the count says exist — exactly how
+    // Instagram's audio page never under-shows what it claims.
+    private long          declaredReelCount      = 0L;
+    private boolean       reconciledMissingReels = false;
+    private final Set<String> loadedReelIds      = new HashSet<>();
 
     // ─── Request codes ─────────────────────────────────────────────────────────
     /** Gallery video picker launched from "Use in Video" button */
@@ -514,6 +523,12 @@ public class SoundDetailActivity extends AppCompatActivity implements Player.Lis
                     if (rank  == null) rank  = 0L;
                     if (saves == null) saves = 0L;
 
+                    declaredReelCount = count;
+                    // Grid may already be fully loaded (or exhausted with a short
+                    // page) by the time this arrives, since it's a separate read —
+                    // re-check reconciliation now that we know the real count.
+                    maybeReconcileMissingReels();
+
                     if (tvReelCount  != null) tvReelCount.setText(formatCount(count) + " Reels");
                     if (tvSavesCount != null) {
                         tvSavesCount.setText(formatCount(saves) + " Saves");
@@ -684,8 +699,12 @@ public class SoundDetailActivity extends AppCompatActivity implements Player.Lis
             isLoadingMoreReels = false;
             return;
         }
+        // ✅ FIX: this was querying a "soundId" field that reel documents never
+        // actually have — ReelUploadActivity writes the link as "musicId" (see
+        // registerOrLinkSound). The old field name meant this fallback query
+        // always returned empty, silently.
         FirebaseUtils.db().getReference("reels")
-            .orderByChild("soundId").equalTo(soundId)
+            .orderByChild("musicId").equalTo(soundId)
             .limitToFirst(REELS_PAGE_SIZE)
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(@NonNull DataSnapshot snap) {
@@ -749,7 +768,17 @@ public class SoundDetailActivity extends AppCompatActivity implements Player.Lis
     private void finishAppendingPage(List<ReelThumbItem> page, boolean needsSort) {
         isLoadingMoreReels = false;
         if (progressReelsPagination != null) progressReelsPagination.setVisibility(View.GONE);
-        if (isFinishing() || isDestroyed() || page.isEmpty()) return;
+        if (isFinishing() || isDestroyed() || page.isEmpty()) { maybeReconcileMissingReels(); return; }
+
+        // ✅ FIX: dedupe against everything already shown. The reconciliation
+        // pass (below) and normal pagination can otherwise both surface the
+        // same reelId and duplicate it in the grid.
+        List<ReelThumbItem> deduped = new ArrayList<>();
+        for (ReelThumbItem item : page) {
+            if (item.reelId != null && loadedReelIds.add(item.reelId)) deduped.add(item);
+        }
+        if (deduped.isEmpty()) { maybeReconcileMissingReels(); return; }
+        page = deduped;
 
         if (needsSort) {
             for (ReelThumbItem item : page) {
@@ -766,14 +795,92 @@ public class SoundDetailActivity extends AppCompatActivity implements Player.Lis
         reelItems.addAll(page);
         if (reelThumbAdapter != null) {
             reelThumbAdapter.notifyItemRangeInserted(insertStart, page.size());
-            // Force ScrollView to remeasure after items are inserted.
-            // wrap_content RecyclerView inside ScrollView sometimes clips the last
-            // row because the parent measured before the adapter had all items.
-            // requestLayout() + post ensures measurement runs after bind completes.
-            if (rvReels != null) rvReels.post(() -> {
-                if (rvReels != null) rvReels.requestLayout();
+            // Force the whole wrap_content chain to remeasure after items are
+            // inserted. requestLayout() on the RecyclerView alone doesn't
+            // reliably propagate up to its LinearLayout parent + the ScrollView
+            // once the initial layout pass has already happened — that's what
+            // was clipping the grid to whatever fit the first measured pass
+            // instead of growing to show every row that got loaded.
+            final RecyclerView rv = rvReels;
+            if (rv != null) rv.post(() -> {
+                rv.requestLayout();
+                View parent = (View) rv.getParent();
+                if (parent != null) parent.requestLayout();
+                if (scrollSoundDetail != null) scrollSoundDetail.requestLayout();
             });
         }
+
+        // Once this page has landed, check whether the grid is still short of
+        // the sound's declared reel_count — if so, reconcile against the
+        // canonical source below.
+        maybeReconcileMissingReels();
+    }
+
+    /**
+     * ✅ FIX: "10 Reels" label vs "only 6 show" bug.
+     *
+     * The grid is built from the denormalised list at sounds/{id}/reels, which
+     * is written alongside — but NOT atomically with — the reel_count counter
+     * at upload time (see ReelUploadActivity#registerOrLinkSound). If either of
+     * those two separate writes ever fails independently (flaky connection,
+     * app killed mid-upload, etc.) the count can end up ahead of the list, and
+     * the grid permanently under-shows what it claims to have.
+     *
+     * Once normal pagination is exhausted (hasMoreReels == false) we compare
+     * what we actually loaded against the declared count. If we're short, we
+     * fall back to the canonical, always-complete source — the top-level
+     * "reels" collection itself, filtered by musicId — exactly like Instagram's
+     * audio page: the grid is a live query over real posts, not a maintained
+     * side-list that can silently drift out of sync.
+     */
+    private void maybeReconcileMissingReels() {
+        if (reconciledMissingReels) return;
+        if (hasMoreReels) return; // still more normal pages to try first
+        if (declaredReelCount <= 0) return;
+        if (reelItems.size() >= declaredReelCount) return;
+        if (soundId == null || soundId.isEmpty() || isFinishing() || isDestroyed()) return;
+        reconciledMissingReels = true;
+
+        FirebaseUtils.db().getReference("reels")
+            .orderByChild("musicId").equalTo(soundId)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    if (isFinishing() || isDestroyed()) return;
+                    List<ReelThumbItem> missing = new ArrayList<>();
+                    Map<String, Object> selfHeal = new HashMap<>();
+                    for (DataSnapshot s : snap.getChildren()) {
+                        String rid = s.getKey();
+                        if (rid == null || loadedReelIds.contains(rid)) continue;
+                        String thumb = s.child("thumbnailUrl").getValue(String.class);
+                        if (thumb == null) thumb = s.child("thumbnail").getValue(String.class);
+                        String vid = s.child("videoUrl").getValue(String.class);
+                        String uid = s.child("uid").getValue(String.class);
+                        if (uid == null) uid = s.child("ownerUid").getValue(String.class);
+                        Long views = s.child("viewsCount").getValue(Long.class);
+
+                        ReelThumbItem item = new ReelThumbItem(rid,
+                            thumb != null ? thumb : "", vid != null ? vid : "");
+                        item.uid        = uid;
+                        item.viewsCount = views != null ? views : 0L;
+                        missing.add(item);
+
+                        // Self-heal the denormalised list so future visits (and
+                        // the count label) don't drift for this reel again.
+                        Map<String, Object> entry = new HashMap<>();
+                        entry.put("thumbnailUrl", item.thumbnailUrl);
+                        entry.put("videoUrl",     item.videoUrl);
+                        entry.put("ownerUid",     uid != null ? uid : "");
+                        selfHeal.put("sounds/" + soundId + "/reels/" + rid, entry);
+                    }
+                    if (!missing.isEmpty()) {
+                        finishAppendingPage(missing, true);
+                        if (!selfHeal.isEmpty()) {
+                            FirebaseUtils.db().getReference().updateChildren(selfHeal);
+                        }
+                    }
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) { /* best-effort reconciliation */ }
+            });
     }
 
     private void sortAndApplyReelItems() {
