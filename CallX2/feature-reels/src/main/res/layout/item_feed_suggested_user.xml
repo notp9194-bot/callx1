@@ -76,6 +76,6 @@
         android:textColor="#FFFFFF"
         android:backgroundTint="@color/brand_primary"
         android:stateListAnimator="@null"
-        android:allCaps="false"/>
+        android:textAllCaps="false"/>
 
 </LinearLayout>

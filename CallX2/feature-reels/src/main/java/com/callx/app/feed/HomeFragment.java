@@ -383,17 +383,21 @@ public class HomeFragment extends Fragment {
 
         // "My Story" entry is always first (even if user has no stories yet)
         loadMyStory(myStory -> {
-            repo.loadStories(myUid, storyList -> {
-                if (!isAdded()) return;
-                List<FeedStory> all = new ArrayList<>();
-                if (myStory != null) all.add(myStory);
-                // Filter out my own uid from others list
-                for (FeedStory s : storyList) {
-                    if (!s.ownerUid.equals(myUid)) all.add(s);
+            repo.loadStories(myUid, new HomeFeedRepository.StoriesCallback() {
+                @Override
+                public void onLoaded(List<FeedStory> storyList) {
+                    if (!isAdded()) return;
+                    List<FeedStory> all = new ArrayList<>();
+                    if (myStory != null) all.add(myStory);
+                    // Filter out my own uid from others list
+                    for (FeedStory s : storyList) {
+                        if (!s.ownerUid.equals(myUid)) all.add(s);
+                    }
+                    uiHandler.post(() -> {
+                        if (isAdded()) feedAdapter.setStories(all);
+                    });
                 }
-                uiHandler.post(() -> {
-                    if (isAdded()) feedAdapter.setStories(all);
-                });
+                @Override public void onError(String error) { /* non-fatal, skip */ }
             });
         });
     }
@@ -435,34 +439,47 @@ public class HomeFragment extends Fragment {
             feedAdapter.setLoading(true);
         }
 
-        HomeFeedRepository.FeedCallback cb = (posts, hasMore) -> {
-            if (!isAdded()) return;
-            hasMorePages  = hasMore;
-            isLoadingMore = false;
+        HomeFeedRepository.FeedCallback cb = new HomeFeedRepository.FeedCallback() {
+            @Override
+            public void onLoaded(List<FeedPost> posts, boolean hasMore) {
+                if (!isAdded()) return;
+                hasMorePages  = hasMore;
+                isLoadingMore = false;
 
-            // Update pagination cursor
-            if (!posts.isEmpty()) {
-                lastTimestamp = posts.get(posts.size() - 1).timestamp;
+                // Update pagination cursor
+                if (!posts.isEmpty()) {
+                    lastTimestamp = posts.get(posts.size() - 1).timestamp;
+                }
+
+                // Load per-post state (like/save/follow) then update UI
+                loadPostStates(posts, enriched -> {
+                    uiHandler.post(() -> {
+                        if (!isAdded()) return;
+                        if (swipeRefresh != null) swipeRefresh.setRefreshing(false);
+                        showInitialLoading(false);
+                        feedAdapter.setLoading(false);
+
+                        if (isFirstPage) {
+                            feedAdapter.setPosts(enriched);
+                        } else {
+                            feedAdapter.appendPosts(enriched);
+                        }
+
+                        if (isFirstPage && enriched.isEmpty()) showEmpty(true);
+                        else hideEmpty();
+                    });
+                });
             }
-
-            // Load per-post state (like/save/follow) then update UI
-            loadPostStates(posts, enriched -> {
+            @Override
+            public void onError(String error) {
+                isLoadingMore = false;
                 uiHandler.post(() -> {
                     if (!isAdded()) return;
                     if (swipeRefresh != null) swipeRefresh.setRefreshing(false);
                     showInitialLoading(false);
                     feedAdapter.setLoading(false);
-
-                    if (isFirstPage) {
-                        feedAdapter.setPosts(enriched);
-                    } else {
-                        feedAdapter.appendPosts(enriched);
-                    }
-
-                    if (isFirstPage && enriched.isEmpty()) showEmpty(true);
-                    else hideEmpty();
                 });
-            });
+            }
         };
 
         if (isFollowingMode) {

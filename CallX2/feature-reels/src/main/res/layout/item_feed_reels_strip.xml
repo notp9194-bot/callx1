@@ -46,7 +46,7 @@
             android:textSize="11sp"
             android:textColor="@color/brand_primary"
             android:background="@null"
-            android:allCaps="false"
+            android:textAllCaps="false"
             android:paddingStart="8dp"
             android:paddingEnd="8dp"/>
     </LinearLayout>

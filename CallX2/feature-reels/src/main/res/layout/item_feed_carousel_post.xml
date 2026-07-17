@@ -96,7 +96,7 @@
             android:paddingEnd="14dp"
             android:backgroundTint="@color/brand_primary"
             android:stateListAnimator="@null"
-            android:allCaps="false"/>
+            android:textAllCaps="false"/>
 
         <ImageButton
             android:id="@+id/btn_post_more"

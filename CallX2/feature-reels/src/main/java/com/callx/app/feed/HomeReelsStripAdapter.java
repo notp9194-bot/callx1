@@ -69,10 +69,10 @@ public class HomeReelsStripAdapter extends RecyclerView.Adapter<HomeReelsStripAd
             String thumb = r.effectiveThumbUrl();
             if (!thumb.isEmpty()) {
                 Glide.with(ctx).load(thumb)
-                     .placeholder(R.drawable.ic_video_orange)
+                     .placeholder(R.drawable.ic_video_call)
                      .into(ivThumb);
             } else {
-                ivThumb.setImageResource(R.drawable.ic_video_orange);
+                ivThumb.setImageResource(R.drawable.ic_video_call);
             }
 
             // Views count
