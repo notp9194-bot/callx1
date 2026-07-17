@@ -637,100 +637,61 @@ public class SoundDetailActivity extends AppCompatActivity implements Player.Lis
         rvReels.setAdapter(reelThumbAdapter);
 
         if (scrollSoundDetail != null) {
-            scrollSoundDetail.setOnScrollChangeListener((View.OnScrollChangeListener) (v, scrollX, scrollY, oldX, oldY) -> {
-                updateFloatingSoundActionsVisibility(); // ✅ NEW — runs on every scroll tick, both directions
-                if (scrollY <= oldY || rvReels == null || isLoadingMoreReels || !hasMoreReels) return;
-                int gridBottom    = rvReels.getBottom();
-                int visibleBottom = scrollY + scrollSoundDetail.getHeight();
-                if (visibleBottom >= gridBottom - 600) loadMoreReelsForSound();
-            });
+            scrollSoundDetail.setOnScrollChangeListener((View.OnScrollChangeListener) (v, scrollX, scrollY, oldX, oldY) ->
+                updateFloatingSoundActionsVisibility());
         }
 
-        loadMoreReelsForSound();
+        loadAllReelsForSound();
     }
 
-    private void loadMoreReelsForSound() {
-        if (isLoadingMoreReels || !hasMoreReels || isFinishing() || isDestroyed()) return;
+    /**
+     * ✅ REWRITE: was paginating over sounds/{id}/reels — a denormalised list
+     * written separately from the reel itself at upload time, which could
+     * (and did) drift short of what actually exists. That's the real reason
+     * "10 Reels" showed only 6: the side-list was missing entries, no amount
+     * of scrolling could ever load what was never written there.
+     *
+     * This now queries the canonical "reels" collection directly by musicId —
+     * the field every reel reliably gets at creation time — so the grid is a
+     * live view over the real posts, exactly like Instagram's audio page.
+     * No side-list to drift out of sync, no pagination bug to hide behind.
+     */
+    private void loadAllReelsForSound() {
+        if (soundId == null || soundId.isEmpty() || isFinishing() || isDestroyed()) return;
         isLoadingMoreReels = true;
-        if (progressReelsPagination != null && lastReelKey != null)
-            progressReelsPagination.setVisibility(View.VISIBLE);
+        if (progressReelsPagination != null) progressReelsPagination.setVisibility(View.VISIBLE);
 
-        Query q = FirebaseUtils.db().getReference("sounds").child(soundId).child("reels")
-            .orderByKey();
-        q = (lastReelKey != null) ? q.startAfter(lastReelKey).limitToFirst(REELS_PAGE_SIZE)
-                                   : q.limitToFirst(REELS_PAGE_SIZE);
-
-        q.addListenerForSingleValueEvent(new ValueEventListener() {
-            @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                if (isFinishing() || isDestroyed()) return;
-                List<ReelThumbItem> page = new ArrayList<>();
-                for (DataSnapshot s : snap.getChildren()) {
-                    String rid   = s.getKey();
-                    String thumb = s.child("thumbnailUrl").getValue(String.class);
-                    if (thumb == null) thumb = s.child("thumbnail").getValue(String.class);
-                    String vid   = s.child("videoUrl").getValue(String.class);
-                    String uid   = s.child("ownerUid").getValue(String.class);
-                    if (rid != null) {
-                        ReelThumbItem item = new ReelThumbItem(rid,
-                            thumb != null ? thumb : "", vid != null ? vid : "");
-                        item.uid = uid;
-                        page.add(item);
-                        lastReelKey = rid;
-                    }
-                }
-                if (page.size() < REELS_PAGE_SIZE) hasMoreReels = false;
-                Log.d("SoundDetail", "primary page (sounds/" + soundId + "/reels): got " + page.size()
-                    + ", hasMoreReels=" + hasMoreReels);
-
-                if (page.isEmpty() && reelItems.isEmpty() && lastReelKey == null) {
-                    hasMoreReels = false;
-                    loadReelsFromReelsNode();
-                    return;
-                }
-                fetchViewCountsForPage(page);
-            }
-            @Override public void onCancelled(@NonNull DatabaseError e) {
-                isLoadingMoreReels = false;
-                if (progressReelsPagination != null) progressReelsPagination.setVisibility(View.GONE);
-                if (reelItems.isEmpty()) loadReelsFromReelsNode();
-            }
-        });
-    }
-
-    private void loadReelsFromReelsNode() {
-        if (soundId == null || isFinishing() || isDestroyed()) {
-            isLoadingMoreReels = false;
-            return;
-        }
-        // ✅ FIX: this was querying a "soundId" field that reel documents never
-        // actually have — ReelUploadActivity writes the link as "musicId" (see
-        // registerOrLinkSound). The old field name meant this fallback query
-        // always returned empty, silently.
         FirebaseUtils.db().getReference("reels")
             .orderByChild("musicId").equalTo(soundId)
-            .limitToFirst(REELS_PAGE_SIZE)
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(@NonNull DataSnapshot snap) {
                     if (isFinishing() || isDestroyed()) { isLoadingMoreReels = false; return; }
                     List<ReelThumbItem> page = new ArrayList<>();
                     for (DataSnapshot s : snap.getChildren()) {
                         String rid   = s.getKey();
+                        if (rid == null || loadedReelIds.contains(rid)) continue;
                         String thumb = s.child("thumbnailUrl").getValue(String.class);
                         if (thumb == null) thumb = s.child("thumbnail").getValue(String.class);
                         String vid   = s.child("videoUrl").getValue(String.class);
                         String uid   = s.child("uid").getValue(String.class);
+                        if (uid == null) uid = s.child("ownerUid").getValue(String.class);
                         Long   views = s.child("viewsCount").getValue(Long.class);
-                        if (rid != null) {
-                            ReelThumbItem item = new ReelThumbItem(rid,
-                                thumb != null ? thumb : "", vid != null ? vid : "");
-                            item.uid        = uid;
-                            item.viewsCount = views != null ? views : 0L;
-                            page.add(item);
-                        }
+                        ReelThumbItem item = new ReelThumbItem(rid,
+                            thumb != null ? thumb : "", vid != null ? vid : "");
+                        item.uid        = uid;
+                        item.viewsCount = views != null ? views : 0L;
+                        page.add(item);
                     }
-                    finishAppendingPage(page, false);
+                    Log.d("SoundDetail", "loadAllReelsForSound: musicId=" + soundId
+                        + " matched=" + snap.getChildrenCount() + " newItems=" + page.size());
+                    hasMoreReels = false; // single-shot: everything tagged with this sound loads in one query
+                    finishAppendingPage(page, true);
                 }
-                @Override public void onCancelled(@NonNull DatabaseError e) { isLoadingMoreReels = false; }
+                @Override public void onCancelled(@NonNull DatabaseError e) {
+                    isLoadingMoreReels = false;
+                    if (progressReelsPagination != null) progressReelsPagination.setVisibility(View.GONE);
+                    Log.w("SoundDetail", "loadAllReelsForSound cancelled: " + e.getMessage());
+                }
             });
     }
 
