@@ -4,7 +4,7 @@
     android:layout_height="match_parent"
     android:background="#000000">
 
-<ScrollView
+<androidx.core.widget.NestedScrollView
     android:id="@+id/scroll_sound_detail"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -718,7 +718,7 @@
             android:layout_height="80dp"/>
 
     </LinearLayout>
-</ScrollView>
+</androidx.core.widget.NestedScrollView>
 
     <!-- ──────────────────── Floating "Use audio / Save" bar ────────────────────
          Instagram jaisa behaviour: jab top ka "Use audio" button scroll ho kar
