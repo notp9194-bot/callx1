@@ -39,6 +39,7 @@ import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.ui.PlayerView;
 
 import com.callx.app.reels.R;
+import com.callx.app.library.LocalDraftsManager;
 import com.callx.app.editor.ReelFiltersActivity;
 import com.callx.app.editor.ReelStickerPickerActivity;
 import com.callx.app.editor.ReelSubtitlesActivity;
@@ -80,6 +81,14 @@ public class ReelEditorActivity extends AppCompatActivity {
     public static final String EXTRA_PRESET_FILTER_SATURATION = "preset_filter_saturation";
     public static final String EXTRA_PRESET_FILTER_BEAUTY     = "preset_filter_beauty";
     public static final String EXTRA_PRESET_STICKERS_JSON     = "preset_stickers_json";
+    /** Effect preset carried from ReelCameraActivity → ReelEffectsActivity result */
+    public static final String EXTRA_PRESET_EFFECT_NAME       = "preset_effect_name";
+    public static final String EXTRA_PRESET_EFFECT_BRIGHTNESS = "preset_effect_brightness";
+    public static final String EXTRA_PRESET_EFFECT_CONTRAST   = "preset_effect_contrast";
+    public static final String EXTRA_PRESET_EFFECT_SATURATION = "preset_effect_saturation";
+    public static final String EXTRA_PRESET_EFFECT_BEAUTY     = "preset_effect_beauty";
+    /** Recording speed carried from ReelCameraActivity → ReelSpeedControlActivity result */
+    public static final String EXTRA_PRESET_SPEED             = "preset_speed";
 
     private static final int REQ_FILTERS     = 401;
     private static final int REQ_STICKERS    = 402;
@@ -117,6 +126,21 @@ public class ReelEditorActivity extends AppCompatActivity {
     private TextView      tvSubtitlePreview;
     /** Small thumbnail preview badge (bottom-right corner) */
     private ImageView     ivThumbBadge;
+
+    // ── Mention / Tag People ──────────────────────────────────────────────
+    private EditText      etEditorCaption;
+    private TextView      tvCaptionCharCount;
+    private View          vMentionPopupAnchor;
+    private ImageButton   btnToolTagPeople;
+    /** uid → MentionUser for all people tagged on this reel (video overlay tags). */
+    private final Map<String, ReelMentionUserAdapter.MentionUser> taggedUsers = new LinkedHashMap<>();
+    /** Live draggable @mention TextViews added to the video FrameLayout. */
+    private final Map<String, android.widget.TextView> mentionTagViews = new LinkedHashMap<>();
+    /** Popup for inline @mention autocomplete while editing caption. */
+    private PopupWindow mentionPopup;
+    private ReelMentionUserAdapter mentionSuggestionAdapter;
+    private final java.util.List<ReelMentionUserAdapter.MentionUser> allContactUsers = new ArrayList<>();
+    private boolean allContactsLoaded = false;
 
     // ── Player ───────────────────────────────────────────────────────────
     private ExoPlayer player;
@@ -172,6 +196,8 @@ public class ReelEditorActivity extends AppCompatActivity {
     private float  voicePitch      = 1.0f;
     private float  voiceSpeed      = 1.0f;
     private float  voiceReverb     = 0.0f;
+    /** Recording speed set before recording in ReelCameraActivity (0.3x – 3x). */
+    private float  cameraSpeed     = 1.0f;
     // Audio mixer
     private float  mixOrigVol        = 1.0f;
     private float  mixMusicVol       = 0.8f;
@@ -196,6 +222,24 @@ public class ReelEditorActivity extends AppCompatActivity {
 
         videoUriStr = getIntent().getStringExtra(EXTRA_VIDEO_URI);
         isFilePath  = getIntent().getBooleanExtra(EXTRA_IS_FILE_PATH, true);
+
+        // ── Multi-clip mode: first clip used as video, all paths forwarded to upload ──
+        if (getIntent().getBooleanExtra("is_multi_clip", false)) {
+            java.util.ArrayList<String> multiPaths =
+                getIntent().getStringArrayListExtra(
+                    com.callx.app.camera.MultiClipCameraActivity.EXTRA_CLIP_PATHS);
+            if (multiPaths != null && !multiPaths.isEmpty()) {
+                if (videoUriStr == null || videoUriStr.isEmpty()) {
+                    videoUriStr = multiPaths.get(0);
+                    isFilePath  = true;
+                }
+                // Stash all paths as a semicolon-separated extra for ReelUploadActivity
+                getIntent().putExtra("multi_clip_paths_joined",
+                    android.text.TextUtils.join(";", multiPaths));
+                getIntent().putExtra("multi_clip_count",
+                    getIntent().getIntExtra("multi_clip_count", multiPaths.size()));
+            }
+        }
 
         isDuet         = getIntent().getBooleanExtra(EXTRA_IS_DUET, false);
         duetOriginalId = nvl(getIntent().getStringExtra(EXTRA_DUET_ORIGINAL_ID));
@@ -257,6 +301,27 @@ public class ReelEditorActivity extends AppCompatActivity {
                 android.graphics.Color.argb(200, 168, 85, 247));
         }
 
+        // ── Effect preset from ReelEffectsActivity (via camera) ───────────
+        String presetEffect = getIntent().getStringExtra(EXTRA_PRESET_EFFECT_NAME);
+        if (presetEffect != null && !presetEffect.isEmpty()) {
+            float eBright = getIntent().getFloatExtra(EXTRA_PRESET_EFFECT_BRIGHTNESS, 0f);
+            float eCont   = getIntent().getFloatExtra(EXTRA_PRESET_EFFECT_CONTRAST,   1f);
+            float eSat    = getIntent().getFloatExtra(EXTRA_PRESET_EFFECT_SATURATION, 1f);
+            float eBeauty = getIntent().getFloatExtra(EXTRA_PRESET_EFFECT_BEAUTY,     0f);
+            // Apply visually (reuses same tint-overlay system as filters)
+            applyFilterVisual(presetEffect, eBright, eCont, eSat);
+            // Tint the Effects toolbar button purple so user sees it's active
+            if (btnToolEffects != null)
+                btnToolEffects.setColorFilter(android.graphics.Color.argb(200, 91, 91, 246));
+        }
+
+        // ── Recording speed preset from ReelSpeedControlActivity (via camera) ──
+        float presetSpeed = getIntent().getFloatExtra(EXTRA_PRESET_SPEED, 1.0f);
+        if (presetSpeed != 1.0f) {
+            cameraSpeed = presetSpeed;
+            // Apply to player once it's ready (listener in setupPlayer handles STATE_READY)
+        }
+
         String presetStickers = getIntent().getStringExtra(EXTRA_PRESET_STICKERS_JSON);
         if (presetStickers != null && presetStickers.length() > 2) {
             // Simple split of top-level JSON objects in the array: "[{...},{...}]"
@@ -308,6 +373,12 @@ public class ReelEditorActivity extends AppCompatActivity {
         btnToolThumbnail   = findViewById(R.id.btn_tool_thumbnail);
         // ✅ NEW: music chip button (add btn_tool_music ImageButton to the toolbar XML)
         btnToolMusic       = findViewById(R.id.btn_tool_music);
+
+        // ── Mention / caption views ──────────────────────────────────────
+        etEditorCaption    = findViewById(R.id.et_editor_caption);
+        tvCaptionCharCount = findViewById(R.id.tv_caption_char_count);
+        vMentionPopupAnchor = findViewById(R.id.v_mention_popup_anchor);
+        btnToolTagPeople   = findViewById(R.id.btn_tool_tag_people);
     }
 
     // ── Inject dynamic overlay views into the video FrameLayout ──────────
@@ -611,6 +682,12 @@ public class ReelEditorActivity extends AppCompatActivity {
         player.setRepeatMode(Player.REPEAT_MODE_ONE);
         player.prepare();
         player.setPlayWhenReady(true);
+        // Apply recording speed (from camera) as soon as player is created
+        if (cameraSpeed != 1.0f) {
+            player.setPlaybackParameters(
+                new androidx.media3.common.PlaybackParameters(cameraSpeed));
+        }
+
         player.addListener(new Player.Listener() {
             @Override public void onPlaybackStateChanged(int state) {
                 if (progressBuffering != null)
@@ -637,6 +714,8 @@ public class ReelEditorActivity extends AppCompatActivity {
                                 mi.putExtra(ReelAudioMixerActivity.EXTRA_MUSIC_URL,    preSelectedSoundUrl);
                                 mi.putExtra(ReelAudioMixerActivity.EXTRA_MUSIC_TITLE,  preSelectedSoundTitle);
                                 mi.putExtra(ReelAudioMixerActivity.EXTRA_MUSIC_ARTIST, "");
+                                // ✅ FIX: pass soundId here too so the auto-opened mixer
+                                // returns a valid RESULT_MUSIC_ID when the user applies.
                                 mi.putExtra(ReelAudioMixerActivity.EXTRA_SOUND_ID,     preSelectedSoundId);
                                 startActivityForResult(mi, REQ_AUDIO_MIXER);
                             }
@@ -650,7 +729,7 @@ public class ReelEditorActivity extends AppCompatActivity {
     // ── Listener setup ────────────────────────────────────────────────────
 
     private void setupListeners() {
-        btnBack.setOnClickListener(v -> finish());
+        btnBack.setOnClickListener(v -> handleBackOrSaveDraft());
 
         btnPlayPause.setOnClickListener(v -> {
             if (player != null) {
@@ -735,6 +814,9 @@ public class ReelEditorActivity extends AppCompatActivity {
             i.putExtra(ReelAudioMixerActivity.EXTRA_MUSIC_URL,    preSelectedSoundUrl);
             i.putExtra(ReelAudioMixerActivity.EXTRA_MUSIC_TITLE,  preSelectedSoundTitle);
             i.putExtra(ReelAudioMixerActivity.EXTRA_MUSIC_ARTIST, "");
+            // ✅ FIX: pass soundId so the mixer can open SoundDetailActivity for the
+            // currently-selected track and so it returns a valid RESULT_MUSIC_ID on apply.
+            i.putExtra(ReelAudioMixerActivity.EXTRA_SOUND_ID,     preSelectedSoundId);
             startActivityForResult(i, REQ_AUDIO_MIXER);
         });
 
@@ -752,7 +834,40 @@ public class ReelEditorActivity extends AppCompatActivity {
         // Auto-show music badge if a sound was pre-selected from camera screen
         if (!preSelectedSoundTitle.isEmpty()) updateBadge("music", "🎵 " + preSelectedSoundTitle);
 
+        // ── Tag People tool → mention sheet ─────────────────────────────
+        if (btnToolTagPeople != null) {
+            btnToolTagPeople.setOnClickListener(v -> openMentionTagSheet());
+        }
+
+        // ── Caption @mention TextWatcher ─────────────────────────────────
+        if (etEditorCaption != null) {
+            setupCaptionMentionWatcher();
+        }
+
         btnNext.setOnClickListener(v -> proceedToUpload());
+
+        // ── Save Draft button: injected into top bar next to "Next" ─────────
+        // We inject it programmatically to avoid touching the editor XML.
+        View topBar = btnNext.getParent() instanceof View ? (View) btnNext.getParent() : null;
+        if (topBar instanceof android.widget.LinearLayout) {
+            android.widget.LinearLayout bar = (android.widget.LinearLayout) topBar;
+            android.widget.ImageButton btnSaveDraft = new android.widget.ImageButton(this);
+            btnSaveDraft.setImageResource(R.drawable.ic_bookmark);
+            btnSaveDraft.setBackgroundResource(
+                android.R.attr.selectableItemBackgroundBorderless);
+            btnSaveDraft.setColorFilter(0xFFFFFFFF);
+            int padDp = (int)(10 * getResources().getDisplayMetrics().density);
+            btnSaveDraft.setPadding(padDp, padDp, padDp, padDp);
+            int sizeDp = (int)(44 * getResources().getDisplayMetrics().density);
+            android.widget.LinearLayout.LayoutParams saveLp =
+                new android.widget.LinearLayout.LayoutParams(sizeDp, sizeDp);
+            saveLp.setMarginEnd((int)(4 * getResources().getDisplayMetrics().density));
+            // Insert before "Next" button (index = bar.indexOfChild(btnNext))
+            int nextIdx = bar.indexOfChild((View) btnNext);
+            bar.addView(btnSaveDraft, nextIdx, saveLp);
+            btnSaveDraft.setContentDescription("Save draft");
+            btnSaveDraft.setOnClickListener(v2 -> saveDraftLocally(false));
+        }
     }
 
     // ── onActivityResult — store results AND visually apply ───────────────
@@ -889,7 +1004,28 @@ public class ReelEditorActivity extends AppCompatActivity {
                 mixPitchSemitones = data.getFloatExtra(ReelAudioMixerActivity.RESULT_PITCH_SEMITONES, 0f);
                 mixNormalize      = data.getBooleanExtra(ReelAudioMixerActivity.RESULT_NORMALIZE,     false);
                 if (player != null) player.setVolume(mixOrigVol);
-                updateBadge("audio", "🎵 Audio Mix");
+
+                // ✅ FIX: If the user changed the background track inside the mixer
+                // (Edit Reel → Audio Mix → Change → Trending Audio → select new sound),
+                // the mixer now returns RESULT_MUSIC_URL / _ID / _TITLE.
+                // We MUST update preSelectedSoundUrl/Id/Title here; otherwise
+                // proceedToUploadInternal() forwards the OLD sound to ReelUploadActivity
+                // and the new track is silently ignored — the reel plays the original audio.
+                String newMusicUrl    = data.getStringExtra(ReelAudioMixerActivity.RESULT_MUSIC_URL);
+                String newMusicId     = data.getStringExtra(ReelAudioMixerActivity.RESULT_MUSIC_ID);
+                String newMusicTitle  = data.getStringExtra(ReelAudioMixerActivity.RESULT_MUSIC_TITLE);
+                String newMusicArtist = data.getStringExtra(ReelAudioMixerActivity.RESULT_MUSIC_ARTIST);
+                if (newMusicUrl != null && !newMusicUrl.isEmpty()) {
+                    preSelectedSoundUrl   = newMusicUrl;
+                    if (newMusicId    != null && !newMusicId.isEmpty())    preSelectedSoundId    = newMusicId;
+                    if (newMusicTitle != null && !newMusicTitle.isEmpty()) preSelectedSoundTitle = newMusicTitle;
+                    // Show the updated track name on the music badge
+                    String badgeLabel = (newMusicTitle != null && !newMusicTitle.isEmpty())
+                        ? newMusicTitle : preSelectedSoundTitle;
+                    updateBadge("music", "🎵 " + badgeLabel);
+                }
+
+                updateBadge("audio", "🎛 Audio Mix");
                 Toast.makeText(this, "Audio mix applied ✓", Toast.LENGTH_SHORT).show();
                 break;
             }
@@ -1013,12 +1149,37 @@ public class ReelEditorActivity extends AppCompatActivity {
             && tvTextPreview.getVisibility() == View.VISIBLE)
             ? tvTextPreview.getText().toString() : "";
 
+        // ── Caption draft from editor ─────────────────────────────────────
+        String captionDraft = "";
+        if (etEditorCaption != null && etEditorCaption.getText() != null) {
+            captionDraft = etEditorCaption.getText().toString().trim();
+        }
+
+        // ── Tagged users JSON → pass to upload ────────────────────────────
+        String taggedUsersJson = buildTaggedUsersJson();
+
         Intent intent = new Intent(this, ReelUploadActivity.class);
         intent.putExtra(ReelUploadActivity.EXTRA_VIDEO_URI,    videoUriStr);
         intent.putExtra(ReelUploadActivity.EXTRA_IS_FILE_PATH, isFilePath);
         intent.putExtra(ReelUploadActivity.EXTRA_TRIM_START,   trimStartMs);
         intent.putExtra(ReelUploadActivity.EXTRA_TRIM_END,     trimEndMs);
         intent.putExtra(ReelUploadActivity.EXTRA_TEXT_OVERLAY, textOverlay);
+
+        // Pass caption draft (pre-fills et_caption in upload screen)
+        if (!captionDraft.isEmpty())
+            intent.putExtra("editor_caption", captionDraft);
+
+        // Pass tagged users (uid list for Firebase + full JSON for positions)
+        if (!taggedUsersJson.isEmpty()) {
+            intent.putExtra("editor_tagged_users_json", taggedUsersJson);
+            // Also build comma-separated UID string for ReelUploadActivity.taggedUids
+            StringBuilder uidsCsv = new StringBuilder();
+            for (String uid : taggedUsers.keySet()) {
+                if (uidsCsv.length() > 0) uidsCsv.append(",");
+                uidsCsv.append(uid);
+            }
+            intent.putExtra("editor_tagged_uids", uidsCsv.toString());
+        }
 
         if (!preSelectedSoundId.isEmpty())
             intent.putExtra(ReelUploadActivity.EXTRA_SOUND_ID,    preSelectedSoundId);
@@ -1079,6 +1240,11 @@ public class ReelEditorActivity extends AppCompatActivity {
             intent.putExtra("voice_reverb",      voiceReverb);
         }
 
+        // Camera recording speed (0.3x – 3x, normal = 1.0)
+        if (cameraSpeed != 1.0f) {
+            intent.putExtra("camera_speed", cameraSpeed);
+        }
+
         // Thumbnail
         if (!thumbnailPath.isEmpty()) {
             intent.putExtra("thumbnail_path",     thumbnailPath);
@@ -1103,6 +1269,72 @@ public class ReelEditorActivity extends AppCompatActivity {
         startActivity(intent);
     }
 
+    // ── Draft saving ──────────────────────────────────────────────────────
+
+    /**
+     * Called when the user taps the back button in the editor.
+     * Shows a "Save Draft?" dialog so work is not accidentally lost.
+     */
+    private void handleBackOrSaveDraft() {
+        // If opened from a draft resumption, skip the prompt and just go back
+        String existingDraftId = getIntent().getStringExtra("draft_id");
+        if (existingDraftId != null && !existingDraftId.isEmpty()) {
+            // Update the draft automatically before leaving
+            saveDraftLocally(true);
+            return;
+        }
+        if (videoUriStr == null || videoUriStr.isEmpty()) {
+            finish();
+            return;
+        }
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Save as Draft?")
+            .setMessage("Save your progress and come back to it later?")
+            .setPositiveButton("Save Draft", (d, w) -> saveDraftLocally(true))
+            .setNegativeButton("Discard",    (d, w) -> finish())
+            .setNeutralButton("Cancel",      null)
+            .show();
+    }
+
+    /**
+     * Saves current editor state as a local draft via LocalDraftsManager.
+     * @param finishAfter If true, calls finish() after saving.
+     */
+    private void saveDraftLocally(boolean finishAfter) {
+        if (videoUriStr == null || videoUriStr.isEmpty()) {
+            if (finishAfter) finish();
+            return;
+        }
+
+        LocalDraftsManager.LocalDraft draft = new LocalDraftsManager.LocalDraft();
+
+        // Restore existing draft ID if editing a draft (so we overwrite rather than duplicate)
+        String existingId = getIntent().getStringExtra("draft_id");
+        if (existingId != null && !existingId.isEmpty()) draft.id = existingId;
+
+        draft.videoPath   = isFilePath ? videoUriStr : "";
+        draft.caption     = "";          // caption is set in upload screen, not editor
+        draft.musicName   = preSelectedSoundTitle;
+        draft.musicUrl    = preSelectedSoundUrl;
+        draft.trimStartMs = trimStartMs;
+        draft.trimEndMs   = trimEndMs;
+        draft.filterName  = filterName  != null ? filterName  : "";
+        draft.durationMs  = videoDurationMs;
+
+        // Save async (thumbnail extracted in background)
+        LocalDraftsManager.saveAsync(this, draft, () ->
+            runOnUiThread(() -> {
+                android.widget.Toast.makeText(this, "Draft saved ✓",
+                    android.widget.Toast.LENGTH_SHORT).show();
+                if (finishAfter) finish();
+            }));
+
+        if (!finishAfter) {
+            android.widget.Toast.makeText(this, "Saving draft…",
+                android.widget.Toast.LENGTH_SHORT).show();
+        }
+    }
+
     // ── Utility ───────────────────────────────────────────────────────────
 
     private void updatePlayPauseIcon() {
@@ -1117,6 +1349,298 @@ public class ReelEditorActivity extends AppCompatActivity {
     }
 
     private static String nvl(String s) { return s != null ? s : ""; }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Mention / Tag People system
+    // ─────────────────────────────────────────────────────────────────────
+
+    /**
+     * Opens the "Tag People" bottom sheet (ReelMentionTagSheet).
+     * On each toggle, adds or removes a draggable name-tag overlay on the video.
+     */
+    private void openMentionTagSheet() {
+        java.util.List<String> preTagged = new ArrayList<>(taggedUsers.keySet());
+        ReelMentionTagSheet.newInstance()
+            .setPreTaggedUids(preTagged)
+            .setCallback((user, added) -> {
+                if (added) {
+                    taggedUsers.put(user.uid, user);
+                    addMentionTagOverlay(user);
+                    updateBadge("tag", "👤 " + taggedUsers.size());
+                } else {
+                    taggedUsers.remove(user.uid);
+                    removeMentionTagOverlay(user.uid);
+                    if (taggedUsers.isEmpty()) updateBadge("tag", null);
+                    else updateBadge("tag", "👤 " + taggedUsers.size());
+                }
+            })
+            .show(getSupportFragmentManager(), "mention_tag_sheet");
+    }
+
+    /**
+     * Adds a draggable "@username" name-tag overlay on top of the video preview.
+     * Identical drag mechanic to sticker overlays. Long-press to remove.
+     */
+    @android.annotation.SuppressLint("ClickableViewAccessibility")
+    private void addMentionTagOverlay(ReelMentionUserAdapter.MentionUser user) {
+        if (playerView == null) return;
+        ViewGroup parent = (ViewGroup) playerView.getParent();
+        if (!(parent instanceof FrameLayout)) return;
+        FrameLayout fl = (FrameLayout) parent;
+        int dp = (int) getResources().getDisplayMetrics().density;
+
+        // Remove existing overlay for this user (prevent duplicates)
+        removeMentionTagOverlay(user.uid);
+
+        String label = "@" + (user.username.isEmpty() ? user.displayName : user.username);
+
+        android.widget.TextView tag = new android.widget.TextView(this);
+        tag.setText(label);
+        tag.setTextColor(Color.WHITE);
+        tag.setTextSize(14);
+        tag.setTypeface(null, android.graphics.Typeface.BOLD);
+        tag.setPadding(12 * dp, 6 * dp, 12 * dp, 6 * dp);
+        tag.setBackground(
+            androidx.core.content.ContextCompat.getDrawable(this, R.drawable.bg_mention_video_tag));
+
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+            Gravity.CENTER);
+        // Offset slightly so multiple tags don't stack perfectly
+        lp.topMargin = (int)(Math.random() * 80 * dp - 40 * dp);
+        fl.addView(tag, lp);
+        mentionTagViews.put(user.uid, tag);
+
+        // Drag-to-reposition
+        final float[] startTouch = new float[2];
+        final float[] startPos   = new float[2];
+        tag.setOnTouchListener((v, event) -> {
+            switch (event.getAction()) {
+                case MotionEvent.ACTION_DOWN:
+                    startTouch[0] = event.getRawX(); startTouch[1] = event.getRawY();
+                    startPos[0]   = v.getX();        startPos[1]   = v.getY();
+                    return true;
+                case MotionEvent.ACTION_MOVE:
+                    v.setX(startPos[0] + (event.getRawX() - startTouch[0]));
+                    v.setY(startPos[1] + (event.getRawY() - startTouch[1]));
+                    return true;
+            }
+            return false;
+        });
+
+        // Long-press to remove
+        tag.setOnLongClickListener(v -> {
+            fl.removeView(tag);
+            mentionTagViews.remove(user.uid);
+            taggedUsers.remove(user.uid);
+            if (taggedUsers.isEmpty()) updateBadge("tag", null);
+            else updateBadge("tag", "👤 " + taggedUsers.size());
+            android.widget.Toast.makeText(this,
+                label + " removed", android.widget.Toast.LENGTH_SHORT).show();
+            return true;
+        });
+    }
+
+    /** Remove a name-tag overlay by UID. */
+    private void removeMentionTagOverlay(String uid) {
+        android.widget.TextView existing = mentionTagViews.remove(uid);
+        if (existing == null || playerView == null) return;
+        ViewGroup parent = (ViewGroup) playerView.getParent();
+        if (parent instanceof FrameLayout) ((FrameLayout) parent).removeView(existing);
+    }
+
+    /**
+     * Serialize all tagged users to a JSON array string.
+     * Format: [{"uid":"…","username":"…","displayName":"…","xFrac":0.5,"yFrac":0.5}, …]
+     * xFrac/yFrac are fractional positions (0-1) of the overlay tag on the video.
+     */
+    private String buildTaggedUsersJson() {
+        if (taggedUsers.isEmpty()) return "";
+        StringBuilder sb = new StringBuilder("[");
+        boolean first = true;
+        for (Map.Entry<String, ReelMentionUserAdapter.MentionUser> e : taggedUsers.entrySet()) {
+            ReelMentionUserAdapter.MentionUser u = e.getValue();
+            // Compute fractional position from the live tag view if available
+            float xFrac = 0.5f, yFrac = 0.4f;
+            android.widget.TextView tagView = mentionTagViews.get(u.uid);
+            if (tagView != null && playerView != null) {
+                ViewGroup parent = (ViewGroup) playerView.getParent();
+                if (parent != null && parent.getWidth() > 0 && parent.getHeight() > 0) {
+                    xFrac = Math.max(0f, Math.min(1f, (tagView.getX() + tagView.getWidth()  / 2f) / parent.getWidth()));
+                    yFrac = Math.max(0f, Math.min(1f, (tagView.getY() + tagView.getHeight() / 2f) / parent.getHeight()));
+                }
+            }
+            if (!first) sb.append(",");
+            first = false;
+            sb.append("{")
+              .append("\"uid\":\"").append(u.uid.replace("\"","")).append("\",")
+              .append("\"username\":\"").append(u.username.replace("\"","\\\"")).append("\",")
+              .append("\"displayName\":\"").append(u.displayName.replace("\"","\\\"")).append("\",")
+              .append("\"xFrac\":").append(xFrac).append(",")
+              .append("\"yFrac\":").append(yFrac)
+              .append("}");
+        }
+        sb.append("]");
+        return sb.toString();
+    }
+
+    // ── Caption @mention autocomplete ─────────────────────────────────────
+
+    /**
+     * Sets up a TextWatcher on etEditorCaption that:
+     *  ① Tracks character count (0/2200).
+     *  ② Detects "@" followed by 1+ chars → queries Firebase contacts → shows popup.
+     *  ③ Highlights @mentions in the EditText with brand-red ForegroundColorSpan.
+     */
+    private void setupCaptionMentionWatcher() {
+        if (etEditorCaption == null) return;
+        etEditorCaption.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int st, int c, int a) {}
+            @Override public void afterTextChanged(Editable s) {
+                // Update char count
+                int len = s.length();
+                if (tvCaptionCharCount != null)
+                    tvCaptionCharCount.setText(len + "/2200");
+
+                // Detect @mention query around cursor
+                int cursor = etEditorCaption.getSelectionStart();
+                String text = s.toString();
+                int atPos = text.lastIndexOf('@', cursor - 1);
+                if (atPos >= 0) {
+                    String query = text.substring(atPos + 1, cursor).toLowerCase();
+                    // No spaces in a username
+                    if (!query.contains(" ") && query.length() >= 1) {
+                        showMentionPopup(query);
+                        return;
+                    }
+                }
+                dismissMentionPopup();
+            }
+            @Override public void onTextChanged(CharSequence s, int st, int b, int c) {}
+        });
+
+        // Pre-load contacts for autocomplete (background, one-shot)
+        loadContactsForMentionPopup();
+    }
+
+    /** Load Firebase contacts into allContactUsers once; used by the caption popup. */
+    private void loadContactsForMentionPopup() {
+        String myUid;
+        try { myUid = FirebaseUtils.getCurrentUid(); } catch (Exception e) { return; }
+        if (myUid.isEmpty()) return;
+
+        FirebaseUtils.getContactsRef(myUid)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    for (DataSnapshot s : snap.getChildren()) {
+                        String uid = s.getKey();
+                        if (uid == null || uid.equals(myUid)) continue;
+                        FirebaseUtils.getUserRef(uid).addListenerForSingleValueEvent(
+                            new ValueEventListener() {
+                                @Override public void onDataChange(@NonNull DataSnapshot us) {
+                                    String name  = str(us, "name");
+                                    String uname = str(us, "username");
+                                    String photo = str(us, "profileImageUrl");
+                                    if (photo.isEmpty()) photo = str(us, "photoUrl");
+                                    if (!name.isEmpty() || !uname.isEmpty()) {
+                                        allContactUsers.add(
+                                            new ReelMentionUserAdapter.MentionUser(uid, name, uname, photo));
+                                    }
+                                    allContactsLoaded = true;
+                                }
+                                @Override public void onCancelled(@NonNull DatabaseError e) {}
+                            });
+                    }
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) {}
+            });
+    }
+
+    /**
+     * Show a PopupWindow beneath the caption EditText with users matching {@code query}.
+     * Tapping a user inserts "@username " at the cursor position.
+     */
+    private void showMentionPopup(String query) {
+        if (etEditorCaption == null || !etEditorCaption.isAttachedToWindow()) return;
+
+        // Filter contacts
+        java.util.List<ReelMentionUserAdapter.MentionUser> matched = new ArrayList<>();
+        for (ReelMentionUserAdapter.MentionUser u : allContactUsers) {
+            if (u.username.toLowerCase().startsWith(query)
+                || u.displayName.toLowerCase().startsWith(query)) {
+                matched.add(u);
+                if (matched.size() >= 5) break;  // max 5 suggestions
+            }
+        }
+        if (matched.isEmpty()) { dismissMentionPopup(); return; }
+
+        // Build or reuse popup
+        if (mentionPopup == null || !mentionPopup.isShowing()) {
+            android.widget.LinearLayout popupRoot = new android.widget.LinearLayout(this);
+            popupRoot.setOrientation(android.widget.LinearLayout.VERTICAL);
+            popupRoot.setBackground(
+                androidx.core.content.ContextCompat.getDrawable(this, R.drawable.bg_mention_popup));
+            popupRoot.setElevation(8 * getResources().getDisplayMetrics().density);
+
+            RecyclerView rv = new RecyclerView(this);
+            rv.setLayoutManager(new LinearLayoutManager(this));
+            mentionSuggestionAdapter = new ReelMentionUserAdapter(user -> {
+                insertMentionInCaption(user);
+                dismissMentionPopup();
+            }, false);
+            rv.setAdapter(mentionSuggestionAdapter);
+            popupRoot.addView(rv);
+
+            int widthPx  = etEditorCaption.getWidth();
+            int heightPx = android.view.ViewGroup.LayoutParams.WRAP_CONTENT;
+            mentionPopup = new PopupWindow(popupRoot, widthPx, heightPx, false);
+            mentionPopup.setOutsideTouchable(true);
+            mentionPopup.setElevation(12f);
+        }
+
+        if (mentionSuggestionAdapter != null) {
+            mentionSuggestionAdapter.setItems(matched);
+        }
+
+        if (!mentionPopup.isShowing() && vMentionPopupAnchor != null) {
+            mentionPopup.showAsDropDown(vMentionPopupAnchor, 0, 0);
+        }
+    }
+
+    private void dismissMentionPopup() {
+        if (mentionPopup != null && mentionPopup.isShowing()) mentionPopup.dismiss();
+    }
+
+    /**
+     * Replace the current "@query" token in the caption with "@username " (with trailing space).
+     * Also applies a brand-red ForegroundColorSpan to the completed mention.
+     */
+    private void insertMentionInCaption(ReelMentionUserAdapter.MentionUser user) {
+        if (etEditorCaption == null) return;
+        String replacement = "@" + (user.username.isEmpty() ? user.displayName : user.username) + " ";
+        int cursor = etEditorCaption.getSelectionStart();
+        String text = etEditorCaption.getText().toString();
+        int atPos = text.lastIndexOf('@', cursor - 1);
+        if (atPos < 0) return;
+
+        Editable editable = etEditorCaption.getText();
+        // Replace "@query" with "@username "
+        editable.replace(atPos, cursor, replacement);
+
+        // Apply color span to the completed @mention
+        int spanEnd = atPos + replacement.length() - 1; // exclude trailing space
+        SpannableString ss = new SpannableString(editable);
+        ss.setSpan(new ForegroundColorSpan(0xFFFF3B5C),
+            atPos, spanEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        etEditorCaption.setText(ss);
+        etEditorCaption.setSelection(atPos + replacement.length());
+    }
+
+    /** Helper: read a string field from a DataSnapshot. */
+    private String str(DataSnapshot s, String key) {
+        String v = s.child(key).getValue(String.class); return v != null ? v : "";
+    }
 
     @Override
     protected void onPause() {

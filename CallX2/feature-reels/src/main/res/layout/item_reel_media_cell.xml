@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    item_reel_media_cell.xml
+    Grid cell for the camera media-picker sheet.
+    1dp margin on all sides reveals the dark sheet background as grid lines.
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#1E1E1E">
+
+    <ImageView
+        android:id="@+id/iv_media_thumb"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_margin="1dp"
+        android:background="#2A2A2A"
+        android:scaleType="centerCrop"/>
+
+    <!-- Video duration badge — bottom-right, only shown for videos -->
+    <TextView
+        android:id="@+id/tv_video_duration"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|end"
+        android:layout_margin="4dp"
+        android:background="@drawable/bg_reel_video_duration"
+        android:paddingStart="5dp"
+        android:paddingEnd="5dp"
+        android:paddingTop="1dp"
+        android:paddingBottom="1dp"
+        android:textColor="#FFFFFF"
+        android:textSize="10sp"
+        android:textStyle="bold"
+        android:visibility="gone"/>
+
+    <!-- Selection scrim overlay -->
+    <View
+        android:id="@+id/v_selection_scrim"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_margin="1dp"
+        android:background="#661E6D3E"
+        android:visibility="gone"/>
+
+    <!-- Numbered selection badge — top-right -->
+    <FrameLayout
+        android:id="@+id/fl_selection_badge"
+        android:layout_width="22dp"
+        android:layout_height="22dp"
+        android:layout_gravity="top|end"
+        android:layout_margin="6dp"
+        android:background="@drawable/bg_reel_selection_badge"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/tv_selection_num"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:textColor="#FFFFFF"
+            android:textSize="11sp"
+            android:textStyle="bold"/>
+    </FrameLayout>
+
+</FrameLayout>

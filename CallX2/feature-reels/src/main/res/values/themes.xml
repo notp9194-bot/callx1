@@ -21,4 +21,25 @@
         <item name="cornerSizeBottomLeft">0dp</item>
     </style>
 
+
+    <!-- ReelMediaPickerSheet theme — dark bottom sheet, rounded top corners -->
+    <style name="ReelMediaSheetTheme" parent="Theme.Material3.Light.BottomSheetDialog">
+        <item name="bottomSheetStyle">@style/ReelMediaSheetStyle</item>
+        <item name="android:backgroundDimEnabled">true</item>
+        <item name="android:backgroundDimAmount">0.55</item>
+    </style>
+
+    <style name="ReelMediaSheetStyle" parent="Widget.Material3.BottomSheet.Modal">
+        <item name="android:background">@android:color/transparent</item>
+        <item name="shapeAppearanceOverlay">@style/ReelMediaShapeOverlay</item>
+    </style>
+
+    <style name="ReelMediaShapeOverlay">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSizeTopRight">18dp</item>
+        <item name="cornerSizeTopLeft">18dp</item>
+        <item name="cornerSizeBottomRight">0dp</item>
+        <item name="cornerSizeBottomLeft">0dp</item>
+    </style>
+
 </resources>

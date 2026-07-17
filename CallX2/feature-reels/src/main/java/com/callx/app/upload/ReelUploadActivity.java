@@ -108,12 +108,18 @@ public class ReelUploadActivity extends AppCompatActivity {
       public static final String EXTRA_EPISODE_NUMBER = "upload_episode_number";
   
 
-    private static final int REQ_PICK_VIDEO   = 901;
-    private static final int REQ_PERMISSION   = 902;
-    private static final int REQ_PICK_PHOTOS  = 903;
-    private static final int REQ_PERM_PHOTOS  = 904;
-    private static final int REQ_PHOTO_EDIT   = 905;
-    private static final int MAX_PHOTOS       = 10;
+    private static final int REQ_PICK_VIDEO          = 901;
+    private static final int REQ_PERMISSION          = 902;
+    private static final int REQ_PICK_PHOTOS         = 903;
+    private static final int REQ_PERM_PHOTOS         = 904;
+    private static final int REQ_PHOTO_EDIT          = 905;
+    /** ✅ NEW: open ReelTrendingAudioActivity to pick a sound from the upload screen */
+    private static final int REQ_TRENDING_AUDIO      = 906;
+    /** ✅ NEW: open ReelAudioMixerActivity to adjust volumes from the upload screen */
+    private static final int REQ_AUDIO_MIXER_UPLOAD  = 907;
+    /** ✅ NEW: open SoundDetailActivity for the currently selected sound */
+    private static final int REQ_SOUND_DETAIL_UPLOAD = 908;
+    private static final int MAX_PHOTOS              = 10;
     /** Minimum reels-using-this-sound count before it's flagged "🔥 Trending". */
     private static final long TRENDING_REEL_THRESHOLD = 5L;
 
@@ -171,9 +177,25 @@ public class ReelUploadActivity extends AppCompatActivity {
     private androidx.appcompat.widget.SwitchCompat swAutoLoop;
     private Button                btnAddMorePhotos;
 
+    // ── Audio section UI (injected programmatically in injectAudioSection()) ──
+    /** Root card for the audio section; always visible. */
+    private android.widget.LinearLayout layoutAudioCard;
+    /** Shown when no audio is selected. */
+    private android.widget.LinearLayout layoutAudioEmpty;
+    /** Shown when an audio track is selected. */
+    private android.widget.LinearLayout layoutAudioTrack;
+    /** Displays selected track name. */
+    private android.widget.TextView tvAudioTrackName;
+    /** Displays artist name. */
+    private android.widget.TextView tvAudioArtist;
+
     private Uri                    selectedUri;
     private String                 preSelectedSoundId    = "";
     private String                 preSelectedSoundUrl   = "";
+    /** Human-readable title of the currently selected sound. */
+    private String                 currentSoundTitle     = "";
+    /** Artist of the currently selected sound. */
+    private String                 currentSoundArtist    = "";
     private ExoPlayer              previewPlayer;
     private VideoCompressor.Result compressedResult;
     private boolean                compressionInProgress = false;
@@ -256,8 +278,310 @@ public class ReelUploadActivity extends AppCompatActivity {
             btnAddMorePhotos.setOnClickListener(v -> checkPermissionAndPickPhotos());
         }
 
+        // Inject the full audio/music section into the layout programmatically
+        injectAudioSection();
+
         // If launched from ReelEditorActivity, pre-load the video + text overlay
         handleEditorExtras();
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    //  AUDIO / MUSIC SECTION  (Instagram-style: Add → Change / Mix / Remove)
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /**
+     * Programmatically injects a full-featured audio card into the upload form,
+     * positioned just before the existing etMusic text field.
+     *
+     * Layout (inside a styled card):
+     *   Header: "🎵 Music"
+     *   [State A — no audio selected]
+     *     → Big "+ Add Music / Sound" button → ReelTrendingAudioActivity
+     *   [State B — audio track selected]
+     *     → Music icon | Track name | Artist
+     *     → [Change] [Mix Audio] [Remove] buttons
+     */
+    private void injectAudioSection() {
+        // Locate the TextInputLayout wrapping etMusic so we can insert just before it
+        if (etMusic == null) return;
+        android.view.ViewGroup tilMusic = (android.view.ViewGroup) etMusic.getParent(); // TextInputLayout
+        if (tilMusic == null) return;
+        android.view.ViewGroup rootLl = (android.view.ViewGroup) tilMusic.getParent(); // root LinearLayout
+        if (rootLl == null) return;
+
+        int insertIdx = -1;
+        for (int i = 0; i < rootLl.getChildCount(); i++) {
+            if (rootLl.getChildAt(i) == tilMusic) { insertIdx = i; break; }
+        }
+        if (insertIdx < 0) return;
+
+        float dp = getResources().getDisplayMetrics().density;
+        int dp4  = (int)(4  * dp);
+        int dp8  = (int)(8  * dp);
+        int dp12 = (int)(12 * dp);
+        int dp14 = (int)(14 * dp);
+        int dp16 = (int)(16 * dp);
+
+        // ── Outer card ──────────────────────────────────────────────────────
+        layoutAudioCard = new android.widget.LinearLayout(this);
+        layoutAudioCard.setOrientation(android.widget.LinearLayout.VERTICAL);
+        android.graphics.drawable.GradientDrawable cardBg = new android.graphics.drawable.GradientDrawable();
+        cardBg.setColor(0xFF1A1A2E);          // dark navy card background
+        cardBg.setCornerRadius(14 * dp);
+        cardBg.setStroke((int)(1 * dp), 0xFF2E2E4E);
+        layoutAudioCard.setBackground(cardBg);
+        layoutAudioCard.setPadding(dp14, dp12, dp14, dp12);
+        android.widget.LinearLayout.LayoutParams cardLp =
+            new android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT);
+        cardLp.setMargins(0, 0, 0, dp12);
+        layoutAudioCard.setLayoutParams(cardLp);
+
+        // ── Section header ──────────────────────────────────────────────────
+        android.widget.TextView tvHeader = new android.widget.TextView(this);
+        tvHeader.setText("🎵  Music");
+        tvHeader.setTextColor(0xFFFFFFFF);
+        tvHeader.setTextSize(13f);
+        tvHeader.setTypeface(null, android.graphics.Typeface.BOLD);
+        tvHeader.setPadding(0, 0, 0, dp8);
+        layoutAudioCard.addView(tvHeader);
+
+        // ══ STATE A — no audio selected ═════════════════════════════════════
+        layoutAudioEmpty = new android.widget.LinearLayout(this);
+        layoutAudioEmpty.setOrientation(android.widget.LinearLayout.VERTICAL);
+
+        android.widget.Button btnAddMusic = new android.widget.Button(this);
+        btnAddMusic.setText("+ Add Music / Sound");
+        btnAddMusic.setTextColor(0xFFFFFFFF);
+        btnAddMusic.setTextSize(14f);
+        btnAddMusic.setAllCaps(false);
+        android.graphics.drawable.GradientDrawable addBtnBg = new android.graphics.drawable.GradientDrawable();
+        addBtnBg.setColor(0xFF5B5BF6);         // brand_primary purple
+        addBtnBg.setCornerRadius(24 * dp);
+        btnAddMusic.setBackground(addBtnBg);
+        android.widget.LinearLayout.LayoutParams addBtnLp =
+            new android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT, (int)(48 * dp));
+        btnAddMusic.setLayoutParams(addBtnLp);
+        btnAddMusic.setOnClickListener(v -> openTrendingAudioPicker());
+        layoutAudioEmpty.addView(btnAddMusic);
+
+        layoutAudioCard.addView(layoutAudioEmpty);
+
+        // ══ STATE B — audio track selected ══════════════════════════════════
+        layoutAudioTrack = new android.widget.LinearLayout(this);
+        layoutAudioTrack.setOrientation(android.widget.LinearLayout.VERTICAL);
+        layoutAudioTrack.setVisibility(android.view.View.GONE);
+
+        // Track info row: music note + name/artist stack
+        android.widget.LinearLayout trackInfoRow = new android.widget.LinearLayout(this);
+        trackInfoRow.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+        trackInfoRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+
+        android.widget.TextView tvNote = new android.widget.TextView(this);
+        tvNote.setText("♪");
+        tvNote.setTextColor(0xFF7B7BFF);
+        tvNote.setTextSize(28f);
+        tvNote.setPadding(0, 0, dp12, 0);
+        trackInfoRow.addView(tvNote);
+
+        android.widget.LinearLayout trackTextCol = new android.widget.LinearLayout(this);
+        trackTextCol.setOrientation(android.widget.LinearLayout.VERTICAL);
+        android.widget.LinearLayout.LayoutParams colLp =
+            new android.widget.LinearLayout.LayoutParams(
+                0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        trackTextCol.setLayoutParams(colLp);
+
+        tvAudioTrackName = new android.widget.TextView(this);
+        tvAudioTrackName.setTextColor(0xFFFFFFFF);
+        tvAudioTrackName.setTextSize(14f);
+        tvAudioTrackName.setTypeface(null, android.graphics.Typeface.BOLD);
+        tvAudioTrackName.setMaxLines(1);
+        tvAudioTrackName.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        trackTextCol.addView(tvAudioTrackName);
+
+        tvAudioArtist = new android.widget.TextView(this);
+        tvAudioArtist.setTextColor(0xFFAAAAAA);
+        tvAudioArtist.setTextSize(12f);
+        tvAudioArtist.setMaxLines(1);
+        tvAudioArtist.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        trackTextCol.addView(tvAudioArtist);
+
+        trackInfoRow.addView(trackTextCol);
+
+        // Tap the track row → open SoundDetailActivity
+        trackInfoRow.setClickable(true);
+        trackInfoRow.setFocusable(true);
+        trackInfoRow.setOnClickListener(v -> openSoundDetailForSelected());
+
+        layoutAudioTrack.addView(trackInfoRow);
+
+        // Divider
+        android.view.View divider = new android.view.View(this);
+        divider.setBackgroundColor(0xFF2E2E4E);
+        android.widget.LinearLayout.LayoutParams divLp =
+            new android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT, (int)(1 * dp));
+        divLp.setMargins(0, dp8, 0, dp8);
+        divider.setLayoutParams(divLp);
+        layoutAudioTrack.addView(divider);
+
+        // Action buttons row: [Change] [Mix Audio] [Remove]
+        android.widget.LinearLayout btnRow = new android.widget.LinearLayout(this);
+        btnRow.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+        btnRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+
+        android.widget.Button btnChange = makeAudioBtn("Change", 0xFF5B5BF6);
+        btnChange.setOnClickListener(v -> openTrendingAudioPicker());
+
+        android.widget.Button btnMix = makeAudioBtn("🎛 Mix", 0xFF2E7D32);
+        btnMix.setOnClickListener(v -> openAudioMixerFromUpload());
+
+        android.widget.Button btnRemove = makeAudioBtn("Remove", 0xFFB71C1C);
+        btnRemove.setOnClickListener(v -> clearSelectedAudio());
+
+        android.widget.LinearLayout.LayoutParams btnLp =
+            new android.widget.LinearLayout.LayoutParams(
+                0, (int)(38 * dp), 1f);
+        btnLp.setMargins(0, 0, dp4, 0);
+        android.widget.LinearLayout.LayoutParams btnLpLast =
+            new android.widget.LinearLayout.LayoutParams(
+                0, (int)(38 * dp), 1f);
+
+        btnRow.addView(btnChange, btnLp);
+        android.widget.LinearLayout.LayoutParams mixLp =
+            new android.widget.LinearLayout.LayoutParams(0, (int)(38 * dp), 1f);
+        mixLp.setMargins(0, 0, dp4, 0);
+        btnRow.addView(btnMix, mixLp);
+        btnRow.addView(btnRemove, btnLpLast);
+        layoutAudioTrack.addView(btnRow);
+
+        layoutAudioCard.addView(layoutAudioTrack);
+
+        // Insert the card into the parent LinearLayout just before etMusic's TIL
+        rootLl.addView(layoutAudioCard, insertIdx);
+    }
+
+    /** Builds a small rounded button for the audio action row. */
+    private android.widget.Button makeAudioBtn(String label, int color) {
+        android.widget.Button b = new android.widget.Button(this);
+        b.setText(label);
+        b.setTextColor(0xFFFFFFFF);
+        b.setTextSize(12f);
+        b.setAllCaps(false);
+        b.setPadding(0, 0, 0, 0);
+        float dp = getResources().getDisplayMetrics().density;
+        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+        bg.setColor(color);
+        bg.setCornerRadius(8 * dp);
+        b.setBackground(bg);
+        return b;
+    }
+
+    /**
+     * Updates the audio card UI to reflect the current state of
+     * preSelectedSoundUrl / currentSoundTitle / currentSoundArtist.
+     * Call after any audio state change.
+     */
+    private void updateAudioUI() {
+        if (layoutAudioEmpty == null || layoutAudioTrack == null) return;
+        boolean hasAudio = preSelectedSoundUrl != null && !preSelectedSoundUrl.isEmpty();
+        layoutAudioEmpty.setVisibility(hasAudio ? android.view.View.GONE  : android.view.View.VISIBLE);
+        layoutAudioTrack.setVisibility(hasAudio ? android.view.View.VISIBLE : android.view.View.GONE);
+        if (hasAudio) {
+            if (tvAudioTrackName != null) {
+                tvAudioTrackName.setText(
+                    currentSoundTitle != null && !currentSoundTitle.isEmpty()
+                        ? currentSoundTitle : "Unknown Track");
+            }
+            if (tvAudioArtist != null) {
+                tvAudioArtist.setText(
+                    currentSoundArtist != null && !currentSoundArtist.isEmpty()
+                        ? currentSoundArtist : "—");
+            }
+            // Keep etMusic in sync for the upload metadata
+            if (etMusic != null && (etMusic.getText() == null
+                    || etMusic.getText().toString().isEmpty())) {
+                etMusic.setText(currentSoundTitle);
+            }
+        }
+    }
+
+    /** Opens ReelTrendingAudioActivity so the user can pick or change the sound. */
+    private void openTrendingAudioPicker() {
+        startActivityForResult(
+            new Intent(this, com.callx.app.music.ReelTrendingAudioActivity.class),
+            REQ_TRENDING_AUDIO);
+    }
+
+    /**
+     * Opens ReelAudioMixerActivity so the user can balance original audio vs
+     * background music volumes and add a voiceover — all from the upload screen.
+     * Only available for video upload (requires a local video file to mix).
+     */
+    private void openAudioMixerFromUpload() {
+        if (isPhotoMode) {
+            // Photo slideshows don't mix audio at upload time — the track is stored as metadata.
+            Toast.makeText(this, "Audio mixing is applied at playback for photo reels",
+                Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (selectedUri == null) {
+            Toast.makeText(this, "Please select a video first", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        // Determine if we have a file path (local file) or content URI
+        boolean isFilePath = false;
+        String  videoPath  = null;
+        try {
+            String scheme = selectedUri.getScheme();
+            if ("file".equals(scheme)) {
+                isFilePath = true;
+                videoPath  = selectedUri.getPath();
+            } else {
+                // content:// URI — pass as URI string; mixer will use isFilePath=false
+                videoPath = selectedUri.toString();
+            }
+        } catch (Exception e) {
+            videoPath = selectedUri.toString();
+        }
+
+        Intent i = new Intent(this, com.callx.app.editor.ReelAudioMixerActivity.class);
+        i.putExtra(com.callx.app.editor.ReelAudioMixerActivity.EXTRA_VIDEO_URI,    videoPath);
+        i.putExtra(com.callx.app.editor.ReelAudioMixerActivity.EXTRA_IS_FILE_PATH, isFilePath);
+        i.putExtra(com.callx.app.editor.ReelAudioMixerActivity.EXTRA_MUSIC_URL,    preSelectedSoundUrl);
+        i.putExtra(com.callx.app.editor.ReelAudioMixerActivity.EXTRA_MUSIC_TITLE,  currentSoundTitle);
+        i.putExtra(com.callx.app.editor.ReelAudioMixerActivity.EXTRA_MUSIC_ARTIST, currentSoundArtist);
+        i.putExtra(com.callx.app.editor.ReelAudioMixerActivity.EXTRA_SOUND_ID,     preSelectedSoundId);
+        startActivityForResult(i, REQ_AUDIO_MIXER_UPLOAD);
+    }
+
+    /** Opens SoundDetailActivity for the currently selected sound. */
+    private void openSoundDetailForSelected() {
+        if (preSelectedSoundUrl == null || preSelectedSoundUrl.isEmpty()) return;
+        Intent i = new Intent(this, com.callx.app.music.SoundDetailActivity.class);
+        i.putExtra(com.callx.app.music.SoundDetailActivity.EXTRA_SOUND_ID,    preSelectedSoundId);
+        i.putExtra(com.callx.app.music.SoundDetailActivity.EXTRA_SOUND_TITLE, currentSoundTitle);
+        i.putExtra(com.callx.app.music.SoundDetailActivity.EXTRA_ARTIST,      currentSoundArtist);
+        i.putExtra(com.callx.app.music.SoundDetailActivity.EXTRA_SOUND_URL,   preSelectedSoundUrl);
+        startActivityForResult(i, REQ_SOUND_DETAIL_UPLOAD);
+    }
+
+    /** Clears the selected audio track and resets the audio UI to the empty state. */
+    private void clearSelectedAudio() {
+        preSelectedSoundId    = "";
+        preSelectedSoundUrl   = "";
+        currentSoundTitle     = "";
+        currentSoundArtist    = "";
+        mixMusicVol           = 0.8f;
+        mixFadeInMs           = 0;
+        mixFadeOutMs          = 0;
+        musicStartMs          = 0;
+        musicEndMs            = 0;
+        if (etMusic != null) etMusic.setText("");
+        updateAudioUI();
+        Toast.makeText(this, "Music removed", Toast.LENGTH_SHORT).show();
     }
 
     private void bindViews() {
@@ -422,9 +746,11 @@ public class ReelUploadActivity extends AppCompatActivity {
         String soundUrl   = i.getStringExtra(EXTRA_SOUND_URL);
         if (soundId    != null && !soundId.isEmpty())    preSelectedSoundId  = soundId;
         if (soundUrl   != null && !soundUrl.isEmpty())   preSelectedSoundUrl = soundUrl;
-        if (soundTitle != null && !soundTitle.isEmpty() && etMusic != null
-                && (etMusic.getText() == null || etMusic.getText().toString().isEmpty())) {
-            etMusic.setText(soundTitle);
+        if (soundTitle != null && !soundTitle.isEmpty()) {
+            currentSoundTitle = soundTitle;
+            if (etMusic != null && (etMusic.getText() == null || etMusic.getText().toString().isEmpty())) {
+                etMusic.setText(soundTitle);
+            }
         }
 
         // Audio mix settings from ReelEditorActivity (camera flow only)
@@ -461,6 +787,39 @@ public class ReelUploadActivity extends AppCompatActivity {
         String textOverlay = i.getStringExtra(EXTRA_TEXT_OVERLAY);
         if (textOverlay != null && !textOverlay.isEmpty() && etCaption != null) {
             etCaption.setText(textOverlay);
+        }
+
+        // ── Editor caption draft (typed by user in the editor caption field) ──
+        // Takes priority over text-overlay if both are present.
+        String editorCaption = i.getStringExtra("editor_caption");
+        if (editorCaption != null && !editorCaption.isEmpty() && etCaption != null) {
+            etCaption.setText(editorCaption);
+        }
+
+        // ── Editor tagged users (from ReelMentionTagSheet in editor) ─────────
+        // Comma-separated UIDs pre-populate the taggedUids field so they get
+        // saved to Firebase on upload — the same as tagging from this screen.
+        String editorTaggedUids = i.getStringExtra("editor_tagged_uids");
+        if (editorTaggedUids != null && !editorTaggedUids.isEmpty()) {
+            // Merge with any already-set taggedUids
+            if (taggedUids.isEmpty()) {
+                taggedUids = editorTaggedUids;
+            } else {
+                taggedUids = taggedUids + "," + editorTaggedUids;
+            }
+            // Show a summary chip so the user sees who's tagged
+            if (tvTagSummary != null) {
+                int count = editorTaggedUids.split(",").length;
+                tvTagSummary.setVisibility(View.VISIBLE);
+                tvTagSummary.setText(count + " " + (count == 1 ? "person" : "people") + " tagged from editor");
+            }
+        }
+
+        // Also stash full JSON (includes positions) for upload metadata
+        String editorTaggedJson = i.getStringExtra("editor_tagged_users_json");
+        if (editorTaggedJson != null && !editorTaggedJson.isEmpty()) {
+            // Stored for downstream use (e.g. server-side mention notifications)
+            getIntent().putExtra("editor_tagged_users_json", editorTaggedJson);
         }
 
         // Pre-fill music name if provided
@@ -510,6 +869,9 @@ public class ReelUploadActivity extends AppCompatActivity {
             seriesTitle   = sTitle != null ? sTitle : "";
             episodeNumber = sEp;
         }
+
+        // Reflect any pre-selected sound in the audio card UI
+        updateAudioUI();
     }
 
     // ── Media Type Toggle ─────────────────────────────────────────────────
@@ -637,6 +999,78 @@ public class ReelUploadActivity extends AppCompatActivity {
             if (scheduleTime == null) scheduleTime = "";
             if (tvScheduleTime != null) tvScheduleTime.setText(scheduleTime);
         }
+        // ── REQ_TRENDING_AUDIO: user picked a sound from the Trending Audio screen ──
+        if (requestCode == REQ_TRENDING_AUDIO && resultCode == Activity.RESULT_OK && data != null) {
+            String pickedId     = data.getStringExtra(com.callx.app.music.ReelTrendingAudioActivity.RESULT_AUDIO_ID);
+            String pickedTitle  = data.getStringExtra(com.callx.app.music.ReelTrendingAudioActivity.RESULT_AUDIO_TITLE);
+            String pickedArtist = data.getStringExtra(com.callx.app.music.ReelTrendingAudioActivity.RESULT_AUDIO_ARTIST);
+            String pickedUrl    = data.getStringExtra(com.callx.app.music.ReelTrendingAudioActivity.RESULT_AUDIO_URL);
+            if (pickedUrl != null && !pickedUrl.isEmpty()) {
+                preSelectedSoundUrl   = pickedUrl;
+                preSelectedSoundId    = pickedId    != null ? pickedId    : "";
+                currentSoundTitle     = pickedTitle != null ? pickedTitle : "";
+                currentSoundArtist    = pickedArtist!= null ? pickedArtist: "";
+                // Reset mix defaults when a brand-new track is chosen
+                mixMusicVol  = 0.8f;
+                mixFadeInMs  = 0;
+                mixFadeOutMs = 0;
+                musicStartMs = 0;
+                musicEndMs   = 0;
+                if (etMusic != null) etMusic.setText(currentSoundTitle);
+                updateAudioUI();
+                Toast.makeText(this, "Sound added: " + currentSoundTitle, Toast.LENGTH_SHORT).show();
+            }
+            return;
+        }
+
+        // ── REQ_AUDIO_MIXER_UPLOAD: user adjusted volumes/track in the mixer ──────
+        if (requestCode == REQ_AUDIO_MIXER_UPLOAD && resultCode == Activity.RESULT_OK && data != null) {
+            // Volume + FX settings
+            mixOrigVol        = data.getFloatExtra(com.callx.app.editor.ReelAudioMixerActivity.RESULT_ORIG_VOL,       1.0f);
+            mixMusicVol       = data.getFloatExtra(com.callx.app.editor.ReelAudioMixerActivity.RESULT_MUSIC_VOL,      0.8f);
+            mixVoiceoverVol   = data.getFloatExtra(com.callx.app.editor.ReelAudioMixerActivity.RESULT_VOICEOVER_VOL,  1.0f);
+            mixFadeInMs       = data.getIntExtra  (com.callx.app.editor.ReelAudioMixerActivity.RESULT_FADE_IN_MS,     0);
+            mixFadeOutMs      = data.getIntExtra  (com.callx.app.editor.ReelAudioMixerActivity.RESULT_FADE_OUT_MS,    0);
+            mixPitchSemitones = data.getFloatExtra(com.callx.app.editor.ReelAudioMixerActivity.RESULT_PITCH_SEMITONES,0f);
+            mixNormalize      = data.getBooleanExtra(com.callx.app.editor.ReelAudioMixerActivity.RESULT_NORMALIZE,    false);
+            String vPath      = data.getStringExtra(com.callx.app.editor.ReelAudioMixerActivity.RESULT_VOICEOVER_PATH);
+            if (vPath != null) mixVoiceoverPath = vPath;
+
+            // If user changed the track inside the mixer, propagate it
+            String newUrl    = data.getStringExtra(com.callx.app.editor.ReelAudioMixerActivity.RESULT_MUSIC_URL);
+            String newId     = data.getStringExtra(com.callx.app.editor.ReelAudioMixerActivity.RESULT_MUSIC_ID);
+            String newTitle  = data.getStringExtra(com.callx.app.editor.ReelAudioMixerActivity.RESULT_MUSIC_TITLE);
+            String newArtist = data.getStringExtra(com.callx.app.editor.ReelAudioMixerActivity.RESULT_MUSIC_ARTIST);
+            if (newUrl != null && !newUrl.isEmpty()) {
+                preSelectedSoundUrl = newUrl;
+                if (newId     != null && !newId.isEmpty())     preSelectedSoundId  = newId;
+                if (newTitle  != null && !newTitle.isEmpty())  currentSoundTitle   = newTitle;
+                if (newArtist != null && !newArtist.isEmpty()) currentSoundArtist  = newArtist;
+                if (etMusic != null) etMusic.setText(currentSoundTitle);
+            }
+            updateAudioUI();
+            Toast.makeText(this, "Mix settings saved ✓", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        // ── REQ_SOUND_DETAIL_UPLOAD: user tapped the track row → SoundDetailActivity ──
+        if (requestCode == REQ_SOUND_DETAIL_UPLOAD && resultCode == Activity.RESULT_OK && data != null) {
+            // SoundDetailActivity passes back the same extras it received, possibly updated
+            String su = data.getStringExtra(com.callx.app.music.SoundDetailActivity.EXTRA_SOUND_URL);
+            String si = data.getStringExtra(com.callx.app.music.SoundDetailActivity.EXTRA_SOUND_ID);
+            String st = data.getStringExtra(com.callx.app.music.SoundDetailActivity.EXTRA_SOUND_TITLE);
+            String sa = data.getStringExtra(com.callx.app.music.SoundDetailActivity.EXTRA_ARTIST);
+            if (su != null && !su.isEmpty()) {
+                preSelectedSoundUrl = su;
+                if (si != null && !si.isEmpty()) preSelectedSoundId   = si;
+                if (st != null && !st.isEmpty()) currentSoundTitle    = st;
+                if (sa != null && !sa.isEmpty()) currentSoundArtist   = sa;
+                if (etMusic != null) etMusic.setText(currentSoundTitle);
+                updateAudioUI();
+            }
+            return;
+        }
+
         if (requestCode == REQ_PICK_VIDEO && resultCode == Activity.RESULT_OK
                 && data != null && data.getData() != null) {
             selectedUri      = data.getData();
@@ -1159,8 +1593,11 @@ public class ReelUploadActivity extends AppCompatActivity {
             return;
         }
 
-        String caption   = etCaption.getText() != null ? etCaption.getText().toString().trim() : "";
-        String musicName = etMusic.getText()   != null ? etMusic.getText().toString().trim()   : "";
+        String caption = etCaption.getText() != null ? etCaption.getText().toString().trim() : "";
+        // Prefer the selected sound title; fall back to whatever the user typed in etMusic
+        String musicName = (currentSoundTitle != null && !currentSoundTitle.isEmpty())
+            ? currentSoundTitle
+            : (etMusic.getText() != null ? etMusic.getText().toString().trim() : "");
 
         // ── Instagram golden rule: "Record first, mix later" ──────────────
         // If user has selected background music, run AudioMixHelper before upload.
@@ -1293,8 +1730,11 @@ public class ReelUploadActivity extends AppCompatActivity {
             Toast.makeText(this, "Please select at least one photo", Toast.LENGTH_SHORT).show();
             return;
         }
-        String caption   = etCaption.getText() != null ? etCaption.getText().toString().trim() : "";
-        String musicName = etMusic.getText()   != null ? etMusic.getText().toString().trim()   : "";
+        String caption = etCaption.getText() != null ? etCaption.getText().toString().trim() : "";
+        // Prefer the selected sound title; fall back to whatever the user typed in etMusic
+        String musicName = (currentSoundTitle != null && !currentSoundTitle.isEmpty())
+            ? currentSoundTitle
+            : (etMusic.getText() != null ? etMusic.getText().toString().trim() : "");
         uploadPhotoSlideshow(caption, musicName);
     }
 

@@ -28,7 +28,13 @@ import java.util.*;
  */
 public class ReelFiltersActivity extends AppCompatActivity {
 
-    public static final String EXTRA_THUMBNAIL_URI = "filter_thumb_uri";
+    public static final String EXTRA_THUMBNAIL_URI    = "filter_thumb_uri";
+    /** Optional: pre-select this filter when the screen opens (for "re-edit" flow). */
+    public static final String EXTRA_CURRENT_FILTER    = "current_filter";
+    public static final String EXTRA_CURRENT_BRIGHTNESS= "current_brightness";
+    public static final String EXTRA_CURRENT_CONTRAST  = "current_contrast";
+    public static final String EXTRA_CURRENT_SATURATION= "current_saturation";
+    public static final String EXTRA_CURRENT_BEAUTY    = "current_beauty";
     public static final String RESULT_FILTER_NAME  = "result_filter_name";
     public static final String RESULT_BRIGHTNESS   = "result_brightness";
     public static final String RESULT_CONTRAST     = "result_contrast";
@@ -57,6 +63,7 @@ public class ReelFiltersActivity extends AppCompatActivity {
         bindViews();
         setupFilterStrip();
         setupSliders();
+        restoreCurrentFilter(); // ✅ pre-select previously chosen filter + slider values
         setupClickListeners();
         loadThumbnail();
     }
@@ -76,6 +83,40 @@ public class ReelFiltersActivity extends AppCompatActivity {
         sbContrast.setMax(200);   sbContrast.setProgress(100);
         sbSaturation.setMax(200); sbSaturation.setProgress(100);
         sbBeauty.setMax(100);     sbBeauty.setProgress(0);
+    }
+
+    /**
+     * If the caller already had a filter selected (e.g. camera re-open),
+     * restore it so the user continues from where they left off instead of
+     * always landing on "Normal".
+     */
+    private void restoreCurrentFilter() {
+        Intent i = getIntent();
+        String cur = i.getStringExtra(EXTRA_CURRENT_FILTER);
+        if (cur != null && !cur.isEmpty() && !cur.equals("Normal")) {
+            // Restore slider values FIRST (so applyPresetFilter's setProgress calls
+            // don't overwrite them with preset defaults when re-opening same filter)
+            float b = i.getFloatExtra(EXTRA_CURRENT_BRIGHTNESS, 0f);
+            float c = i.getFloatExtra(EXTRA_CURRENT_CONTRAST,   1f);
+            float s = i.getFloatExtra(EXTRA_CURRENT_SATURATION, 1f);
+            float bv= i.getFloatExtra(EXTRA_CURRENT_BEAUTY,     0f);
+            // Convert back to SeekBar progress (reverse of the slider math)
+            sbBrightness.setProgress(Math.round(b / 80f * 100f + 100f));
+            sbContrast  .setProgress(Math.round(c * 100f));
+            sbSaturation.setProgress(Math.round(s * 100f));
+            sbBeauty    .setProgress(Math.round(bv * 100f));
+            // Update internal state
+            brightness  = b;
+            contrast    = c;
+            saturation  = s;
+            beautyLevel = bv;
+            // Mark filter chip as selected
+            selectedFilter = cur;
+            if (tvFilterName != null) tvFilterName.setText(cur);
+            applyColorMatrix();
+            // Refresh chip strip to highlight the active filter
+            if (rvFilters.getAdapter() != null) rvFilters.getAdapter().notifyDataSetChanged();
+        }
     }
 
     private void loadThumbnail() {

@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    sheet_reel_mention_tag.xml
+    Instagram-style "Tag People" bottom sheet for the Reel editor.
+    Search → select user → draggable name-tag overlay added to the video.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@drawable/bg_reel_media_sheet">
+
+    <!-- Drag handle -->
+    <View
+        android:layout_width="36dp"
+        android:layout_height="4dp"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="10dp"
+        android:layout_marginBottom="16dp"
+        android:background="@drawable/bg_drag_handle"/>
+
+    <!-- Title row -->
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Tag People"
+        android:textColor="#FFFFFF"
+        android:textSize="17sp"
+        android:textStyle="bold"
+        android:gravity="center"
+        android:paddingBottom="14dp"/>
+
+    <!-- Search bar -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="42dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="@drawable/bg_comment_input"
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="16dp"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp">
+
+        <ImageView
+            android:layout_width="18dp"
+            android:layout_height="18dp"
+            android:src="@drawable/ic_search"
+            android:tint="#99FFFFFF"
+            android:contentDescription="Search"/>
+
+        <EditText
+            android:id="@+id/et_mention_search"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:hint="Search by name or @username"
+            android:textColorHint="#66FFFFFF"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp"
+            android:background="@android:color/transparent"
+            android:paddingStart="10dp"
+            android:singleLine="true"
+            android:imeOptions="actionSearch"/>
+    </LinearLayout>
+
+    <!-- Tagged chips (appear as user is tagged) -->
+    <HorizontalScrollView
+        android:id="@+id/hsv_tagged_chips"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:scrollbars="none"
+        android:layout_marginTop="10dp"
+        android:layout_marginStart="12dp"
+        android:layout_marginEnd="12dp"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:id="@+id/ll_tag_chips"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:padding="4dp"/>
+    </HorizontalScrollView>
+
+    <!-- Progress while loading -->
+    <ProgressBar
+        android:id="@+id/progress_mention_search"
+        android:layout_width="32dp"
+        android:layout_height="32dp"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="16dp"
+        android:indeterminateTint="#FF3B5C"
+        android:visibility="gone"/>
+
+    <!-- User list -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/rv_mention_users"
+        android:layout_width="match_parent"
+        android:layout_height="300dp"
+        android:layout_marginTop="8dp"
+        android:scrollbars="none"/>
+
+    <!-- Empty state -->
+    <TextView
+        android:id="@+id/tv_mention_empty"
+        android:layout_width="match_parent"
+        android:layout_height="80dp"
+        android:text="No users found"
+        android:textColor="#55FFFFFF"
+        android:textSize="14sp"
+        android:gravity="center"
+        android:visibility="gone"/>
+
+    <!-- Done button -->
+    <TextView
+        android:id="@+id/btn_mention_done"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:text="Done"
+        android:gravity="center"
+        android:textColor="#FFFFFF"
+        android:textSize="15sp"
+        android:textStyle="bold"
+        android:background="@drawable/bg_reel_use_btn"
+        android:layout_margin="16dp"
+        android:clickable="true"
+        android:focusable="true"/>
+
+</LinearLayout>

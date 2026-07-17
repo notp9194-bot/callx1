@@ -1,70 +1,290 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent" android:layout_height="match_parent"
-    android:orientation="vertical" android:background="#000000">
-    <LinearLayout android:layout_width="match_parent" android:layout_height="56dp"
-        android:orientation="horizontal" android:gravity="center_vertical" android:paddingHorizontal="8dp">
-        <ImageButton android:id="@+id/btn_overlay_back" android:layout_width="40dp"
-            android:layout_height="40dp" android:background="?attr/selectableItemBackgroundBorderless"
-            android:src="@drawable/ic_arrow_back" android:tint="#FFFFFF"/>
-        <TextView android:layout_width="0dp" android:layout_height="wrap_content"
-            android:layout_weight="1" android:text="Text Overlay" android:textColor="#FFFFFF"
-            android:textSize="18sp" android:textStyle="bold" android:paddingStart="12dp"/>
-        <Button android:id="@+id/btn_overlay_done" android:layout_width="wrap_content"
-            android:layout_height="36dp" android:text="Done" android:textColor="#FFFFFF"
-            android:background="@drawable/bg_btn_primary" android:paddingHorizontal="16dp"/>
+<!--
+    activity_reel_text_overlay.xml
+    Full-screen TikTok/Instagram-style text overlay editor.
+    Dark background, keyboard auto-shown, live preview in centre.
+-->
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="#000000">
+
+    <!-- ── Top bar: Back | Title | Done ───────────────────────────────── -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="4dp"
+        android:paddingEnd="12dp">
+
+        <ImageButton
+            android:id="@+id/btn_overlay_back"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:src="@drawable/ic_close"
+            android:tint="#FFFFFF"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Cancel"/>
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Add Text"
+            android:textColor="#FFFFFF"
+            android:textSize="17sp"
+            android:textStyle="bold"
+            android:gravity="center"/>
+
+        <Button
+            android:id="@+id/btn_overlay_done"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:text="Done"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:background="@drawable/bg_btn_primary"
+            android:paddingStart="20dp"
+            android:paddingEnd="20dp"/>
     </LinearLayout>
-    <FrameLayout android:layout_width="match_parent" android:layout_height="160dp"
-        android:background="#1A1A1A" android:gravity="center">
-        <TextView android:id="@+id/tv_overlay_preview" android:layout_width="wrap_content"
-            android:layout_height="wrap_content" android:text="Preview text..."
-            android:textColor="#FFFFFF" android:textSize="24sp" android:padding="16dp"
-            android:layout_gravity="center"/>
+
+    <!-- ── Live preview area ──────────────────────────────────────────── -->
+    <FrameLayout
+        android:id="@+id/overlay_preview_container"
+        android:layout_width="match_parent"
+        android:layout_height="150dp"
+        android:background="#111111">
+
+        <!-- Decorative gradient line at top of preview -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="2dp"
+            android:layout_gravity="top"
+            android:background="@drawable/bg_brand_rounded"/>
+
+        <TextView
+            android:id="@+id/tv_overlay_preview"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:text="Your text here…"
+            android:textColor="#FFFFFF"
+            android:textSize="32sp"
+            android:padding="12dp"
+            android:maxWidth="320dp"/>
+
+        <!-- Decorative gradient line at bottom of preview -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="2dp"
+            android:layout_gravity="bottom"
+            android:background="@drawable/bg_brand_rounded"/>
     </FrameLayout>
-    <ScrollView android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1">
-        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:orientation="vertical" android:padding="16dp">
-            <EditText android:id="@+id/et_overlay_text" android:layout_width="match_parent"
-                android:layout_height="wrap_content" android:hint="Enter text..."
-                android:textColor="#FFFFFF" android:textColorHint="#666666"
-                android:background="@drawable/bg_search_field" android:padding="12dp"
-                android:maxLines="3" android:inputType="textMultiLine"/>
-            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:text="Color" android:textColor="#AAAAAA" android:textSize="13sp"
-                android:paddingTop="16dp" android:paddingBottom="8dp"/>
-            <HorizontalScrollView android:layout_width="match_parent" android:layout_height="40dp" android:scrollbars="none">
-                <LinearLayout android:id="@+id/layout_overlay_colors" android:layout_width="wrap_content"
-                    android:layout_height="match_parent" android:orientation="horizontal"/>
-            </HorizontalScrollView>
-            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:text="Font" android:textColor="#AAAAAA" android:textSize="13sp"
-                android:paddingTop="16dp" android:paddingBottom="8dp"/>
-            <HorizontalScrollView android:layout_width="match_parent" android:layout_height="40dp" android:scrollbars="none">
-                <LinearLayout android:id="@+id/layout_overlay_fonts" android:layout_width="wrap_content"
-                    android:layout_height="match_parent" android:orientation="horizontal"/>
-            </HorizontalScrollView>
-            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:text="Background" android:textColor="#AAAAAA" android:textSize="13sp"
-                android:paddingTop="16dp" android:paddingBottom="8dp"/>
-            <HorizontalScrollView android:layout_width="match_parent" android:layout_height="40dp" android:scrollbars="none">
-                <LinearLayout android:id="@+id/layout_overlay_bg" android:layout_width="wrap_content"
-                    android:layout_height="match_parent" android:orientation="horizontal"/>
-            </HorizontalScrollView>
-            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:text="Alignment" android:textColor="#AAAAAA" android:textSize="13sp"
-                android:paddingTop="16dp" android:paddingBottom="8dp"/>
-            <LinearLayout android:id="@+id/layout_overlay_align" android:layout_width="match_parent"
-                android:layout_height="40dp" android:orientation="horizontal"/>
-            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:orientation="horizontal" android:gravity="center_vertical" android:paddingTop="16dp">
-                <TextView android:layout_width="0dp" android:layout_height="wrap_content"
-                    android:layout_weight="1" android:text="Font Size" android:textColor="#AAAAAA" android:textSize="13sp"/>
-                <TextView android:id="@+id/tv_overlay_size_label" android:layout_width="48dp"
-                    android:layout_height="wrap_content" android:text="24sp"
-                    android:textColor="#FFFFFF" android:textSize="13sp" android:gravity="end"/>
+
+    <!-- ── Scrollable controls below preview ─────────────────────────── -->
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:fillViewport="true"
+        android:overScrollMode="never">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingBottom="24dp">
+
+            <!-- Text input -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:paddingTop="14dp">
+
+                <EditText
+                    android:id="@+id/et_overlay_text"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:hint="Type something…"
+                    android:textColor="#FFFFFF"
+                    android:textColorHint="#555555"
+                    android:textSize="16sp"
+                    android:background="@drawable/bg_search_field"
+                    android:padding="14dp"
+                    android:maxLines="4"
+                    android:inputType="textMultiLine|textCapSentences"
+                    android:imeOptions="actionDone"/>
             </LinearLayout>
-            <SeekBar android:id="@+id/seek_overlay_size" android:layout_width="match_parent"
-                android:layout_height="wrap_content" android:max="60" android:progress="12"/>
+
+            <!-- ── Color palette ─────────────────────────────────────── -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Color"
+                android:textColor="#888888"
+                android:textSize="12sp"
+                android:textAllCaps="true"
+                android:letterSpacing="0.08"
+                android:paddingStart="16dp"
+                android:paddingTop="18dp"
+                android:paddingBottom="8dp"/>
+
+            <HorizontalScrollView
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:scrollbars="none"
+                android:clipToPadding="false">
+
+                <LinearLayout
+                    android:id="@+id/layout_overlay_colors"
+                    android:layout_width="wrap_content"
+                    android:layout_height="match_parent"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"/>
+            </HorizontalScrollView>
+
+            <!-- ── Divider ──────────────────────────────────────────── -->
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="#1AFFFFFF"
+                android:layout_marginTop="14dp"
+                android:layout_marginStart="16dp"
+                android:layout_marginEnd="16dp"/>
+
+            <!-- ── Font style ────────────────────────────────────────── -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Font Style"
+                android:textColor="#888888"
+                android:textSize="12sp"
+                android:textAllCaps="true"
+                android:letterSpacing="0.08"
+                android:paddingStart="16dp"
+                android:paddingTop="14dp"
+                android:paddingBottom="8dp"/>
+
+            <HorizontalScrollView
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:scrollbars="none"
+                android:clipToPadding="false">
+
+                <LinearLayout
+                    android:id="@+id/layout_overlay_fonts"
+                    android:layout_width="wrap_content"
+                    android:layout_height="match_parent"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"/>
+            </HorizontalScrollView>
+
+            <!-- ── Background style ──────────────────────────────────── -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Background"
+                android:textColor="#888888"
+                android:textSize="12sp"
+                android:textAllCaps="true"
+                android:letterSpacing="0.08"
+                android:paddingStart="16dp"
+                android:paddingTop="14dp"
+                android:paddingBottom="8dp"/>
+
+            <HorizontalScrollView
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:scrollbars="none"
+                android:clipToPadding="false">
+
+                <LinearLayout
+                    android:id="@+id/layout_overlay_bg"
+                    android:layout_width="wrap_content"
+                    android:layout_height="match_parent"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"/>
+            </HorizontalScrollView>
+
+            <!-- ── Text alignment ────────────────────────────────────── -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Alignment"
+                android:textColor="#888888"
+                android:textSize="12sp"
+                android:textAllCaps="true"
+                android:letterSpacing="0.08"
+                android:paddingStart="16dp"
+                android:paddingTop="14dp"
+                android:paddingBottom="8dp"/>
+
+            <LinearLayout
+                android:id="@+id/layout_overlay_align"
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:orientation="horizontal"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:gravity="center_vertical"/>
+
+            <!-- ── Font size ─────────────────────────────────────────── -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:paddingTop="18dp"
+                android:paddingBottom="4dp">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Font Size"
+                    android:textColor="#888888"
+                    android:textSize="12sp"
+                    android:textAllCaps="true"
+                    android:letterSpacing="0.08"/>
+
+                <TextView
+                    android:id="@+id/tv_overlay_size_label"
+                    android:layout_width="48dp"
+                    android:layout_height="wrap_content"
+                    android:text="32sp"
+                    android:textColor="#FFFFFF"
+                    android:textSize="13sp"
+                    android:gravity="end"/>
+            </LinearLayout>
+
+            <SeekBar
+                android:id="@+id/seek_overlay_size"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:max="60"
+                android:progress="20"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:paddingBottom="8dp"
+                android:progressTint="#5B5BF6"
+                android:thumbTint="#5B5BF6"/>
+
         </LinearLayout>
     </ScrollView>
+
 </LinearLayout>

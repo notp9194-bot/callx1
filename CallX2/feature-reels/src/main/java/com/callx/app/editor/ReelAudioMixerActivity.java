@@ -63,8 +63,19 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
     public static final String RESULT_FADE_IN_MS      = "result_fade_in_ms";
     public static final String RESULT_FADE_OUT_MS     = "result_fade_out_ms";
     public static final String RESULT_PITCH_SEMITONES = "result_pitch_semitones";
-    /** ✅ NEW: peak-normalize toggle result */
+    /** peak-normalize toggle result */
     public static final String RESULT_NORMALIZE       = "result_normalize";
+    /**
+     * ✅ FIX: When the user changes the background track inside the mixer
+     * (via the "Change" button → ReelTrendingAudioActivity), these extras
+     * carry the NEW track info back to the caller (ReelEditorActivity /
+     * ReelUploadActivity) so the correct audio is mixed at upload time.
+     * Without these the caller always kept the ORIGINAL sound URL.
+     */
+    public static final String RESULT_MUSIC_URL    = "result_music_url";
+    public static final String RESULT_MUSIC_ID     = "result_music_id";
+    public static final String RESULT_MUSIC_TITLE  = "result_music_title";
+    public static final String RESULT_MUSIC_ARTIST = "result_music_artist";
 
     private static final int REQ_MIC          = 501;
     /** ✅ NEW: request codes for SoundDetail and "Change Music" pickers */
@@ -518,6 +529,17 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
         result.putExtra(RESULT_FADE_OUT_MS,     fadeOutMs);
         result.putExtra(RESULT_PITCH_SEMITONES, pitchSemitones);
         result.putExtra(RESULT_NORMALIZE,       normalizeOn);
+
+        // ✅ FIX: Always send back the current music track info so the caller
+        // (ReelEditorActivity) can update its preSelectedSoundUrl / soundId /
+        // title — even when the user changed the track via the "Change" button.
+        // Without this, the old original-sound URL is passed to ReelUploadActivity
+        // and the new track is silently ignored after upload.
+        result.putExtra(RESULT_MUSIC_URL,    musicUrl     != null ? musicUrl     : "");
+        result.putExtra(RESULT_MUSIC_ID,     soundId      != null ? soundId      : "");
+        result.putExtra(RESULT_MUSIC_TITLE,  currentTitle != null ? currentTitle : "");
+        result.putExtra(RESULT_MUSIC_ARTIST, currentArtist!= null ? currentArtist: "");
+
         setResult(RESULT_OK, result);
         finish();
     }

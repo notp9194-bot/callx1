@@ -108,6 +108,67 @@
         android:background="#1A1A1A"
         android:padding="16dp">
 
+
+        <!-- ── Caption with @mention support ──────────────────────────── -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="#33FFFFFF"
+            android:layout_marginBottom="12dp"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="CAPTION"
+            android:textColor="#AAFFFFFF"
+            android:textSize="11sp"
+            android:fontFamily="sans-serif-medium"
+            android:letterSpacing="0.1"
+            android:layout_marginBottom="6dp"/>
+
+        <!-- Caption input — @mention aware -->
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
+            <EditText
+                android:id="@+id/et_editor_caption"
+                android:layout_width="match_parent"
+                android:layout_height="80dp"
+                android:hint="Write a caption… use @ to mention someone"
+                android:textColorHint="#55FFFFFF"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp"
+                android:background="@drawable/bg_comment_input"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:paddingTop="10dp"
+                android:paddingBottom="10dp"
+                android:gravity="top"
+                android:inputType="textMultiLine|textCapSentences"
+                android:maxLines="3"
+                android:maxLength="2200"
+                android:imeOptions="actionDone"/>
+
+            <!-- Character count badge -->
+            <TextView
+                android:id="@+id/tv_caption_char_count"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="bottom|end"
+                android:layout_margin="6dp"
+                android:text="0/2200"
+                android:textColor="#66FFFFFF"
+                android:textSize="10sp"/>
+        </FrameLayout>
+
+        <!-- @mention autocomplete popup anchor (zero-height, positioned below caption) -->
+        <View
+            android:id="@+id/v_mention_popup_anchor"
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="2dp"/>
+
         <!-- Trim section -->
         <TextView
             android:layout_width="wrap_content"
@@ -238,6 +299,16 @@
             android:scrollbars="none">
             <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:orientation="horizontal" android:gravity="center_vertical">
+
+                <!-- Tag People tool -->
+                <LinearLayout android:layout_width="64dp" android:layout_height="wrap_content"
+                    android:orientation="vertical" android:gravity="center" android:layout_marginEnd="8dp">
+                    <ImageButton android:id="@+id/btn_tool_tag_people" android:layout_width="44dp" android:layout_height="44dp"
+                        android:src="@drawable/ic_person_add"
+                        android:tint="#FF3B5C" android:background="@drawable/bg_speed_chip" android:contentDescription="Tag People"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Tag" android:textColor="#CCFFFFFF" android:textSize="10sp" android:layout_marginTop="4dp"/>
+                </LinearLayout>
 
                 <LinearLayout android:layout_width="64dp" android:layout_height="wrap_content"
                     android:orientation="vertical" android:gravity="center" android:layout_marginEnd="8dp">
