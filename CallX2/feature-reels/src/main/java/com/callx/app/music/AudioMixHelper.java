@@ -119,7 +119,129 @@ public class AudioMixHelper {
         });
     }
 
-    // ── Core mix logic ────────────────────────────────────────────────────
+    // ── MixConfig ─────────────────────────────────────────────────────────
+    public static class MixConfig {
+        public String  musicUrl       = "";
+        public String  voiceoverPath  = "";
+        public float   micVol         = 1.0f;
+        public float   musicVol       = 0.8f;
+        public float   voiceoverVol   = 1.0f;
+        public int     musicStartMs   = 0;
+        public int     musicEndMs     = 0;
+        public int     fadeInMs       = 0;
+        public int     fadeOutMs      = 0;
+        public float   pitchSemitones = 0f;
+        public boolean normalize      = false;
+    }
+
+    public static void mixAndExportWithConfig(
+            Context context, String videoPath, MixConfig cfg, MixCallback callback) {
+        executor.execute(() -> {
+            try {
+                String out = doMixWithConfig(context, videoPath, cfg, callback);
+                mainHandler.post(() -> callback.onSuccess(out));
+            } catch (Exception e) {
+                Log.e(TAG,"MixConfig failed",e);
+                mainHandler.post(() -> callback.onError(e));
+            }
+        });
+    }
+
+    public static void checkIfSilent(Context context, String videoPath,
+                                     java.util.function.Consumer<Boolean> cb) {
+        final Handler h = new Handler(Looper.getMainLooper());
+        executor.execute(() -> {
+            boolean s;
+            try { s = isMostlySilent(extractPcmFromVideo(videoPath)); }
+            catch (Exception e) { s = false; }
+            final boolean r = s;
+            h.post(() -> cb.accept(r));
+        });
+    }
+
+    private static String doMixWithConfig(
+            Context context, String videoPath, MixConfig cfg, MixCallback cb) throws Exception {
+        mainHandler.post(() -> cb.onProgress(5));
+        File mf = null;
+        if (cfg.musicUrl != null && !cfg.musicUrl.isEmpty())
+            mf = downloadToCache(context, cfg.musicUrl);
+        mainHandler.post(() -> cb.onProgress(20));
+        short[] mic = extractPcmFromVideo(videoPath);
+        mainHandler.post(() -> cb.onProgress(38));
+        short[] mus = null;
+        if (mf != null) {
+            mus = extractPcmFromFile(mf.getAbsolutePath(), Integer.MAX_VALUE, cfg.musicStartMs);
+            if (cfg.musicEndMs > cfg.musicStartMs) {
+                int mx = (cfg.musicEndMs - cfg.musicStartMs) * 44100 / 1000;
+                if (mus.length > mx) { short[] t = new short[mx]; System.arraycopy(mus,0,t,0,mx); mus=t; }
+            }
+            if (mus.length > 0 && mic.length > 0)
+                mus = mus.length < mic.length ? loopPcm(mus, mic.length)
+                                              : java.util.Arrays.copyOf(mus, mic.length);
+            if (Math.abs(cfg.pitchSemitones) > 0.01f) {
+                mus = pitchShiftPcm(mus, cfg.pitchSemitones);
+                if (mus.length != mic.length)
+                    mus = mus.length < mic.length ? loopPcm(mus, mic.length)
+                                                  : java.util.Arrays.copyOf(mus, mic.length);
+            }
+            if (cfg.normalize) mus = normalizePcm(mus);
+            if (cfg.fadeInMs > 0 || cfg.fadeOutMs > 0)
+                mus = applyFades(mus, 44100, cfg.fadeInMs, cfg.fadeOutMs);
+        }
+        mainHandler.post(() -> cb.onProgress(55));
+        short[] vo = null;
+        if (cfg.voiceoverPath != null && !cfg.voiceoverPath.isEmpty()) {
+            File vf = new File(cfg.voiceoverPath);
+            if (vf.exists()) vo = extractPcmFromFile(cfg.voiceoverPath, mic.length, 0);
+        }
+        mainHandler.post(() -> cb.onProgress(65));
+        short[] mixed = mixPcm(mic, cfg.micVol, mus, cfg.musicVol, vo, cfg.voiceoverVol);
+        mainHandler.post(() -> cb.onProgress(76));
+        File aac = new File(context.getCacheDir(), "mixed_adv_" + System.currentTimeMillis() + ".aac");
+        encodePcmToAac(mixed, aac.getAbsolutePath());
+        mainHandler.post(() -> cb.onProgress(88));
+        String out = new File(context.getCacheDir(), "final_adv_" + System.currentTimeMillis() + ".mp4").getAbsolutePath();
+        muxVideoAndAudio(videoPath, aac.getAbsolutePath(), out);
+        mainHandler.post(() -> cb.onProgress(98));
+        aac.delete(); if (mf != null) mf.delete();
+        return out;
+    }
+
+    private static short[] applyFades(short[] p, int sr, int fi, int fo) {
+        if (p==null||p.length==0) return p;
+        short[] out = p.clone();
+        int fis = Math.min(sr*fi/1000, out.length/2);
+        int fos = Math.min(sr*fo/1000, out.length/2);
+        for (int i=0; i<fis; i++) out[i] = (short)(out[i]*(float)i/fis);
+        for (int i=0; i<fos; i++) { int pos=out.length-1-i; out[pos]=(short)(out[pos]*(float)i/fos); }
+        return out;
+    }
+
+    private static short[] pitchShiftPcm(short[] in, float sem) {
+        if (Math.abs(sem)<0.01f||in==null||in.length==0) return in;
+        return resamplePcm(in, (int)(44100*Math.pow(2.0, sem/12.0)), 44100);
+    }
+
+    private static short[] normalizePcm(short[] in) {
+        if (in==null||in.length==0) return in;
+        float pk = 0; for (short s:in) if (Math.abs(s)>pk) pk=Math.abs(s);
+        if (pk<100) return in;
+        float sc = Short.MAX_VALUE*0.95f/pk; if (sc>=1f) return in;
+        short[] out = new short[in.length];
+        for (int i=0; i<in.length; i++) {
+            float v = in[i]*sc;
+            out[i] = (short)Math.max(Short.MIN_VALUE, Math.min(Short.MAX_VALUE, v));
+        }
+        return out;
+    }
+
+    static boolean isMostlySilent(short[] pcm) {
+        if (pcm==null||pcm.length==0) return true;
+        long sum = 0; for (short s:pcm) sum += (long)s*s;
+        return Math.sqrt((double)sum/pcm.length) < 103.0;
+    }
+
+    // ── Core mix logic — legacy ────────────────────────────────────────────
 
     private static String doMix(
             Context context,
@@ -226,7 +348,12 @@ public class AudioMixHelper {
      * Extract PCM from the audio track embedded in a video file.
      */
     private static short[] extractPcmFromVideo(String videoPath) throws Exception {
-        return extractPcmFromFile(videoPath, Integer.MAX_VALUE);
+        return extractPcmFromFile(videoPath, Integer.MAX_VALUE, 0);
+    }
+
+    /** Compat overload — no start offset. */
+    private static short[] extractPcmFromFile(String filePath, int maxSamples) throws Exception {
+        return extractPcmFromFile(filePath, maxSamples, 0);
     }
 
     /**
@@ -255,7 +382,7 @@ public class AudioMixHelper {
      * Fix: after decoding, downmix multi-channel audio to mono, then
      * linearly resample to 44100 Hz if the source rate differs.
      */
-    private static short[] extractPcmFromFile(String filePath, int maxSamples) throws Exception {
+    private static short[] extractPcmFromFile(String filePath, int maxSamples, int startOffsetMs) throws Exception {
         MediaExtractor extractor = new MediaExtractor();
         extractor.setDataSource(filePath);
 
@@ -274,6 +401,8 @@ public class AudioMixHelper {
         }
 
         extractor.selectTrack(audioTrack);
+        if (startOffsetMs > 0)
+            extractor.seekTo(startOffsetMs * 1000L, MediaExtractor.SEEK_TO_CLOSEST_SYNC);
         MediaFormat inputFormat = extractor.getTrackFormat(audioTrack);
 
         // Read declared format properties — will be confirmed/overridden by

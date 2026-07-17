@@ -113,6 +113,7 @@ public class SoundDetailActivity extends AppCompatActivity implements Player.Lis
     // ─── Request codes ─────────────────────────────────────────────────────────
     /** Gallery video picker launched from "Use in Video" button */
     private static final int REQ_GALLERY_VIDEO = 701;
+    private static final int REQ_TRIM          = 702;
 
     // ─── State ─────────────────────────────────────────────────────────────────
     private String  soundId, soundTitle, soundUrl, artist, coverUrl, genre;
@@ -122,6 +123,8 @@ public class SoundDetailActivity extends AppCompatActivity implements Player.Lis
     private boolean isPreparing     = false;
     private boolean userSeeking     = false;
     private boolean retried         = false;
+    private int     musicStartMs    = 0;
+    private int     musicEndMs      = 0;
 
     // ─── Creator ───────────────────────────────────────────────────────────────
     private String  creatorUid, creatorName, creatorPhoto;
@@ -1062,7 +1065,17 @@ public class SoundDetailActivity extends AppCompatActivity implements Player.Lis
             // Tell the editor to open the audio mixer immediately so the user can
             // balance the original video audio against the reused sound.
             intent.putExtra(com.callx.app.editor.ReelEditorActivity.EXTRA_OPEN_AUDIO_MIXER, true);
+            if (musicStartMs > 0) intent.putExtra("music_start_ms", musicStartMs);
+            if (musicEndMs   > 0) intent.putExtra("music_end_ms",   musicEndMs);
             startActivity(intent);
+
+        } else if (requestCode == REQ_TRIM && resultCode == RESULT_OK && data != null) {
+            musicStartMs = data.getIntExtra(
+                com.callx.app.editor.ReelMusicTrimActivity.RESULT_START_MS, 0);
+            musicEndMs   = data.getIntExtra(
+                com.callx.app.editor.ReelMusicTrimActivity.RESULT_END_MS, 0);
+            Toast.makeText(this, "Trim set: " + formatMs(musicStartMs)
+                + " - " + formatMs(musicEndMs), Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -1278,7 +1291,7 @@ public class SoundDetailActivity extends AppCompatActivity implements Player.Lis
                 i.putExtra(ReelMusicTrimActivity.EXTRA_SOUND_TITLE, soundTitle);
                 i.putExtra(ReelMusicTrimActivity.EXTRA_SOUND_URL,   soundUrl);
                 i.putExtra(ReelMusicTrimActivity.EXTRA_DURATION_MS, durationMs);
-                startActivity(i);
+                startActivityForResult(i, REQ_TRIM);
             });
         }
     }

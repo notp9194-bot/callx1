@@ -136,6 +136,107 @@ public class ReelMusicTrimActivity extends AppCompatActivity {
     private void buildWaveform() {
         if (layoutWaveform == null) return;
         layoutWaveform.removeAllViews();
+        float dpL = getResources().getDisplayMetrics().density;
+        int bW=(int)(4*dpL), g=(int)(2*dpL);
+        for (int b=0; b<60; b++) {
+            View bar = new View(this);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(bW,(int)(18*dpL));
+            lp.setMargins(g,0,g,0); lp.gravity = android.view.Gravity.BOTTOM;
+            bar.setLayoutParams(lp); bar.setBackgroundColor(0x55FFFFFF); bar.setTag("wBar");
+            layoutWaveform.addView(bar);
+        }
+        if (soundUrl != null && !soundUrl.isEmpty()) buildRealWaveformAsync();
+    }
+
+    private void buildRealWaveformAsync() {
+        new Thread(() -> {
+            try {
+                String key = "wf_" + Math.abs(soundUrl.hashCode()) + ".aac";
+                java.io.File tmp = new java.io.File(getCacheDir(), key);
+                if (!tmp.exists() || tmp.length() == 0) {
+                    java.net.HttpURLConnection conn =
+                        (java.net.HttpURLConnection) new java.net.URL(soundUrl).openConnection();
+                    conn.setConnectTimeout(10_000); conn.setReadTimeout(20_000);
+                    try (java.io.InputStream in = conn.getInputStream();
+                         java.io.FileOutputStream fos = new java.io.FileOutputStream(tmp)) {
+                        byte[] buf = new byte[8192]; int n;
+                        while ((n = in.read(buf)) >= 0) fos.write(buf, 0, n);
+                    }
+                    conn.disconnect();
+                }
+                android.media.MediaExtractor ext = new android.media.MediaExtractor();
+                ext.setDataSource(tmp.getAbsolutePath());
+                int track = -1;
+                for (int i = 0; i < ext.getTrackCount(); i++) {
+                    String m = ext.getTrackFormat(i).getString(android.media.MediaFormat.KEY_MIME);
+                    if (m != null && m.startsWith("audio/")) { track = i; break; }
+                }
+                if (track < 0) { ext.release(); return; }
+                ext.selectTrack(track);
+                android.media.MediaFormat fmt = ext.getTrackFormat(track);
+                android.media.MediaCodec codec = android.media.MediaCodec.createDecoderByType(
+                    fmt.getString(android.media.MediaFormat.KEY_MIME));
+                codec.configure(fmt, null, null, 0); codec.start();
+                java.util.ArrayList<Short> samples = new java.util.ArrayList<>(44100 * 60);
+                android.media.MediaCodec.BufferInfo info = new android.media.MediaCodec.BufferInfo();
+                boolean inDone = false;
+                while (true) {
+                    if (!inDone) {
+                        int ii = codec.dequeueInputBuffer(8_000);
+                        if (ii >= 0) {
+                            java.nio.ByteBuffer ib = codec.getInputBuffer(ii);
+                            int sz = ext.readSampleData(ib, 0);
+                            if (sz < 0) {
+                                codec.queueInputBuffer(ii,0,0,0,android.media.MediaCodec.BUFFER_FLAG_END_OF_STREAM);
+                                inDone = true;
+                            } else { codec.queueInputBuffer(ii,0,sz,ext.getSampleTime(),0); ext.advance(); }
+                        }
+                    }
+                    int oi = codec.dequeueOutputBuffer(info, 8_000);
+                    if (oi >= 0) {
+                        java.nio.ByteBuffer ob = codec.getOutputBuffer(oi);
+                        if (ob != null && info.size > 0) {
+                            java.nio.ShortBuffer sb = ob.asShortBuffer();
+                            while (sb.hasRemaining()) samples.add(sb.get());
+                        }
+                        codec.releaseOutputBuffer(oi, false);
+                        if ((info.flags & android.media.MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) break;
+                    }
+                }
+                codec.stop(); codec.release(); ext.release();
+                final int BARS = 60;
+                float[] rms = new float[BARS];
+                int perBar = Math.max(1, samples.size() / BARS);
+                for (int b = 0; b < BARS; b++) {
+                    long sq = 0; int s0=b*perBar, s1=Math.min(s0+perBar, samples.size());
+                    for (int j=s0; j<s1; j++) { long v=samples.get(j); sq+=v*v; }
+                    rms[b] = (float)Math.sqrt((double)sq / Math.max(1, s1-s0));
+                }
+                float maxR = 1f; for (float r : rms) if (r > maxR) maxR = r;
+                final float[] norm = new float[BARS];
+                for (int b=0; b<BARS; b++) norm[b] = rms[b] / maxR;
+                float dp2 = getResources().getDisplayMetrics().density;
+                int minH=(int)(4*dp2), maxH=(int)(44*dp2);
+                runOnUiThread(() -> {
+                    if (layoutWaveform == null || isFinishing()) return;
+                    for (int b=0; b<Math.min(BARS, layoutWaveform.getChildCount()); b++) {
+                        View bar = layoutWaveform.getChildAt(b); if (bar == null) continue;
+                        int h = minH + (int)((maxH-minH)*norm[b]);
+                        LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) bar.getLayoutParams();
+                        lp.height = h; bar.setLayoutParams(lp);
+                        float pct = (float)b/BARS, totS = totalDurationMs>0 ? totalDurationMs/1000f : 1f;
+                        boolean inR = pct >= startMs/1000f/totS && pct <= endMs/1000f/totS;
+                        bar.setBackgroundColor(inR ? 0xFFFFFFFF : 0x44FFFFFF);
+                    }
+                });
+            } catch (Exception ignored) {}
+        }, "WaveformBuild").start();
+    }
+
+    @SuppressWarnings("unused")
+    private void buildWaveform_LEGACY() {
+        if (layoutWaveform == null) return;
+        layoutWaveform.removeAllViews();
         java.util.Random rng = new java.util.Random(soundUrl != null ? soundUrl.hashCode() : 0);
         int bars = 40;
         int barW = (int)(4 * getResources().getDisplayMetrics().density);

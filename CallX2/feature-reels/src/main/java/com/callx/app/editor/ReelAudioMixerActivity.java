@@ -56,10 +56,13 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
     /** ✅ NEW: optional sound ID passed in so Mixer can open SoundDetailActivity */
     public static final String EXTRA_SOUND_ID     = "mixer_sound_id";
 
-    public static final String RESULT_ORIG_VOL      = "result_orig_vol";
-    public static final String RESULT_MUSIC_VOL     = "result_music_vol";
-    public static final String RESULT_VOICEOVER_PATH= "result_vo_path";
-    public static final String RESULT_VOICEOVER_VOL = "result_vo_vol";
+    public static final String RESULT_ORIG_VOL        = "result_orig_vol";
+    public static final String RESULT_MUSIC_VOL       = "result_music_vol";
+    public static final String RESULT_VOICEOVER_PATH  = "result_vo_path";
+    public static final String RESULT_VOICEOVER_VOL   = "result_vo_vol";
+    public static final String RESULT_FADE_IN_MS      = "result_fade_in_ms";
+    public static final String RESULT_FADE_OUT_MS     = "result_fade_out_ms";
+    public static final String RESULT_PITCH_SEMITONES = "result_pitch_semitones";
 
     private static final int REQ_MIC          = 501;
     /** ✅ NEW: request codes for SoundDetail and "Change Music" pickers */
@@ -91,9 +94,12 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
     private String currentArtist = "";
     private boolean isRecordingVoiceover = false;
 
-    private float origVol     = 1.0f;
-    private float musicVol    = 0.8f;
-    private float voiceoverVol= 1.0f;
+    private float origVol        = 1.0f;
+    private float musicVol       = 0.8f;
+    private float voiceoverVol   = 1.0f;
+    private int   fadeInMs       = 0;
+    private int   fadeOutMs      = 0;
+    private float pitchSemitones = 0f;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
 
@@ -119,10 +125,91 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
 
         btnBack.setOnClickListener(v -> finish());
         btnApply.setOnClickListener(v -> applyAndReturn());
-
         if (musicUrl == null || musicUrl.isEmpty()) {
             layoutVoiceoverRow.setVisibility(View.GONE);
         }
+        injectAdvancedControls();
+        if (videoUri != null && !videoUri.isEmpty() && isFilePath) detectSilentOriginalAudio();
+    }
+
+    private void injectAdvancedControls() {
+        android.view.ViewGroup root = null;
+        android.view.View cursor = layoutVoiceoverRow;
+        for (int d = 0; d < 8 && cursor != null; d++) {
+            android.view.ViewParent p = cursor.getParent();
+            if (p instanceof android.widget.LinearLayout) { root = (android.view.ViewGroup) p; break; }
+            cursor = (p instanceof android.view.View) ? (android.view.View) p : null;
+        }
+        if (root == null) return;
+        float dp = getResources().getDisplayMetrics().density;
+
+        android.widget.TextView tvAdv = new android.widget.TextView(this);
+        tvAdv.setText("Advanced"); tvAdv.setTextColor(0xFFAAAAAA); tvAdv.setTextSize(11f);
+        tvAdv.setPadding((int)(16*dp),(int)(14*dp),(int)(16*dp),0);
+        root.addView(tvAdv);
+
+        android.widget.LinearLayout row = new android.widget.LinearLayout(this);
+        row.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+        row.setPadding((int)(12*dp),(int)(6*dp),(int)(12*dp),0);
+        row.setWeightSum(2f);
+
+        android.widget.Button btnFI = mkFadeBtn("Fade In");
+        android.widget.Button btnFO = mkFadeBtn("Fade Out");
+        btnFI.setOnClickListener(v -> {
+            fadeInMs = fadeInMs > 0 ? 0 : 500;
+            btnFI.setAlpha(fadeInMs > 0 ? 1f : 0.5f);
+            btnFI.setText(fadeInMs > 0 ? "v Fade In" : "Fade In");
+        });
+        btnFO.setOnClickListener(v -> {
+            fadeOutMs = fadeOutMs > 0 ? 0 : 500;
+            btnFO.setAlpha(fadeOutMs > 0 ? 1f : 0.5f);
+            btnFO.setText(fadeOutMs > 0 ? "v Fade Out" : "Fade Out");
+        });
+        android.widget.LinearLayout.LayoutParams half =
+            new android.widget.LinearLayout.LayoutParams(
+                0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        half.setMargins((int)(4*dp),0,(int)(4*dp),0);
+        row.addView(btnFI, half); row.addView(btnFO, half);
+        root.addView(row);
+
+        android.widget.TextView tvPL = new android.widget.TextView(this);
+        tvPL.setText("Pitch: 0.0 semitones"); tvPL.setTextColor(0xFFFFFFFF); tvPL.setTextSize(13f);
+        tvPL.setPadding((int)(16*dp),(int)(10*dp),(int)(16*dp),0);
+        root.addView(tvPL);
+
+        SeekBar sbP = new SeekBar(this); sbP.setMax(120); sbP.setProgress(60);
+        android.widget.LinearLayout.LayoutParams plp =
+            new android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT);
+        plp.setMargins((int)(16*dp),(int)(4*dp),(int)(16*dp),(int)(16*dp));
+        sbP.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar sb, int p, boolean u) {
+                pitchSemitones = (p - 60) / 10f;
+                tvPL.setText(String.format(java.util.Locale.US, "Pitch: %+.1f semitones", pitchSemitones));
+            }
+            @Override public void onStartTrackingTouch(SeekBar sb) {}
+            @Override public void onStopTrackingTouch(SeekBar sb) {}
+        });
+        root.addView(sbP, plp);
+    }
+
+    private android.widget.Button mkFadeBtn(String lbl) {
+        android.widget.Button b = new android.widget.Button(this);
+        b.setText(lbl); b.setTextColor(0xFFFFFFFF);
+        b.setBackgroundColor(0xFF333333); b.setAlpha(0.5f); b.setAllCaps(false);
+        return b;
+    }
+
+    private void detectSilentOriginalAudio() {
+        com.callx.app.music.AudioMixHelper.checkIfSilent(this, videoUri, isSilent -> {
+            if (isSilent && !isFinishing()) {
+                Toast.makeText(this,
+                    "Original video has no audio. 'Original' slider is inactive.",
+                    Toast.LENGTH_LONG).show();
+                if (sbOrigVol != null) sbOrigVol.setAlpha(0.35f);
+            }
+        });
     }
 
     private void bindViews() {
@@ -400,10 +487,13 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
 
     private void applyAndReturn() {
         Intent result = new Intent();
-        result.putExtra(RESULT_ORIG_VOL,       origVol);
-        result.putExtra(RESULT_MUSIC_VOL,      musicVol);
-        result.putExtra(RESULT_VOICEOVER_PATH, voiceoverPath != null ? voiceoverPath : "");
-        result.putExtra(RESULT_VOICEOVER_VOL,  voiceoverVol);
+        result.putExtra(RESULT_ORIG_VOL,        origVol);
+        result.putExtra(RESULT_MUSIC_VOL,       musicVol);
+        result.putExtra(RESULT_VOICEOVER_PATH,  voiceoverPath != null ? voiceoverPath : "");
+        result.putExtra(RESULT_VOICEOVER_VOL,   voiceoverVol);
+        result.putExtra(RESULT_FADE_IN_MS,      fadeInMs);
+        result.putExtra(RESULT_FADE_OUT_MS,     fadeOutMs);
+        result.putExtra(RESULT_PITCH_SEMITONES, pitchSemitones);
         setResult(RESULT_OK, result);
         finish();
     }

@@ -92,6 +92,7 @@ public class ReelEditorActivity extends AppCompatActivity {
     private static final int REQ_MUSIC_PICKER = 408;
     /** ✅ NEW: open SoundDetailActivity for the already-selected sound */
     private static final int REQ_SOUND_DETAIL = 409;
+    private static final int REQ_BEAT_SYNC    = 410;
 
     // ── XML views ─────────────────────────────────────────────────────────
     private PlayerView    playerView;
@@ -172,10 +173,16 @@ public class ReelEditorActivity extends AppCompatActivity {
     private float  voiceSpeed      = 1.0f;
     private float  voiceReverb     = 0.0f;
     // Audio mixer
-    private float  mixOrigVol       = 1.0f;
-    private float  mixMusicVol      = 0.8f;
-    private String mixVoiceoverPath = "";
-    private float  mixVoiceoverVol  = 1.0f;
+    private float  mixOrigVol        = 1.0f;
+    private float  mixMusicVol       = 0.8f;
+    private String mixVoiceoverPath  = "";
+    private float  mixVoiceoverVol   = 1.0f;
+    private int    mixFadeInMs       = 0;
+    private int    mixFadeOutMs      = 0;
+    private float  mixPitchSemitones = 0f;
+    private int    musicStartMs      = 0;
+    private int    musicEndMs        = 0;
+    private long[] beatTimesMs       = null;
     // Thumbnail
     private String thumbnailPath    = "";
     private long   thumbnailFrameMs = 0;
@@ -211,6 +218,8 @@ public class ReelEditorActivity extends AppCompatActivity {
         if (su != null && !su.isEmpty()) preSelectedSoundUrl   = su;
         // FIX: carry the "already replaced" flag from camera so upload skips re-mixing
         audioAlreadyReplaced = getIntent().getBooleanExtra("audio_already_replaced", false);
+        musicStartMs = getIntent().getIntExtra("music_start_ms", 0);
+        musicEndMs   = getIntent().getIntExtra("music_end_ms",   0);
         // "Use in Video" gallery flow: auto-open mixer once player is ready
         openAudioMixerOnLoad = getIntent().getBooleanExtra(EXTRA_OPEN_AUDIO_MIXER, false);
 
@@ -868,12 +877,14 @@ public class ReelEditorActivity extends AppCompatActivity {
             }
 
             case REQ_AUDIO_MIXER: {
-                mixOrigVol       = data.getFloatExtra(ReelAudioMixerActivity.RESULT_ORIG_VOL,       1.0f);
-                mixMusicVol      = data.getFloatExtra(ReelAudioMixerActivity.RESULT_MUSIC_VOL,      0.8f);
-                String mvp       = data.getStringExtra(ReelAudioMixerActivity.RESULT_VOICEOVER_PATH);
-                mixVoiceoverPath = mvp != null ? mvp : "";
-                mixVoiceoverVol  = data.getFloatExtra(ReelAudioMixerActivity.RESULT_VOICEOVER_VOL,  1.0f);
-                // Apply original volume to player preview
+                mixOrigVol        = data.getFloatExtra(ReelAudioMixerActivity.RESULT_ORIG_VOL,        1.0f);
+                mixMusicVol       = data.getFloatExtra(ReelAudioMixerActivity.RESULT_MUSIC_VOL,       0.8f);
+                String mvp        = data.getStringExtra(ReelAudioMixerActivity.RESULT_VOICEOVER_PATH);
+                mixVoiceoverPath  = mvp != null ? mvp : "";
+                mixVoiceoverVol   = data.getFloatExtra(ReelAudioMixerActivity.RESULT_VOICEOVER_VOL,   1.0f);
+                mixFadeInMs       = data.getIntExtra(ReelAudioMixerActivity.RESULT_FADE_IN_MS,        0);
+                mixFadeOutMs      = data.getIntExtra(ReelAudioMixerActivity.RESULT_FADE_OUT_MS,       0);
+                mixPitchSemitones = data.getFloatExtra(ReelAudioMixerActivity.RESULT_PITCH_SEMITONES, 0f);
                 if (player != null) player.setVolume(mixOrigVol);
                 updateBadge("audio", "🎵 Audio Mix");
                 Toast.makeText(this, "Audio mix applied ✓", Toast.LENGTH_SHORT).show();
@@ -905,6 +916,27 @@ public class ReelEditorActivity extends AppCompatActivity {
      *   view stats, see reels using this sound, or change it from there.
      * - If no sound is selected → open MusicPickerActivity to choose one.
      */
+    private void triggerBeatSyncAnalysis() {
+        if (preSelectedSoundUrl.isEmpty() || !isFilePath
+                || videoUriStr == null || videoUriStr.isEmpty()) return;
+        com.callx.app.views.BeatSyncAnalyzer.analyze(
+            this, videoUriStr, totalDurationMs > 0 ? totalDurationMs : 60_000L,
+            new com.callx.app.views.BeatSyncAnalyzer.Callback() {
+                @Override public void onBeatsReady(long[] beats) {
+                    beatTimesMs = beats;
+                    if (!isFinishing() && beats != null && beats.length > 0) {
+                        updateBadge("beat", beats.length + " beats");
+                        Toast.makeText(ReelEditorActivity.this,
+                            "Beat sync: " + beats.length + " beats detected",
+                            Toast.LENGTH_SHORT).show();
+                    }
+                }
+                @Override public void onError(Exception e) {
+                    android.util.Log.w("ReelEditor", "Beat sync failed", e);
+                }
+            });
+    }
+
     private void openMusicChip() {
         if (!preSelectedSoundId.isEmpty()) {
             // Sound already chosen → show its detail page
@@ -997,10 +1029,15 @@ public class ReelEditorActivity extends AppCompatActivity {
             intent.putExtra("audio_already_replaced", true);
 
         // Audio mix
-        intent.putExtra("mix_orig_vol",       mixOrigVol);
-        intent.putExtra("mix_music_vol",      mixMusicVol);
-        intent.putExtra("mix_voiceover_path", mixVoiceoverPath);
-        intent.putExtra("mix_voiceover_vol",  mixVoiceoverVol);
+        intent.putExtra("mix_orig_vol",        mixOrigVol);
+        intent.putExtra("mix_music_vol",       mixMusicVol);
+        intent.putExtra("mix_voiceover_path",  mixVoiceoverPath);
+        intent.putExtra("mix_voiceover_vol",   mixVoiceoverVol);
+        intent.putExtra("mix_fade_in_ms",      mixFadeInMs);
+        intent.putExtra("mix_fade_out_ms",     mixFadeOutMs);
+        intent.putExtra("mix_pitch_semitones", mixPitchSemitones);
+        if (musicStartMs > 0) intent.putExtra("music_start_ms", musicStartMs);
+        if (musicEndMs   > 0) intent.putExtra("music_end_ms",   musicEndMs);
 
         // Filter
         if (!filterName.isEmpty()) {

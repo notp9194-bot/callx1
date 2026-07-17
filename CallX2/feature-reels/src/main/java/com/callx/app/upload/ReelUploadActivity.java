@@ -187,7 +187,12 @@ public class ReelUploadActivity extends AppCompatActivity {
 
     // ✅ NEW: True when ReelCameraActivity already replaced mic audio at recording time.
     // If true, skip AudioMixHelper in handlePostReel() to avoid double-mixing.
-    private boolean audioAlreadyReplaced = false;
+    private boolean audioAlreadyReplaced  = false;
+    private int   mixFadeInMs        = 0;
+    private int   mixFadeOutMs       = 0;
+    private float mixPitchSemitones  = 0f;
+    private int   musicStartMs       = 0;
+    private int   musicEndMs         = 0;
 
     // Fix 4 & 6 & 8: duet metadata
     private boolean isDuet          = false;
@@ -428,7 +433,12 @@ public class ReelUploadActivity extends AppCompatActivity {
         if (mixVoiceoverPath == null) mixVoiceoverPath = "";
 
         // ✅ NEW: If ReelCameraActivity already replaced mic audio, skip mixing at upload time.
-        audioAlreadyReplaced = i.getBooleanExtra("audio_already_replaced", false);
+        audioAlreadyReplaced  = i.getBooleanExtra("audio_already_replaced", false);
+        mixFadeInMs       = i.getIntExtra("mix_fade_in_ms",       0);
+        mixFadeOutMs      = i.getIntExtra("mix_fade_out_ms",      0);
+        mixPitchSemitones = i.getFloatExtra("mix_pitch_semitones", 0f);
+        musicStartMs      = i.getIntExtra("music_start_ms",       0);
+        musicEndMs        = i.getIntExtra("music_end_ms",          0);
 
         // ── If no video URI, stop here (gallery flow: user picks video later) ──
         String videoUriStr = i.getStringExtra(EXTRA_VIDEO_URI);
@@ -1177,14 +1187,21 @@ public class ReelUploadActivity extends AppCompatActivity {
         String rawVideoPath = compressedResult.videoFile.getAbsolutePath();
         WeakReference<ReelUploadActivity> ref = new WeakReference<>(this);
 
-        AudioMixHelper.mixAndExport(
+        AudioMixHelper.MixConfig cfg = new AudioMixHelper.MixConfig();
+        cfg.musicUrl      = preSelectedSoundUrl;
+        cfg.voiceoverPath = mixVoiceoverPath != null ? mixVoiceoverPath : "";
+        cfg.micVol        = mixOrigVol;
+        cfg.musicVol      = mixMusicVol;
+        cfg.voiceoverVol  = mixVoiceoverVol;
+        cfg.musicStartMs  = musicStartMs;
+        cfg.musicEndMs    = musicEndMs;
+        cfg.fadeInMs      = mixFadeInMs;
+        cfg.fadeOutMs     = mixFadeOutMs;
+        cfg.pitchSemitones= mixPitchSemitones;
+        AudioMixHelper.mixAndExportWithConfig(
             this,
             rawVideoPath,
-            preSelectedSoundUrl,
-            mixVoiceoverPath,
-            mixOrigVol,
-            mixMusicVol,
-            mixVoiceoverVol,
+            cfg,
             new AudioMixHelper.MixCallback() {
                 @Override public void onProgress(int percent) {
                     ReelUploadActivity a = ref.get();
