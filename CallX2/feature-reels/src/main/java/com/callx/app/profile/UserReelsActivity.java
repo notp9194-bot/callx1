@@ -167,6 +167,12 @@ public class UserReelsActivity extends AppCompatActivity
                     savedHasMore = true, repostsHasMore = true;
     private boolean isLoadingMore = false;
 
+    // ── Realtime update helpers (self only) ───────────────────────────────
+    /** Skip the silent grid refresh on the very first onResume (right after onCreate). */
+    private boolean isFirstResume = true;
+    /** Persistent count listener — auto-updates tvReelCount whenever a reel is added/removed. */
+    private ValueEventListener reelCountLiveListener = null;
+
     private ReelModel         pinnedReel = null;
     private Dialog            previewDialog;
     private ExoPlayer         previewPlayer;
@@ -2461,14 +2467,22 @@ public class UserReelsActivity extends AppCompatActivity
     }
 
 
+    /**
+     * ✅ Instagram approach: persistent ValueEventListener so the reel count
+     * updates in real-time whenever a reel is added/removed — no manual
+     * re-query needed after upload. Listener is removed in onDestroy.
+     */
     private void loadReelCount() {
-        FirebaseUtils.getReelsByUserRef(targetUid).addListenerForSingleValueEvent(new ValueEventListener() {
+        if (reelCountLiveListener != null) return; // already attached
+        DatabaseReference ref = FirebaseUtils.getReelsByUserRef(targetUid);
+        reelCountLiveListener = new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                long n = snap.getChildrenCount();
-                if (tvReelCount != null) tvReelCount.setText(String.valueOf(n));
+                if (tvReelCount != null)
+                    tvReelCount.setText(String.valueOf(snap.getChildrenCount()));
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}
-        });
+        };
+        ref.addValueEventListener(reelCountLiveListener);
     }
 
     // ── More menu ─────────────────────────────────────────────────────────
@@ -2518,7 +2532,114 @@ public class UserReelsActivity extends AppCompatActivity
             this, photoUrl, name, R.drawable.ic_person, R.drawable.ic_close);
     }
 
-    @Override protected void onPause()   { super.onPause();   dismissPreviewDialog(); stopAvatarAnimation(); }
-    @Override protected void onResume()  { super.onResume();  loadAvatarAndStartAnimation(); }
-    @Override protected void onDestroy() { super.onDestroy(); dismissPreviewDialog(); stopAvatarAnimation(); dbExecutor.shutdown(); }
+    @Override protected void onPause()  { super.onPause();  dismissPreviewDialog(); stopAvatarAnimation(); }
+
+    /**
+     * ✅ Instagram approach: on every resume AFTER the first (i.e. returning
+     * from upload, camera, player, settings…), silently check if new reels
+     * were uploaded and prepend them to the grid — no skeleton flash, no full
+     * reload. The persistent count listener already keeps tvReelCount live.
+     */
+    @Override
+    protected void onResume() {
+        super.onResume();
+        loadAvatarAndStartAnimation();
+        if (!isFirstResume && isSelf && activeTab == TAB_REELS) {
+            silentRefreshReels();
+        }
+        isFirstResume = false;
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        dismissPreviewDialog();
+        stopAvatarAnimation();
+        dbExecutor.shutdown();
+        // Remove persistent Firebase listeners to avoid memory/network leaks
+        if (reelCountLiveListener != null && targetUid != null) {
+            try { FirebaseUtils.getReelsByUserRef(targetUid)
+                      .removeEventListener(reelCountLiveListener); } catch (Exception ignored) {}
+            reelCountLiveListener = null;
+        }
+    }
+
+    // ── Silent grid refresh (called from onResume for self) ───────────────
+
+    /**
+     * Fetches the latest page of the user's own reels and prepends any IDs
+     * not already in {@code reelsTabData}. Does NOT show the skeleton, does NOT
+     * reset pagination state — existing items stay put. Only genuinely new
+     * reels are inserted at position 0 (or 1 if a reel is pinned).
+     *
+     * This is how Instagram handles returning to the profile after an upload:
+     * the grid is augmented at the top, not wiped and reloaded.
+     */
+    private void silentRefreshReels() {
+        if (isLoadingMore || targetUid == null) return;
+        isLoadingMore = true;
+
+        FirebaseUtils.getReelsByUserRef(targetUid)
+            .orderByKey()
+            .limitToLast(PAGE_SIZE)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override
+                public void onDataChange(@NonNull DataSnapshot snap) {
+                    if (isFinishing() || isDestroyed()) { isLoadingMore = false; return; }
+
+                    List<String> freshIds = extractIds(snap); // newest-first
+
+                    // Build set of already-known reel IDs
+                    Set<String> knownIds = new HashSet<>();
+                    for (ReelModel r : reelsTabData)
+                        if (r != null && r.reelId != null) knownIds.add(r.reelId);
+
+                    // Keep only IDs we haven't loaded yet
+                    List<String> newIds = new ArrayList<>();
+                    for (String id : freshIds)
+                        if (!knownIds.contains(id)) newIds.add(id);
+
+                    if (newIds.isEmpty()) { isLoadingMore = false; return; }
+
+                    // Fetch full ReelModel for each new ID
+                    final int[]           remaining = {newIds.size()};
+                    final List<ReelModel> fetched   = new ArrayList<>();
+                    for (String id : newIds) {
+                        FirebaseUtils.getReelsRef().child(id)
+                            .addListenerForSingleValueEvent(new ValueEventListener() {
+                                @Override
+                                public void onDataChange(@NonNull DataSnapshot s) {
+                                    if (!isFinishing() && !isDestroyed()) {
+                                        ReelModel r = s.getValue(ReelModel.class);
+                                        if (r != null) fetched.add(r);
+                                    }
+                                    if (--remaining[0] == 0) onAllFetched();
+                                }
+                                @Override
+                                public void onCancelled(@NonNull DatabaseError e) {
+                                    if (--remaining[0] == 0) onAllFetched();
+                                }
+
+                                private void onAllFetched() {
+                                    isLoadingMore = false;
+                                    if (isFinishing() || isDestroyed() || fetched.isEmpty()) return;
+                                    // Sort newest-first then prepend
+                                    fetched.sort((a, b) -> Long.compare(b.timestamp, a.timestamp));
+                                    reelsTabData.addAll(0, fetched);
+                                    if (activeTab == TAB_REELS && adapter != null) {
+                                        int basePos = adapter.hasPinned() ? 1 : 0;
+                                        adapter.notifyItemRangeInserted(basePos, fetched.size());
+                                        // Scroll to top so new reel is immediately visible
+                                        if (rvReels != null)
+                                            rvReels.post(() -> rvReels.smoothScrollToPosition(0));
+                                    }
+                                    refreshEmptyState();
+                                }
+                            });
+                    }
+                }
+                @Override
+                public void onCancelled(@NonNull DatabaseError e) { isLoadingMore = false; }
+            });
+    }
 }
