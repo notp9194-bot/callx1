@@ -610,6 +610,22 @@ public class ReelCameraActivity extends AppCompatActivity {
         if (preSelectedSoundUrl == null || preSelectedSoundUrl.isEmpty()) return;
         try {
             soundPreviewPlayer = new MediaPlayer();
+
+            // ✅ FIX Gap 4: route audio to the media/speaker stream, not the
+            // earpiece. Without this, on some devices/Android versions the audio
+            // defaults to STREAM_VOICE_CALL (earpiece) during an active recording
+            // session, so users can't hear the preview on speaker.
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
+                soundPreviewPlayer.setAudioAttributes(
+                    new android.media.AudioAttributes.Builder()
+                        .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+                        .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC)
+                        .build());
+            } else {
+                //noinspection deprecation
+                soundPreviewPlayer.setAudioStreamType(android.media.AudioManager.STREAM_MUSIC);
+            }
+
             soundPreviewPlayer.setDataSource(preSelectedSoundUrl);
             soundPreviewPlayer.setLooping(true);
             soundPreviewPlayer.setVolume(0.8f, 0.8f);

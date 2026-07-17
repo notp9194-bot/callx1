@@ -1847,13 +1847,19 @@ public class ReelUploadActivity extends AppCompatActivity {
             soundRef.addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override
                 public void onDataChange(@NonNull DataSnapshot s) {
-                    String title  = s.child("title").getValue(String.class);
-                    String artist = s.child("artist").getValue(String.class);
+                    String title    = s.child("title").getValue(String.class);
+                    String artist   = s.child("artist").getValue(String.class);
+                    String coverUrl = s.child("coverUrl").getValue(String.class);
                     String soundCreatorUid = s.child("creatorUid").getValue(String.class);
 
                     java.util.Map<String, Object> reelUpdate = new java.util.HashMap<>();
                     reelUpdate.put("musicName",
                         title != null && !title.isEmpty() ? title : "Original audio");
+                    // ✅ FIX Gap 3: populate musicCoverUrl from the sound node so
+                    // the reused sound's artwork appears correctly in the feed.
+                    if (coverUrl != null && !coverUrl.isEmpty()) {
+                        reelUpdate.put("musicCoverUrl", coverUrl);
+                    }
 
                     if (artist != null && !artist.isEmpty()) {
                         reelUpdate.put("musicArtist", artist);

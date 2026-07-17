@@ -116,6 +116,9 @@ public class SoundDetailActivity extends AppCompatActivity implements Player.Lis
     private boolean       isLoadingMoreReels = false;
     private boolean       hasMoreReels       = true;
 
+    // ── Realtime listener — new reels added to this sound appear immediately ──
+    private com.google.firebase.database.ChildEventListener soundReelsLiveListener = null;
+
     // ─── Request codes ─────────────────────────────────────────────────────────
     /** Gallery video picker launched from "Use in Video" button */
     private static final int REQ_GALLERY_VIDEO = 701;
@@ -213,6 +216,15 @@ public class SoundDetailActivity extends AppCompatActivity implements Player.Lis
         stopDiscAnimation();
         stopWaveAnimation();
         releasePlayer();
+        // Remove realtime reel listener to avoid memory/network leaks
+        if (soundReelsLiveListener != null && soundId != null) {
+            try {
+                com.google.firebase.database.FirebaseDatabase.getInstance()
+                    .getReference("sounds").child(soundId).child("reels")
+                    .removeEventListener(soundReelsLiveListener);
+            } catch (Exception ignored) {}
+            soundReelsLiveListener = null;
+        }
         super.onDestroy();
     }
 
@@ -689,8 +701,10 @@ public class SoundDetailActivity extends AppCompatActivity implements Player.Lis
             isLoadingMoreReels = false;
             return;
         }
+        // ✅ FIX Gap 1: field name was "soundId" but ReelModel only has "musicId"
+        // — the old fallback always returned 0 results. Corrected to "musicId".
         FirebaseUtils.db().getReference("reels")
-            .orderByChild("soundId").equalTo(soundId)
+            .orderByChild("musicId").equalTo(soundId)
             .limitToFirst(REELS_PAGE_SIZE)
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(@NonNull DataSnapshot snap) {
@@ -784,6 +798,72 @@ public class SoundDetailActivity extends AppCompatActivity implements Player.Lis
                 if (scrollSoundDetail != null) scrollSoundDetail.requestLayout();
             });
         }
+        // ✅ FIX Gap 2: attach live listener after first page so new reels
+        // uploaded with this sound appear in the grid without any manual refresh.
+        attachSoundReelsLiveListener();
+    }
+
+    /**
+     * ✅ FIX Gap 2 — Real-time listener on sounds/{soundId}/reels.
+     *
+     * After the initial page loads, attach a ChildEventListener so any reel
+     * newly linked to this sound (e.g. user just recorded with "Use in Camera"
+     * and came back) is prepended to the grid immediately — no refresh needed.
+     *
+     * Uses startAfter(lastReelKey) so onChildAdded only fires for NEWLY added
+     * entries, not all the ones already displayed.
+     */
+    private void attachSoundReelsLiveListener() {
+        if (soundReelsLiveListener != null || soundId == null || isFinishing() || isDestroyed()) return;
+
+        com.google.firebase.database.Query liveQ =
+            com.google.firebase.database.FirebaseDatabase.getInstance()
+                .getReference("sounds").child(soundId).child("reels")
+                .orderByKey();
+        if (lastReelKey != null) liveQ = liveQ.startAfter(lastReelKey);
+
+        soundReelsLiveListener = new com.google.firebase.database.ChildEventListener() {
+            @Override
+            public void onChildAdded(@androidx.annotation.NonNull com.google.firebase.database.DataSnapshot snap,
+                                     @androidx.annotation.Nullable String prev) {
+                if (isFinishing() || isDestroyed()) return;
+                String rid   = snap.getKey();
+                String thumb = snap.child("thumbnailUrl").getValue(String.class);
+                String vid   = snap.child("videoUrl").getValue(String.class);
+                String uid   = snap.child("ownerUid").getValue(String.class);
+                if (rid == null) return;
+                // Skip if already displayed
+                for (ReelThumbItem existing : reelItems) {
+                    if (rid.equals(existing.reelId)) return;
+                }
+                ReelThumbItem item = new ReelThumbItem(rid,
+                    thumb != null ? thumb : "", vid != null ? vid : "");
+                item.uid = uid;
+                // Prepend so the newest reel is at position 0
+                reelItems.add(0, item);
+                if (reelThumbAdapter != null) {
+                    reelThumbAdapter.notifyItemInserted(0);
+                    if (rvReels != null) rvReels.post(() -> rvReels.scrollToPosition(0));
+                }
+                // Keep lastReelKey pointing at the newest entry for future pages
+                lastReelKey = rid;
+            }
+            @Override public void onChildChanged(@androidx.annotation.NonNull com.google.firebase.database.DataSnapshot s, @androidx.annotation.Nullable String p) {}
+            @Override public void onChildRemoved(@androidx.annotation.NonNull com.google.firebase.database.DataSnapshot snap) {
+                if (isFinishing() || isDestroyed()) return;
+                String rid = snap.getKey();
+                for (int i = 0; i < reelItems.size(); i++) {
+                    if (rid != null && rid.equals(reelItems.get(i).reelId)) {
+                        reelItems.remove(i);
+                        if (reelThumbAdapter != null) reelThumbAdapter.notifyItemRemoved(i);
+                        break;
+                    }
+                }
+            }
+            @Override public void onChildMoved(@androidx.annotation.NonNull com.google.firebase.database.DataSnapshot s, @androidx.annotation.Nullable String p) {}
+            @Override public void onCancelled(@androidx.annotation.NonNull com.google.firebase.database.DatabaseError e) {}
+        };
+        liveQ.addChildEventListener(soundReelsLiveListener);
     }
 
     private void sortAndApplyReelItems() {
