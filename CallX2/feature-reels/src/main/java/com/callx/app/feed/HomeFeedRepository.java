@@ -155,8 +155,8 @@ public class HomeFeedRepository {
                     synchronized (pending) {
                         pending[0]--;
                         if (pending[0] == 0) {
-                            // All users loaded — sort by timestamp desc
-                            merged.sort((a, b) -> Long.compare(b.timestamp, a.timestamp));
+                            // Sort by timestamp desc — use Collections.sort (List.sort needs API 24+)
+                            Collections.sort(merged, (a, b) -> Long.compare(b.timestamp, a.timestamp));
                             boolean hasMore = merged.size() > pageSize;
                             List<FeedPost> page = hasMore
                                     ? new ArrayList<>(merged.subList(0, pageSize))
@@ -170,7 +170,7 @@ public class HomeFeedRepository {
                     synchronized (pending) {
                         pending[0]--;
                         if (pending[0] == 0) {
-                            merged.sort((a, b) -> Long.compare(b.timestamp, a.timestamp));
+                            Collections.sort(merged, (a, b) -> Long.compare(b.timestamp, a.timestamp));
                             callback.onLoaded(new ArrayList<>(merged), false);
                         }
                     }
@@ -307,7 +307,7 @@ public class HomeFeedRepository {
         synchronized (pending) {
             pending[0]--;
             if (pending[0] == 0) {
-                result.sort(FeedStory.SORT_ORDER);
+                Collections.sort(result, FeedStory.SORT_ORDER); // List.sort() needs API 24+; minSdk=23
                 cb.onLoaded(new ArrayList<>(result));
             }
         }

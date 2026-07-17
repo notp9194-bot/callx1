@@ -164,7 +164,9 @@ public class HomeFeedAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolde
 
     /** Insert injected cards (Suggested, Reels Strip) at the right intervals. */
     private void buildItemList(List<FeedPost> posts, boolean isFirstPage) {
-        int postCount = (int) items.stream().filter(o -> o instanceof FeedPost).count();
+        // Count existing FeedPost items (avoid java.util.stream — requires API 24+, minSdk=23)
+        int postCount = 0;
+        for (Object o : items) { if (o instanceof FeedPost) postCount++; }
         int sugIdx    = 0; // how many times we've injected suggested
         int stripIdx  = 0;
 
