@@ -1,0 +1,175 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.coordinatorlayout.widget.CoordinatorLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#0D0D0D">
+
+    <!-- ── Top App Bar ─────────────────────────────────────────────────── -->
+    <LinearLayout
+        android:id="@+id/layout_home_toolbar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:background="#0D0D0D"
+        android:elevation="4dp"
+        app:layout_behavior="@string/appbar_scrolling_view_behavior">
+
+        <!-- Title row -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingStart="16dp"
+            android:paddingEnd="8dp">
+
+            <TextView
+                android:id="@+id/tv_home_title"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="CallX"
+                android:textColor="#FFFFFF"
+                android:textSize="22sp"
+                android:textStyle="bold"
+                android:fontFamily="sans-serif-medium"/>
+
+            <ImageButton
+                android:id="@+id/btn_home_upload"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:src="@drawable/ic_reel_create"
+                android:tint="#FFFFFF"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Upload"/>
+
+            <ImageButton
+                android:id="@+id/btn_home_notifications"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:src="@drawable/ic_notifications"
+                android:tint="#FFFFFF"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Notifications"/>
+
+            <ImageButton
+                android:id="@+id/btn_home_search"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:src="@drawable/ic_search"
+                android:tint="#FFFFFF"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Search"/>
+        </LinearLayout>
+
+        <!-- Feed Tab Row: Following | For You -->
+        <RelativeLayout
+            android:layout_width="match_parent"
+            android:layout_height="36dp">
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="match_parent"
+                android:layout_centerHorizontal="true"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:id="@+id/btn_home_following"
+                    android:layout_width="wrap_content"
+                    android:layout_height="match_parent"
+                    android:text="Following"
+                    android:textColor="#888888"
+                    android:textSize="13sp"
+                    android:gravity="center"
+                    android:paddingStart="16dp"
+                    android:paddingEnd="16dp"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:background="?attr/selectableItemBackgroundBorderless"/>
+
+                <TextView
+                    android:id="@+id/btn_home_for_you"
+                    android:layout_width="wrap_content"
+                    android:layout_height="match_parent"
+                    android:text="For You"
+                    android:textColor="#FFFFFF"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:gravity="center"
+                    android:paddingStart="16dp"
+                    android:paddingEnd="16dp"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:background="?attr/selectableItemBackgroundBorderless"/>
+            </LinearLayout>
+
+            <!-- Active indicator underline -->
+            <View
+                android:id="@+id/v_home_tab_indicator"
+                android:layout_width="24dp"
+                android:layout_height="2dp"
+                android:layout_alignParentBottom="true"
+                android:layout_centerHorizontal="true"
+                android:background="@color/brand_primary"/>
+        </RelativeLayout>
+    </LinearLayout>
+
+    <!-- ── Initial loading spinner ─────────────────────────────────────── -->
+    <ProgressBar
+        android:id="@+id/pb_home_initial"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:layout_gravity="center"
+        android:visibility="gone"
+        android:indeterminateTint="@color/brand_primary"/>
+
+    <!-- ── Main Feed (SwipeRefresh wrapping RecyclerView) ─────────────── -->
+    <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+        android:id="@+id/swipe_refresh_home"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_marginTop="88dp">
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/rv_home_feed"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:overScrollMode="never"
+            android:scrollbars="none"
+            android:clipToPadding="false"
+            android:paddingBottom="72dp"/>
+
+    </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
+
+    <!-- ── Empty state ─────────────────────────────────────────────────── -->
+    <LinearLayout
+        android:id="@+id/layout_home_empty"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:visibility="gone"
+        android:layout_marginTop="88dp">
+
+        <ImageView
+            android:layout_width="80dp"
+            android:layout_height="80dp"
+            android:src="@drawable/ic_reels"
+            android:tint="#333333"/>
+
+        <TextView
+            android:id="@+id/tv_home_empty"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="Nothing to show yet.\nFollow creators to see their content."
+            android:textColor="#666666"
+            android:textSize="14sp"
+            android:gravity="center"
+            android:lineSpacingExtra="4dp"/>
+    </LinearLayout>
+
+</androidx.coordinatorlayout.widget.CoordinatorLayout>

@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    item_feed_mini_reel.xml
+    Single mini-reel thumbnail cell in the Reels strip.
+    Tap → opens SingleReelPlayerActivity.
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="100dp"
+    android:layout_height="140dp"
+    android:layout_marginEnd="6dp"
+    android:clickable="true"
+    android:focusable="true"
+    android:foreground="?attr/selectableItemBackground">
+
+    <!-- Thumbnail -->
+    <ImageView
+        android:id="@+id/iv_mini_reel_thumb"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="centerCrop"
+        android:background="#1A1A1A"/>
+
+    <!-- Gradient overlay at bottom -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="60dp"
+        android:layout_gravity="bottom"
+        android:background="@drawable/gradient_reel_bottom"/>
+
+    <!-- Play icon (centered) -->
+    <ImageView
+        android:id="@+id/iv_mini_reel_play"
+        android:layout_width="28dp"
+        android:layout_height="28dp"
+        android:layout_gravity="center"
+        android:src="@drawable/ic_play"
+        android:tint="#99FFFFFF"
+        android:alpha="0.8"/>
+
+    <!-- Views count (bottom left) -->
+    <TextView
+        android:id="@+id/tv_mini_reel_views"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|start"
+        android:layout_margin="6dp"
+        android:text="1.2K"
+        android:textColor="#FFFFFF"
+        android:textSize="10sp"
+        android:textStyle="bold"/>
+
+    <!-- Duration (bottom right) -->
+    <TextView
+        android:id="@+id/tv_mini_reel_duration"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|end"
+        android:layout_margin="6dp"
+        android:text="0:15"
+        android:textColor="#FFFFFF"
+        android:textSize="9sp"/>
+
+</FrameLayout>

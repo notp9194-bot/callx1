@@ -470,6 +470,13 @@
             android:screenOrientation="portrait"
             android:windowSoftInputMode="adjustResize"/>
 
+        <!-- ── Home Feed: Story Viewer ── -->
+        <activity android:name="com.callx.app.feed.StoryViewActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.CallX.Fullscreen"
+            android:windowSoftInputMode="adjustResize"/>
+
         <!-- ── Watch History ── -->
         <activity android:name="com.callx.app.library.WatchHistoryActivity"
             android:exported="false"
