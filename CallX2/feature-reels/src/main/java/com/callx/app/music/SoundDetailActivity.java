@@ -173,6 +173,9 @@ public class SoundDetailActivity extends AppCompatActivity implements Player.Lis
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        // Enable system dark/light mode support
+        androidx.appcompat.app.AppCompatDelegate.setDefaultNightMode(
+            androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM);
         setContentView(R.layout.activity_sound_detail);
 
         soundId    = getIntent().getStringExtra(EXTRA_SOUND_ID);

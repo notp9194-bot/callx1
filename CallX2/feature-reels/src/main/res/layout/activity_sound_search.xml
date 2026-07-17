@@ -29,7 +29,7 @@
             android:layout_height="40dp"
             android:layout_weight="1"
             android:hint="Search sounds, artists…"
-            android:hintTextColor="#666666"
+            android:textColorHint="#666666"
             android:textColor="#FFFFFF"
             android:textSize="15sp"
             android:background="#1E1E1E"

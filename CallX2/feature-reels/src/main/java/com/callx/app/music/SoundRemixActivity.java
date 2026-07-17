@@ -202,9 +202,9 @@ public class SoundRemixActivity extends AppCompatActivity {
                 // Use AudioMixHelper to blend: treat A as "video" and B as "music"
                 AudioMixHelper.MixConfig cfg = new AudioMixHelper.MixConfig();
                 cfg.musicUrl       = soundBUrl;
-                cfg.videoVolume    = aWeight * volAf;
-                cfg.musicVolume    = bWeight * volBf;
-                cfg.fadeOutSec     = 1;
+                cfg.micVol         = aWeight * volAf;
+                cfg.musicVol       = bWeight * volBf;
+                cfg.fadeOutMs      = 1000;
 
                 AudioMixHelper.mixAndExportWithConfig(
                     this, fileA.getAbsolutePath(), cfg,

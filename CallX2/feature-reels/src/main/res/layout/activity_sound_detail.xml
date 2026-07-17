@@ -2,13 +2,13 @@
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#000000">
+    android:background="@color/sound_detail_bg_light">
 
 <androidx.core.widget.NestedScrollView
     android:id="@+id/scroll_sound_detail"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#000000"
+    android:background="@color/sound_detail_bg_light"
     android:fillViewport="true">
 
     <LinearLayout
@@ -23,7 +23,8 @@
             android:orientation="horizontal"
             android:gravity="center_vertical"
             android:paddingStart="4dp"
-            android:paddingEnd="8dp">
+            android:paddingEnd="8dp"
+            android:background="@color/sound_detail_card_light">
 
             <ImageButton
                 android:id="@+id/btn_sound_back"
@@ -31,7 +32,7 @@
                 android:layout_height="48dp"
                 android:src="@drawable/ic_arrow_back"
                 android:background="?attr/selectableItemBackgroundBorderless"
-                android:tint="@color/white"
+                android:tint="@color/text_primary"
                 android:contentDescription="Back"/>
 
             <TextView
@@ -39,7 +40,7 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="Sound"
-                android:textColor="@color/white"
+                android:textColor="@color/text_primary"
                 android:textSize="17sp"
                 android:fontFamily="sans-serif-medium"/>
 
@@ -48,7 +49,7 @@
                 android:layout_width="48dp"
                 android:layout_height="48dp"
                 android:src="@drawable/ic_share_reel"
-                android:tint="#00F260"
+                android:tint="@color/green_accent"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:contentDescription="Share sound"/>
 
@@ -57,7 +58,7 @@
                 android:layout_width="48dp"
                 android:layout_height="48dp"
                 android:src="@drawable/ic_bookmark"
-                android:tint="#00C6FF"
+                android:tint="@color/blue_accent"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:contentDescription="Save sound"/>
 
@@ -67,7 +68,7 @@
                 android:layout_width="48dp"
                 android:layout_height="48dp"
                 android:src="@drawable/ic_more_vert"
-                android:tint="#AAFFFFFF"
+                android:tint="@color/icon_tint"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:contentDescription="More options"/>
         </LinearLayout>
@@ -211,7 +212,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:background="#111111"
+            android:background="@color/sound_detail_card_light"
             android:padding="20dp"
             android:visibility="gone">
 
@@ -233,7 +234,7 @@
                         android:layout_height="80dp"
                         android:layout_gravity="center"
                         android:src="@drawable/ic_music_disc"
-                        android:tint="#2A2A2A"
+                        android:tint="@color/sound_detail_button_light"
                         android:scaleType="fitXY"/>
 
                     <ImageView
@@ -263,7 +264,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="Sound Title"
-                        android:textColor="@color/white"
+                        android:textColor="@color/sound_detail_text_light"
                         android:textSize="16sp"
                         android:fontFamily="sans-serif-medium"
                         android:maxLines="2"
@@ -274,7 +275,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="• Original Audio"
-                        android:textColor="#AAFFFFFF"
+                        android:textColor="@color/sound_detail_subtext_light"
                         android:textSize="13sp"
                         android:layout_marginTop="3dp"/>
 
@@ -291,7 +292,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="0 Reels"
-                            android:textColor="@color/white"
+                            android:textColor="@color/sound_detail_text_light"
                             android:textSize="13sp"
                             android:fontFamily="sans-serif-medium"/>
 
@@ -300,7 +301,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="  •  0 Saves"
-                            android:textColor="@color/white"
+                            android:textColor="@color/sound_detail_text_light"
                             android:textSize="13sp"
                             android:fontFamily="sans-serif-medium"
                             android:visibility="gone"/>
@@ -318,7 +319,7 @@
                             android:id="@+id/tv_sound_bpm"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:textColor="#77FFFFFF"
+                            android:textColor="@color/sound_detail_subtext_light"
                             android:textSize="11sp"
                             android:visibility="gone"/>
 
@@ -326,7 +327,7 @@
                             android:id="@+id/tv_sound_genre"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:textColor="#77FFFFFF"
+                            android:textColor="@color/sound_detail_subtext_light"
                             android:textSize="11sp"
                             android:layout_marginStart="8dp"
                             android:visibility="gone"/>
@@ -336,7 +337,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="Original"
-                            android:textColor="#FF3B5C"
+                            android:textColor="@color/brand_accent"
                             android:textSize="10sp"
                             android:fontFamily="sans-serif-medium"
                             android:layout_marginStart="8dp"
@@ -347,7 +348,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="✓ Verified"
-                            android:textColor="#4FC3F7"
+                            android:textColor="@color/blue_accent"
                             android:textSize="10sp"
                             android:fontFamily="sans-serif-medium"
                             android:layout_marginStart="8dp"
@@ -372,7 +373,7 @@
                     android:layout_width="52dp"
                     android:layout_height="52dp"
                     android:src="@drawable/ic_play"
-                    android:tint="#A855F7"
+                    android:tint="@color/brand_primary"
                     android:background="@drawable/bg_play_pause_btn"
                     android:padding="14dp"
                     android:contentDescription="Play preview"/>
@@ -389,9 +390,9 @@
                     android:id="@+id/seekbar_sound"
                     android:layout_width="match_parent"
                     android:layout_height="28dp"
-                    android:progressTint="#A855F7"
-                    android:thumbTint="#A855F7"
-                    android:progressBackgroundTint="#33FFFFFF"
+                    android:progressTint="@color/brand_primary"
+                    android:thumbTint="@color/brand_primary"
+                    android:progressBackgroundTint="@color/gray_light"
                     android:max="100"/>
 
                 <LinearLayout
@@ -405,7 +406,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="0:00"
-                        android:textColor="#77FFFFFF"
+                        android:textColor="@color/sound_detail_subtext_light"
                         android:textSize="11sp"/>
 
                     <View android:layout_width="0dp" android:layout_height="1dp" android:layout_weight="1"/>
@@ -415,7 +416,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="0:00"
-                        android:textColor="#77FFFFFF"
+                        android:textColor="@color/sound_detail_subtext_light"
                         android:textSize="11sp"/>
                 </LinearLayout>
             </LinearLayout>
@@ -461,7 +462,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="Original Creator"
-                        android:textColor="#77FFFFFF"
+                        android:textColor="@color/sound_detail_subtext_light"
                         android:textSize="10sp"
                         android:fontFamily="sans-serif-medium"
                         android:textAllCaps="true"
@@ -472,7 +473,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="@username"
-                        android:textColor="@color/white"
+                        android:textColor="@color/sound_detail_text_light"
                         android:textSize="14sp"
                         android:fontFamily="sans-serif-medium"
                         android:maxLines="1"
@@ -484,7 +485,7 @@
                     android:layout_width="20dp"
                     android:layout_height="20dp"
                     android:src="@drawable/ic_arrow_forward"
-                    android:tint="#55FFFFFF"
+                    android:tint="@color/text_secondary"
                     android:scaleType="fitCenter"/>
             </LinearLayout>
 
@@ -493,7 +494,7 @@
                 android:id="@+id/divider_creator"
                 android:layout_width="match_parent"
                 android:layout_height="1dp"
-                android:background="#1AFFFFFF"
+                android:background="@color/divider"
                 android:layout_marginTop="4dp"
                 android:layout_marginBottom="4dp"
                 android:visibility="gone"/>
@@ -512,7 +513,7 @@
                     android:layout_weight="1"
                     android:text="Use in Camera"
                     android:gravity="center"
-                    android:textColor="@color/white"
+                    android:textColor="@color/sound_detail_text_light"
                     android:textSize="14sp"
                     android:fontFamily="sans-serif-medium"
                     android:background="@drawable/bg_reel_follow_btn"
@@ -537,7 +538,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="36dp"
                 android:text="✂ Set Start Point"
-                android:textColor="#FFFFFF"
+                android:textColor="@color/sound_detail_text_light"
                 android:textSize="13sp"
                 android:fontFamily="sans-serif-medium"
                 android:gravity="center"
@@ -583,7 +584,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="See all"
-                android:textColor="#A855F7"
+                android:textColor="@color/brand_primary"
                 android:textSize="13sp"/>
         </LinearLayout>
 
@@ -637,7 +638,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="See all"
-                    android:textColor="#A855F7"
+                    android:textColor="@color/brand_primary"
                     android:textSize="13sp"/>
             </LinearLayout>
 
@@ -660,7 +661,7 @@
             android:id="@+id/layout_mini_player"
             android:layout_width="match_parent"
             android:layout_height="64dp"
-            android:background="#CC1A1A1A"
+            android:background="@color/sound_detail_card_light"
             android:visibility="gone"
             android:elevation="8dp"
             android:layout_marginHorizontal="12dp"
@@ -685,7 +686,7 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:textColor="@color/white"
+                    android:textColor="@color/sound_detail_text_light"
                     android:textSize="13sp"
                     android:fontFamily="sans-serif-medium"
                     android:maxLines="1"
@@ -697,7 +698,7 @@
                     android:layout_width="40dp"
                     android:layout_height="40dp"
                     android:src="@drawable/ic_pause"
-                    android:tint="#A855F7"
+                    android:tint="@color/brand_primary"
                     android:background="?attr/selectableItemBackgroundBorderless"
                     android:contentDescription="Mini play/pause"/>
 
@@ -706,7 +707,7 @@
                     android:layout_width="40dp"
                     android:layout_height="40dp"
                     android:src="@drawable/ic_close"
-                    android:tint="#AAFFFFFF"
+                    android:tint="@color/icon_tint"
                     android:background="?attr/selectableItemBackgroundBorderless"
                     android:contentDescription="Close mini player"/>
             </LinearLayout>

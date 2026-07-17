@@ -1,12 +1,34 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- Brand Colors -->
     <color name="brand_primary">#5B5BF6</color>
     <color name="brand_primary_dark">#4747D9</color>
     <color name="brand_accent">#22D3A6</color>
+    
+    <!-- Light Mode - Text Colors -->
     <color name="text_primary">#0F172A</color>
     <color name="text_secondary">#64748B</color>
     <color name="text_muted">#94A3B8</color>
-    <color name="divider">#E2E8F0</color>
+    
+    <!-- Light Mode - Background & Surfaces -->
+    <color name="background_light">#FFFFFF</color>
+    <color name="surface_light">#F8F8F8</color>
+    <color name="surface_secondary_light">#F0F0F0</color>
+    
+    <!-- Light Mode - Sound Detail Screen -->
+    <color name="sound_detail_bg_light">#FFFFFF</color>
+    <color name="sound_detail_card_light">#F8F8F8</color>
+    <color name="sound_detail_text_light">#1A1A1A</color>
+    <color name="sound_detail_subtext_light">#666666</color>
+    <color name="sound_detail_button_light">#E8E8E8</color>
+    
+    <!-- Common Colors -->
     <color name="white">#FFFFFF</color>
+    <color name="black">#000000</color>
     <color name="background_dark">#FF1A1A1A</color>
+    <color name="divider">#E2E8F0</color>
+    <color name="green_accent">#00F260</color>
+    <color name="blue_accent">#00C6FF</color>
+    <color name="icon_tint">#AAFFFFFF</color>
+    <color name="gray_light">#CCCCCC</color>
 </resources>
