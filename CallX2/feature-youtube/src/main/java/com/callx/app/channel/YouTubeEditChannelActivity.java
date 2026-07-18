@@ -83,11 +83,9 @@ public class YouTubeEditChannelActivity extends AppCompatActivity {
         if (res != RESULT_OK || data == null) return;
         if (req == REQ_AVATAR) {
             avatarUri = data.getData();
-            .override(96, 96)
             Glide.with(this).load(avatarUri).circleCrop().override(96, 96).into(ivAvatar);
         } else if (req == REQ_BANNER) {
             bannerUri = data.getData();
-            .override(720, 720)
             Glide.with(this).load(bannerUri).centerCrop().override(720, 720).into(ivBanner);
         }
     }

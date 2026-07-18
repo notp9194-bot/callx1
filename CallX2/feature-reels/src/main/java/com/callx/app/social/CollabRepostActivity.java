@@ -304,7 +304,6 @@ public class CollabRepostActivity extends AppCompatActivity {
         ivThumb = new ImageView(this);
         ivThumb.setScaleType(ImageView.ScaleType.CENTER_CROP);
         if (thumbUrl != null && !thumbUrl.isEmpty())
-            .override(720, 720)
             Glide.with(this).load(thumbUrl).centerCrop().override(720, 720).into(ivThumb);
         else ivThumb.setImageResource(R.drawable.ic_reels);
 
@@ -588,7 +587,6 @@ public class CollabRepostActivity extends AppCompatActivity {
             player.play();
         } catch (Exception ignored) {
             if (ivThumb != null && thumbUrl != null && !thumbUrl.isEmpty())
-                .override(720, 720)
                 Glide.with(this).load(thumbUrl).centerCrop().override(720, 720).into(ivThumb);
         }
     }

@@ -1011,7 +1011,6 @@ public class YouTubePlayerActivity extends AppCompatActivity {
         if (tvSocialName != null)
             tvSocialName.setText(currentVideo.uploaderName != null ? currentVideo.uploaderName : "");
         if (socialAvatar != null && currentVideo.uploaderPhotoUrl != null)
-            .override(96, 96)
             Glide.with(this).load(currentVideo.uploaderPhotoUrl).circleCrop().override(96, 96).into(socialAvatar);
 
         FirebaseDatabase db = FirebaseDatabase.getInstance(
@@ -1028,7 +1027,6 @@ public class YouTubePlayerActivity extends AppCompatActivity {
                         String  thumb      = snap.child("thumbUrl").getValue(String.class);
                         String  photoUrl   = (thumb != null && !thumb.isEmpty()) ? thumb : freshPhoto;
                         if (photoUrl != null && !photoUrl.isEmpty() && socialAvatar != null)
-                            .override(96, 96)
                             Glide.with(YouTubePlayerActivity.this).load(photoUrl).circleCrop().override(96, 96).into(socialAvatar);
                         if (Boolean.TRUE.equals(online)) {
                             if (onlineDot  != null) onlineDot.setVisibility(android.view.View.VISIBLE);
@@ -1059,7 +1057,6 @@ public class YouTubePlayerActivity extends AppCompatActivity {
                         String xPhoto = snap.child("photoUrl").getValue(String.class);
                         String xUrl   = (xThumb != null && !xThumb.isEmpty()) ? xThumb : xPhoto;
                         if (xUrl != null && !xUrl.isEmpty() && ivAnimX != null)
-                            .override(96, 96)
                             Glide.with(YouTubePlayerActivity.this).load(xUrl).circleCrop().override(96, 96).into(ivAnimX);
 
                         db.getReference("x/followers").child(uploaderUid)
@@ -1114,7 +1111,6 @@ public class YouTubePlayerActivity extends AppCompatActivity {
                         String rPhoto = snap.child("photoUrl").getValue(String.class);
                         String rUrl   = (rThumb != null && !rThumb.isEmpty()) ? rThumb : rPhoto;
                         if (rUrl != null && !rUrl.isEmpty() && ivAnimReels != null)
-                            .override(96, 96)
                             Glide.with(YouTubePlayerActivity.this).load(rUrl).circleCrop().override(96, 96).into(ivAnimReels);
 
                         db.getReference("reels/followers").child(uploaderUid)
@@ -1250,7 +1246,6 @@ public class YouTubePlayerActivity extends AppCompatActivity {
             view.findViewById(R.id.iv_desc_sheet_avatar);
         if (sheetChannelName != null) sheetChannelName.setText(currentVideo.uploaderName);
         if (sheetAvatar != null) {
-            .override(96, 96)
             Glide.with(this).load(currentVideo.uploaderPhotoUrl).circleCrop().override(96, 96).into(sheetAvatar);
         }
         if (sheetSubs != null && uploaderUid != null) {
@@ -1433,11 +1428,8 @@ public class YouTubePlayerActivity extends AppCompatActivity {
         String xUrl    = uploaderXPhotoUrl    != null ? uploaderXPhotoUrl    : photo;
         String ytUrl   = uploaderYtPhotoUrl   != null ? uploaderYtPhotoUrl   : photo;
 
-        .override(96, 96)
         Glide.with(this).load(chatUrl).circleCrop().override(96, 96).into(ivYtAnimChat);
-        .override(96, 96)
         Glide.with(this).load(xUrl).circleCrop().override(96, 96).into(ivYtAnimX);
-        .override(96, 96)
         Glide.with(this).load(ytUrl).circleCrop().override(96, 96).into(ivYtAnimYoutube);
 
         // Reset all

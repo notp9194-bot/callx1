@@ -217,11 +217,9 @@ package com.callx.app.social;
               PendingDuet d = items.get(pos);
               h.tvName.setText(d.duetorName != null ? d.duetorName : "Unknown");
               if (d.thumbUrl != null && !d.thumbUrl.isEmpty()) {
-                  .override(720, 720)
                   Glide.with(h.ivThumb).load(d.thumbUrl).centerCrop().override(720, 720).into(h.ivThumb);
               }
               if (d.duetorPhoto != null && !d.duetorPhoto.isEmpty()) {
-                  .override(96, 96)
                   Glide.with(h.ivAvatar).load(d.duetorPhoto).circleCrop().override(96, 96).into(h.ivAvatar);
               }
               h.btnApprove.setOnClickListener(v -> onApprove.onApprove(d, h.getAdapterPosition()));

@@ -838,7 +838,6 @@ public class HomeFragment extends Fragment {
                 tvOwner.setText(reel.ownerName != null ? "@" + reel.ownerName : "@user");
 
                 if (reel.thumbUrl != null && !reel.thumbUrl.isEmpty()) {
-                    .override(720, 720)
                     Glide.with(requireContext()).load(reel.thumbUrl).centerCrop().override(720, 720).into(thumb);
                 }
 
@@ -1074,7 +1073,6 @@ public class HomeFragment extends Fragment {
             tvOwner.setText(reel.ownerName != null ? "@" + reel.ownerName : "@user");
 
             if (reel.thumbUrl != null && !reel.thumbUrl.isEmpty()) {
-                .override(720, 720)
                 Glide.with(requireContext()).load(reel.thumbUrl).centerCrop().override(720, 720).into(ivThumb);
             }
 

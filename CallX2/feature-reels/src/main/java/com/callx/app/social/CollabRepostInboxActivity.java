@@ -348,7 +348,6 @@ public class CollabRepostInboxActivity extends AppCompatActivity {
 
             // Thumbnail
             if (m.originalThumbUrl != null && !m.originalThumbUrl.isEmpty())
-                .override(720, 720)
                 Glide.with(h.ivThumb).load(m.originalThumbUrl).centerCrop().override(720, 720).into(h.ivThumb);
             else h.ivThumb.setImageResource(R.drawable.ic_reels);
 

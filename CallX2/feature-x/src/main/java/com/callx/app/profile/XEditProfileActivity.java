@@ -187,12 +187,10 @@ public class XEditProfileActivity extends AppCompatActivity {
             // Avatar
             String avatarUrl = profile.avatarForList();
             if (avatarUrl != null && !avatarUrl.isEmpty())
-                .override(240, 240)
                 Glide.with(this).load(avatarUrl).circleCrop().override(240, 240).into(ivAvatar);
 
             // Banner
             if (profile.bannerUrl != null && !profile.bannerUrl.isEmpty())
-                .override(720, 720)
                 Glide.with(this).load(profile.bannerUrl).centerCrop().override(720, 720).into(ivBanner);
         });
     }
@@ -206,12 +204,10 @@ public class XEditProfileActivity extends AppCompatActivity {
                 runOnUiThread(() -> {
                     pbSave.setVisibility(View.GONE);
                     if (isAvatar) {
-                        .override(240, 240)
                         Glide.with(XEditProfileActivity.this).load(url).circleCrop().override(240, 240).into(ivAvatar);
                         // Save to Firebase via XProfileManager
                         XProfileManager.updateAvatar(myUid, url, null);
                     } else {
-                        .override(720, 720)
                         Glide.with(XEditProfileActivity.this).load(url).centerCrop().override(720, 720).into(ivBanner);
                         XProfileManager.updateBanner(myUid, url);
                     }

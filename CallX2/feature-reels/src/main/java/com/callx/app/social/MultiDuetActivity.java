@@ -549,7 +549,6 @@ public class MultiDuetActivity extends AppCompatActivity {
             h.tvStatus.setTextColor(pos == 0 ? 0xFF4CAF50 :
                 "accepted".equals(p.status) ? 0xFF4CAF50 : 0xFFFFD700);
             if (p.photo != null && !p.photo.isEmpty()) {
-                .override(96, 96)
                 Glide.with(h.ivAvatar).load(p.photo).circleCrop().override(96, 96).into(h.ivAvatar);
             } else {
                 h.ivAvatar.setImageResource(android.R.drawable.ic_menu_myplaces);

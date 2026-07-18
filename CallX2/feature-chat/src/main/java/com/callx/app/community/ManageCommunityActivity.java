@@ -85,7 +85,6 @@ public class ManageCommunityActivity extends AppCompatActivity {
         iconPicker = registerForActivityResult(new ActivityResultContracts.GetContent(), uri -> {
             if (uri == null) return;
             pickedIconUri = uri;
-            .override(96, 96)
             Glide.with(this).load(uri).circleCrop().override(96, 96).into(ivIcon);
         });
         View btnChangeIcon = findViewById(R.id.btn_change_icon);

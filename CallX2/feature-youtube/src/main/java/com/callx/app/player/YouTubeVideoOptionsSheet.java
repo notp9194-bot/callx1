@@ -105,7 +105,6 @@ public class YouTubeVideoOptionsSheet extends BottomSheetDialogFragment {
         tvTitle.setText(title);
         tvChan.setText(channel);
         if (thumbUrl != null && !thumbUrl.isEmpty())
-            .override(720, 720)
             Glide.with(this).load(thumbUrl).centerCrop().override(720, 720).into(ivThumb);
 
         // ── Owner-only: Delete option ──────────────────────────────────────

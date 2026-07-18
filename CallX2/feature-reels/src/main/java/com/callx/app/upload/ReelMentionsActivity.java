@@ -167,7 +167,6 @@ public class ReelMentionsActivity extends AppCompatActivity {
             h.tvUnread.setVisibility(m.isRead ? View.GONE : View.VISIBLE);
             h.itemView.setAlpha(m.isRead ? 0.75f : 1f);
             if (m.thumbUrl != null && !m.thumbUrl.isEmpty())
-                .override(480, 853)
                 Glide.with(h.ivThumb).load(m.thumbUrl).centerCrop().placeholder(android.R.color.darker_gray).override(480, 853).into(h.ivThumb);
             else h.ivThumb.setImageResource(android.R.color.darker_gray);
             h.itemView.setOnClickListener(v -> onClick.accept(m));

@@ -446,7 +446,6 @@ public class MediaGroupLayoutHelper {
 
             if (cachedFile != null) {
                 // Already downloaded — show the sharp local copy directly.
-                .override(720, 720)
                 Glide.with(ctx).load(cachedFile).centerCrop().override(720, 720).into(iv);
             } else {
                 if (!loadThumb.isEmpty()) {
@@ -690,7 +689,6 @@ public class MediaGroupLayoutHelper {
                 sDownloadingUrls.remove(url);
                 if (overlay.getParent() == null) return; // cell recycled/removed
                 ((android.view.ViewGroup) overlay.getParent()).removeView(overlay);
-                .override(720, 720)
                 Glide.with(ctx).load(file).centerCrop().override(720, 720).into(iv);
             }
             @Override public void onError(String reason) {

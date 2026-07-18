@@ -379,7 +379,6 @@ package com.callx.app.feed;
               h.tvSub.setText(timeSub + " \u00B7 " + myStatuses.size() + " update"
                       + (myStatuses.size() > 1 ? "s" : "") + " \u00B7 " + latest.getExpiryLabel());
               if (latest.ownerPhoto != null && !latest.ownerPhoto.isEmpty())
-                  .override(480, 853)
                   Glide.with(ctx).load(latest.ownerPhoto).placeholder(R.drawable.ic_person).override(480, 853).into(h.ivAvatar);
               else
                   h.ivAvatar.setImageResource(R.drawable.ic_person);
@@ -387,7 +386,6 @@ package com.callx.app.feed;
                   String thumbUrl = latest.thumbnailUrl != null ? latest.thumbnailUrl : latest.mediaUrl;
                   if (thumbUrl != null && !thumbUrl.isEmpty()) {
                       h.ivThumb.setVisibility(View.VISIBLE);
-                      .override(480, 853)
                       Glide.with(ctx).load(thumbUrl).centerCrop().override(480, 853).into(h.ivThumb);
                   } else h.ivThumb.setVisibility(View.GONE);
               }
@@ -402,7 +400,6 @@ package com.callx.app.feed;
           h.tvTime.setText(e.latestTimestamp != null
                   ? timeFmt.format(new java.util.Date(e.latestTimestamp)) : "");
           if (e.ownerPhoto != null && !e.ownerPhoto.isEmpty())
-              .override(480, 853)
               Glide.with(ctx).load(e.ownerPhoto).placeholder(R.drawable.ic_person).override(480, 853).into(h.ivAvatar);
           else
               h.ivAvatar.setImageResource(R.drawable.ic_person);
@@ -446,7 +443,6 @@ package com.callx.app.feed;
               String url = latest != null ? (latest.thumbnailUrl != null ? latest.thumbnailUrl : latest.mediaUrl) : null;
               if (url != null && !url.isEmpty()) {
                   h.ivThumb.setVisibility(View.VISIBLE);
-                  .override(480, 853)
                   Glide.with(ctx).load(url).centerCrop().override(480, 853).into(h.ivThumb);
               } else h.ivThumb.setVisibility(View.GONE);
           }
@@ -545,7 +541,6 @@ package com.callx.app.feed;
               HighlightAlbum a = albums.get(pos);
               h.tvTitle.setText(a.title);
               if (a.coverUrl != null && !a.coverUrl.isEmpty())
-                  .override(96, 96)
                   Glide.with(h.ivCover).load(a.coverUrl).circleCrop().override(96, 96).into(h.ivCover);
               h.itemView.setOnClickListener(v -> onClick.accept(a));
           }
@@ -596,7 +591,6 @@ package com.callx.app.feed;
               }
 
               if (c.ownerPhoto != null && !c.ownerPhoto.isEmpty())
-                  .override(480, 853)
                   Glide.with(ctx).load(c.ownerPhoto).placeholder(R.drawable.ic_person).override(480, 853).into(h.ivAvatar);
               else
                   h.ivAvatar.setImageResource(R.drawable.ic_person);

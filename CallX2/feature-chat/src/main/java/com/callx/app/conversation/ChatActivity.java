@@ -1186,7 +1186,6 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             else if ("video".equals(m.type)) thumbUrl = m.thumbnailUrl;
             if (thumbUrl != null && !thumbUrl.isEmpty()) {
                 binding.ivReplyBarThumb.setVisibility(View.VISIBLE);
-                .override(720, 720)
                 Glide.with(this).load(thumbUrl).centerCrop().override(720, 720).into(binding.ivReplyBarThumb);
             } else {
                 binding.ivReplyBarThumb.setVisibility(View.GONE);

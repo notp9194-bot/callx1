@@ -4764,7 +4764,6 @@ public class MessagePagingAdapter
         java.io.File cachedFile = com.callx.app.utils.MediaCache.getCached(ctx, fullUrl);
         if (cachedFile != null) {
             h.fl_download_overlay.setVisibility(View.GONE);
-            .override(720, 720)
             glide(ctx).load(cachedFile).override(480, 480).centerCrop().into(h.ivImage);
             return;
         }
@@ -4801,7 +4800,6 @@ public class MessagePagingAdapter
                     downloadingMediaUrls.remove(fullUrl);
                     if (!fullUrl.equals(h.fl_download_overlay.getTag())) return;
                     h.fl_download_overlay.setVisibility(View.GONE);
-                    .override(720, 720)
                     glide(ctx).load(file).override(480, 480).centerCrop().into(h.ivImage);
                 }
                 @Override public void onError(String reason) {

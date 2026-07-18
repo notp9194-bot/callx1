@@ -135,7 +135,6 @@ public class ReelProfileSetupActivity extends AppCompatActivity {
             new ReelCloudinaryUtils.AvatarUploadCallback() {
                 @Override public void onThumbReady(String thumbUrl) {
                     pendingThumb = thumbUrl;
-                    .override(480, 853)
                     Glide.with(ReelProfileSetupActivity.this).load(thumbUrl).override(480, 853).into(ivAvatar);
                 }
                 @Override public void onFullReady(String photoUrl) {
@@ -143,7 +142,6 @@ public class ReelProfileSetupActivity extends AppCompatActivity {
                     if (pbAvatar != null) pbAvatar.setVisibility(View.GONE);
                     avatarUploading = false;
                     updateSaveBtn();
-                    .override(480, 853)
                     Glide.with(ReelProfileSetupActivity.this).load(photoUrl).override(480, 853).into(ivAvatar);
                 }
                 @Override public void onError(String msg) {
@@ -168,7 +166,6 @@ public class ReelProfileSetupActivity extends AppCompatActivity {
                     if (pbBanner != null) pbBanner.setVisibility(View.GONE);
                     bannerUploading = false;
                     updateSaveBtn();
-                    .override(480, 853)
                     Glide.with(ReelProfileSetupActivity.this).load(url).override(480, 853).into(ivBanner);
                 }
                 @Override public void onError(String msg) {

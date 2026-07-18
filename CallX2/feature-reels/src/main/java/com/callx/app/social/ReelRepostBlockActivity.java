@@ -214,7 +214,6 @@ public class ReelRepostBlockActivity extends AppCompatActivity {
         @Override public void onBindViewHolder(@NonNull VH h, int pos) {
             ReposterItem item = items.get(pos);
             if (item.photoUrl != null)
-                .override(96, 96)
                 Glide.with(ReelRepostBlockActivity.this).load(item.photoUrl).circleCrop().placeholder(R.drawable.ic_person).override(96, 96).into(h.iv);
             h.tvName.setText(item.name != null ? item.name : item.uid);
             h.tvTime.setText("Reposted " + relTime(item.repostedAt));

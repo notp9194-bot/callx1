@@ -144,7 +144,6 @@ public class RepostQuoteActivity extends AppCompatActivity {
                 String photo = snap.child("photoUrl").getValue(String.class);
                 String url = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
                 if (url != null && !url.isEmpty() && !isFinishing())
-                    .override(96, 96)
                     Glide.with(this).load(url).circleCrop().placeholder(R.drawable.ic_person).override(96, 96).into(myAvatar);
             });
 
@@ -231,7 +230,6 @@ public class RepostQuoteActivity extends AppCompatActivity {
         LinearLayout.LayoutParams thumbLp = new LinearLayout.LayoutParams(dp(64), dp(96));
         thumbLp.setMarginEnd(dp(10));
         if (thumbUrl != null && !thumbUrl.isEmpty())
-            .override(720, 720)
             Glide.with(this).load(thumbUrl).centerCrop().override(720, 720).into(ivThumb);
         else ivThumb.setImageResource(R.drawable.ic_reels);
         quoteCard.addView(ivThumb, thumbLp);
@@ -325,7 +323,6 @@ public class RepostQuoteActivity extends AppCompatActivity {
                 String photo = snap.child("photoUrl").getValue(String.class);
                 String url = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
                 if (url != null && !url.isEmpty() && !isFinishing() && ivOwnerAvatar != null)
-                    .override(96, 96)
                     Glide.with(this).load(url).circleCrop().placeholder(R.drawable.ic_person).override(96, 96).into(ivOwnerAvatar);
             });
     }

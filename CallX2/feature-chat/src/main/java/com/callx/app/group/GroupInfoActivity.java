@@ -609,7 +609,6 @@ public class GroupInfoActivity extends AppCompatActivity {
                     public void onSuccess(CloudinaryUploader.Result r) {
                         pd.dismiss();
                         currentIconUrl = r.secureUrl;
-                        .override(720, 720)
                         Glide.with(GroupInfoActivity.this).load(r.secureUrl).override(720, 720).into(ivGroupIcon);
                         FirebaseUtils.getGroupsRef().child(groupId).child("iconUrl").setValue(r.secureUrl);
                         Toast.makeText(GroupInfoActivity.this, "Icon updated", Toast.LENGTH_SHORT).show();

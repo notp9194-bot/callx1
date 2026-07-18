@@ -475,7 +475,6 @@ public class XTweetAdapter extends RecyclerView.Adapter<XTweetAdapter.TweetVH> {
                         lp.columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1, 1f);
                         lp.setMargins(2, 2, 2, 2);
                         img.setLayoutParams(lp);
-                        .override(720, 720)
                         Glide.with(ctx).load(url).centerCrop().diskCacheStrategy(DiskCacheStrategy.ALL).override(480, 853).into(img);
                         final String finalType = type;
                         img.setOnClickListener(v -> {
@@ -643,7 +642,6 @@ public class XTweetAdapter extends RecyclerView.Adapter<XTweetAdapter.TweetVH> {
             if (tvLinkDesc != null)   tvLinkDesc.setText(tweet.linkPreviewDesc != null ? tweet.linkPreviewDesc : "");
             if (tvLinkDomain != null) tvLinkDomain.setText(tweet.linkPreviewDomain != null ? tweet.linkPreviewDomain : "");
             if (ivLinkThumb != null && tweet.linkPreviewImageUrl != null && !tweet.linkPreviewImageUrl.isEmpty()) {
-                .override(720, 720)
                 Glide.with(ctx).load(tweet.linkPreviewImageUrl).centerCrop().override(480, 853).into(ivLinkThumb);
             }
             cardLinkPreview.setOnClickListener(v -> {

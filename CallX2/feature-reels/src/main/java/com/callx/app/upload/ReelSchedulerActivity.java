@@ -115,7 +115,6 @@ public class ReelSchedulerActivity extends AppCompatActivity {
 
     private void populatePreview() {
         if (thumbUri != null && !thumbUri.isEmpty()) {
-            .override(480, 853)
             Glide.with(this).load(thumbUri).placeholder(R.drawable.ic_video).override(480, 853).into(ivThumbPreview);
         }
         tvCaptionPreview.setText(caption != null && !caption.isEmpty() ? caption : "No caption");

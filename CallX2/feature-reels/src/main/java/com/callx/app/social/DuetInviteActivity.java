@@ -365,7 +365,6 @@ public class DuetInviteActivity extends AppCompatActivity {
             h.tvUsername.setText(u.callxId.isEmpty() ? "" : "@" + u.callxId);
             String avatar = (!u.thumbUrl.isEmpty()) ? u.thumbUrl : u.photoUrl;
             if (!avatar.isEmpty()) {
-                .override(96, 96)
                 Glide.with(h.ivAvatar).load(avatar).circleCrop().override(96, 96).into(h.ivAvatar);
             } else {
                 h.ivAvatar.setImageResource(R.drawable.ic_person);

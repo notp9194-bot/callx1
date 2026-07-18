@@ -453,7 +453,6 @@ public class CollabRepostAcceptActivity extends AppCompatActivity {
             if (playerView != null && thumbUrl != null && !thumbUrl.isEmpty()) {
                 ImageView overlay = new ImageView(this);
                 overlay.setScaleType(ImageView.ScaleType.CENTER_CROP);
-                .override(720, 720)
                 Glide.with(this).load(thumbUrl).centerCrop().override(720, 720).into(overlay);
                 playerView.addView(overlay, new FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
@@ -472,7 +471,6 @@ public class CollabRepostAcceptActivity extends AppCompatActivity {
             if (thumbUrl != null && !thumbUrl.isEmpty()) {
                 ImageView iv = new ImageView(this);
                 iv.setScaleType(ImageView.ScaleType.CENTER_CROP);
-                .override(720, 720)
                 Glide.with(this).load(thumbUrl).centerCrop().override(720, 720).into(iv);
                 if (playerView != null)
                     playerView.addView(iv, new FrameLayout.LayoutParams(

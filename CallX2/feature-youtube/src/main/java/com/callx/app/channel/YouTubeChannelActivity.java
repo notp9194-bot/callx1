@@ -178,7 +178,6 @@ public class YouTubeChannelActivity extends AppCompatActivity {
                 tvSubs.setText(formatCount(subscriberCount) + " subscribers");
                 tvVideoCount.setText((vids != null ? vids : 0) + " videos");
 
-                .override(96, 96)
                 Glide.with(YouTubeChannelActivity.this).load(photo).circleCrop().override(96, 96).into(ivAvatar);
                 if (banner != null && !banner.isEmpty())
                     Glide.with(YouTubeChannelActivity.this).load(banner)
@@ -278,7 +277,6 @@ public class YouTubeChannelActivity extends AppCompatActivity {
                     CircleImageView iv = findViewById(R.id.iv_card_reel_avatar);
                     if (iv == null) return;
                     if (url != null) {
-                        .override(96, 96)
                         Glide.with(YouTubeChannelActivity.this).load(url).circleCrop().override(96, 96).into(iv);
                     } else {
                         iv.setImageResource(com.callx.app.youtube.R.drawable.ic_person);
@@ -301,7 +299,6 @@ public class YouTubeChannelActivity extends AppCompatActivity {
                     CircleImageView iv = findViewById(R.id.iv_card_x_avatar);
                     if (iv == null) return;
                     if (url != null) {
-                        .override(96, 96)
                         Glide.with(YouTubeChannelActivity.this).load(url).circleCrop().override(96, 96).into(iv);
                     } else {
                         iv.setImageResource(com.callx.app.youtube.R.drawable.ic_person);
@@ -327,7 +324,6 @@ public class YouTubeChannelActivity extends AppCompatActivity {
                     CircleImageView iv = findViewById(R.id.iv_card_chat_avatar);
                     if (iv == null) return;
                     if (url != null) {
-                        .override(96, 96)
                         Glide.with(YouTubeChannelActivity.this).load(url).circleCrop().override(96, 96).into(iv);
                     } else {
                         iv.setImageResource(com.callx.app.youtube.R.drawable.ic_person);

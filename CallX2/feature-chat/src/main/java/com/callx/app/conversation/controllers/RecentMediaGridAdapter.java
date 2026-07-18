@@ -204,7 +204,6 @@ public class RecentMediaGridAdapter extends RecyclerView.Adapter<RecentMediaGrid
         if (!selectionOnly) {
             if (h.cameraIcon != null) h.cameraIcon.setVisibility(View.GONE);
             h.thumb.setBackground(null);
-            .override(480, 853)
             Glide.with(h.thumb).load(item.uri).apply(thumbOptions).override(480, 853).into(h.thumb);
             if (item.isVideo) {
                 h.duration.setVisibility(View.VISIBLE);

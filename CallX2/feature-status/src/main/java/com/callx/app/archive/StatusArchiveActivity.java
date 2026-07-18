@@ -128,7 +128,6 @@ public class StatusArchiveActivity extends AppCompatActivity {
             void bind(StatusItem item) {
                 String url = item.thumbnailUrl != null ? item.thumbnailUrl : item.mediaUrl;
                 if (url != null) {
-                    .override(480, 853)
                     Glide.with(iv).load(url).centerCrop().override(480, 853).into(iv);
                 } else {
                     iv.setBackgroundColor(item.bgColor != null

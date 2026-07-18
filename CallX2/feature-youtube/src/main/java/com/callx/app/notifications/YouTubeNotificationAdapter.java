@@ -50,7 +50,6 @@ public class YouTubeNotificationAdapter
             .override(96, 96)
             .placeholder(R.drawable.ic_person).into(h.ivAvatar);
         if (n.thumbnailUrl != null)
-            .override(720, 720)
             Glide.with(ctx).load(n.thumbnailUrl).centerCrop().override(720, 720).into(h.ivThumb);
         h.itemView.setOnClickListener(v -> { if (listener != null) listener.onClick(n); });
     }

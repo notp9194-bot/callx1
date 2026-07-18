@@ -120,7 +120,6 @@ public class XDMAdapter extends RecyclerView.Adapter<XDMAdapter.MsgVH> {
             if (ivMedia != null) {
                 if (m.mediaUrl != null && !m.mediaUrl.isEmpty()) {
                     ivMedia.setVisibility(View.VISIBLE);
-                    .override(720, 720)
                     Glide.with(ctx).load(m.mediaUrl).centerCrop().override(720, 720).into(ivMedia);
                     ivMedia.setOnClickListener(v -> {
                         if ("video".equals(m.mediaType)) {

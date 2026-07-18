@@ -40,7 +40,6 @@ public class CommunityFullscreenMediaActivity extends AppCompatActivity {
         }
 
         if (mediaUrl != null) {
-            .override(720, 720)
             Glide.with(this).load(mediaUrl).override(720, 720).into(iv);
         }
     }

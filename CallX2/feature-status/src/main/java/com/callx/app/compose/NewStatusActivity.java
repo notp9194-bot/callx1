@@ -408,7 +408,6 @@ public class NewStatusActivity extends AppCompatActivity {
         if (tvDomain != null) tvDomain.setText(preview.domain);
         android.widget.ImageView ivImage = binding.getRoot().findViewWithTag("link_preview_image");
         if (ivImage != null && preview.imageUrl != null)
-            .override(480, 853)
             Glide.with(this).load(preview.imageUrl).override(480, 853).into(ivImage);
     }
     private void hideLinkPreview() {
@@ -454,7 +453,6 @@ public class NewStatusActivity extends AppCompatActivity {
         binding.ivPreview.setVisibility(View.VISIBLE);
         binding.ivVideoHint.setVisibility(View.GONE);
         binding.btnDiscardMedia.setVisibility(View.VISIBLE);
-        .override(480, 853)
         Glide.with(this).load(uri).centerCrop().override(480, 853).into(binding.ivPreview);
         binding.captionGroup.setVisibility(View.VISIBLE);
         hideBgColorPicker();
@@ -463,7 +461,6 @@ public class NewStatusActivity extends AppCompatActivity {
         binding.ivPreview.setVisibility(View.VISIBLE);
         binding.ivVideoHint.setVisibility(View.VISIBLE);
         binding.btnDiscardMedia.setVisibility(View.VISIBLE);
-        .override(480, 853)
         Glide.with(this).load(uri).centerCrop().override(480, 853).into(binding.ivPreview);
         binding.captionGroup.setVisibility(View.VISIBLE);
         hideBgColorPicker();

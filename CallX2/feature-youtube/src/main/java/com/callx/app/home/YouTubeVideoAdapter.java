@@ -96,7 +96,6 @@ public class YouTubeVideoAdapter
         h.tvDuration.setText(formatDuration(video.duration));
 
         if (video.uploaderPhotoUrl != null && !video.uploaderPhotoUrl.isEmpty())
-            .override(96, 96)
             Glide.with(ctx).load(video.uploaderPhotoUrl).circleCrop().override(96, 96).into(h.ivAvatar);
         else
             h.ivAvatar.setImageResource(R.drawable.ic_person);

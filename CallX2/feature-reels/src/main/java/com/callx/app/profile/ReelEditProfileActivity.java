@@ -137,12 +137,10 @@ public class ReelEditProfileActivity extends AppCompatActivity {
                     // Avatar load
                     String displayUrl = !thumb.isEmpty() ? thumb : photo;
                     if (!displayUrl.isEmpty() && ivAvatar != null)
-                        .override(480, 853)
                         Glide.with(ReelEditProfileActivity.this).load(displayUrl).override(480, 853).into(ivAvatar);
 
                     // Banner load
                     if (!banner.isEmpty() && ivBanner != null)
-                        .override(480, 853)
                         Glide.with(ReelEditProfileActivity.this).load(banner).override(480, 853).into(ivBanner);
                 }
                 @Override
@@ -165,7 +163,6 @@ public class ReelEditProfileActivity extends AppCompatActivity {
                     // Firebase mein turant thumb save karo
                     ReelFirebaseUtils.reelUserRef(myUid).child("thumbUrl").setValue(thumbUrl);
                     if (ivAvatar != null)
-                        .override(480, 853)
                         Glide.with(ReelEditProfileActivity.this).load(thumbUrl).override(480, 853).into(ivAvatar);
                 }
                 @Override public void onFullReady(String photoUrl) {
@@ -176,7 +173,6 @@ public class ReelEditProfileActivity extends AppCompatActivity {
                     // Firebase mein full photo save karo
                     ReelFirebaseUtils.reelUserRef(myUid).child("photoUrl").setValue(photoUrl);
                     if (ivAvatar != null)
-                        .override(480, 853)
                         Glide.with(ReelEditProfileActivity.this).load(photoUrl).override(480, 853).into(ivAvatar);
                     Toast.makeText(ReelEditProfileActivity.this,
                         "Avatar updated!", Toast.LENGTH_SHORT).show();
@@ -206,7 +202,6 @@ public class ReelEditProfileActivity extends AppCompatActivity {
                     // Firebase mein banner save karo
                     ReelFirebaseUtils.reelUserRef(myUid).child("bannerUrl").setValue(url);
                     if (ivBanner != null)
-                        .override(480, 853)
                         Glide.with(ReelEditProfileActivity.this).load(url).override(480, 853).into(ivBanner);
                 }
                 @Override public void onError(String msg) {
