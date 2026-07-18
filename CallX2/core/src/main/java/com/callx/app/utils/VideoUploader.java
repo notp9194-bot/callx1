@@ -537,7 +537,7 @@ public class VideoUploader {
         // ── Step 1: Get signature from sign server ────────────────────────
         JSONObject payload = new JSONObject();
         payload.put("folder",        folder);
-        payload.put("resource_type", "raw");
+        payload.put("resource_type", "video"); // ✅ video = byte-range streaming, not raw blob
         JSONObject signJson = sign(payload);
 
         String signature  = signJson.getString("signature");
@@ -554,7 +554,7 @@ public class VideoUploader {
             fis.read(bytes);
         }
 
-        String uploadUrl = "https://api.cloudinary.com/v1_1/" + cloudName + "/raw/upload";
+        String uploadUrl = "https://api.cloudinary.com/v1_1/" + cloudName + "/video/upload";
         RequestBody body = new MultipartBody.Builder()
             .setType(MultipartBody.FORM)
             .addFormDataPart("file", audioFile.getName(),
