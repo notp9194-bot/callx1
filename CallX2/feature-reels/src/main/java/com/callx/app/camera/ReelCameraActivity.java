@@ -50,7 +50,6 @@ import com.callx.app.editor.ReelTextOverlayActivity;
 import com.callx.app.editor.ReelSpeedControlActivity;
 import com.callx.app.music.MusicPickerActivity;
 import com.callx.app.library.ReelDraftsActivity;
-import com.callx.app.library.LocalDraftsManager;
 
 import android.media.MediaPlayer;
 import com.google.common.util.concurrent.ListenableFuture;
@@ -81,16 +80,6 @@ import java.util.concurrent.Executors;
  *       • Long-press text overlay to delete it
  *       • Multiple texts supported
  *       • All text data serialised to JSON and forwarded to ReelEditorActivity
- *  ✅ STICKERS BUTTON — full flow:
- *       • Tap STICKERS button → opens full ReelStickerPickerActivity (4 tabs)
- *       • Emoji tab: 8 categories + live search
- *       • Text Sticker tab: live preview, 16 colors, 5 fonts, size slider
- *       • GIF tab: colorful gradient cards
- *       • Trending tab: 20 trending emojis with 🔥 HOT badges
- *       • Returns JSON with type (emoji/text/gif) + value + fontIdx + sizeSp
- *       • Type-aware live overlay: emoji large/no-bg, text colored/styled, gif card
- *       • Long-press any sticker overlay to delete it
- *       • All sticker data serialised to JSON → forwarded to ReelEditorActivity
  */
 public class ReelCameraActivity extends AppCompatActivity {
 
@@ -183,16 +172,8 @@ public class ReelCameraActivity extends AppCompatActivity {
     private float  effectSaturation = 1f;
     private float  effectBeauty     = 0f;
 
-    // ── Sticker overlays (emoji / GIF / text-sticker) ────────────────────
-    // Each entry tracks the original JSON (for serialisation) + the live View
-    private static class StickerOverlayData {
-        String json;    // original JSON from ReelStickerPickerActivity
-        View   liveView;
-        float  viewX = Float.NaN;
-        float  viewY = Float.NaN;
-        StickerOverlayData(String json) { this.json = json; }
-    }
-    private final List<StickerOverlayData> stickerOverlayList = new ArrayList<>();
+    // ── Sticker overlays (emoji / GIF) — kept separate from text ─────────
+    private final List<String>          stickerJsonList  = new ArrayList<>();
 
     // ── Text overlays — full data tracked here ────────────────────────────
     private final List<TextOverlayData> textOverlayList  = new ArrayList<>();
@@ -288,36 +269,12 @@ public class ReelCameraActivity extends AppCompatActivity {
 
     private void selectDurationChip(int sec) {
         selectedDurationSec = sec;
-        applyChipState(chip15s, sec == 15);
-        applyChipState(chip30s, sec == 30);
-        applyChipState(chip60s, sec == 60);
-        if (tvSelectedDuration != null)
-            tvSelectedDuration.setText(formatDuration(sec));
-        progressRecord.setMax(sec * 10);   // ×10 for 100ms smooth granularity
+        chip15s.setSelected(sec == 15);
+        chip30s.setSelected(sec == 30);
+        chip60s.setSelected(sec == 60);
+        tvSelectedDuration.setText(sec + "s");
+        progressRecord.setMax(sec);
         progressRecord.setProgress(0);
-        if (tvTimer != null) {
-            tvTimer.setTextColor(0xFFFFFFFF);
-            tvTimer.setText(formatDuration(sec));
-        }
-    }
-
-    /** Applies active/inactive background + bold to a duration chip. */
-    private void applyChipState(View chip, boolean active) {
-        if (chip == null) return;
-        chip.setBackground(ContextCompat.getDrawable(this,
-            active ? R.drawable.bg_speed_chip_active
-                   : R.drawable.bg_speed_chip));
-        chip.setAlpha(active ? 1.0f : 0.75f);
-        if (chip instanceof TextView)
-            ((TextView) chip).setTypeface(null,
-                active ? android.graphics.Typeface.BOLD
-                       : android.graphics.Typeface.NORMAL);
-    }
-
-    /** "15s", "1:00" */
-    private static String formatDuration(int sec) {
-        if (sec < 60) return sec + "s";
-        return String.format("%d:%02d", sec / 60, sec % 60);
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -352,11 +309,8 @@ public class ReelCameraActivity extends AppCompatActivity {
                 startActivity(new Intent(this, MultiClipCameraActivity.class)));
 
         if (btnDrafts != null)
-            btnDrafts.setOnClickListener(v -> {
-                startActivity(new Intent(this, ReelDraftsActivity.class));
-            });
-        // Show draft count badge on button label after a slight delay
-        refreshDraftsBadge();
+            btnDrafts.setOnClickListener(v ->
+                startActivity(new Intent(this, ReelDraftsActivity.class)));
 
         // TEXT button → open full-screen text overlay editor
         if (btnCameraText != null)
@@ -487,30 +441,13 @@ public class ReelCameraActivity extends AppCompatActivity {
                 } else if (event instanceof VideoRecordEvent.Finalize) {
                     VideoRecordEvent.Finalize fin = (VideoRecordEvent.Finalize) event;
                     isRecording = false;
-                    String path = outputFile.getAbsolutePath();
                     if (!fin.hasError()) {
-                        // ✅ Clean finish — open editor
+                        String path = outputFile.getAbsolutePath();
                         runOnUiThread(() -> openEditor(path));
                     } else {
-                        int errCode = fin.getError();
-                        Log.e(TAG, "CameraX recording error code=" + errCode);
-                        // Some error codes (e.g. ERROR_DURATION_LIMIT_REACHED = 9)
-                        // still produce a perfectly usable MP4 file.
-                        // Try to open the editor if the file has content.
-                        boolean fileOk = outputFile.exists() && outputFile.length() > 8192;
-                        if (fileOk) {
-                            runOnUiThread(() -> {
-                                Toast.makeText(this,
-                                    "Video saved with minor issue, opening editor…",
-                                    Toast.LENGTH_SHORT).show();
-                                openEditor(path);
-                            });
-                        } else {
-                            runOnUiThread(() ->
-                                Toast.makeText(this,
-                                    "Recording failed (err " + errCode + "). Try again.",
-                                    Toast.LENGTH_LONG).show());
-                        }
+                        Log.e(TAG, "Recording error: " + fin.getError());
+                        runOnUiThread(() ->
+                            Toast.makeText(this, "Recording failed", Toast.LENGTH_SHORT).show());
                     }
                 }
             });
@@ -526,85 +463,32 @@ public class ReelCameraActivity extends AppCompatActivity {
             recordTimer = null;
         }
         stopSoundPreview();
-        stopRecordPulse();
         progressRecord.setProgress(0);
-        if (tvTimer != null) {
-            tvTimer.setTextColor(0xFFFFFFFF);
-            tvTimer.setText(formatDuration(selectedDurationSec));
-        }
+        tvTimer.setText("00:00");
     }
 
     private void onRecordingStarted() {
         btnRecord.setImageResource(R.drawable.ic_pause);
         setTimerChipsEnabled(false);
         startSoundPreview();
-        startRecordPulse();
 
-        // Show timer in red while recording
-        if (tvTimer != null) tvTimer.setTextColor(0xFFFF3B5C);
-
-        // Smooth 100ms ticks for fluid progress bar + second-accurate timer
-        recordTimer = new CountDownTimer(selectedDurationSec * 1000L, 100) {
+        final int[] elapsed = {0};
+        recordTimer = new CountDownTimer(selectedDurationSec * 1000L, 1000) {
             @Override public void onTick(long msRemaining) {
-                long elapsedMs = selectedDurationSec * 1000L - msRemaining;
-                // Progress bar uses ×10 scale (max = sec*10, so 100ms = 1 unit)
-                progressRecord.setProgress((int)(elapsedMs / 100));
-                // Timer label updates every full second
-                int remSec = (int)(msRemaining / 1000);
-                if (tvTimer != null)
-                    tvTimer.setText(String.format("%02d:%02d", remSec / 60, remSec % 60));
+                elapsed[0]++;
+                progressRecord.setProgress(elapsed[0]);
+                int remaining = selectedDurationSec - elapsed[0];
+                tvTimer.setText(String.format("%02d:%02d", remaining / 60, remaining % 60));
             }
             @Override public void onFinish() { stopRecording(); }
         }.start();
-    }
-
-    // ── Record button pulse animation ────────────────────────────────────
-    private android.animation.AnimatorSet recordPulseSet;
-
-    private void startRecordPulse() {
-        stopRecordPulse();
-        android.animation.ObjectAnimator scX =
-            android.animation.ObjectAnimator.ofFloat(btnRecord, "scaleX", 1.0f, 0.88f, 1.0f);
-        android.animation.ObjectAnimator scY =
-            android.animation.ObjectAnimator.ofFloat(btnRecord, "scaleY", 1.0f, 0.88f, 1.0f);
-        android.animation.ObjectAnimator alph =
-            android.animation.ObjectAnimator.ofFloat(btnRecord, "alpha", 1.0f, 0.72f, 1.0f);
-        recordPulseSet = new android.animation.AnimatorSet();
-        recordPulseSet.playTogether(scX, scY, alph);
-        recordPulseSet.setDuration(700);
-        // Use a cancelled flag to prevent restart when cancel() triggers onAnimationEnd
-        recordPulseSet.addListener(new android.animation.AnimatorListenerAdapter() {
-            private boolean cancelled = false;
-            @Override public void onAnimationCancel(android.animation.Animator a) {
-                cancelled = true;
-            }
-            @Override public void onAnimationEnd(android.animation.Animator a) {
-                // Only loop if the animation finished naturally (not cancelled)
-                if (!cancelled && isRecording && recordPulseSet != null)
-                    recordPulseSet.start();
-            }
-        });
-        recordPulseSet.start();
-    }
-
-    private void stopRecordPulse() {
-        android.animation.AnimatorSet toCancel = recordPulseSet;
-        recordPulseSet = null;                      // null FIRST so onAnimationEnd loop guard works
-        if (toCancel != null) toCancel.cancel();
-        if (btnRecord != null) {
-            btnRecord.setScaleX(1f); btnRecord.setScaleY(1f); btnRecord.setAlpha(1f);
-        }
     }
 
     // ─────────────────────────────────────────────────────────────────────
     private void openEditor(String filePath) {
         btnRecord.setImageResource(R.drawable.ic_camera);
         setTimerChipsEnabled(true);
-        stopRecordPulse();
-        if (tvTimer != null) {
-            tvTimer.setTextColor(0xFFFFFFFF);
-            tvTimer.setText(formatDuration(selectedDurationSec));
-        }
+        tvTimer.setText("00:00");
         progressRecord.setProgress(0);
 
         if (replaceAudioWithSound && preSelectedSoundUrl != null
@@ -671,9 +555,10 @@ public class ReelCameraActivity extends AppCompatActivity {
             intent.putExtra(ReelEditorActivity.EXTRA_PRESET_SPEED, cameraSpeed);
 
         // ── Build combined overlay JSON array (stickers + texts) ──────────
-        List<String> allOverlays = new ArrayList<>();
-        for (StickerOverlayData sd : stickerOverlayList) allOverlays.add(sd.json);
-        for (TextOverlayData    td : textOverlayList)    allOverlays.add(td.toJson());
+        List<String> allOverlays = new ArrayList<>(stickerJsonList);
+        for (TextOverlayData td : textOverlayList) {
+            allOverlays.add(td.toJson());
+        }
         if (!allOverlays.isEmpty()) {
             StringBuilder arr = new StringBuilder("[");
             for (int i = 0; i < allOverlays.size(); i++) {
@@ -889,247 +774,59 @@ public class ReelCameraActivity extends AppCompatActivity {
     }
 
     // ─────────────────────────────────────────────────────────────────────
-    //  STICKER (emoji / text-sticker / GIF) — full live overlay
+    //  STICKER (emoji / GIF) overlay — unchanged from v7
     // ─────────────────────────────────────────────────────────────────────
-
-    /**
-     * Parse a JSON field string value (simple, no library needed).
-     * Returns "" if not found or malformed.
-     */
-    private static String parseJsonString(String json, String key) {
-        try {
-            String search = "\"" + key + "\":\"";
-            int start = json.indexOf(search);
-            if (start < 0) return "";
-            start += search.length();
-            // Find closing quote, skipping escaped ones
-            int end = start;
-            while (end < json.length()) {
-                if (json.charAt(end) == '"' && (end == 0 || json.charAt(end - 1) != '\\')) break;
-                end++;
-            }
-            return json.substring(start, end);
-        } catch (Exception e) { return ""; }
-    }
-
-    private static int parseJsonInt(String json, String key, int def) {
-        try {
-            String search = "\"" + key + "\":";
-            int start = json.indexOf(search);
-            if (start < 0) return def;
-            start += search.length();
-            int end = start;
-            while (end < json.length()
-                    && (Character.isDigit(json.charAt(end)) || json.charAt(end) == '-')) end++;
-            return Integer.parseInt(json.substring(start, end));
-        } catch (Exception e) { return def; }
-    }
-
-    /**
-     * Add a live sticker overlay on the camera preview.
-     * Renders differently based on "type" field: emoji → large no-bg,
-     * text-sticker → colored/styled, gif → gradient card.
-     *
-     * @param sd    StickerOverlayData containing the JSON and (after call) the liveView.
-     * @param index Index in stickerOverlayList (for delete callback).
-     */
     @android.annotation.SuppressLint("ClickableViewAccessibility")
-    private void addLiveStickerOverlay(StickerOverlayData sd, int index) {
-        if (rootOverlay == null || sd == null || sd.json == null) return;
-
+    private void addLiveOverlayView(String stickerJson) {
+        if (rootOverlay == null || stickerJson == null || stickerJson.isEmpty()) return;
         int dp = (int) getResources().getDisplayMetrics().density;
 
-        // ── Parse JSON ────────────────────────────────────────────────────
-        String type    = parseJsonString(sd.json, "type");
-        String value   = parseJsonString(sd.json, "value");
-        int    fontIdx = parseJsonInt(sd.json, "fontIdx", 0);
-        int    sizeSp  = parseJsonInt(sd.json, "sizeSp",  36);
+        String value = "";
+        try {
+            int vStart = stickerJson.indexOf("\"value\":\"") + 9;
+            int vEnd   = stickerJson.indexOf("\"", vStart);
+            if (vStart > 8 && vEnd > vStart) value = stickerJson.substring(vStart, vEnd);
+        } catch (Exception ignored) {}
         if (value.isEmpty()) value = "✨";
 
-        // ── Build overlay view based on type ──────────────────────────────
-        View overlayView;
-
-        if ("emoji".equals(type)) {
-            // Pure emoji: large font, no background, drop shadow
-            TextView tv = new TextView(this);
-            tv.setText(value);
-            tv.setTextSize(52);
-            tv.setGravity(Gravity.CENTER);
-            tv.setPadding(dp * 6, dp * 6, dp * 6, dp * 6);
-            tv.setBackgroundColor(Color.TRANSPARENT);
-            tv.setShadowLayer(dp * 2, 0, dp, 0x66000000);
-            overlayView = tv;
-
-        } else if ("text".equals(type)) {
-            // Text sticker: parse color from "text|#color" format
-            int textColor = Color.WHITE;
-            String displayValue = value;
-            if (value.contains("|#")) {
-                int sep = value.lastIndexOf("|#");
-                String colorHex = value.substring(sep + 1);
-                displayValue = value.substring(0, sep);
-                try { textColor = Color.parseColor(colorHex); } catch (Exception ignored) {}
-            }
-            TextView tv = new TextView(this);
-            tv.setText(displayValue);
-            tv.setTextSize(sizeSp > 0 ? sizeSp : 28);
-            tv.setTextColor(textColor);
-            tv.setGravity(Gravity.CENTER);
-            tv.setPadding(dp * 10, dp * 6, dp * 10, dp * 6);
-            tv.setBackgroundColor(0x88000000);
-            // Apply font style
-            Typeface tf; int style = Typeface.NORMAL;
-            switch (fontIdx) {
-                case 1: tf = Typeface.DEFAULT_BOLD;          break;
-                case 2: tf = Typeface.DEFAULT; style = Typeface.ITALIC; break;
-                case 3: tf = Typeface.SERIF;                 break;
-                case 4: tf = Typeface.MONOSPACE;             break;
-                default: tf = Typeface.DEFAULT;              break;
-            }
-            tv.setTypeface(tf, style);
-            overlayView = tv;
-
-        } else {
-            // GIF / unknown: colorful gradient card with emoji + label
-            // value is "emoji label" e.g. "😂 LOL"
-            String[] parts = value.split(" ", 2);
-            String emoji = parts.length > 0 ? parts[0] : "✨";
-            String label = parts.length > 1 ? parts[1] : "";
-
-            FrameLayout card = new FrameLayout(this);
-            int cardW = dp * 100;
-            int cardH = dp * 90;
-
-            // Gradient background
-            android.graphics.drawable.GradientDrawable bg =
-                new android.graphics.drawable.GradientDrawable(
-                    android.graphics.drawable.GradientDrawable.Orientation.TL_BR,
-                    new int[]{0xFF1A1A2E, 0xFFE94560});
-            bg.setCornerRadius(dp * 12);
-            card.setBackground(bg);
-
-            // GIF badge top-right
-            TextView gifBadge = new TextView(this);
-            gifBadge.setText("GIF");
-            gifBadge.setTextColor(0xFFFFFFFF);
-            gifBadge.setTextSize(8);
-            gifBadge.setTypeface(null, Typeface.BOLD);
-            gifBadge.setPadding(dp * 4, dp * 1, dp * 4, dp * 1);
-            android.graphics.drawable.GradientDrawable badgeBg =
-                new android.graphics.drawable.GradientDrawable();
-            badgeBg.setColor(0xAAFFFFFF);
-            badgeBg.setCornerRadius(dp * 4);
-            gifBadge.setBackground(badgeBg);
-            FrameLayout.LayoutParams badgeLp = new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP | Gravity.END);
-            badgeLp.setMargins(0, dp * 5, dp * 5, 0);
-            card.addView(gifBadge, badgeLp);
-
-            // Big emoji
-            TextView tvEmoji = new TextView(this);
-            tvEmoji.setText(emoji);
-            tvEmoji.setTextSize(34);
-            tvEmoji.setGravity(Gravity.CENTER);
-            FrameLayout.LayoutParams emojiLp = new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT);
-            emojiLp.setMargins(0, 0, 0, dp * 18);
-            card.addView(tvEmoji, emojiLp);
-
-            // Label at bottom
-            TextView tvLabel = new TextView(this);
-            tvLabel.setText(label);
-            tvLabel.setTextColor(0xFFFFFFFF);
-            tvLabel.setTextSize(10);
-            tvLabel.setTypeface(null, Typeface.BOLD);
-            tvLabel.setGravity(Gravity.CENTER);
-            tvLabel.setBackgroundColor(0x66000000);
-            tvLabel.setPadding(0, dp * 2, 0, dp * 2);
-            FrameLayout.LayoutParams labelLp = new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM);
-            card.addView(tvLabel, labelLp);
-
-            card.setLayoutParams(new FrameLayout.LayoutParams(cardW, cardH));
-            overlayView = card;
+        int textColor = Color.WHITE;
+        if (value.contains("|#")) {
+            int sep = value.lastIndexOf("|#");
+            String colorHex = value.substring(sep + 1);
+            value = value.substring(0, sep);
+            try { textColor = Color.parseColor(colorHex); } catch (Exception ignored) {}
         }
 
-        // ── Position on screen ────────────────────────────────────────────
+        TextView overlayView = new TextView(this);
+        overlayView.setText(value);
+        overlayView.setTextSize(32);
+        overlayView.setTextColor(textColor);
+        overlayView.setPadding(8 * dp, 4 * dp, 8 * dp, 4 * dp);
+        overlayView.setBackgroundColor(0x55000000);
+
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.WRAP_CONTENT,
             FrameLayout.LayoutParams.WRAP_CONTENT);
-
-        if (!Float.isNaN(sd.viewX) && !Float.isNaN(sd.viewY)) {
-            lp.leftMargin = 0;
-            lp.topMargin  = 0;
-        } else {
-            // Default: slightly off-centre so multiple stickers don't stack
-            lp.gravity    = Gravity.CENTER;
-        }
+        lp.leftMargin = rootOverlay.getWidth()  / 4;
+        lp.topMargin  = rootOverlay.getHeight() / 3;
         rootOverlay.addView(overlayView, lp);
 
-        if (!Float.isNaN(sd.viewX) && !Float.isNaN(sd.viewY)) {
-            overlayView.setX(sd.viewX);
-            overlayView.setY(sd.viewY);
-        }
-
-        sd.liveView = overlayView;
-
-        // ── Drag + long-press-to-delete touch handler ─────────────────────
-        bindStickerTouch(overlayView, sd, index);
-
-        // Hint on first sticker
-        if (stickerOverlayList.size() == 1) {
-            Toast.makeText(this, "Hold sticker to remove it", Toast.LENGTH_SHORT).show();
-        }
-    }
-
-    @android.annotation.SuppressLint("ClickableViewAccessibility")
-    private void bindStickerTouch(View view, StickerOverlayData sd, int idxAtBind) {
-        final float[] dXY     = new float[2];
-        final boolean[] moved = {false};
-        final long[] downTime = {0};
-
-        view.setOnTouchListener((v, event) -> {
-            switch (event.getAction()) {
-                case MotionEvent.ACTION_DOWN:
-                    dXY[0]     = v.getX() - event.getRawX();
-                    dXY[1]     = v.getY() - event.getRawY();
-                    moved[0]   = false;
-                    downTime[0] = System.currentTimeMillis();
-                    return true;
-                case MotionEvent.ACTION_MOVE:
-                    float newX = event.getRawX() + dXY[0];
-                    float newY = event.getRawY() + dXY[1];
-                    if (Math.abs(newX - v.getX()) > 8 || Math.abs(newY - v.getY()) > 8)
-                        moved[0] = true;
-                    v.setX(newX); v.setY(newY);
-                    sd.viewX = newX; sd.viewY = newY;
-                    return true;
-                case MotionEvent.ACTION_UP:
-                    long dur = System.currentTimeMillis() - downTime[0];
-                    if (!moved[0] && dur >= 500) {
-                        // Long press → delete
-                        deleteStickerOverlay(sd);
-                    }
-                    return true;
+        overlayView.setOnTouchListener(new View.OnTouchListener() {
+            float dX, dY;
+            @Override public boolean onTouch(View v, MotionEvent event) {
+                switch (event.getAction()) {
+                    case MotionEvent.ACTION_DOWN:
+                        dX = v.getX() - event.getRawX();
+                        dY = v.getY() - event.getRawY();
+                        return true;
+                    case MotionEvent.ACTION_MOVE:
+                        v.setX(event.getRawX() + dX);
+                        v.setY(event.getRawY() + dY);
+                        return true;
+                }
+                return false;
             }
-            return false;
         });
-    }
-
-    /** Remove a sticker overlay view from the camera preview. */
-    private void deleteStickerOverlay(StickerOverlayData sd) {
-        if (sd.liveView != null && rootOverlay != null) {
-            rootOverlay.removeView(sd.liveView);
-            sd.liveView = null;
-        }
-        stickerOverlayList.remove(sd);
-        Toast.makeText(this, "Sticker removed", Toast.LENGTH_SHORT).show();
-        if (stickerOverlayList.isEmpty() && btnCameraStickers != null) {
-            btnCameraStickers.clearColorFilter();
-        }
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -1229,9 +926,8 @@ public class ReelCameraActivity extends AppCompatActivity {
         if (requestCode == REQ_STICKER && resultCode == RESULT_OK && data != null) {
             String sJson = data.getStringExtra(ReelStickerPickerActivity.RESULT_STICKER_JSON);
             if (sJson != null && !sJson.isEmpty()) {
-                StickerOverlayData sd = new StickerOverlayData(sJson);
-                stickerOverlayList.add(sd);
-                addLiveStickerOverlay(sd, stickerOverlayList.size() - 1);
+                stickerJsonList.add(sJson);
+                addLiveOverlayView(sJson);
                 if (btnCameraStickers != null)
                     btnCameraStickers.setColorFilter(Color.argb(220, 255, 215, 10));
             }
@@ -1355,13 +1051,9 @@ public class ReelCameraActivity extends AppCompatActivity {
     }
 
     private void setTimerChipsEnabled(boolean enabled) {
-        if (chip15s != null) { chip15s.setEnabled(enabled); chip15s.setAlpha(enabled ? 0.75f : 0.35f); }
-        if (chip30s != null) { chip30s.setEnabled(enabled); chip30s.setAlpha(enabled ? 0.75f : 0.35f); }
-        if (chip60s != null) { chip60s.setEnabled(enabled); chip60s.setAlpha(enabled ? 0.75f : 0.35f); }
-        // Keep the active chip fully visible even during recording
-        if (enabled) applyChipState(
-            selectedDurationSec == 15 ? chip15s :
-            selectedDurationSec == 60 ? chip60s : chip30s, true);
+        chip15s.setEnabled(enabled);
+        chip30s.setEnabled(enabled);
+        chip60s.setEnabled(enabled);
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -1405,46 +1097,6 @@ public class ReelCameraActivity extends AppCompatActivity {
     }
 
     // ─────────────────────────────────────────────────────────────────────
-    // ─────────────────────────────────────────────────────────────────────
-    //  DRAFT COUNT BADGE
-    // ─────────────────────────────────────────────────────────────────────
-    /**
-     * Shows the number of saved local drafts on the Drafts button label.
-     * Looks for a sibling TextView under the same parent as btnDrafts (standard
-     * camera toolbar pattern: ImageButton + TextView label in a vertical LinearLayout).
-     */
-    private void refreshDraftsBadge() {
-        if (btnDrafts == null) return;
-        int count = LocalDraftsManager.count(this);
-        // Try to find the label TextView that sits under the icon button
-        if (btnDrafts.getParent() instanceof android.view.ViewGroup) {
-            android.view.ViewGroup parent = (android.view.ViewGroup) btnDrafts.getParent();
-            for (int i = 0; i < parent.getChildCount(); i++) {
-                android.view.View child = parent.getChildAt(i);
-                if (child instanceof android.widget.TextView && child != btnDrafts) {
-                    android.widget.TextView lbl = (android.widget.TextView) child;
-                    lbl.setText(count > 0 ? "Drafts (" + count + ")" : "Drafts");
-                    break;
-                }
-            }
-        }
-        // Also tint the button red if there are drafts so users notice them
-        if (count > 0) {
-            btnDrafts.setColorFilter(
-                ContextCompat.getColor(this, R.color.brand_primary));
-        } else {
-            btnDrafts.clearColorFilter();
-        }
-    }
-
-    @Override
-    protected void onResume() {
-        super.onResume();
-        // Refresh draft badge every time camera screen becomes visible
-        // (covers: returning from Drafts screen after deleting / after editor saves)
-        refreshDraftsBadge();
-    }
-
     private boolean allPermissionsGranted() {
         for (String p : REQUIRED_PERMISSIONS) {
             if (ContextCompat.checkSelfPermission(this, p) != PackageManager.PERMISSION_GRANTED)

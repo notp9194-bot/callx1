@@ -1,102 +1,32 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!--
-    activity_reel_drafts.xml — Reel Drafts screen (dark, camera-themed).
-    Custom toolbar (no AppCompat Toolbar) to match the camera/editor dark style.
--->
-<LinearLayout
-    xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="#0D0D0D">
+    android:background="?attr/colorSurface">
 
-    <!-- ── Top bar ─────────────────────────────────────────────────────── -->
-    <LinearLayout
+    <androidx.appcompat.widget.Toolbar
+        android:id="@+id/toolbar"
         android:layout_width="match_parent"
-        android:layout_height="56dp"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:paddingStart="4dp"
-        android:paddingEnd="8dp"
-        android:paddingTop="8dp"
-        android:background="#161616">
+        android:layout_height="?attr/actionBarSize"/>
 
-        <!-- Back -->
-        <ImageButton
-            android:id="@+id/btn_drafts_back"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:src="@drawable/ic_arrow_back"
-            android:tint="#FFFFFF"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Back"/>
+    <ProgressBar
+        android:id="@+id/progress_drafts"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:layout_marginTop="32dp"
+        android:visibility="gone"/>
 
-        <!-- Title + count -->
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:orientation="vertical"
-            android:paddingStart="4dp">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Drafts"
-                android:textColor="#FFFFFF"
-                android:textSize="18sp"
-                android:textStyle="bold"/>
-
-            <TextView
-                android:id="@+id/tv_draft_count"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Loading..."
-                android:textColor="#888888"
-                android:textSize="11sp"/>
-        </LinearLayout>
-
-        <!-- Sort button -->
-        <ImageButton
-            android:id="@+id/btn_drafts_sort"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
-            android:src="@drawable/ic_arrow_back"
-            android:tint="#AAAAAA"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Sort"/>
-
-        <!-- Delete all button -->
-        <ImageButton
-            android:id="@+id/btn_drafts_delete_all"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
-            android:src="@drawable/ic_delete"
-            android:tint="#FF3B5C"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Delete all drafts"
-            android:visibility="invisible"/>
-    </LinearLayout>
-
-    <!-- Thin brand accent line -->
-    <View
-        android:layout_width="match_parent"
-        android:layout_height="2dp"
-        android:background="@drawable/bg_brand_rounded"/>
-
-    <!-- ── Draft grid ─────────────────────────────────────────────────── -->
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/rv_drafts"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:padding="3dp"
         android:clipToPadding="false"
-        android:overScrollMode="never"
-        android:scrollbars="none"
-        android:visibility="gone"/>
+        android:padding="2dp"/>
 
-    <!-- ── Empty state ────────────────────────────────────────────────── -->
+    <!-- Empty state -->
     <LinearLayout
         android:id="@+id/layout_drafts_empty"
         android:layout_width="match_parent"
@@ -104,48 +34,46 @@
         android:layout_weight="1"
         android:orientation="vertical"
         android:gravity="center"
-        android:padding="40dp"
+        android:padding="32dp"
         android:visibility="gone">
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="📝"
-            android:textSize="64sp"/>
+            android:textSize="56sp"/>
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="20dp"
-            android:text="No Saved Drafts"
-            android:textColor="#FFFFFF"
+            android:layout_marginTop="16dp"
+            android:text="No Drafts"
             android:textSize="20sp"
-            android:textStyle="bold"
-            android:gravity="center"/>
+            android:fontFamily="sans-serif-medium"
+            android:textColor="?attr/colorOnSurface"/>
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:text="Reels you save while editing will appear here. Tap the save icon in the editor to create a draft."
-            android:textColor="#888888"
-            android:textSize="13sp"
+            android:layout_marginTop="8dp"
+            android:text="Reels you save as drafts will appear here."
+            android:textSize="14sp"
             android:gravity="center"
-            android:lineSpacingMultiplier="1.4"/>
+            android:textColor="?attr/colorOnSurfaceVariant"/>
 
         <TextView
             android:id="@+id/btn_create_reel"
             android:layout_width="wrap_content"
             android:layout_height="48dp"
-            android:layout_marginTop="28dp"
-            android:text="+ Create a Reel"
+            android:layout_marginTop="24dp"
+            android:text="Create a Reel"
             android:textColor="#FFFFFF"
-            android:textSize="14sp"
-            android:textStyle="bold"
+            android:textSize="15sp"
+            android:fontFamily="sans-serif-medium"
             android:gravity="center"
-            android:paddingStart="28dp"
-            android:paddingEnd="28dp"
-            android:background="@drawable/bg_btn_primary"/>
+            android:paddingStart="24dp"
+            android:paddingEnd="24dp"
+            android:background="@drawable/gradient_brand"/>
     </LinearLayout>
 
 </LinearLayout>
