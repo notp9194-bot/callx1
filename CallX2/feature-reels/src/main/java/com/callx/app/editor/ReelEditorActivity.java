@@ -39,6 +39,7 @@ import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.ui.PlayerView;
 
 import com.callx.app.reels.R;
+import com.callx.app.library.LocalDraftsManager;
 import com.callx.app.editor.ReelFiltersActivity;
 import com.callx.app.editor.ReelStickerPickerActivity;
 import com.callx.app.editor.ReelSubtitlesActivity;
@@ -207,6 +208,24 @@ public class ReelEditorActivity extends AppCompatActivity {
         videoUriStr = getIntent().getStringExtra(EXTRA_VIDEO_URI);
         isFilePath  = getIntent().getBooleanExtra(EXTRA_IS_FILE_PATH, true);
 
+        // ── Multi-clip mode: first clip used as video, all paths forwarded to upload ──
+        if (getIntent().getBooleanExtra("is_multi_clip", false)) {
+            java.util.ArrayList<String> multiPaths =
+                getIntent().getStringArrayListExtra(
+                    com.callx.app.camera.MultiClipCameraActivity.EXTRA_CLIP_PATHS);
+            if (multiPaths != null && !multiPaths.isEmpty()) {
+                if (videoUriStr == null || videoUriStr.isEmpty()) {
+                    videoUriStr = multiPaths.get(0);
+                    isFilePath  = true;
+                }
+                // Stash all paths as a semicolon-separated extra for ReelUploadActivity
+                getIntent().putExtra("multi_clip_paths_joined",
+                    android.text.TextUtils.join(";", multiPaths));
+                getIntent().putExtra("multi_clip_count",
+                    getIntent().getIntExtra("multi_clip_count", multiPaths.size()));
+            }
+        }
+
         isDuet         = getIntent().getBooleanExtra(EXTRA_IS_DUET, false);
         duetOriginalId = nvl(getIntent().getStringExtra(EXTRA_DUET_ORIGINAL_ID));
         duetOwnerUid   = nvl(getIntent().getStringExtra(EXTRA_DUET_OWNER_UID));
@@ -276,10 +295,9 @@ public class ReelEditorActivity extends AppCompatActivity {
             float eBeauty = getIntent().getFloatExtra(EXTRA_PRESET_EFFECT_BEAUTY,     0f);
             // Apply visually (reuses same tint-overlay system as filters)
             applyFilterVisual(presetEffect, eBright, eCont, eSat);
-            // Tint the Filters toolbar button (there is no separate Effects button in the
-            // toolbar — effects reuse the same filter-overlay system) so user sees it's active
-            if (btnToolFilters != null)
-                btnToolFilters.setColorFilter(android.graphics.Color.argb(200, 91, 91, 246));
+            // Tint the Effects toolbar button purple so user sees it's active
+            if (btnToolEffects != null)
+                btnToolEffects.setColorFilter(android.graphics.Color.argb(200, 91, 91, 246));
         }
 
         // ── Recording speed preset from ReelSpeedControlActivity (via camera) ──
@@ -690,7 +708,7 @@ public class ReelEditorActivity extends AppCompatActivity {
     // ── Listener setup ────────────────────────────────────────────────────
 
     private void setupListeners() {
-        btnBack.setOnClickListener(v -> finish());
+        btnBack.setOnClickListener(v -> handleBackOrSaveDraft());
 
         btnPlayPause.setOnClickListener(v -> {
             if (player != null) {
@@ -796,6 +814,29 @@ public class ReelEditorActivity extends AppCompatActivity {
         if (!preSelectedSoundTitle.isEmpty()) updateBadge("music", "🎵 " + preSelectedSoundTitle);
 
         btnNext.setOnClickListener(v -> proceedToUpload());
+
+        // ── Save Draft button: injected into top bar next to "Next" ─────────
+        // We inject it programmatically to avoid touching the editor XML.
+        View topBar = btnNext.getParent() instanceof View ? (View) btnNext.getParent() : null;
+        if (topBar instanceof android.widget.LinearLayout) {
+            android.widget.LinearLayout bar = (android.widget.LinearLayout) topBar;
+            android.widget.ImageButton btnSaveDraft = new android.widget.ImageButton(this);
+            btnSaveDraft.setImageResource(R.drawable.ic_bookmark);
+            btnSaveDraft.setBackgroundResource(
+                android.R.attr.selectableItemBackgroundBorderless);
+            btnSaveDraft.setColorFilter(0xFFFFFFFF);
+            int padDp = (int)(10 * getResources().getDisplayMetrics().density);
+            btnSaveDraft.setPadding(padDp, padDp, padDp, padDp);
+            int sizeDp = (int)(44 * getResources().getDisplayMetrics().density);
+            android.widget.LinearLayout.LayoutParams saveLp =
+                new android.widget.LinearLayout.LayoutParams(sizeDp, sizeDp);
+            saveLp.setMarginEnd((int)(4 * getResources().getDisplayMetrics().density));
+            // Insert before "Next" button (index = bar.indexOfChild(btnNext))
+            int nextIdx = bar.indexOfChild((View) btnNext);
+            bar.addView(btnSaveDraft, nextIdx, saveLp);
+            btnSaveDraft.setContentDescription("Save draft");
+            btnSaveDraft.setOnClickListener(v2 -> saveDraftLocally(false));
+        }
     }
 
     // ── onActivityResult — store results AND visually apply ───────────────
@@ -1170,6 +1211,72 @@ public class ReelEditorActivity extends AppCompatActivity {
         }
 
         startActivity(intent);
+    }
+
+    // ── Draft saving ──────────────────────────────────────────────────────
+
+    /**
+     * Called when the user taps the back button in the editor.
+     * Shows a "Save Draft?" dialog so work is not accidentally lost.
+     */
+    private void handleBackOrSaveDraft() {
+        // If opened from a draft resumption, skip the prompt and just go back
+        String existingDraftId = getIntent().getStringExtra("draft_id");
+        if (existingDraftId != null && !existingDraftId.isEmpty()) {
+            // Update the draft automatically before leaving
+            saveDraftLocally(true);
+            return;
+        }
+        if (videoUriStr == null || videoUriStr.isEmpty()) {
+            finish();
+            return;
+        }
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Save as Draft?")
+            .setMessage("Save your progress and come back to it later?")
+            .setPositiveButton("Save Draft", (d, w) -> saveDraftLocally(true))
+            .setNegativeButton("Discard",    (d, w) -> finish())
+            .setNeutralButton("Cancel",      null)
+            .show();
+    }
+
+    /**
+     * Saves current editor state as a local draft via LocalDraftsManager.
+     * @param finishAfter If true, calls finish() after saving.
+     */
+    private void saveDraftLocally(boolean finishAfter) {
+        if (videoUriStr == null || videoUriStr.isEmpty()) {
+            if (finishAfter) finish();
+            return;
+        }
+
+        LocalDraftsManager.LocalDraft draft = new LocalDraftsManager.LocalDraft();
+
+        // Restore existing draft ID if editing a draft (so we overwrite rather than duplicate)
+        String existingId = getIntent().getStringExtra("draft_id");
+        if (existingId != null && !existingId.isEmpty()) draft.id = existingId;
+
+        draft.videoPath   = isFilePath ? videoUriStr : "";
+        draft.caption     = "";          // caption is set in upload screen, not editor
+        draft.musicName   = preSelectedSoundTitle;
+        draft.musicUrl    = preSelectedSoundUrl;
+        draft.trimStartMs = trimStartMs;
+        draft.trimEndMs   = trimEndMs;
+        draft.filterName  = filterName  != null ? filterName  : "";
+        draft.durationMs  = videoDurationMs;
+
+        // Save async (thumbnail extracted in background)
+        LocalDraftsManager.saveAsync(this, draft, () ->
+            runOnUiThread(() -> {
+                android.widget.Toast.makeText(this, "Draft saved ✓",
+                    android.widget.Toast.LENGTH_SHORT).show();
+                if (finishAfter) finish();
+            }));
+
+        if (!finishAfter) {
+            android.widget.Toast.makeText(this, "Saving draft…",
+                android.widget.Toast.LENGTH_SHORT).show();
+        }
     }
 
     // ── Utility ───────────────────────────────────────────────────────────
