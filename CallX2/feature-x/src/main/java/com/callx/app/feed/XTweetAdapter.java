@@ -208,7 +208,6 @@ public class XTweetAdapter extends RecyclerView.Adapter<XTweetAdapter.TweetVH> {
             Glide.with(ctx).load(avatarUrl)
                 .apply(new RequestOptions().circleCrop().diskCacheStrategy(DiskCacheStrategy.ALL)
                     .placeholder(R.drawable.ic_person))
-                .override(96, 96)
                 .into(ivAvatar);
             ivAvatar.setOnClickListener(v -> {
                 if (ctx instanceof FragmentActivity)
@@ -500,7 +499,6 @@ public class XTweetAdapter extends RecyclerView.Adapter<XTweetAdapter.TweetVH> {
                 String thumb = isVideo && tweet.thumbnailUrl != null ? tweet.thumbnailUrl : tweet.mediaUrl;
                 Glide.with(ctx).load(thumb)
                     .apply(new RequestOptions().centerCrop().diskCacheStrategy(DiskCacheStrategy.ALL))
-                    .override(720, 720)
                     .into(ivMedia);
                 ivMedia.setOnClickListener(v -> {
                     if (isVideo) {

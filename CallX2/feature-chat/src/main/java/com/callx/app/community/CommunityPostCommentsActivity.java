@@ -133,7 +133,6 @@ public class CommunityPostCommentsActivity extends AppCompatActivity {
             Object photo = c.get("photo");
             if (photo != null && !String.valueOf(photo).isEmpty()) {
                 Glide.with(h.itemView.getContext()).load(String.valueOf(photo))
-                        .override(96, 96)
                         .circleCrop().placeholder(R.drawable.ic_person).into(h.ivAvatar);
             } else {
                 h.ivAvatar.setImageResource(R.drawable.ic_person);

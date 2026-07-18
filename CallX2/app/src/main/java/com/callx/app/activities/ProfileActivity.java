@@ -93,7 +93,6 @@ public class ProfileActivity extends AppCompatActivity {
                         if (!cacheDisplayUrl.isEmpty()) {
                             Glide.with(ProfileActivity.this)
                                 .load(AvatarUrlBuilder.build(ProfileActivity.this, cacheDisplayUrl, 120))
-                    .override(720, 720)
                                 .into(binding.ivAvatar);
                         }
                     });
@@ -133,7 +132,6 @@ public class ProfileActivity extends AppCompatActivity {
                     if (!displayThumb.isEmpty()) {
                         Glide.with(ProfileActivity.this)
                             .load(AvatarUrlBuilder.build(ProfileActivity.this, displayThumb, 120))
-                    .override(720, 720)
                             .into(binding.ivAvatar);
                     }
 
@@ -175,7 +173,6 @@ public class ProfileActivity extends AppCompatActivity {
                     // Profile screen mein bhi thumb dikhao (snap fast)
                     Glide.with(ProfileActivity.this)
                         .load(AvatarUrlBuilder.build(ProfileActivity.this, thumbUrl, 120))
-                    .override(720, 720)
                         .into(binding.ivAvatar);
                 }
 
@@ -193,7 +190,6 @@ public class ProfileActivity extends AppCompatActivity {
                     // Profile screen par full photo reload karo
                     Glide.with(ProfileActivity.this)
                         .load(AvatarUrlBuilder.build(ProfileActivity.this, photoUrl, 120))
-                    .override(720, 720)
                         .into(binding.ivAvatar);
                     Toast.makeText(ProfileActivity.this,
                         "Profile photo update ho gayi", Toast.LENGTH_SHORT).show();

@@ -802,7 +802,6 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
             if (onlineAvatar != null && !onlineAvatar.isEmpty()) {
                 Glide.with(getContext()).load(onlineAvatar)
                     .apply(RequestOptions.circleCropTransform())
-                    .override(96, 96)
                     .placeholder(R.drawable.ic_person).into(iv);
             }
             // Online avatar tap → open bottom sheet for quick call

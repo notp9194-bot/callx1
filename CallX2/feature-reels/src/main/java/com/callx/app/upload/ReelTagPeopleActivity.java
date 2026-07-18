@@ -146,7 +146,6 @@ public class ReelTagPeopleActivity extends AppCompatActivity {
             Contact c=items.get(pos); h.tvName.setText(c.name);
             h.tvUsername.setText(c.username.isEmpty()?"":"@"+c.username);
             h.cbTag.setChecked(sel.contains(c.uid));
-            .override(96, 96)
             if(!c.photo.isEmpty()) Glide.with(h.ivAvatar).load(c.photo).circleCrop().placeholder(R.drawable.ic_person).override(96, 96).into(h.ivAvatar);
             h.itemView.setOnClickListener(v->toggle.accept(c));
         }

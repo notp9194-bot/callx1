@@ -280,7 +280,6 @@ public class ReelPhotoCollageView extends FrameLayout {
                 .apply(new RequestOptions()
                         .diskCacheStrategy(DiskCacheStrategy.ALL)
                         .centerCrop())
-                .override(480, 853)
                 .into(iv);
 
         // Apply colour filter

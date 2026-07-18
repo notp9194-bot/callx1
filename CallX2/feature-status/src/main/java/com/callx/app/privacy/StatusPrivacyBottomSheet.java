@@ -98,7 +98,6 @@ public class StatusPrivacyBottomSheet {
                     new de.hdodenhof.circleimageview.CircleImageView(ctx);
                 int sz = dp(ctx,40);
                 av.setLayoutParams(new LinearLayout.LayoutParams(sz, sz));
-                .override(480, 853)
                 if (photo != null) Glide.with(ctx).load(photo).override(480, 853).into(av);
                 else av.setImageResource(android.R.drawable.ic_menu_my_calendar);
                 TextView tv = new TextView(ctx);

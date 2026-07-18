@@ -193,7 +193,6 @@ public class MutualFollowersActivity extends AppCompatActivity {
             if (!u.photo.isEmpty())
                 Glide.with(MutualFollowersActivity.this).load(u.photo)
                         .apply(RequestOptions.circleCropTransform())
-                        .override(96, 96)
                         .placeholder(R.drawable.ic_person).into(h.ivAvatar);
             else h.ivAvatar.setImageResource(R.drawable.ic_person);
 

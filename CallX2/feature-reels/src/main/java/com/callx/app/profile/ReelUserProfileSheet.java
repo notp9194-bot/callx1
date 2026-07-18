@@ -103,7 +103,6 @@ public class ReelUserProfileSheet {
         if (photoUrl != null && !photoUrl.isEmpty() && ivAvatar != null) {
             Glide.with(activity).load(photoUrl)
                 .apply(RequestOptions.circleCropTransform())
-                .override(240, 240)
                 .placeholder(R.drawable.ic_person).into(ivAvatar);
         }
 
@@ -121,7 +120,6 @@ public class ReelUserProfileSheet {
                         if (ytUrl != null && !ytUrl.isEmpty() && ivAvatar != null) {
                             Glide.with(activity).load(ytUrl)
                                 .apply(RequestOptions.circleCropTransform())
-                                .override(240, 240)
                                 .placeholder(R.drawable.ic_person).into(ivAvatar);
                             // Avatar tap pe YouTube photo zoom
                             final String finalUrl = ytUrl;
@@ -261,7 +259,6 @@ public class ReelUserProfileSheet {
                     if (url != null && !url.isEmpty() && ivAvatar != null)
                         Glide.with(activity).load(url)
                             .apply(RequestOptions.circleCropTransform())
-                            .override(240, 240)
                             .placeholder(R.drawable.ic_person).into(ivAvatar);
                 }
                 @Override public void onCancelled(DatabaseError e) {}

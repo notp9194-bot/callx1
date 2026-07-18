@@ -658,7 +658,6 @@ public class HomeFragment extends Fragment {
         if (reel.ownerPhoto != null && !reel.ownerPhoto.isEmpty()) {
             Glide.with(requireContext()).load(reel.ownerPhoto)
                 .apply(RequestOptions.circleCropTransform())
-                .override(96, 96)
                 .placeholder(R.drawable.ic_person).into(avatar);
         }
 
@@ -946,7 +945,6 @@ public class HomeFragment extends Fragment {
                 if (fromPhoto != null && !fromPhoto.isEmpty()) {
                     Glide.with(requireContext()).load(fromPhoto)
                         .apply(RequestOptions.circleCropTransform())
-                        .override(96, 96)
                         .placeholder(R.drawable.ic_person).into(miniAvatar);
                 }
                 row.addView(miniAvatar);
@@ -1213,7 +1211,6 @@ public class HomeFragment extends Fragment {
             if (!photo.isEmpty()) {
                 Glide.with(requireContext()).load(photo)
                     .apply(RequestOptions.circleCropTransform())
-                    .override(96, 96)
                     .placeholder(R.drawable.ic_person).into(av);
             }
             card.addView(av);

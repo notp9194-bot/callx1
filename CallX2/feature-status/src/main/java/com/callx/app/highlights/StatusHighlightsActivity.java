@@ -98,7 +98,6 @@ public class StatusHighlightsActivity extends AppCompatActivity {
             StatusItem cover = list.get(0);
             String albumName = cover.highlightAlbumName != null ? cover.highlightAlbumName : albumId;
             String url = cover.thumbnailUrl != null ? cover.thumbnailUrl : cover.mediaUrl;
-            .override(480, 853)
             if (url != null && !url.isEmpty()) Glide.with(h.iv).load(url).centerCrop().override(480, 853).into(h.iv);
             else if (cover.bgColor != null) h.iv.setBackgroundColor(android.graphics.Color.parseColor(cover.bgColor));
             h.tvName.setText(albumName);

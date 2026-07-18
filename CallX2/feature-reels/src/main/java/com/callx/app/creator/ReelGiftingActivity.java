@@ -100,7 +100,6 @@ public class ReelGiftingActivity extends AppCompatActivity {
     static class TopAdp extends RecyclerView.Adapter<TopAdp.VH>{
         private final List<TopG> items; TopAdp(List<TopG> i){items=i;}
         @NonNull @Override public VH onCreateViewHolder(@NonNull ViewGroup p,int vt){return new VH(LayoutInflater.from(p.getContext()).inflate(R.layout.item_top_gifter,p,false));}
-        .override(96, 96)
         @Override public void onBindViewHolder(@NonNull VH h,int pos){TopG g=items.get(pos);h.tvRank.setText("#"+g.rank);h.tvName.setText(g.name.isEmpty()?"User":g.name);h.tvCoins.setText(fmt(g.coins)+" coins");if(!g.photo.isEmpty()) Glide.with(h.iv).load(g.photo).circleCrop().placeholder(R.drawable.ic_person).override(96, 96).into(h.iv);}
         @Override public int getItemCount(){return items.size();}
         private static String fmt(long n){if(n>=1000) return String.format("%.1fK",n/1000.0);return String.valueOf(n);}

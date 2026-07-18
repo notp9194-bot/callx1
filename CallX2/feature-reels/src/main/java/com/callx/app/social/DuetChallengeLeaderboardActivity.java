@@ -145,9 +145,7 @@ package com.callx.app.social;
               h.tvName.setText(e.ownerName);
               h.tvLikes.setText(formatCount(e.likes) + " ❤️");
               h.tvViews.setText(formatCount(e.views) + " 👁");
-              .override(720, 720)
               if (!e.thumbUrl.isEmpty()) Glide.with(h.ivThumb).load(e.thumbUrl).centerCrop().override(720, 720).into(h.ivThumb);
-              .override(96, 96)
               if (!e.ownerPhoto.isEmpty()) Glide.with(h.ivAvatar).load(e.ownerPhoto).circleCrop().override(96, 96).into(h.ivAvatar);
               h.itemView.setOnClickListener(v -> onOpen.open(e.reelId));
           }

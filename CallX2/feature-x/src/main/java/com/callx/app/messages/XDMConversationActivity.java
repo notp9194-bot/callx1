@@ -153,7 +153,6 @@ public class XDMConversationActivity extends AppCompatActivity {
         if (tvHandle != null && otherHandle != null) tvHandle.setText("@" + otherHandle);
         if (ivAvatar != null) {
             String url = (otherThumb != null && !otherThumb.isEmpty()) ? otherThumb : otherPhoto;
-            .override(96, 96)
             if (url != null) Glide.with(this).load(url).circleCrop().override(96, 96).into(ivAvatar);
             if (otherUid != null)
                 ivAvatar.setOnClickListener(v ->

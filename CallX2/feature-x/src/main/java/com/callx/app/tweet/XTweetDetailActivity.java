@@ -149,7 +149,6 @@ public class XTweetDetailActivity extends AppCompatActivity {
             Glide.with(this).load(avatarUrl)
                 .apply(new RequestOptions().circleCrop().diskCacheStrategy(DiskCacheStrategy.ALL)
                     .placeholder(R.drawable.ic_person))
-                .override(96, 96)
                 .into(ivAvatar);
             if (rootTweet.authorUid != null)
                 ivAvatar.setOnClickListener(v ->

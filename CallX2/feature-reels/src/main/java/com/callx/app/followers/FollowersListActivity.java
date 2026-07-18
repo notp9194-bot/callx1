@@ -191,7 +191,6 @@ public class FollowersListActivity extends AppCompatActivity {
             if (!u.photo.isEmpty())
                 Glide.with(FollowersListActivity.this).load(u.photo)
                     .apply(RequestOptions.circleCropTransform())
-                    .override(96, 96)
                     .placeholder(R.drawable.ic_person).into(h.ivAvatar);
             else h.ivAvatar.setImageResource(R.drawable.ic_person);
 

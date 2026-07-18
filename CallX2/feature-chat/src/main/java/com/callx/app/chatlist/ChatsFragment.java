@@ -573,7 +573,6 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
                         if (url != null && !url.isEmpty() && getContext() != null && ivAvatar != null)
                             Glide.with(getContext()).load(url)
                                 .apply(RequestOptions.circleCropTransform())
-                                .override(96, 96)
                                 .placeholder(R.drawable.ic_person).into(ivAvatar);
                     }
                     @Override public void onCancelled(DatabaseError e) {}
@@ -970,7 +969,6 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         if (avatarUrl != null && !avatarUrl.isEmpty() && ivAvatar != null) {
             Glide.with(getContext()).load(avatarUrl)
                 .apply(RequestOptions.circleCropTransform())
-                .override(96, 96)
                 .placeholder(R.drawable.ic_person).into(ivAvatar);
         }
 

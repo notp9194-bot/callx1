@@ -405,7 +405,6 @@ public class NotificationCenterActivity extends AppCompatActivity {
                         .apply(RequestOptions.circleCropTransform()
                             .placeholder(R.drawable.circle_avatar_bg)
                             .error(R.drawable.circle_avatar_bg))
-                    .override(96, 96)
                         .into(h.ivAvatar);
                 } else {
                     h.ivAvatar.setImageResource(R.drawable.circle_avatar_bg);
