@@ -242,7 +242,6 @@ public class ReelUploadActivity extends AppCompatActivity {
     /** UIDs mentioned via @Name in the caption — notified after upload. */
     private java.util.ArrayList<String> mentionedUids = new java.util.ArrayList<>();
     private ReelCaptionMentionController uploadMentionController;
-    private androidx.recyclerview.widget.RecyclerView rvMentionSuggestUpload;
 
   
     private int     stitchDurationSec  = 3;
@@ -263,9 +262,8 @@ public class ReelUploadActivity extends AppCompatActivity {
         // ── Instagram-style @mention in caption ──────────────────────────────
         try {
             String _myUid = com.callx.app.utils.FirebaseUtils.getCurrentUid();
-            if (_myUid != null && !_myUid.isEmpty() && etCaption != null && rvMentionSuggestUpload != null) {
-                uploadMentionController = new ReelCaptionMentionController(
-                        etCaption, rvMentionSuggestUpload, _myUid);
+            if (_myUid != null && !_myUid.isEmpty() && etCaption != null) {
+                uploadMentionController = new ReelCaptionMentionController(etCaption, _myUid);
                 uploadMentionController.attach();
             }
         } catch (Exception _ignored) {}
@@ -612,7 +610,6 @@ public class ReelUploadActivity extends AppCompatActivity {
         tvVideoInfo          = findViewById(R.id.tv_video_info);
         tvCompressionSavings = findViewById(R.id.tv_compression_savings);
         etCaption            = findViewById(R.id.et_caption);
-        rvMentionSuggestUpload = findViewById(R.id.rv_mention_suggest_upload);
         etMusic              = findViewById(R.id.et_music);
         btnPostReel          = findViewById(R.id.btn_post_reel);
         chipQuality          = findViewById(R.id.chip_quality);

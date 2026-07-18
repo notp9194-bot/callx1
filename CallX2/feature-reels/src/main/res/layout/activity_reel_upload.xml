@@ -671,16 +671,6 @@
                     style="@style/Widget.Material3.Chip.Filter"/>
             </com.google.android.material.chip.ChipGroup>
 
-            <!-- @Mention suggestion dropdown (shown when user types "@" in caption) -->
-            <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/rv_mention_suggest_upload"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:maxHeight="220dp"
-                android:elevation="8dp"
-                android:background="#1E1E1E"
-                android:visibility="gone"/>
-
             <!-- Caption -->
             <com.google.android.material.textfield.TextInputLayout
                 android:layout_width="match_parent"
