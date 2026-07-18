@@ -1867,7 +1867,7 @@ public class UserReelsActivity extends AppCompatActivity
             .thumbnail(thumbReq)                           // instant low-res (real alag file)
             .circleCrop()
             .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
-            .override(240, 240)
+            .override(720, 720)                            // UserProfileActivity jitni quality, xxxhdpi pe bhi sharp
             .placeholder(R.drawable.ic_person)
             .transition(DrawableTransitionOptions.withCrossFade(200))
             .into(ivAvatar);
