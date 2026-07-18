@@ -26,6 +26,10 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.google.android.material.tabs.TabLayout;
 
 import com.bumptech.glide.Glide;
+import com.bumptech.glide.load.engine.DiskCacheStrategy;
+import com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions;
+import com.bumptech.glide.request.RequestBuilder;
+import android.graphics.drawable.Drawable;
 import com.callx.app.reels.R;
 import com.callx.app.profile.ReelGridAdapter;
 import com.callx.app.profile.AllReelsFullActivity;
@@ -315,9 +319,10 @@ public class UserReelsActivity extends AppCompatActivity
         });
 
         if (targetName  != null) { tvName.setText(targetName); if (tvDisplayName != null) tvDisplayName.setText(targetName); }
-        if (targetPhoto != null && !targetPhoto.isEmpty())
-            Glide.with(this).load(targetPhoto).circleCrop()
-                .placeholder(R.drawable.ic_person).into(ivAvatar);
+        // ── Instagram-style progressive avatar load ──────────────────────────
+        // Step 1: Show thumbUrl instantly (cached), then load HD photoUrl in background.
+        // Disk cache ON → downloaded only once, zero extra data on revisit.
+        loadProfileAvatarInstagramStyle(targetPhoto);
 
         if (btnShareProfile != null) btnShareProfile.setOnClickListener(v -> shareProfile());
 
@@ -1829,6 +1834,40 @@ public class UserReelsActivity extends AppCompatActivity
      * Agar koi platform profile nahi hai to ic_person placeholder rahega.
      * Phir teeno avatars pe loop animation start hoti hai (peek out → hold → peek in → repeat).
      */
+
+    // ── Instagram-style avatar loader ────────────────────────────────────────
+    /**
+     * Progressive loading strategy:
+     *  • Shows thumbUrl (low-res, already cached) as placeholder immediately.
+     *  • Loads photoUrl (HD) in background with crossfade.
+     *  • DiskCacheStrategy.RESOURCE → HD decoded bitmap cached on disk.
+     *    On revisit: no network call, instant full-quality display.
+     *  • override(240,240) → no wasteful 1000 px decode for a 120 dp view.
+     *
+     * Called from setupHeader() with the Intent-passed URL, then overridden
+     * again inside loadAvatarAndStartAnimation() once Firebase returns the
+     * real HD url.
+     */
+    private void loadProfileAvatarInstagramStyle(String photoUrl) {
+        if (ivAvatar == null || photoUrl == null || photoUrl.isEmpty()) return;
+
+        // Thumb = same URL downsampled by Glide override (instant from cache)
+        RequestBuilder<Drawable> thumbnailReq = Glide.with(this)
+            .load(photoUrl)
+            .override(80, 80)
+            .circleCrop();
+
+        Glide.with(this)
+            .load(photoUrl)
+            .thumbnail(thumbnailReq)                       // show low-res instantly
+            .circleCrop()
+            .diskCacheStrategy(DiskCacheStrategy.RESOURCE) // cache decoded bitmap
+            .override(240, 240)                            // 120dp * 2x = sharp on xxhdpi
+            .placeholder(R.drawable.ic_person)
+            .transition(DrawableTransitionOptions.withCrossFade(200))
+            .into(ivAvatar);
+    }
+
     private void loadAvatarAndStartAnimation() {
         if (targetUid == null || isSelf) return;
 
@@ -1841,12 +1880,30 @@ public class UserReelsActivity extends AppCompatActivity
                 @Override public void onDataChange(@NonNull DataSnapshot snap) {
                     String thumb = snap.child("thumbUrl").getValue(String.class);
                     String photo = snap.child("photoUrl").getValue(String.class);
-                    String url = (thumb != null && !thumb.isEmpty()) ? thumb
-                               : (photo != null && !photo.isEmpty()) ? photo : null;
+                    // ── Instagram-style: also update main ivAvatar with HD photo ──
+                    if (ivAvatar != null && photo != null && !photo.isEmpty()) {
+                        final String hdUrl   = photo;
+                        final String thumbUrl = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
+                        RequestBuilder<Drawable> thumbnailReq = Glide.with(UserReelsActivity.this)
+                            .load(thumbUrl).circleCrop();
+                        Glide.with(UserReelsActivity.this)
+                            .load(hdUrl)
+                            .thumbnail(thumbnailReq)
+                            .circleCrop()
+                            .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
+                            .override(240, 240)
+                            .placeholder(R.drawable.ic_person)
+                            .transition(DrawableTransitionOptions.withCrossFade(200))
+                            .into(ivAvatar);
+                    }
+                    // Animation avatar (chat icon) — thumb is fine here (small view)
+                    String url = (photo != null && !photo.isEmpty()) ? photo
+                               : (thumb != null && !thumb.isEmpty()) ? thumb : null;
                     if (ivAnimChat == null) return;
                     if (url != null) {
                         Glide.with(UserReelsActivity.this)
                             .load(url).circleCrop()
+                            .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
                             .placeholder(R.drawable.ic_person)
                             .into(ivAnimChat);
                     }
