@@ -1219,6 +1219,9 @@ public class MainActivity extends AppCompatActivity {
         // "Broadcast List" sirf Chat tab pe visible ho
         android.view.MenuItem broadcast = menu.findItem(R.id.action_broadcast_list);
         if (broadcast != null) broadcast.setVisible(pos == TAB_CHATS);
+        // "Login Screen Preview" sirf Chat tab pe visible ho
+        android.view.MenuItem loginPreview = menu.findItem(R.id.action_preview_login_screen);
+        if (loginPreview != null) loginPreview.setVisible(pos == TAB_CHATS);
         return super.onPrepareOptionsMenu(menu);
     }
 
@@ -1230,6 +1233,14 @@ public class MainActivity extends AppCompatActivity {
         if (id == R.id.action_broadcast_list) {
             startActivity(new Intent(this,
                 com.callx.app.broadcast.BroadcastListsActivity.class));
+            return true;
+        }
+
+        // ── Login Screen Preview (bina logout ke) ───────────────────────────
+        if (id == R.id.action_preview_login_screen) {
+            Intent previewIntent = new Intent(this, AuthActivity.class);
+            previewIntent.putExtra(AuthActivity.EXTRA_PREVIEW_MODE, true);
+            startActivity(previewIntent);
             return true;
         }
 

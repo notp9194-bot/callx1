@@ -35,10 +35,15 @@ import java.util.Map;
 
 public class AuthActivity extends AppCompatActivity {
 
+    /** Pass this extra as true to open AuthActivity in read-only preview mode
+     *  (bina logout ke sirf UI dekhne ke liye). */
+    public static final String EXTRA_PREVIEW_MODE = "preview_mode";
+
     private ActivityAuthBinding binding;
     private FirebaseAuth auth;
     private GoogleSignInClient googleSignInClient;
-    private boolean isLoginMode = true;
+    private boolean isLoginMode    = true;
+    private boolean isPreviewMode  = false;   // ← set true when opened via 3-dot menu
     private Uri pickedAvatarUri = null;
     private ActivityResultLauncher<String> avatarPicker;
     private ActivityResultLauncher<Intent> googleSignInLauncher;
@@ -61,6 +66,13 @@ public class AuthActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         binding = ActivityAuthBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
+
+        // ── Preview Mode: 3-dot menu se khola gaya (logout nahi hoga) ────────
+        isPreviewMode = getIntent().getBooleanExtra(EXTRA_PREVIEW_MODE, false);
+        if (isPreviewMode) {
+            setupPreviewMode();
+            return;   // baaki koi real auth init mat karo
+        }
 
         auth  = FirebaseAuth.getInstance();
         prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
@@ -148,6 +160,74 @@ public class AuthActivity extends AppCompatActivity {
                 if (!isLoginMode) updatePasswordStrength(s.toString());
             }
         });
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    //  PREVIEW MODE — 3-dot menu se khola gaya, koi real action nahi hoga
+    // ══════════════════════════════════════════════════════════════════════
+    private void setupPreviewMode() {
+        // Layout inflate karo (binding chahiye UI dikhane ke liye)
+        // Note: setContentView already ho chuka hai onCreate mein return se pehle
+        // isliye binding ke saath seedha kaam karo
+
+        // ── Hide optional / signup-only fields ────────────────────────────
+        binding.tilName.setVisibility(View.GONE);
+        binding.tilMobile.setVisibility(View.GONE);
+        binding.flAvatarPicker.setVisibility(View.GONE);
+        binding.tvAvatarHint.setVisibility(View.GONE);
+        binding.layoutPasswordStrength.setVisibility(View.GONE);
+        binding.layoutRememberMe.setVisibility(View.VISIBLE);
+        binding.btnBiometricLogin.setVisibility(View.GONE);
+        binding.btnPhone.setVisibility(View.GONE);
+
+        // ── "PREVIEW" banner — screen ke top pe dikhega ───────────────────
+        android.widget.Toast.makeText(this,
+            "👁️  Preview mode — koi action nahi hoga",
+            android.widget.Toast.LENGTH_LONG).show();
+
+        // ActionBar mein "Preview" title + back arrow
+        if (getSupportActionBar() != null) {
+            getSupportActionBar().setDisplayHomeAsUpEnabled(true);
+            getSupportActionBar().setTitle("Login Screen Preview");
+        }
+
+        // ── Sab buttons intercept karo — sirf toast dikhao ───────────────
+        String msg = "Preview mode — actual login nahi hoga";
+        binding.btnLogin.setOnClickListener(v ->
+            Toast.makeText(this, msg, Toast.LENGTH_SHORT).show());
+        binding.btnSignup.setOnClickListener(v ->
+            toggleSignupModePreview());
+        binding.btnGoogle.setOnClickListener(v ->
+            Toast.makeText(this, msg, Toast.LENGTH_SHORT).show());
+        binding.tvForgotPassword.setOnClickListener(v ->
+            Toast.makeText(this, "Preview: Forgot Password dialog", Toast.LENGTH_SHORT).show());
+        binding.flAvatarPicker.setOnClickListener(v ->
+            Toast.makeText(this, msg, Toast.LENGTH_SHORT).show());
+
+        // ── Sample placeholder text (real credentials nahi) ───────────────
+        binding.etEmail.setText("demo@callx.app");
+        binding.etPassword.setText("••••••••");
+    }
+
+    /** Preview mode mein signup/login tab toggle — sirf UI change, koi API call nahi */
+    private void toggleSignupModePreview() {
+        isLoginMode = !isLoginMode;
+        binding.btnLogin.setText(isLoginMode ? "Login" : "Sign Up");
+        binding.btnSignup.setText(isLoginMode ? "Naya account banao" : "Wapas Login pe");
+        int sv = isLoginMode ? View.GONE : View.VISIBLE;
+        binding.tilName.setVisibility(sv);
+        binding.tilMobile.setVisibility(sv);
+        binding.flAvatarPicker.setVisibility(sv);
+        binding.tvAvatarHint.setVisibility(sv);
+        binding.layoutPasswordStrength.setVisibility(sv);
+        binding.layoutRememberMe.setVisibility(isLoginMode ? View.VISIBLE : View.GONE);
+    }
+
+    @Override
+    public boolean onSupportNavigateUp() {
+        // Preview mode mein back arrow se wapas jao
+        if (isPreviewMode) { finish(); return true; }
+        return super.onSupportNavigateUp();
     }
 
     private void toggleSignupMode() {

@@ -12,4 +12,9 @@
         android:title="🗑️ Delete All Chats"
         app:showAsAction="never"/>
 
+    <!-- Login Screen Preview — bina logout ke UI dekho -->
+    <item android:id="@+id/action_preview_login_screen"
+        android:title="🎨 Login Screen Preview"
+        app:showAsAction="never"/>
+
 </menu>
