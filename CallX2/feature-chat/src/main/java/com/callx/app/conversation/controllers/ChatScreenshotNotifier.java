@@ -231,6 +231,7 @@ public class ChatScreenshotNotifier {
                 Glide.with(delegate.getActivity())
                         .load(photo)
                         .placeholder(R.drawable.ic_person)
+                        .override(720, 720)
                         .into(ivAvatar);
             }
         }

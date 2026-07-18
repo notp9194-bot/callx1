@@ -171,7 +171,8 @@ public class RepostWithCaptionActivity extends AppCompatActivity {
         ivThumb.setScaleType(ImageView.ScaleType.CENTER_CROP);
         ivThumb.setLayoutParams(new LinearLayout.LayoutParams(dp(80), dp(120)));
         if (thumbUrl != null && !thumbUrl.isEmpty()) {
-            Glide.with(this).load(thumbUrl).centerCrop().into(ivThumb);
+            .override(720, 720)
+            Glide.with(this).load(thumbUrl).centerCrop().override(720, 720).into(ivThumb);
         }
         // playerView overlaid — thumb is fallback
 
@@ -347,7 +348,8 @@ public class RepostWithCaptionActivity extends AppCompatActivity {
             player.play();
         } catch (Exception e) {
             if (thumbUrl != null && !thumbUrl.isEmpty() && ivThumb != null) {
-                Glide.with(this).load(thumbUrl).centerCrop().into(ivThumb);
+                .override(720, 720)
+                Glide.with(this).load(thumbUrl).centerCrop().override(720, 720).into(ivThumb);
             }
         }
     }

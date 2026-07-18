@@ -76,8 +76,10 @@ package com.callx.app.social;
 
           tvTheirLabel.setText("vs @" + (theirName != null ? theirName : "them"));
 
-          if (myThumb    != null) Glide.with(this).load(myThumb).centerCrop().into(ivMyThumb);
-          if (theirThumb != null) Glide.with(this).load(theirThumb).centerCrop().into(ivTheirThumb);
+          .override(720, 720)
+          if (myThumb    != null) Glide.with(this).load(myThumb).centerCrop().override(720, 720).into(ivMyThumb);
+          .override(720, 720)
+          if (theirThumb != null) Glide.with(this).load(theirThumb).centerCrop().override(720, 720).into(ivTheirThumb);
 
           btnBack.setOnClickListener(v -> finish());
           btnCreateBattle.setOnClickListener(v -> createBattle());

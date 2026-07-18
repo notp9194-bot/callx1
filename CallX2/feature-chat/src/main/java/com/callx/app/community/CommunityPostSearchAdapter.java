@@ -58,6 +58,7 @@ public class CommunityPostSearchAdapter
                 System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS) : "");
         if (p.authorPhoto != null && !p.authorPhoto.isEmpty()) {
             Glide.with(h.ivAvatar.getContext()).load(p.authorPhoto)
+                    .override(96, 96)
                     .circleCrop().placeholder(R.drawable.ic_person).into(h.ivAvatar);
         } else {
             h.ivAvatar.setImageResource(R.drawable.ic_person);

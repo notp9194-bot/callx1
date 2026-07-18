@@ -55,6 +55,7 @@ public class CommunityMemberSearchAdapter
         h.tvRole.setText(roleLabel);
         if (m.photoUrl != null && !m.photoUrl.isEmpty()) {
             Glide.with(h.ivAvatar.getContext()).load(m.photoUrl)
+                    .override(96, 96)
                     .circleCrop().placeholder(R.drawable.ic_person).into(h.ivAvatar);
         } else {
             h.ivAvatar.setImageResource(R.drawable.ic_person);

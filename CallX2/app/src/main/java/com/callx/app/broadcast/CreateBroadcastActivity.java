@@ -19,6 +19,8 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.bumptech.glide.Glide;
+import com.bumptech.glide.load.engine.DiskCacheStrategy;
+import com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions;
 import com.callx.app.R;
 import com.callx.app.utils.FirebaseUtils;
 import com.google.firebase.auth.FirebaseAuth;
@@ -336,6 +338,7 @@ public class CreateBroadcastActivity extends AppCompatActivity {
                         .load(c.photoUrl)
                         .placeholder(R.drawable.ic_person)
                         .circleCrop()
+                    .override(96, 96)
                         .into(h.ivAvatar);
             } else {
                 h.ivAvatar.setImageResource(R.drawable.ic_person);

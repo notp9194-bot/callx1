@@ -114,7 +114,8 @@ public class StatusSeenByBottomSheet {
         int size = dp(ctx,44);
         avatar.setLayoutParams(new LinearLayout.LayoutParams(size, size));
         if (photoUrl != null && !photoUrl.isEmpty()) {
-            Glide.with(ctx).load(photoUrl).into(avatar);
+            .override(480, 853)
+            Glide.with(ctx).load(photoUrl).override(480, 853).into(avatar);
         } else {
             avatar.setImageResource(android.R.drawable.ic_menu_my_calendar);
         }

@@ -8,6 +8,8 @@ import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
 import com.bumptech.glide.Glide;
+import com.bumptech.glide.load.engine.DiskCacheStrategy;
+import com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions;
 import com.callx.app.R;
 import de.hdodenhof.circleimageview.CircleImageView;
 import java.util.ArrayList;
@@ -56,7 +58,8 @@ public class SearchResultAdapter extends RecyclerView.Adapter<SearchResultAdapte
         String avatarUrl = (u.thumbUrl != null && !u.thumbUrl.isEmpty()) ? u.thumbUrl : u.photoUrl;
         if (avatarUrl != null && !avatarUrl.isEmpty()) {
             Glide.with(h.ivAvatar.getContext()).load(avatarUrl)
-                .placeholder(R.drawable.ic_person).circleCrop().into(h.ivAvatar);
+                .placeholder(R.drawable.ic_person).circleCrop()
+                    .override(96, 96).into(h.ivAvatar);
         } else {
             h.ivAvatar.setImageResource(R.drawable.ic_person);
         }

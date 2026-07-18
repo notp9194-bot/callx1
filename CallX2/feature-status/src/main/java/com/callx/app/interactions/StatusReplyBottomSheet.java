@@ -61,7 +61,8 @@ public class StatusReplyBottomSheet {
             thumbBg.setColor(Color.DKGRAY);
             thumb.setBackground(thumbBg);
             String url = item.thumbnailUrl != null ? item.thumbnailUrl : item.mediaUrl;
-            Glide.with(ctx).load(url).centerCrop().into(thumb);
+            .override(480, 853)
+            Glide.with(ctx).load(url).centerCrop().override(480, 853).into(thumb);
             preview.addView(thumb);
         } else {
             TextView typeIcon = new TextView(ctx);

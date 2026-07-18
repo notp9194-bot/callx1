@@ -358,6 +358,7 @@ public class SavedSoundsActivity extends AppCompatActivity {
             }
             if (!item.coverUrl.isEmpty()) {
                 com.bumptech.glide.Glide.with(h.ivCover).load(item.coverUrl)
+                    .override(720, 720)
                     .placeholder(R.drawable.ic_music_note).into(h.ivCover);
             } else {
                 h.ivCover.setImageResource(R.drawable.ic_music_note);

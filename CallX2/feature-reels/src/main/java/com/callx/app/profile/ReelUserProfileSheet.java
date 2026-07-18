@@ -103,6 +103,7 @@ public class ReelUserProfileSheet {
         if (photoUrl != null && !photoUrl.isEmpty() && ivAvatar != null) {
             Glide.with(activity).load(photoUrl)
                 .apply(RequestOptions.circleCropTransform())
+                .override(240, 240)
                 .placeholder(R.drawable.ic_person).into(ivAvatar);
         }
 
@@ -120,6 +121,7 @@ public class ReelUserProfileSheet {
                         if (ytUrl != null && !ytUrl.isEmpty() && ivAvatar != null) {
                             Glide.with(activity).load(ytUrl)
                                 .apply(RequestOptions.circleCropTransform())
+                                .override(240, 240)
                                 .placeholder(R.drawable.ic_person).into(ivAvatar);
                             // Avatar tap pe YouTube photo zoom
                             final String finalUrl = ytUrl;
@@ -259,6 +261,7 @@ public class ReelUserProfileSheet {
                     if (url != null && !url.isEmpty() && ivAvatar != null)
                         Glide.with(activity).load(url)
                             .apply(RequestOptions.circleCropTransform())
+                            .override(240, 240)
                             .placeholder(R.drawable.ic_person).into(ivAvatar);
                 }
                 @Override public void onCancelled(DatabaseError e) {}
@@ -375,6 +378,7 @@ public class ReelUserProfileSheet {
                     String xPhoto = snap.child("photoUrl").getValue(String.class);
                     if (xPhoto != null && !xPhoto.isEmpty() && ivAnimX != null)
                         Glide.with(activity).load(xPhoto).circleCrop()
+                            .override(240, 240)
                             .placeholder(R.drawable.ic_person).into(ivAnimX);
                     startPeekLoop(peekViews, animHandler, animRunning, animRunnable, activity);
 
@@ -434,6 +438,7 @@ public class ReelUserProfileSheet {
                     String rp    = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
                     if (rp != null && !rp.isEmpty() && ivAnimReel != null)
                         Glide.with(activity).load(rp).circleCrop()
+                            .override(240, 240)
                             .placeholder(R.drawable.ic_person).into(ivAnimReel);
 
                     db.getReference("reels/followers").child(partnerUid)
@@ -489,6 +494,7 @@ public class ReelUserProfileSheet {
                     String ya = (yt != null && !yt.isEmpty()) ? yt : yp;
                     if (ya != null && !ya.isEmpty() && ivAnimYt != null)
                         Glide.with(activity).load(ya).circleCrop()
+                            .override(240, 240)
                             .placeholder(R.drawable.ic_person).into(ivAnimYt);
 
                     Long subC = snap.child("subscriberCount").getValue(Long.class);

@@ -86,6 +86,7 @@ public class YouTubeVideoAdapter
 
         Glide.with(ctx).load(video.thumbnailUrl)
             .placeholder(R.drawable.bg_yt_thumb_placeholder)
+            .override(720, 720)
             .centerCrop().into(h.ivThumbnail);
 
         h.tvTitle.setText(video.title);
@@ -95,7 +96,8 @@ public class YouTubeVideoAdapter
         h.tvDuration.setText(formatDuration(video.duration));
 
         if (video.uploaderPhotoUrl != null && !video.uploaderPhotoUrl.isEmpty())
-            Glide.with(ctx).load(video.uploaderPhotoUrl).circleCrop().into(h.ivAvatar);
+            .override(96, 96)
+            Glide.with(ctx).load(video.uploaderPhotoUrl).circleCrop().override(96, 96).into(h.ivAvatar);
         else
             h.ivAvatar.setImageResource(R.drawable.ic_person);
 

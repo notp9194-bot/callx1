@@ -151,6 +151,7 @@ package com.callx.app.profile;
                   ? targetName + "'s Reels" : "All Reels");
           if (ivAvatar != null && targetPhoto != null && !targetPhoto.isEmpty())
               Glide.with(this).load(targetPhoto).circleCrop()
+                  .override(96, 96)
                   .placeholder(R.drawable.ic_person).error(R.drawable.ic_person).into(ivAvatar);
       }
 

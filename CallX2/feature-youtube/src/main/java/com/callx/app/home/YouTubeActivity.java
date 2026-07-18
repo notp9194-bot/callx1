@@ -156,6 +156,7 @@ public class YouTubeActivity extends AppCompatActivity {
                 String photo = snap.child("photoUrl").getValue(String.class);
                 if (photo != null && !photo.isEmpty())
                     Glide.with(YouTubeActivity.this).load(photo)
+                        .override(96, 96)
                         .circleCrop().into(iv);
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}

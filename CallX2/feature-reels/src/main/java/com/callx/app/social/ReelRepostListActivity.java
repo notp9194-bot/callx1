@@ -309,6 +309,7 @@ public class ReelRepostListActivity extends AppCompatActivity {
 
             if (item.photo != null && !item.photo.isEmpty()) {
                 Glide.with(ReelRepostListActivity.this).load(item.photo)
+                    .override(96, 96)
                     .circleCrop().placeholder(R.drawable.ic_person).into(h.ivAvatar);
             } else {
                 h.ivAvatar.setImageResource(R.drawable.ic_person);

@@ -88,6 +88,7 @@ public class CommunityJoinRequestAdapter
 
         if (req.requesterPhoto != null && !req.requesterPhoto.isEmpty()) {
             Glide.with(h.ivAvatar.getContext()).load(req.requesterPhoto)
+                    .override(96, 96)
                     .circleCrop().placeholder(R.drawable.ic_person).into(h.ivAvatar);
         } else {
             h.ivAvatar.setImageResource(R.drawable.ic_person);

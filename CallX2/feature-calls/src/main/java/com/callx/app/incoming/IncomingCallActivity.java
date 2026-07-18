@@ -127,6 +127,7 @@ public class IncomingCallActivity extends AppCompatActivity {
                 .placeholder(com.callx.app.calls.R.drawable.ic_person)
                 .diskCacheStrategy(DiskCacheStrategy.ALL)
                 .circleCrop()
+                .override(96, 96)
                 .into(binding.ivCallerAvatar);
         }
 

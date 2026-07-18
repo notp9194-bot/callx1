@@ -140,7 +140,7 @@ public class XSearchActivity extends AppCompatActivity {
                     Glide.with(this).load(
                         (u.thumbUrl != null && !u.thumbUrl.isEmpty()) ? u.thumbUrl : u.photoUrl
                     ).circleCrop()
-                        .placeholder(R.drawable.ic_person).into(iv);
+                        .placeholder(R.drawable.ic_person).override(96, 96).into(iv);
                     tvName.setText(u.name);
                     tvHandle.setText("@" + u.handle);
                     String uid = u.uid;

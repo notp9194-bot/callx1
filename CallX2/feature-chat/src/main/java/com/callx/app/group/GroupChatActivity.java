@@ -673,6 +673,7 @@ public class GroupChatActivity extends AppCompatActivity
         if (groupPhoto != null && !groupPhoto.isEmpty()) {
             com.bumptech.glide.Glide.with(this).load(groupPhoto)
                     .placeholder(com.callx.app.core.R.drawable.ic_group)
+                    .override(720, 720)
                     .into(binding.ivPartnerAvatar);
         }
 
@@ -3533,6 +3534,7 @@ public class GroupChatActivity extends AppCompatActivity
                  .load(android.net.Uri.parse(uriStr))
                  .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
                  .centerCrop()
+                 .override(720, 720)
                  .into(ivWall);
         }
     }

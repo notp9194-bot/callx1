@@ -569,6 +569,7 @@ public class ReelTrendingAudioActivity extends AppCompatActivity {
                         .load(a.coverUrl)
                         .placeholder(R.drawable.ic_music_note)
                         .centerCrop()
+                        .override(480, 853)
                         .into(h.ivCover);
                 } else {
                     h.ivCover.setImageResource(R.drawable.ic_music_note);

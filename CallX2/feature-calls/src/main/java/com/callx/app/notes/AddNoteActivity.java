@@ -82,6 +82,7 @@ public class AddNoteActivity extends AppCompatActivity {
         if (partnerPhoto != null && !partnerPhoto.isEmpty()) {
             Glide.with(this).load(partnerPhoto).circleCrop()
                 .placeholder(com.callx.app.calls.R.drawable.ic_person)
+                .override(96, 96)
                 .into(binding.ivNotePartnerAvatar);
         }
 

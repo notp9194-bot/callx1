@@ -101,7 +101,8 @@ public class IncomingGroupCallActivity extends AppCompatActivity {
         if (ivGroupIcon != null) {
             String avatarUrl = (groupIcon != null && !groupIcon.isEmpty()) ? groupIcon : callerPhoto;
             if (!avatarUrl.isEmpty()) {
-                Glide.with(this).load(avatarUrl).circleCrop().into(ivGroupIcon);
+                .override(96, 96)
+                Glide.with(this).load(avatarUrl).circleCrop().override(96, 96).into(ivGroupIcon);
             }
         }
 

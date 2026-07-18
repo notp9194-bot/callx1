@@ -12,6 +12,8 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.bumptech.glide.Glide;
+import com.bumptech.glide.load.engine.DiskCacheStrategy;
+import com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions;
 import com.callx.app.R;
 import com.callx.app.utils.FirebaseUtils;
 import com.google.firebase.auth.FirebaseAuth;
@@ -823,6 +825,7 @@ public class AllNotificationsActivity extends AppCompatActivity {
                         .circleCrop()
                         .placeholder(R.drawable.ic_person)
                         .error(R.drawable.ic_person)
+                    .override(96, 96)
                         .into(h.ivAvatar);
                 } else {
                     h.ivAvatar.setImageResource(R.drawable.ic_person);

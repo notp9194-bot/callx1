@@ -161,7 +161,8 @@ public class MultiMediaPreviewDialog {
                         FrameLayout.LayoutParams.MATCH_PARENT));
                 iv.setScaleType(ImageView.ScaleType.CENTER_CROP);
                 iv.setBackgroundColor(0xFF333333);
-                Glide.with(ctx).load(uris.get(pos)).centerCrop().into(iv);
+                .override(720, 720)
+                Glide.with(ctx).load(uris.get(pos)).centerCrop().override(720, 720).into(iv);
                 cell.addView(iv);
 
                 // Number badge (top-left)

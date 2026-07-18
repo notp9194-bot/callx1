@@ -205,10 +205,12 @@ public class ReelFollowingFeedActivity extends AppCompatActivity {
 
             if (!item.thumbUrl.isEmpty()) {
                 Glide.with(h.ivThumb).load(item.thumbUrl)
+                    .override(480, 853)
                     .centerCrop().into(h.ivThumb);
             }
             if (!item.userPhoto.isEmpty()) {
                 Glide.with(h.ivAvatar).load(item.userPhoto)
+                    .override(96, 96)
                     .placeholder(R.drawable.ic_person).circleCrop().into(h.ivAvatar);
             }
         }

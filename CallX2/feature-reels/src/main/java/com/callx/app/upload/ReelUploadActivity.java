@@ -1127,7 +1127,8 @@ public class ReelUploadActivity extends AppCompatActivity {
         ImageView thumb = new ImageView(this);
         thumb.setLayoutParams(new android.widget.FrameLayout.LayoutParams(sizePx, sizePx));
         thumb.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        Glide.with(this).load(uri).centerCrop().into(thumb);
+        .override(480, 853)
+        Glide.with(this).load(uri).centerCrop().override(480, 853).into(thumb);
 
         // Remove button (×) — top-right
         TextView btnRemove = new TextView(this);

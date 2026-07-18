@@ -134,6 +134,7 @@ public class ChatLocationShareController {
             Glide.with(bubbleRoot.getContext())
                     .load(thumbUrl)
                     .placeholder(R.drawable.ic_location_pin)
+                    .override(720, 720)
                     .into(ivMap);
         } else {
             ivMap.setImageResource(R.drawable.ic_location_pin);

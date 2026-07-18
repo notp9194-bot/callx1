@@ -72,6 +72,7 @@ public class ChatProfileCardBinder {
         String avatar = (partnerThumb != null && !partnerThumb.isEmpty()) ? partnerThumb : partnerPhoto;
         if (avatar != null && !avatar.isEmpty()) {
             Glide.with(activity).load(avatar).placeholder(R.drawable.ic_person)
+                    .override(240, 240)
                     .circleCrop().into(binding.ivProfileCardAvatar);
         }
 

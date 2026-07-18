@@ -51,6 +51,7 @@ public class ReelDraftAdapter
                 .load(draft.thumbUrl)
                 .centerCrop()
                 .placeholder(R.drawable.bg_skeleton_rect)
+                .override(480, 853)
                 .into(h.ivThumb);
         } else {
             h.ivThumb.setImageResource(R.drawable.ic_reels);

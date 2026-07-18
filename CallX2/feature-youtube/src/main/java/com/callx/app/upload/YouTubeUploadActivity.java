@@ -119,7 +119,8 @@ public class YouTubeUploadActivity extends AppCompatActivity {
             thumbUri = data.getData();
             Log.d(TAG, "✅ Thumbnail URI select hua: " + thumbUri);
             Toast.makeText(this, "✅ Thumbnail select hua", Toast.LENGTH_SHORT).show();
-            Glide.with(this).load(thumbUri).into(ivThumbPreview);
+            .override(720, 720)
+            Glide.with(this).load(thumbUri).override(720, 720).into(ivThumbPreview);
         }
     }
 

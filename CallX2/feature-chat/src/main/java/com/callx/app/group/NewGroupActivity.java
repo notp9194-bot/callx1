@@ -44,7 +44,8 @@ public class NewGroupActivity extends AppCompatActivity {
             uri -> {
                 if (uri != null) {
                     // Show preview immediately
-                    Glide.with(this).load(uri).circleCrop().into(binding.ivGroupIcon);
+                    .override(96, 96)
+                    Glide.with(this).load(uri).circleCrop().override(96, 96).into(binding.ivGroupIcon);
                     binding.ivGroupIcon.setPadding(0, 0, 0, 0);
                     // Upload to Cloudinary
                     binding.btnCreate.setEnabled(false);

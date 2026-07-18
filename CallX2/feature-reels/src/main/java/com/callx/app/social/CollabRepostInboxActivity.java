@@ -340,6 +340,7 @@ public class CollabRepostInboxActivity extends AppCompatActivity {
             // Avatar
             if (m.initiatorPhoto != null && !m.initiatorPhoto.isEmpty())
                 Glide.with(h.av).load(m.initiatorPhoto).circleCrop()
+                    .override(96, 96)
                     .placeholder(R.drawable.ic_person).into(h.av);
             else h.av.setImageResource(R.drawable.ic_person);
 
@@ -347,7 +348,8 @@ public class CollabRepostInboxActivity extends AppCompatActivity {
 
             // Thumbnail
             if (m.originalThumbUrl != null && !m.originalThumbUrl.isEmpty())
-                Glide.with(h.ivThumb).load(m.originalThumbUrl).centerCrop().into(h.ivThumb);
+                .override(720, 720)
+                Glide.with(h.ivThumb).load(m.originalThumbUrl).centerCrop().override(720, 720).into(h.ivThumb);
             else h.ivThumb.setImageResource(R.drawable.ic_reels);
 
             h.tvOrigCap.setText(m.originalCaption != null && !m.originalCaption.isEmpty()

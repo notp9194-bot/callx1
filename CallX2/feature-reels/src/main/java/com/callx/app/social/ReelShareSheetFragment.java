@@ -311,6 +311,7 @@ public class ReelShareSheetFragment extends BottomSheetDialogFragment
             Glide.with(requireContext())
                     .asBitmap()
                     .load(thumbUrl)
+                    .override(480, 853)
                     .into(new CustomTarget<Bitmap>() {
                         @Override
                         public void onResourceReady(@NonNull Bitmap bitmap,

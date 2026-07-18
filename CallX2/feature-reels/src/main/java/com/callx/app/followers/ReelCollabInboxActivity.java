@@ -275,6 +275,7 @@ public class ReelCollabInboxActivity extends AppCompatActivity {
                     .load(inv.senderPhoto)
                     .placeholder(R.drawable.ic_person)
                     .circleCrop()
+                    .override(96, 96)
                     .into(h.ivSenderAvatar);
             }
 
@@ -283,6 +284,7 @@ public class ReelCollabInboxActivity extends AppCompatActivity {
                     .load(inv.reelThumb)
                     .placeholder(android.R.color.darker_gray)
                     .centerCrop()
+                    .override(480, 853)
                     .into(h.ivReelThumb);
             }
 

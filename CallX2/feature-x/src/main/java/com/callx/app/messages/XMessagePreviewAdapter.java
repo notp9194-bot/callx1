@@ -65,7 +65,7 @@ package com.callx.app.messages;
               Glide.with(ctx).load(
                   (p.otherThumbUrl != null && !p.otherThumbUrl.isEmpty()) ? p.otherThumbUrl : p.otherPhotoUrl
               ).circleCrop()
-                  .placeholder(R.drawable.ic_person).into(ivAvatar);
+                  .placeholder(R.drawable.ic_person).override(96, 96).into(ivAvatar);
               tvName.setText(p.otherName);
               tvHandle.setText("@" + p.otherHandle);
               tvLastMsg.setText(p.lastMessage != null ? p.lastMessage : "");

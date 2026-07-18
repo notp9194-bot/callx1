@@ -17,6 +17,8 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.bumptech.glide.Glide;
+import com.bumptech.glide.load.engine.DiskCacheStrategy;
+import com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions;
 import com.callx.app.R;
 import com.callx.app.db.AppDatabase;
 import com.callx.app.db.entity.MessageEntity;
@@ -206,6 +208,7 @@ public class AllMediaLinksDocsActivity extends AppCompatActivity {
                 .load(url)
                 .centerCrop()
                 .placeholder(R.drawable.ic_gallery)
+                    .override(720, 720)
                 .into(h.ivThumb);
 
             h.ivPlayIcon.setVisibility("video".equals(e.type) ? View.VISIBLE : View.GONE);

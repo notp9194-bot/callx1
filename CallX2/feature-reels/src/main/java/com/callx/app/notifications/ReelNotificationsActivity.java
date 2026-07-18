@@ -476,6 +476,7 @@ import com.callx.app.profile.UserReelsActivity;
               if (item.senderPhoto != null && !item.senderPhoto.isEmpty()) {
                   Glide.with(ReelNotificationsActivity.this).load(item.senderPhoto)
                       .circleCrop()
+                      .override(96, 96)
                       .placeholder(R.drawable.ic_person).into(h.ivAvatar);
               } else if (item.senderUid != null && !item.senderUid.isEmpty()) {
                   h.ivAvatar.setImageResource(R.drawable.ic_person);
@@ -490,6 +491,7 @@ import com.callx.app.profile.UserReelsActivity;
                               item.senderPhoto = url;
                               Glide.with(ReelNotificationsActivity.this).load(url)
                                   .circleCrop()
+                                  .override(96, 96)
                                   .placeholder(R.drawable.ic_person).into(h.ivAvatar);
                           }
                       });

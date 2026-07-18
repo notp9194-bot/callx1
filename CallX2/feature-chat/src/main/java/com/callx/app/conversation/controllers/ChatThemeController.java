@@ -66,6 +66,7 @@ public class ChatThemeController {
                     .load(Uri.parse(uriStr))
                     .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
                     .centerCrop()
+                    .override(720, 720)
                     .into(ivWall);
         }
     }

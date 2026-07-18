@@ -9,6 +9,8 @@ import android.widget.ImageView;
 import android.widget.TextView;
 import androidx.appcompat.app.AppCompatActivity;
 import com.bumptech.glide.Glide;
+import com.bumptech.glide.load.engine.DiskCacheStrategy;
+import com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions;
 import com.callx.app.R;
 import com.callx.app.utils.FirebaseUtils;
 import com.callx.app.utils.PushNotify;
@@ -89,7 +91,8 @@ public class SpecialRequestPopupActivity extends AppCompatActivity {
         // Avatar load — CircleImageView khud clipping karta hai, circleCrop() nahi chahiye
         String popupAvatar = (fromThumb != null && !fromThumb.isEmpty()) ? fromThumb : fromPhoto;
         if (popupAvatar != null && !popupAvatar.isEmpty()) {
-            Glide.with(this).load(popupAvatar).into(iv);
+            Glide.with(this).load(popupAvatar)
+                    .override(720, 720).into(iv);
         } else {
             iv.setImageResource(R.drawable.ic_person);
         }

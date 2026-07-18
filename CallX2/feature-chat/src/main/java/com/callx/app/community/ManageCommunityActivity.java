@@ -85,7 +85,8 @@ public class ManageCommunityActivity extends AppCompatActivity {
         iconPicker = registerForActivityResult(new ActivityResultContracts.GetContent(), uri -> {
             if (uri == null) return;
             pickedIconUri = uri;
-            Glide.with(this).load(uri).circleCrop().into(ivIcon);
+            .override(96, 96)
+            Glide.with(this).load(uri).circleCrop().override(96, 96).into(ivIcon);
         });
         View btnChangeIcon = findViewById(R.id.btn_change_icon);
         if (btnChangeIcon != null) btnChangeIcon.setOnClickListener(v -> iconPicker.launch("image/*"));
@@ -114,6 +115,7 @@ public class ManageCommunityActivity extends AppCompatActivity {
         currentInviteToken = c.inviteToken;
         if (pickedIconUri == null && c.iconUrl != null && !c.iconUrl.isEmpty()) {
             Glide.with(this).load(c.iconUrl).circleCrop()
+                    .override(96, 96)
                     .placeholder(R.drawable.ic_group).into(ivIcon);
         }
         if (etName.getText().length() == 0) etName.setText(c.name);

@@ -307,6 +307,7 @@ public class SoundSearchActivity extends AppCompatActivity {
                     .load(r.coverUrl)
                     .placeholder(R.drawable.ic_music_note)
                     .centerCrop()
+                    .override(720, 720)
                     .into(h.ivCover);
             } else {
                 h.ivCover.setImageResource(R.drawable.ic_music_note);

@@ -344,6 +344,7 @@ public class ReelCreatorDashboardActivity extends AppCompatActivity {
             h.tvLikes.setText(fmt(r.likesCount) + " likes");
             if (r.thumbUrl != null && !r.thumbUrl.isEmpty()) {
                 Glide.with(h.ivThumb).load(r.thumbUrl)
+                    .override(480, 853)
                     .placeholder(android.R.color.darker_gray).into(h.ivThumb);
             }
             h.itemView.setOnClickListener(v -> click.onClick(r));

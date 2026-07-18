@@ -47,9 +47,11 @@ public class YouTubeNotificationAdapter
         h.tvTime.setText(formatAge(n.timestamp));
         h.itemView.setAlpha(n.read ? 0.6f : 1.0f);
         Glide.with(ctx).load(n.fromPhotoUrl).circleCrop()
+            .override(96, 96)
             .placeholder(R.drawable.ic_person).into(h.ivAvatar);
         if (n.thumbnailUrl != null)
-            Glide.with(ctx).load(n.thumbnailUrl).centerCrop().into(h.ivThumb);
+            .override(720, 720)
+            Glide.with(ctx).load(n.thumbnailUrl).centerCrop().override(720, 720).into(h.ivThumb);
         h.itemView.setOnClickListener(v -> { if (listener != null) listener.onClick(n); });
     }
 

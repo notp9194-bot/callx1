@@ -243,7 +243,8 @@ public class XComposeActivity extends AppCompatActivity {
             View btnRemove = thumb.findViewById(R.id.btn_compose_thumb_remove);
             EditText etAlt = thumb.findViewById(R.id.et_compose_alt);
 
-            Glide.with(this).load(uri).centerCrop().into(iv);
+            .override(720, 720)
+            Glide.with(this).load(uri).centerCrop().override(480, 853).into(iv);
             if (btnRemove != null) btnRemove.setOnClickListener(v -> {
                 selectedImageUris.remove(idx);
                 if (idx < imageAltTexts.size()) imageAltTexts.remove(idx);
@@ -393,7 +394,8 @@ public class XComposeActivity extends AppCompatActivity {
                 if (tvTitle != null) tvTitle.setText(preview.title);
                 if (tvDesc  != null) tvDesc.setText(preview.description);
                 if (ivThumb != null && preview.imageUrl != null && !preview.imageUrl.isEmpty())
-                    Glide.with(this).load(preview.imageUrl).centerCrop().into(ivThumb);
+                    .override(720, 720)
+                    Glide.with(this).load(preview.imageUrl).centerCrop().override(480, 853).into(ivThumb);
             });
         });
     }
@@ -414,6 +416,7 @@ public class XComposeActivity extends AppCompatActivity {
                 if (ivAvatar != null) {
                     String url = (myThumbUrl != null && !myThumbUrl.isEmpty()) ? myThumbUrl : myPhotoUrl;
                     Glide.with(XComposeActivity.this).load(url).circleCrop()
+                        .override(96, 96)
                         .placeholder(R.drawable.ic_person).into(ivAvatar);
                 }
             }

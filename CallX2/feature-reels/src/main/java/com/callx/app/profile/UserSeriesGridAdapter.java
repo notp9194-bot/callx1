@@ -79,6 +79,7 @@ package com.callx.app.profile;
                    .load(s.coverThumbUrl)
                    .centerCrop()
                    .placeholder(R.color.brand_primary)
+                   .override(480, 853)
                    .into(h.ivCover);
           } else {
               h.ivCover.setImageResource(R.color.brand_primary);

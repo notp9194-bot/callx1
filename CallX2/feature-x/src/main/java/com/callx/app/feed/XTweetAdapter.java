@@ -208,6 +208,7 @@ public class XTweetAdapter extends RecyclerView.Adapter<XTweetAdapter.TweetVH> {
             Glide.with(ctx).load(avatarUrl)
                 .apply(new RequestOptions().circleCrop().diskCacheStrategy(DiskCacheStrategy.ALL)
                     .placeholder(R.drawable.ic_person))
+                .override(96, 96)
                 .into(ivAvatar);
             ivAvatar.setOnClickListener(v -> {
                 if (ctx instanceof FragmentActivity)
@@ -474,7 +475,8 @@ public class XTweetAdapter extends RecyclerView.Adapter<XTweetAdapter.TweetVH> {
                         lp.columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1, 1f);
                         lp.setMargins(2, 2, 2, 2);
                         img.setLayoutParams(lp);
-                        Glide.with(ctx).load(url).centerCrop().diskCacheStrategy(DiskCacheStrategy.ALL).into(img);
+                        .override(720, 720)
+                        Glide.with(ctx).load(url).centerCrop().diskCacheStrategy(DiskCacheStrategy.ALL).override(480, 853).into(img);
                         final String finalType = type;
                         img.setOnClickListener(v -> {
                             if ("video".equals(finalType)) {
@@ -499,6 +501,7 @@ public class XTweetAdapter extends RecyclerView.Adapter<XTweetAdapter.TweetVH> {
                 String thumb = isVideo && tweet.thumbnailUrl != null ? tweet.thumbnailUrl : tweet.mediaUrl;
                 Glide.with(ctx).load(thumb)
                     .apply(new RequestOptions().centerCrop().diskCacheStrategy(DiskCacheStrategy.ALL))
+                    .override(720, 720)
                     .into(ivMedia);
                 ivMedia.setOnClickListener(v -> {
                     if (isVideo) {
@@ -640,7 +643,8 @@ public class XTweetAdapter extends RecyclerView.Adapter<XTweetAdapter.TweetVH> {
             if (tvLinkDesc != null)   tvLinkDesc.setText(tweet.linkPreviewDesc != null ? tweet.linkPreviewDesc : "");
             if (tvLinkDomain != null) tvLinkDomain.setText(tweet.linkPreviewDomain != null ? tweet.linkPreviewDomain : "");
             if (ivLinkThumb != null && tweet.linkPreviewImageUrl != null && !tweet.linkPreviewImageUrl.isEmpty()) {
-                Glide.with(ctx).load(tweet.linkPreviewImageUrl).centerCrop().into(ivLinkThumb);
+                .override(720, 720)
+                Glide.with(ctx).load(tweet.linkPreviewImageUrl).centerCrop().override(480, 853).into(ivLinkThumb);
             }
             cardLinkPreview.setOnClickListener(v -> {
                 Intent i = new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(tweet.linkPreviewUrl));

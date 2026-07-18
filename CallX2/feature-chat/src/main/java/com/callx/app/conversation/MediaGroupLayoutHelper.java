@@ -407,6 +407,7 @@ public class MediaGroupLayoutHelper {
                 iv.setScaleType(ImageView.ScaleType.CENTER_CROP);
                 iv.setContentDescription(null);
                 Glide.with(ctx).load(thumbUrl).diskCacheStrategy(DiskCacheStrategy.ALL)
+                        .override(720, 720)
                         .centerCrop().placeholder(android.R.color.darker_gray).into(iv);
                 cell.addView(iv);
             } else {
@@ -445,10 +446,12 @@ public class MediaGroupLayoutHelper {
 
             if (cachedFile != null) {
                 // Already downloaded — show the sharp local copy directly.
-                Glide.with(ctx).load(cachedFile).centerCrop().into(iv);
+                .override(720, 720)
+                Glide.with(ctx).load(cachedFile).centerCrop().override(720, 720).into(iv);
             } else {
                 if (!loadThumb.isEmpty()) {
                     Glide.with(ctx).load(loadThumb).diskCacheStrategy(DiskCacheStrategy.ALL)
+                            .override(720, 720)
                             .centerCrop().placeholder(android.R.color.darker_gray).into(iv);
                 } else {
                     cell.setBackgroundColor(0xFF2C2C2C);
@@ -687,7 +690,8 @@ public class MediaGroupLayoutHelper {
                 sDownloadingUrls.remove(url);
                 if (overlay.getParent() == null) return; // cell recycled/removed
                 ((android.view.ViewGroup) overlay.getParent()).removeView(overlay);
-                Glide.with(ctx).load(file).centerCrop().into(iv);
+                .override(720, 720)
+                Glide.with(ctx).load(file).centerCrop().override(720, 720).into(iv);
             }
             @Override public void onError(String reason) {
                 sDownloadingUrls.remove(url);

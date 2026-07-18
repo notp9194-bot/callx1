@@ -174,6 +174,7 @@ public class ReelBookmarkCollectionsActivity extends AppCompatActivity {
             h.tvCount.setText(c.count + " reels");
             if (c.coverThumb != null && !c.coverThumb.isEmpty())
                 com.bumptech.glide.Glide.with(h.ivCover).load(c.coverThumb)
+                    .override(480, 853)
                     .placeholder(android.R.color.darker_gray).centerCrop().into(h.ivCover);
             h.itemView.setOnClickListener(v -> onOpen.run(c));
             h.itemView.setOnLongClickListener(v -> {

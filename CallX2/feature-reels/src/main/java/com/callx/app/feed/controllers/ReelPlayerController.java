@@ -165,6 +165,7 @@ public class ReelPlayerController {
             Glide.with(ctx)
                 .load(reel.thumbUrl)
                 .placeholder(android.R.color.black)
+                .override(480, 853)
                 .into(ivThumb);
         }
 

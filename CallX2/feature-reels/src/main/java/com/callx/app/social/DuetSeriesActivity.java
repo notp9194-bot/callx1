@@ -117,6 +117,7 @@ package com.callx.app.social;
                           Glide.with(DuetSeriesActivity.this)
                                .load(series.coverThumbUrl)
                                .centerCrop()
+                               .override(720, 720)
                                .into(ivSeriesCover);
                       }
                   }

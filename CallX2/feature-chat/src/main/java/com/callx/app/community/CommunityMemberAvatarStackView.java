@@ -82,6 +82,7 @@ public class CommunityMemberAvatarStackView extends View {
             mBitmaps.add(null); // placeholder slot, filled in asynchronously below
             final int index = i;
             Glide.with(getContext()).asBitmap().load(url).circleCrop()
+                    .override(96, 96)
                     .into(new CustomTarget<Bitmap>(size, size) {
                         @Override
                         public void onResourceReady(@androidx.annotation.NonNull Bitmap resource,

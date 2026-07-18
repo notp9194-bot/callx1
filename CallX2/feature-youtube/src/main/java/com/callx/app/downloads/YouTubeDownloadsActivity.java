@@ -188,6 +188,7 @@ public class YouTubeDownloadsActivity extends AppCompatActivity {
                 .load(item.thumbnailUrl)
                 .placeholder(R.drawable.bg_yt_thumb_placeholder)
                 .centerCrop()
+                .override(720, 720)
                 .into(h.ivThumb);
 
             // Play offline

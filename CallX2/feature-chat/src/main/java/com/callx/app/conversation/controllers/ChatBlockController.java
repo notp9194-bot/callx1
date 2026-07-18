@@ -258,9 +258,11 @@ public class ChatBlockController {
         String photo = delegate.getPartnerPhoto();
         String thumb = delegate.getPartnerThumb();
         if (photo != null && !photo.isEmpty()) {
-            com.bumptech.glide.Glide.with(activity).load(photo).into(ivAvatar);
+            .override(720, 720)
+            com.bumptech.glide.Glide.with(activity).load(photo).override(720, 720).into(ivAvatar);
         } else if (thumb != null && !thumb.isEmpty()) {
-            com.bumptech.glide.Glide.with(activity).load(thumb).into(ivAvatar);
+            .override(720, 720)
+            com.bumptech.glide.Glide.with(activity).load(thumb).override(720, 720).into(ivAvatar);
         }
 
         rain.setHappyMode(true);
@@ -361,7 +363,8 @@ public class ChatBlockController {
                 .addOnSuccessListener(photoSnap -> {
                     String url = photoSnap.exists() ? photoSnap.getValue(String.class) : null;
                     if (url != null && !url.isEmpty()) {
-                        com.bumptech.glide.Glide.with(activity).load(url).into(ivBlocker);
+                        .override(720, 720)
+                        com.bumptech.glide.Glide.with(activity).load(url).override(720, 720).into(ivBlocker);
                     }
                 });
 

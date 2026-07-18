@@ -13,6 +13,8 @@ import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
 import com.bumptech.glide.Glide;
+import com.bumptech.glide.load.engine.DiskCacheStrategy;
+import com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions;
 import com.callx.app.R;
 import com.callx.app.databinding.ActivityProfileBinding;
 import com.callx.app.db.AppDatabase;
@@ -91,6 +93,7 @@ public class ProfileActivity extends AppCompatActivity {
                         if (!cacheDisplayUrl.isEmpty()) {
                             Glide.with(ProfileActivity.this)
                                 .load(AvatarUrlBuilder.build(ProfileActivity.this, cacheDisplayUrl, 120))
+                    .override(720, 720)
                                 .into(binding.ivAvatar);
                         }
                     });
@@ -130,6 +133,7 @@ public class ProfileActivity extends AppCompatActivity {
                     if (!displayThumb.isEmpty()) {
                         Glide.with(ProfileActivity.this)
                             .load(AvatarUrlBuilder.build(ProfileActivity.this, displayThumb, 120))
+                    .override(720, 720)
                             .into(binding.ivAvatar);
                     }
 
@@ -171,6 +175,7 @@ public class ProfileActivity extends AppCompatActivity {
                     // Profile screen mein bhi thumb dikhao (snap fast)
                     Glide.with(ProfileActivity.this)
                         .load(AvatarUrlBuilder.build(ProfileActivity.this, thumbUrl, 120))
+                    .override(720, 720)
                         .into(binding.ivAvatar);
                 }
 
@@ -188,6 +193,7 @@ public class ProfileActivity extends AppCompatActivity {
                     // Profile screen par full photo reload karo
                     Glide.with(ProfileActivity.this)
                         .load(AvatarUrlBuilder.build(ProfileActivity.this, photoUrl, 120))
+                    .override(720, 720)
                         .into(binding.ivAvatar);
                     Toast.makeText(ProfileActivity.this,
                         "Profile photo update ho gayi", Toast.LENGTH_SHORT).show();

@@ -252,7 +252,8 @@ public class UserRepostedReelsActivity extends AppCompatActivity {
         @Override public void onBindViewHolder(@NonNull VH h, int pos) {
             RepostedItem item = items.get(pos);
             if (item.thumbUrl != null && !item.thumbUrl.isEmpty())
-                Glide.with(UserRepostedReelsActivity.this).load(item.thumbUrl).centerCrop().into(h.iv);
+                .override(480, 853)
+                Glide.with(UserRepostedReelsActivity.this).load(item.thumbUrl).centerCrop().override(480, 853).into(h.iv);
             else h.iv.setImageResource(R.drawable.ic_reels);
             h.tvTime.setText(relTime(item.repostedAt));
             if (item.caption != null && !item.caption.isEmpty()) {

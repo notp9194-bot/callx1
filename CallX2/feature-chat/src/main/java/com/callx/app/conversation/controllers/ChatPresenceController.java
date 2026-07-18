@@ -596,6 +596,7 @@ public class ChatPresenceController {
             Glide.with(delegate.getActivity())
                     .load(photo)
                     .placeholder(R.drawable.ic_person)
+                    .override(720, 720)
                     .into(binding.ivWatchingAvatar);
         }
 
@@ -757,6 +758,7 @@ public class ChatPresenceController {
                 Glide.with(delegate.getActivity())
                         .load(photo)
                         .placeholder(com.callx.app.chat.R.drawable.ic_person)
+                        .override(720, 720)
                         .into(ivAvatar);
             }
         }

@@ -111,6 +111,7 @@ public class CommunityGroupAdapter extends RecyclerView.Adapter<CommunityGroupAd
                     .circleCrop()
                     .placeholder(R.drawable.ic_group)
                     .error(R.drawable.ic_group)
+                    .override(96, 96)
                     .into(h.ivGroupIcon);
             h.ivGroupIcon.setPadding(0, 0, 0, 0);
         } else {

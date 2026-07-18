@@ -2396,6 +2396,7 @@ public class MessagePagingAdapter
                     cv.setLocationMapBitmap(locPoolHit);
                 } else {
                 glide(ctx).asBitmap().load(thumbUrl).apply(THUMB_RGB565)
+                        .override(720, 720)
                         .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
                             @Override
                             public void onResourceReady(@NonNull Bitmap resource,
@@ -2458,6 +2459,7 @@ public class MessagePagingAdapter
                 } else {
                     // Already on disk — decode first-frame and display immediately.
                     glide(ctx).asBitmap().load(gifCached).apply(THUMB_RGB565)
+                            .override(720, 720)
                             .into(new com.bumptech.glide.request.target.CustomTarget<android.graphics.Bitmap>() {
                                 @Override
                                 public void onResourceReady(@NonNull android.graphics.Bitmap resource,
@@ -2512,6 +2514,7 @@ public class MessagePagingAdapter
                     cv.setStickerBitmap(stickerHit);
                 } else {
                     glide(ctx).asBitmap().load(stickerCached).apply(THUMB_RGB565)
+                            .override(720, 720)
                             .into(new com.bumptech.glide.request.target.CustomTarget<android.graphics.Bitmap>() {
                                 @Override
                                 public void onResourceReady(@NonNull android.graphics.Bitmap resource,
@@ -2894,6 +2897,7 @@ public class MessagePagingAdapter
                             if (h.canvasBindToken != myToken) return;
                             cv.clearMediaDownloadGate();
                             glide(ctx).asBitmap().load(file).apply(THUMB_RGB565)
+                                    .override(720, 720)
                                     .into(new com.bumptech.glide.request.target.CustomTarget<android.graphics.Bitmap>() {
                                         @Override public void onResourceReady(@NonNull android.graphics.Bitmap bmp,
                                                 @Nullable com.bumptech.glide.request.transition.Transition<? super android.graphics.Bitmap> t) {
@@ -4760,7 +4764,8 @@ public class MessagePagingAdapter
         java.io.File cachedFile = com.callx.app.utils.MediaCache.getCached(ctx, fullUrl);
         if (cachedFile != null) {
             h.fl_download_overlay.setVisibility(View.GONE);
-            glide(ctx).load(cachedFile).centerCrop().into(h.ivImage);
+            .override(720, 720)
+            glide(ctx).load(cachedFile).override(480, 480).centerCrop().into(h.ivImage);
             return;
         }
 
@@ -4796,7 +4801,8 @@ public class MessagePagingAdapter
                     downloadingMediaUrls.remove(fullUrl);
                     if (!fullUrl.equals(h.fl_download_overlay.getTag())) return;
                     h.fl_download_overlay.setVisibility(View.GONE);
-                    glide(ctx).load(file).centerCrop().into(h.ivImage);
+                    .override(720, 720)
+                    glide(ctx).load(file).override(480, 480).centerCrop().into(h.ivImage);
                 }
                 @Override public void onError(String reason) {
                     downloadingMediaUrls.remove(fullUrl);

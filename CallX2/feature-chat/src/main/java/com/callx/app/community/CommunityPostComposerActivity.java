@@ -129,7 +129,8 @@ public class CommunityPostComposerActivity extends AppCompatActivity {
                     if (uriStrings == null || uriStrings.isEmpty()) return;
                     pickedMediaUri = Uri.parse(uriStrings.get(0));
                     ivMediaPreview.setVisibility(View.VISIBLE);
-                    Glide.with(this).load(pickedMediaUri).centerCrop().into(ivMediaPreview);
+                    .override(720, 720)
+                    Glide.with(this).load(pickedMediaUri).centerCrop().override(480, 853).into(ivMediaPreview);
                 });
 
         btnAddMedia.setOnClickListener(v -> mediaPicker.launch("image/*,video/*"));

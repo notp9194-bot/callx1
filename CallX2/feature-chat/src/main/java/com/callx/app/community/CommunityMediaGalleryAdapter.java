@@ -71,6 +71,7 @@ public class CommunityMediaGalleryAdapter
                 .load(post.mediaUrl)
                 .centerCrop()
                 .placeholder(R.drawable.ic_photo_library)
+                .override(720, 720)
                 .into(h.ivThumbnail);
 
         boolean isVideo = "video".equals(post.mediaType);

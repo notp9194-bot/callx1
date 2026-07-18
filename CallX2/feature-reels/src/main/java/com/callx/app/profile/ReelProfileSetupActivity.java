@@ -135,14 +135,16 @@ public class ReelProfileSetupActivity extends AppCompatActivity {
             new ReelCloudinaryUtils.AvatarUploadCallback() {
                 @Override public void onThumbReady(String thumbUrl) {
                     pendingThumb = thumbUrl;
-                    Glide.with(ReelProfileSetupActivity.this).load(thumbUrl).into(ivAvatar);
+                    .override(480, 853)
+                    Glide.with(ReelProfileSetupActivity.this).load(thumbUrl).override(480, 853).into(ivAvatar);
                 }
                 @Override public void onFullReady(String photoUrl) {
                     pendingPhoto = photoUrl;
                     if (pbAvatar != null) pbAvatar.setVisibility(View.GONE);
                     avatarUploading = false;
                     updateSaveBtn();
-                    Glide.with(ReelProfileSetupActivity.this).load(photoUrl).into(ivAvatar);
+                    .override(480, 853)
+                    Glide.with(ReelProfileSetupActivity.this).load(photoUrl).override(480, 853).into(ivAvatar);
                 }
                 @Override public void onError(String msg) {
                     if (pbAvatar != null) pbAvatar.setVisibility(View.GONE);
@@ -166,7 +168,8 @@ public class ReelProfileSetupActivity extends AppCompatActivity {
                     if (pbBanner != null) pbBanner.setVisibility(View.GONE);
                     bannerUploading = false;
                     updateSaveBtn();
-                    Glide.with(ReelProfileSetupActivity.this).load(url).into(ivBanner);
+                    .override(480, 853)
+                    Glide.with(ReelProfileSetupActivity.this).load(url).override(480, 853).into(ivBanner);
                 }
                 @Override public void onError(String msg) {
                     if (pbBanner != null) pbBanner.setVisibility(View.GONE);

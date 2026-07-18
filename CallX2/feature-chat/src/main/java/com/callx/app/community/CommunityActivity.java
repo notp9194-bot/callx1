@@ -149,6 +149,7 @@ public class CommunityActivity extends AppCompatActivity {
                     tvGateMemberCount.setText(c.memberCount + (c.memberCount == 1 ? " member" : " members"));
                     if (c.iconUrl != null && !c.iconUrl.isEmpty()) {
                         Glide.with(CommunityActivity.this).load(c.iconUrl).circleCrop()
+                                .override(96, 96)
                                 .placeholder(R.drawable.ic_group).into(ivGateIcon);
                     }
                     if (c.isPrivate) checkPendingThenRenderButton(); else renderJoinButton();
@@ -347,6 +348,7 @@ public class CommunityActivity extends AppCompatActivity {
         tvMemberCount.setText(c.memberCount + (c.memberCount == 1 ? " member" : " members"));
         if (c.iconUrl != null && !c.iconUrl.isEmpty()) {
             Glide.with(this).load(c.iconUrl).circleCrop()
+                    .override(96, 96)
                     .placeholder(R.drawable.ic_group).into(ivIcon);
         }
     }

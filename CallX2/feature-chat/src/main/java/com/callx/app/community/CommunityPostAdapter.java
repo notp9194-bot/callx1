@@ -197,6 +197,7 @@ public class CommunityPostAdapter extends RecyclerView.Adapter<CommunityPostAdap
             Glide.with(cv.getContext()).asBitmap()
                     .load(p.authorPhoto)
                     .apply(avatarRequestOptions(cv.getContext()))
+                    .override(720, 720)
                     .into(h.avatarTarget);
         } else {
             h.avatarTarget = null;
@@ -216,6 +217,7 @@ public class CommunityPostAdapter extends RecyclerView.Adapter<CommunityPostAdap
             Glide.with(cv.getContext()).asBitmap()
                     .load(p.mediaUrl)
                     .apply(mediaRequestOptions(cv.getContext()))
+                    .override(720, 720)
                     .into(h.mediaTarget);
         } else {
             h.mediaTarget = null;

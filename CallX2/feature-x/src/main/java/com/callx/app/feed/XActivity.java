@@ -112,6 +112,7 @@ public class XActivity extends AppCompatActivity {
                 String avatarUrl = (thumbUrl != null && !thumbUrl.isEmpty()) ? thumbUrl : photoUrl;
                 if (avatarUrl != null && !avatarUrl.isEmpty()) {
                     Glide.with(XActivity.this).load(avatarUrl).circleCrop()
+                        .override(96, 96)
                         .placeholder(R.drawable.ic_person).into(iv);
                 }
             }

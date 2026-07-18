@@ -15,6 +15,8 @@ import android.view.View;
 import androidx.annotation.Nullable;
 
 import com.bumptech.glide.Glide;
+import com.bumptech.glide.load.engine.DiskCacheStrategy;
+import com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions;
 import com.bumptech.glide.load.resource.bitmap.CircleCrop;
 import com.bumptech.glide.request.target.CustomTarget;
 import com.bumptech.glide.request.transition.Transition;
@@ -137,6 +139,7 @@ public class MentionRowCanvasView extends View {
                 .asBitmap()
                 .transform(new CircleCrop())
                 .load(url)
+                    .override(720, 720)
                 .into(pendingAvatarTarget);
     }
 

@@ -461,6 +461,7 @@ public class ReelExploreActivity extends AppCompatActivity {
             ReelModel r = list.get(pos);
             if (r.thumbUrl != null && !r.thumbUrl.isEmpty()) {
                 com.bumptech.glide.Glide.with(h.iv).load(r.thumbUrl)
+                    .override(480, 853)
                     .placeholder(android.R.color.darker_gray).into(h.iv);
             } else {
                 h.iv.setImageResource(android.R.color.darker_gray);
@@ -564,6 +565,7 @@ public class ReelExploreActivity extends AppCompatActivity {
             ImageView iv = h.ll.findViewWithTag("cover");
             if (!cover.isEmpty()) {
                 com.bumptech.glide.Glide.with(iv).load(cover)
+                    .override(480, 853)
                     .centerCrop().placeholder(android.R.color.darker_gray).into(iv);
             }
             h.ll.setOnClickListener(v -> click.onClick(item));
@@ -622,6 +624,7 @@ public class ReelExploreActivity extends AppCompatActivity {
             de.hdodenhof.circleimageview.CircleImageView iv = h.ll.findViewWithTag("avatar");
             if (c[2] != null && !c[2].isEmpty())
                 com.bumptech.glide.Glide.with(iv).load(c[2])
+                    .override(480, 853)
                     .placeholder(R.drawable.ic_person).into(iv);
             h.ll.setOnClickListener(v -> click.onClick(c[0]));
         }

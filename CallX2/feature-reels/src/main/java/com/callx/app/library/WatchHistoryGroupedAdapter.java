@@ -185,6 +185,7 @@ public class WatchHistoryGroupedAdapter extends RecyclerView.Adapter<RecyclerVie
                 .load(item.thumbUrl)
                 .placeholder(R.drawable.bg_reel_comment_btn)
                 .centerCrop()
+                .override(720, 720)
                 .into(ivThumb);
 
             // Avatar
@@ -192,6 +193,7 @@ public class WatchHistoryGroupedAdapter extends RecyclerView.Adapter<RecyclerVie
                 .load(item.ownerPhoto)
                 .placeholder(R.drawable.ic_person)
                 .circleCrop()
+                .override(96, 96)
                 .into(ivAvatar);
 
             // Text

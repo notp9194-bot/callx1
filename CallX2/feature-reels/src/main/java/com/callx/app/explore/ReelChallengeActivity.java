@@ -237,6 +237,7 @@ public class ReelChallengeActivity extends AppCompatActivity {
 
         if (!c.bannerUrl.isEmpty()) {
             Glide.with(ivFeaturedBanner).load(c.bannerUrl)
+                .override(480, 853)
                 .centerCrop().into(ivFeaturedBanner);
         }
         btnJoinFeatured.setOnClickListener(v -> joinChallenge(c));
@@ -355,6 +356,7 @@ public class ReelChallengeActivity extends AppCompatActivity {
 
             if (c.bannerUrl != null && !c.bannerUrl.isEmpty()) {
                 Glide.with(h.ivBanner).load(c.bannerUrl)
+                    .override(480, 853)
                     .centerCrop().into(h.ivBanner);
             }
             h.btnJoin.setOnClickListener(v -> join.onAction(c));

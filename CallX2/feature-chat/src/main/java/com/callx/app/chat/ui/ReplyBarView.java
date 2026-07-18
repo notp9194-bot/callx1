@@ -61,7 +61,8 @@ public class ReplyBarView extends LinearLayout {
             String thumbUrl = stateManager.getReplyThumbnailUrl();
             if (thumbUrl != null && !thumbUrl.isEmpty()) {
                 ivThumbnail.setVisibility(VISIBLE);
-                Glide.with(getContext()).load(thumbUrl).apply(REPLY_THUMB_OPTS).centerCrop().into(ivThumbnail);
+                .override(720, 720)
+                Glide.with(getContext()).load(thumbUrl).apply(REPLY_THUMB_OPTS).centerCrop().override(720, 720).into(ivThumbnail);
             } else {
                 ivThumbnail.setVisibility(GONE);
             }
@@ -75,7 +76,8 @@ public class ReplyBarView extends LinearLayout {
         if (ivThumbnail  != null) {
             if (thumbUrl != null && !thumbUrl.isEmpty()) {
                 ivThumbnail.setVisibility(VISIBLE);
-                Glide.with(getContext()).load(thumbUrl).apply(REPLY_THUMB_OPTS).centerCrop().into(ivThumbnail);
+                .override(720, 720)
+                Glide.with(getContext()).load(thumbUrl).apply(REPLY_THUMB_OPTS).centerCrop().override(720, 720).into(ivThumbnail);
             } else {
                 ivThumbnail.setVisibility(GONE);
             }

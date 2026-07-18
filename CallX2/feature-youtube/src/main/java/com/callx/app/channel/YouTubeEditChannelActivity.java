@@ -65,9 +65,11 @@ public class YouTubeEditChannelActivity extends AppCompatActivity {
                     existingAvatar = snap.child("photoUrl").getValue(String.class);
                     existingBanner = snap.child("bannerUrl").getValue(String.class);
                     Glide.with(YouTubeEditChannelActivity.this).load(existingAvatar)
+                        .override(96, 96)
                         .circleCrop().into(ivAvatar);
                     if (existingBanner != null)
                         Glide.with(YouTubeEditChannelActivity.this).load(existingBanner)
+                            .override(720, 720)
                             .centerCrop().into(ivBanner);
                 }
                 @Override public void onCancelled(com.google.firebase.database.DatabaseError e) {}
@@ -81,10 +83,12 @@ public class YouTubeEditChannelActivity extends AppCompatActivity {
         if (res != RESULT_OK || data == null) return;
         if (req == REQ_AVATAR) {
             avatarUri = data.getData();
-            Glide.with(this).load(avatarUri).circleCrop().into(ivAvatar);
+            .override(96, 96)
+            Glide.with(this).load(avatarUri).circleCrop().override(96, 96).into(ivAvatar);
         } else if (req == REQ_BANNER) {
             bannerUri = data.getData();
-            Glide.with(this).load(bannerUri).centerCrop().into(ivBanner);
+            .override(720, 720)
+            Glide.with(this).load(bannerUri).centerCrop().override(720, 720).into(ivBanner);
         }
     }
 

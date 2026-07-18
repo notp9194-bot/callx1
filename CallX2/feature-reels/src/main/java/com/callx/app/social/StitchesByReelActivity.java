@@ -286,6 +286,7 @@ public class StitchesByReelActivity extends AppCompatActivity {
                 .load(reel.thumbUrl != null ? reel.thumbUrl : reel.thumbnailUrl)
                 .centerCrop()
                 .placeholder(R.drawable.bg_skeleton_rect)
+                .override(480, 853)
                 .into(h.thumbnail);
 
             h.tvCreator.setText(reel.ownerName != null ? "@" + reel.ownerName : "");

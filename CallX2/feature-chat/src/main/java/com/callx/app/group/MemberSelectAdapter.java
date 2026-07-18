@@ -28,7 +28,8 @@ public class MemberSelectAdapter
         h.tvName.setText(u.name == null ? "User" : u.name);
         String avatarUrl = (u.thumbUrl != null && !u.thumbUrl.isEmpty()) ? u.thumbUrl : u.photoUrl;
         if (avatarUrl != null && !avatarUrl.isEmpty()) {
-            Glide.with(h.itemView.getContext()).load(avatarUrl).circleCrop().into(h.ivAvatar);
+            .override(96, 96)
+            Glide.with(h.itemView.getContext()).load(avatarUrl).circleCrop().override(96, 96).into(h.ivAvatar);
         } else h.ivAvatar.setImageResource(R.drawable.ic_person);
         h.cb.setOnCheckedChangeListener(null);
         h.cb.setChecked(selected.contains(u.uid));

@@ -133,6 +133,7 @@ public class CallHistoryAdapter extends RecyclerView.Adapter<CallHistoryAdapter.
                     Glide.with(ctx).load(cached)
                         .apply(RequestOptions.circleCropTransform())
                         .placeholder(R.drawable.ic_person)
+                        .override(96, 96)
                         .into(h.ivAvatar);
             } else if (l.partnerPhoto != null && !l.partnerPhoto.isEmpty()) {
                 // Priority 2: Room cache se photo — instant, no network needed
@@ -140,6 +141,7 @@ public class CallHistoryAdapter extends RecyclerView.Adapter<CallHistoryAdapter.
                 Glide.with(ctx).load(l.partnerPhoto)
                     .apply(RequestOptions.circleCropTransform())
                     .placeholder(R.drawable.ic_person)
+                    .override(96, 96)
                     .into(h.ivAvatar);
             } else {
                 // Priority 3: Firebase se fetch (sirf tab jab Room mein bhi nahi)
@@ -157,6 +159,7 @@ public class CallHistoryAdapter extends RecyclerView.Adapter<CallHistoryAdapter.
                                 Glide.with(ctx).load(callAvatar)
                                     .apply(RequestOptions.circleCropTransform())
                                     .placeholder(R.drawable.ic_person)
+                                    .override(96, 96)
                                     .into(h.ivAvatar);
                         }
                         @Override public void onCancelled(DatabaseError e) {}

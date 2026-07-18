@@ -201,9 +201,11 @@ public class CallActivity extends AppCompatActivity {
         String callAvatarUrl = (partnerThumb != null && !partnerThumb.isEmpty())
             ? partnerThumb : partnerPhoto;
         if (callAvatarUrl != null && !callAvatarUrl.isEmpty()) {
-            Glide.with(this).load(callAvatarUrl).circleCrop().into(binding.ivCallAvatar);
+            .override(96, 96)
+            Glide.with(this).load(callAvatarUrl).circleCrop().override(96, 96).into(binding.ivCallAvatar);
             if (binding.ivRemoteCamOffAvatar != null)
                 Glide.with(this).load(callAvatarUrl).circleCrop()
+                    .override(96, 96)
                     .into(binding.ivRemoteCamOffAvatar);
         }
 

@@ -57,6 +57,7 @@ public class WatchHistoryAdapter extends RecyclerView.Adapter<WatchHistoryAdapte
             .load(item.thumbUrl)
             .placeholder(R.drawable.bg_reel_comment_btn)
             .centerCrop()
+            .override(720, 720)
             .into(h.ivThumb);
 
         // Avatar
@@ -64,6 +65,7 @@ public class WatchHistoryAdapter extends RecyclerView.Adapter<WatchHistoryAdapte
             .load(item.ownerPhoto)
             .placeholder(R.drawable.ic_person)
             .circleCrop()
+            .override(96, 96)
             .into(h.ivAvatar);
 
         // Text

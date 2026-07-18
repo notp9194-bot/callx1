@@ -420,6 +420,7 @@ public class HomeFragment extends Fragment {
                 Glide.with(requireContext()).load(entry.photo)
                     .apply(RequestOptions.circleCropTransform())
                     .placeholder(R.drawable.ic_person)
+                    .override(96, 96)
                     .into(avatar);
             }
 
@@ -651,11 +652,13 @@ public class HomeFragment extends Fragment {
 
         if (reel.thumbUrl != null && !reel.thumbUrl.isEmpty()) {
             Glide.with(requireContext()).load(reel.thumbUrl)
+                .override(720, 720)
                 .centerCrop().placeholder(R.drawable.ic_reels).into(ivThumb);
         }
         if (reel.ownerPhoto != null && !reel.ownerPhoto.isEmpty()) {
             Glide.with(requireContext()).load(reel.ownerPhoto)
                 .apply(RequestOptions.circleCropTransform())
+                .override(96, 96)
                 .placeholder(R.drawable.ic_person).into(avatar);
         }
 
@@ -835,7 +838,8 @@ public class HomeFragment extends Fragment {
                 tvOwner.setText(reel.ownerName != null ? "@" + reel.ownerName : "@user");
 
                 if (reel.thumbUrl != null && !reel.thumbUrl.isEmpty()) {
-                    Glide.with(requireContext()).load(reel.thumbUrl).centerCrop().into(thumb);
+                    .override(720, 720)
+                    Glide.with(requireContext()).load(reel.thumbUrl).centerCrop().override(720, 720).into(thumb);
                 }
 
                 // ✅ Open specific reel in the player (not just showReelFeed)
@@ -943,6 +947,7 @@ public class HomeFragment extends Fragment {
                 if (fromPhoto != null && !fromPhoto.isEmpty()) {
                     Glide.with(requireContext()).load(fromPhoto)
                         .apply(RequestOptions.circleCropTransform())
+                        .override(96, 96)
                         .placeholder(R.drawable.ic_person).into(miniAvatar);
                 }
                 row.addView(miniAvatar);
@@ -1069,7 +1074,8 @@ public class HomeFragment extends Fragment {
             tvOwner.setText(reel.ownerName != null ? "@" + reel.ownerName : "@user");
 
             if (reel.thumbUrl != null && !reel.thumbUrl.isEmpty()) {
-                Glide.with(requireContext()).load(reel.thumbUrl).centerCrop().into(ivThumb);
+                .override(720, 720)
+                Glide.with(requireContext()).load(reel.thumbUrl).centerCrop().override(720, 720).into(ivThumb);
             }
 
             final String reelId = reel.reelId;
@@ -1209,6 +1215,7 @@ public class HomeFragment extends Fragment {
             if (!photo.isEmpty()) {
                 Glide.with(requireContext()).load(photo)
                     .apply(RequestOptions.circleCropTransform())
+                    .override(96, 96)
                     .placeholder(R.drawable.ic_person).into(av);
             }
             card.addView(av);
@@ -1315,6 +1322,7 @@ public class HomeFragment extends Fragment {
                     Glide.with(requireContext()).load(url)
                         .apply(RequestOptions.circleCropTransform())
                         .placeholder(R.drawable.ic_person)
+                        .override(96, 96)
                         .into(ivMyStoryAvatar);
                 }
             }

@@ -185,6 +185,7 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
             Glide.with(getContext()).load(resolvedPhoto)
                 .apply(RequestOptions.circleCropTransform())
                 .placeholder(R.drawable.ic_person)
+                .override(96, 96)
                 .into(ivAvatar);
         }
 
@@ -217,6 +218,7 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
                             Glide.with(getContext()).load(url)
                                 .apply(RequestOptions.circleCropTransform())
                                 .placeholder(R.drawable.ic_person)
+                                .override(96, 96)
                                 .into(ivAvatar);
                     }
                     @Override public void onCancelled(DatabaseError e) {}
@@ -361,6 +363,7 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
                     String xPhoto = snap.child("photoUrl").getValue(String.class);
                     if (xPhoto != null && !xPhoto.isEmpty() && ivAnimX != null) {
                         Glide.with(getContext()).load(xPhoto)
+                            .override(96, 96)
                             .circleCrop().placeholder(R.drawable.ic_person).into(ivAnimX);
                     }
                     // Start loop after first (X) avatar loads — others load in background
@@ -442,6 +445,7 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
                     if (reelPhoto != null && !reelPhoto.isEmpty() && ivAnimReel != null) {
                         // Visibility managed by peek loop
                         Glide.with(getContext()).load(reelPhoto)
+                            .override(96, 96)
                             .circleCrop().placeholder(R.drawable.ic_person).into(ivAnimReel);
                     }
 
@@ -505,6 +509,7 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
                     if (ytAvatar != null && !ytAvatar.isEmpty() && ivAnimYt != null) {
                         // Visibility managed by peek loop
                         Glide.with(getContext()).load(ytAvatar)
+                            .override(96, 96)
                             .circleCrop().placeholder(R.drawable.ic_person).into(ivAnimYt);
                     }
 
@@ -797,6 +802,7 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
             if (onlineAvatar != null && !onlineAvatar.isEmpty()) {
                 Glide.with(getContext()).load(onlineAvatar)
                     .apply(RequestOptions.circleCropTransform())
+                    .override(96, 96)
                     .placeholder(R.drawable.ic_person).into(iv);
             }
             // Online avatar tap → open bottom sheet for quick call
@@ -982,6 +988,7 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
             Glide.with(getContext()).load(resolvedPhoto)
                 .apply(RequestOptions.circleCropTransform())
                 .placeholder(R.drawable.ic_person)
+                .override(96, 96)
                 .into(ivAvatar);
         }
 

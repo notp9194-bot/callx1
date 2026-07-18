@@ -11,6 +11,8 @@ import android.widget.Toast;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import com.bumptech.glide.Glide;
+import com.bumptech.glide.load.engine.DiskCacheStrategy;
+import com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions;
 import com.callx.app.R;
 import com.callx.app.databinding.ActivityAccountMenuBinding;
 import com.callx.app.utils.BiometricLoginManager;
@@ -59,10 +61,12 @@ public class AccountMenuActivity extends AppCompatActivity {
                 binding.tvCallxId.setText("ID: " + (myCallxId.isEmpty() ? "—" : myCallxId));
                 String profileAvatar = thumb.isEmpty() ? photo : thumb;
                 if (!profileAvatar.isEmpty()) Glide.with(AccountMenuActivity.this).load(profileAvatar).circleCrop()
-                    .placeholder(R.drawable.ic_person).into(binding.ivProfileAvatar);
+                    .placeholder(R.drawable.ic_person)
+                    .override(240, 240).into(binding.ivProfileAvatar);
                 String headerImg = thumb.isEmpty() ? photo : thumb;
                 if (!headerImg.isEmpty()) Glide.with(AccountMenuActivity.this).load(headerImg).circleCrop()
-                    .placeholder(R.drawable.ic_person).into(binding.ivHeaderAvatar);
+                    .placeholder(R.drawable.ic_person)
+                    .override(240, 240).into(binding.ivHeaderAvatar);
             }
             @Override public void onCancelled(DatabaseError e) {}
         });

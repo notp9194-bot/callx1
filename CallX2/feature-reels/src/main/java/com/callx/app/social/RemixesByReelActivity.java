@@ -132,12 +132,14 @@ public class RemixesByReelActivity extends AppCompatActivity {
             if (m.remixThumbUrl != null && !m.remixThumbUrl.isEmpty()) {
                 Glide.with(h.ivThumb).load(m.remixThumbUrl)
                     .placeholder(R.drawable.bg_reel_comment_btn)
+                    .override(480, 853)
                     .into(h.ivThumb);
             }
 
             Glide.with(h.ivAvatar).load(m.remixerPhoto)
                 .placeholder(R.drawable.ic_person)
                 .circleCrop()
+                .override(96, 96)
                 .into(h.ivAvatar);
 
             h.itemView.setOnClickListener(v -> {

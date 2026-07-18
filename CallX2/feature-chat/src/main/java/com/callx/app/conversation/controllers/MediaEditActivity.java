@@ -767,7 +767,8 @@ public class MediaEditActivity extends AppCompatActivity {
                     thumbStripContent, false);
             ImageView iv = thumb.findViewById(R.id.ivThumb);
             if (iv != null) {
-                Glide.with(this).load(st.effectiveUri()).centerCrop().into(iv);
+                .override(720, 720)
+                Glide.with(this).load(st.effectiveUri()).centerCrop().override(720, 720).into(iv);
             }
             // Video badge
             View badge = thumb.findViewById(R.id.ivVideoBadge);
@@ -863,7 +864,8 @@ public class MediaEditActivity extends AppCompatActivity {
         // Load preview
         if (isVideo) {
             // Glide thumbnail from video
-            Glide.with(this).load(st.effectiveUri()).into(ivPreview);
+            .override(720, 720)
+            Glide.with(this).load(st.effectiveUri()).override(720, 720).into(ivPreview);
         } else {
             // Image — apply filter via ColorMatrix
             loadImageWithFilter(st);
@@ -945,7 +947,8 @@ public class MediaEditActivity extends AppCompatActivity {
             } catch (Exception e) {
                 runOnUiThread(() -> {
                     if (myGeneration != previewLoadGeneration) return;
-                    Glide.with(this).load(st.effectiveUri()).into(ivPreview);
+                    .override(720, 720)
+                    Glide.with(this).load(st.effectiveUri()).override(720, 720).into(ivPreview);
                 });
             }
         });

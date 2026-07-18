@@ -105,7 +105,8 @@ public class YouTubeVideoOptionsSheet extends BottomSheetDialogFragment {
         tvTitle.setText(title);
         tvChan.setText(channel);
         if (thumbUrl != null && !thumbUrl.isEmpty())
-            Glide.with(this).load(thumbUrl).centerCrop().into(ivThumb);
+            .override(720, 720)
+            Glide.with(this).load(thumbUrl).centerCrop().override(720, 720).into(ivThumb);
 
         // ── Owner-only: Delete option ──────────────────────────────────────
         LinearLayout btnDelete = view.findViewById(R.id.btn_yt_option_delete);

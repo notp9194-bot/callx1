@@ -184,6 +184,7 @@ public class ChatGifPickerActivity extends AppCompatActivity {
                 .load(item.previewUrl)
                 .diskCacheStrategy(DiskCacheStrategy.ALL)
                 .centerCrop()
+                .override(720, 720)
                 .into(h.iv);
             h.iv.setOnClickListener(v -> click.onClick(item));
         }

@@ -34,6 +34,7 @@ public final class GlideLoader {
             Glide.with(ctx).load(url)
                 .placeholder(placeholderRes)
                 .error(errorRes)
+                .override(720, 720)
                 .into(target);
         } else {
             target.setImageResource(placeholderRes);
@@ -50,6 +51,7 @@ public final class GlideLoader {
                 .circleCrop()
                 .placeholder(placeholderRes)
                 .error(errorRes)
+                .override(96, 96)
                 .into(target);
         } else {
             target.setImageResource(placeholderRes);

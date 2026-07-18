@@ -111,6 +111,7 @@ public class ViewOnceViewerActivity extends AppCompatActivity {
                 .load(mediaUrl)
                 .skipMemoryCache(true)
                 .diskCacheStrategy(DiskCacheStrategy.NONE)
+                .override(720, 720)
                 .into(ivImage);
     }
 

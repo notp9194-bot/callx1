@@ -131,6 +131,7 @@ public class ReelVideoReplyActivity extends AppCompatActivity {
             Glide.with(this).load(commenterPhoto)
                 .apply(RequestOptions.circleCropTransform())
                 .placeholder(R.drawable.ic_person)
+                .override(96, 96)
                 .into(ivCommenterAvatar);
         }
     }

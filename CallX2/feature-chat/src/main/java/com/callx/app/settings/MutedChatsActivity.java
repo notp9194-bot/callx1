@@ -236,6 +236,7 @@ import com.callx.app.conversation.ChatActivity;
               h.tvName.setText(mc.name);
               if (mc.photo != null && !mc.photo.isEmpty())
                   Glide.with(MutedChatsActivity.this).load(mc.photo)
+                      .override(720, 720)
                       .placeholder(R.drawable.ic_person).into(h.avatar);
               else h.avatar.setImageResource(R.drawable.ic_person);
               h.btnUnmute.setOnClickListener(v -> unmute(mc.uid));

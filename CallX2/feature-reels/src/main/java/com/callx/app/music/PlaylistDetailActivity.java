@@ -295,6 +295,7 @@ public class PlaylistDetailActivity extends AppCompatActivity {
             h.tvArtist.setText(s.artist.isEmpty() ? "Original Audio" : s.artist);
             if (!s.coverUrl.isEmpty()) {
                 com.bumptech.glide.Glide.with(h.ivCover).load(s.coverUrl)
+                    .override(720, 720)
                     .placeholder(R.drawable.ic_music_note).centerCrop().into(h.ivCover);
             } else {
                 h.ivCover.setImageResource(R.drawable.ic_music_note);

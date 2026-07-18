@@ -21,6 +21,8 @@ import androidx.fragment.app.FragmentManager;
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.bumptech.glide.Glide;
+import com.bumptech.glide.load.engine.DiskCacheStrategy;
+import com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions;
 import com.callx.app.R;
 import com.callx.app.databinding.ActivityUserProfileBinding;
 import com.callx.app.utils.FirebaseUtils;
@@ -106,6 +108,7 @@ public class UserProfileActivity extends AppCompatActivity {
                 .load(partnerPhoto)
                 .placeholder(R.drawable.ic_person)
                 .error(R.drawable.ic_person)
+                    .override(720, 720)
                 .into(binding.ivAvatarLarge);
         }
 
@@ -191,6 +194,7 @@ public class UserProfileActivity extends AppCompatActivity {
                         .load(avatarUrl)
                         .placeholder(R.drawable.ic_person)
                         .error(R.drawable.ic_person)
+                    .override(720, 720)
                         .into(binding.ivAvatarLarge);
                 }
             });
@@ -329,6 +333,7 @@ public class UserProfileActivity extends AppCompatActivity {
                             .load(displayUrl)
                             .placeholder(R.drawable.ic_person)
                             .error(R.drawable.ic_person)
+                    .override(720, 720)
                             .into(binding.ivAvatarLarge);
                     }
 
@@ -607,7 +612,8 @@ public class UserProfileActivity extends AppCompatActivity {
                     if (ivAnimReel == null) { startAvatarPeekLoop(); return; }
                     if (url != null) {
                         Glide.with(UserProfileActivity.this).load(url).circleCrop()
-                            .placeholder(R.drawable.ic_person).into(ivAnimReel);
+                            .placeholder(R.drawable.ic_person)
+                    .override(240, 240).into(ivAnimReel);
                     }
                     startAvatarPeekLoop();
                 }
@@ -627,7 +633,8 @@ public class UserProfileActivity extends AppCompatActivity {
                                : (photo != null && !photo.isEmpty()) ? photo : null;
                     if (ivAnimX == null || url == null) return;
                     Glide.with(UserProfileActivity.this).load(url).circleCrop()
-                        .placeholder(R.drawable.ic_person).into(ivAnimX);
+                        .placeholder(R.drawable.ic_person)
+                    .override(240, 240).into(ivAnimX);
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) {}
             });
@@ -643,7 +650,8 @@ public class UserProfileActivity extends AppCompatActivity {
                                : (photo != null && !photo.isEmpty()) ? photo : null;
                     if (ivAnimYoutube == null || url == null) return;
                     Glide.with(UserProfileActivity.this).load(url).circleCrop()
-                        .placeholder(R.drawable.ic_person).into(ivAnimYoutube);
+                        .placeholder(R.drawable.ic_person)
+                    .override(240, 240).into(ivAnimYoutube);
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) {}
             });

@@ -16,6 +16,8 @@ package com.callx.app.utils;
   import android.widget.TextView;
   import androidx.core.content.ContextCompat;
   import com.bumptech.glide.Glide;
+import com.bumptech.glide.load.engine.DiskCacheStrategy;
+import com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions;
   import com.bumptech.glide.request.RequestOptions;
   import de.hdodenhof.circleimageview.CircleImageView;
   import com.callx.app.R;
@@ -111,6 +113,7 @@ package com.callx.app.utils;
               Glide.with(activity).load(avatarUrl)
                   .apply(RequestOptions.circleCropTransform())
                   .placeholder(R.drawable.ic_person)
+                    .override(96, 96)
                   .into(avatar);
           }
           row.addView(avatar);

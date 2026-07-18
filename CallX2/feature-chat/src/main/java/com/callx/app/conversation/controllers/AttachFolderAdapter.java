@@ -81,6 +81,7 @@ final class AttachFolderAdapter extends RecyclerView.Adapter<AttachFolderAdapter
                 Glide.with(h.thumb.getContext())
                         .load(folder.coverUri)
                         .apply(thumbOptions)
+                        .override(720, 720)
                         .into(h.thumb);
             } else {
                 h.thumb.setImageDrawable(null);

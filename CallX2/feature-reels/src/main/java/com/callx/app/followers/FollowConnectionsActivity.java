@@ -503,6 +503,7 @@ public class FollowConnectionsActivity extends AppCompatActivity {
             Glide.with(ctx).load(user.photo)
                 .apply(RequestOptions.circleCropTransform())
                 .placeholder(R.drawable.ic_person)
+                .override(96, 96)
                 .into(iv);
         }
         LinearLayout.LayoutParams avLp = new LinearLayout.LayoutParams(avSz, avSz);
@@ -652,6 +653,7 @@ public class FollowConnectionsActivity extends AppCompatActivity {
                     .load(u.photo)
                     .apply(RequestOptions.circleCropTransform())
                     .placeholder(R.drawable.ic_person)
+                    .override(96, 96)
                     .into(h.ivAvatar);
             }
 

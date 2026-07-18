@@ -168,6 +168,7 @@ public class CommunityAddGroupActivity extends AppCompatActivity {
             h.tvDesc.setText(g.description != null ? g.description : "");
             if (g.iconUrl != null && !g.iconUrl.isEmpty()) {
                 Glide.with(h.itemView.getContext()).load(g.iconUrl).circleCrop()
+                        .override(96, 96)
                         .placeholder(R.drawable.ic_group).into(h.ivIcon);
             } else {
                 h.ivIcon.setImageResource(R.drawable.ic_group);

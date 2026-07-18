@@ -69,6 +69,7 @@ public class XNotificationAdapter extends RecyclerView.Adapter<XNotificationAdap
             String avatarUrl = (n.fromThumbUrl != null && !n.fromThumbUrl.isEmpty())
                 ? n.fromThumbUrl : n.fromPhotoUrl;
             Glide.with(ctx).load(avatarUrl).circleCrop()
+                .override(96, 96)
                 .placeholder(R.drawable.ic_person).into(ivAvatar);
 
             // Type icon + tint

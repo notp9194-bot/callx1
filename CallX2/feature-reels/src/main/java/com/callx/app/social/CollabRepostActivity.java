@@ -304,7 +304,8 @@ public class CollabRepostActivity extends AppCompatActivity {
         ivThumb = new ImageView(this);
         ivThumb.setScaleType(ImageView.ScaleType.CENTER_CROP);
         if (thumbUrl != null && !thumbUrl.isEmpty())
-            Glide.with(this).load(thumbUrl).centerCrop().into(ivThumb);
+            .override(720, 720)
+            Glide.with(this).load(thumbUrl).centerCrop().override(720, 720).into(ivThumb);
         else ivThumb.setImageResource(R.drawable.ic_reels);
 
         LinearLayout infoCol = new LinearLayout(this);
@@ -587,7 +588,8 @@ public class CollabRepostActivity extends AppCompatActivity {
             player.play();
         } catch (Exception ignored) {
             if (ivThumb != null && thumbUrl != null && !thumbUrl.isEmpty())
-                Glide.with(this).load(thumbUrl).centerCrop().into(ivThumb);
+                .override(720, 720)
+                Glide.with(this).load(thumbUrl).centerCrop().override(720, 720).into(ivThumb);
         }
     }
 
@@ -716,6 +718,7 @@ public class CollabRepostActivity extends AppCompatActivity {
         tvCollabName.setText("@" + (user.handle.isEmpty() ? user.name : user.handle));
         if (!user.photo.isEmpty())
             Glide.with(this).load(user.photo).circleCrop()
+                .override(96, 96)
                 .placeholder(R.drawable.ic_person).into(ivCollabAvatar);
         else
             ivCollabAvatar.setImageResource(R.drawable.ic_person);
@@ -956,6 +959,7 @@ public class CollabRepostActivity extends AppCompatActivity {
             h.tvHandle.setText(u.handle.isEmpty() ? "" : "@" + u.handle);
             if (!u.photo.isEmpty())
                 Glide.with(h.av).load(u.photo).circleCrop()
+                    .override(96, 96)
                     .placeholder(R.drawable.ic_person).into(h.av);
             else h.av.setImageResource(R.drawable.ic_person);
             h.itemView.setOnClickListener(v -> listener.onSelect(u));

@@ -18,6 +18,8 @@ import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
 import androidx.viewpager2.widget.ViewPager2;
 import com.bumptech.glide.Glide;
+import com.bumptech.glide.load.engine.DiskCacheStrategy;
+import com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions;
 import com.bumptech.glide.request.RequestOptions;
 import com.callx.app.R;
 import com.callx.app.adapters.ViewPagerAdapter;
@@ -534,6 +536,7 @@ public class MainActivity extends AppCompatActivity {
                     Glide.with(MainActivity.this).load(avatarUrl)
                         .apply(RequestOptions.circleCropTransform())
                         .placeholder(R.drawable.ic_person).error(R.drawable.ic_person)
+                    .override(96, 96)
                         .into(binding.ivAvatarMenu);
             }
             @Override public void onCancelled(DatabaseError e) {}
@@ -750,6 +753,7 @@ public class MainActivity extends AppCompatActivity {
                         Glide.with(MainActivity.this).load(xUrl)
                             .apply(new RequestOptions().circleCrop())
                             .placeholder(R.drawable.ic_person)
+                    .override(96, 96)
                             .into(ivAvatar);
                     }
                 }
@@ -813,6 +817,7 @@ public class MainActivity extends AppCompatActivity {
                             Glide.with(MainActivity.this).load(url)
                                 .apply(new RequestOptions().circleCrop())
                                 .placeholder(R.drawable.ic_person)
+                    .override(96, 96)
                                 .into(ivAvatar);
                     }
                     @Override public void onCancelled(
@@ -885,6 +890,7 @@ public class MainActivity extends AppCompatActivity {
                                 .load(url)
                                 .apply(new RequestOptions().circleCrop())
                                 .placeholder(R.drawable.ic_person)
+                    .override(96, 96)
                                 .into(ivAvatar);
                         }
                     }

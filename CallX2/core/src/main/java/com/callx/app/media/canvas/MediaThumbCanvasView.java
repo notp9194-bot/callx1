@@ -13,6 +13,8 @@ import android.view.View;
 import androidx.annotation.Nullable;
 
 import com.bumptech.glide.Glide;
+import com.bumptech.glide.load.engine.DiskCacheStrategy;
+import com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions;
 import com.bumptech.glide.request.target.CustomTarget;
 import com.bumptech.glide.request.transition.Transition;
 
@@ -118,6 +120,7 @@ public class MediaThumbCanvasView extends View {
         Glide.with(getContext())
                 .asBitmap()
                 .load(url)
+                    .override(480, 853)
                 .into(pendingTarget);
     }
 

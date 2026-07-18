@@ -137,6 +137,7 @@ public class MusicTrackAdapter
                 Glide.with(h.ivCover.getContext())
                     .load(track.coverUrl)
                     .apply(new RequestOptions().centerCrop().placeholder(R.drawable.ic_music_note))
+                    .override(720, 720)
                     .into(h.ivCover);
             } else {
                 h.ivCover.setImageResource(R.drawable.ic_music_note);

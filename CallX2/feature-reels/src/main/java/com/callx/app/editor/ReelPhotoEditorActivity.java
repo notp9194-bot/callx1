@@ -319,7 +319,8 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
     private void loadPreviewImage() {
         if (photoUri == null || photoUri.isEmpty() || ivPreview == null) return;
         Uri uri = Uri.parse(photoUri);
-        Glide.with(this).load(uri).centerCrop().into(ivPreview);
+        .override(480, 853)
+        Glide.with(this).load(uri).centerCrop().override(480, 853).into(ivPreview);
         if (rotation != 0f) ivPreview.setRotation(rotation);
     }
 

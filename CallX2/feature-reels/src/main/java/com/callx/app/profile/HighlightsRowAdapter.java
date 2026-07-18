@@ -235,6 +235,7 @@ public class HighlightsRowAdapter
                  .transform(new CircleCrop())
                  .placeholder(placeholder)
                  .error(placeholder)
+                 .override(480, 853)
                  .into(h.ivCover);
         } else {
             h.ivCover.setImageDrawable(null);

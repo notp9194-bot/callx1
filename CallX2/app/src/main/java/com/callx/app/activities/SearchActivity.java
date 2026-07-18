@@ -11,6 +11,8 @@ import android.view.inputmethod.EditorInfo;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import com.bumptech.glide.Glide;
+import com.bumptech.glide.load.engine.DiskCacheStrategy;
+import com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions;
 import com.callx.app.adapters.SearchResultAdapter;
 import com.callx.app.db.AppDatabase;
 import com.callx.app.db.entity.UserEntity;
@@ -275,7 +277,8 @@ public class SearchActivity extends AppCompatActivity {
         binding.tvResultId.setText(id != null ? id : "");
         String displayAvatar = (foundThumb != null && !foundThumb.isEmpty()) ? foundThumb : photo;
         if (displayAvatar != null && !displayAvatar.isEmpty()) {
-            Glide.with(this).load(displayAvatar).circleCrop().into(binding.ivResultAvatar);
+            Glide.with(this).load(displayAvatar).circleCrop()
+                    .override(96, 96).into(binding.ivResultAvatar);
         }
         binding.rvResults.setVisibility(View.GONE);
         binding.llResult.setVisibility(View.VISIBLE);

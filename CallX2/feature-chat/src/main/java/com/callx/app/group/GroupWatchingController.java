@@ -523,7 +523,8 @@ public class GroupWatchingController {
         Activity activity = delegate.getActivity();
         if (activity == null) return;
         if (photoUrl != null && !photoUrl.isEmpty()) {
-            Glide.with(activity).load(photoUrl).placeholder(R.drawable.ic_person).into(iv);
+            .override(720, 720)
+            Glide.with(activity).load(photoUrl).placeholder(R.drawable.ic_person).override(720, 720).into(iv);
         } else {
             iv.setImageResource(R.drawable.ic_person);
         }

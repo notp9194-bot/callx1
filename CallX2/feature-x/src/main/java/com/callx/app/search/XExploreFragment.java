@@ -153,6 +153,7 @@ public class XExploreFragment extends Fragment implements XTweetAdapter.OnTweetA
                 .load(wtfAvatarUrl)
                 .circleCrop()
                 .placeholder(R.drawable.ic_person)
+                .override(96, 96)
                 .into(ivAvatar);
 
             tvName.setText(su.user.name != null ? su.user.name : "User");
@@ -373,6 +374,7 @@ public class XExploreFragment extends Fragment implements XTweetAdapter.OnTweetA
                     String srchAvatarUrl = (u.thumbUrl != null && !u.thumbUrl.isEmpty()) ? u.thumbUrl : u.photoUrl;
                     Glide.with(requireContext()).load(srchAvatarUrl).circleCrop()
                         .placeholder(R.drawable.ic_person)
+                        .override(96, 96)
                         .into((android.widget.ImageView) row.findViewById(R.id.iv_x_user_avatar));
                     ((TextView) row.findViewById(R.id.tv_x_user_name)).setText(u.name);
                     ((TextView) row.findViewById(R.id.tv_x_user_handle)).setText("@" + u.handle);

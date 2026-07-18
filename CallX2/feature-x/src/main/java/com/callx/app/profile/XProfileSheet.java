@@ -127,6 +127,7 @@ public class XProfileSheet extends BottomSheetDialogFragment {
         if (ivBanner != null && xProfile.bannerUrl != null && !xProfile.bannerUrl.isEmpty())
             Glide.with(this).load(xProfile.bannerUrl)
                 .apply(new RequestOptions().centerCrop().diskCacheStrategy(DiskCacheStrategy.ALL))
+                .override(720, 720)
                 .into(ivBanner);
 
         // Avatar
@@ -136,6 +137,7 @@ public class XProfileSheet extends BottomSheetDialogFragment {
             Glide.with(this).load(av)
                 .apply(new RequestOptions().circleCrop().diskCacheStrategy(DiskCacheStrategy.ALL)
                     .placeholder(R.drawable.ic_person))
+                .override(240, 240)
                 .into(ivAvatar);
 
         // Name

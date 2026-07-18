@@ -14,6 +14,8 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.bumptech.glide.Glide;
+import com.bumptech.glide.load.engine.DiskCacheStrategy;
+import com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions;
 import com.bumptech.glide.request.RequestOptions;
 import com.callx.app.R;
 import com.callx.app.utils.FirebaseUtils;
@@ -403,6 +405,7 @@ public class NotificationCenterActivity extends AppCompatActivity {
                         .apply(RequestOptions.circleCropTransform()
                             .placeholder(R.drawable.circle_avatar_bg)
                             .error(R.drawable.circle_avatar_bg))
+                    .override(96, 96)
                         .into(h.ivAvatar);
                 } else {
                     h.ivAvatar.setImageResource(R.drawable.circle_avatar_bg);

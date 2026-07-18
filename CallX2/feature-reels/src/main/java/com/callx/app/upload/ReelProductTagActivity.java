@@ -164,7 +164,8 @@ public class ReelProductTagActivity extends AppCompatActivity {
             Product pr = items.get(pos);
             h.tvName.setText(pr.name); h.tvPrice.setText(pr.price);
             if (pr.imageUrl != null && !pr.imageUrl.isEmpty())
-                com.bumptech.glide.Glide.with(h.ivImg).load(pr.imageUrl).centerCrop().into(h.ivImg);
+                .override(480, 853)
+                com.bumptech.glide.Glide.with(h.ivImg).load(pr.imageUrl).centerCrop().override(480, 853).into(h.ivImg);
             h.btnTag.setOnClickListener(v -> onTag.accept(pr));
         }
         @Override public int getItemCount() { return items.size(); }

@@ -545,6 +545,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
             Glide.with(getContext()).load(avatarUrl)
                 .apply(RequestOptions.circleCropTransform())
                 .placeholder(R.drawable.ic_person)
+                .override(96, 96)
                 .into(ivAvatar);
         }
 
@@ -572,6 +573,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
                         if (url != null && !url.isEmpty() && getContext() != null && ivAvatar != null)
                             Glide.with(getContext()).load(url)
                                 .apply(RequestOptions.circleCropTransform())
+                                .override(96, 96)
                                 .placeholder(R.drawable.ic_person).into(ivAvatar);
                     }
                     @Override public void onCancelled(DatabaseError e) {}
@@ -718,6 +720,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
                     String xPhoto = snap.child("photoUrl").getValue(String.class);
                     if (xPhoto != null && !xPhoto.isEmpty() && ivAnimX != null)
                         Glide.with(getContext()).load(xPhoto).circleCrop()
+                            .override(96, 96)
                             .placeholder(R.drawable.ic_person).into(ivAnimX);
                     startChatAvatarPeekLoop(peekViews, animHandler, animRunning, animRunnable);
 
@@ -777,6 +780,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
                     String rp    = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
                     if (rp != null && !rp.isEmpty() && ivAnimReel != null)
                         Glide.with(getContext()).load(rp).circleCrop()
+                            .override(96, 96)
                             .placeholder(R.drawable.ic_person).into(ivAnimReel);
 
                     db.getReference("reels/followers").child(partnerUid)
@@ -833,6 +837,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
                     String ya = (yt != null && !yt.isEmpty()) ? yt : yp;
                     if (ya != null && !ya.isEmpty() && ivAnimYt != null)
                         Glide.with(getContext()).load(ya).circleCrop()
+                            .override(96, 96)
                             .placeholder(R.drawable.ic_person).into(ivAnimYt);
 
                     Long subC = snap.child("subscriberCount").getValue(Long.class);
@@ -965,6 +970,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         if (avatarUrl != null && !avatarUrl.isEmpty() && ivAvatar != null) {
             Glide.with(getContext()).load(avatarUrl)
                 .apply(RequestOptions.circleCropTransform())
+                .override(96, 96)
                 .placeholder(R.drawable.ic_person).into(ivAvatar);
         }
 

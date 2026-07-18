@@ -1153,6 +1153,7 @@ public class UserReelsActivity extends AppCompatActivity
                     .placeholder(R.drawable.ic_person)
                     .error(R.drawable.ic_person)
                     .circleCrop()
+                    .override(240, 240)
                     .into(ivs[i]);
             } else if (i < names.size()) {
                 ivs[i].setVisibility(View.VISIBLE);
@@ -1905,6 +1906,7 @@ public class UserReelsActivity extends AppCompatActivity
                             .load(url).circleCrop()
                             .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
                             .placeholder(R.drawable.ic_person)
+                            .override(240, 240)
                             .into(ivAnimChat);
                     }
                     // Start animation only after first avatar loaded (others load in bg)
@@ -1928,6 +1930,7 @@ public class UserReelsActivity extends AppCompatActivity
                     Glide.with(UserReelsActivity.this)
                         .load(url).circleCrop()
                         .placeholder(R.drawable.ic_person)
+                        .override(240, 240)
                         .into(ivAnimX);
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) {}
@@ -1946,6 +1949,7 @@ public class UserReelsActivity extends AppCompatActivity
                     Glide.with(UserReelsActivity.this)
                         .load(url).circleCrop()
                         .placeholder(R.drawable.ic_person)
+                        .override(240, 240)
                         .into(ivAnimYoutube);
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) {}
@@ -2320,6 +2324,7 @@ public class UserReelsActivity extends AppCompatActivity
                 if (url != null && !url.isEmpty() && ivAvatar != null) {
                     targetPhoto = url;
                     Glide.with(UserReelsActivity.this).load(url).circleCrop()
+                        .override(240, 240)
                         .placeholder(R.drawable.ic_person).into(ivAvatar);
                 }
                 // Bio / about
@@ -2368,6 +2373,7 @@ public class UserReelsActivity extends AppCompatActivity
                     targetPhoto = photo;
                     String displayPhoto = (photoThumb != null && !photoThumb.isEmpty()) ? photoThumb : photo;
                     Glide.with(UserReelsActivity.this).load(displayPhoto).circleCrop()
+                        .override(240, 240)
                         .placeholder(R.drawable.ic_person).into(ivAvatar);
                 }
 

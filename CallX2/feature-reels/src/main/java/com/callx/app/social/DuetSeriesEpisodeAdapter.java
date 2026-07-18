@@ -69,6 +69,7 @@ package com.callx.app.social;
                .load(reel.thumbUrl)
                .placeholder(R.color.brand_primary)
                .centerCrop()
+               .override(720, 720)
                .into(holder.ivThumb);
 
           holder.itemView.setOnClickListener(v -> {

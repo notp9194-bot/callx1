@@ -201,6 +201,7 @@ public class ReelUiController {
                 Glide.with(delegate.requireContext())
                     .load(coverUrl)
                     .apply(new RequestOptions().circleCrop().placeholder(R.drawable.ic_music_note))
+                    .override(96, 96)
                     .into(ivMusicDisc);
             } else {
                 ivMusicDisc.setImageResource(R.drawable.ic_music_note);

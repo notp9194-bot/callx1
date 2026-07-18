@@ -146,7 +146,8 @@ public class YouTubeShortsFragment extends Fragment {
             player.prepare();
 
             if (video.thumbnailUrl != null)
-                Glide.with(ctx).load(video.thumbnailUrl).centerCrop().into(h.ivThumbnail);
+                .override(720, 720)
+                Glide.with(ctx).load(video.thumbnailUrl).centerCrop().override(720, 720).into(h.ivThumbnail);
 
             player.addListener(new Player.Listener() {
                 @Override public void onPlaybackStateChanged(int state) {
@@ -159,7 +160,8 @@ public class YouTubeShortsFragment extends Fragment {
             h.tvLikes.setText(formatCount(video.likeCount));
 
             if (video.uploaderPhotoUrl != null && !video.uploaderPhotoUrl.isEmpty())
-                Glide.with(ctx).load(video.uploaderPhotoUrl).circleCrop().into(h.ivAvatar);
+                .override(96, 96)
+                Glide.with(ctx).load(video.uploaderPhotoUrl).circleCrop().override(96, 96).into(h.ivAvatar);
 
             String myUid = FirebaseAuth.getInstance().getCurrentUser() != null
                 ? FirebaseAuth.getInstance().getCurrentUser().getUid() : "";

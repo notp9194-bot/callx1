@@ -48,6 +48,7 @@ public class YouTubeCommentAdapter
         h.tvPinned.setVisibility(c.isPinned ? View.VISIBLE : View.GONE);
 
         Glide.with(ctx).load(c.authorPhotoUrl).circleCrop()
+            .override(96, 96)
             .placeholder(R.drawable.ic_person).into(h.ivAvatar);
 
         // 3-dot comment options

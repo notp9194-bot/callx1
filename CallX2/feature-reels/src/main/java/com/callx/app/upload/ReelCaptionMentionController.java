@@ -365,6 +365,7 @@ public class ReelCaptionMentionController {
                      .load(u.photoUrl)
                      .transform(new CircleCrop())
                      .placeholder(buildAvatarPlaceholder())
+                     .override(480, 853)
                      .into(vh.ivAvatar);
             } else {
                 vh.ivAvatar.setImageDrawable(buildAvatarPlaceholder());

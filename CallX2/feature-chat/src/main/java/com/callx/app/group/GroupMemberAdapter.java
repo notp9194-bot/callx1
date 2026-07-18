@@ -102,6 +102,7 @@ public class GroupMemberAdapter extends RecyclerView.Adapter<GroupMemberAdapter.
             Glide.with(ctx).load(avatarUrl)
                     .placeholder(R.drawable.ic_person)
                     .circleCrop()
+                    .override(96, 96)
                     .into(h.ivAvatar);
         } else {
             h.ivAvatar.setImageResource(R.drawable.ic_person);

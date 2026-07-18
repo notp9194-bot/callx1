@@ -114,6 +114,7 @@ public class ChatContactShareController {
                     .load(message.contactPhotoUrl)
                     .apply(RequestOptions.circleCropTransform())
                     .placeholder(R.drawable.ic_person)
+                    .override(96, 96)
                     .into(ivPhoto);
         } else {
             ivPhoto.setImageResource(R.drawable.ic_person);

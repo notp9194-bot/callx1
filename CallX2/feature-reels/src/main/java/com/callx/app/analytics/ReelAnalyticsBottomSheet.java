@@ -89,7 +89,8 @@ public class ReelAnalyticsBottomSheet extends BottomSheetDialogFragment {
 
     private void populateHeader() {
         if (thumbUrl != null && !thumbUrl.isEmpty() && isAdded() && getContext() != null)
-            Glide.with(requireContext()).load(thumbUrl).centerCrop().into(ivThumb);
+            .override(480, 853)
+            Glide.with(requireContext()).load(thumbUrl).centerCrop().override(480, 853).into(ivThumb);
 
         if (tvCaption != null)
             tvCaption.setText(caption != null && !caption.isEmpty() ? caption : "No caption");

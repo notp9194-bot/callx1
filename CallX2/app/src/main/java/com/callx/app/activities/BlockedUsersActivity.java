@@ -11,6 +11,8 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import com.bumptech.glide.Glide;
+import com.bumptech.glide.load.engine.DiskCacheStrategy;
+import com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions;
 import com.callx.app.R;
 import com.callx.app.models.User;
 import com.callx.app.utils.FirebaseUtils;
@@ -148,7 +150,8 @@ public class BlockedUsersActivity extends AppCompatActivity {
             User u = blockedUsers.get(pos);
             h.tvName.setText(u.name);
             if (u.photoUrl != null && !u.photoUrl.isEmpty())
-                Glide.with(h.itemView).load(u.photoUrl).circleCrop().into(h.ivAvatar);
+                Glide.with(h.itemView).load(u.photoUrl).circleCrop()
+                    .override(96, 96).into(h.ivAvatar);
             else
                 h.ivAvatar.setImageResource(R.drawable.ic_person);
             h.btnUnblock.setOnClickListener(v -> confirmUnblock(u));

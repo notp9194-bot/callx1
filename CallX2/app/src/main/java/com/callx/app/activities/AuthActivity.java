@@ -13,6 +13,8 @@ import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import com.bumptech.glide.Glide;
+import com.bumptech.glide.load.engine.DiskCacheStrategy;
+import com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions;
 import com.callx.app.databinding.ActivityAuthBinding;
 import com.callx.app.utils.BiometricLoginManager;
 import com.callx.app.utils.CloudinaryUploader;
@@ -114,7 +116,8 @@ public class AuthActivity extends AppCompatActivity {
             new ActivityResultContracts.GetContent(), uri -> {
                 if (uri != null) {
                     pickedAvatarUri = uri;
-                    Glide.with(this).load(uri).into(binding.ivAvatarPreview);
+                    Glide.with(this).load(uri)
+                    .override(720, 720).into(binding.ivAvatarPreview);
                     binding.tvAvatarHint.setText("Photo selected");
                 }
             });

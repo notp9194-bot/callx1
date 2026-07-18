@@ -367,6 +367,7 @@ public class SoundDetailActivity extends AppCompatActivity implements Player.Lis
                 Glide.with(this).load(coverUrl)
                     .transform(new CircleCrop())
                     .placeholder(R.drawable.ic_music_note)
+                    .override(720, 720)
                     .into(ivSoundCover);
             } else {
                 ivSoundCover.setImageResource(R.drawable.ic_music_note);
@@ -528,6 +529,7 @@ public class SoundDetailActivity extends AppCompatActivity implements Player.Lis
                                 Glide.with(SoundDetailActivity.this).load(coverUrl)
                                     .transform(new CircleCrop())
                                     .placeholder(R.drawable.ic_music_note)
+                                    .override(720, 720)
                                     .into(ivSoundCover);
                         }
                     }
@@ -1017,6 +1019,7 @@ public class SoundDetailActivity extends AppCompatActivity implements Player.Lis
                 .transform(new CircleCrop())
                 .placeholder(R.drawable.ic_person)
                 .error(R.drawable.ic_person)
+                .override(720, 720)
                 .into(ivCreatorAvatar);
         } else if (ivCreatorAvatar != null) {
             ivCreatorAvatar.setImageResource(R.drawable.ic_person);
@@ -1244,6 +1247,7 @@ public class SoundDetailActivity extends AppCompatActivity implements Player.Lis
             Glide.with(this).load(coverUrl)
                 .transform(new CircleCrop())
                 .placeholder(R.drawable.ic_music_note)
+                .override(720, 720)
                 .into(ivMiniCover);
         }
         layoutMiniPlayer.setVisibility(View.VISIBLE);
@@ -1575,6 +1579,7 @@ public class SoundDetailActivity extends AppCompatActivity implements Player.Lis
             if (item.thumbnailUrl != null && !item.thumbnailUrl.isEmpty()) {
                 Glide.with(h.ivThumb).load(item.thumbnailUrl)
                     .placeholder(R.drawable.ic_music_note)
+                    .override(720, 720)
                     .centerCrop().into(h.ivThumb);
             } else {
                 h.ivThumb.setImageResource(R.drawable.ic_play);
@@ -1631,6 +1636,7 @@ public class SoundDetailActivity extends AppCompatActivity implements Player.Lis
                 Glide.with(h.ivCover).load(item.coverUrl)
                     .transform(new CircleCrop())
                     .placeholder(R.drawable.ic_music_note)
+                    .override(720, 720)
                     .into(h.ivCover);
             } else {
                 h.ivCover.setImageResource(R.drawable.ic_music_note);

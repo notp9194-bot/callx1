@@ -292,6 +292,7 @@ public class GroupInfoActivity extends AppCompatActivity {
                         Glide.with(GroupInfoActivity.this)
                                 .load(currentIconUrl)
                                 .placeholder(R.drawable.ic_group)
+                                .override(720, 720)
                                 .into(ivGroupIcon);
                     }
                     tvInviteLink.setText(com.callx.app.utils.Constants.DEEP_LINK_BASE_URL + "/join/" + groupId);
@@ -330,6 +331,7 @@ public class GroupInfoActivity extends AppCompatActivity {
                     Glide.with(GroupInfoActivity.this)
                             .load(currentIconUrl)
                             .placeholder(R.drawable.ic_group)
+                            .override(720, 720)
                             .into(ivGroupIcon);
                 }
 
@@ -607,7 +609,8 @@ public class GroupInfoActivity extends AppCompatActivity {
                     public void onSuccess(CloudinaryUploader.Result r) {
                         pd.dismiss();
                         currentIconUrl = r.secureUrl;
-                        Glide.with(GroupInfoActivity.this).load(r.secureUrl).into(ivGroupIcon);
+                        .override(720, 720)
+                        Glide.with(GroupInfoActivity.this).load(r.secureUrl).override(720, 720).into(ivGroupIcon);
                         FirebaseUtils.getGroupsRef().child(groupId).child("iconUrl").setValue(r.secureUrl);
                         Toast.makeText(GroupInfoActivity.this, "Icon updated", Toast.LENGTH_SHORT).show();
                     }

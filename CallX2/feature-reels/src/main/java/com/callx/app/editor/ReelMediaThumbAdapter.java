@@ -41,6 +41,7 @@ public class ReelMediaThumbAdapter extends RecyclerView.Adapter<ReelMediaThumbAd
                 .load(url)
                 .centerCrop()
                 .placeholder(R.drawable.ic_gallery)
+                .override(480, 853)
                 .into(h.ivThumb);
         h.itemView.setOnClickListener(v -> listener.onClick(url));
     }

@@ -145,6 +145,7 @@ public class XBlockedUsersActivity extends AppCompatActivity {
                 if (ivAvatar != null) {
                     String url = (user.thumbUrl != null && !user.thumbUrl.isEmpty()) ? user.thumbUrl : user.photoUrl;
                     Glide.with(ivAvatar.getContext()).load(url).circleCrop()
+                        .override(96, 96)
                         .placeholder(R.drawable.ic_person).into(ivAvatar);
                 }
                 if (btnAction != null) {

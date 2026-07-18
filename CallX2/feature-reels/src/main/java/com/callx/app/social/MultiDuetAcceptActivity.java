@@ -118,6 +118,7 @@ public class MultiDuetAcceptActivity extends AppCompatActivity {
                                     String photo = u.child("photoUrl").getValue(String.class);
                                     if (photo != null && !photo.isEmpty()) {
                                         Glide.with(MultiDuetAcceptActivity.this)
+                                            .override(96, 96)
                                             .load(photo).circleCrop().into(ivHostAvatar);
                                     }
                                 }
@@ -133,6 +134,7 @@ public class MultiDuetAcceptActivity extends AppCompatActivity {
                                     String thumb = r.child("thumbUrl").getValue(String.class);
                                     if (thumb != null && !thumb.isEmpty()) {
                                         Glide.with(MultiDuetAcceptActivity.this)
+                                            .override(720, 720)
                                             .load(thumb).centerCrop().into(ivReelThumb);
                                     }
 

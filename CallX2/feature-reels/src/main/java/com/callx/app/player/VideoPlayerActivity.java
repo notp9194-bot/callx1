@@ -97,6 +97,7 @@ public class VideoPlayerActivity extends AppCompatActivity {
             ivThumb.setVisibility(View.VISIBLE);
             Glide.with(this).load(thumbUrl)
                 .centerCrop()
+                .override(720, 720)
                 .into(ivThumb);
         }
 

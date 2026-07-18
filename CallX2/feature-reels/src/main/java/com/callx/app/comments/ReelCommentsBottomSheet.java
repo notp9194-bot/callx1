@@ -181,6 +181,7 @@ public class ReelCommentsBottomSheet extends BottomSheetDialogFragment {
                             Glide.with(requireContext()).load(myPhoto)
                                     .apply(RequestOptions.circleCropTransform())
                                     .placeholder(R.drawable.ic_person)
+                                    .override(96, 96)
                                     .into(ivMyAvatar);
                         }
                     }
@@ -589,6 +590,7 @@ public class ReelCommentsBottomSheet extends BottomSheetDialogFragment {
                 Glide.with(requireContext()).load(c.ownerPhoto)
                         .apply(RequestOptions.circleCropTransform())
                         .placeholder(R.drawable.ic_person)
+                        .override(96, 96)
                         .into(h.ivAvatar);
             } else {
                 h.ivAvatar.setImageResource(R.drawable.ic_person);

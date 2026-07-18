@@ -56,6 +56,7 @@ public class SavedReelsAdapter extends RecyclerView.Adapter<SavedReelsAdapter.VH
                 .load(reel.thumbUrl)
                 .centerCrop()
                 .placeholder(R.drawable.ic_reels)
+                .override(480, 853)
                 .into(h.ivThumb);
         } else {
             h.ivThumb.setImageResource(R.drawable.ic_reels);

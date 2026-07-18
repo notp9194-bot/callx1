@@ -1186,7 +1186,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             else if ("video".equals(m.type)) thumbUrl = m.thumbnailUrl;
             if (thumbUrl != null && !thumbUrl.isEmpty()) {
                 binding.ivReplyBarThumb.setVisibility(View.VISIBLE);
-                Glide.with(this).load(thumbUrl).centerCrop().into(binding.ivReplyBarThumb);
+                .override(720, 720)
+                Glide.with(this).load(thumbUrl).centerCrop().override(720, 720).into(binding.ivReplyBarThumb);
             } else {
                 binding.ivReplyBarThumb.setVisibility(View.GONE);
             }
@@ -1602,6 +1603,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         String headerAvatar = (partnerThumb != null && !partnerThumb.isEmpty()) ? partnerThumb : partnerPhoto;
         if (headerAvatar != null && !headerAvatar.isEmpty()) {
             Glide.with(this).load(headerAvatar).placeholder(R.drawable.ic_person).circleCrop()
+                    .override(96, 96)
                     .into(binding.ivPartnerAvatar);
         } else {
             FirebaseUtils.getUserRef(partnerUid).addListenerForSingleValueEvent(new ValueEventListener() {
@@ -1613,6 +1615,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                         if (photo != null) partnerPhoto = photo;
                         if (thumb != null) partnerThumb = thumb;
                         Glide.with(ChatActivity.this).load(url).placeholder(R.drawable.ic_person)
+                                .override(96, 96)
                                 .circleCrop().into(binding.ivPartnerAvatar);
                     }
                 }
@@ -3139,6 +3142,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                             .load(message.mediaUrl)
                             .skipMemoryCache(true)
                             .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.NONE)
+                            .override(720, 720)
                             .into(iv);
                 }
                 break;
@@ -3247,6 +3251,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                                         .load((String) urlObj)
                                         .skipMemoryCache(true)
                                         .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.NONE)
+                                        .override(720, 720)
                                         .into(iv);
                             }
                         }

@@ -149,6 +149,7 @@ public class XTweetDetailActivity extends AppCompatActivity {
             Glide.with(this).load(avatarUrl)
                 .apply(new RequestOptions().circleCrop().diskCacheStrategy(DiskCacheStrategy.ALL)
                     .placeholder(R.drawable.ic_person))
+                .override(96, 96)
                 .into(ivAvatar);
             if (rootTweet.authorUid != null)
                 ivAvatar.setOnClickListener(v ->
@@ -171,7 +172,7 @@ public class XTweetDetailActivity extends AppCompatActivity {
             Glide.with(this).load(rootTweet.thumbnailUrl != null
                 ? rootTweet.thumbnailUrl : rootTweet.mediaUrl)
                 .apply(new RequestOptions().centerCrop().diskCacheStrategy(DiskCacheStrategy.ALL))
-                .into(ivMedia);
+                .override(480, 853).into(ivMedia);
             boolean isVideo = "video".equals(rootTweet.mediaType);
             ivMedia.setOnClickListener(v -> {
                 if (isVideo) startActivity(new Intent(this, XVideoPlayerActivity.class)

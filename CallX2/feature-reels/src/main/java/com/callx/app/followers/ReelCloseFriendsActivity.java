@@ -192,7 +192,8 @@ public class ReelCloseFriendsActivity extends AppCompatActivity {
         @Override public void onBindViewHolder(@NonNull VH h, int pos) {
             Friend f = items.get(pos);
             h.tvName.setText(f.name);
-            if (f.photo != null && !f.photo.isEmpty()) Glide.with(h.iv).load(f.photo).circleCrop().placeholder(R.drawable.ic_person).into(h.iv);
+            .override(96, 96)
+            if (f.photo != null && !f.photo.isEmpty()) Glide.with(h.iv).load(f.photo).circleCrop().placeholder(R.drawable.ic_person).override(96, 96).into(h.iv);
             h.btnRemove.setOnClickListener(v -> onRemove.accept(f));
         }
         @Override public int getItemCount() { return items.size(); }
@@ -214,7 +215,8 @@ public class ReelCloseFriendsActivity extends AppCompatActivity {
         @Override public void onBindViewHolder(@NonNull VH h, int pos) {
             Friend f = items.get(pos);
             h.tvName.setText(f.name);
-            if (f.photo != null && !f.photo.isEmpty()) Glide.with(h.iv).load(f.photo).circleCrop().placeholder(R.drawable.ic_person).into(h.iv);
+            .override(96, 96)
+            if (f.photo != null && !f.photo.isEmpty()) Glide.with(h.iv).load(f.photo).circleCrop().placeholder(R.drawable.ic_person).override(96, 96).into(h.iv);
             boolean isCf = cfIds.contains(f.uid);
             h.btnRemove.setImageResource(isCf ? R.drawable.ic_close : R.drawable.ic_person_add);
             h.btnRemove.setEnabled(!isCf);

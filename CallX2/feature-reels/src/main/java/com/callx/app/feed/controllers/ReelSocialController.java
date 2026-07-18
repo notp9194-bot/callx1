@@ -590,6 +590,7 @@ public class ReelSocialController {
                                     .load(url)
                                     .apply(com.bumptech.glide.request.RequestOptions.circleCropTransform())
                                     .placeholder(R.drawable.ic_person).error(R.drawable.ic_person)
+                                    .override(96, 96)
                                     .into(targetView);
                             } else {
                                 targetView.setImageResource(R.drawable.ic_person);
