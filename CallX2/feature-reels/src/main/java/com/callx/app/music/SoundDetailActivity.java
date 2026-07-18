@@ -86,7 +86,7 @@ public class SoundDetailActivity extends AppCompatActivity implements Player.Lis
     private TextView     tvSoundTitle, tvArtist, tvDuration, tvReelCount,
                          tvTrendingRank, tvSavesCount, tvBpm, tvGenre,
                          tvOriginalBadge, tvIsVerified;
-    private TextView     btnUseSoundCamera, btnUseSoundGallery, btnTrimStart;
+    private TextView     btnUseSoundCamera, btnUseSoundGallery, btnTrimStart, btnAddToProfile;
     private ImageView    ivSoundCover, ivDiscRing;
     private RecyclerView rvReels, rvRelated;
     private ProgressBar  progressBar;
@@ -278,6 +278,7 @@ public class SoundDetailActivity extends AppCompatActivity implements Player.Lis
         btnUseSoundCamera = findViewById(R.id.btn_use_sound_camera);
         btnUseSoundGallery= findViewById(R.id.btn_use_sound_gallery);
         btnTrimStart      = findViewById(R.id.btn_trim_start);
+        btnAddToProfile   = findViewById(R.id.btn_add_to_profile);
         ivSoundCover      = findViewById(R.id.iv_sound_cover);
         ivDiscRing        = findViewById(R.id.iv_disc_ring);
         btnSaveSound      = findViewById(R.id.btn_save_sound);
@@ -1178,6 +1179,31 @@ public class SoundDetailActivity extends AppCompatActivity implements Player.Lis
         });
 
         if (btnTrimStart != null) btnTrimStart.setVisibility(View.GONE);
+
+        // ── Add to profile ──────────────────────────────────────────────────────
+        // Show only when a logged-in user opens a sound (any sound can be pinned).
+        String myUid = FirebaseAuth.getInstance().getUid();
+        if (btnAddToProfile != null && myUid != null) {
+            btnAddToProfile.setVisibility(View.VISIBLE);
+            btnAddToProfile.setOnClickListener(v -> {
+                java.util.Map<String, Object> songData = new java.util.HashMap<>();
+                songData.put("soundId",    soundId    != null ? soundId    : "");
+                songData.put("title",      soundTitle != null ? soundTitle : "");
+                songData.put("artist",     artist     != null ? artist     : "");
+                songData.put("coverUrl",   coverUrl   != null ? coverUrl   : "");
+                songData.put("soundUrl",   soundUrl   != null ? soundUrl   : "");
+                songData.put("durationMs", durationMs);
+                com.google.firebase.database.FirebaseDatabase.getInstance()
+                    .getReference("reels/users").child(myUid)
+                    .child("profileSong").setValue(songData)
+                    .addOnSuccessListener(unused -> {
+                        btnAddToProfile.setText("✓  Added to profile");
+                        Toast.makeText(this, "Song added to your profile!", Toast.LENGTH_SHORT).show();
+                    })
+                    .addOnFailureListener(e ->
+                        Toast.makeText(this, "Failed: " + e.getMessage(), Toast.LENGTH_SHORT).show());
+            });
+        }
 
         // ── Mini-player controls ──
         if (btnMiniPlayPause != null) {

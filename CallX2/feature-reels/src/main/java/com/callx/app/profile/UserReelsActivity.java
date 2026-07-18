@@ -98,6 +98,7 @@ public class UserReelsActivity extends AppCompatActivity
     // ── Profile Song pill (Instagram-style) ───────────────────────────────────
     private View            layoutProfileSong;
     private TextView        tvProfileSongName;
+    private View            layoutAddSongStub;   // isSelf + no song → "Add a song" stub
     private TextView        tvEmptyTitle, tvEmptySubtitle;
     private Button          btnFollow;
     private Button          btnMessageCta;
@@ -303,6 +304,7 @@ public class UserReelsActivity extends AppCompatActivity
         llBioChips        = findViewById(R.id.ll_bio_chips);
         layoutProfileSong = findViewById(R.id.layout_profile_song);
         tvProfileSongName = findViewById(R.id.tv_profile_song_name);
+        layoutAddSongStub = findViewById(R.id.layout_add_song_stub);
         btnMessageCta     = findViewById(R.id.btn_message_cta);
         btnCtaCall       = findViewById(R.id.btn_cta_call);
         layoutInstagramCta = findViewById(R.id.layout_instagram_cta);
@@ -2439,8 +2441,21 @@ public class UserReelsActivity extends AppCompatActivity
                         // UserReelsActivity.this required inside anonymous ValueEventListener
                         sheet.show(UserReelsActivity.this.getSupportFragmentManager(), "sound_detail");
                     });
-                } else if (layoutProfileSong != null) {
-                    layoutProfileSong.setVisibility(View.GONE);
+                } else {
+                    // No song set
+                    if (layoutProfileSong  != null) layoutProfileSong.setVisibility(View.GONE);
+                    // isSelf → show "Add a song" stub pill
+                    if (layoutAddSongStub != null) {
+                        layoutAddSongStub.setVisibility(isSelf ? View.VISIBLE : View.GONE);
+                        if (isSelf) {
+                            layoutAddSongStub.setOnClickListener(v -> {
+                                // Open Trending Audio so user can pick & add a song
+                                Intent i = new Intent(UserReelsActivity.this,
+                                    com.callx.app.music.ReelTrendingAudioActivity.class);
+                                startActivity(i);
+                            });
+                        }
+                    }
                 }
 
                 // FIX: Room mein save karo — next time offline instantly dikhega

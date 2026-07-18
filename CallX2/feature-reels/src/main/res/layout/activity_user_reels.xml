@@ -410,6 +410,42 @@
                     android:text="Song name..."/>
             </LinearLayout>
 
+            <!-- ── isSelf: empty song stub pill — tap to add a song ──
+                 Shown only when isSelf == true AND no profileSong is set yet. -->
+            <LinearLayout
+                android:id="@+id/layout_add_song_stub"
+                android:layout_width="wrap_content"
+                android:layout_height="32dp"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingStart="12dp"
+                android:paddingEnd="14dp"
+                android:layout_marginStart="16dp"
+                android:layout_marginTop="6dp"
+                android:layout_marginBottom="4dp"
+                android:background="@drawable/bg_song_pill"
+                android:clickable="true"
+                android:focusable="true"
+                android:foreground="?attr/selectableItemBackground"
+                android:visibility="gone">
+
+                <ImageView
+                    android:layout_width="13dp"
+                    android:layout_height="13dp"
+                    android:src="@drawable/ic_music"
+                    android:tint="?attr/colorOnSurfaceVariant"
+                    android:layout_marginEnd="5dp"
+                    android:contentDescription="Add song"/>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Add a song"
+                    android:textSize="12.5sp"
+                    android:textColor="?attr/colorOnSurfaceVariant"
+                    android:fontFamily="sans-serif"/>
+            </LinearLayout>
+
             <!-- Hidden legacy link views — kept for Java binding compatibility -->
             <LinearLayout android:id="@+id/layout_phone"
                 android:layout_width="match_parent" android:layout_height="0dp"

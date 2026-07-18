@@ -532,6 +532,20 @@
                     android:background="@drawable/bg_reel_follow_btn"/>
             </LinearLayout>
 
+            <!-- ── Add to profile button (shown only for logged-in user) ── -->
+            <TextView
+                android:id="@+id/btn_add_to_profile"
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:text="➕  Add to profile"
+                android:gravity="center"
+                android:textColor="@color/white"
+                android:textSize="14sp"
+                android:fontFamily="sans-serif-medium"
+                android:background="@drawable/bg_btn_follow_pill"
+                android:layout_marginTop="10dp"
+                android:visibility="gone"/>
+
             <!-- Trim start chip -->
             <TextView
                 android:id="@+id/btn_trim_start"
