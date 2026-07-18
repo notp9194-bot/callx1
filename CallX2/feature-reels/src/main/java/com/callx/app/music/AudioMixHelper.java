@@ -178,27 +178,77 @@ public class AudioMixHelper {
             String urlB, float volB,
             int fadeOutMs,
             MixCallback callback) {
+        mixTwoAudioFiles(context, urlA, volA, urlB, volB, fadeOutMs, DEFAULT_MAX_REMIX_DURATION_MS, callback);
+    }
+
+    /** Remixes cap out at this length by default — keeps memory bounded and output short-form. */
+    public static final int DEFAULT_MAX_REMIX_DURATION_MS = 60_000; // 60s
+
+    /**
+     * Same as {@link #mixTwoAudioFiles(Context, String, float, String, float, int, MixCallback)}
+     * but lets the caller cap the output duration. Capping is essential in production: without
+     * it, a long song used as Sound A/B is decoded to raw 16-bit PCM in memory in full — a
+     * 4-minute stereo track is ~40MB per file before mixing, which is a common source of
+     * OutOfMemoryError on low-end devices. Capping trims each source (after resample) to
+     * {@code maxDurationMs} worth of samples before the mix step.
+     */
+    public static void mixTwoAudioFiles(
+            Context context,
+            String urlA, float volA,
+            String urlB, float volB,
+            int fadeOutMs,
+            int maxDurationMs,
+            MixCallback callback) {
 
         executor.execute(() -> {
             File fileA = null, fileB = null;
             try {
-                // ── 1. Download ───────────────────────────────────────────────
+                // ── 0. Validate inputs up front — fail fast with a clear message ──
+                if (urlA == null || urlA.trim().isEmpty())
+                    throw new IllegalArgumentException("Sound A has no audio URL");
+                if (urlB == null || urlB.trim().isEmpty())
+                    throw new IllegalArgumentException("Sound B has no audio URL");
+
+                int maxSamples = maxDurationMs > 0
+                        ? (int) Math.min(Integer.MAX_VALUE, (long) maxDurationMs * 44100L / 1000L)
+                        : Integer.MAX_VALUE;
+
+                // ── 1. Download (each with its own retry/redirect handling) ──────
                 mainHandler.post(() -> callback.onProgress(5));
-                fileA = downloadToCache(context, urlA);
+                try {
+                    fileA = downloadToCache(context, urlA);
+                } catch (IOException e) {
+                    throw new IOException("Couldn't download Sound A: " + e.getMessage(), e);
+                }
                 mainHandler.post(() -> callback.onProgress(18));
-                fileB = downloadToCache(context, urlB);
+                try {
+                    fileB = downloadToCache(context, urlB);
+                } catch (IOException e) {
+                    throw new IOException("Couldn't download Sound B: " + e.getMessage(), e);
+                }
                 mainHandler.post(() -> callback.onProgress(30));
 
-                // ── 2. Extract PCM from each audio file ───────────────────────
+                // ── 2. Extract PCM from each audio file (capped to maxSamples) ───
                 // extractPcmFromFile handles: stereo→mono, rate-resampling to 44100
-                short[] pcmA = extractPcmFromFile(fileA.getAbsolutePath(), Integer.MAX_VALUE, 0);
+                short[] pcmA, pcmB;
+                try {
+                    pcmA = extractPcmFromFile(fileA.getAbsolutePath(), maxSamples, 0);
+                } catch (Exception e) {
+                    throw new Exception("Sound A couldn't be decoded (unsupported or corrupt audio)", e);
+                }
                 mainHandler.post(() -> callback.onProgress(50));
-                short[] pcmB = extractPcmFromFile(fileB.getAbsolutePath(), Integer.MAX_VALUE, 0);
+                if (pcmA.length == 0) throw new Exception("Sound A appears to be empty or unsupported");
+
+                try {
+                    pcmB = extractPcmFromFile(fileB.getAbsolutePath(), maxSamples, 0);
+                } catch (Exception e) {
+                    throw new Exception("Sound B couldn't be decoded (unsupported or corrupt audio)", e);
+                }
                 mainHandler.post(() -> callback.onProgress(65));
+                if (pcmB.length == 0) throw new Exception("Sound B appears to be empty or unsupported");
 
                 // ── 3. Match lengths (loop shorter to match longer) ───────────
                 int targetLen = Math.max(pcmA.length, pcmB.length);
-                if (targetLen == 0) throw new Exception("Both audio files appear to be empty");
                 if (pcmA.length < targetLen) pcmA = loopPcm(pcmA, targetLen);
                 else if (pcmA.length > targetLen)
                     pcmA = java.util.Arrays.copyOf(pcmA, targetLen);
@@ -220,10 +270,21 @@ public class AudioMixHelper {
                 String outPath = new File(context.getCacheDir(),
                         "remix_" + System.currentTimeMillis() + ".mp4").getAbsolutePath();
                 encodePcmToAac(mixed, outPath);
-                mainHandler.post(() -> callback.onProgress(98));
 
+                // Sanity-check the encoder actually produced a real file before
+                // reporting success — an empty/missing output silently breaks
+                // the upload step downstream with a confusing error otherwise.
+                File outFile = new File(outPath);
+                if (!outFile.exists() || outFile.length() == 0)
+                    throw new IOException("Remix encoding produced an empty file");
+
+                mainHandler.post(() -> callback.onProgress(98));
                 mainHandler.post(() -> callback.onSuccess(outPath));
 
+            } catch (OutOfMemoryError oom) {
+                Log.e(TAG, "mixTwoAudioFiles OOM", oom);
+                mainHandler.post(() -> callback.onError(
+                        new Exception("Audio file too large to remix on this device. Try a shorter sound.")));
             } catch (Exception e) {
                 Log.e(TAG, "mixTwoAudioFiles failed", e);
                 mainHandler.post(() -> callback.onError(e));
@@ -408,25 +469,97 @@ public class AudioMixHelper {
 
     // ── Step 1: Download music ─────────────────────────────────────────────
 
+    private static final int DOWNLOAD_MAX_RETRIES  = 2;   // total attempts = 1 + retries
+    private static final int DOWNLOAD_MAX_REDIRECTS = 5;
+
     private static File downloadToCache(Context context, String urlStr) throws IOException {
         File cacheFile = new File(context.getCacheDir(),
                 "music_cache_" + urlStr.hashCode() + ".aac");
         if (cacheFile.exists() && cacheFile.length() > 0) {
             return cacheFile; // Already cached
         }
-        URL url = new URL(urlStr);
-        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-        conn.setConnectTimeout(15000);
-        conn.setReadTimeout(30000);
-        try (InputStream in = conn.getInputStream();
-             FileOutputStream out = new FileOutputStream(cacheFile)) {
-            byte[] buf = new byte[8192];
-            int n;
-            while ((n = in.read(buf)) != -1) out.write(buf, 0, n);
-        } finally {
-            conn.disconnect();
+
+        IOException lastError = null;
+        for (int attempt = 0; attempt <= DOWNLOAD_MAX_RETRIES; attempt++) {
+            try {
+                return downloadOnce(urlStr, cacheFile);
+            } catch (IOException e) {
+                lastError = e;
+                // Never leave a partial/corrupt file behind to poison the cache
+                // for the next attempt (or the next user who reuses this sound).
+                //noinspection ResultOfMethodCallIgnored
+                cacheFile.delete();
+                if (attempt < DOWNLOAD_MAX_RETRIES) {
+                    try {
+                        Thread.sleep(500L * (attempt + 1)); // simple backoff: 0.5s, 1s
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        throw e;
+                    }
+                }
+            }
         }
-        return cacheFile;
+        throw lastError != null ? lastError : new IOException("Download failed: " + urlStr);
+    }
+
+    /**
+     * Performs a single download attempt, following redirects manually (including
+     * cross-protocol http↔https redirects, which {@code HttpURLConnection}'s
+     * built-in follow-redirects does NOT handle) and validating the HTTP status
+     * and byte count so truncated/failed downloads are detected instead of
+     * silently producing a corrupt cache file.
+     */
+    private static File downloadOnce(String urlStr, File cacheFile) throws IOException {
+        String target = urlStr;
+        for (int redirect = 0; redirect < DOWNLOAD_MAX_REDIRECTS; redirect++) {
+            HttpURLConnection conn = (HttpURLConnection) new URL(target).openConnection();
+            conn.setConnectTimeout(15000);
+            conn.setReadTimeout(30000);
+            conn.setInstanceFollowRedirects(false); // handled manually below
+            conn.setRequestProperty("User-Agent", "CallX2Android/1.0");
+            try {
+                int code = conn.getResponseCode();
+
+                if (code == HttpURLConnection.HTTP_MOVED_PERM
+                        || code == HttpURLConnection.HTTP_MOVED_TEMP
+                        || code == HttpURLConnection.HTTP_SEE_OTHER
+                        || code == 307 || code == 308) {
+                    String location = conn.getHeaderField("Location");
+                    if (location == null || location.isEmpty())
+                        throw new IOException("Redirect (HTTP " + code + ") with no Location header");
+                    target = location;
+                    continue; // follow redirect
+                }
+
+                if (code < 200 || code >= 300) {
+                    throw new IOException("Server returned HTTP " + code + " for audio URL");
+                }
+
+                // NOTE: getContentLength() (not getContentLengthLong(), which needs API 24)
+                // is used to stay compatible with this module's minSdk 23. Audio clips are
+                // always well under 2GB so the int range is not a concern here.
+                long declaredLen = conn.getContentLength();
+                long total = 0;
+                try (InputStream in = conn.getInputStream();
+                     FileOutputStream out = new FileOutputStream(cacheFile)) {
+                    byte[] buf = new byte[8192];
+                    int n;
+                    while ((n = in.read(buf)) != -1) {
+                        out.write(buf, 0, n);
+                        total += n;
+                    }
+                }
+
+                if (total == 0) throw new IOException("Downloaded audio file is empty");
+                if (declaredLen > 0 && total < declaredLen)
+                    throw new IOException("Download incomplete (" + total + "/" + declaredLen + " bytes) — connection likely dropped");
+
+                return cacheFile;
+            } finally {
+                conn.disconnect();
+            }
+        }
+        throw new IOException("Too many redirects while downloading audio");
     }
 
     // ── Step 2/3: Extract PCM ──────────────────────────────────────────────
