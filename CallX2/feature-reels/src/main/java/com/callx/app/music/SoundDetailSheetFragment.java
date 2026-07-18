@@ -207,21 +207,28 @@ public class SoundDetailSheetFragment extends BottomSheetDialogFragment implemen
     @Override
     public void onStart() {
         super.onStart();
-        // Sheet ko fullscreen expand karo jaise Instagram karta hai
         BottomSheetDialog dialog = (BottomSheetDialog) getDialog();
         if (dialog == null) return;
         FrameLayout sheet = dialog.findViewById(com.google.android.material.R.id.design_bottom_sheet);
         if (sheet == null) return;
 
-        // Sheet ki height poori screen ke barabar karo
+        // Sheet ki height poori screen ke barabar rakho (behavior height control karega)
         sheet.getLayoutParams().height = ViewGroup.LayoutParams.MATCH_PARENT;
         sheet.requestLayout();
 
+        int screenH = requireContext().getResources().getDisplayMetrics().heightPixels;
+
         BottomSheetBehavior<FrameLayout> behavior = BottomSheetBehavior.from(sheet);
-        behavior.setFitToContents(false);      // half-expanded state allow karo
-        behavior.setExpandedOffset(0);          // top tak jao
-        behavior.setSkipCollapsed(true);        // collapsed skip → swipe down = dismiss
-        behavior.setState(BottomSheetBehavior.STATE_EXPANDED); // seedha fullscreen open
+        behavior.setFitToContents(false);
+
+        // ── 60% pe open → user scroll kare → 80% tak expand ──
+        // peekHeight  = screen ka 60%  → initial collapsed state
+        // expandedOffset = screen ka 20% → expanded state = 80% height
+        behavior.setPeekHeight((int)(screenH * 0.60f), true);
+        behavior.setExpandedOffset((int)(screenH * 0.20f));
+
+        behavior.setSkipCollapsed(false);  // 60% state skip mat karo
+        behavior.setState(BottomSheetBehavior.STATE_COLLAPSED); // pehle 60% dikhao
     }
 
     // ─────────────────────────────────────────────────────────────────────────
