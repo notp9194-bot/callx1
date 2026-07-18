@@ -1,502 +1,303 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!--
-    activity_auth.xml — Login UI v3
-    ================================
-    Fix summary:
-      1. Girl image inside ScrollView → scrolls with card in signup mode
-      2. Girl positioned using FrameLayout overlap — she "sits" on top of white card
-      3. No plant / floating decoration PNGs — zero extra weight
-
-    Structure:
-      FrameLayout (root — purple→pink gradient background)
-        └── ScrollView (full screen, fillViewport)
-              └── FrameLayout (content wrapper, paddingTop=32dp for gradient breathing room)
-                    ├── LinearLayout (white card, marginTop=104dp, paddingTop=112dp)
-                    │     └── [All form fields, buttons, social row]
-                    └── ImageView (girl, top|center_horizontal — overlaps card by ~112dp)
-
-    ViewBinding IDs preserved (AuthActivity.java uses):
-      btn_login (AppCompatButton), btn_signup (TextView), btn_google, btn_phone,
-      btn_biometric_login, btn_apple, btn_facebook,
-      til_name, til_mobile, et_email, et_password, et_name, et_mobile,
-      tv_forgot_password, tv_error, fl_avatar_picker, iv_avatar_preview, tv_avatar_hint,
-      layout_remember_me, cb_remember_me,
-      layout_password_strength, progress_password_strength, tv_password_strength_label,
-      iv_auth_character, btn_toggle_password
--->
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@drawable/bg_auth_gradient">
-
-    <ScrollView
+    android:background="?attr/colorSurface"
+    android:fillViewport="true">
+    <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:fillViewport="true"
-        android:scrollbars="none"
-        android:overScrollMode="never">
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="32dp"
+        android:gravity="center_horizontal">
 
-        <!--
-            FrameLayout as ScrollView child so girl ImageView and card
-            can overlap. paddingTop=32dp = visible gradient above girl.
-        -->
         <FrameLayout
+            android:layout_width="96dp"
+            android:layout_height="96dp"
+            android:layout_marginTop="48dp"
+            android:background="@drawable/circle_primary">
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:text="C"
+                android:textColor="@color/white"
+                android:textSize="48sp"
+                android:textStyle="bold"/>
+        </FrameLayout>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="CallX"
+            android:textSize="36sp"
+            android:textStyle="bold"
+            android:textColor="?android:attr/textColorPrimary"
+            android:layout_marginTop="16dp"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Connect. Call. Chat."
+            android:textColor="@color/text_secondary"
+            android:textSize="15sp"
+            android:layout_marginTop="6dp"
+            android:layout_marginBottom="40dp"/>
+
+        <!-- Signup avatar picker -->
+        <FrameLayout
+            android:id="@+id/fl_avatar_picker"
+            android:layout_width="110dp"
+            android:layout_height="110dp"
+            android:layout_marginBottom="14dp"
+            android:visibility="gone">
+            <de.hdodenhof.circleimageview.CircleImageView
+                android:id="@+id/iv_avatar_preview"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:src="@drawable/ic_person"
+                android:background="@color/surface_input"/>
+            <FrameLayout
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:layout_gravity="bottom|end"
+                android:background="@drawable/circle_primary">
+                <ImageView
+                    android:layout_width="18dp"
+                    android:layout_height="18dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_camera"
+                    android:tint="@color/white"/>
+            </FrameLayout>
+        </FrameLayout>
+
+        <TextView
+            android:id="@+id/tv_avatar_hint"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Profile photo lagao"
+            android:textColor="@color/text_secondary"
+            android:textSize="13sp"
+            android:layout_marginBottom="14dp"
+            android:visibility="gone"/>
+
+        <!-- Name (signup only) -->
+        <com.google.android.material.textfield.TextInputLayout
+            android:id="@+id/til_name"
+            style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:paddingTop="32dp"
-            android:paddingStart="16dp"
-            android:paddingEnd="16dp"
-            android:paddingBottom="32dp">
-
-            <!-- ══════════════════════════════════════════════
-                 WHITE CARD
-                 marginTop=104dp  → leaves space for girl top half
-                 paddingTop=112dp → content starts below girl bottom
-                 ══════════════════════════════════════════════ -->
-            <LinearLayout
+            android:hint="Naam (signup ke liye)"
+            android:layout_marginBottom="12dp"
+            app:boxCornerRadiusBottomEnd="14dp"
+            app:boxCornerRadiusBottomStart="14dp"
+            app:boxCornerRadiusTopEnd="14dp"
+            app:boxCornerRadiusTopStart="14dp">
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/et_name"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="104dp"
-                android:orientation="vertical"
-                android:background="@drawable/bg_login_card"
-                android:elevation="8dp"
-                android:paddingStart="28dp"
-                android:paddingEnd="28dp"
-                android:paddingTop="112dp"
-                android:paddingBottom="28dp">
+                android:inputType="textPersonName"/>
+        </com.google.android.material.textfield.TextInputLayout>
 
-                <!-- ─── Signup-only hidden fields ─────────────────────── -->
+        <!-- Mobile (signup only) -->
+        <com.google.android.material.textfield.TextInputLayout
+            android:id="@+id/til_mobile"
+            style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Mobile number (CallX ID banega)"
+            android:layout_marginBottom="12dp"
+            app:prefixText="+"
+            app:boxCornerRadiusBottomEnd="14dp"
+            app:boxCornerRadiusBottomStart="14dp"
+            app:boxCornerRadiusTopEnd="14dp"
+            app:boxCornerRadiusTopStart="14dp">
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/et_mobile"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="phone"
+                android:maxLength="15"/>
+        </com.google.android.material.textfield.TextInputLayout>
 
-                <!-- Avatar picker -->
-                <FrameLayout
-                    android:id="@+id/fl_avatar_picker"
-                    android:layout_width="110dp"
-                    android:layout_height="110dp"
-                    android:layout_gravity="center_horizontal"
-                    android:layout_marginBottom="14dp"
-                    android:visibility="gone">
-                    <de.hdodenhof.circleimageview.CircleImageView
-                        android:id="@+id/iv_avatar_preview"
-                        android:layout_width="match_parent"
-                        android:layout_height="match_parent"
-                        android:src="@drawable/ic_person"
-                        android:background="@color/surface_input"/>
-                    <FrameLayout
-                        android:layout_width="32dp"
-                        android:layout_height="32dp"
-                        android:layout_gravity="bottom|end"
-                        android:background="@drawable/circle_primary">
-                        <ImageView
-                            android:layout_width="18dp"
-                            android:layout_height="18dp"
-                            android:layout_gravity="center"
-                            android:src="@drawable/ic_camera"
-                            android:tint="@color/white"
-                            android:contentDescription="@null"/>
-                    </FrameLayout>
-                </FrameLayout>
+        <!-- Email -->
+        <com.google.android.material.textfield.TextInputLayout
+            style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Email"
+            app:boxCornerRadiusBottomEnd="14dp"
+            app:boxCornerRadiusBottomStart="14dp"
+            app:boxCornerRadiusTopEnd="14dp"
+            app:boxCornerRadiusTopStart="14dp">
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/et_email"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="textEmailAddress"/>
+        </com.google.android.material.textfield.TextInputLayout>
 
-                <TextView
-                    android:id="@+id/tv_avatar_hint"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_gravity="center_horizontal"
-                    android:text="Profile photo lagao"
-                    android:textColor="@color/text_secondary"
-                    android:textSize="13sp"
-                    android:layout_marginBottom="14dp"
-                    android:visibility="gone"/>
+        <!-- Password -->
+        <com.google.android.material.textfield.TextInputLayout
+            style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Password"
+            android:layout_marginTop="14dp"
+            app:passwordToggleEnabled="true"
+            app:boxCornerRadiusBottomEnd="14dp"
+            app:boxCornerRadiusBottomStart="14dp"
+            app:boxCornerRadiusTopEnd="14dp"
+            app:boxCornerRadiusTopStart="14dp">
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/et_password"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="textPassword"/>
+        </com.google.android.material.textfield.TextInputLayout>
 
-                <!-- Name (signup only) -->
-                <com.google.android.material.textfield.TextInputLayout
-                    android:id="@+id/til_name"
-                    style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:hint="Naam"
-                    android:layout_marginBottom="12dp"
-                    app:boxCornerRadiusBottomEnd="28dp"
-                    app:boxCornerRadiusBottomStart="28dp"
-                    app:boxCornerRadiusTopEnd="28dp"
-                    app:boxCornerRadiusTopStart="28dp"
-                    android:visibility="gone">
-                    <com.google.android.material.textfield.TextInputEditText
-                        android:id="@+id/et_name"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:inputType="textPersonName"
-                        android:importantForAutofill="no"/>
-                </com.google.android.material.textfield.TextInputLayout>
+        <!-- Password Strength Meter (signup only) -->
+        <LinearLayout
+            android:id="@+id/layout_password_strength"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginTop="6dp"
+            android:visibility="gone">
+            <com.google.android.material.progressindicator.LinearProgressIndicator
+                android:id="@+id/progress_password_strength"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:max="100"
+                android:progress="0"
+                app:trackCornerRadius="4dp"
+                app:trackThickness="6dp"
+                app:trackColor="@color/divider"/>
+            <TextView
+                android:id="@+id/tv_password_strength_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textSize="12sp"
+                android:layout_marginTop="4dp"
+                android:text="Password strength"/>
+        </LinearLayout>
 
-                <!-- Mobile (signup only) -->
-                <com.google.android.material.textfield.TextInputLayout
-                    android:id="@+id/til_mobile"
-                    style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:hint="Mobile number"
-                    android:layout_marginBottom="12dp"
-                    app:prefixText="+"
-                    app:boxCornerRadiusBottomEnd="28dp"
-                    app:boxCornerRadiusBottomStart="28dp"
-                    app:boxCornerRadiusTopEnd="28dp"
-                    app:boxCornerRadiusTopStart="28dp"
-                    android:visibility="gone">
-                    <com.google.android.material.textfield.TextInputEditText
-                        android:id="@+id/et_mobile"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:inputType="phone"
-                        android:maxLength="15"
-                        android:importantForAutofill="no"/>
-                </com.google.android.material.textfield.TextInputLayout>
+        <!-- Remember Me + Forgot Password row -->
+        <LinearLayout
+            android:id="@+id/layout_remember_me"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginTop="8dp">
+            <CheckBox
+                android:id="@+id/cb_remember_me"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Yaad rakho"
+                android:textSize="13sp"
+                android:textColor="@color/text_secondary"
+                android:buttonTint="@color/brand_primary"/>
+            <TextView
+                android:id="@+id/tv_forgot_password"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Password bhool gaye?"
+                android:textColor="@color/brand_primary"
+                android:textSize="13sp"
+                android:paddingTop="8dp"
+                android:paddingBottom="4dp"/>
+        </LinearLayout>
 
-                <!-- ─── Welcome Back title ────────────────────────────── -->
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_gravity="center_horizontal"
-                    android:text="Welcome Back!"
-                    android:textSize="26sp"
-                    android:fontFamily="sans-serif-black"
-                    android:textStyle="bold"
-                    android:textColor="#1E0A3C"
-                    android:layout_marginBottom="6dp"/>
+        <!-- Error message -->
+        <TextView
+            android:id="@+id/tv_error"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="@color/action_danger"
+            android:layout_marginTop="8dp"
+            android:visibility="gone"/>
 
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_gravity="center_horizontal"
-                    android:text="Login to continue"
-                    android:textSize="14sp"
-                    android:textColor="#9CA3AF"
-                    android:layout_marginBottom="28dp"/>
+        <!-- Login button -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_login"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:text="Login"
+            app:cornerRadius="14dp"
+            android:backgroundTint="@color/brand_primary"
+            android:layout_marginTop="16dp"/>
 
-                <!-- ─── Email field ───────────────────────────────────── -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="56dp"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:background="@drawable/bg_auth_input_field"
-                    android:paddingStart="16dp"
-                    android:paddingEnd="16dp"
-                    android:layout_marginBottom="14dp">
+        <!-- Signup toggle -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_signup"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:text="Naya account banao"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            app:cornerRadius="14dp"
+            android:layout_marginTop="12dp"/>
 
-                    <ImageView
-                        android:layout_width="20dp"
-                        android:layout_height="20dp"
-                        android:src="@drawable/ic_person"
-                        android:tint="#9CA3AF"
-                        android:layout_marginEnd="10dp"
-                        android:contentDescription="@null"/>
+        <!-- Divider -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginTop="20dp"
+            android:layout_marginBottom="4dp">
+            <View android:layout_width="0dp" android:layout_height="1dp"
+                android:layout_weight="1" android:background="@color/text_secondary" android:alpha="0.3"/>
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="  ya  " android:textColor="@color/text_secondary" android:textSize="13sp"/>
+            <View android:layout_width="0dp" android:layout_height="1dp"
+                android:layout_weight="1" android:background="@color/text_secondary" android:alpha="0.3"/>
+        </LinearLayout>
 
-                    <EditText
-                        android:id="@+id/et_email"
-                        android:layout_width="0dp"
-                        android:layout_height="match_parent"
-                        android:layout_weight="1"
-                        android:hint="Username / Email"
-                        android:textColor="#1E0A3C"
-                        android:textColorHint="#C4B5FD"
-                        android:textSize="14sp"
-                        android:background="@null"
-                        android:inputType="textEmailAddress"
-                        android:importantForAutofill="no"/>
-                </LinearLayout>
+        <!-- Google Sign-In -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_google"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:layout_marginTop="8dp"
+            android:text="Google se login karo"
+            android:textColor="?android:attr/textColorPrimary"
+            app:cornerRadius="14dp"
+            app:icon="@drawable/ic_google"
+            app:iconGravity="textStart"
+            app:iconTint="@null"/>
 
-                <!-- ─── Password field ────────────────────────────────── -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="56dp"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:background="@drawable/bg_auth_input_field"
-                    android:paddingStart="16dp"
-                    android:paddingEnd="8dp"
-                    android:layout_marginBottom="8dp">
+        <!-- Biometric Login (shown only when enabled) -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_biometric_login"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:layout_marginTop="10dp"
+            android:text="Fingerprint se login karo"
+            android:textColor="?android:attr/textColorPrimary"
+            app:cornerRadius="14dp"
+            app:icon="@drawable/ic_shield"
+            app:iconGravity="textStart"
+            android:visibility="gone"/>
 
-                    <ImageView
-                        android:layout_width="20dp"
-                        android:layout_height="20dp"
-                        android:src="@drawable/ic_lock"
-                        android:tint="#9CA3AF"
-                        android:layout_marginEnd="10dp"
-                        android:contentDescription="@null"/>
+        <!-- Phone OTP Login -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_phone"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:layout_marginTop="10dp"
+            android:layout_marginBottom="32dp"
+            android:text="Phone OTP se login karo"
+            android:textColor="?android:attr/textColorPrimary"
+            app:cornerRadius="14dp"
+            app:icon="@drawable/ic_phone"
+            app:iconGravity="textStart"/>
 
-                    <EditText
-                        android:id="@+id/et_password"
-                        android:layout_width="0dp"
-                        android:layout_height="match_parent"
-                        android:layout_weight="1"
-                        android:hint="Password"
-                        android:textColor="#1E0A3C"
-                        android:textColorHint="#C4B5FD"
-                        android:textSize="14sp"
-                        android:background="@null"
-                        android:inputType="textPassword"
-                        android:importantForAutofill="no"/>
-
-                    <ImageButton
-                        android:id="@+id/btn_toggle_password"
-                        android:layout_width="36dp"
-                        android:layout_height="36dp"
-                        android:src="@drawable/ic_visibility_off"
-                        android:tint="#C4B5FD"
-                        android:background="?attr/selectableItemBackgroundBorderless"
-                        android:contentDescription="Toggle password visibility"/>
-                </LinearLayout>
-
-                <!-- ─── Forgot Password ───────────────────────────────── -->
-                <TextView
-                    android:id="@+id/tv_forgot_password"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:gravity="end"
-                    android:text="Forgot Password?"
-                    android:textColor="#9333EA"
-                    android:textSize="13sp"
-                    android:fontFamily="sans-serif-medium"
-                    android:paddingTop="4dp"
-                    android:paddingBottom="4dp"
-                    android:layout_marginBottom="12dp"
-                    android:clickable="true"
-                    android:focusable="true"/>
-
-                <!-- ─── Error message ─────────────────────────────────── -->
-                <TextView
-                    android:id="@+id/tv_error"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:textColor="@color/action_danger"
-                    android:textSize="13sp"
-                    android:gravity="center"
-                    android:layout_marginBottom="4dp"
-                    android:visibility="gone"/>
-
-                <!-- ─── Password strength meter (signup only) ─────────── -->
-                <LinearLayout
-                    android:id="@+id/layout_password_strength"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:layout_marginBottom="8dp"
-                    android:visibility="gone">
-                    <com.google.android.material.progressindicator.LinearProgressIndicator
-                        android:id="@+id/progress_password_strength"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:max="100"
-                        android:progress="0"
-                        app:trackCornerRadius="4dp"
-                        app:trackThickness="6dp"
-                        app:trackColor="@color/divider"/>
-                    <TextView
-                        android:id="@+id/tv_password_strength_label"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:textSize="12sp"
-                        android:layout_marginTop="4dp"
-                        android:text="Password strength"/>
-                </LinearLayout>
-
-                <!-- ─── Remember Me (login mode only) ────────────────── -->
-                <LinearLayout
-                    android:id="@+id/layout_remember_me"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:layout_marginBottom="16dp"
-                    android:visibility="gone">
-                    <CheckBox
-                        android:id="@+id/cb_remember_me"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="Yaad rakho"
-                        android:textSize="13sp"
-                        android:textColor="@color/text_secondary"
-                        android:buttonTint="#9333EA"/>
-                </LinearLayout>
-
-                <!-- ─── Login button (gradient, supports setText) ────── -->
-                <androidx.appcompat.widget.AppCompatButton
-                    android:id="@+id/btn_login"
-                    android:layout_width="match_parent"
-                    android:layout_height="54dp"
-                    android:text="Login"
-                    android:textColor="#FFFFFF"
-                    android:textSize="17sp"
-                    android:fontFamily="sans-serif-black"
-                    android:textStyle="bold"
-                    android:background="@drawable/bg_auth_login_btn"
-                    android:stateListAnimator="@null"
-                    android:layout_marginBottom="14dp"/>
-
-                <!-- ─── Biometric (hidden, shown by AuthActivity) ─────── -->
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btn_biometric_login"
-                    style="@style/Widget.Material3.Button.OutlinedButton"
-                    android:layout_width="match_parent"
-                    android:layout_height="50dp"
-                    android:layout_marginBottom="8dp"
-                    android:text="Fingerprint se login karo"
-                    app:cornerRadius="28dp"
-                    app:icon="@drawable/ic_shield"
-                    app:iconGravity="textStart"
-                    android:visibility="gone"/>
-
-                <!-- ─── Phone OTP (hidden, shown by AuthActivity) ─────── -->
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btn_phone"
-                    style="@style/Widget.Material3.Button.OutlinedButton"
-                    android:layout_width="match_parent"
-                    android:layout_height="50dp"
-                    android:layout_marginBottom="8dp"
-                    android:text="Phone OTP se login karo"
-                    app:cornerRadius="28dp"
-                    app:icon="@drawable/ic_phone"
-                    app:iconGravity="textStart"
-                    android:visibility="gone"/>
-
-                <!-- ─── "or continue with" divider ───────────────────── -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:layout_marginTop="6dp"
-                    android:layout_marginBottom="20dp">
-                    <View
-                        android:layout_width="0dp"
-                        android:layout_height="1dp"
-                        android:layout_weight="1"
-                        android:background="#E5E7EB"/>
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="  or continue with  "
-                        android:textColor="#9CA3AF"
-                        android:textSize="12sp"/>
-                    <View
-                        android:layout_width="0dp"
-                        android:layout_height="1dp"
-                        android:layout_weight="1"
-                        android:background="#E5E7EB"/>
-                </LinearLayout>
-
-                <!-- ─── Social buttons: Google · Apple · Facebook ─────── -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center"
-                    android:layout_marginBottom="24dp">
-
-                    <FrameLayout
-                        android:id="@+id/btn_google"
-                        android:layout_width="58dp"
-                        android:layout_height="58dp"
-                        android:background="@drawable/bg_social_circle_auth"
-                        android:elevation="4dp"
-                        android:clickable="true"
-                        android:focusable="true"
-                        android:foreground="?attr/selectableItemBackgroundBorderless"
-                        android:layout_marginEnd="24dp">
-                        <ImageView
-                            android:layout_width="28dp"
-                            android:layout_height="28dp"
-                            android:layout_gravity="center"
-                            android:src="@drawable/ic_google"
-                            android:contentDescription="Google"/>
-                    </FrameLayout>
-
-                    <FrameLayout
-                        android:id="@+id/btn_apple"
-                        android:layout_width="58dp"
-                        android:layout_height="58dp"
-                        android:background="@drawable/bg_social_circle_auth"
-                        android:elevation="4dp"
-                        android:clickable="true"
-                        android:focusable="true"
-                        android:foreground="?attr/selectableItemBackgroundBorderless"
-                        android:layout_marginEnd="24dp">
-                        <ImageView
-                            android:layout_width="28dp"
-                            android:layout_height="28dp"
-                            android:layout_gravity="center"
-                            android:src="@drawable/ic_apple_logo"
-                            android:contentDescription="Apple"/>
-                    </FrameLayout>
-
-                    <FrameLayout
-                        android:id="@+id/btn_facebook"
-                        android:layout_width="58dp"
-                        android:layout_height="58dp"
-                        android:background="@drawable/bg_social_circle_auth"
-                        android:elevation="4dp"
-                        android:clickable="true"
-                        android:focusable="true"
-                        android:foreground="?attr/selectableItemBackgroundBorderless">
-                        <ImageView
-                            android:layout_width="28dp"
-                            android:layout_height="28dp"
-                            android:layout_gravity="center"
-                            android:src="@drawable/ic_facebook_logo"
-                            android:contentDescription="Facebook"/>
-                    </FrameLayout>
-                </LinearLayout>
-
-                <!-- ─── Don't have an account? Sign Up ───────────────── -->
-                <LinearLayout
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_gravity="center_horizontal"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical">
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Don't have an account? "
-                        android:textColor="#9CA3AF"
-                        android:textSize="14sp"/>
-                    <TextView
-                        android:id="@+id/btn_signup"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Sign Up"
-                        android:textColor="#9333EA"
-                        android:textSize="14sp"
-                        android:fontFamily="sans-serif-black"
-                        android:textStyle="bold"
-                        android:clickable="true"
-                        android:focusable="true"
-                        android:paddingTop="8dp"
-                        android:paddingBottom="8dp"/>
-                </LinearLayout>
-
-            </LinearLayout>
-            <!-- end white card -->
-
-            <!--
-                GIRL IMAGE — inside FrameLayout, drawn on top of card
-                layout_gravity=top|center_horizontal anchors her at the top-center
-                of the FrameLayout (which has paddingTop=32dp from gradient space).
-                She is 216dp tall; card marginTop=104dp → she overlaps card by 112dp.
-                Both scroll together when user scrolls (signup mode etc.)
-            -->
-            <ImageView
-                android:id="@+id/iv_auth_character"
-                android:layout_width="210dp"
-                android:layout_height="216dp"
-                android:layout_gravity="top|center_horizontal"
-                android:src="@drawable/img_auth_character"
-                android:scaleType="fitCenter"
-                android:contentDescription="@null"/>
-
-        </FrameLayout>
-    </ScrollView>
-
-</FrameLayout>
+    </LinearLayout>
+</ScrollView>

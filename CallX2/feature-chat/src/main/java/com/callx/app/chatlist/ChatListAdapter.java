@@ -380,8 +380,14 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         if (h.storyRingView != null && u.uid != null) {
             h.storyRingView.setOnClickListener(v -> {
                 if (isSelecting) { toggleSelection(h.getAdapterPosition()); return; }
-                if (avatarClickListener != null) avatarClickListener.onAvatarClick(u);
-                else openStatusOrChat(ctx, u);
+                // Story ring click always opens story/status if available, else bottom sheet
+                if (hasStory) {
+                    openStatusOrChat(ctx, u);
+                } else if (avatarClickListener != null) {
+                    avatarClickListener.onAvatarClick(u);
+                } else {
+                    openChat(ctx, u);
+                }
             });
         }
 
@@ -416,9 +422,15 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
 
         h.ivAvatar.setOnClickListener(v -> {
             if (isSelecting) { toggleSelection(h.getAdapterPosition()); return; }
-            if (avatarClickListener != null) avatarClickListener.onAvatarClick(u);
-            else if (hasStory) openStatusOrChat(ctx, u);
-            else openChat(ctx, u);
+            // Story-first behavior: if user has active story/status, open it (Instagram style).
+            // Only show contact bottom sheet when no story is available.
+            if (hasStory) {
+                openStatusOrChat(ctx, u);
+            } else if (avatarClickListener != null) {
+                avatarClickListener.onAvatarClick(u);
+            } else {
+                openChat(ctx, u);
+            }
         });
 
         h.ivAvatar.setOnLongClickListener(v -> {

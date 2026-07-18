@@ -358,7 +358,7 @@
                     android:layout_width="38dp"
                     android:layout_height="38dp"
                     android:layout_gravity="center"
-                    android:background="@drawable/circle_status_unseen"
+                    android:background="@drawable/story_ring_insta_gradient"
                     android:clickable="true"
                     android:focusable="true"
                     android:visibility="gone"/>

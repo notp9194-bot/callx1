@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    story_ring_insta_gradient.xml
+    Instagram-exact story ring gradient: purple → red-pink → orange/yellow
+    Used as background on iv_owner_story_ring in fragment_reel_player.xml
+    The avatar (slightly smaller) sits on top, visually creating a ring effect.
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Outer gradient oval — full gradient circle -->
+    <item>
+        <shape android:shape="oval">
+            <gradient
+                android:type="sweep"
+                android:startColor="#833AB4"
+                android:centerColor="#FD1D1D"
+                android:endColor="#FCAF45"/>
+        </shape>
+    </item>
+    <!-- Inner white ring (2.5dp all sides) — creates visible gap between gradient and avatar -->
+    <item
+        android:left="2dp"
+        android:top="2dp"
+        android:right="2dp"
+        android:bottom="2dp">
+        <shape android:shape="oval">
+            <solid android:color="#FFFFFFFF"/>
+        </shape>
+    </item>
+</layer-list>
