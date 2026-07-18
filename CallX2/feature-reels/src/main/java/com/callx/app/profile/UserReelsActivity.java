@@ -28,7 +28,7 @@ import com.google.android.material.tabs.TabLayout;
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.load.engine.DiskCacheStrategy;
 import com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions;
-import com.bumptech.glide.request.RequestBuilder;
+import com.bumptech.glide.RequestBuilder;
 import android.graphics.drawable.Drawable;
 import com.callx.app.reels.R;
 import com.callx.app.profile.ReelGridAdapter;
