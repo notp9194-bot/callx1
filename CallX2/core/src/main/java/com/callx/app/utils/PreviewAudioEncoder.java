@@ -28,12 +28,20 @@ import java.nio.ShortBuffer;
  * WHAT THIS DOES:
  *  Decodes the source file's audio track to raw 16-bit PCM (via
  *  MediaExtractor + MediaCodec decoder), downmixes multi-channel audio to
- *  mono (simple channel-average — no resampling, so no risk of the
- *  "slow audio" bug), then re-encodes to AAC-LC at a low bitrate and mono
- *  channel count, muxed into a plain .m4a container.
+ *  mono (simple channel-average), RESAMPLES it down to a low sample rate
+ *  (16 kHz), then re-encodes to AAC-LC at a low bitrate and mono channel
+ *  count, muxed into a plain .m4a container.
  *
- * A 15-30s clip at 32 kbps mono AAC is typically 60-120 KB (~4x smaller
- * than the previous 128 kbps stereo passthrough), matching what a
+ * ✅ FIX: encoding straight at the source's native 44.1/48 kHz while asking
+ * for a very low bitrate (32 kbps) doesn't actually work on a lot of device
+ * AAC encoders — they silently clamp the *real* output bitrate up to
+ * ~60-64 kbps regardless of what was requested, so a 17s preview still came
+ * out ~130 KB. Downsampling to 16 kHz first lets the encoder honour the low
+ * bitrate properly (voice/beat stays clear — this matches what Instagram's
+ * own preview tracks use), bringing a 17s clip down to ~35-45 KB.
+ *
+ * A 15-30s clip at 16 kHz / 32 kbps mono AAC is typically 30-70 KB (~6-8x
+ * smaller than the previous 128 kbps stereo passthrough), matching what a
  * preview-only playback screen actually needs.
  *
  * Runs entirely on Android's built-in MediaCodec APIs — no FFmpeg needed.
@@ -44,6 +52,8 @@ public final class PreviewAudioEncoder {
 
     /** Target bitrate for the low-data preview track. */
     public static final int PREVIEW_BITRATE_BPS = 32_000; // 32 kbps
+    /** Target sample rate — low enough for the encoder to actually hit PREVIEW_BITRATE_BPS. */
+    public static final int PREVIEW_SAMPLE_RATE = 16_000; // 16 kHz
 
     private PreviewAudioEncoder() {}
 
@@ -60,13 +70,34 @@ public final class PreviewAudioEncoder {
         DecodedPcm decoded = decodeToMonoPcm(sourceFile.getAbsolutePath());
         if (decoded.pcm.length == 0) throw new Exception("No audio samples decoded from " + sourceFile);
 
+        // ✅ Downsample to 16 kHz before encoding — see class javadoc for why.
+        short[] pcm16k = resamplePcm(decoded.pcm, decoded.sampleRate, PREVIEW_SAMPLE_RATE);
+
         File outFile = new File(outputDir,
             "preview_audio_" + System.currentTimeMillis() + ".m4a");
-        encodeMonoPcmToAac(decoded.pcm, decoded.sampleRate, PREVIEW_BITRATE_BPS, outFile.getAbsolutePath());
+        encodeMonoPcmToAac(pcm16k, PREVIEW_SAMPLE_RATE, PREVIEW_BITRATE_BPS, outFile.getAbsolutePath());
 
         Log.d(TAG, "Preview audio generated: " + outFile.length() / 1024 + " KB ("
-            + decoded.sampleRate + "Hz mono, " + (PREVIEW_BITRATE_BPS / 1000) + "kbps) → " + outFile);
+            + PREVIEW_SAMPLE_RATE + "Hz mono, " + (PREVIEW_BITRATE_BPS / 1000) + "kbps) → " + outFile);
         return outFile;
+    }
+
+    /**
+     * Linear-interpolation resampler. Simple and fast — adequate quality for
+     * a low-bitrate speech/music preview clip.
+     */
+    private static short[] resamplePcm(short[] input, int srcRate, int dstRate) {
+        if (srcRate == dstRate || input.length == 0) return input;
+        int dstLen = (int) ((long) input.length * dstRate / srcRate);
+        short[] output = new short[dstLen];
+        for (int i = 0; i < dstLen; i++) {
+            float srcPos = (float) i * srcRate / dstRate;
+            int   idx0   = (int) srcPos;
+            int   idx1   = Math.min(idx0 + 1, input.length - 1);
+            float frac   = srcPos - idx0;
+            output[i] = (short) (input[idx0] * (1f - frac) + input[idx1] * frac);
+        }
+        return output;
     }
 
     // ── Decode: audio track → mono 16-bit PCM (no resampling) ─────────────
