@@ -254,6 +254,12 @@
         <activity android:name="com.callx.app.followers.SuggestedListActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize"/>
+        <activity android:name="com.callx.app.profile.AboutAccountActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
+        <activity android:name="com.callx.app.profile.FormerUsernamesActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
         <activity android:name="com.callx.app.followers.FollowingListActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize"/>

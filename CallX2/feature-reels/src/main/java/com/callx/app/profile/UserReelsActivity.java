@@ -1842,14 +1842,15 @@ public class UserReelsActivity extends AppCompatActivity
                 new Object[]{targetUid, orEmpty(targetName), orEmpty(targetPhoto), true, false, orEmpty(cid)});
         });
 
-        // "See all" → open SuggestedListActivity on Suggested tab
+        // "See all" → FollowConnectionsActivity on Suggested tab (same screen as Followers/Following)
         if (tvSeeAllSuggested != null) tvSeeAllSuggested.setOnClickListener(v -> {
             android.content.Intent i = new android.content.Intent(
-                    this, com.callx.app.followers.SuggestedListActivity.class);
-            i.putExtra(com.callx.app.followers.SuggestedListActivity.EXTRA_UID,  targetUid);
-            i.putExtra(com.callx.app.followers.SuggestedListActivity.EXTRA_NAME, orEmpty(targetName));
-            i.putExtra(com.callx.app.followers.SuggestedListActivity.EXTRA_TAB,
-                       com.callx.app.followers.SuggestedListActivity.TAB_SUGGESTED);
+                    this, com.callx.app.followers.FollowConnectionsActivity.class);
+            i.putExtra(com.callx.app.followers.FollowConnectionsActivity.EXTRA_UID,       targetUid);
+            i.putExtra(com.callx.app.followers.FollowConnectionsActivity.EXTRA_NAME,      orEmpty(targetName));
+            i.putExtra(com.callx.app.followers.FollowConnectionsActivity.EXTRA_IS_SELF,   isSelf);
+            i.putExtra(com.callx.app.followers.FollowConnectionsActivity.EXTRA_START_TAB,
+                       com.callx.app.followers.FollowConnectionsActivity.TAB_SUGGESTED);
             startActivity(i);
         });
     }
@@ -2329,6 +2330,10 @@ public class UserReelsActivity extends AppCompatActivity
         FirebaseUtils.getReelFollowsRef(myUid).child(targetUid).setValue(true);
         FirebaseUtils.getReelFollowersRef(targetUid).child(myUid).setValue(true);
         updateFollowerCountUI(1);
+        // Auto-show suggested panel after follow (like Instagram)
+        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+            if (!suggestedPanelOpen) toggleSuggestedPanel();
+        }, 600);
     }
 
     private void updateFollowButton() {
@@ -2459,13 +2464,25 @@ public class UserReelsActivity extends AppCompatActivity
         String myUid = safeMyUid();
         switch (idx) {
             case 0: // Add to Close Friends
-                Toast.makeText(this, "Added to Close Friends", Toast.LENGTH_SHORT).show(); break;
+                if (myUid != null) {
+                    com.google.firebase.database.FirebaseDatabase.getInstance()
+                        .getReference("reelCloseFriends").child(myUid).child(targetUid).setValue(true);
+                }
+                Toast.makeText(this, "Added to Close Friends list", Toast.LENGTH_SHORT).show(); break;
             case 1: // Add to favorites
+                if (myUid != null) {
+                    com.google.firebase.database.FirebaseDatabase.getInstance()
+                        .getReference("reelFavorites").child(myUid).child(targetUid).setValue(true);
+                }
                 Toast.makeText(this, "Added to Favorites", Toast.LENGTH_SHORT).show(); break;
-            case 2: // Mute
-                Toast.makeText(this, "Muted", Toast.LENGTH_SHORT).show(); break;
+            case 2: // Mute — show sub-sheet with toggles
+                showMuteSheet(); break;
             case 3: // Restrict
-                Toast.makeText(this, "Restricted", Toast.LENGTH_SHORT).show(); break;
+                if (myUid != null) {
+                    com.google.firebase.database.FirebaseDatabase.getInstance()
+                        .getReference("reelRestricted").child(myUid).child(targetUid).setValue(true);
+                }
+                Toast.makeText(this, "Restricted. They won't know.", Toast.LENGTH_SHORT).show(); break;
             case 4: // Unfollow
                 if (myUid == null) return;
                 isFollowing = false;
@@ -2476,6 +2493,154 @@ public class UserReelsActivity extends AppCompatActivity
                 updateFollowerCountUI(-1);
                 break;
         }
+    }
+
+    /**
+     * Mute sub-sheet — shown when user picks "Mute" from the Following options bottom sheet.
+     * Mirrors Instagram's Mute screen with toggles for Posts, Stories, Activity bubbles, etc.
+     * Toggle states are persisted to Firebase under reelMute/{myUid}/{targetUid}.
+     */
+    private void showMuteSheet() {
+        if (isFinishing() || isDestroyed()) return;
+        String myUid = safeMyUid();
+
+        com.google.android.material.bottomsheet.BottomSheetDialog sheet =
+            new com.google.android.material.bottomsheet.BottomSheetDialog(this);
+
+        android.widget.LinearLayout root = new android.widget.LinearLayout(this);
+        root.setOrientation(android.widget.LinearLayout.VERTICAL);
+        root.setBackgroundColor(android.graphics.Color.WHITE);
+
+        float dp = getResources().getDisplayMetrics().density;
+        int padH = (int)(20 * dp);
+        int padV = (int)(16 * dp);
+
+        // Header row with back arrow + title
+        android.widget.LinearLayout header = new android.widget.LinearLayout(this);
+        header.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+        header.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        header.setPadding(padH, (int)(14 * dp), padH, (int)(14 * dp));
+
+        android.widget.ImageButton btnBack = new android.widget.ImageButton(this);
+        try { btnBack.setImageResource(R.drawable.ic_back); } catch (Exception ignored) {}
+        btnBack.setBackground(null);
+        btnBack.setOnClickListener(v -> sheet.dismiss());
+        header.addView(btnBack, (int)(32 * dp), (int)(32 * dp));
+
+        android.widget.TextView tvTitle = new android.widget.TextView(this);
+        tvTitle.setText("Mute");
+        tvTitle.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 17f);
+        tvTitle.setTypeface(null, android.graphics.Typeface.BOLD);
+        tvTitle.setTextColor(0xFF111111);
+        android.widget.LinearLayout.LayoutParams titleLp = new android.widget.LinearLayout.LayoutParams(
+            0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        titleLp.leftMargin = (int)(12 * dp);
+        header.addView(tvTitle, titleLp);
+        root.addView(header);
+
+        // Divider
+        android.view.View topDiv = new android.view.View(this);
+        topDiv.setBackgroundColor(0xFFEEEEEE);
+        root.addView(topDiv, android.widget.LinearLayout.LayoutParams.MATCH_PARENT, 1);
+
+        // Mute toggle items
+        String[] muteItems = {
+            "Posts", "Stories", "Activity bubbles on content",
+            "Notes", "Notes on the map", "Location on the map", "Instants"
+        };
+        String[] muteKeys = {
+            "posts", "stories", "activityBubbles",
+            "notes", "notesOnMap", "locationOnMap", "instants"
+        };
+
+        // Load current mute state from Firebase and build rows
+        android.widget.LinearLayout itemsContainer = new android.widget.LinearLayout(this);
+        itemsContainer.setOrientation(android.widget.LinearLayout.VERTICAL);
+
+        for (int i = 0; i < muteItems.length; i++) {
+            final String key = muteKeys[i];
+            android.widget.LinearLayout row = new android.widget.LinearLayout(this);
+            row.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+            row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            row.setPadding(padH, padV, padH, padV);
+
+            android.widget.TextView label = new android.widget.TextView(this);
+            label.setText(muteItems[i]);
+            label.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 15f);
+            label.setTextColor(0xFF111111);
+            android.widget.LinearLayout.LayoutParams lblLp = new android.widget.LinearLayout.LayoutParams(
+                0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+            row.addView(label, lblLp);
+
+            androidx.appcompat.widget.SwitchCompat sw = new androidx.appcompat.widget.SwitchCompat(this);
+            sw.setChecked(false);
+            row.addView(sw);
+
+            // Load persisted state
+            if (myUid != null) {
+                com.google.firebase.database.FirebaseDatabase.getInstance()
+                    .getReference("reelMute").child(myUid).child(targetUid).child(key)
+                    .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
+                        @Override
+                        public void onDataChange(@androidx.annotation.NonNull com.google.firebase.database.DataSnapshot snap) {
+                            Boolean val = snap.getValue(Boolean.class);
+                            sw.setChecked(Boolean.TRUE.equals(val));
+                        }
+                        @Override public void onCancelled(@androidx.annotation.NonNull com.google.firebase.database.DatabaseError e) {}
+                    });
+            }
+
+            // Persist toggle changes
+            sw.setOnCheckedChangeListener((buttonView, isChecked) -> {
+                if (myUid != null) {
+                    com.google.firebase.database.FirebaseDatabase.getInstance()
+                        .getReference("reelMute").child(myUid).child(targetUid).child(key)
+                        .setValue(isChecked);
+                }
+            });
+
+            itemsContainer.addView(row);
+
+            // Divider between rows
+            if (i < muteItems.length - 1) {
+                android.view.View div = new android.view.View(this);
+                div.setBackgroundColor(0xFFF2F2F2);
+                android.widget.LinearLayout.LayoutParams divLp =
+                    new android.widget.LinearLayout.LayoutParams(
+                        android.view.ViewGroup.LayoutParams.MATCH_PARENT, 1);
+                divLp.setMarginStart(padH);
+                itemsContainer.addView(div, divLp);
+            }
+        }
+
+        // Footer note
+        android.widget.TextView tvNote = new android.widget.TextView(this);
+        tvNote.setText("We won't let them know you muted them.");
+        tvNote.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 12f);
+        tvNote.setTextColor(0xFF888888);
+        tvNote.setPadding(padH, (int)(12 * dp), padH, (int)(32 * dp));
+
+        android.widget.ScrollView sv = new android.widget.ScrollView(this);
+        android.widget.LinearLayout svContent = new android.widget.LinearLayout(this);
+        svContent.setOrientation(android.widget.LinearLayout.VERTICAL);
+        svContent.addView(itemsContainer);
+        svContent.addView(tvNote);
+        sv.addView(svContent);
+        root.addView(sv);
+
+        sheet.setContentView(root);
+        sheet.show();
+    }
+
+    /**
+     * Open "About this account" screen — shows date joined, country, former usernames.
+     */
+    private void openAboutAccount() {
+        android.content.Intent i = new android.content.Intent(this, AboutAccountActivity.class);
+        i.putExtra(AboutAccountActivity.EXTRA_UID,   targetUid);
+        i.putExtra(AboutAccountActivity.EXTRA_NAME,  orEmpty(targetName));
+        i.putExtra(AboutAccountActivity.EXTRA_PHOTO, orEmpty(targetPhoto));
+        startActivity(i);
     }
 
     private void updateFollowerCountUI(int delta) {
@@ -2827,6 +2992,7 @@ public class UserReelsActivity extends AppCompatActivity
             if (isSelf && pinnedReel != null) menu.getMenu().add(0, 4, 0, "Remove Pinned Reel");
             if (isSelf)  menu.getMenu().add(0, 6, 0, "🗑️ Delete All Reels");
             if (!isSelf) menu.getMenu().add(0, 3, 0, "Report User");
+            if (!isSelf) menu.getMenu().add(0, 7, 0, "About this account");
             menu.setOnMenuItemClickListener(item -> {
                 switch (item.getItemId()) {
                     case 1: shareProfile(); break;
@@ -2839,6 +3005,7 @@ public class UserReelsActivity extends AppCompatActivity
                     case 4: unpinReel(); break;
                     case 5: startActivity(new Intent(this, ReelCreatorDashboardActivity.class)); break;
                     case 6: deleteAllReels(); break;
+                    case 7: openAboutAccount(); break;
                 }
                 return true;
             });

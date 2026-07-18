@@ -51,6 +51,7 @@ public class FollowConnectionsActivity extends AppCompatActivity {
     public static final int TAB_FOLLOWERS = 0;
     public static final int TAB_FOLLOWING = 1;
     public static final int TAB_MUTUAL    = 2;
+    public static final int TAB_SUGGESTED = 3;
 
     // ── Views ─────────────────────────────────────────────────────────────
     private TabLayout    tabLayout;
@@ -66,7 +67,7 @@ public class FollowConnectionsActivity extends AppCompatActivity {
     private ArrayList<String> mutualUidsArg = new ArrayList<>();
 
     // ── Per-tab data ──────────────────────────────────────────────────────
-    private static final int TAB_COUNT = 3;
+    private static final int TAB_COUNT = 4;
 
     @SuppressWarnings("unchecked")
     private final List<UserItem>[] allItems      = new List[TAB_COUNT];
@@ -77,7 +78,7 @@ public class FollowConnectionsActivity extends AppCompatActivity {
     private final ProgressBar[]     progresses   = new ProgressBar[TAB_COUNT];
     private final LinearLayout[]    empties      = new LinearLayout[TAB_COUNT];
 
-    private final int[] counts = {0, 0, 0};   // follower / following / mutual count
+    private final int[] counts = {0, 0, 0, 0};   // follower / following / mutual / suggested count
 
     private final Set<String> myFollowing = new HashSet<>();
     private boolean myFollowingLoaded = false;
@@ -120,7 +121,7 @@ public class FollowConnectionsActivity extends AppCompatActivity {
         viewPager.setOffscreenPageLimit(TAB_COUNT);
 
         // Connect TabLayout
-        String[] defaultLabels = {"Followers", "Following", "Mutual"};
+        String[] defaultLabels = {"Followers", "Following", "Mutual", "Suggested"};
         new TabLayoutMediator(tabLayout, viewPager,
                 (tab, pos) -> tab.setText(defaultLabels[pos])).attach();
 
@@ -151,6 +152,7 @@ public class FollowConnectionsActivity extends AppCompatActivity {
         loadFollowers();
         loadFollowing();
         loadMutual();
+        loadSuggested();
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -238,8 +240,8 @@ public class FollowConnectionsActivity extends AppCompatActivity {
         ll.addView(iv, dp(56), dp(56));
 
         TextView title = new TextView(ctx);
-        String[] titles = {"No followers yet", "Not following anyone", "No mutual followers"};
-        title.setText(titles[Math.min(tabIdx, 2)]);
+        String[] titles = {"No followers yet", "Not following anyone", "No mutual followers", "No suggestions"};
+        title.setText(titles[Math.min(tabIdx, 3)]);
         title.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 16f);
         title.setTypeface(null, android.graphics.Typeface.BOLD);
         title.setGravity(android.view.Gravity.CENTER);
@@ -252,10 +254,11 @@ public class FollowConnectionsActivity extends AppCompatActivity {
         String[] subs = {
             "Followers will appear here.",
             "This user hasn't followed anyone.",
-            "You and this user have no followers in common."
+            "You and this user have no followers in common.",
+            "No new accounts to suggest."
         };
         TextView sub = new TextView(ctx);
-        sub.setText(subs[Math.min(tabIdx, 2)]);
+        sub.setText(subs[Math.min(tabIdx, 3)]);
         sub.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 13f);
         sub.setGravity(android.view.Gravity.CENTER);
         sub.setTextColor(0xFF888888);
@@ -440,7 +443,7 @@ public class FollowConnectionsActivity extends AppCompatActivity {
         }
     }
 
-    private static final String[] TAB_LABELS = {"Followers", "Following", "Mutual Followers"};
+    private static final String[] TAB_LABELS = {"Followers", "Following", "Mutual Followers", "Suggested"};
 
     /**
      * Cross-tab search: if query found in a DIFFERENT tab than the one currently
@@ -548,7 +551,7 @@ public class FollowConnectionsActivity extends AppCompatActivity {
         android.graphics.drawable.GradientDrawable chipBg = new android.graphics.drawable.GradientDrawable();
         chipBg.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
         chipBg.setCornerRadius(20 * density);
-        int[] chipColors = {0xFF6C5CE7, 0xFF00B894, 0xFFFF7675}; // Followers / Following / Mutual
+        int[] chipColors = {0xFF6C5CE7, 0xFF00B894, 0xFFFF7675, 0xFFFF9F43}; // Followers / Following / Mutual / Suggested
         chipBg.setColor(chipColors[foundTabIdx]);
         chip.setBackground(chipBg);
         chip.setTypeface(null, android.graphics.Typeface.BOLD);
@@ -818,7 +821,7 @@ public class FollowConnectionsActivity extends AppCompatActivity {
             if (tabLayout == null) return;
             TabLayout.Tab t = tabLayout.getTabAt(tab);
             if (t == null) return;
-            String[] labels = {"Followers", "Following", "Mutual"};
+            String[] labels = {"Followers", "Following", "Mutual", "Suggested"};
             int c = counts[tab];
             t.setText(c > 0 ? formatCount(c) + " " + labels[tab] : labels[tab]);
         });
@@ -860,5 +863,91 @@ public class FollowConnectionsActivity extends AppCompatActivity {
 
     private int dp(int v) {
         return Math.round(v * getResources().getDisplayMetrics().density);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // Suggested tab — users targetUid follows but currentUser doesn't
+    // ══════════════════════════════════════════════════════════════════════
+
+    /**
+     * Load Suggested tab:
+     * Candidates = users that targetUid follows AND currentUser does NOT follow yet.
+     * Self is always excluded.
+     */
+    private void loadSuggested() {
+        String myUid = safeMyUid();
+        if (myUid == null || isSelf) {
+            showProgress(TAB_SUGGESTED, false);
+            showEmpty(TAB_SUGGESTED, true);
+            return;
+        }
+        showProgress(TAB_SUGGESTED, true);
+
+        // First load MY following list to know whom to exclude
+        FirebaseUtils.getReelFollowsRef(myUid)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override
+                public void onDataChange(@NonNull DataSnapshot mySnap) {
+                    final Set<String> iFollow = new HashSet<>();
+                    iFollow.add(myUid); // exclude self
+                    for (DataSnapshot s : mySnap.getChildren())
+                        if (s.getKey() != null) iFollow.add(s.getKey());
+
+                    // Now load who targetUid follows
+                    FirebaseUtils.getReelFollowsRef(targetUid)
+                        .addListenerForSingleValueEvent(new ValueEventListener() {
+                            @Override
+                            public void onDataChange(@NonNull DataSnapshot tSnap) {
+                                List<String> candidates = new ArrayList<>();
+                                for (DataSnapshot child : tSnap.getChildren()) {
+                                    String uid = child.getKey();
+                                    if (uid != null && !iFollow.contains(uid))
+                                        candidates.add(uid);
+                                }
+
+                                if (candidates.isEmpty()) {
+                                    showProgress(TAB_SUGGESTED, false);
+                                    showEmpty(TAB_SUGGESTED, true);
+                                    counts[TAB_SUGGESTED] = 0;
+                                    updateTabLabel(TAB_SUGGESTED);
+                                    return;
+                                }
+
+                                allItems[TAB_SUGGESTED].clear();
+                                counts[TAB_SUGGESTED] = candidates.size();
+                                updateTabLabel(TAB_SUGGESTED);
+
+                                final long total = candidates.size();
+                                final long[] done = {0};
+                                for (String uid : candidates) {
+                                    FirebaseUtils.getUserRef(uid)
+                                        .addListenerForSingleValueEvent(new ValueEventListener() {
+                                            @Override
+                                            public void onDataChange(@NonNull DataSnapshot us) {
+                                                synchronized (allItems[TAB_SUGGESTED]) {
+                                                    allItems[TAB_SUGGESTED].add(parseUser(uid, us));
+                                                }
+                                                done[0]++;
+                                                checkDone(TAB_SUGGESTED, done, total);
+                                            }
+                                            @Override
+                                            public void onCancelled(@NonNull DatabaseError e) {
+                                                done[0]++;
+                                                checkDone(TAB_SUGGESTED, done, total);
+                                            }
+                                        });
+                                }
+                            }
+                            @Override
+                            public void onCancelled(@NonNull DatabaseError e) {
+                                showProgress(TAB_SUGGESTED, false);
+                            }
+                        });
+                }
+                @Override
+                public void onCancelled(@NonNull DatabaseError e) {
+                    showProgress(TAB_SUGGESTED, false);
+                }
+            });
     }
 }
