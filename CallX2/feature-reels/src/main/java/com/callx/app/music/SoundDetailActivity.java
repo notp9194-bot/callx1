@@ -24,10 +24,13 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.PopupMenu;
+import androidx.media3.common.C;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
+import androidx.media3.exoplayer.DefaultLoadControl;
 import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.exoplayer.trackselection.DefaultTrackSelector;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
@@ -190,10 +193,8 @@ public class SoundDetailActivity extends AppCompatActivity implements Player.Lis
 
         String originalAudioUrl = getIntent().getStringExtra(EXTRA_ORIGINAL_AUDIO_URL);
         if (originalAudioUrl != null && !originalAudioUrl.isEmpty()) soundUrl = originalAudioUrl;
-        if (soundUrl == null || soundUrl.isEmpty()) {
-            String reelVideoUrl = getIntent().getStringExtra("reel_video_url");
-            if (reelVideoUrl != null && !reelVideoUrl.isEmpty()) soundUrl = reelVideoUrl;
-        }
+        // ✅ FIX: Never fall back to reel_video_url — streaming a video file wastes ~10x data.
+        //         If soundUrl is still empty, loadSoundData() will fetch audioUrl from Firebase.
 
         bindViews();
         showShimmer(true);
@@ -1265,7 +1266,27 @@ public class SoundDetailActivity extends AppCompatActivity implements Player.Lis
         isPreparing = true;
         setPlayButtonLoading(true);
 
-        exoPlayer = new ExoPlayer.Builder(this).build();
+        // ✅ FIX 1: Disable video track — only audio bytes are downloaded (saves ~90% data)
+        DefaultTrackSelector trackSelector = new DefaultTrackSelector(this);
+        trackSelector.setParameters(
+            trackSelector.buildUponParameters()
+                .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, true)
+        );
+
+        // ✅ FIX 2: Reduce buffer — default is 15s-50s (MBs); 4s-12s is enough for a preview
+        DefaultLoadControl loadControl = new DefaultLoadControl.Builder()
+            .setBufferDurationsMs(
+                4_000,   // minBufferMs
+                12_000,  // maxBufferMs
+                1_500,   // bufferForPlaybackMs
+                2_000    // bufferForPlaybackAfterRebufferMs
+            )
+            .build();
+
+        exoPlayer = new ExoPlayer.Builder(this)
+            .setTrackSelector(trackSelector)
+            .setLoadControl(loadControl)
+            .build();
         exoPlayer.addListener(this);
 
         MediaItem mediaItem = MediaItem.fromUri(soundUrl);
