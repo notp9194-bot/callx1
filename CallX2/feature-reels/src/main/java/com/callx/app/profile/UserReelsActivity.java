@@ -27,9 +27,6 @@ import com.google.android.material.tabs.TabLayout;
 
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.load.engine.DiskCacheStrategy;
-import com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions;
-import com.bumptech.glide.RequestBuilder;
-import android.graphics.drawable.Drawable;
 import com.callx.app.reels.R;
 import com.callx.app.profile.ReelGridAdapter;
 import com.callx.app.profile.AllReelsFullActivity;
@@ -319,8 +316,8 @@ public class UserReelsActivity extends AppCompatActivity
         });
 
         if (targetName  != null) { tvName.setText(targetName); if (tvDisplayName != null) tvDisplayName.setText(targetName); }
-        // Avatar placeholder only — actual load happens in loadAvatarAndStartAnimation()
-        // after Firebase returns BOTH thumbUrl (low-res) and photoUrl (HD).
+        // Avatar placeholder only — actual HD load happens in loadAvatarAndStartAnimation()
+        // after Firebase returns photoUrl. Permanently cached (DiskCacheStrategy.ALL).
         if (ivAvatar != null) ivAvatar.setImageResource(R.drawable.ic_person);
 
         if (btnShareProfile != null) btnShareProfile.setOnClickListener(v -> shareProfile());
@@ -1827,49 +1824,37 @@ public class UserReelsActivity extends AppCompatActivity
 
     // ── Avatar Peek Animation ─────────────────────────────────────────────
     /**
-     * Teen alag avatars load karte hain — har button ke liye user ki respective profile image:
-     *   - Chat button    → users/{uid}          (main CallX chat profile)
-     *   - X button       → x/users/{uid}         (X / Twitter profile)
-     *   - YouTube button → youtube/channels/{uid} (YouTube channel)
+     * Teen alag animation avatars load karte hain — har button ke liye:
+     *   - Chat button    → users/{uid}           (main CallX profile, HD cached)
+     *   - X button       → x/users/{uid}          (X / Twitter profile, cached)
+     *   - YouTube button → youtube/channels/{uid}  (YouTube channel, cached)
      * Agar koi platform profile nahi hai to ic_person placeholder rahega.
      * Phir teeno avatars pe loop animation start hoti hai (peek out → hold → peek in → repeat).
+     * Main ivAvatar HD-only load hota hai — permanently cached via DiskCacheStrategy.ALL.
      */
 
-    // ── Instagram-style avatar loader ────────────────────────────────────────
+    // ── HD Avatar loader (permanently cached) ────────────────────────────────
     /**
-     * Progressive loading strategy:
-     *  • Shows thumbUrl (low-res, already cached) as placeholder immediately.
-     *  • Loads photoUrl (HD) in background with crossfade.
-     *  • DiskCacheStrategy.RESOURCE → HD decoded bitmap cached on disk.
-     *    On revisit: no network call, instant full-quality display.
-     *  • override(240,240) → no wasteful 1000 px decode for a 120 dp view.
+     * Always loads photoUrl at HD quality (720×720) — no low-res fallback.
      *
-     * Called from setupHeader() with the Intent-passed URL, then overridden
-     * again inside loadAvatarAndStartAnimation() once Firebase returns the
-     * real HD url.
+     * Caching strategy:
+     *  • DiskCacheStrategy.ALL  → source file + decoded bitmap both cached on disk permanently.
+     *  • skipMemoryCache(false) → decoded bitmap also lives in LRU memory cache.
+     *  • On revisit: zero network — instant display from memory or disk cache.
+     *  • override(720,720)      → HD decode, sharp even on xxxhdpi screens.
+     *
+     * Called from loadAvatarAndStartAnimation() after Firebase returns photoUrl.
      */
-    /**
-     * Firebase se dono URLs milne ke baad call hota hai.
-     * thumbUrl (low-res, separate file) → instantly dikhao
-     * photoUrl (HD)                     → background me load, crossfade se replace karo
-     * Single Glide request on ivAvatar — koi double-load / cancel nahi.
-     */
-    private void loadProfileAvatarInstagramStyle(String thumbUrl, String photoUrl) {
+    private void loadProfileAvatarInstagramStyle(String photoUrl) {
         if (ivAvatar == null || photoUrl == null || photoUrl.isEmpty()) return;
-
-        RequestBuilder<Drawable> thumbReq = Glide.with(this)
-            .load(thumbUrl != null && !thumbUrl.isEmpty() ? thumbUrl : photoUrl)
-            .circleCrop()
-            .diskCacheStrategy(DiskCacheStrategy.RESOURCE);
 
         Glide.with(this)
             .load(photoUrl)
-            .thumbnail(thumbReq)                           // instant low-res (real alag file)
             .circleCrop()
-            .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
-            .override(720, 720)                            // UserProfileActivity jitni quality, xxxhdpi pe bhi sharp
+            .diskCacheStrategy(DiskCacheStrategy.ALL)      // source + decoded bitmap permanently cached
+            .override(720, 720)                            // HD always — xxxhdpi pe bhi sharp
             .placeholder(R.drawable.ic_person)
-            .transition(DrawableTransitionOptions.withCrossFade(200))
+            .skipMemoryCache(false)                        // memory cache active — revisit pe instant display
             .into(ivAvatar);
     }
 
@@ -1878,17 +1863,16 @@ public class UserReelsActivity extends AppCompatActivity
 
         final String DB = "https://sathix-97a76-default-rtdb.asia-southeast1.firebasedatabase.app";
 
-        // isSelf: Firebase se fresh dono URLs fetch karo (Intent ka targetPhoto stale ho sakta hai)
+        // isSelf: Firebase se fresh photoUrl fetch karo (Intent ka targetPhoto stale ho sakta hai)
         // Animation avatars (Chat/X/YouTube) sirf other users ke liye hain.
         if (isSelf) {
             com.google.firebase.database.FirebaseDatabase.getInstance(DB)
                 .getReference("users").child(targetUid)
                 .addListenerForSingleValueEvent(new ValueEventListener() {
                     @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                        String thumb = snap.child("thumbUrl").getValue(String.class);
                         String photo = snap.child("photoUrl").getValue(String.class);
                         if (photo != null && !photo.isEmpty()) {
-                            loadProfileAvatarInstagramStyle(thumb, photo);
+                            loadProfileAvatarInstagramStyle(photo);
                         }
                     }
                     @Override public void onCancelled(@NonNull DatabaseError e) {}
@@ -1896,28 +1880,26 @@ public class UserReelsActivity extends AppCompatActivity
             return;
         }
 
-        // Other user: Firebase se thumbUrl + photoUrl fetch karo → ivAvatar proper two-URL load
-        // ivAnimChat bhi yahi fetch se load hoga — single Firebase call, dono kaam.
+        // Other user: Firebase se photoUrl fetch karo → ivAvatar HD load + ivAnimChat.
+        // Single Firebase call, dono kaam.
         com.google.firebase.database.FirebaseDatabase.getInstance(DB)
             .getReference("users").child(targetUid)
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                    String thumb = snap.child("thumbUrl").getValue(String.class);
                     String photo = snap.child("photoUrl").getValue(String.class);
 
-                    // ivAvatar — proper thumbnail(thumbUrl) + load(photoUrl), single load, no cancel
+                    // ivAvatar — HD direct load, permanently cached
                     if (photo != null && !photo.isEmpty()) {
-                        loadProfileAvatarInstagramStyle(thumb, photo);
+                        loadProfileAvatarInstagramStyle(photo);
                     }
 
-                    // ivAnimChat — animation icon (small view)
-                    String animUrl = (photo != null && !photo.isEmpty()) ? photo
-                                   : (thumb != null && !thumb.isEmpty()) ? thumb : null;
-                    if (ivAnimChat != null && animUrl != null) {
+                    // ivAnimChat — animation icon (small view), permanently cached
+                    if (ivAnimChat != null && photo != null && !photo.isEmpty()) {
                         Glide.with(UserReelsActivity.this)
-                            .load(animUrl).circleCrop()
-                            .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
+                            .load(photo).circleCrop()
+                            .diskCacheStrategy(DiskCacheStrategy.ALL)
                             .placeholder(R.drawable.ic_person)
+                            .skipMemoryCache(false)
                             .override(96, 96)
                             .into(ivAnimChat);
                     }
