@@ -79,6 +79,12 @@ public class ReelPlayerController {
     private boolean    isMuted    = false;
     private int        speedIndex = 1;
 
+    // ── Separate audio-only player for photo slideshow reels ─────────────────
+    // Photo reels don't have audio embedded in a video file; the selected music
+    // track is stored as reel.musicUrl in Firebase and must be streamed
+    // independently alongside the ViewPager2 photo slideshow.
+    private ExoPlayer  audioPlayer;
+
     // ── ABR state ─────────────────────────────────────────────────────────────
     private AdaptiveStreamingManager.QualityCap currentCap    = AdaptiveStreamingManager.QualityCap.AUTO;
     private int                                 stallCount     = 0;
@@ -375,6 +381,12 @@ public class ReelPlayerController {
             ivThumb.setVisibility(View.GONE);
             delegate.startPhotoSlideshow();
             delegate.startDiscAnimation();
+            // ── FIX: stream musicUrl via a dedicated audio-only ExoPlayer ──
+            // Photo reels have no embedded audio — the selected track lives in
+            // reel.musicUrl and must be played separately alongside the slideshow.
+            if (reel.musicUrl != null && !reel.musicUrl.isEmpty()) {
+                startAudioPlayerForPhotoReel(reel.musicUrl);
+            }
             return;
         }
 
@@ -396,6 +408,8 @@ public class ReelPlayerController {
     public void pausePlayback() {
         if (delegate.isPhotoMode()) delegate.stopPhotoSlideshow();
         if (player != null) player.pause();
+        // ── FIX: also pause the audio-only player used for photo slideshow reels
+        if (audioPlayer != null) audioPlayer.pause();
         stopProgressTracking();
         delegate.stopDiscAnimation();
     }
@@ -410,7 +424,9 @@ public class ReelPlayerController {
 
     public void toggleMute() {
         isMuted = !isMuted;
-        if (player != null) player.setVolume(isMuted ? 0f : 1f);
+        if (player      != null) player.setVolume(isMuted ? 0f : 1f);
+        // ── FIX: also mute/unmute the audio-only player for photo reels
+        if (audioPlayer != null) audioPlayer.setVolume(isMuted ? 0f : 1f);
         if (btnMute != null) btnMute.setImageResource(
             isMuted ? R.drawable.ic_volume_off : R.drawable.ic_volume_on);
     }
@@ -592,12 +608,64 @@ public class ReelPlayerController {
             try { player.release(); } catch (Exception ignored) {}
             player = null;
         }
+        // ── FIX: release the audio-only player for photo slideshow reels
+        if (audioPlayer != null) {
+            try { audioPlayer.stop();    } catch (Exception ignored) {}
+            try { audioPlayer.release(); } catch (Exception ignored) {}
+            audioPlayer = null;
+        }
         // v5: Detach ABR engine session before player release
         if (abrEngine != null && abrSession != null) {
             abrEngine.detach(abrSession);
             abrSession = null;
         }
         abrEngine = null;
+    }
+
+    // ── Audio-only player for photo slideshow reels ───────────────────────────
+
+    /**
+     * Creates a lightweight ExoPlayer instance that streams {@code musicUrl} as
+     * audio-only, loops it to match the slideshow, and respects the global mute
+     * state.  Called from {@link #startPlayback()} when photo mode is active.
+     *
+     * We intentionally do NOT use the main {@code player} field here so that:
+     *   (a) the video ExoPlayer lifecycle stays unchanged, and
+     *   (b) we can release audio independently in {@link #releasePlayer()}.
+     */
+    private void startAudioPlayerForPhotoReel(String musicUrl) {
+        if (!delegate.isAdded() || delegate.getContext() == null) return;
+
+        // Release any previous audio player first (e.g. user swiped back)
+        if (audioPlayer != null) {
+            try { audioPlayer.stop();    } catch (Exception ignored) {}
+            try { audioPlayer.release(); } catch (Exception ignored) {}
+            audioPlayer = null;
+        }
+
+        try {
+            android.content.Context ctx = delegate.requireContext();
+
+            audioPlayer = new ExoPlayer.Builder(ctx).build();
+            audioPlayer.setMediaItem(
+                androidx.media3.common.MediaItem.fromUri(android.net.Uri.parse(musicUrl)));
+            audioPlayer.setRepeatMode(ExoPlayer.REPEAT_MODE_ALL); // loop during slideshow
+            audioPlayer.setVolume(isMuted ? 0f : 1f);
+            audioPlayer.setAudioAttributes(
+                new androidx.media3.common.AudioAttributes.Builder()
+                    .setContentType(androidx.media3.common.C.AUDIO_CONTENT_TYPE_MUSIC)
+                    .setUsage(androidx.media3.common.C.USAGE_MEDIA)
+                    .build(),
+                /* handleAudioFocus= */ true);
+            audioPlayer.prepare();
+            audioPlayer.play();
+        } catch (Exception e) {
+            android.util.Log.e("ReelPlayerCtrl", "startAudioPlayerForPhotoReel failed", e);
+            if (audioPlayer != null) {
+                try { audioPlayer.release(); } catch (Exception ignored) {}
+                audioPlayer = null;
+            }
+        }
     }
 
     // ── ABR: Quality badge ────────────────────────────────────────────────────

@@ -17,7 +17,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.function.Consumer;
+// java.util.function.Consumer removed — requires API 24, minSdk=23
 
 /**
  * ReelMentionUserAdapter — shows a list of users that can be @mentioned /
@@ -45,10 +45,15 @@ public class ReelMentionUserAdapter
 
     private final List<MentionUser> items    = new ArrayList<>();
     private final Set<String>       selected = new HashSet<>();  // UIDs
-    private final Consumer<MentionUser> onToggle;
-    private final boolean showCheckbox;
+    /** API-23-safe callback replacing java.util.function.Consumer (requires API 24). */
+    public interface OnMentionClick {
+        void onClick(MentionUser user);
+    }
 
-    public ReelMentionUserAdapter(Consumer<MentionUser> onToggle, boolean showCheckbox) {
+    private final OnMentionClick onToggle;
+    private final boolean        showCheckbox;
+
+    public ReelMentionUserAdapter(OnMentionClick onToggle, boolean showCheckbox) {
         this.onToggle    = onToggle;
         this.showCheckbox = showCheckbox;
     }
@@ -99,7 +104,7 @@ public class ReelMentionUserAdapter
         }
 
         h.itemView.setOnClickListener(v -> {
-            if (onToggle != null) onToggle.accept(u);
+            if (onToggle != null) onToggle.onClick(u);
         });
     }
 

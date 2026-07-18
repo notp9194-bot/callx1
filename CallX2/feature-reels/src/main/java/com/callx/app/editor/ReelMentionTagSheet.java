@@ -29,7 +29,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.function.Consumer;
+// java.util.function.Consumer removed — requires API 24, minSdk=23
 
 /**
  * ReelMentionTagSheet — Instagram-style "Tag People" bottom sheet for the Reel editor.
