@@ -1,11 +1,28 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    activity_auth.xml — Clean minimal login UI (low-weight)
-    ========================================================
-    - Background: pure XML gradient (zero bytes extra)
-    - Girl character: single compressed PNG (480px, ~150KB)
-    - No plant PNGs, no floating icon XMLs
-    - All ViewBinding IDs preserved from AuthActivity.java
+    activity_auth.xml — Login UI v3
+    ================================
+    Fix summary:
+      1. Girl image inside ScrollView → scrolls with card in signup mode
+      2. Girl positioned using FrameLayout overlap — she "sits" on top of white card
+      3. No plant / floating decoration PNGs — zero extra weight
+
+    Structure:
+      FrameLayout (root — purple→pink gradient background)
+        └── ScrollView (full screen, fillViewport)
+              └── FrameLayout (content wrapper, paddingTop=32dp for gradient breathing room)
+                    ├── LinearLayout (white card, marginTop=104dp, paddingTop=112dp)
+                    │     └── [All form fields, buttons, social row]
+                    └── ImageView (girl, top|center_horizontal — overlaps card by ~112dp)
+
+    ViewBinding IDs preserved (AuthActivity.java uses):
+      btn_login (AppCompatButton), btn_signup (TextView), btn_google, btn_phone,
+      btn_biometric_login, btn_apple, btn_facebook,
+      til_name, til_mobile, et_email, et_password, et_name, et_mobile,
+      tv_forgot_password, tv_error, fl_avatar_picker, iv_avatar_preview, tv_avatar_hint,
+      layout_remember_me, cb_remember_me,
+      layout_password_strength, progress_password_strength, tv_password_strength_label,
+      iv_auth_character, btn_toggle_password
 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
@@ -13,9 +30,6 @@
     android:layout_height="match_parent"
     android:background="@drawable/bg_auth_gradient">
 
-    <!-- ══════════════════════════════════════════════════
-         Scrollable content
-         ══════════════════════════════════════════════════ -->
     <ScrollView
         android:layout_width="match_parent"
         android:layout_height="match_parent"
@@ -23,35 +37,38 @@
         android:scrollbars="none"
         android:overScrollMode="never">
 
-        <LinearLayout
+        <!--
+            FrameLayout as ScrollView child so girl ImageView and card
+            can overlap. paddingTop=32dp = visible gradient above girl.
+        -->
+        <FrameLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical"
+            android:paddingTop="32dp"
             android:paddingStart="16dp"
             android:paddingEnd="16dp"
             android:paddingBottom="32dp">
 
-            <!-- Spacer: room for girl image floating above card -->
-            <Space
-                android:layout_width="match_parent"
-                android:layout_height="196dp"/>
-
-            <!-- ══════════════════════════════════════════
-                 WHITE ROUNDED CARD
-                 ══════════════════════════════════════════ -->
+            <!-- ══════════════════════════════════════════════
+                 WHITE CARD
+                 marginTop=104dp  → leaves space for girl top half
+                 paddingTop=112dp → content starts below girl bottom
+                 ══════════════════════════════════════════════ -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:layout_marginTop="104dp"
                 android:orientation="vertical"
                 android:background="@drawable/bg_login_card"
-                android:elevation="10dp"
+                android:elevation="8dp"
                 android:paddingStart="28dp"
                 android:paddingEnd="28dp"
-                android:paddingBottom="28dp"
-                android:paddingTop="96dp">
+                android:paddingTop="112dp"
+                android:paddingBottom="28dp">
 
-                <!-- ── Signup-only hidden fields (setVisibility by AuthActivity) ── -->
+                <!-- ─── Signup-only hidden fields ─────────────────────── -->
 
+                <!-- Avatar picker -->
                 <FrameLayout
                     android:id="@+id/fl_avatar_picker"
                     android:layout_width="110dp"
@@ -91,12 +108,13 @@
                     android:layout_marginBottom="14dp"
                     android:visibility="gone"/>
 
+                <!-- Name (signup only) -->
                 <com.google.android.material.textfield.TextInputLayout
                     android:id="@+id/til_name"
                     style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:hint="Naam (signup ke liye)"
+                    android:hint="Naam"
                     android:layout_marginBottom="12dp"
                     app:boxCornerRadiusBottomEnd="28dp"
                     app:boxCornerRadiusBottomStart="28dp"
@@ -111,6 +129,7 @@
                         android:importantForAutofill="no"/>
                 </com.google.android.material.textfield.TextInputLayout>
 
+                <!-- Mobile (signup only) -->
                 <com.google.android.material.textfield.TextInputLayout
                     android:id="@+id/til_mobile"
                     style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
@@ -133,7 +152,7 @@
                         android:importantForAutofill="no"/>
                 </com.google.android.material.textfield.TextInputLayout>
 
-                <!-- ── Welcome Back ── -->
+                <!-- ─── Welcome Back title ────────────────────────────── -->
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -154,7 +173,7 @@
                     android:textColor="#9CA3AF"
                     android:layout_marginBottom="28dp"/>
 
-                <!-- ── Email field ── -->
+                <!-- ─── Email field ───────────────────────────────────── -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="56dp"
@@ -180,13 +199,14 @@
                         android:layout_weight="1"
                         android:hint="Username / Email"
                         android:textColor="#1E0A3C"
+                        android:textColorHint="#C4B5FD"
                         android:textSize="14sp"
                         android:background="@null"
                         android:inputType="textEmailAddress"
                         android:importantForAutofill="no"/>
                 </LinearLayout>
 
-                <!-- ── Password field ── -->
+                <!-- ─── Password field ────────────────────────────────── -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="56dp"
@@ -212,6 +232,7 @@
                         android:layout_weight="1"
                         android:hint="Password"
                         android:textColor="#1E0A3C"
+                        android:textColorHint="#C4B5FD"
                         android:textSize="14sp"
                         android:background="@null"
                         android:inputType="textPassword"
@@ -227,7 +248,7 @@
                         android:contentDescription="Toggle password visibility"/>
                 </LinearLayout>
 
-                <!-- ── Forgot Password ── -->
+                <!-- ─── Forgot Password ───────────────────────────────── -->
                 <TextView
                     android:id="@+id/tv_forgot_password"
                     android:layout_width="match_parent"
@@ -243,7 +264,7 @@
                     android:clickable="true"
                     android:focusable="true"/>
 
-                <!-- ── Error ── -->
+                <!-- ─── Error message ─────────────────────────────────── -->
                 <TextView
                     android:id="@+id/tv_error"
                     android:layout_width="match_parent"
@@ -254,7 +275,7 @@
                     android:layout_marginBottom="4dp"
                     android:visibility="gone"/>
 
-                <!-- ── Password strength (signup only) ── -->
+                <!-- ─── Password strength meter (signup only) ─────────── -->
                 <LinearLayout
                     android:id="@+id/layout_password_strength"
                     android:layout_width="match_parent"
@@ -280,7 +301,7 @@
                         android:text="Password strength"/>
                 </LinearLayout>
 
-                <!-- ── Remember Me (login only) ── -->
+                <!-- ─── Remember Me (login mode only) ────────────────── -->
                 <LinearLayout
                     android:id="@+id/layout_remember_me"
                     android:layout_width="match_parent"
@@ -300,7 +321,7 @@
                         android:buttonTint="#9333EA"/>
                 </LinearLayout>
 
-                <!-- ── LOGIN BUTTON (gradient, supports setText via AppCompatButton) ── -->
+                <!-- ─── Login button (gradient, supports setText) ────── -->
                 <androidx.appcompat.widget.AppCompatButton
                     android:id="@+id/btn_login"
                     android:layout_width="match_parent"
@@ -314,7 +335,7 @@
                     android:stateListAnimator="@null"
                     android:layout_marginBottom="14dp"/>
 
-                <!-- ── Biometric (hidden by default) ── -->
+                <!-- ─── Biometric (hidden, shown by AuthActivity) ─────── -->
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btn_biometric_login"
                     style="@style/Widget.Material3.Button.OutlinedButton"
@@ -327,7 +348,7 @@
                     app:iconGravity="textStart"
                     android:visibility="gone"/>
 
-                <!-- ── Phone OTP (hidden by default) ── -->
+                <!-- ─── Phone OTP (hidden, shown by AuthActivity) ─────── -->
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btn_phone"
                     style="@style/Widget.Material3.Button.OutlinedButton"
@@ -340,7 +361,7 @@
                     app:iconGravity="textStart"
                     android:visibility="gone"/>
 
-                <!-- ── "or continue with" divider ── -->
+                <!-- ─── "or continue with" divider ───────────────────── -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -366,7 +387,7 @@
                         android:background="#E5E7EB"/>
                 </LinearLayout>
 
-                <!-- ── Social buttons ── -->
+                <!-- ─── Social buttons: Google · Apple · Facebook ─────── -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -428,7 +449,7 @@
                     </FrameLayout>
                 </LinearLayout>
 
-                <!-- ── Sign Up link ── -->
+                <!-- ─── Don't have an account? Sign Up ───────────────── -->
                 <LinearLayout
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -457,18 +478,25 @@
                 </LinearLayout>
 
             </LinearLayout>
-        </LinearLayout>
-    </ScrollView>
+            <!-- end white card -->
 
-    <!-- Girl character — floats on top, overlaps card -->
-    <ImageView
-        android:id="@+id/iv_auth_character"
-        android:layout_width="220dp"
-        android:layout_height="240dp"
-        android:layout_gravity="top|center_horizontal"
-        android:layout_marginTop="20dp"
-        android:src="@drawable/img_auth_character"
-        android:scaleType="fitCenter"
-        android:contentDescription="@null"/>
+            <!--
+                GIRL IMAGE — inside FrameLayout, drawn on top of card
+                layout_gravity=top|center_horizontal anchors her at the top-center
+                of the FrameLayout (which has paddingTop=32dp from gradient space).
+                She is 216dp tall; card marginTop=104dp → she overlaps card by 112dp.
+                Both scroll together when user scrolls (signup mode etc.)
+            -->
+            <ImageView
+                android:id="@+id/iv_auth_character"
+                android:layout_width="210dp"
+                android:layout_height="216dp"
+                android:layout_gravity="top|center_horizontal"
+                android:src="@drawable/img_auth_character"
+                android:scaleType="fitCenter"
+                android:contentDescription="@null"/>
+
+        </FrameLayout>
+    </ScrollView>
 
 </FrameLayout>
