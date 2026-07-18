@@ -1,131 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    activity_auth.xml — Screenshot-matched login UI v2
-    ===================================================
-    All ViewBinding IDs preserved from AuthActivity.java:
-      btn_login (AppCompatButton — supports setText())
-      btn_signup (TextView — supports setText())
-      btn_google, btn_phone, btn_biometric_login (preserved)
-      til_name, til_mobile (hidden TextInputLayouts — setVisibility only)
-      et_email, et_password (bare EditTexts — getText/setText/requestFocus)
-      tv_forgot_password, tv_error
-      fl_avatar_picker, iv_avatar_preview, tv_avatar_hint
-      layout_remember_me, cb_remember_me
-      layout_password_strength, progress_password_strength, tv_password_strength_label
-
-    Layout structure:
-      FrameLayout (full screen, purple→pink gradient)
-        ├── Plants (bottom-left, bottom-right) from generated PNG
-        ├── Floating 3D sparkles, lock, profile bubble, checkmark
-        ├── ScrollView (full screen, transparent)
-        │   └── LinearLayout
-        │       ├── [Spacer — room for character above card]
-        │       └── White rounded card
-        │           ├── [Top spacer — character overlaps into card]
-        │           ├── "Welcome Back!" + subtitle
-        │           ├── Signup-only hidden fields (til_name, til_mobile, avatar)
-        │           ├── Username field (et_email, custom styled)
-        │           ├── Password field (et_password, toggle eye)
-        │           ├── Forgot Password | Error
-        │           ├── Progress bar (layout_password_strength, hidden)
-        │           ├── Remember Me row (layout_remember_me, shown on login)
-        │           ├── LOGIN button (AppCompatButton, gradient)
-        │           ├── Biometric button (hidden by default)
-        │           ├── Phone button (hidden by default)
-        │           ├── "or continue with" divider
-        │           ├── Google · Apple · Facebook circular buttons
-        │           └── "Don't have an account? Sign Up"
-        └── Character image (floats on top, overlapping card)
+    activity_auth.xml — Clean minimal login UI (low-weight)
+    ========================================================
+    - Background: pure XML gradient (zero bytes extra)
+    - Girl character: single compressed PNG (480px, ~150KB)
+    - No plant PNGs, no floating icon XMLs
+    - All ViewBinding IDs preserved from AuthActivity.java
 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@drawable/bg_auth_gradient">
-
-    <!-- ── Plant: bottom-left ── -->
-    <ImageView
-        android:layout_width="100dp"
-        android:layout_height="124dp"
-        android:layout_gravity="bottom|start"
-        android:layout_marginStart="-6dp"
-        android:src="@drawable/img_auth_plant"
-        android:scaleType="fitEnd"
-        android:contentDescription="@null"/>
-
-    <!-- ── Plant: bottom-right (mirrored) ── -->
-    <ImageView
-        android:layout_width="100dp"
-        android:layout_height="124dp"
-        android:layout_gravity="bottom|end"
-        android:layout_marginEnd="-6dp"
-        android:src="@drawable/img_auth_plant"
-        android:scaleType="fitEnd"
-        android:scaleX="-1"
-        android:contentDescription="@null"/>
-
-    <!-- ── Floating sparkle top-left (beside character) ── -->
-    <ImageView
-        android:layout_width="20dp"
-        android:layout_height="20dp"
-        android:layout_gravity="top|start"
-        android:layout_marginStart="40dp"
-        android:layout_marginTop="96dp"
-        android:src="@drawable/ic_auth_sparkle"
-        android:alpha="0.9"
-        android:contentDescription="@null"/>
-
-    <!-- ── Floating sparkle top-center ── -->
-    <ImageView
-        android:layout_width="13dp"
-        android:layout_height="13dp"
-        android:layout_gravity="top|center_horizontal"
-        android:layout_marginStart="80dp"
-        android:layout_marginTop="46dp"
-        android:src="@drawable/ic_auth_sparkle"
-        android:alpha="0.75"
-        android:contentDescription="@null"/>
-
-    <!-- ── Floating sparkle right ── -->
-    <ImageView
-        android:layout_width="15dp"
-        android:layout_height="15dp"
-        android:layout_gravity="top|end"
-        android:layout_marginEnd="48dp"
-        android:layout_marginTop="136dp"
-        android:src="@drawable/ic_auth_sparkle"
-        android:alpha="0.85"
-        android:contentDescription="@null"/>
-
-    <!-- ── Floating profile bubble (top-left, beside character) ── -->
-    <ImageView
-        android:layout_width="48dp"
-        android:layout_height="48dp"
-        android:layout_gravity="top|start"
-        android:layout_marginStart="26dp"
-        android:layout_marginTop="116dp"
-        android:src="@drawable/ic_auth_float_profile"
-        android:contentDescription="@null"/>
-
-    <!-- ── Floating padlock (top-right) ── -->
-    <ImageView
-        android:layout_width="52dp"
-        android:layout_height="52dp"
-        android:layout_gravity="top|end"
-        android:layout_marginEnd="28dp"
-        android:layout_marginTop="68dp"
-        android:src="@drawable/ic_auth_float_lock"
-        android:contentDescription="@null"/>
-
-    <!-- ── Floating checkmark circle (right side) ── -->
-    <ImageView
-        android:layout_width="44dp"
-        android:layout_height="44dp"
-        android:layout_gravity="top|end"
-        android:layout_marginEnd="20dp"
-        android:layout_marginTop="168dp"
-        android:src="@drawable/ic_auth_float_check"
-        android:contentDescription="@null"/>
 
     <!-- ══════════════════════════════════════════════════
          Scrollable content
@@ -145,7 +31,7 @@
             android:paddingEnd="16dp"
             android:paddingBottom="32dp">
 
-            <!-- Spacer: pushes card down so character image floats above card -->
+            <!-- Spacer: room for girl image floating above card -->
             <Space
                 android:layout_width="match_parent"
                 android:layout_height="196dp"/>
@@ -164,12 +50,8 @@
                 android:paddingBottom="28dp"
                 android:paddingTop="96dp">
 
-                <!-- ═══════════════════════════════════════
-                     SIGNUP-ONLY HIDDEN FIELDS
-                     (setVisibility() called by AuthActivity)
-                     ═══════════════════════════════════════ -->
+                <!-- ── Signup-only hidden fields (setVisibility by AuthActivity) ── -->
 
-                <!-- Avatar picker (signup only) -->
                 <FrameLayout
                     android:id="@+id/fl_avatar_picker"
                     android:layout_width="110dp"
@@ -193,7 +75,8 @@
                             android:layout_height="18dp"
                             android:layout_gravity="center"
                             android:src="@drawable/ic_camera"
-                            android:tint="@color/white"/>
+                            android:tint="@color/white"
+                            android:contentDescription="@null"/>
                     </FrameLayout>
                 </FrameLayout>
 
@@ -208,7 +91,6 @@
                     android:layout_marginBottom="14dp"
                     android:visibility="gone"/>
 
-                <!-- Name — signup only -->
                 <com.google.android.material.textfield.TextInputLayout
                     android:id="@+id/til_name"
                     style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
@@ -229,13 +111,12 @@
                         android:importantForAutofill="no"/>
                 </com.google.android.material.textfield.TextInputLayout>
 
-                <!-- Mobile — signup only -->
                 <com.google.android.material.textfield.TextInputLayout
                     android:id="@+id/til_mobile"
                     style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:hint="Mobile number (CallX ID banega)"
+                    android:hint="Mobile number"
                     android:layout_marginBottom="12dp"
                     app:prefixText="+"
                     app:boxCornerRadiusBottomEnd="28dp"
@@ -252,7 +133,7 @@
                         android:importantForAutofill="no"/>
                 </com.google.android.material.textfield.TextInputLayout>
 
-                <!-- ── Welcome Back title ── -->
+                <!-- ── Welcome Back ── -->
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -273,7 +154,7 @@
                     android:textColor="#9CA3AF"
                     android:layout_marginBottom="28dp"/>
 
-                <!-- ── Username / Email field (custom styled) ── -->
+                <!-- ── Email field ── -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="56dp"
@@ -305,7 +186,7 @@
                         android:importantForAutofill="no"/>
                 </LinearLayout>
 
-                <!-- ── Password field (custom styled, eye toggle) ── -->
+                <!-- ── Password field ── -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="56dp"
@@ -346,7 +227,7 @@
                         android:contentDescription="Toggle password visibility"/>
                 </LinearLayout>
 
-                <!-- ── Forgot Password (right aligned) ── -->
+                <!-- ── Forgot Password ── -->
                 <TextView
                     android:id="@+id/tv_forgot_password"
                     android:layout_width="match_parent"
@@ -362,7 +243,7 @@
                     android:clickable="true"
                     android:focusable="true"/>
 
-                <!-- ── Error message ── -->
+                <!-- ── Error ── -->
                 <TextView
                     android:id="@+id/tv_error"
                     android:layout_width="match_parent"
@@ -373,7 +254,7 @@
                     android:layout_marginBottom="4dp"
                     android:visibility="gone"/>
 
-                <!-- ── Password strength meter (signup mode only) ── -->
+                <!-- ── Password strength (signup only) ── -->
                 <LinearLayout
                     android:id="@+id/layout_password_strength"
                     android:layout_width="match_parent"
@@ -399,7 +280,7 @@
                         android:text="Password strength"/>
                 </LinearLayout>
 
-                <!-- ── Remember Me row (login mode only) ── -->
+                <!-- ── Remember Me (login only) ── -->
                 <LinearLayout
                     android:id="@+id/layout_remember_me"
                     android:layout_width="match_parent"
@@ -419,7 +300,7 @@
                         android:buttonTint="#9333EA"/>
                 </LinearLayout>
 
-                <!-- ── LOGIN BUTTON (AppCompatButton — gradient background, supports setText) ── -->
+                <!-- ── LOGIN BUTTON (gradient, supports setText via AppCompatButton) ── -->
                 <androidx.appcompat.widget.AppCompatButton
                     android:id="@+id/btn_login"
                     android:layout_width="match_parent"
@@ -433,7 +314,7 @@
                     android:stateListAnimator="@null"
                     android:layout_marginBottom="14dp"/>
 
-                <!-- ── Biometric Login (hidden by default, shown by AuthActivity) ── -->
+                <!-- ── Biometric (hidden by default) ── -->
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btn_biometric_login"
                     style="@style/Widget.Material3.Button.OutlinedButton"
@@ -441,7 +322,6 @@
                     android:layout_height="50dp"
                     android:layout_marginBottom="8dp"
                     android:text="Fingerprint se login karo"
-                    android:textColor="?android:attr/textColorPrimary"
                     app:cornerRadius="28dp"
                     app:icon="@drawable/ic_shield"
                     app:iconGravity="textStart"
@@ -455,7 +335,6 @@
                     android:layout_height="50dp"
                     android:layout_marginBottom="8dp"
                     android:text="Phone OTP se login karo"
-                    android:textColor="?android:attr/textColorPrimary"
                     app:cornerRadius="28dp"
                     app:icon="@drawable/ic_phone"
                     app:iconGravity="textStart"
@@ -487,7 +366,7 @@
                         android:background="#E5E7EB"/>
                 </LinearLayout>
 
-                <!-- ── Social buttons: Google · Apple · Facebook ── -->
+                <!-- ── Social buttons ── -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -495,13 +374,12 @@
                     android:gravity="center"
                     android:layout_marginBottom="24dp">
 
-                    <!-- Google -->
                     <FrameLayout
                         android:id="@+id/btn_google"
                         android:layout_width="58dp"
                         android:layout_height="58dp"
                         android:background="@drawable/bg_social_circle_auth"
-                        android:elevation="6dp"
+                        android:elevation="4dp"
                         android:clickable="true"
                         android:focusable="true"
                         android:foreground="?attr/selectableItemBackgroundBorderless"
@@ -514,13 +392,12 @@
                             android:contentDescription="Google"/>
                     </FrameLayout>
 
-                    <!-- Apple -->
                     <FrameLayout
                         android:id="@+id/btn_apple"
                         android:layout_width="58dp"
                         android:layout_height="58dp"
                         android:background="@drawable/bg_social_circle_auth"
-                        android:elevation="6dp"
+                        android:elevation="4dp"
                         android:clickable="true"
                         android:focusable="true"
                         android:foreground="?attr/selectableItemBackgroundBorderless"
@@ -533,13 +410,12 @@
                             android:contentDescription="Apple"/>
                     </FrameLayout>
 
-                    <!-- Facebook -->
                     <FrameLayout
                         android:id="@+id/btn_facebook"
                         android:layout_width="58dp"
                         android:layout_height="58dp"
                         android:background="@drawable/bg_social_circle_auth"
-                        android:elevation="6dp"
+                        android:elevation="4dp"
                         android:clickable="true"
                         android:focusable="true"
                         android:foreground="?attr/selectableItemBackgroundBorderless">
@@ -552,7 +428,7 @@
                     </FrameLayout>
                 </LinearLayout>
 
-                <!-- ── Don't have an account? Sign Up ── -->
+                <!-- ── Sign Up link ── -->
                 <LinearLayout
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -581,19 +457,14 @@
                 </LinearLayout>
 
             </LinearLayout>
-            <!-- End white card -->
-
         </LinearLayout>
     </ScrollView>
 
-    <!-- ════════════════════════════════════════════════
-         CHARACTER IMAGE — drawn last = highest Z-order
-         Floats on top of everything, overlaps card top
-         ════════════════════════════════════════════════ -->
+    <!-- Girl character — floats on top, overlaps card -->
     <ImageView
         android:id="@+id/iv_auth_character"
-        android:layout_width="240dp"
-        android:layout_height="256dp"
+        android:layout_width="220dp"
+        android:layout_height="240dp"
         android:layout_gravity="top|center_horizontal"
         android:layout_marginTop="20dp"
         android:src="@drawable/img_auth_character"
