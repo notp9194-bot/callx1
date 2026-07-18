@@ -487,13 +487,30 @@ public class ReelCameraActivity extends AppCompatActivity {
                 } else if (event instanceof VideoRecordEvent.Finalize) {
                     VideoRecordEvent.Finalize fin = (VideoRecordEvent.Finalize) event;
                     isRecording = false;
+                    String path = outputFile.getAbsolutePath();
                     if (!fin.hasError()) {
-                        String path = outputFile.getAbsolutePath();
+                        // ✅ Clean finish — open editor
                         runOnUiThread(() -> openEditor(path));
                     } else {
-                        Log.e(TAG, "Recording error: " + fin.getError());
-                        runOnUiThread(() ->
-                            Toast.makeText(this, "Recording failed", Toast.LENGTH_SHORT).show());
+                        int errCode = fin.getError();
+                        Log.e(TAG, "CameraX recording error code=" + errCode);
+                        // Some error codes (e.g. ERROR_DURATION_LIMIT_REACHED = 9)
+                        // still produce a perfectly usable MP4 file.
+                        // Try to open the editor if the file has content.
+                        boolean fileOk = outputFile.exists() && outputFile.length() > 8192;
+                        if (fileOk) {
+                            runOnUiThread(() -> {
+                                Toast.makeText(this,
+                                    "Video saved with minor issue, opening editor…",
+                                    Toast.LENGTH_SHORT).show();
+                                openEditor(path);
+                            });
+                        } else {
+                            runOnUiThread(() ->
+                                Toast.makeText(this,
+                                    "Recording failed (err " + errCode + "). Try again.",
+                                    Toast.LENGTH_LONG).show());
+                        }
                     }
                 }
             });
@@ -555,16 +572,25 @@ public class ReelCameraActivity extends AppCompatActivity {
         recordPulseSet = new android.animation.AnimatorSet();
         recordPulseSet.playTogether(scX, scY, alph);
         recordPulseSet.setDuration(700);
+        // Use a cancelled flag to prevent restart when cancel() triggers onAnimationEnd
         recordPulseSet.addListener(new android.animation.AnimatorListenerAdapter() {
+            private boolean cancelled = false;
+            @Override public void onAnimationCancel(android.animation.Animator a) {
+                cancelled = true;
+            }
             @Override public void onAnimationEnd(android.animation.Animator a) {
-                if (isRecording && recordPulseSet != null) recordPulseSet.start();
+                // Only loop if the animation finished naturally (not cancelled)
+                if (!cancelled && isRecording && recordPulseSet != null)
+                    recordPulseSet.start();
             }
         });
         recordPulseSet.start();
     }
 
     private void stopRecordPulse() {
-        if (recordPulseSet != null) { recordPulseSet.cancel(); recordPulseSet = null; }
+        android.animation.AnimatorSet toCancel = recordPulseSet;
+        recordPulseSet = null;                      // null FIRST so onAnimationEnd loop guard works
+        if (toCancel != null) toCancel.cancel();
         if (btnRecord != null) {
             btnRecord.setScaleX(1f); btnRecord.setScaleY(1f); btnRecord.setAlpha(1f);
         }
