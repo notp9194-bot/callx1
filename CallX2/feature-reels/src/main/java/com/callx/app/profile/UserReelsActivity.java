@@ -2436,7 +2436,8 @@ public class UserReelsActivity extends AppCompatActivity
                                 fSongId, fSongTitle, fArtist,
                                 fCoverUrl, fSoundUrl,
                                 fDurMs, 0, false);
-                        sheet.show(getSupportFragmentManager(), "sound_detail");
+                        // UserReelsActivity.this required inside anonymous ValueEventListener
+                        sheet.show(UserReelsActivity.this.getSupportFragmentManager(), "sound_detail");
                     });
                 } else if (layoutProfileSong != null) {
                     layoutProfileSong.setVisibility(View.GONE);

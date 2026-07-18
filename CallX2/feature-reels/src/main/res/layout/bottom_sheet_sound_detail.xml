@@ -97,7 +97,7 @@
                             android:layout_width="32dp"
                             android:layout_height="32dp"
                             android:layout_gravity="center"
-                            android:src="@drawable/ic_play_arrow"
+                            android:src="@drawable/ic_play"
                             android:background="#88000000"
                             android:tint="@color/white"
                             android:padding="6dp"

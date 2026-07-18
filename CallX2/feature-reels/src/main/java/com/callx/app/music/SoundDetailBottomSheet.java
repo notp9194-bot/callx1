@@ -218,7 +218,7 @@ public class SoundDetailBottomSheet extends BottomSheetDialogFragment implements
             for (SoundDetailActivity.ReelThumbItem r : reelItems) ids.add(r.reelId);
             Intent i = new Intent(requireContext(), SingleReelPlayerActivity.class);
             i.putExtra(SingleReelPlayerActivity.EXTRA_REEL_IDS, new ArrayList<>(ids));
-            i.putExtra(SingleReelPlayerActivity.EXTRA_START_INDEX, position);
+            i.putExtra(SingleReelPlayerActivity.EXTRA_START_POSITION, position);
             i.putExtra(SingleReelPlayerActivity.EXTRA_SHOW_SOUND_ACTIONS, true);
             i.putExtra(SingleReelPlayerActivity.EXTRA_SOUND_ID,    soundId);
             i.putExtra(SingleReelPlayerActivity.EXTRA_SOUND_TITLE, soundTitle);
