@@ -295,9 +295,10 @@ public class ReelEditorActivity extends AppCompatActivity {
             float eBeauty = getIntent().getFloatExtra(EXTRA_PRESET_EFFECT_BEAUTY,     0f);
             // Apply visually (reuses same tint-overlay system as filters)
             applyFilterVisual(presetEffect, eBright, eCont, eSat);
-            // Tint the Effects toolbar button purple so user sees it's active
-            if (btnToolEffects != null)
-                btnToolEffects.setColorFilter(android.graphics.Color.argb(200, 91, 91, 246));
+            // Note: no dedicated "Effects" toolbar button exists in activity_reel_editor.xml,
+            // so we tint the Filters button instead to show an active visual preset.
+            if (btnToolFilters != null)
+                btnToolFilters.setColorFilter(android.graphics.Color.argb(200, 91, 91, 246));
         }
 
         // ── Recording speed preset from ReelSpeedControlActivity (via camera) ──
@@ -1263,7 +1264,7 @@ public class ReelEditorActivity extends AppCompatActivity {
         draft.trimStartMs = trimStartMs;
         draft.trimEndMs   = trimEndMs;
         draft.filterName  = filterName  != null ? filterName  : "";
-        draft.durationMs  = videoDurationMs;
+        draft.durationMs  = totalDurationMs;
 
         // Save async (thumbnail extracted in background)
         LocalDraftsManager.saveAsync(this, draft, () ->
