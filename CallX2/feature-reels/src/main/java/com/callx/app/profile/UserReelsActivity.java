@@ -319,10 +319,9 @@ public class UserReelsActivity extends AppCompatActivity
         });
 
         if (targetName  != null) { tvName.setText(targetName); if (tvDisplayName != null) tvDisplayName.setText(targetName); }
-        // ── Instagram-style progressive avatar load ──────────────────────────
-        // Step 1: Show thumbUrl instantly (cached), then load HD photoUrl in background.
-        // Disk cache ON → downloaded only once, zero extra data on revisit.
-        loadProfileAvatarInstagramStyle(targetPhoto);
+        // Avatar placeholder only — actual load happens in loadAvatarAndStartAnimation()
+        // after Firebase returns BOTH thumbUrl (low-res) and photoUrl (HD).
+        if (ivAvatar != null) ivAvatar.setImageResource(R.drawable.ic_person);
 
         if (btnShareProfile != null) btnShareProfile.setOnClickListener(v -> shareProfile());
 
@@ -1849,71 +1848,83 @@ public class UserReelsActivity extends AppCompatActivity
      * again inside loadAvatarAndStartAnimation() once Firebase returns the
      * real HD url.
      */
-    private void loadProfileAvatarInstagramStyle(String photoUrl) {
+    /**
+     * Firebase se dono URLs milne ke baad call hota hai.
+     * thumbUrl (low-res, separate file) → instantly dikhao
+     * photoUrl (HD)                     → background me load, crossfade se replace karo
+     * Single Glide request on ivAvatar — koi double-load / cancel nahi.
+     */
+    private void loadProfileAvatarInstagramStyle(String thumbUrl, String photoUrl) {
         if (ivAvatar == null || photoUrl == null || photoUrl.isEmpty()) return;
 
-        // Thumb = same URL downsampled by Glide override (instant from cache)
-        RequestBuilder<Drawable> thumbnailReq = Glide.with(this)
-            .load(photoUrl)
-            .override(80, 80)
-            .circleCrop();
+        RequestBuilder<Drawable> thumbReq = Glide.with(this)
+            .load(thumbUrl != null && !thumbUrl.isEmpty() ? thumbUrl : photoUrl)
+            .circleCrop()
+            .diskCacheStrategy(DiskCacheStrategy.RESOURCE);
 
         Glide.with(this)
             .load(photoUrl)
-            .thumbnail(thumbnailReq)                       // show low-res instantly
+            .thumbnail(thumbReq)                           // instant low-res (real alag file)
             .circleCrop()
-            .diskCacheStrategy(DiskCacheStrategy.RESOURCE) // cache decoded bitmap
-            .override(240, 240)                            // 120dp * 2x = sharp on xxhdpi
+            .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
+            .override(240, 240)
             .placeholder(R.drawable.ic_person)
             .transition(DrawableTransitionOptions.withCrossFade(200))
             .into(ivAvatar);
     }
 
     private void loadAvatarAndStartAnimation() {
-        if (targetUid == null || isSelf) return;
+        if (targetUid == null) return;
 
         final String DB = "https://sathix-97a76-default-rtdb.asia-southeast1.firebasedatabase.app";
 
-        // 1) Chat avatar — users/{uid}
+        // isSelf: Firebase se fresh dono URLs fetch karo (Intent ka targetPhoto stale ho sakta hai)
+        // Animation avatars (Chat/X/YouTube) sirf other users ke liye hain.
+        if (isSelf) {
+            com.google.firebase.database.FirebaseDatabase.getInstance(DB)
+                .getReference("users").child(targetUid)
+                .addListenerForSingleValueEvent(new ValueEventListener() {
+                    @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                        String thumb = snap.child("thumbUrl").getValue(String.class);
+                        String photo = snap.child("photoUrl").getValue(String.class);
+                        if (photo != null && !photo.isEmpty()) {
+                            loadProfileAvatarInstagramStyle(thumb, photo);
+                        }
+                    }
+                    @Override public void onCancelled(@NonNull DatabaseError e) {}
+                });
+            return;
+        }
+
+        // Other user: Firebase se thumbUrl + photoUrl fetch karo → ivAvatar proper two-URL load
+        // ivAnimChat bhi yahi fetch se load hoga — single Firebase call, dono kaam.
         com.google.firebase.database.FirebaseDatabase.getInstance(DB)
             .getReference("users").child(targetUid)
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(@NonNull DataSnapshot snap) {
                     String thumb = snap.child("thumbUrl").getValue(String.class);
                     String photo = snap.child("photoUrl").getValue(String.class);
-                    // ── Instagram-style: also update main ivAvatar with HD photo ──
-                    if (ivAvatar != null && photo != null && !photo.isEmpty()) {
-                        final String hdUrl   = photo;
-                        final String thumbUrl = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
-                        RequestBuilder<Drawable> thumbnailReq = Glide.with(UserReelsActivity.this)
-                            .load(thumbUrl).circleCrop();
-                        Glide.with(UserReelsActivity.this)
-                            .load(hdUrl)
-                            .thumbnail(thumbnailReq)
-                            .circleCrop()
-                            .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
-                            .override(240, 240)
-                            .placeholder(R.drawable.ic_person)
-                            .transition(DrawableTransitionOptions.withCrossFade(200))
-                            .into(ivAvatar);
+
+                    // ivAvatar — proper thumbnail(thumbUrl) + load(photoUrl), single load, no cancel
+                    if (photo != null && !photo.isEmpty()) {
+                        loadProfileAvatarInstagramStyle(thumb, photo);
                     }
-                    // Animation avatar (chat icon) — thumb is fine here (small view)
-                    String url = (photo != null && !photo.isEmpty()) ? photo
-                               : (thumb != null && !thumb.isEmpty()) ? thumb : null;
-                    if (ivAnimChat == null) return;
-                    if (url != null) {
+
+                    // ivAnimChat — animation icon (small view)
+                    String animUrl = (photo != null && !photo.isEmpty()) ? photo
+                                   : (thumb != null && !thumb.isEmpty()) ? thumb : null;
+                    if (ivAnimChat != null && animUrl != null) {
                         Glide.with(UserReelsActivity.this)
-                            .load(url).circleCrop()
+                            .load(animUrl).circleCrop()
                             .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
                             .placeholder(R.drawable.ic_person)
-                            .override(240, 240)
+                            .override(96, 96)
                             .into(ivAnimChat);
                     }
-                    // Start animation only after first avatar loaded (others load in bg)
                     startAvatarPeekLoop();
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) {
-                    startAvatarPeekLoop(); // Still start loop even if load fails
+                    startAvatarPeekLoop();
                 }
             });
 
