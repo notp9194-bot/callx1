@@ -153,9 +153,11 @@ public class ReelCaptionMentionController {
         popup.setWidth(ViewGroup.LayoutParams.MATCH_PARENT);
         popup.setHeight(ViewGroup.LayoutParams.WRAP_CONTENT);
         popup.setBackgroundDrawable(new ColorDrawable(0xFF1E1E1E));
-        popup.setDropDownGravity(Gravity.TOP);
         // Show ABOVE the EditText so keyboard doesn't cover it
-        popup.setVerticalOffset(-(int)(220 * ctx.getResources().getDisplayMetrics().density));
+        // Use negative offset equal to popup height (3 rows ≈ 56dp each) + EditText height
+        int rowH  = (int)(56 * ctx.getResources().getDisplayMetrics().density);
+        int editH = etCaption.getHeight() > 0 ? etCaption.getHeight() : (int)(48 * ctx.getResources().getDisplayMetrics().density);
+        popup.setVerticalOffset(-(rowH * 3 + editH));
         popup.setOnItemClickListener((parent, view, position, id) -> {
             if (position >= 0 && position < filtered.size()) {
                 insertMention(filtered.get(position));
@@ -204,7 +206,8 @@ public class ReelCaptionMentionController {
     // ── Firebase ──────────────────────────────────────────────────────────
 
     private void loadFollowers(@NonNull Runnable onDone) {
-        FirebaseUtils.db().getReference("followers").child(myUid)
+        // Correct path: reelFollowers/{myUid}/{followerUid} = true
+        FirebaseUtils.db().getReference("reelFollowers").child(myUid)
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(@NonNull DataSnapshot snap) {
                     allFollowers.clear();
@@ -215,9 +218,52 @@ public class ReelCaptionMentionController {
                         if (c.getKey() != null) uids.add(c.getKey());
                     }
 
+                    if (uids.isEmpty()) {
+                        // Fallback: try "following" path — people I follow
+                        loadFollowing(onDone);
+                        return;
+                    }
+
+                    int limit = Math.min(uids.size(), 80);
+                    int[] remaining = {limit};
+
+                    for (int i = 0; i < limit; i++) {
+                        String uid = uids.get(i);
+                        FirebaseUtils.db().getReference("users").child(uid)
+                            .addListenerForSingleValueEvent(new ValueEventListener() {
+                                @Override public void onDataChange(@NonNull DataSnapshot s) {
+                                    String name  = s.child("name").getValue(String.class);
+                                    String photo = s.child("photoUrl").getValue(String.class);
+                                    if (name != null && !name.isEmpty()) {
+                                        allFollowers.add(new MentionUser(uid, name,
+                                                photo != null ? photo : ""));
+                                        nameToUid.put(name, uid);
+                                        nameToUid.put(name.replace(" ", ""), uid);
+                                    }
+                                    if (--remaining[0] <= 0) onDone.run();
+                                }
+                                @Override public void onCancelled(@NonNull DatabaseError e) {
+                                    if (--remaining[0] <= 0) onDone.run();
+                                }
+                            });
+                    }
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) { onDone.run(); }
+            });
+    }
+
+    /** Fallback: load people I follow (reelFollows/{myUid}/{uid}) for mention suggestions */
+    private void loadFollowing(@NonNull Runnable onDone) {
+        FirebaseUtils.db().getReference("reelFollows").child(myUid)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    List<String> uids = new ArrayList<>();
+                    for (DataSnapshot c : snap.getChildren()) {
+                        if (c.getKey() != null) uids.add(c.getKey());
+                    }
                     if (uids.isEmpty()) { onDone.run(); return; }
 
-                    int limit = Math.min(uids.size(), 50);
+                    int limit = Math.min(uids.size(), 80);
                     int[] remaining = {limit};
 
                     for (int i = 0; i < limit; i++) {
