@@ -2433,13 +2433,13 @@ public class UserReelsActivity extends AppCompatActivity
                     final int    fDurMs     = songDurMs  != null ? songDurMs.intValue() : 0;
 
                     layoutProfileSong.setOnClickListener(v -> {
-                        com.callx.app.music.SoundDetailBottomSheet sheet =
-                            com.callx.app.music.SoundDetailBottomSheet.newInstance(
+                        // Instagram-style: SoundDetailActivity ka exact content
+                        // BottomSheetDialogFragment mein — fullscreen slide-up sheet
+                        com.callx.app.music.SoundDetailSheetFragment sheet =
+                            com.callx.app.music.SoundDetailSheetFragment.newInstance(
                                 fSongId, fSongTitle, fArtist,
-                                fCoverUrl, fSoundUrl,
-                                fDurMs, 0, false);
-                        // UserReelsActivity.this required inside anonymous ValueEventListener
-                        sheet.show(UserReelsActivity.this.getSupportFragmentManager(), "sound_detail");
+                                fCoverUrl, fSoundUrl, fDurMs);
+                        sheet.show(UserReelsActivity.this.getSupportFragmentManager(), "sound_detail_full");
                     });
                 } else {
                     // No song set
