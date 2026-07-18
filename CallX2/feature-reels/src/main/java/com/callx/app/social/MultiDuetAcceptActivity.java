@@ -118,8 +118,7 @@ public class MultiDuetAcceptActivity extends AppCompatActivity {
                                     String photo = u.child("photoUrl").getValue(String.class);
                                     if (photo != null && !photo.isEmpty()) {
                                         Glide.with(MultiDuetAcceptActivity.this)
-                                            .override(96, 96)
-                                            .load(photo).circleCrop().into(ivHostAvatar);
+                                            .load(photo).circleCrop().override(96, 96).into(ivHostAvatar);
                                     }
                                 }
                                 @Override public void onCancelled(@NonNull DatabaseError e) {}
@@ -134,9 +133,7 @@ public class MultiDuetAcceptActivity extends AppCompatActivity {
                                     String thumb = r.child("thumbUrl").getValue(String.class);
                                     if (thumb != null && !thumb.isEmpty()) {
                                         Glide.with(MultiDuetAcceptActivity.this)
-                                            .override(720, 720)
-                                            .load(thumb).centerCrop().into(ivReelThumb);
-                                    }
+                                            .load(thumb).centerCrop().override(720, 720).into(ivReelThumb);
 
                                     // Store videoUrl for launch
                                     String vidUrl = r.child("videoUrl").getValue(String.class);

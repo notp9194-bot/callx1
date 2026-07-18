@@ -314,8 +314,7 @@ public class YouTubePlayerActivity extends AppCompatActivity {
                 }
 
                 Glide.with(YouTubePlayerActivity.this)
-                    .override(96, 96)
-                    .load(v.uploaderPhotoUrl).circleCrop().into(ivChannelAvatar);
+                    .load(v.uploaderPhotoUrl).circleCrop().override(96, 96).into(ivChannelAvatar);
 
                 // Pre-load all 3 avatar URLs for social profile animation
                 uploaderYtPhotoUrl   = v.uploaderPhotoUrl;
