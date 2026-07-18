@@ -288,12 +288,36 @@ public class ReelCameraActivity extends AppCompatActivity {
 
     private void selectDurationChip(int sec) {
         selectedDurationSec = sec;
-        chip15s.setSelected(sec == 15);
-        chip30s.setSelected(sec == 30);
-        chip60s.setSelected(sec == 60);
-        tvSelectedDuration.setText(sec + "s");
-        progressRecord.setMax(sec);
+        applyChipState(chip15s, sec == 15);
+        applyChipState(chip30s, sec == 30);
+        applyChipState(chip60s, sec == 60);
+        if (tvSelectedDuration != null)
+            tvSelectedDuration.setText(formatDuration(sec));
+        progressRecord.setMax(sec * 10);   // ×10 for 100ms smooth granularity
         progressRecord.setProgress(0);
+        if (tvTimer != null) {
+            tvTimer.setTextColor(0xFFFFFFFF);
+            tvTimer.setText(formatDuration(sec));
+        }
+    }
+
+    /** Applies active/inactive background + bold to a duration chip. */
+    private void applyChipState(View chip, boolean active) {
+        if (chip == null) return;
+        chip.setBackground(ContextCompat.getDrawable(this,
+            active ? R.drawable.bg_speed_chip_active
+                   : R.drawable.bg_speed_chip));
+        chip.setAlpha(active ? 1.0f : 0.75f);
+        if (chip instanceof TextView)
+            ((TextView) chip).setTypeface(null,
+                active ? android.graphics.Typeface.BOLD
+                       : android.graphics.Typeface.NORMAL);
+    }
+
+    /** "15s", "1:00" */
+    private static String formatDuration(int sec) {
+        if (sec < 60) return sec + "s";
+        return String.format("%d:%02d", sec / 60, sec % 60);
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -485,32 +509,76 @@ public class ReelCameraActivity extends AppCompatActivity {
             recordTimer = null;
         }
         stopSoundPreview();
+        stopRecordPulse();
         progressRecord.setProgress(0);
-        tvTimer.setText("00:00");
+        if (tvTimer != null) {
+            tvTimer.setTextColor(0xFFFFFFFF);
+            tvTimer.setText(formatDuration(selectedDurationSec));
+        }
     }
 
     private void onRecordingStarted() {
         btnRecord.setImageResource(R.drawable.ic_pause);
         setTimerChipsEnabled(false);
         startSoundPreview();
+        startRecordPulse();
 
-        final int[] elapsed = {0};
-        recordTimer = new CountDownTimer(selectedDurationSec * 1000L, 1000) {
+        // Show timer in red while recording
+        if (tvTimer != null) tvTimer.setTextColor(0xFFFF3B5C);
+
+        // Smooth 100ms ticks for fluid progress bar + second-accurate timer
+        recordTimer = new CountDownTimer(selectedDurationSec * 1000L, 100) {
             @Override public void onTick(long msRemaining) {
-                elapsed[0]++;
-                progressRecord.setProgress(elapsed[0]);
-                int remaining = selectedDurationSec - elapsed[0];
-                tvTimer.setText(String.format("%02d:%02d", remaining / 60, remaining % 60));
+                long elapsedMs = selectedDurationSec * 1000L - msRemaining;
+                // Progress bar uses ×10 scale (max = sec*10, so 100ms = 1 unit)
+                progressRecord.setProgress((int)(elapsedMs / 100));
+                // Timer label updates every full second
+                int remSec = (int)(msRemaining / 1000);
+                if (tvTimer != null)
+                    tvTimer.setText(String.format("%02d:%02d", remSec / 60, remSec % 60));
             }
             @Override public void onFinish() { stopRecording(); }
         }.start();
+    }
+
+    // ── Record button pulse animation ────────────────────────────────────
+    private android.animation.AnimatorSet recordPulseSet;
+
+    private void startRecordPulse() {
+        stopRecordPulse();
+        android.animation.ObjectAnimator scX =
+            android.animation.ObjectAnimator.ofFloat(btnRecord, "scaleX", 1.0f, 0.88f, 1.0f);
+        android.animation.ObjectAnimator scY =
+            android.animation.ObjectAnimator.ofFloat(btnRecord, "scaleY", 1.0f, 0.88f, 1.0f);
+        android.animation.ObjectAnimator alph =
+            android.animation.ObjectAnimator.ofFloat(btnRecord, "alpha", 1.0f, 0.72f, 1.0f);
+        recordPulseSet = new android.animation.AnimatorSet();
+        recordPulseSet.playTogether(scX, scY, alph);
+        recordPulseSet.setDuration(700);
+        recordPulseSet.addListener(new android.animation.AnimatorListenerAdapter() {
+            @Override public void onAnimationEnd(android.animation.Animator a) {
+                if (isRecording && recordPulseSet != null) recordPulseSet.start();
+            }
+        });
+        recordPulseSet.start();
+    }
+
+    private void stopRecordPulse() {
+        if (recordPulseSet != null) { recordPulseSet.cancel(); recordPulseSet = null; }
+        if (btnRecord != null) {
+            btnRecord.setScaleX(1f); btnRecord.setScaleY(1f); btnRecord.setAlpha(1f);
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────
     private void openEditor(String filePath) {
         btnRecord.setImageResource(R.drawable.ic_camera);
         setTimerChipsEnabled(true);
-        tvTimer.setText("00:00");
+        stopRecordPulse();
+        if (tvTimer != null) {
+            tvTimer.setTextColor(0xFFFFFFFF);
+            tvTimer.setText(formatDuration(selectedDurationSec));
+        }
         progressRecord.setProgress(0);
 
         if (replaceAudioWithSound && preSelectedSoundUrl != null
@@ -1261,9 +1329,13 @@ public class ReelCameraActivity extends AppCompatActivity {
     }
 
     private void setTimerChipsEnabled(boolean enabled) {
-        chip15s.setEnabled(enabled);
-        chip30s.setEnabled(enabled);
-        chip60s.setEnabled(enabled);
+        if (chip15s != null) { chip15s.setEnabled(enabled); chip15s.setAlpha(enabled ? 0.75f : 0.35f); }
+        if (chip30s != null) { chip30s.setEnabled(enabled); chip30s.setAlpha(enabled ? 0.75f : 0.35f); }
+        if (chip60s != null) { chip60s.setEnabled(enabled); chip60s.setAlpha(enabled ? 0.75f : 0.35f); }
+        // Keep the active chip fully visible even during recording
+        if (enabled) applyChipState(
+            selectedDurationSec == 15 ? chip15s :
+            selectedDurationSec == 60 ? chip60s : chip30s, true);
     }
 
     // ─────────────────────────────────────────────────────────────────────

@@ -14,7 +14,7 @@
         android:id="@+id/preview_multi"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:scaleType="fillCenter"/>
+        android:scaleType="centerCrop"/>
 
     <!-- ── Top bar ─────────────────────────────────────────────────────── -->
     <LinearLayout
