@@ -108,6 +108,12 @@ public class UserReelsActivity extends AppCompatActivity
     private ImageButton     btnBack, btnMore, btnShareProfile, btnCreatorHub, btnSettings;
     private ImageButton     btnMessage, btnAudioCall, btnVideoCall, btnOpenX, btnOpenYoutube;
     private LinearLayout    layoutActions;
+    // ── Suggested for you panel (Feature 1) ─────────────────────────────
+    private LinearLayout    layoutSuggestedForYou;
+    private LinearLayout    llSuggestedCards;
+    private TextView        tvSeeAllSuggested;
+    // ── Audio call in extra-actions row (Feature 2) ───────────────────
+    private android.view.View btnCallRow;
 
     // ── Story Highlights ──────────────────────────────────────────────────
     private androidx.recyclerview.widget.RecyclerView rvHighlights;
@@ -308,7 +314,11 @@ public class UserReelsActivity extends AppCompatActivity
         btnMessageCta     = findViewById(R.id.btn_message_cta);
         btnCtaCall       = findViewById(R.id.btn_cta_call);
         layoutInstagramCta = findViewById(R.id.layout_instagram_cta);
-        layoutExtraActions = findViewById(R.id.layout_extra_actions);
+        layoutExtraActions    = findViewById(R.id.layout_extra_actions);
+        layoutSuggestedForYou = findViewById(R.id.layout_suggested_for_you);
+        llSuggestedCards      = findViewById(R.id.ll_suggested_cards);
+        tvSeeAllSuggested     = findViewById(R.id.tv_see_all_suggested);
+        btnCallRow            = findViewById(R.id.btn_call_row);
         rvHighlights       = findViewById(R.id.rv_highlights);
         hsvHighlights      = findViewById(R.id.hsv_highlights);
         dividerHighlights  = findViewById(R.id.divider_highlights);
@@ -1821,11 +1831,216 @@ public class UserReelsActivity extends AppCompatActivity
             launchActivity("com.callx.app.conversation.ChatActivity",
                 new String[]{"partnerUid","partnerName","partnerPhoto"},
                 new String[]{targetUid, orEmpty(targetName), orEmpty(targetPhoto)}));
-        if (btnCtaCall != null) btnCtaCall.setOnClickListener(v -> {
+        // +person button → show/hide suggested panel
+        if (btnCtaCall != null) btnCtaCall.setOnClickListener(v -> toggleSuggestedPanel());
+
+        // Call button in extra-actions row → audio call
+        if (btnCallRow != null) btnCallRow.setOnClickListener(v -> {
             String cid = FirebaseDatabase.getInstance().getReference("calls").push().getKey();
             launchActivity("com.callx.app.call.CallActivity",
                 new String[]{"partnerUid","partnerName","partnerPhoto","isCaller","video","callId"},
                 new Object[]{targetUid, orEmpty(targetName), orEmpty(targetPhoto), true, false, orEmpty(cid)});
+        });
+
+        // "See all" → open SuggestedListActivity on Suggested tab
+        if (tvSeeAllSuggested != null) tvSeeAllSuggested.setOnClickListener(v -> {
+            android.content.Intent i = new android.content.Intent(
+                    this, com.callx.app.followers.SuggestedListActivity.class);
+            i.putExtra(com.callx.app.followers.SuggestedListActivity.EXTRA_UID,  targetUid);
+            i.putExtra(com.callx.app.followers.SuggestedListActivity.EXTRA_NAME, orEmpty(targetName));
+            i.putExtra(com.callx.app.followers.SuggestedListActivity.EXTRA_TAB,
+                       com.callx.app.followers.SuggestedListActivity.TAB_SUGGESTED);
+            startActivity(i);
+        });
+    }
+
+    // ── Suggested for you panel toggle + loader ─────────────────────────
+
+    private boolean suggestedPanelOpen = false;
+    private boolean suggestedLoaded    = false;
+
+    private void toggleSuggestedPanel() {
+        if (layoutSuggestedForYou == null) return;
+        suggestedPanelOpen = !suggestedPanelOpen;
+        layoutSuggestedForYou.setVisibility(suggestedPanelOpen ? View.VISIBLE : View.GONE);
+        if (suggestedPanelOpen && !suggestedLoaded) {
+            suggestedLoaded = true;
+            loadSuggestedUsers();
+        }
+    }
+
+    private void loadSuggestedUsers() {
+        if (targetUid == null || llSuggestedCards == null) return;
+        String myUid;
+        try {
+            com.google.firebase.auth.FirebaseUser cu =
+                com.google.firebase.auth.FirebaseAuth.getInstance().getCurrentUser();
+            myUid = cu != null ? cu.getUid() : null;
+        } catch (Exception e) { myUid = null; }
+        final String finalMyUid = myUid;
+
+        // Load people targetUser follows → filter out myself + people I already follow
+        final String DB = "https://sathix-97a76-default-rtdb.asia-southeast1.firebasedatabase.app";
+        com.google.firebase.database.FirebaseDatabase.getInstance(DB)
+            .getReference("reelFollows").child(targetUid)
+            .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
+                @Override public void onDataChange(@NonNull com.google.firebase.database.DataSnapshot snap) {
+                    // First get my follows set, then filter
+                    if (finalMyUid == null) {
+                        buildSuggestedCards(snap, null, new java.util.HashSet<>());
+                        return;
+                    }
+                    com.google.firebase.database.FirebaseDatabase.getInstance(DB)
+                        .getReference("reelFollows").child(finalMyUid)
+                        .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
+                            @Override public void onDataChange(@NonNull com.google.firebase.database.DataSnapshot mySnap) {
+                                java.util.Set<String> myFollowing = new java.util.HashSet<>();
+                                for (com.google.firebase.database.DataSnapshot s : mySnap.getChildren())
+                                    myFollowing.add(s.getKey());
+                                buildSuggestedCards(snap, finalMyUid, myFollowing);
+                            }
+                            @Override public void onCancelled(@NonNull com.google.firebase.database.DatabaseError e) {
+                                buildSuggestedCards(snap, finalMyUid, new java.util.HashSet<>());
+                            }
+                        });
+                }
+                @Override public void onCancelled(@NonNull com.google.firebase.database.DatabaseError e) {}
+            });
+    }
+
+    private void buildSuggestedCards(com.google.firebase.database.DataSnapshot snap,
+                                     String myUid, java.util.Set<String> myFollowing) {
+        java.util.List<String> candidates = new java.util.ArrayList<>();
+        for (com.google.firebase.database.DataSnapshot s : snap.getChildren()) {
+            String uid = s.getKey();
+            if (uid == null) continue;
+            if (uid.equals(myUid)) continue;
+            if (myFollowing.contains(uid)) continue;
+            candidates.add(uid);
+            if (candidates.size() >= 5) break;  // show max 5 in panel
+        }
+        if (candidates.isEmpty()) {
+            // No suggestions — hide panel
+            runOnUiThread(() -> {
+                if (layoutSuggestedForYou != null)
+                    layoutSuggestedForYou.setVisibility(View.GONE);
+                suggestedPanelOpen = false;
+            });
+            return;
+        }
+        final String DB = "https://sathix-97a76-default-rtdb.asia-southeast1.firebasedatabase.app";
+        final int total = candidates.size();
+        final int[] done = {0};
+        final java.util.Map<String, String[]> userMap = new java.util.LinkedHashMap<>();
+        for (String uid : candidates) {
+            final String candidateUid = uid;
+            com.google.firebase.database.FirebaseDatabase.getInstance(DB)
+                .getReference("users").child(uid)
+                .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
+                    @Override public void onDataChange(@NonNull com.google.firebase.database.DataSnapshot us) {
+                        String name  = us.child("name").getValue(String.class);
+                        String photo = us.child("photoUrl").getValue(String.class);
+                        String thumb = us.child("thumbUrl").getValue(String.class);
+                        photo = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
+                        userMap.put(candidateUid, new String[]{
+                            name  != null ? name  : "User",
+                            photo != null ? photo : ""
+                        });
+                        done[0]++;
+                        if (done[0] >= total) renderSuggestedCards(userMap, myFollowing);
+                    }
+                    @Override public void onCancelled(@NonNull com.google.firebase.database.DatabaseError e) {
+                        done[0]++;
+                        if (done[0] >= total) renderSuggestedCards(userMap, myFollowing);
+                    }
+                });
+        }
+    }
+
+    private void renderSuggestedCards(java.util.Map<String, String[]> userMap,
+                                      java.util.Set<String> myFollowing) {
+        if (isFinishing() || isDestroyed()) return;
+        runOnUiThread(() -> {
+            if (llSuggestedCards == null) return;
+            llSuggestedCards.removeAllViews();
+            android.view.LayoutInflater inflater = android.view.LayoutInflater.from(this);
+            for (java.util.Map.Entry<String, String[]> entry : userMap.entrySet()) {
+                String   uid   = entry.getKey();
+                String[] info  = entry.getValue();
+                String   name  = info[0];
+                String   photo = info[1];
+
+                android.view.View card = inflater.inflate(
+                    R.layout.item_suggested_card, llSuggestedCards, false);
+
+                de.hdodenhof.circleimageview.CircleImageView ivAvatar =
+                    card.findViewById(R.id.iv_avatar);
+                android.widget.TextView tvName = card.findViewById(R.id.tv_name);
+                android.widget.Button   btnFol = card.findViewById(R.id.btn_follow);
+                android.widget.ImageButton btnX = card.findViewById(R.id.btn_dismiss);
+
+                tvName.setText(name);
+                if (photo != null && !photo.isEmpty() && ivAvatar != null) {
+                    com.bumptech.glide.Glide.with(this)
+                        .load(photo).circleCrop()
+                        .placeholder(R.drawable.ic_person)
+                        .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
+                        .override(128, 128)
+                        .into(ivAvatar);
+                }
+
+                // Follow button
+                final boolean[] followed = {myFollowing.contains(uid)};
+                if (btnFol != null) {
+                    btnFol.setText(followed[0] ? "Following" : "Follow");
+                    btnFol.setOnClickListener(v -> {
+                        String myUid2;
+                        try {
+                            com.google.firebase.auth.FirebaseUser cu2 =
+                                com.google.firebase.auth.FirebaseAuth.getInstance().getCurrentUser();
+                            myUid2 = cu2 != null ? cu2.getUid() : null;
+                        } catch (Exception ex) { myUid2 = null; }
+                        if (myUid2 == null) return;
+                        followed[0] = !followed[0];
+                        btnFol.setText(followed[0] ? "Following" : "Follow");
+                        final String fu = myUid2;
+                        if (followed[0]) {
+                            com.google.firebase.database.FirebaseDatabase.getInstance()
+                                .getReference("reelFollows").child(fu).child(uid).setValue(true);
+                            com.google.firebase.database.FirebaseDatabase.getInstance()
+                                .getReference("reelFollowers").child(uid).child(fu).setValue(true);
+                        } else {
+                            com.google.firebase.database.FirebaseDatabase.getInstance()
+                                .getReference("reelFollows").child(fu).child(uid).removeValue();
+                            com.google.firebase.database.FirebaseDatabase.getInstance()
+                                .getReference("reelFollowers").child(uid).child(fu).removeValue();
+                        }
+                    });
+                }
+                // Dismiss X button
+                if (btnX != null) {
+                    final android.view.View cardRef = card;
+                    btnX.setOnClickListener(v -> {
+                        if (llSuggestedCards != null) llSuggestedCards.removeView(cardRef);
+                        if (llSuggestedCards != null && llSuggestedCards.getChildCount() == 0) {
+                            if (layoutSuggestedForYou != null)
+                                layoutSuggestedForYou.setVisibility(View.GONE);
+                            suggestedPanelOpen = false;
+                        }
+                    });
+                }
+                // Card tap → open profile
+                card.setOnClickListener(v -> {
+                    android.content.Intent i2 = new android.content.Intent(
+                            this, UserReelsActivity.class);
+                    i2.putExtra(EXTRA_UID,  uid);
+                    i2.putExtra(EXTRA_NAME, name);
+                    if (photo != null && !photo.isEmpty()) i2.putExtra(EXTRA_PHOTO, photo);
+                    startActivity(i2);
+                });
+
+                llSuggestedCards.addView(card);
+            }
         });
     }
 

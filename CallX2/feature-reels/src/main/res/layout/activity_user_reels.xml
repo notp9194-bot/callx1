@@ -521,18 +521,73 @@
                         android:textColor="?attr/colorOnSurface"
                         android:layout_marginEnd="6dp"/>
 
-                    <!-- Call / suggest circle button -->
+                    <!-- Add Person / Suggestions circle button -->
                     <androidx.appcompat.widget.AppCompatImageButton android:id="@+id/btn_cta_call"
                         android:layout_width="36dp"
                         android:layout_height="36dp"
-                        android:src="@drawable/ic_phone"
+                        android:src="@drawable/ic_person_add"
                         android:background="@drawable/bg_btn_outline_pill"
                         android:tint="?attr/colorOnSurface"
                         android:padding="8dp"
-                        android:contentDescription="Call"/>
+                        android:contentDescription="Suggestions"/>
                 </LinearLayout>
 
-                <!-- Second row: Video | X | YouTube (smaller pill buttons) -->
+                <!-- Suggested for you panel (hidden by default, shown on +person click) -->
+                <LinearLayout android:id="@+id/layout_suggested_for_you"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:layout_marginBottom="4dp"
+                    android:visibility="gone">
+
+                    <!-- Header: label + See all -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:paddingStart="4dp"
+                        android:paddingEnd="4dp"
+                        android:paddingTop="6dp"
+                        android:paddingBottom="4dp">
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="Suggested for you"
+                            android:textSize="13sp"
+                            android:fontFamily="sans-serif-medium"
+                            android:textColor="?attr/colorOnSurface"/>
+
+                        <TextView android:id="@+id/tv_see_all_suggested"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="See all"
+                            android:textSize="13sp"
+                            android:textColor="@color/brand_primary"
+                            android:fontFamily="sans-serif-medium"
+                            android:clickable="true"
+                            android:focusable="true"
+                            android:foreground="?attr/selectableItemBackground"/>
+                    </LinearLayout>
+
+                    <!-- Horizontal scroll of suggested user cards -->
+                    <HorizontalScrollView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:scrollbars="none"
+                        android:paddingStart="4dp"
+                        android:paddingEnd="4dp"
+                        android:paddingBottom="8dp">
+                        <LinearLayout android:id="@+id/ll_suggested_cards"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal"/>
+                    </HorizontalScrollView>
+                </LinearLayout>
+
+                <!-- Second row: Call | Video | X | YouTube -->
                 <LinearLayout android:id="@+id/layout_extra_actions"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -540,6 +595,24 @@
                     android:gravity="center"
                     android:layout_marginBottom="4dp"
                     android:visibility="gone">
+
+                    <!-- Audio Call pill -->
+                    <LinearLayout
+                        android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical" android:gravity="center">
+                        <androidx.appcompat.widget.AppCompatImageButton android:id="@+id/btn_call_row"
+                            android:layout_width="40dp" android:layout_height="40dp"
+                            android:src="@drawable/ic_phone"
+                            android:background="@drawable/bg_circle_action"
+                            android:tint="#00F260"
+                            android:padding="10dp"
+                            android:contentDescription="Audio Call"/>
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="Call" android:textSize="10sp"
+                            android:textColor="?attr/colorOnSurfaceVariant"
+                            android:layout_marginTop="3dp"/>
+                    </LinearLayout>
 
                     <!-- Video Call pill -->
                     <LinearLayout
