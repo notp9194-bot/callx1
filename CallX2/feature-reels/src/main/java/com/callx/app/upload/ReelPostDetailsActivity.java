@@ -132,7 +132,7 @@ public class ReelPostDetailsActivity extends AppCompatActivity {
         } catch (Exception e) {
             return;
         }
-        mentionController = new ReelCaptionMentionController(etCaption, rvMentionSuggest, myUid);
+        mentionController = new ReelCaptionMentionController(etCaption, myUid);
         mentionController.attach();
     }
 
@@ -261,7 +261,7 @@ public class ReelPostDetailsActivity extends AppCompatActivity {
 
         if (btnNext != null) btnNext.setOnClickListener(v -> {
             // Dismiss @mention dropdown before proceeding
-            if (mentionController != null) mentionController.dismissSuggestions();
+            if (mentionController != null) mentionController.dismiss();
 
             String caption  = etCaption.getText()     != null ? etCaption.getText().toString().trim()  : "";
             String location = etLocation != null && etLocation.getText() != null
