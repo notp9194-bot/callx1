@@ -241,6 +241,8 @@ public class ReelUploadActivity extends AppCompatActivity {
       private int    episodeNumber = 0;
     /** UIDs mentioned via @Name in the caption — notified after upload. */
     private java.util.ArrayList<String> mentionedUids = new java.util.ArrayList<>();
+    private ReelCaptionMentionController uploadMentionController;
+    private androidx.recyclerview.widget.RecyclerView rvMentionSuggestUpload;
 
   
     private int     stitchDurationSec  = 3;
@@ -257,6 +259,16 @@ public class ReelUploadActivity extends AppCompatActivity {
 
         bindViews();
         setupChipDefaults();
+
+        // ── Instagram-style @mention in caption ──────────────────────────────
+        try {
+            String _myUid = com.callx.app.utils.FirebaseUtils.getCurrentUid();
+            if (_myUid != null && !_myUid.isEmpty() && etCaption != null && rvMentionSuggestUpload != null) {
+                uploadMentionController = new ReelCaptionMentionController(
+                        etCaption, rvMentionSuggestUpload, _myUid);
+                uploadMentionController.attach();
+            }
+        } catch (Exception _ignored) {}
 
         layoutPickVideo.setOnClickListener(v -> checkPermissionAndPickVideo());
         playerPreview.setOnClickListener(v -> checkPermissionAndPickVideo());
@@ -600,6 +612,7 @@ public class ReelUploadActivity extends AppCompatActivity {
         tvVideoInfo          = findViewById(R.id.tv_video_info);
         tvCompressionSavings = findViewById(R.id.tv_compression_savings);
         etCaption            = findViewById(R.id.et_caption);
+        rvMentionSuggestUpload = findViewById(R.id.rv_mention_suggest_upload);
         etMusic              = findViewById(R.id.et_music);
         btnPostReel          = findViewById(R.id.btn_post_reel);
         chipQuality          = findViewById(R.id.chip_quality);
@@ -1570,6 +1583,11 @@ public class ReelUploadActivity extends AppCompatActivity {
         }
 
         String caption = etCaption.getText() != null ? etCaption.getText().toString().trim() : "";
+        // ── Resolve @mention UIDs from caption ────────────────────────────
+        mentionedUids.clear();
+        if (uploadMentionController != null) {
+            mentionedUids.addAll(uploadMentionController.getMentionedUids(caption));
+        }
         // Prefer the selected sound title; fall back to whatever the user typed in etMusic
         String musicName = (currentSoundTitle != null && !currentSoundTitle.isEmpty())
             ? currentSoundTitle
@@ -1707,6 +1725,11 @@ public class ReelUploadActivity extends AppCompatActivity {
             return;
         }
         String caption = etCaption.getText() != null ? etCaption.getText().toString().trim() : "";
+        // ── Resolve @mention UIDs from caption (photo slideshow path) ─────
+        mentionedUids.clear();
+        if (uploadMentionController != null) {
+            mentionedUids.addAll(uploadMentionController.getMentionedUids(caption));
+        }
         // Prefer the selected sound title; fall back to whatever the user typed in etMusic
         String musicName = (currentSoundTitle != null && !currentSoundTitle.isEmpty())
             ? currentSoundTitle
@@ -2428,6 +2451,7 @@ public class ReelUploadActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
+        if (uploadMentionController != null) uploadMentionController.onDestroy();
         releasePreviewPlayer();
         super.onDestroy();
     }
