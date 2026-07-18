@@ -1,44 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Selector: selected (active) = brand pink/red fill, default = semi-transparent white -->
-<selector xmlns:android="http://schemas.android.com/apk/res/android">
-
-    <!-- Selected / active state -->
-    <item android:state_selected="true">
-        <shape android:shape="rectangle">
-            <solid android:color="#FF3B5C"/>
-            <corners android:radius="20dp"/>
-            <padding
-                android:left="10dp"
-                android:top="4dp"
-                android:right="10dp"
-                android:bottom="4dp"/>
-        </shape>
-    </item>
-
-    <!-- Disabled during recording -->
-    <item android:state_enabled="false">
-        <shape android:shape="rectangle">
-            <solid android:color="#22FFFFFF"/>
-            <corners android:radius="20dp"/>
-            <padding
-                android:left="10dp"
-                android:top="4dp"
-                android:right="10dp"
-                android:bottom="4dp"/>
-        </shape>
-    </item>
-
-    <!-- Default / inactive state -->
-    <item>
-        <shape android:shape="rectangle">
-            <solid android:color="#44FFFFFF"/>
-            <corners android:radius="20dp"/>
-            <padding
-                android:left="10dp"
-                android:top="4dp"
-                android:right="10dp"
-                android:bottom="4dp"/>
-        </shape>
-    </item>
-
-</selector>
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#44FFFFFF"/>
+    <corners android:radius="20dp"/>
+    <padding
+        android:left="10dp"
+        android:top="4dp"
+        android:right="10dp"
+        android:bottom="4dp"/>
+</shape>

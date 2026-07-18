@@ -789,39 +789,6 @@ public class ReelUploadActivity extends AppCompatActivity {
             etCaption.setText(textOverlay);
         }
 
-        // ── Editor caption draft (typed by user in the editor caption field) ──
-        // Takes priority over text-overlay if both are present.
-        String editorCaption = i.getStringExtra("editor_caption");
-        if (editorCaption != null && !editorCaption.isEmpty() && etCaption != null) {
-            etCaption.setText(editorCaption);
-        }
-
-        // ── Editor tagged users (from ReelMentionTagSheet in editor) ─────────
-        // Comma-separated UIDs pre-populate the taggedUids field so they get
-        // saved to Firebase on upload — the same as tagging from this screen.
-        String editorTaggedUids = i.getStringExtra("editor_tagged_uids");
-        if (editorTaggedUids != null && !editorTaggedUids.isEmpty()) {
-            // Merge with any already-set taggedUids
-            if (taggedUids.isEmpty()) {
-                taggedUids = editorTaggedUids;
-            } else {
-                taggedUids = taggedUids + "," + editorTaggedUids;
-            }
-            // Show a summary chip so the user sees who's tagged
-            if (tvTagSummary != null) {
-                int count = editorTaggedUids.split(",").length;
-                tvTagSummary.setVisibility(View.VISIBLE);
-                tvTagSummary.setText(count + " " + (count == 1 ? "person" : "people") + " tagged from editor");
-            }
-        }
-
-        // Also stash full JSON (includes positions) for upload metadata
-        String editorTaggedJson = i.getStringExtra("editor_tagged_users_json");
-        if (editorTaggedJson != null && !editorTaggedJson.isEmpty()) {
-            // Stored for downstream use (e.g. server-side mention notifications)
-            getIntent().putExtra("editor_tagged_users_json", editorTaggedJson);
-        }
-
         // Pre-fill music name if provided
         String musicName = i.getStringExtra(EXTRA_MUSIC_NAME);
         if (musicName != null && !musicName.isEmpty() && etMusic != null) {

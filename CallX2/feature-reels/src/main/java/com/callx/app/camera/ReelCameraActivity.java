@@ -40,7 +40,6 @@ import androidx.camera.video.VideoRecordEvent;
 import androidx.camera.view.PreviewView;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
-import android.widget.ImageView;
 
 import com.callx.app.reels.R;
 import com.callx.app.music.AudioMixHelper;
@@ -167,11 +166,6 @@ public class ReelCameraActivity extends AppCompatActivity {
                           btnCameraMusic, btnMultiClip, btnDrafts,
                           btnCameraText, btnCameraStickers;
 
-    // ── Media picker button (bottom-left) ─────────────────────────────────
-    private FrameLayout flMediaThumbBtn;
-    private ImageView   ivLastMediaThumb;
-    private ImageView   ivGalleryFallback;
-
     // Live overlay root (transparent FrameLayout above camera preview)
     private FrameLayout rootOverlay;
     private View        filterOverlayView;
@@ -271,11 +265,6 @@ public class ReelCameraActivity extends AppCompatActivity {
         btnCameraText      = findViewById(R.id.btn_camera_text);
         btnCameraStickers  = findViewById(R.id.btn_camera_stickers);
 
-        // Media picker button (bottom-left)
-        flMediaThumbBtn  = findViewById(R.id.fl_media_thumb_btn);
-        ivLastMediaThumb = findViewById(R.id.iv_last_media_thumb);
-        ivGalleryFallback = findViewById(R.id.iv_gallery_fallback);
-
         // Inject a transparent overlay FrameLayout above the camera preview
         // so we can layer live text / sticker / filter views over the feed.
         ViewGroup parent = (ViewGroup) previewView.getParent();
@@ -299,35 +288,12 @@ public class ReelCameraActivity extends AppCompatActivity {
 
     private void selectDurationChip(int sec) {
         selectedDurationSec = sec;
-
-        // Update selected state on chip backgrounds (bg_speed_chip.xml is a selector)
         chip15s.setSelected(sec == 15);
         chip30s.setSelected(sec == 30);
         chip60s.setSelected(sec == 60);
-
-        // Also update text appearance for clear visual feedback:
-        // active chip = full white + bold, inactive = 60% white
-        updateChipTextAppearance((android.widget.TextView) chip15s, sec == 15);
-        updateChipTextAppearance((android.widget.TextView) chip30s, sec == 30);
-        updateChipTextAppearance((android.widget.TextView) chip60s, sec == 60);
-
-        if (tvSelectedDuration != null) tvSelectedDuration.setText(sec + "s");
+        tvSelectedDuration.setText(sec + "s");
         progressRecord.setMax(sec);
         progressRecord.setProgress(0);
-    }
-
-    /** Apply active vs. inactive visual style to a duration chip TextView. */
-    private void updateChipTextAppearance(android.widget.TextView chip, boolean active) {
-        if (chip == null) return;
-        if (active) {
-            chip.setTextColor(android.graphics.Color.WHITE);
-            chip.setTypeface(null, android.graphics.Typeface.BOLD);
-            chip.setAlpha(1.0f);
-        } else {
-            chip.setTextColor(android.graphics.Color.WHITE);
-            chip.setTypeface(null, android.graphics.Typeface.NORMAL);
-            chip.setAlpha(0.65f);
-        }
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -380,10 +346,6 @@ public class ReelCameraActivity extends AppCompatActivity {
         chip15s.setOnClickListener(v -> { if (!isRecording) selectDurationChip(15); });
         chip30s.setOnClickListener(v -> { if (!isRecording) selectDurationChip(30); });
         chip60s.setOnClickListener(v -> { if (!isRecording) selectDurationChip(60); });
-
-        // Media picker button — bottom-left gallery thumbnail
-        if (flMediaThumbBtn != null)
-            flMediaThumbBtn.setOnClickListener(v -> openMediaPicker());
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -1383,8 +1345,6 @@ public class ReelCameraActivity extends AppCompatActivity {
         // Refresh draft badge every time camera screen becomes visible
         // (covers: returning from Drafts screen after deleting / after editor saves)
         refreshDraftsBadge();
-        // Load last gallery thumbnail into the media button
-        loadLastMediaThumbnail();
     }
 
     private boolean allPermissionsGranted() {
@@ -1407,124 +1367,6 @@ public class ReelCameraActivity extends AppCompatActivity {
                     "Camera and microphone permissions are required", Toast.LENGTH_LONG).show();
                 finish();
             }
-        }
-    }
-
-
-    // ─────────────────────────────────────────────────────────────────────
-    // Media picker — bottom-left gallery button
-    // ─────────────────────────────────────────────────────────────────────
-
-    /**
-     * Load the last photo or video from the gallery into the thumbnail button.
-     * Runs off the main thread; updates UI on main thread via Glide.
-     */
-    private void loadLastMediaThumbnail() {
-        if (ivLastMediaThumb == null) return;
-        String perm = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU
-            ? android.Manifest.permission.READ_MEDIA_IMAGES
-            : android.Manifest.permission.READ_EXTERNAL_STORAGE;
-        if (ContextCompat.checkSelfPermission(this, perm)
-                != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-            // No permission yet — show fallback icon
-            if (ivGalleryFallback != null) ivGalleryFallback.setVisibility(View.VISIBLE);
-            return;
-        }
-        // Query last item (image or video) off UI thread
-        cameraExecutor.execute(() -> {
-            android.net.Uri lastUri = null;
-            // Try images first
-            try (android.database.Cursor c = getContentResolver().query(
-                    android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-                    new String[]{android.provider.MediaStore.Images.Media._ID},
-                    null, null,
-                    android.provider.MediaStore.Images.Media.DATE_ADDED + " DESC LIMIT 1")) {
-                if (c != null && c.moveToFirst()) {
-                    long id = c.getLong(0);
-                    lastUri = android.content.ContentUris.withAppendedId(
-                        android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id);
-                }
-            } catch (Exception ignored) {}
-            // Also check videos — pick whichever is newer
-            android.net.Uri videoUri = null;
-            long videoDate = 0;
-            try (android.database.Cursor c = getContentResolver().query(
-                    android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
-                    new String[]{android.provider.MediaStore.Video.Media._ID,
-                                 android.provider.MediaStore.Video.Media.DATE_ADDED},
-                    null, null,
-                    android.provider.MediaStore.Video.Media.DATE_ADDED + " DESC LIMIT 1")) {
-                if (c != null && c.moveToFirst()) {
-                    long id = c.getLong(0);
-                    videoDate = c.getLong(1);
-                    videoUri = android.content.ContentUris.withAppendedId(
-                        android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI, id);
-                }
-            } catch (Exception ignored) {}
-            // If video is newer use it
-            final android.net.Uri finalUri = lastUri != null ? lastUri : videoUri;
-            if (finalUri == null) return;
-            runOnUiThread(() -> {
-                if (isFinishing() || isDestroyed()) return;
-                if (ivGalleryFallback != null) ivGalleryFallback.setVisibility(View.GONE);
-                com.bumptech.glide.Glide.with(this)
-                    .load(finalUri)
-                    .centerCrop()
-                    .into(ivLastMediaThumb);
-            });
-        });
-    }
-
-    /**
-     * Open the media picker sheet.
-     * Displays a WhatsApp-style bottom sheet with All/Photos/Videos tabs
-     * and a 4-column multi-select grid.
-     */
-    private void openMediaPicker() {
-        ReelMediaPickerSheet.newInstance()
-            .setCallback(this::handleSelectedMedia)
-            .show(getSupportFragmentManager(), "reel_media_picker");
-    }
-
-    /**
-     * Handle media items picked from the gallery.
-     * Single video/photo → open directly in ReelEditorActivity.
-     * Multiple items     → open in MultiClipCameraActivity as pre-selected clips.
-     */
-    private void handleSelectedMedia(java.util.List<ReelMediaLoader.Item> items) {
-        if (items == null || items.isEmpty()) return;
-
-        if (items.size() == 1) {
-            // Single item — pass directly to editor
-            ReelMediaLoader.Item item = items.get(0);
-            String uriStr = item.uri.toString();
-            Intent intent = new Intent(this, ReelEditorActivity.class);
-            intent.putExtra(ReelEditorActivity.EXTRA_VIDEO_URI, uriStr);
-            intent.putExtra(ReelEditorActivity.EXTRA_IS_FILE_PATH, false); // content:// URI
-            // Forward any pre-selected sound / filter / effect settings
-            if (!preSelectedSoundId.isEmpty())
-                intent.putExtra("selected_sound_id",    preSelectedSoundId);
-            if (!preSelectedSoundTitle.isEmpty())
-                intent.putExtra("selected_sound_title", preSelectedSoundTitle);
-            if (!preSelectedSoundUrl.isEmpty())
-                intent.putExtra("selected_sound_url",   preSelectedSoundUrl);
-            if (filterName != null && !filterName.isEmpty() && !filterName.equals("Normal")) {
-                intent.putExtra(ReelEditorActivity.EXTRA_PRESET_FILTER_NAME,       filterName);
-                intent.putExtra(ReelEditorActivity.EXTRA_PRESET_FILTER_BRIGHTNESS, filterBrightness);
-                intent.putExtra(ReelEditorActivity.EXTRA_PRESET_FILTER_CONTRAST,   filterContrast);
-                intent.putExtra(ReelEditorActivity.EXTRA_PRESET_FILTER_SATURATION, filterSaturation);
-            }
-            startActivity(intent);
-        } else {
-            // Multiple items — forward as clip list to MultiClipCameraActivity
-            ArrayList<String> uriStrings = new ArrayList<>();
-            for (ReelMediaLoader.Item item : items) {
-                uriStrings.add(item.uri.toString());
-            }
-            Intent intent = new Intent(this, MultiClipCameraActivity.class);
-            intent.putStringArrayListExtra(
-                MultiClipCameraActivity.EXTRA_CLIP_PATHS, uriStrings);
-            startActivity(intent);
         }
     }
 
