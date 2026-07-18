@@ -147,6 +147,93 @@ public class AudioMixHelper {
         });
     }
 
+    /**
+     * ✅ Sound Remix — audio-only blend of two remote audio URLs.
+     *
+     * Designed for SoundRemixActivity where BOTH inputs are audio tracks
+     * (no video track present). Avoids muxVideoAndAudio() entirely so there
+     * is no "No video track found" crash.
+     *
+     * Flow (all on a background thread, callbacks always on main thread):
+     *  1. Download URL A → cache
+     *  2. Download URL B → cache
+     *  3. Extract mono 44100 Hz PCM from each file
+     *  4. Loop/trim so both PCM arrays are the same length (length = longer of the two)
+     *  5. Mix PCM:  sample = A_pcm[i]*volA  +  B_pcm[i]*volB  (hard clipped)
+     *  6. Optionally apply fade-out over last fadeOutMs milliseconds
+     *  7. Encode mixed PCM → AAC inside an audio-only MP4 container
+     *  8. Call onSuccess(outputPath) on main thread
+     *
+     * @param context    App context (used for cache dir)
+     * @param urlA       Remote URL of Sound A
+     * @param volA       Effective volume of A  (e.g. aWeight * volumeA/100)
+     * @param urlB       Remote URL of Sound B
+     * @param volB       Effective volume of B  (e.g. bWeight * volumeB/100)
+     * @param fadeOutMs  Length of fade-out applied to the mixed output (0 = none)
+     * @param callback   Progress/success/error — always called on main thread
+     */
+    public static void mixTwoAudioFiles(
+            Context context,
+            String urlA, float volA,
+            String urlB, float volB,
+            int fadeOutMs,
+            MixCallback callback) {
+
+        executor.execute(() -> {
+            File fileA = null, fileB = null;
+            try {
+                // ── 1. Download ───────────────────────────────────────────────
+                mainHandler.post(() -> callback.onProgress(5));
+                fileA = downloadToCache(context, urlA);
+                mainHandler.post(() -> callback.onProgress(18));
+                fileB = downloadToCache(context, urlB);
+                mainHandler.post(() -> callback.onProgress(30));
+
+                // ── 2. Extract PCM from each audio file ───────────────────────
+                // extractPcmFromFile handles: stereo→mono, rate-resampling to 44100
+                short[] pcmA = extractPcmFromFile(fileA.getAbsolutePath(), Integer.MAX_VALUE, 0);
+                mainHandler.post(() -> callback.onProgress(50));
+                short[] pcmB = extractPcmFromFile(fileB.getAbsolutePath(), Integer.MAX_VALUE, 0);
+                mainHandler.post(() -> callback.onProgress(65));
+
+                // ── 3. Match lengths (loop shorter to match longer) ───────────
+                int targetLen = Math.max(pcmA.length, pcmB.length);
+                if (targetLen == 0) throw new Exception("Both audio files appear to be empty");
+                if (pcmA.length < targetLen) pcmA = loopPcm(pcmA, targetLen);
+                else if (pcmA.length > targetLen)
+                    pcmA = java.util.Arrays.copyOf(pcmA, targetLen);
+                if (pcmB.length < targetLen) pcmB = loopPcm(pcmB, targetLen);
+                else if (pcmB.length > targetLen)
+                    pcmB = java.util.Arrays.copyOf(pcmB, targetLen);
+
+                // ── 4. Mix ────────────────────────────────────────────────────
+                // Treat A as "mic" and B as "music" (null voiceover)
+                short[] mixed = mixPcm(pcmA, volA, pcmB, volB, null, 0f);
+
+                // ── 5. Fade-out (optional) ────────────────────────────────────
+                if (fadeOutMs > 0) mixed = applyFades(mixed, 44100, 0, fadeOutMs);
+                mainHandler.post(() -> callback.onProgress(78));
+
+                // ── 6. Encode to audio-only MP4 (no video muxing) ────────────
+                //    encodePcmToAac already wraps the AAC in a MediaMuxer MP4 container,
+                //    so the output is a valid playable audio-only .mp4 file.
+                String outPath = new File(context.getCacheDir(),
+                        "remix_" + System.currentTimeMillis() + ".mp4").getAbsolutePath();
+                encodePcmToAac(mixed, outPath);
+                mainHandler.post(() -> callback.onProgress(98));
+
+                mainHandler.post(() -> callback.onSuccess(outPath));
+
+            } catch (Exception e) {
+                Log.e(TAG, "mixTwoAudioFiles failed", e);
+                mainHandler.post(() -> callback.onError(e));
+            } finally {
+                // Cache files managed by downloadToCache — leave them for reuse.
+                // Do NOT delete here; they are keyed by URL hash and may be reused.
+            }
+        });
+    }
+
     public static void checkIfSilent(Context context, String videoPath,
                                      java.util.function.Consumer<Boolean> cb) {
         final Handler h = new Handler(Looper.getMainLooper());
