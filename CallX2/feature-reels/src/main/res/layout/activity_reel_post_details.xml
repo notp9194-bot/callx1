@@ -1,4 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  activity_reel_post_details.xml
+  Updated: Added rv_mention_suggest_post RecyclerView above caption
+           for Instagram-style @mention auto-complete in the caption field.
+           Controlled by ReelCaptionMentionController.
+-->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
@@ -51,6 +57,22 @@
             android:background="@drawable/bg_reel_upload_btn"/>
     </LinearLayout>
 
+    <!--
+      ── @Mention suggestion dropdown ──────────────────────────────────────
+      Appears above the caption field when the user types "@".
+      Initially GONE; animated to VISIBLE by ReelCaptionMentionController.
+      Max height 220dp shows ~4 rows before scrolling (same as chat mentions).
+    -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/rv_mention_suggest_post"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:maxHeight="220dp"
+        android:background="?attr/colorSurface"
+        android:elevation="8dp"
+        android:overScrollMode="never"
+        android:visibility="gone"/>
+
     <ScrollView
         android:layout_width="match_parent"
         android:layout_height="0dp"
@@ -62,7 +84,7 @@
             android:orientation="vertical"
             android:padding="16dp">
 
-            <!-- Caption -->
+            <!-- Caption label + hint -->
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -70,6 +92,14 @@
                 android:textColor="@color/text_secondary"
                 android:textSize="12sp"
                 android:fontFamily="sans-serif-medium"
+                android:layout_marginBottom="2dp"/>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Type @ to mention someone"
+                android:textColor="@color/text_muted"
+                android:textSize="11sp"
                 android:layout_marginBottom="6dp"/>
 
             <com.google.android.material.textfield.TextInputLayout
@@ -97,32 +127,6 @@
                 android:textColor="@color/text_muted"
                 android:textSize="11sp"
                 android:gravity="end"
-                android:layout_marginTop="4dp"
-                android:layout_marginBottom="8dp"/>
-
-            <!-- Hashtag suggestions -->
-            <com.google.android.material.chip.ChipGroup
-                android:id="@+id/cg_hashtag_suggestions"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="16dp"
-                android:visibility="gone"/>
-
-            <!-- Audience -->
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="Audience"
-                android:textColor="@color/text_secondary"
-                android:textSize="12sp"
-                android:fontFamily="sans-serif-medium"
-                android:layout_marginBottom="6dp"/>
-
-            <com.google.android.material.chip.ChipGroup
-                android:id="@+id/cg_post_audience"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                app:singleSelection="true"
                 android:layout_marginBottom="16dp"/>
 
             <!-- Location -->
@@ -145,11 +149,12 @@
                     android:id="@+id/et_post_location"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:hint="Add location..."
-                    android:inputType="textCapWords"/>
+                    android:hint="Add a location…"
+                    android:maxLines="1"
+                    android:inputType="text"/>
             </com.google.android.material.textfield.TextInputLayout>
 
-            <!-- Collab invite -->
+            <!-- Collab -->
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -163,7 +168,8 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
-                android:gravity="center_vertical">
+                android:gravity="center_vertical"
+                android:layout_marginBottom="4dp">
 
                 <com.google.android.material.textfield.TextInputLayout
                     style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
@@ -175,16 +181,16 @@
                         android:id="@+id/et_collab_search"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:hint="Search by name..."
+                        android:hint="Search by name…"
+                        android:maxLines="1"
                         android:inputType="textPersonName"/>
                 </com.google.android.material.textfield.TextInputLayout>
 
                 <ProgressBar
                     android:id="@+id/progress_collab"
-                    android:layout_width="24dp"
-                    android:layout_height="24dp"
+                    android:layout_width="32dp"
+                    android:layout_height="32dp"
                     android:layout_marginStart="8dp"
-                    android:indeterminateTint="@color/brand_primary"
                     android:visibility="gone"/>
             </LinearLayout>
 
@@ -194,9 +200,6 @@
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
                 android:gravity="center_vertical"
-                android:background="@color/surface_card"
-                android:padding="12dp"
-                android:layout_marginTop="6dp"
                 android:layout_marginBottom="16dp"
                 android:visibility="gone">
 
@@ -206,119 +209,172 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:textColor="@color/text_primary"
-                    android:textSize="14sp"
-                    android:drawableStart="@drawable/ic_person_add"
-                    android:drawablePadding="8dp"/>
+                    android:textSize="14sp"/>
 
                 <ImageButton
                     android:id="@+id/btn_clear_collab"
-                    android:layout_width="36dp"
-                    android:layout_height="36dp"
-                    android:src="@drawable/ic_close"
+                    android:layout_width="32dp"
+                    android:layout_height="32dp"
+                    android:src="@android:drawable/ic_menu_close_clear_cancel"
                     android:background="?attr/selectableItemBackgroundBorderless"
-                    android:contentDescription="Remove collaborator"/>
+                    android:contentDescription="Clear collaborator"/>
             </LinearLayout>
 
-            <!-- Permissions section -->
+            <!-- Audience -->
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Permissions"
+                android:text="Audience"
                 android:textColor="@color/text_secondary"
                 android:textSize="12sp"
                 android:fontFamily="sans-serif-medium"
-                android:layout_marginBottom="8dp"/>
+                android:layout_marginBottom="6dp"/>
 
+            <com.google.android.material.chip.ChipGroup
+                android:id="@+id/cg_post_audience"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="16dp"
+                app:singleSelection="true"
+                app:selectionRequired="true">
+
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/chip_audience_everyone"
+                    style="@style/Widget.Material3.Chip.Filter"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Everyone"
+                    android:checked="true"/>
+
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/chip_audience_followers"
+                    style="@style/Widget.Material3.Chip.Filter"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Followers"/>
+
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/chip_audience_close"
+                    style="@style/Widget.Material3.Chip.Filter"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Close Friends"/>
+
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/chip_audience_only_me"
+                    style="@style/Widget.Material3.Chip.Filter"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Only Me"/>
+            </com.google.android.material.chip.ChipGroup>
+
+            <!-- Hashtag suggestions (populated dynamically) -->
+            <com.google.android.material.chip.ChipGroup
+                android:id="@+id/cg_hashtag_suggestions"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="12dp"/>
+
+            <!-- Permissions card -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:background="@color/surface_card"
-                android:paddingStart="16dp"
-                android:paddingEnd="16dp">
+                android:background="?attr/colorSurfaceVariant"
+                android:padding="4dp"
+                android:layout_marginBottom="12dp">
 
                 <!-- Allow comments -->
                 <LinearLayout android:layout_width="match_parent" android:layout_height="52dp"
-                    android:orientation="horizontal" android:gravity="center_vertical">
+                    android:orientation="horizontal" android:gravity="center_vertical"
+                    android:paddingHorizontal="8dp">
                     <TextView android:layout_width="0dp" android:layout_height="wrap_content"
                         android:layout_weight="1" android:text="Allow Comments"
                         android:textColor="@color/text_primary" android:textSize="14sp"/>
-                    <Switch android:id="@+id/sw_allow_comments" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+                    <Switch android:id="@+id/sw_allow_comments" android:layout_width="wrap_content"
+                        android:layout_height="wrap_content" android:checked="true"/>
                 </LinearLayout>
 
                 <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/divider"/>
 
                 <!-- Allow duet -->
                 <LinearLayout android:layout_width="match_parent" android:layout_height="52dp"
-                    android:orientation="horizontal" android:gravity="center_vertical">
+                    android:orientation="horizontal" android:gravity="center_vertical"
+                    android:paddingHorizontal="8dp">
                     <TextView android:layout_width="0dp" android:layout_height="wrap_content"
                         android:layout_weight="1" android:text="Allow Duet"
                         android:textColor="@color/text_primary" android:textSize="14sp"/>
-                    <Switch android:id="@+id/sw_allow_duet" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+                    <Switch android:id="@+id/sw_allow_duet" android:layout_width="wrap_content"
+                        android:layout_height="wrap_content" android:checked="true"/>
                 </LinearLayout>
 
                 <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/divider"/>
 
                 <!-- Allow stitch -->
                 <LinearLayout android:layout_width="match_parent" android:layout_height="52dp"
-                    android:orientation="horizontal" android:gravity="center_vertical">
+                    android:orientation="horizontal" android:gravity="center_vertical"
+                    android:paddingHorizontal="8dp">
                     <TextView android:layout_width="0dp" android:layout_height="wrap_content"
                         android:layout_weight="1" android:text="Allow Stitch"
                         android:textColor="@color/text_primary" android:textSize="14sp"/>
-                    <Switch android:id="@+id/sw_allow_stitch" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+                    <Switch android:id="@+id/sw_allow_stitch" android:layout_width="wrap_content"
+                        android:layout_height="wrap_content" android:checked="true"/>
                 </LinearLayout>
 
                 <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/divider"/>
 
                 <!-- Allow download -->
                 <LinearLayout android:layout_width="match_parent" android:layout_height="52dp"
-                    android:orientation="horizontal" android:gravity="center_vertical">
+                    android:orientation="horizontal" android:gravity="center_vertical"
+                    android:paddingHorizontal="8dp">
                     <TextView android:layout_width="0dp" android:layout_height="wrap_content"
                         android:layout_weight="1" android:text="Allow Download"
                         android:textColor="@color/text_primary" android:textSize="14sp"/>
-                    <Switch android:id="@+id/sw_allow_download" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+                    <Switch android:id="@+id/sw_allow_download" android:layout_width="wrap_content"
+                        android:layout_height="wrap_content" android:checked="true"/>
                 </LinearLayout>
 
                 <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/divider"/>
 
                 <!-- Allow reactions -->
                 <LinearLayout android:layout_width="match_parent" android:layout_height="52dp"
-                    android:orientation="horizontal" android:gravity="center_vertical">
+                    android:orientation="horizontal" android:gravity="center_vertical"
+                    android:paddingHorizontal="8dp">
                     <TextView android:layout_width="0dp" android:layout_height="wrap_content"
                         android:layout_weight="1" android:text="Allow Reactions"
                         android:textColor="@color/text_primary" android:textSize="14sp"/>
-                    <Switch android:id="@+id/sw_allow_reactions" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+                    <Switch android:id="@+id/sw_allow_reactions" android:layout_width="wrap_content"
+                        android:layout_height="wrap_content" android:checked="true"/>
                 </LinearLayout>
             </LinearLayout>
 
-              <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/divider"/>
+            <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/divider"/>
 
-              <!-- Duet Series picker row -->
-              <LinearLayout
-                  android:layout_width="match_parent"
-                  android:layout_height="52dp"
-                  android:orientation="horizontal"
-                  android:gravity="center_vertical"
-                  android:paddingStart="0dp"
-                  android:paddingEnd="0dp">
-                  <TextView
-                      android:layout_width="0dp"
-                      android:layout_height="wrap_content"
-                      android:layout_weight="1"
-                      android:text="Duet Series"
-                      android:textColor="@color/text_primary"
-                      android:textSize="14sp"/>
-                  <TextView
-                      android:id="@+id/tv_series_picker"
-                      android:layout_width="wrap_content"
-                      android:layout_height="wrap_content"
-                      android:text="Add to Duet Series"
-                      android:textColor="@color/brand_primary"
-                      android:textSize="13sp"
-                      android:fontFamily="sans-serif-medium"
-                      android:paddingStart="8dp"
-                      android:paddingEnd="4dp"/>
-              </LinearLayout>
+            <!-- Duet Series picker row -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Duet Series"
+                    android:textColor="@color/text_primary"
+                    android:textSize="14sp"/>
+                <TextView
+                    android:id="@+id/tv_series_picker"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Add to Duet Series"
+                    android:textColor="@color/brand_primary"
+                    android:textSize="13sp"
+                    android:fontFamily="sans-serif-medium"
+                    android:paddingStart="8dp"
+                    android:paddingEnd="4dp"/>
+            </LinearLayout>
+
             <View android:layout_width="match_parent" android:layout_height="32dp"/>
         </LinearLayout>
     </ScrollView>

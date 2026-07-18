@@ -239,6 +239,8 @@ public class ReelUploadActivity extends AppCompatActivity {
       private String seriesId      = null;
       private String seriesTitle   = null;
       private int    episodeNumber = 0;
+    /** UIDs mentioned via @Name in the caption — notified after upload. */
+    private java.util.ArrayList<String> mentionedUids = new java.util.ArrayList<>();
 
   
     private int     stitchDurationSec  = 3;
@@ -831,6 +833,13 @@ public class ReelUploadActivity extends AppCompatActivity {
         String sId2   = i.getStringExtra(ReelPostDetailsActivity.RESULT_SERIES_ID);
         String sTitle = i.getStringExtra(ReelPostDetailsActivity.RESULT_SERIES_TITLE);
         int    sEp    = i.getIntExtra(ReelPostDetailsActivity.RESULT_EPISODE_NUMBER, 0);
+        // ── @Mention UIDs (Instagram-style caption mentions) ─────────────────────
+        java.util.ArrayList<String> mentionUidsFromIntent =
+                i.getStringArrayListExtra(ReelPostDetailsActivity.RESULT_MENTION_UIDS);
+        if (mentionUidsFromIntent != null && !mentionUidsFromIntent.isEmpty()) {
+            mentionedUids.addAll(mentionUidsFromIntent);
+        }
+
         if (sId2 != null && !sId2.isEmpty()) {
             seriesId      = sId2;
             seriesTitle   = sTitle != null ? sTitle : "";
@@ -2015,6 +2024,10 @@ public class ReelUploadActivity extends AppCompatActivity {
                         generateAndAttachBlurHash(b, finalReelId, reel.thumbUrl);
 
                         Toast.makeText(b, "Reel posted! 🎉", Toast.LENGTH_SHORT).show();
+                        // ── @Mention notifications (Instagram-style) ─────────────────────────
+                        ReelMentionNotifier.notifyAll(
+                                myUid, myName, finalReelId,
+                                reel.thumbUrl, caption, b.mentionedUids);
                         b.setResult(RESULT_OK);
 
                         // ✅ Multi-duet: mark this participant as "recorded" in the session

@@ -1,53 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!--
-    item_gif_sticker.xml
-    Gradient card for GIF stickers in the GIF tab.
-    Background gradient is set programmatically from GIF_DATA.
--->
-<FrameLayout
-    xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="110dp"
-    android:layout_margin="5dp">
+    android:layout_height="100dp"
+    android:layout_margin="4dp"
+    android:background="#222222">
 
-    <!-- Big emoji -->
     <TextView
-        android:id="@+id/tv_gif_emoji"
+        android:id="@+id/tv_gif_label"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="center"
-        android:layout_marginBottom="18dp"
-        android:textSize="36sp"
-        android:gravity="center"/>
-
-    <!-- Label at bottom -->
-    <TextView
-        android:id="@+id/tv_gif_label"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom"
-        android:background="#55000000"
-        android:gravity="center"
-        android:paddingTop="4dp"
-        android:paddingBottom="4dp"
         android:textColor="#FFFFFF"
-        android:textSize="11sp"
+        android:textSize="14sp"
         android:textStyle="bold"/>
-
-    <!-- GIF badge top-right -->
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="top|end"
-        android:layout_margin="6dp"
-        android:text="GIF"
-        android:textColor="#FFFFFF"
-        android:textSize="9sp"
-        android:textStyle="bold"
-        android:background="#88000000"
-        android:paddingStart="5dp"
-        android:paddingEnd="5dp"
-        android:paddingTop="2dp"
-        android:paddingBottom="2dp"/>
 
 </FrameLayout>

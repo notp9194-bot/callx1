@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  item_mention_suggest_reel.xml
+  Row for the @mention suggestion dropdown in ReelPostDetailsActivity.
+  Uses MentionRowCanvasView (single-draw avatar + name + "@" badge —
+  same component used in chat mention suggestions).
+  Height 52dp matches the chat mention row height.
+-->
+<com.callx.app.mention.canvas.MentionRowCanvasView
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="52dp"
+    android:background="?attr/selectableItemBackground"
+    android:clickable="true"
+    android:focusable="true"/>

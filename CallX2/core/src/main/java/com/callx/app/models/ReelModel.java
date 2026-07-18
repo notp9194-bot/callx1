@@ -71,6 +71,11 @@ public class ReelModel {
     public String  repostedFromReelId;
     public String  repostedFromUid;
     public String  repostedFromName;
+    /**
+     * UIDs of users @mentioned in the caption (Instagram-style).
+     * Written at upload time; read by notification handlers.
+     */
+    public java.util.List<String> mentionedUids;
 
     // ══════════════════════════════════════════════════════════════════════════
     // ── Photo Slideshow fields ─ Ultra-Advanced v5 ───────────────────────────
