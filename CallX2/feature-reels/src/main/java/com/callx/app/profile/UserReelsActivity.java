@@ -95,6 +95,9 @@ public class UserReelsActivity extends AppCompatActivity
     private View            layoutPhone, layoutWhatsapp, layoutInstagram, layoutYoutube, layoutOtherLink;
     private android.widget.HorizontalScrollView hsvBioLinks;
     private LinearLayout    llBioChips;
+    // ── Profile Song pill (Instagram-style) ───────────────────────────────────
+    private View            layoutProfileSong;
+    private TextView        tvProfileSongName;
     private TextView        tvEmptyTitle, tvEmptySubtitle;
     private Button          btnFollow;
     private Button          btnMessageCta;
@@ -296,9 +299,11 @@ public class UserReelsActivity extends AppCompatActivity
         layoutYoutube    = findViewById(R.id.layout_youtube);
         layoutOtherLink  = findViewById(R.id.layout_other_link);
         appBarLayout     = findViewById(R.id.app_bar);
-        hsvBioLinks      = findViewById(R.id.hsv_bio_links);
-        llBioChips       = findViewById(R.id.ll_bio_chips);
-        btnMessageCta    = findViewById(R.id.btn_message_cta);
+        hsvBioLinks       = findViewById(R.id.hsv_bio_links);
+        llBioChips        = findViewById(R.id.ll_bio_chips);
+        layoutProfileSong = findViewById(R.id.layout_profile_song);
+        tvProfileSongName = findViewById(R.id.tv_profile_song_name);
+        btnMessageCta     = findViewById(R.id.btn_message_cta);
         btnCtaCall       = findViewById(R.id.btn_cta_call);
         layoutInstagramCta = findViewById(R.id.layout_instagram_cta);
         layoutExtraActions = findViewById(R.id.layout_extra_actions);
@@ -2398,6 +2403,44 @@ public class UserReelsActivity extends AppCompatActivity
                     links.add(new String[]{"✗", twLabel, twUrl});
                 }
                 buildBioChips(links);
+
+                // ── Profile song pill ────────────────────────────────────────────
+                // Read profileSong from the same snapshot (already loaded)
+                DataSnapshot songSnap = snap.child("profileSong");
+                String songTitle  = songSnap.child("title").getValue(String.class);
+                String songArtist = songSnap.child("artist").getValue(String.class);
+                String songId     = songSnap.child("soundId").getValue(String.class);
+                String songCover  = songSnap.child("coverUrl").getValue(String.class);
+                String songUrl    = songSnap.child("soundUrl").getValue(String.class);
+                Long   songDurMs  = songSnap.child("durationMs").getValue(Long.class);
+
+                if (layoutProfileSong != null && songTitle != null && !songTitle.isEmpty()) {
+                    // Build display text: "▷ Title - Artist"
+                    String displayText = songTitle;
+                    if (songArtist != null && !songArtist.isEmpty())
+                        displayText = songTitle + "...";
+                    tvProfileSongName.setText(displayText);
+                    layoutProfileSong.setVisibility(View.VISIBLE);
+
+                    // Capture finals for lambda
+                    final String fSongId    = songId != null ? songId : "";
+                    final String fSongTitle = songTitle;
+                    final String fArtist    = songArtist != null ? songArtist : "";
+                    final String fCoverUrl  = songCover  != null ? songCover  : "";
+                    final String fSoundUrl  = songUrl    != null ? songUrl    : "";
+                    final int    fDurMs     = songDurMs  != null ? songDurMs.intValue() : 0;
+
+                    layoutProfileSong.setOnClickListener(v -> {
+                        com.callx.app.music.SoundDetailBottomSheet sheet =
+                            com.callx.app.music.SoundDetailBottomSheet.newInstance(
+                                fSongId, fSongTitle, fArtist,
+                                fCoverUrl, fSoundUrl,
+                                fDurMs, 0, false);
+                        sheet.show(getSupportFragmentManager(), "sound_detail");
+                    });
+                } else if (layoutProfileSong != null) {
+                    layoutProfileSong.setVisibility(View.GONE);
+                }
 
                 // FIX: Room mein save karo — next time offline instantly dikhega
                 saveToRoom(name, photo, photoThumb, bio);

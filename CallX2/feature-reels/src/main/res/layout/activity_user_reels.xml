@@ -369,6 +369,47 @@
                     android:gravity="center_vertical"/>
             </HorizontalScrollView>
 
+            <!-- ── Instagram-style Profile Song pill (Screenshot 1 / 2 style) ──
+                 Hidden by default. UserReelsActivity shows it when the user has
+                 a profileSong set. Click → SoundDetailBottomSheet (Screenshot 3/4). -->
+            <LinearLayout
+                android:id="@+id/layout_profile_song"
+                android:layout_width="wrap_content"
+                android:layout_height="32dp"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingStart="12dp"
+                android:paddingEnd="14dp"
+                android:layout_marginStart="16dp"
+                android:layout_marginTop="6dp"
+                android:layout_marginBottom="4dp"
+                android:background="@drawable/bg_song_pill"
+                android:clickable="true"
+                android:focusable="true"
+                android:foreground="?attr/selectableItemBackground"
+                android:visibility="gone">
+
+                <ImageView
+                    android:layout_width="14dp"
+                    android:layout_height="14dp"
+                    android:src="@drawable/ic_play"
+                    android:tint="?attr/colorOnSurface"
+                    android:layout_marginEnd="6dp"
+                    android:contentDescription="Now playing"/>
+
+                <TextView
+                    android:id="@+id/tv_profile_song_name"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textSize="12.5sp"
+                    android:textColor="?attr/colorOnSurface"
+                    android:fontFamily="sans-serif-medium"
+                    android:maxWidth="220dp"
+                    android:maxLines="1"
+                    android:ellipsize="end"
+                    android:text="Song name..."/>
+            </LinearLayout>
+
             <!-- Hidden legacy link views — kept for Java binding compatibility -->
             <LinearLayout android:id="@+id/layout_phone"
                 android:layout_width="match_parent" android:layout_height="0dp"
