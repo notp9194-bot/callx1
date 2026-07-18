@@ -134,6 +134,7 @@ public class MultiDuetAcceptActivity extends AppCompatActivity {
                                     if (thumb != null && !thumb.isEmpty()) {
                                         Glide.with(MultiDuetAcceptActivity.this)
                                             .load(thumb).centerCrop().override(720, 720).into(ivReelThumb);
+                                    }
 
                                     // Store videoUrl for launch
                                     String vidUrl = r.child("videoUrl").getValue(String.class);
