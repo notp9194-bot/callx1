@@ -19,7 +19,7 @@ import java.util.*;
  *
  * Shows all sounds inside a user playlist with:
  *  ✅ Cover art, title, artist, reel count per sound
- *  ✅ "Add Sound" button → MusicPickerActivity to pick & add
+ *  ✅ "Add Sound" button → ReelTrendingAudioActivity (Trending Sound screen) to pick & add
  *  ✅ Swipe-to-delete with ItemTouchHelper
  *  ✅ Tap → SoundDetailActivity
  *  ✅ "Use" button → returns sound to caller (if EXTRA_PICK_MODE)
@@ -155,7 +155,7 @@ public class PlaylistDetailActivity extends AppCompatActivity {
     }
 
     private void openMusicPicker() {
-        Intent i = new Intent(this, MusicPickerActivity.class);
+        Intent i = new Intent(this, ReelTrendingAudioActivity.class);
         startActivityForResult(i, REQ_ADD_SOUND);
     }
 
@@ -163,11 +163,11 @@ public class PlaylistDetailActivity extends AppCompatActivity {
     protected void onActivityResult(int req, int res, Intent data) {
         super.onActivityResult(req, res, data);
         if (req == REQ_ADD_SOUND && res == RESULT_OK && data != null) {
-            String id    = data.getStringExtra(MusicPickerActivity.EXTRA_MUSIC_ID);
-            String name  = data.getStringExtra(MusicPickerActivity.EXTRA_MUSIC_NAME);
-            String url   = data.getStringExtra(MusicPickerActivity.EXTRA_MUSIC_URL);
-            String cover = data.getStringExtra(MusicPickerActivity.EXTRA_MUSIC_COVER_URL);
-            String artist= data.getStringExtra(MusicPickerActivity.EXTRA_MUSIC_ARTIST);
+            String id    = data.getStringExtra(ReelTrendingAudioActivity.RESULT_AUDIO_ID);
+            String name  = data.getStringExtra(ReelTrendingAudioActivity.RESULT_AUDIO_TITLE);
+            String url   = data.getStringExtra(ReelTrendingAudioActivity.RESULT_AUDIO_URL);
+            String cover = data.getStringExtra(ReelTrendingAudioActivity.RESULT_COVER_URL);
+            String artist= data.getStringExtra(ReelTrendingAudioActivity.RESULT_AUDIO_ARTIST);
             if (id == null || id.isEmpty()) return;
 
             Map<String, Object> entry = new HashMap<>();

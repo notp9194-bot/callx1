@@ -20,7 +20,7 @@ import java.util.concurrent.*;
  *
  * Lets the user blend two sounds into a new "Remix":
  *  ✅ Sound A — pre-selected from context (e.g. SoundDetailFragment 3-dot menu)
- *  ✅ Sound B — picked via MusicPickerActivity
+ *  ✅ Sound B — picked via ReelTrendingAudioActivity (Trending Sound screen)
  *  ✅ Blend slider: 0% = only A, 100% = only B, 50% = equal mix
  *  ✅ Volume knobs per track (0–100%)
  *  ✅ "Create Remix" — mixes via AudioMixHelper.mixTwoAudioFiles() (audio-only,
@@ -62,7 +62,7 @@ public class SoundRemixActivity extends AppCompatActivity {
     // ── Sound A (from intent) ─────────────────────────────────────────────────
     private String soundAId, soundATitle, soundAUrl, soundACover, soundAArtist;
 
-    // ── Sound B (picked by user via MusicPickerActivity) ─────────────────────
+    // ── Sound B (picked by user via ReelTrendingAudioActivity) ────────────────
     private String soundBId     = "";
     private String soundBTitle  = "";
     private String soundBUrl    = "";
@@ -131,7 +131,7 @@ public class SoundRemixActivity extends AppCompatActivity {
         if (btnPickSoundB != null)
             btnPickSoundB.setOnClickListener(v ->
                 startActivityForResult(
-                    new Intent(this, MusicPickerActivity.class), REQ_PICK_SOUND_B));
+                    new Intent(this, ReelTrendingAudioActivity.class), REQ_PICK_SOUND_B));
 
         // Blend slider: 0=all A, 100=all B
         if (sbBlend != null) {
@@ -187,11 +187,11 @@ public class SoundRemixActivity extends AppCompatActivity {
     protected void onActivityResult(int req, int res, Intent data) {
         super.onActivityResult(req, res, data);
         if (req == REQ_PICK_SOUND_B && res == RESULT_OK && data != null) {
-            soundBId     = nvl(data.getStringExtra(MusicPickerActivity.EXTRA_MUSIC_ID));
-            soundBTitle  = nvl(data.getStringExtra(MusicPickerActivity.EXTRA_MUSIC_NAME));
-            soundBUrl    = nvl(data.getStringExtra(MusicPickerActivity.EXTRA_MUSIC_URL));
-            soundBCover  = nvl(data.getStringExtra(MusicPickerActivity.EXTRA_MUSIC_COVER_URL));
-            soundBArtist = nvl(data.getStringExtra(MusicPickerActivity.EXTRA_MUSIC_ARTIST));
+            soundBId     = nvl(data.getStringExtra(ReelTrendingAudioActivity.RESULT_AUDIO_ID));
+            soundBTitle  = nvl(data.getStringExtra(ReelTrendingAudioActivity.RESULT_AUDIO_TITLE));
+            soundBUrl    = nvl(data.getStringExtra(ReelTrendingAudioActivity.RESULT_AUDIO_URL));
+            soundBCover  = nvl(data.getStringExtra(ReelTrendingAudioActivity.RESULT_COVER_URL));
+            soundBArtist = nvl(data.getStringExtra(ReelTrendingAudioActivity.RESULT_AUDIO_ARTIST));
 
             if (tvSoundBName != null)
                 tvSoundBName.setText(soundBTitle.isEmpty() ? "Sound B" : soundBTitle);
