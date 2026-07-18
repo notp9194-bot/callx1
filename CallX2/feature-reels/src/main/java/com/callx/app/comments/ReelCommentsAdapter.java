@@ -172,10 +172,10 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
 
         if (h.ivStoryRing != null && c.uid != null) {
             if (scm.hasUnseen(c.uid)) {
-                h.ivStoryRing.setBackgroundResource(R.drawable.circle_status_unseen);
+                h.ivStoryRing.setBackgroundResource(R.drawable.story_ring_insta_gradient);
                 h.ivStoryRing.setVisibility(android.view.View.VISIBLE);
             } else if (scm.hasStatus(c.uid)) {
-                h.ivStoryRing.setBackgroundResource(R.drawable.circle_status_seen);
+                h.ivStoryRing.setBackgroundResource(R.drawable.story_ring_insta_gradient);
                 h.ivStoryRing.setVisibility(android.view.View.VISIBLE);
             } else {
                 h.ivStoryRing.setVisibility(android.view.View.GONE);

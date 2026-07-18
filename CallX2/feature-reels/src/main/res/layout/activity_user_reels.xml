@@ -72,97 +72,97 @@
             android:tint="#FF4444" android:contentDescription="Delete All"/>
     </LinearLayout>
 
+    <!-- ── Top nav bar — fixed, OUTSIDE AppBarLayout, always visible ── -->
+    <LinearLayout
+        android:id="@+id/layout_top_nav"
+        android:layout_width="match_parent"
+        android:layout_height="52dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="4dp"
+        android:paddingEnd="4dp"
+        android:background="?attr/colorSurface"
+        android:elevation="0dp"
+        android:layout_gravity="top">
+
+        <ImageButton android:id="@+id/btn_back"
+            android:layout_width="48dp" android:layout_height="48dp"
+            android:src="@drawable/ic_arrow_back"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:tint="?attr/colorOnSurface"
+                android:contentDescription="Back"/>
+
+            <!-- Username + verified badge -->
+            <LinearLayout
+                android:layout_width="0dp" android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginStart="4dp">
+
+                <TextView android:id="@+id/tv_name"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="username"
+                    android:textSize="24sp"
+                    android:fontFamily="sans-serif-bold"
+                    android:textColor="?attr/colorOnSurface"
+                    android:maxLines="1" android:ellipsize="end"/>
+
+                <ImageView android:id="@+id/iv_verified"
+                    android:layout_width="16dp" android:layout_height="16dp"
+                    android:layout_marginStart="4dp"
+                    android:src="@drawable/ic_verified"
+                    android:tint="@color/brand_primary"
+                    android:contentDescription="Verified"
+                    android:visibility="gone"/>
+            </LinearLayout>
+
+            <!-- Top-right icons -->
+            <ImageButton android:id="@+id/btn_share_profile"
+                android:layout_width="44dp" android:layout_height="44dp"
+                android:src="@drawable/ic_send"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:tint="?attr/colorOnSurface"
+                android:contentDescription="Share" android:padding="11dp"/>
+
+            <ImageButton android:id="@+id/btn_creator_hub"
+                android:layout_width="40dp" android:layout_height="40dp"
+                android:src="@drawable/ic_reel_creator"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:tint="#A855F7"
+                android:contentDescription="Creator Hub"
+                android:padding="9dp" android:visibility="gone"/>
+
+            <ImageButton android:id="@+id/btn_settings"
+                android:layout_width="40dp" android:layout_height="40dp"
+                android:src="@drawable/ic_settings"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:tint="?attr/colorOnSurface"
+                android:contentDescription="Settings"
+                android:padding="9dp" android:visibility="gone"/>
+
+            <ImageButton android:id="@+id/btn_more"
+                android:layout_width="40dp" android:layout_height="40dp"
+                android:src="@drawable/ic_more_vert"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:tint="?attr/colorOnSurface"
+                android:contentDescription="More options"
+                android:padding="9dp"/>
+        </LinearLayout>
+
     <!-- ════════════════════════════════════════════════════════════
-         AppBarLayout — Instagram-level scroll behavior (v5):
-           Child 1 — Top nav bar     (scroll|exitUntilCollapsed) — scrolls away on scroll-down
-           Child 2 — Profile header  (scroll|exitUntilCollapsed) — collapses on scroll
-           Child 3 — TabLayout       (noScroll — pins once header collapses)
+         AppBarLayout — offset below the fixed nav bar:
+           Child 1 — Profile header  (scroll|exitUntilCollapsed)
+           Child 2 — TabLayout       (noScroll — pins once header collapses)
          ════════════════════════════════════════════════════════════ -->
     <com.google.android.material.appbar.AppBarLayout
         android:id="@+id/app_bar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:layout_marginTop="52dp"
         android:background="?attr/colorSurface"
         android:elevation="0dp"
         app:liftOnScroll="false">
-
-        <!-- ── CHILD 1: Top nav bar — scrolls away with header (Instagram approach) ── -->
-        <LinearLayout
-            android:id="@+id/layout_top_nav"
-            android:layout_width="match_parent"
-            android:layout_height="52dp"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:paddingStart="4dp"
-            android:paddingEnd="4dp"
-            android:background="?attr/colorSurface"
-            android:elevation="0dp"
-            app:layout_scrollFlags="scroll|exitUntilCollapsed">
-
-            <ImageButton android:id="@+id/btn_back"
-                android:layout_width="48dp" android:layout_height="48dp"
-                android:src="@drawable/ic_arrow_back"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:tint="?attr/colorOnSurface"
-                    android:contentDescription="Back"/>
-
-                <!-- Username + verified badge -->
-                <LinearLayout
-                    android:layout_width="0dp" android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:layout_marginStart="4dp">
-
-                    <TextView android:id="@+id/tv_name"
-                        android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="username"
-                        android:textSize="24sp"
-                        android:fontFamily="sans-serif-bold"
-                        android:textColor="?attr/colorOnSurface"
-                        android:maxLines="1" android:ellipsize="end"/>
-
-                    <ImageView android:id="@+id/iv_verified"
-                        android:layout_width="16dp" android:layout_height="16dp"
-                        android:layout_marginStart="4dp"
-                        android:src="@drawable/ic_verified"
-                        android:tint="@color/brand_primary"
-                        android:contentDescription="Verified"
-                        android:visibility="gone"/>
-                </LinearLayout>
-
-                <!-- Top-right icons -->
-                <ImageButton android:id="@+id/btn_share_profile"
-                    android:layout_width="44dp" android:layout_height="44dp"
-                    android:src="@drawable/ic_send"
-                    android:background="?attr/selectableItemBackgroundBorderless"
-                    android:tint="?attr/colorOnSurface"
-                    android:contentDescription="Share" android:padding="11dp"/>
-
-                <ImageButton android:id="@+id/btn_creator_hub"
-                    android:layout_width="40dp" android:layout_height="40dp"
-                    android:src="@drawable/ic_reel_creator"
-                    android:background="?attr/selectableItemBackgroundBorderless"
-                    android:tint="#A855F7"
-                    android:contentDescription="Creator Hub"
-                    android:padding="9dp" android:visibility="gone"/>
-
-                <ImageButton android:id="@+id/btn_settings"
-                    android:layout_width="40dp" android:layout_height="40dp"
-                    android:src="@drawable/ic_settings"
-                    android:background="?attr/selectableItemBackgroundBorderless"
-                    android:tint="?attr/colorOnSurface"
-                    android:contentDescription="Settings"
-                    android:padding="9dp" android:visibility="gone"/>
-
-                <ImageButton android:id="@+id/btn_more"
-                    android:layout_width="40dp" android:layout_height="40dp"
-                    android:src="@drawable/ic_more_vert"
-                    android:background="?attr/selectableItemBackgroundBorderless"
-                    android:tint="?attr/colorOnSurface"
-                    android:contentDescription="More options"
-                    android:padding="9dp"/>
-            </LinearLayout>
 
         <!-- ── CHILD 1: Collapsible profile header (scrolls up and disappears) ── -->
         <LinearLayout
@@ -201,8 +201,7 @@
                     <View android:layout_width="16dp" android:layout_height="16dp"
                         android:layout_gravity="bottom|end"
                         android:layout_marginEnd="2dp" android:layout_marginBottom="2dp"
-                        android:background="@drawable/bg_story_ring"
-                        android:backgroundTint="@color/status_online"/>
+                        android:background="@drawable/bg_online_indicator"/>
                 </FrameLayout>
 
                 <!-- Right column: display name (Instagram-style, above stats) + Stats row -->

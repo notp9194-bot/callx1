@@ -1,11 +1,28 @@
 <?xml version="1.0" encoding="utf-8"?>
-<shape xmlns:android="http://schemas.android.com/apk/res/android"
-    android:shape="oval">
-    <gradient
-        android:type="sweep"
-        android:startColor="#FEDA75"
-        android:centerColor="#D62976"
-        android:endColor="#962FBF"
-        android:centerX="0.5"
-        android:centerY="0.5"/>
-</shape>
+<!--
+    bg_story_ring.xml — Instagram-exact story ring gradient
+    Purple (#833AB4) → Red-Pink (#FD1D1D) → Orange-Yellow (#FCAF45)
+    Used in activity_user_reels.xml for view_story_ring (90dp avatar ring).
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Outer gradient oval — Instagram sweep gradient -->
+    <item>
+        <shape android:shape="oval">
+            <gradient
+                android:type="sweep"
+                android:startColor="#833AB4"
+                android:centerColor="#FD1D1D"
+                android:endColor="#FCAF45"/>
+        </shape>
+    </item>
+    <!-- Inner white spacer (3dp) — creates visible gap between gradient and avatar -->
+    <item
+        android:left="3dp"
+        android:top="3dp"
+        android:right="3dp"
+        android:bottom="3dp">
+        <shape android:shape="oval">
+            <solid android:color="#FFFFFFFF"/>
+        </shape>
+    </item>
+</layer-list>
