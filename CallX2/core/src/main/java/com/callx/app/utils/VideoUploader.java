@@ -416,6 +416,17 @@ public class VideoUploader {
      */
     public interface AudioUploadCallback {
         void onSuccess(String audioUrl);
+        /**
+         * ✅ NEW: called with BOTH the full-quality original audio URL and a
+         * small mono/low-bitrate preview URL (used by SoundDetailActivity's
+         * play button so it doesn't stream the full-quality file just to
+         * preview a sound — see PreviewAudioEncoder).
+         * Default just forwards to the old single-URL callback so existing
+         * overrides that only implement onSuccess(String) keep working.
+         */
+        default void onSuccess(String audioUrl, String previewAudioUrl) {
+            onSuccess(audioUrl);
+        }
         void onError(Exception e);
     }
 
@@ -433,9 +444,10 @@ public class VideoUploader {
     public static void uploadOriginalAudio(Context ctx, java.io.File videoFile,
                                            AudioUploadCallback callback) {
         new Thread(() -> {
-            java.io.File audioOut = null;
+            java.io.File audioOut   = null;
+            java.io.File previewOut = null;
             try {
-                // ── Step 1: Extract + re-encode audio to M4A ─────────────
+                // ── Step 1: Extract original audio (passthrough, no re-encode) ─
                 audioOut = extractAudioToM4a(ctx, videoFile);
                 if (audioOut == null || !audioOut.exists() || audioOut.length() == 0) {
                     MAIN.post(() -> callback.onError(
@@ -443,7 +455,7 @@ public class VideoUploader {
                     return;
                 }
 
-                // ── Step 2: Upload raw M4A to Cloudinary as "raw" resource ─
+                // ── Step 2: Upload original (full-quality) audio ───────────
                 final java.io.File finalAudio = audioOut;
                 String audioUrl = uploadAudioDirect(finalAudio, "callx/audio/original");
                 if (audioUrl == null || audioUrl.isEmpty()) {
@@ -452,14 +464,32 @@ public class VideoUploader {
                     return;
                 }
 
-                final String fUrl = audioUrl;
-                MAIN.post(() -> callback.onSuccess(fUrl));
+                // ── Step 3: Generate + upload a small mono/low-bitrate PREVIEW ─
+                // ✅ FIX: this is what SoundDetailActivity's play button streams,
+                // so a sound preview costs ~30-100 KB instead of the 200-300 KB
+                // the full-quality passthrough file used to cost (Instagram-style).
+                // If this step fails for any reason, we still succeed with the
+                // original URL alone — previewAudioUrl falls back client-side.
+                String previewUrl = "";
+                try {
+                    previewOut = PreviewAudioEncoder.generatePreview(videoFile, ctx.getCacheDir());
+                    if (previewOut.exists() && previewOut.length() > 0) {
+                        previewUrl = uploadAudioDirect(previewOut, "callx/audio/preview");
+                    }
+                } catch (Exception previewEx) {
+                    Log.w(TAG, "Preview audio generation/upload failed, continuing without it", previewEx);
+                }
+
+                final String fUrl        = audioUrl;
+                final String fPreviewUrl = previewUrl != null ? previewUrl : "";
+                MAIN.post(() -> callback.onSuccess(fUrl, fPreviewUrl));
 
             } catch (Exception e) {
                 Log.e(TAG, "uploadOriginalAudio error", e);
                 MAIN.post(() -> callback.onError(e));
             } finally {
-                if (audioOut != null) audioOut.delete(); // cleanup temp
+                if (audioOut   != null) audioOut.delete();   // cleanup temp
+                if (previewOut != null) previewOut.delete(); // cleanup temp
             }
         }).start();
     }

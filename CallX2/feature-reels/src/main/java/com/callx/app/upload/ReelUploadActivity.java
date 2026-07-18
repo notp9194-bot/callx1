@@ -2122,7 +2122,7 @@ public class ReelUploadActivity extends AppCompatActivity {
                             // entirely here — just link this reel to the existing sound and
                             // bump its reel_count right away (no need to wait on extraction).
                             registerOrLinkSound(b, finalReelId, myUid, myName,
-                                thumbUrl, videoUrl, b.preSelectedSoundUrl, b.preSelectedSoundId);
+                                thumbUrl, videoUrl, b.preSelectedSoundUrl, "", b.preSelectedSoundId);
                         } else {
                             // True original audio — extract it from the recorded video and
                             // upload it once, then register it as a brand-new reusable sound.
@@ -2132,20 +2132,25 @@ public class ReelUploadActivity extends AppCompatActivity {
                                     new VideoUploader.AudioUploadCallback() {
                                         @Override
                                         public void onSuccess(String audioUrl) {
+                                            onSuccess(audioUrl, "");
+                                        }
+                                        @Override
+                                        public void onSuccess(String audioUrl, String previewAudioUrl) {
                                             // Save originalAudioUrl to Firebase
                                             FirebaseUtils.getReelsRef()
                                                 .child(finalReelId)
                                                 .child("originalAudioUrl")
                                                 .setValue(audioUrl);
                                             Log.d("ReelUpload",
-                                                "originalAudioUrl saved: " + audioUrl);
+                                                "originalAudioUrl saved: " + audioUrl
+                                                + " previewAudioUrl: " + previewAudioUrl);
 
                                             // ✅ Make this audio reusable/discoverable, Instagram-style:
                                             // register it as a proper "sounds/{soundId}" entity so
                                             // other users can find it, see waveform/reel-count, and
                                             // use it on their own reels — not just play it back here.
                                             registerOrLinkSound(b, finalReelId, myUid, myName,
-                                                thumbUrl, videoUrl, audioUrl, "");
+                                                thumbUrl, videoUrl, audioUrl, previewAudioUrl, "");
                                         }
                                         @Override
                                         public void onError(Exception e) {
@@ -2207,7 +2212,7 @@ public class ReelUploadActivity extends AppCompatActivity {
     private static void registerOrLinkSound(ReelUploadActivity activity,
                                               String reelId, String ownerUid, String ownerName,
                                               String thumbUrl, String videoUrl, String audioUrl,
-                                              String soundChosenId) {
+                                              String previewAudioUrl, String soundChosenId) {
         // ⚠️ NOTE: by the time this callback fires, the activity has almost
         // always already called finish() — the audio extraction runs in the
         // background AFTER the reel post is confirmed, so the upload screen
@@ -2273,6 +2278,19 @@ public class ReelUploadActivity extends AppCompatActivity {
                 }
                 @Override public void onComplete(DatabaseError e, boolean committed, DataSnapshot s) {}
             });
+            // ✅ Back-fill previewAudioUrl too, in case this sound was registered
+            // before the low-bitrate preview pipeline existed.
+            if (previewAudioUrl != null && !previewAudioUrl.isEmpty()) {
+                soundRef.child("previewAudioUrl").runTransaction(new Transaction.Handler() {
+                    @NonNull @Override
+                    public Transaction.Result doTransaction(@NonNull MutableData d) {
+                        String cur = d.getValue(String.class);
+                        if (cur == null || cur.isEmpty()) d.setValue(previewAudioUrl);
+                        return Transaction.success(d);
+                    }
+                    @Override public void onComplete(DatabaseError e, boolean committed, DataSnapshot s) {}
+                });
+            }
 
             // ✅ FIX: attribute this reel's bottom "sound" label to the sound's
             // ORIGINAL creator instead of whatever text happened to be sitting
@@ -2333,7 +2351,10 @@ public class ReelUploadActivity extends AppCompatActivity {
 
         // Brand-new original-audio entity — fill out full metadata once.
         java.util.Map<String, Object> soundData = new java.util.HashMap<>();
-        soundData.put("audioUrl",     audioUrl != null ? audioUrl : "");
+        soundData.put("audioUrl",        audioUrl != null ? audioUrl : "");
+        // ✅ Low-bitrate mono preview — this is what SoundDetailActivity's play
+        // button streams instead of the full-quality audioUrl above.
+        soundData.put("previewAudioUrl", previewAudioUrl != null ? previewAudioUrl : "");
         soundData.put("title",        "Original audio");
         soundData.put("artist",       ownerName != null ? ownerName : "");
         soundData.put("coverUrl",     thumbUrl != null ? thumbUrl : "");

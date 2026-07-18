@@ -75,6 +75,10 @@ public class SoundDetailActivity extends AppCompatActivity implements Player.Lis
     public static final String EXTRA_GENRE              = "sound_genre";
     public static final String EXTRA_ORIGINAL_AUDIO_URL = "original_audio_url";
     public static final String EXTRA_CREATOR_UID        = "sound_creator_uid";
+    // ✅ NEW: small mono/low-bitrate preview — this is what actually gets
+    // streamed when the user hits play on this screen (Instagram-style).
+    // soundUrl (full quality) is kept only for "Use in Camera / Use in Video".
+    public static final String EXTRA_PREVIEW_AUDIO_URL  = "sound_preview_audio_url";
 
     // ─── Views ─────────────────────────────────────────────────────────────────
     private ImageButton  btnBack, btnShare, btnSaveSound, btnMore;
@@ -129,6 +133,10 @@ public class SoundDetailActivity extends AppCompatActivity implements Player.Lis
 
     // ─── State ─────────────────────────────────────────────────────────────────
     private String  soundId, soundTitle, soundUrl, artist, coverUrl, genre;
+    // ✅ NEW: low-bitrate mono preview URL — preferred for in-app playback;
+    // falls back to soundUrl (full quality) if a preview isn't available yet
+    // (e.g. sounds registered before the preview pipeline existed).
+    private String  previewAudioUrl;
     private int     durationMs, bpm;
     private boolean isSaved         = false;
     private boolean isPlaying       = false;
@@ -190,6 +198,7 @@ public class SoundDetailActivity extends AppCompatActivity implements Player.Lis
         bpm        = getIntent().getIntExtra(EXTRA_BPM, 0);
         genre      = getIntent().getStringExtra(EXTRA_GENRE);
         creatorUid = getIntent().getStringExtra(EXTRA_CREATOR_UID);
+        previewAudioUrl = getIntent().getStringExtra(EXTRA_PREVIEW_AUDIO_URL);
 
         String originalAudioUrl = getIntent().getStringExtra(EXTRA_ORIGINAL_AUDIO_URL);
         if (originalAudioUrl != null && !originalAudioUrl.isEmpty()) soundUrl = originalAudioUrl;
@@ -501,6 +510,13 @@ public class SoundDetailActivity extends AppCompatActivity implements Player.Lis
                         if (u == null) u = snap.child("audio_url").getValue(String.class);
                         if (u == null) u = snap.child("url").getValue(String.class);
                         if (u != null && !u.isEmpty()) soundUrl = u;
+                    }
+
+                    // ✅ FIX: low-bitrate mono preview — this is what the play
+                    // button below actually streams, not the full-quality soundUrl.
+                    if (previewAudioUrl == null || previewAudioUrl.isEmpty()) {
+                        String pu = snap.child("previewAudioUrl").getValue(String.class);
+                        if (pu != null && !pu.isEmpty()) previewAudioUrl = pu;
                     }
 
                     if (coverUrl == null || coverUrl.isEmpty()) {
@@ -1249,8 +1265,20 @@ public class SoundDetailActivity extends AppCompatActivity implements Player.Lis
     //  Playback — ExoPlayer (Media3)
     // ───────────────────────────────────────────────────────────────────────────
 
+    /**
+     * ✅ FIX: Instagram-style — the sound-preview screen streams a small
+     * mono/low-bitrate preview file, not the full-quality original. Full
+     * quality is only needed when the sound is actually used on a reel
+     * ("Use in Camera / Use in Video"), which still reads soundUrl directly.
+     */
+    private String getPlaybackUrl() {
+        if (previewAudioUrl != null && !previewAudioUrl.isEmpty()) return previewAudioUrl;
+        return soundUrl;
+    }
+
     private void togglePlayPause() {
-        if (soundUrl == null || soundUrl.isEmpty()) {
+        String playbackUrl = getPlaybackUrl();
+        if (playbackUrl == null || playbackUrl.isEmpty()) {
             Toast.makeText(this, "Loading audio…", Toast.LENGTH_SHORT).show();
             return;
         }
@@ -1289,7 +1317,7 @@ public class SoundDetailActivity extends AppCompatActivity implements Player.Lis
             .build();
         exoPlayer.addListener(this);
 
-        MediaItem mediaItem = MediaItem.fromUri(soundUrl);
+        MediaItem mediaItem = MediaItem.fromUri(getPlaybackUrl());
         exoPlayer.setMediaItem(mediaItem);
         exoPlayer.setRepeatMode(Player.REPEAT_MODE_ONE);
         exoPlayer.prepare(); // async — onPlaybackStateChanged fires when ready
@@ -1431,7 +1459,7 @@ public class SoundDetailActivity extends AppCompatActivity implements Player.Lis
 
     private void updatePlayButtonState() {
         if (btnPlayPause == null) return;
-        boolean hasUrl = soundUrl != null && !soundUrl.isEmpty();
+        boolean hasUrl = getPlaybackUrl() != null && !getPlaybackUrl().isEmpty();
         btnPlayPause.setAlpha(hasUrl ? 1f : 0.4f);
         btnPlayPause.setEnabled(hasUrl);
     }
