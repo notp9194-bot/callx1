@@ -90,7 +90,7 @@ public class ChatListViewModel extends AndroidViewModel {
         chats.observeForever(list -> {
             if (list == null) { result.setValue(0); return; }
             int total = 0;
-            for (ChatEntity c : list) total += (c.unreadCount > 0 ? c.unreadCount : 0);
+            for (ChatEntity c : list) total += (c.unread != null && c.unread > 0 ? c.unread.intValue() : 0);
             result.setValue(total);
         });
         return result;
