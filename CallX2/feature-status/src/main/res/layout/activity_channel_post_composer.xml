@@ -43,7 +43,7 @@
             android:padding="12dp">
 
             <!-- Main text area -->
-            <EditText
+            <com.google.android.material.textfield.TextInputEditText
                 android:id="@+id/et_post_text"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
