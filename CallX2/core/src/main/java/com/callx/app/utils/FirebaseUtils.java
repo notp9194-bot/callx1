@@ -40,6 +40,16 @@ public class FirebaseUtils {
         return db().getReference("messages").child(chatId);
     }
 
+    /** Deterministic 1:1 chat id — same ordering convention used throughout the app. */
+    public static String getChatId(String uid1, String uid2) {
+        return uid1.compareTo(uid2) < 0 ? uid1 + "_" + uid2 : uid2 + "_" + uid1;
+    }
+
+    /** Server-fallback index of not-yet-delivered messages (see MessageStatusSync). */
+    public static DatabaseReference getDeliveryPendingRef() {
+        return db().getReference("deliveryPending");
+    }
+
     public static DatabaseReference getContactsRef(String uid) {
         return db().getReference("contacts").child(uid);
     }

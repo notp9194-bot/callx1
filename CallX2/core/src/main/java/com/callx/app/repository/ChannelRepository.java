@@ -1163,11 +1163,6 @@ public class ChannelRepository {
             });
     }
 
-    // ── EXPLORE QUERIES (v3) ─────────────────────────────────────────────
-
-    public LiveData<List<ChannelEntity>> getAllChannels(int limit) { return dao.getAllChannels(limit); }
-    public LiveData<List<ChannelEntity>> getTrendingChannels(int limit) { return dao.getTrendingChannels(limit); }
-
     // ── ANALYTICS PUSH (v3) ──────────────────────────────────────────────
 
     public void pushAnalyticsEvent(String channelId, String eventType, long value) {
