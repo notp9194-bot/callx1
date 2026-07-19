@@ -62,14 +62,15 @@
             android:tint="#FFFFFF"
             android:contentDescription="Play audio"/>
 
-        <!-- Waveform placeholder -->
+        <!-- Waveform: background is drawn dynamically in ChannelPostAdapter.renderWaveform()
+             from the post's real sample data (falls back to a built-in default pattern),
+             so no static drawable is needed here. -->
         <View
             android:id="@+id/view_audio_waveform"
             android:layout_width="0dp"
             android:layout_height="24dp"
             android:layout_weight="1"
-            android:layout_marginHorizontal="10dp"
-            android:background="@drawable/bg_audio_waveform_placeholder"/>
+            android:layout_marginHorizontal="10dp"/>
 
         <TextView
             android:id="@+id/tv_audio_duration"
