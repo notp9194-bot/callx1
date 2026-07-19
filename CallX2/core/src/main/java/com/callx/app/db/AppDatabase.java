@@ -49,7 +49,7 @@ import com.callx.app.db.entity.*;
         ChannelEntity.class,
         ChannelPostEntity.class
     },
-    version = 35,
+    version = 36,
     exportSchema = false
 )
 public abstract class AppDatabase extends RoomDatabase {
@@ -230,7 +230,54 @@ public abstract class AppDatabase extends RoomDatabase {
     static final Migration MIGRATION_34_35 = new Migration(34, 35) {
         @Override
         public void migrate(@NonNull SupportSQLiteDatabase db) {
-            db.execSQL("ALTER TABLE chats ADD COLUMN archived INTEGER NOT NULL DEFAULT 0");
+            db.execSQL("ALTER TABLE chats ADD COLUMN archived INTEGER");
+        }
+    };
+
+    /**
+     * Migration 35 → 36
+     * Repairs the "chats" table for devices that already ran a bad
+     * 34→35 migration (which added "archived" as NOT NULL DEFAULT 0
+     * instead of nullable, causing a Room schema-validation crash).
+     * Rebuilds the table with the correct nullable "archived" column,
+     * preserving existing data.
+     */
+    static final Migration MIGRATION_35_36 = new Migration(35, 36) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase db) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS chats_new ("
+                    + "chatId TEXT NOT NULL PRIMARY KEY, "
+                    + "type TEXT, "
+                    + "partnerUid TEXT, "
+                    + "partnerName TEXT, "
+                    + "partnerPhoto TEXT, "
+                    + "partnerThumb TEXT, "
+                    + "lastMessage TEXT, "
+                    + "lastMessageAt INTEGER, "
+                    + "unread INTEGER, "
+                    + "muted INTEGER, "
+                    + "pinned INTEGER, "
+                    + "lastMessageType TEXT, "
+                    + "lastMessageStatus TEXT, "
+                    + "lastMessageSenderUid TEXT, "
+                    + "lastMessageId TEXT, "
+                    + "syncedAt INTEGER NOT NULL, "
+                    + "draft TEXT, "
+                    + "pendingMarkRead INTEGER, "
+                    + "archived INTEGER)");
+            db.execSQL("INSERT INTO chats_new ("
+                    + "chatId, type, partnerUid, partnerName, partnerPhoto, partnerThumb, "
+                    + "lastMessage, lastMessageAt, unread, muted, pinned, lastMessageType, "
+                    + "lastMessageStatus, lastMessageSenderUid, lastMessageId, syncedAt, "
+                    + "draft, pendingMarkRead, archived) "
+                    + "SELECT chatId, type, partnerUid, partnerName, partnerPhoto, partnerThumb, "
+                    + "lastMessage, lastMessageAt, unread, muted, pinned, lastMessageType, "
+                    + "lastMessageStatus, lastMessageSenderUid, lastMessageId, syncedAt, "
+                    + "draft, pendingMarkRead, archived FROM chats");
+            db.execSQL("DROP TABLE chats");
+            db.execSQL("ALTER TABLE chats_new RENAME TO chats");
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_chats_lastMessageAt ON chats (lastMessageAt)");
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_chats_type ON chats (type)");
         }
     };
 
@@ -249,7 +296,7 @@ public abstract class AppDatabase extends RoomDatabase {
                             .addMigrations(
                                     MIGRATION_30_31, MIGRATION_31_32,
                                     MIGRATION_32_33, MIGRATION_33_34,
-                                    MIGRATION_34_35)
+                                    MIGRATION_34_35, MIGRATION_35_36)
                             .fallbackToDestructiveMigrationFrom(1, 2, 3, 4, 5, 6, 7, 8,
                                     9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
                                     21, 22, 23, 24, 25, 26, 27, 28, 29)
