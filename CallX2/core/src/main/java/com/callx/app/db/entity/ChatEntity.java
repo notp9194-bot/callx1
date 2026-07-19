@@ -37,6 +37,9 @@ public class ChatEntity {
     public Boolean muted;
     public Boolean pinned;
 
+    /** v35: chat archived hai ya nahi — "Archived Chats" list ke liye. */
+    public Boolean archived;
+
     /** v28: read receipts (ticks) + media label cache — mirrors User's
      *  lastMessageType/Status/SenderUid/Id so the chat list can render
      *  ticks and media labels instantly from Room, offline-first, before

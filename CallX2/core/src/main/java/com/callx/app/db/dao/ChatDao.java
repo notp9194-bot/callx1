@@ -13,8 +13,17 @@ import java.util.List;
 @Dao
 public interface ChatDao {
 
-    @Query("SELECT * FROM chats ORDER BY lastMessageAt DESC")
+    /** Active (non-archived) chats — chat list screen. */
+    @Query("SELECT * FROM chats WHERE archived = 0 OR archived IS NULL ORDER BY lastMessageAt DESC")
     LiveData<List<ChatEntity>> getAllChats();
+
+    /** v35: Archived chats — "Archived Chats" screen. */
+    @Query("SELECT * FROM chats WHERE archived = 1 ORDER BY lastMessageAt DESC")
+    LiveData<List<ChatEntity>> getArchivedChats();
+
+    /** v35: Chat ko archive/unarchive karo. */
+    @Query("UPDATE chats SET archived = :archived WHERE chatId = :chatId")
+    void setArchived(String chatId, boolean archived);
 
     /**
      * FIX v8: Blocking synchronous version of getAllChats().

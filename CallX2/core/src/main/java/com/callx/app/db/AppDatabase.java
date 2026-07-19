@@ -49,7 +49,7 @@ import com.callx.app.db.entity.*;
         ChannelEntity.class,
         ChannelPostEntity.class
     },
-    version = 34,
+    version = 35,
     exportSchema = false
 )
 public abstract class AppDatabase extends RoomDatabase {
@@ -223,6 +223,17 @@ public abstract class AppDatabase extends RoomDatabase {
         }
     };
 
+    /**
+     * Migration 34 → 35
+     * Adds "archived" column to chats table (Archived Chats feature).
+     */
+    static final Migration MIGRATION_34_35 = new Migration(34, 35) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase db) {
+            db.execSQL("ALTER TABLE chats ADD COLUMN archived INTEGER NOT NULL DEFAULT 0");
+        }
+    };
+
     // ─── Singleton ────────────────────────────────────────────────────────────
 
     public static boolean isWarm() { return sInstance != null; }
@@ -237,7 +248,8 @@ public abstract class AppDatabase extends RoomDatabase {
                                     "callx_database")
                             .addMigrations(
                                     MIGRATION_30_31, MIGRATION_31_32,
-                                    MIGRATION_32_33, MIGRATION_33_34)
+                                    MIGRATION_32_33, MIGRATION_33_34,
+                                    MIGRATION_34_35)
                             .fallbackToDestructiveMigrationFrom(1, 2, 3, 4, 5, 6, 7, 8,
                                     9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
                                     21, 22, 23, 24, 25, 26, 27, 28, 29)

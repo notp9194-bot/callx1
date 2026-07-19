@@ -59,7 +59,7 @@ public class UserRepository {
 
     /** All contacts — for chat list, call list, etc. */
     public LiveData<java.util.List<UserEntity>> getContacts() {
-        return dao.getAllUsersLive();
+        return dao.getAllUsers();
     }
 
     // ── SYNC — Firebase → Room ────────────────────────────────────────────
@@ -147,12 +147,12 @@ public class UserRepository {
         e.uid         = u.uid != null ? u.uid : "";
         e.name        = u.name;
         e.photoUrl    = u.photoUrl;
-        e.bio         = u.bio;
-        e.statusEmoji = u.statusEmoji;
+        e.thumbUrl    = u.thumbUrl;
+        e.about       = u.about;
+        e.emoji       = u.emoji;
         e.callxId     = u.callxId;
-        e.online      = u.online != null && u.online;
         e.lastSeen    = u.lastSeen;
-        e.syncedAt    = System.currentTimeMillis();
+        e.cachedAt    = System.currentTimeMillis();
         return e;
     }
 
@@ -161,10 +161,10 @@ public class UserRepository {
         u.uid         = e.uid;
         u.name        = e.name;
         u.photoUrl    = e.photoUrl;
-        u.bio         = e.bio;
-        u.statusEmoji = e.statusEmoji;
+        u.thumbUrl    = e.thumbUrl;
+        u.about       = e.about;
+        u.emoji       = e.emoji;
         u.callxId     = e.callxId;
-        u.online      = e.online;
         u.lastSeen    = e.lastSeen;
         return u;
     }
