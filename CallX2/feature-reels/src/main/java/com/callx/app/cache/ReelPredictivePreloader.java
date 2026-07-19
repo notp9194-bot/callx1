@@ -306,8 +306,9 @@ public class ReelPredictivePreloader {
                 .replaceAll("[^a-z0-9_]", "");
         }
         if (reel.musicName != null && !reel.musicName.isEmpty()) {
-            return "music_" + reel.musicName.toLowerCase(java.util.Locale.US)
-                .replaceAll("[^a-z0-9]", "").substring(0, Math.min(20, reel.musicName.length()));
+            String cleaned = reel.musicName.toLowerCase(java.util.Locale.US)
+                .replaceAll("[^a-z0-9]", "");
+            return "music_" + cleaned.substring(0, Math.min(20, cleaned.length()));
         }
         if (reel.uid != null) return "user_" + reel.uid;
         return "general";
