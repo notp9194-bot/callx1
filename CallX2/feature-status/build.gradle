@@ -57,4 +57,11 @@ dependencies {
     implementation 'androidx.lifecycle:lifecycle-livedata:2.7.0'
     // lifecycle-runtime is needed for LifecycleObserver / repeatOnLifecycle
     implementation 'androidx.lifecycle:lifecycle-runtime:2.7.0'
+
+    // WorkManager — required by ChannelScheduledPostWorker
+    implementation 'androidx.work:work-runtime:2.9.0'
+
+    // QR code generation for channel invite links (ChannelInviteLinkActivity)
+    implementation 'com.google.zxing:core:3.5.2'
+    implementation 'com.journeyapps:zxing-android-embedded:4.3.0'
 }
