@@ -75,6 +75,15 @@
                     android:src="@drawable/ic_person"
                     app:civ_border_width="2dp"
                     app:civ_border_color="@android:color/white"/>
+
+                <!-- Collab second avatar — overlaps the first; GONE for solo posts -->
+                <LinearLayout
+                    android:id="@+id/layout_collab_avatar"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="bottom|end"
+                    android:orientation="horizontal"
+                    android:visibility="gone"/>
             </FrameLayout>
 
             <!-- Username + Suggested + Audio -->
@@ -335,11 +344,27 @@
         android:layout_height="wrap_content"
         android:paddingStart="12dp"
         android:paddingEnd="12dp"
-        android:paddingBottom="14dp"
+        android:paddingBottom="2dp"
         android:text=""
         android:textColor="#DDDDDD"
         android:textSize="13sp"
         android:maxLines="2"
         android:ellipsize="end"/>
+
+    <!-- "more / less" expand toggle for long captions -->
+    <TextView
+        android:id="@+id/tv_post_read_more"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:paddingBottom="14dp"
+        android:text="more"
+        android:textColor="#AAAAAA"
+        android:textSize="13sp"
+        android:fontFamily="sans-serif-medium"
+        android:visibility="gone"
+        android:clickable="true"
+        android:focusable="true"/>
 
 </LinearLayout>

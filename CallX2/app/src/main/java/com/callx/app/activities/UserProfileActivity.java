@@ -456,7 +456,26 @@ public class UserProfileActivity extends AppCompatActivity {
             .setTitle("Report karo")
             .setItems(reasons, (d, which) -> {
                 Toast.makeText(this, "Report submit ho gayi", Toast.LENGTH_SHORT).show();
-                // TODO: Firebase mein report log karo
+                // Log the report to Firebase under /reports/{reportedUid}/{reportId}
+                String myUid = FirebaseUtils.getCurrentUid();
+                if (myUid != null && !myUid.isEmpty() && partnerUid != null) {
+                    String reportId = com.google.firebase.database.FirebaseDatabase.getInstance()
+                        .getReference("reports").child(partnerUid).push().getKey();
+                    if (reportId != null) {
+                        java.util.Map<String, Object> report = new java.util.HashMap<>();
+                        report.put("reportedUid",  partnerUid);
+                        report.put("reporterUid",  myUid);
+                        report.put("reason",       reasons[which]);
+                        report.put("reasonIndex",  which);
+                        report.put("timestamp",    System.currentTimeMillis());
+                        report.put("type",         "user");
+                        com.google.firebase.database.FirebaseDatabase.getInstance()
+                            .getReference("reports")
+                            .child(partnerUid)
+                            .child(reportId)
+                            .setValue(report);
+                    }
+                }
             })
             .setNegativeButton("Cancel", null)
             .show();

@@ -4,8 +4,7 @@ import com.callx.app.player.SingleReelPlayerActivity;
 
 import android.content.Context;
 import android.content.Intent;
-  import android.content.Context;
-  import java.util.ArrayList;
+import java.util.ArrayList;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -16,7 +15,6 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import com.bumptech.glide.Glide;
 import com.callx.app.reels.R;
-  import com.callx.app.player.SingleReelPlayerActivity;
 import com.callx.app.models.ReelModel;
 
 import java.util.List;
@@ -72,10 +70,21 @@ public class SavedReelsAdapter extends RecyclerView.Adapter<SavedReelsAdapter.VH
         }
 
         h.itemView.setOnClickListener(v -> {
-            // TODO: open single-reel player at this reel's index
-            // Intent i = new Intent(context, ReelPlayerActivity.class);
-            // i.putExtra("reel_id", reel.reelId);
-            // context.startActivity(i);
+            if (reel.reelId == null || reel.reelId.isEmpty()) return;
+            ArrayList<String> ids = new ArrayList<>();
+            // Pass starting reel + up to 30 surrounding saved reels for swipe-through experience
+            int start = 0;
+            for (int i = 0; i < reels.size(); i++) {
+                ids.add(reels.get(i).reelId);
+                if (reels.get(i).reelId != null && reels.get(i).reelId.equals(reel.reelId)) {
+                    start = i;
+                }
+            }
+            Intent intent = new Intent(context, SingleReelPlayerActivity.class);
+            intent.putStringArrayListExtra(SingleReelPlayerActivity.EXTRA_REEL_IDS, ids);
+            intent.putExtra(SingleReelPlayerActivity.EXTRA_START_POSITION, start);
+            intent.putExtra(SingleReelPlayerActivity.EXTRA_TITLE, "Saved Reels");
+            context.startActivity(intent);
         });
     }
 

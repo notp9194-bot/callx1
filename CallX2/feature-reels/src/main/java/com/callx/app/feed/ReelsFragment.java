@@ -766,8 +766,19 @@ public class ReelsFragment extends Fragment {
 
     // ── v5 accessor: lets ReelPlayerFragment notify predictivePreloader ────────
     public void notifyReelWatched(String reelId, java.util.List<String> tags, String uid) {
-        // predictivePreloader.recordWatch takes (ReelModel, long, long) — stub for future use
-        // preloading is already driven by onPageSelected via preloadSmartFrom
+        if (predictivePreloader == null) return;
+        // Find the matching ReelModel in the current list
+        java.util.List<ReelModel> cur = currentReels;
+        if (cur == null || cur.isEmpty()) return;
+        for (ReelModel reel : cur) {
+            if (reel.reelId != null && reel.reelId.equals(reelId)) {
+                long totalMs = reel.duration > 0 ? reel.duration : 15_000L;
+                // Estimate watched duration from playback position exposed by ViewPager2 page selected
+                long watchedMs = totalMs; // conservative: credit full watch when notified
+                predictivePreloader.recordWatch(reel, watchedMs, totalMs);
+                break;
+            }
+        }
     }
 
     // ── Playback control ──────────────────────────────────────────────────

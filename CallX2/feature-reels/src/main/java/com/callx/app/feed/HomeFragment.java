@@ -2,6 +2,13 @@ package com.callx.app.feed;
 
 import com.callx.app.workers.ReelRepostWorker;
 
+import android.animation.Animator;
+import android.animation.AnimatorListenerAdapter;
+import android.animation.AnimatorSet;
+import android.animation.ObjectAnimator;
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.Context;
 import android.content.Intent;
 import android.graphics.drawable.Drawable;
 import android.os.Bundle;
@@ -18,6 +25,8 @@ import androidx.media3.common.Player;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.ui.PlayerView;
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
+import androidx.recyclerview.widget.RecyclerView;
+import androidx.viewpager2.widget.ViewPager2;
 
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.request.RequestOptions;
@@ -27,6 +36,7 @@ import com.callx.app.reels.R;
 import com.callx.app.camera.ReelCameraActivity;
 import com.callx.app.comments.ReelCommentActivity;
 import com.callx.app.explore.ReelExploreActivity;
+import com.callx.app.social.ReelShareSheetFragment;
 import com.callx.app.upload.ReelUploadActivity;
 import com.callx.app.player.SingleReelPlayerActivity;
 import com.callx.app.explore.HashtagReelsActivity;
@@ -895,37 +905,228 @@ public class HomeFragment extends Fragment {
             }
         }
 
-        tvOwner.setText(reel.ownerName != null ? "@" + reel.ownerName : "@user");
-        if (tvTime != null) tvTime.setText(formatAgo(reel.timestamp));
-        String captionText = reel.caption != null ? reel.caption : "";
-        tvCaption.setText(captionText);
-        if (captionText.contains("#")) {
-            android.text.SpannableString spannable = new android.text.SpannableString(captionText);
-            java.util.regex.Pattern hp = java.util.regex.Pattern.compile("#(\\w+)");
-            java.util.regex.Matcher hm = hp.matcher(captionText);
-            while (hm.find()) {
-                final String tag = hm.group(1);
-                final int hs = hm.start(), he = hm.end();
-                spannable.setSpan(new android.text.style.ClickableSpan() {
-                    @Override public void onClick(@NonNull android.view.View w) {
-                        if (!isAdded() || getContext() == null || tag == null) return;
-                        Intent hi = new Intent(getContext(), HashtagReelsActivity.class);
-                        hi.putExtra("hashtag", tag);
-                        startActivity(hi);
-                    }
-                    @Override public void updateDrawState(@NonNull android.text.TextPaint ds) {
-                        ds.setColor(0xFF00C6FF); ds.setUnderlineText(false);
-                    }
-                }, hs, he, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        // ── Collab / dual-author header ─────────────────────────────────────
+        boolean isCollab = reel.collabInitiatorUid != null && !reel.collabInitiatorUid.isEmpty()
+                        && reel.collabColaboratorUid != null && !reel.collabColaboratorUid.isEmpty();
+        if (isCollab) {
+            // Show collab header: "InitiatorName & CollaboratorName"
+            String collabLabel = (reel.collabInitiatorName != null ? reel.collabInitiatorName : "User")
+                + " \u2227 " + (reel.collabCollaboratorName != null ? reel.collabCollaboratorName : "User");
+            tvOwner.setText(collabLabel);
+            // Load collaborator's avatar into a second circle view if one exists in layout
+            View collabAvatarContainer = card.findViewById(R.id.layout_collab_avatar);
+            if (collabAvatarContainer instanceof LinearLayout) {
+                // Dual-avatar rendering: two overlapping circle images
+                LinearLayout collabRow = (LinearLayout) collabAvatarContainer;
+                collabRow.setVisibility(View.VISIBLE);
+                CircleImageView av2 = collabRow.findViewWithTag("collab_av2");
+                if (av2 == null) {
+                    av2 = new CircleImageView(requireContext());
+                    av2.setTag("collab_av2");
+                    int avSize = dpToPx(32);
+                    LinearLayout.LayoutParams av2Lp = new LinearLayout.LayoutParams(avSize, avSize);
+                    av2Lp.setMarginStart(-dpToPx(10));
+                    av2.setLayoutParams(av2Lp);
+                    av2.setBorderColor(0xFF111111);
+                    av2.setBorderWidth(2);
+                    collabRow.addView(av2);
+                }
+                if (reel.collabCollaboratorPhoto != null && !reel.collabCollaboratorPhoto.isEmpty()) {
+                    Glide.with(requireContext()).load(reel.collabCollaboratorPhoto)
+                        .apply(RequestOptions.circleCropTransform())
+                        .placeholder(R.drawable.ic_person).into(av2);
+                }
+                // Also load initiator photo into the main avatar
+                if (reel.collabInitiatorPhoto != null && !reel.collabInitiatorPhoto.isEmpty()) {
+                    Glide.with(requireContext()).load(reel.collabInitiatorPhoto)
+                        .apply(RequestOptions.circleCropTransform())
+                        .placeholder(R.drawable.ic_person).into(avatar);
+                }
             }
-            tvCaption.setText(spannable);
+            // Collab click → open initiator profile
+            tvOwner.setOnClickListener(x -> {
+                if (!isAdded() || getContext() == null) return;
+                Intent i = new Intent(getContext(), UserReelsActivity.class);
+                i.putExtra(UserReelsActivity.EXTRA_UID,   reel.collabInitiatorUid);
+                i.putExtra(UserReelsActivity.EXTRA_NAME,  reel.collabInitiatorName);
+                i.putExtra(UserReelsActivity.EXTRA_PHOTO, reel.collabInitiatorPhoto);
+                startActivity(i);
+            });
+        } else {
+            tvOwner.setText(reel.ownerName != null ? "@" + reel.ownerName : "@user");
+            tvOwner.setOnClickListener(x -> avatar.performClick());
+        }
+
+        if (tvTime != null) tvTime.setText(formatAgo(reel.timestamp));
+
+        // ── Expandable caption with "...more" support ───────────────────────
+        String captionText = reel.caption != null ? reel.caption : "";
+        final int CAPTION_MAX_LINES = 2;
+        boolean[] captionExpanded = {false};
+        View btnReadMore = card.findViewById(R.id.tv_post_read_more);
+
+        // Apply hashtag spans
+        android.text.SpannableString captionSpannable = buildCaptionSpannable(captionText);
+        tvCaption.setText(captionSpannable);
+        if (captionSpannable.length() > 0) {
             tvCaption.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
         }
+        // Truncate long captions
+        if (captionText.length() > 120) {
+            tvCaption.setMaxLines(CAPTION_MAX_LINES);
+            tvCaption.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            if (btnReadMore != null) {
+                btnReadMore.setVisibility(View.VISIBLE);
+                btnReadMore.setOnClickListener(rx -> {
+                    captionExpanded[0] = !captionExpanded[0];
+                    if (captionExpanded[0]) {
+                        tvCaption.setMaxLines(Integer.MAX_VALUE);
+                        tvCaption.setEllipsize(null);
+                        ((TextView) btnReadMore).setText("less");
+                    } else {
+                        tvCaption.setMaxLines(CAPTION_MAX_LINES);
+                        tvCaption.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                        ((TextView) btnReadMore).setText("more");
+                    }
+                });
+            }
+        } else {
+            if (btnReadMore != null) btnReadMore.setVisibility(View.GONE);
+        }
+
         tvLikes.setText(formatCount(reel.likesCount));
         tvComments.setText(formatCount(reel.commentsCount));
         tvReposts.setText(formatCount(reel.repostCount));
 
-        // (PlayerView handles video rendering — no separate badge needed)
+        // ── Photo slideshow support ─────────────────────────────────────────
+        if (reel.isPhotoSlideshow() && reel.photoUrls != null && !reel.photoUrls.isEmpty()) {
+            // Hide the video player frame; show a photo-slideshow ViewPager2 instead
+            if (pvFeed != null)     pvFeed.setVisibility(View.GONE);
+            if (ivThumb != null)    ivThumb.setVisibility(View.GONE);
+
+            // Build a simple inline photo pager
+            ViewPager2 photoPager = new ViewPager2(requireContext());
+            photoPager.setOrientation(ViewPager2.ORIENTATION_HORIZONTAL);
+            int screenW  = getResources().getDisplayMetrics().widthPixels;
+            int photoH   = (int)(screenW * 16f / 9f);
+            FrameLayout.LayoutParams pagerLp = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, photoH);
+            photoPager.setLayoutParams(pagerLp);
+
+            final List<String> photoList = reel.photoUrls;
+            photoPager.setAdapter(new RecyclerView.Adapter<RecyclerView.ViewHolder>() {
+                @NonNull @Override
+                public RecyclerView.ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int vt) {
+                    ImageView iv = new ImageView(parent.getContext());
+                    iv.setLayoutParams(new ViewGroup.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, photoH));
+                    iv.setScaleType(ImageView.ScaleType.CENTER_CROP);
+                    return new RecyclerView.ViewHolder(iv) {};
+                }
+                @Override public void onBindViewHolder(@NonNull RecyclerView.ViewHolder h, int pos) {
+                    Glide.with(requireContext())
+                        .load(photoList.get(pos))
+                        .centerCrop()
+                        .placeholder(R.drawable.ic_reels)
+                        .into((ImageView) h.itemView);
+                }
+                @Override public int getItemCount() { return photoList.size(); }
+            });
+
+            // Dot indicator below the pager
+            LinearLayout dots = new LinearLayout(requireContext());
+            dots.setOrientation(LinearLayout.HORIZONTAL);
+            dots.setGravity(android.view.Gravity.CENTER);
+            FrameLayout.LayoutParams dotsLp = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT);
+            dotsLp.gravity = android.view.Gravity.BOTTOM | android.view.Gravity.CENTER_HORIZONTAL;
+            dotsLp.bottomMargin = dpToPx(8);
+            dots.setLayoutParams(dotsLp);
+
+            final View[] dotViews = new View[photoList.size()];
+            for (int di = 0; di < photoList.size(); di++) {
+                View dot = new View(requireContext());
+                int dotSz = dpToPx(6);
+                LinearLayout.LayoutParams dotLp = new LinearLayout.LayoutParams(dotSz, dotSz);
+                dotLp.setMargins(dpToPx(3), 0, dpToPx(3), 0);
+                dot.setLayoutParams(dotLp);
+                android.graphics.drawable.GradientDrawable dotBg =
+                    new android.graphics.drawable.GradientDrawable();
+                dotBg.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+                dotBg.setColor(di == 0 ? 0xFFFFFFFF : 0x66FFFFFF);
+                dot.setBackground(dotBg);
+                dots.addView(dot);
+                dotViews[di] = dot;
+            }
+
+            photoPager.registerOnPageChangeCallback(new ViewPager2.OnPageChangeCallback() {
+                @Override public void onPageSelected(int position) {
+                    for (int di = 0; di < dotViews.length; di++) {
+                        android.graphics.drawable.GradientDrawable d =
+                            new android.graphics.drawable.GradientDrawable();
+                        d.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+                        d.setColor(di == position ? 0xFFFFFFFF : 0x66FFFFFF);
+                        dotViews[di].setBackground(d);
+                    }
+                }
+            });
+
+            // Double-tap to like on slideshow
+            photoPager.setOnTouchListener(new View.OnTouchListener() {
+                private final GestureDetector gd = new GestureDetector(requireContext(),
+                    new GestureDetector.SimpleOnGestureListener() {
+                        @Override public boolean onDoubleTap(MotionEvent e) {
+                            if (myUid == null || reelId == null) return true;
+                            if (!isLiked[0]) {
+                                isLiked[0] = true;
+                                btnLike.setImageResource(R.drawable.ic_heart_filled);
+                                FirebaseUtils.getReelLikesRef(reelId).child(myUid).setValue(true);
+                                FirebaseUtils.getReelLikedByUserRef(myUid).child(reelId)
+                                    .setValue(System.currentTimeMillis());
+                                try {
+                                    int cur = Integer.parseInt(tvLikes.getText().toString());
+                                    tvLikes.setText(formatCount(cur + 1));
+                                } catch (Exception ignored) {}
+                            }
+                            if (frameVideo != null) showHeartAnimation(frameVideo);
+                            return true;
+                        }
+                    });
+                @Override public boolean onTouch(View v, MotionEvent event) {
+                    return gd.onTouchEvent(event);
+                }
+            });
+
+            if (frameVideo != null) {
+                frameVideo.addView(photoPager);
+                frameVideo.addView(dots);
+            }
+        } else {
+            // ── Double-tap to like on video frame ──
+            if (frameVideo != null) {
+                GestureDetector dtGesture = new GestureDetector(requireContext(),
+                    new GestureDetector.SimpleOnGestureListener() {
+                        @Override public boolean onDoubleTap(MotionEvent e) {
+                            if (myUid == null || reelId == null) return true;
+                            if (!isLiked[0]) {
+                                isLiked[0] = true;
+                                if (btnLike != null) btnLike.setImageResource(R.drawable.ic_heart_filled);
+                                FirebaseUtils.getReelLikesRef(reelId).child(myUid).setValue(true);
+                                FirebaseUtils.getReelLikedByUserRef(myUid).child(reelId)
+                                    .setValue(System.currentTimeMillis());
+                                try {
+                                    int cur = Integer.parseInt(tvLikes.getText().toString());
+                                    tvLikes.setText(formatCount(cur + 1));
+                                } catch (Exception ignored) {}
+                            }
+                            showHeartAnimation(frameVideo);
+                            return true;
+                        }
+                    });
+                frameVideo.setOnTouchListener((v, ev) -> dtGesture.onTouchEvent(ev));
+            }
+        }
 
         // ── Liked state ──
         final boolean[] isLiked = {reel.reelId != null && likedIds.contains(reel.reelId)};
@@ -968,9 +1169,6 @@ public class HomeFragment extends Fragment {
             startActivity(i);
         });
 
-        // Owner name tap → also opens reel profile
-        tvOwner.setOnClickListener(x -> avatar.performClick());
-
         // ── Like button ──
         if (btnLike != null) {
             btnLike.setOnClickListener(x -> {
@@ -1006,44 +1204,45 @@ public class HomeFragment extends Fragment {
             });
         }
 
-        // ── Repost button ──
+        // ── Repost button — show options (Repost / Quote Repost / Undo) ──
         if (btnRepost != null) {
             btnRepost.setOnClickListener(x -> {
                 if (myUid == null || reelId == null || !isAdded() || getContext() == null) return;
-                // Block reposting own reel
                 if (myUid.equals(ownerUid)) {
-                    Toast.makeText(requireContext(), "You can't repost your own reel", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(requireContext(),
+                        "You can't repost your own reel", Toast.LENGTH_SHORT).show();
                     return;
                 }
-                long now = System.currentTimeMillis();
-                // Direct Firebase writes — immediately visible in UserReelsActivity Reposts tab
-                com.google.firebase.database.FirebaseDatabase db =
-                    com.google.firebase.database.FirebaseDatabase.getInstance(com.callx.app.utils.Constants.DB_URL);
-                db.getReference("reelReposts").child(reelId).child(myUid).setValue(now);
-                db.getReference("userReposts").child(myUid).child(reelId).setValue(now);
-                db.getReference("reels").child(reelId).child("repostCount")
-                    .runTransaction(new com.google.firebase.database.Transaction.Handler() {
-                        @androidx.annotation.NonNull
-                        @Override public com.google.firebase.database.Transaction.Result doTransaction(
-                                @androidx.annotation.NonNull com.google.firebase.database.MutableData d) {
-                            Integer c = d.getValue(Integer.class);
-                            d.setValue(c != null ? c + 1 : 1);
-                            return com.google.firebase.database.Transaction.success(d);
+                // Build options dialog
+                String[] options = {"Repost", "Quote Repost"};
+                new androidx.appcompat.app.AlertDialog.Builder(requireContext())
+                    .setTitle("Repost options")
+                    .setItems(options, (d, which) -> {
+                        if (which == 0) {
+                            // Instant repost
+                            performRepost(reelId, ownerUid, reel, myUid, tvReposts);
+                        } else {
+                            // Quote Repost — open share sheet pre-filled as quote
+                            try {
+                                ReelShareSheetFragment sheet = ReelShareSheetFragment.newInstance(
+                                    reelId,
+                                    reel.ownerName   != null ? reel.ownerName   : "",
+                                    reel.thumbUrl    != null ? reel.thumbUrl    : "",
+                                    reel.caption     != null ? reel.caption     : ""
+                                );
+                                sheet.show(getChildFragmentManager(), "quote_sheet");
+                            } catch (Exception e) {
+                                // Fallback: system share
+                                Intent share = new Intent(Intent.ACTION_SEND);
+                                share.setType("text/plain");
+                                String quote = "\"" + (reel.caption != null ? reel.caption : "Check this out") + "\" — @" + reel.ownerName + " https://callx.app/reel/" + reelId;
+                                share.putExtra(Intent.EXTRA_TEXT, quote);
+                                startActivity(Intent.createChooser(share, "Quote Repost"));
+                            }
                         }
-                        @Override public void onComplete(com.google.firebase.database.DatabaseError e,
-                                boolean committed, com.google.firebase.database.DataSnapshot s) {}
-                    });
-                // WorkManager for notification dispatch only
-                com.callx.app.workers.ReelRepostWorker.enqueue(
-                    requireContext(), reelId, myUid, FirebaseUtils.getCurrentName(),
-                    ownerUid, reel.ownerName, reel.thumbUrl);
-                Toast.makeText(requireContext(), "Reposted!", Toast.LENGTH_SHORT).show();
-                try {
-                    int cur = Integer.parseInt(tvReposts.getText().toString());
-                    tvReposts.setText(formatCount(cur + 1));
-                } catch (Exception ignored) {
-                    tvReposts.setText(formatCount(reel.repostCount + 1));
-                }
+                    })
+                    .setNegativeButton("Cancel", null)
+                    .show();
             });
         }
 
@@ -1065,19 +1264,217 @@ public class HomeFragment extends Fragment {
             });
         }
 
-        // ── Send / Share button — open share sheet ──
+        // ── Send / Share button — open ReelShareSheetFragment ──
         View btnSend = card.findViewById(R.id.btn_post_send);
         if (btnSend != null) {
             btnSend.setOnClickListener(x -> {
                 if (!isAdded() || getContext() == null || reelId == null) return;
-                Intent share = new Intent(Intent.ACTION_SEND);
-                share.setType("text/plain");
-                share.putExtra(Intent.EXTRA_TEXT, "Check out this reel on CallX!");
-                startActivity(Intent.createChooser(share, "Share reel"));
+                try {
+                    ReelShareSheetFragment sheet = ReelShareSheetFragment.newInstance(
+                        reelId,
+                        reel.ownerName != null ? reel.ownerName : "",
+                        reel.thumbUrl  != null ? reel.thumbUrl  : "",
+                        reel.caption   != null ? reel.caption   : ""
+                    );
+                    sheet.show(getChildFragmentManager(), "share_sheet");
+                } catch (Exception e) {
+                    // Fallback to system share if bottom sheet fails
+                    Intent share = new Intent(Intent.ACTION_SEND);
+                    share.setType("text/plain");
+                    share.putExtra(Intent.EXTRA_TEXT,
+                        "Check out this reel on CallX! @" + reel.ownerName);
+                    startActivity(Intent.createChooser(share, "Share reel"));
+                }
+            });
+        }
+
+        // ── More options (⋮) button ──
+        View btnMore = card.findViewById(R.id.btn_post_more);
+        if (btnMore != null) {
+            btnMore.setOnClickListener(x -> {
+                if (!isAdded() || getContext() == null) return;
+                PopupMenu popup = new PopupMenu(requireContext(), btnMore);
+                popup.getMenu().add(0, 1, 0, "Not interested");
+                popup.getMenu().add(0, 2, 0, "Report");
+                popup.getMenu().add(0, 3, 0, "Copy link");
+                if (myUid != null && !myUid.equals(ownerUid)) {
+                    popup.getMenu().add(0, 4, 0, "Mute @" + (reel.ownerName != null ? reel.ownerName : "user"));
+                    popup.getMenu().add(0, 5, 0, "Block");
+                }
+                popup.getMenu().add(0, 6, 0, "Open original");
+                popup.setOnMenuItemClickListener(item -> {
+                    switch (item.getItemId()) {
+                        case 1: // Not interested — remove from feed optimistically
+                            if (card.getParent() instanceof ViewGroup) {
+                                ((ViewGroup) card.getParent()).removeView(card);
+                            }
+                            if (myUid != null && reelId != null) {
+                                FirebaseUtils.db().getReference("userNotInterested")
+                                    .child(myUid).child(reelId).setValue(true);
+                            }
+                            return true;
+                        case 2: // Report
+                            if (myUid == null || reelId == null) return true;
+                            String[] reportReasons = {"Spam", "Inappropriate content",
+                                "Harassment", "Misinformation", "Kuch aur"};
+                            new androidx.appcompat.app.AlertDialog.Builder(requireContext())
+                                .setTitle("Report this reel")
+                                .setItems(reportReasons, (d, which) -> {
+                                    String reportKey = FirebaseUtils.db()
+                                        .getReference("reelReports").child(reelId).push().getKey();
+                                    if (reportKey != null) {
+                                        Map<String, Object> report = new HashMap<>();
+                                        report.put("reporterUid", myUid);
+                                        report.put("reelId",      reelId);
+                                        report.put("ownerUid",    ownerUid != null ? ownerUid : "");
+                                        report.put("reason",      reportReasons[which]);
+                                        report.put("timestamp",   System.currentTimeMillis());
+                                        FirebaseUtils.db().getReference("reelReports")
+                                            .child(reelId).child(reportKey).setValue(report);
+                                    }
+                                    Toast.makeText(requireContext(),
+                                        "Report submitted — thanks!", Toast.LENGTH_SHORT).show();
+                                })
+                                .setNegativeButton("Cancel", null).show();
+                            return true;
+                        case 3: // Copy link
+                            ClipboardManager clipboard = (ClipboardManager)
+                                requireContext().getSystemService(Context.CLIPBOARD_SERVICE);
+                            if (clipboard != null) {
+                                String link = "https://callx.app/reel/" + reelId;
+                                clipboard.setPrimaryClip(ClipData.newPlainText("Reel link", link));
+                                Toast.makeText(requireContext(),
+                                    "Link copied!", Toast.LENGTH_SHORT).show();
+                            }
+                            return true;
+                        case 4: // Mute
+                            if (myUid != null && ownerUid != null) {
+                                FirebaseUtils.db().getReference("muted")
+                                    .child(myUid).child(ownerUid).setValue(true);
+                                Toast.makeText(requireContext(),
+                                    "Muted @" + reel.ownerName, Toast.LENGTH_SHORT).show();
+                            }
+                            return true;
+                        case 5: // Block
+                            if (myUid != null && ownerUid != null) {
+                                new androidx.appcompat.app.AlertDialog.Builder(requireContext())
+                                    .setTitle("Block @" + reel.ownerName + "?")
+                                    .setMessage("They won't be able to find your profile or reels.")
+                                    .setPositiveButton("Block", (d, w) -> {
+                                        FirebaseUtils.getBlocksRef(myUid).child(ownerUid).setValue(true);
+                                        if (card.getParent() instanceof ViewGroup)
+                                            ((ViewGroup) card.getParent()).removeView(card);
+                                        Toast.makeText(requireContext(),
+                                            "Blocked", Toast.LENGTH_SHORT).show();
+                                    })
+                                    .setNegativeButton("Cancel", null).show();
+                            }
+                            return true;
+                        case 6: // Open original
+                            openReelById(reelId, reel.ownerName);
+                            return true;
+                    }
+                    return false;
+                });
+                popup.show();
             });
         }
 
         containerFeed.addView(card);
+    }
+
+    /** Animate a floating heart on double-tap (Instagram-style) */
+    private void showHeartAnimation(FrameLayout container) {
+        if (container == null || !isAdded() || getContext() == null) return;
+        ImageView heart = new ImageView(requireContext());
+        heart.setImageResource(R.drawable.ic_heart_filled);
+        int size = dpToPx(72);
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(size, size);
+        lp.gravity = android.view.Gravity.CENTER;
+        heart.setLayoutParams(lp);
+        heart.setAlpha(0f);
+        heart.setScaleX(0f);
+        heart.setScaleY(0f);
+        container.addView(heart);
+
+        AnimatorSet anim = new AnimatorSet();
+        ObjectAnimator scaleX = ObjectAnimator.ofFloat(heart, "scaleX", 0f, 1.3f, 1.0f);
+        ObjectAnimator scaleY = ObjectAnimator.ofFloat(heart, "scaleY", 0f, 1.3f, 1.0f);
+        ObjectAnimator alpha  = ObjectAnimator.ofFloat(heart, "alpha",  0f, 1f,   1f, 0f);
+        scaleX.setDuration(500);
+        scaleY.setDuration(500);
+        alpha.setDuration(700);
+        anim.playTogether(scaleX, scaleY, alpha);
+        anim.addListener(new AnimatorListenerAdapter() {
+            @Override public void onAnimationEnd(Animator animation) {
+                container.removeView(heart);
+            }
+        });
+        anim.start();
+    }
+
+    /**
+     * Build a SpannableString that highlights #hashtags and @mentions in the caption.
+     * Hashtag taps open HashtagReelsActivity.
+     */
+    private android.text.SpannableString buildCaptionSpannable(String text) {
+        if (text == null || text.isEmpty())
+            return new android.text.SpannableString("");
+        android.text.SpannableString span = new android.text.SpannableString(text);
+        java.util.regex.Matcher m =
+            java.util.regex.Pattern.compile("#(\\w+)").matcher(text);
+        while (m.find()) {
+            final String tag = m.group(1);
+            final int s = m.start(), e = m.end();
+            span.setSpan(new android.text.style.ClickableSpan() {
+                @Override public void onClick(@NonNull android.view.View w) {
+                    if (!isAdded() || getContext() == null || tag == null) return;
+                    Intent hi = new Intent(getContext(), HashtagReelsActivity.class);
+                    hi.putExtra("hashtag", tag);
+                    startActivity(hi);
+                }
+                @Override public void updateDrawState(@NonNull android.text.TextPaint ds) {
+                    ds.setColor(0xFF00C6FF); ds.setUnderlineText(false);
+                }
+            }, s, e, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        }
+        return span;
+    }
+
+    /**
+     * Execute an instant repost: Firebase writes + WorkManager notification + optimistic UI.
+     */
+    private void performRepost(String reelId, String ownerUid, ReelModel reel,
+                               String myUid, TextView tvReposts) {
+        long now = System.currentTimeMillis();
+        com.google.firebase.database.FirebaseDatabase db =
+            com.google.firebase.database.FirebaseDatabase.getInstance(
+                com.callx.app.utils.Constants.DB_URL);
+        db.getReference("reelReposts").child(reelId).child(myUid).setValue(now);
+        db.getReference("userReposts").child(myUid).child(reelId).setValue(now);
+        db.getReference("reels").child(reelId).child("repostCount")
+            .runTransaction(new com.google.firebase.database.Transaction.Handler() {
+                @NonNull @Override
+                public com.google.firebase.database.Transaction.Result doTransaction(
+                        @NonNull com.google.firebase.database.MutableData d) {
+                    Integer c = d.getValue(Integer.class);
+                    d.setValue(c != null ? c + 1 : 1);
+                    return com.google.firebase.database.Transaction.success(d);
+                }
+                @Override public void onComplete(
+                        com.google.firebase.database.DatabaseError e,
+                        boolean committed,
+                        com.google.firebase.database.DataSnapshot s) {}
+            });
+        ReelRepostWorker.enqueue(requireContext(), reelId, myUid,
+            FirebaseUtils.getCurrentName(), ownerUid, reel.ownerName, reel.thumbUrl);
+        Toast.makeText(requireContext(), "Reposted!", Toast.LENGTH_SHORT).show();
+        try {
+            int cur = Integer.parseInt(tvReposts.getText().toString());
+            tvReposts.setText(formatCount(cur + 1));
+        } catch (Exception ignored) {
+            tvReposts.setText(formatCount(reel.repostCount + 1));
+        }
     }
 
     /** Opens SingleReelPlayerActivity by reel ID directly */
