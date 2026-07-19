@@ -67,6 +67,34 @@ public class CallxApp extends Application {
     public void onCreate() {
         super.onCreate();
 
+        // ── CRASH CAPTURE: on-device crash trace (no adb/logcat needed) ────
+        // Registered first so it wraps every subsequent line in onCreate too.
+        // On any uncaught exception anywhere in the app: saves the full
+        // stack trace to files/last_crash.txt AND launches CrashReportActivity
+        // so the trace can be read/copied straight off the crashed screen.
+        Thread.setDefaultUncaughtExceptionHandler((thread, throwable) -> {
+            try {
+                java.io.StringWriter sw = new java.io.StringWriter();
+                java.io.PrintWriter pw = new java.io.PrintWriter(sw);
+                pw.println("Thread: " + thread.getName());
+                pw.println("Time: " + new java.util.Date());
+                throwable.printStackTrace(pw);
+                String trace = sw.toString();
+
+                com.callx.app.activities.CrashReportActivity.saveTraceToFile(this, trace);
+
+                Intent i = new Intent(this, com.callx.app.activities.CrashReportActivity.class);
+                i.putExtra(com.callx.app.activities.CrashReportActivity.EXTRA_TRACE, trace);
+                i.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+                startActivity(i);
+            } catch (Throwable ignored) {
+                // Fall through to previous/default handler below no matter what.
+            } finally {
+                android.os.Process.killProcess(android.os.Process.myPid());
+                System.exit(1);
+            }
+        });
+
         // ── PERF: StrictMode (DEBUG builds only) ──────────────────────────
         // Catches exactly the class of bug the user asked to check for:
         // accidental disk/DB/network calls hiding inside RecyclerView
