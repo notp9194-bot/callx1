@@ -768,7 +768,7 @@ public class ReelsFragment extends Fragment {
     public void notifyReelWatched(String reelId, java.util.List<String> tags, String uid) {
         if (predictivePreloader == null) return;
         // Find the matching ReelModel in the current list
-        java.util.List<ReelModel> cur = currentReels;
+        java.util.List<ReelModel> cur = isFypMode ? allReels : followingReels;
         if (cur == null || cur.isEmpty()) return;
         for (ReelModel reel : cur) {
             if (reel.reelId != null && reel.reelId.equals(reelId)) {

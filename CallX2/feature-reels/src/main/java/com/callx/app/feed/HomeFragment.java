@@ -998,6 +998,14 @@ public class HomeFragment extends Fragment {
         tvComments.setText(formatCount(reel.commentsCount));
         tvReposts.setText(formatCount(reel.repostCount));
 
+        // ── Liked state (declared early: needed by slideshow double-tap-to-like below) ──
+        final String reelId   = reel.reelId;
+        final boolean[] isLiked = {reel.reelId != null && likedIds.contains(reel.reelId)};
+        if (btnLike != null) {
+            btnLike.setImageResource(isLiked[0]
+                ? R.drawable.ic_heart_filled : R.drawable.ic_heart);
+        }
+
         // ── Photo slideshow support ─────────────────────────────────────────
         if (reel.isPhotoSlideshow() && reel.photoUrls != null && !reel.photoUrls.isEmpty()) {
             // Hide the video player frame; show a photo-slideshow ViewPager2 instead
@@ -1128,13 +1136,6 @@ public class HomeFragment extends Fragment {
             }
         }
 
-        // ── Liked state ──
-        final boolean[] isLiked = {reel.reelId != null && likedIds.contains(reel.reelId)};
-        if (btnLike != null) {
-            btnLike.setImageResource(isLiked[0]
-                ? R.drawable.ic_heart_filled : R.drawable.ic_heart);
-        }
-
         // ── Saved state ──
         final boolean[] isSaved = {reel.reelId != null && savedIds.contains(reel.reelId)};
         if (btnSave != null) {
@@ -1153,7 +1154,6 @@ public class HomeFragment extends Fragment {
                 .placeholder(R.drawable.ic_person).into(avatar);
         }
 
-        final String reelId   = reel.reelId;
         final String ownerUid = reel.uid;
 
         // Tap thumbnail → open this specific reel in the player
@@ -1226,9 +1226,13 @@ public class HomeFragment extends Fragment {
                             try {
                                 ReelShareSheetFragment sheet = ReelShareSheetFragment.newInstance(
                                     reelId,
-                                    reel.ownerName   != null ? reel.ownerName   : "",
+                                    reel.videoUrl    != null ? reel.videoUrl    : (reel.video480 != null ? reel.video480 : ""),
                                     reel.thumbUrl    != null ? reel.thumbUrl    : "",
-                                    reel.caption     != null ? reel.caption     : ""
+                                    reel.caption     != null ? reel.caption     : "",
+                                    ownerUid         != null ? ownerUid         : "",
+                                    reel.ownerName   != null ? reel.ownerName   : "",
+                                    reel.ownerPhoto  != null ? reel.ownerPhoto  : "",
+                                    true
                                 );
                                 sheet.show(getChildFragmentManager(), "quote_sheet");
                             } catch (Exception e) {
@@ -1272,9 +1276,13 @@ public class HomeFragment extends Fragment {
                 try {
                     ReelShareSheetFragment sheet = ReelShareSheetFragment.newInstance(
                         reelId,
-                        reel.ownerName != null ? reel.ownerName : "",
+                        reel.videoUrl  != null ? reel.videoUrl  : (reel.video480 != null ? reel.video480 : ""),
                         reel.thumbUrl  != null ? reel.thumbUrl  : "",
-                        reel.caption   != null ? reel.caption   : ""
+                        reel.caption   != null ? reel.caption   : "",
+                        ownerUid       != null ? ownerUid       : "",
+                        reel.ownerName != null ? reel.ownerName : "",
+                        reel.ownerPhoto != null ? reel.ownerPhoto : "",
+                        true
                     );
                     sheet.show(getChildFragmentManager(), "share_sheet");
                 } catch (Exception e) {
