@@ -140,6 +140,116 @@
         android:padding="14dp"
         android:contentDescription="Play/Pause indicator"/>
 
+    <!-- ── "Suggested for you" label + Follow button — shown for non-following reels ── -->
+    <LinearLayout
+        android:id="@+id/layout_suggested_label"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|start"
+        android:layout_marginTop="8dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/tv_reel_owner_top"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@username"
+                android:textColor="#FFFFFF"
+                android:textSize="13sp"
+                android:fontFamily="sans-serif-medium"/>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Suggested for you"
+                android:textColor="#CCCCCC"
+                android:textSize="11sp"/>
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/btn_reel_suggested_follow"
+            android:layout_width="wrap_content"
+            android:layout_height="30dp"
+            android:text="Follow"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp"
+            android:fontFamily="sans-serif-medium"
+            android:gravity="center"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:background="@drawable/bg_reel_follow_btn"
+            android:layout_marginEnd="8dp"
+            android:clickable="true"
+            android:focusable="true"/>
+    </LinearLayout>
+
+    <!-- ── End-of-reel overlay: "Watch more reels" + "Watch again" ── -->
+    <LinearLayout
+        android:id="@+id/layout_end_of_reel"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:background="#88000000"
+        android:visibility="gone">
+
+        <!-- "Watch more reels" pill button -->
+        <LinearLayout
+            android:id="@+id/btn_watch_more_reels"
+            android:layout_width="wrap_content"
+            android:layout_height="48dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingStart="24dp"
+            android:paddingEnd="24dp"
+            android:background="#FFFFFFFF"
+            android:clickable="true"
+            android:focusable="true">
+
+            <ImageView
+                android:layout_width="20dp"
+                android:layout_height="20dp"
+                android:src="@drawable/ic_play"
+                android:tint="#000000"
+                android:layout_marginEnd="10dp"/>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Watch more reels"
+                android:textColor="#000000"
+                android:textSize="15sp"
+                android:fontFamily="sans-serif-medium"/>
+        </LinearLayout>
+
+        <!-- "Watch again" text -->
+        <TextView
+            android:id="@+id/btn_watch_again"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Watch again"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp"
+            android:layout_marginTop="16dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:paddingTop="8dp"
+            android:paddingBottom="8dp"/>
+    </LinearLayout>
+
     <!-- Top row: mute button — paddingTop absorbs status-bar height (set in code) -->
     <LinearLayout
         android:id="@+id/top_controls"

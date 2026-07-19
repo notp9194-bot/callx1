@@ -23,6 +23,52 @@
                 android:orientation="vertical"
                 android:paddingBottom="80dp">
 
+                <!-- ── Instagram-style Fixed Header ── -->
+                <LinearLayout
+                    android:id="@+id/header_instagram"
+                    android:layout_width="match_parent"
+                    android:layout_height="56dp"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:paddingStart="6dp"
+                    android:paddingEnd="6dp">
+
+                    <!-- + New Post -->
+                    <ImageButton
+                        android:id="@+id/btn_new_post"
+                        android:layout_width="42dp"
+                        android:layout_height="42dp"
+                        android:src="@drawable/ic_add_reels"
+                        android:tint="#FFFFFF"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:contentDescription="New Post"/>
+
+                    <!-- App title — tappable to show Following / Favorites dropdown -->
+                    <TextView
+                        android:id="@+id/tv_feed_title"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="CallX  ▾"
+                        android:textColor="#FFFFFF"
+                        android:textSize="22sp"
+                        android:fontFamily="cursive"
+                        android:gravity="center"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:background="?attr/selectableItemBackgroundBorderless"/>
+
+                    <!-- Notifications / Heart -->
+                    <ImageButton
+                        android:id="@+id/btn_notifications"
+                        android:layout_width="42dp"
+                        android:layout_height="42dp"
+                        android:src="@drawable/ic_heart"
+                        android:tint="#FFFFFF"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:contentDescription="Notifications"/>
+                </LinearLayout>
+
                 <!-- ── Stories Bar ── -->
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -84,7 +130,7 @@
                                     android:layout_width="match_parent"
                                     android:layout_height="wrap_content"
                                     android:layout_marginTop="4dp"
-                                    android:text="Add Story"
+                                    android:text="Your story"
                                     android:textColor="#FFFFFF"
                                     android:textSize="10sp"
                                     android:gravity="center"/>
@@ -101,10 +147,11 @@
                     android:layout_height="1dp"
                     android:background="#1A1A1A"/>
 
-                <!-- ── Feed Toggle ── -->
+                <!-- ── Feed Toggle ── (hidden — replaced by Instagram header with dropdown) -->
                 <FrameLayout
                     android:layout_width="match_parent"
-                    android:layout_height="48dp">
+                    android:layout_height="48dp"
+                    android:visibility="gone">
 
                     <LinearLayout
                         android:layout_width="match_parent"

@@ -81,6 +81,10 @@ public class HomeFragment extends Fragment {
     private LinearLayout       btnAddStory;
     private ImageButton        btnHomeUpload;
     private CircleImageView    ivMyStoryAvatar;
+    // ── New Instagram-style header ──
+    private TextView           tvFeedTitle;
+    private ImageButton        btnNewPost;
+    private ImageButton        btnNotifications;
 
     private boolean isFollowingMode = true;
 
@@ -132,6 +136,10 @@ public class HomeFragment extends Fragment {
         btnAddStory               = v.findViewById(R.id.btn_add_story);
         btnHomeUpload             = v.findViewById(R.id.btn_home_upload);
         ivMyStoryAvatar           = v.findViewById(R.id.iv_my_story_avatar);
+        // Instagram-style header
+        tvFeedTitle               = v.findViewById(R.id.tv_feed_title);
+        btnNewPost                = v.findViewById(R.id.btn_new_post);
+        btnNotifications          = v.findViewById(R.id.btn_notifications);
     }
 
     private void setupListeners() {
@@ -174,6 +182,28 @@ public class HomeFragment extends Fragment {
             });
         }
 
+        // ── Instagram-style header buttons ──────────────────────────────────
+        // "+" / New Post button — opens camera or upload
+        if (btnNewPost != null) {
+            btnNewPost.setOnClickListener(v -> {
+                if (!isAdded() || getContext() == null) return;
+                startActivity(new Intent(getContext(), ReelUploadActivity.class));
+            });
+        }
+
+        // Notifications / Heart button — opens notifications feed
+        if (btnNotifications != null) {
+            btnNotifications.setOnClickListener(v -> {
+                if (!isAdded() || getContext() == null) return;
+                startActivity(new Intent(getContext(), ReelNotificationsActivity.class));
+            });
+        }
+
+        // Feed title dropdown — "CallX ▾" tap shows Following / Favorites popup
+        if (tvFeedTitle != null) {
+            tvFeedTitle.setOnClickListener(v -> showFeedFilterDropdown(tvFeedTitle));
+        }
+
         View btnSearch = getView() != null ? getView().findViewById(R.id.btn_home_search) : null;
         if (btnSearch != null) {
             btnSearch.setOnClickListener(v -> {
@@ -199,6 +229,35 @@ public class HomeFragment extends Fragment {
         }
 
         loadMyAvatar();
+    }
+
+    /**
+     * Instagram-style dropdown on the header title — shows Following / Favorites options.
+     */
+    private void showFeedFilterDropdown(android.view.View anchor) {
+        if (!isAdded() || getContext() == null) return;
+        android.widget.PopupMenu popup = new android.widget.PopupMenu(requireContext(), anchor);
+
+        // Following option
+        popup.getMenu().add(0, 1, 0, "Following")
+            .setIcon(android.R.drawable.ic_menu_my_calendar);
+        // Favorites option
+        popup.getMenu().add(0, 2, 0, "Favorites")
+            .setIcon(android.R.drawable.btn_star_big_off);
+
+        popup.setOnMenuItemClickListener(item -> {
+            if (item.getItemId() == 1) {
+                // Following feed
+                if (tvFeedTitle != null) tvFeedTitle.setText("Following  ▾");
+                switchFeedMode(true);
+            } else if (item.getItemId() == 2) {
+                // Favorites feed (same as Following for now, filtered differently later)
+                if (tvFeedTitle != null) tvFeedTitle.setText("Favorites  ▾");
+                switchFeedMode(true); // reuse following mode with favorites filter
+            }
+            return true;
+        });
+        popup.show();
     }
 
     private void switchFeedMode(boolean following) {
@@ -589,19 +648,51 @@ public class HomeFragment extends Fragment {
         View card = LayoutInflater.from(requireContext())
             .inflate(R.layout.item_home_feed_post, containerFeed, false);
 
-        CircleImageView avatar   = card.findViewById(R.id.iv_post_avatar);
-        TextView tvOwner         = card.findViewById(R.id.tv_post_owner);
-        TextView tvTime          = card.findViewById(R.id.tv_post_time);
-        ImageView ivThumb        = card.findViewById(R.id.iv_post_thumb);
-        ImageView ivVideoBadge   = card.findViewById(R.id.iv_video_badge);
-        TextView tvCaption       = card.findViewById(R.id.tv_post_caption);
-        TextView tvLikes         = card.findViewById(R.id.tv_post_likes);
-        TextView tvComments      = card.findViewById(R.id.tv_post_comments);
-        TextView tvReposts       = card.findViewById(R.id.tv_post_reposts);
-        ImageButton btnLike      = card.findViewById(R.id.btn_post_like);
-        ImageButton btnComment   = card.findViewById(R.id.btn_post_comment);
-        ImageButton btnRepost    = card.findViewById(R.id.btn_post_repost);
-        ImageButton btnSave      = card.findViewById(R.id.btn_post_save);
+        CircleImageView avatar    = card.findViewById(R.id.iv_post_avatar);
+        TextView tvOwner          = card.findViewById(R.id.tv_post_owner);
+        TextView tvTime           = card.findViewById(R.id.tv_post_time);
+        TextView tvSuggested      = card.findViewById(R.id.tv_post_suggested);
+        TextView btnPostFollow    = card.findViewById(R.id.btn_post_follow);
+        ImageView ivThumb         = card.findViewById(R.id.iv_post_thumb);
+        ImageView ivVideoBadge    = card.findViewById(R.id.iv_video_badge);
+        TextView tvCaption        = card.findViewById(R.id.tv_post_caption);
+        TextView tvLikes          = card.findViewById(R.id.tv_post_likes);
+        TextView tvComments       = card.findViewById(R.id.tv_post_comments);
+        TextView tvReposts        = card.findViewById(R.id.tv_post_reposts);
+        ImageButton btnLike       = card.findViewById(R.id.btn_post_like);
+        ImageButton btnComment    = card.findViewById(R.id.btn_post_comment);
+        ImageButton btnRepost     = card.findViewById(R.id.btn_post_repost);
+        ImageButton btnSave       = card.findViewById(R.id.btn_post_save);
+
+        // ── "Suggested for you" — shown for non-following posts (For You mode) ──
+        final String ownerUidRef = reel.uid != null ? reel.uid : "";
+        if (!isFollowingMode && tvSuggested != null && !ownerUidRef.isEmpty()) {
+            tvSuggested.setVisibility(android.view.View.VISIBLE);
+            if (tvTime   != null) tvTime.setVisibility(android.view.View.GONE);
+            if (btnPostFollow != null) {
+                btnPostFollow.setVisibility(android.view.View.VISIBLE);
+                final boolean[] isFollowed = {false};
+                if (myUid != null) {
+                    FirebaseUtils.getReelFollowsRef(myUid).child(ownerUidRef)
+                        .addListenerForSingleValueEvent(new ValueEventListener() {
+                            @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                                isFollowed[0] = snap.exists();
+                                if (btnPostFollow != null) {
+                                    if (isFollowed[0]) btnPostFollow.setVisibility(android.view.View.GONE);
+                                }
+                            }
+                            @Override public void onCancelled(@NonNull DatabaseError e) {}
+                        });
+                }
+                btnPostFollow.setOnClickListener(x -> {
+                    if (myUid == null || ownerUidRef.isEmpty()) return;
+                    isFollowed[0] = true;
+                    btnPostFollow.setVisibility(android.view.View.GONE);
+                    FirebaseUtils.getReelFollowsRef(myUid).child(ownerUidRef).setValue(true);
+                    FirebaseUtils.getReelFollowersRef(ownerUidRef).child(myUid).setValue(true);
+                });
+            }
+        }
 
         tvOwner.setText(reel.ownerName != null ? "@" + reel.ownerName : "@user");
         tvTime.setText(formatAgo(reel.timestamp));
