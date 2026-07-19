@@ -3,6 +3,8 @@ package com.callx.app.channel;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.view.View;
@@ -11,8 +13,12 @@ import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.Toolbar;
+import androidx.core.util.Consumer;
 import androidx.lifecycle.ViewModelProvider;
 import com.callx.app.status.R;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
 import com.callx.app.viewmodel.ChannelViewModel;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.chip.Chip;
@@ -56,11 +62,47 @@ public class CreateChannelActivity extends AppCompatActivity {
 
     private final ActivityResultLauncher<String> pickImage =
         registerForActivityResult(new ActivityResultContracts.GetContent(), uri -> {
-            if (uri != null) {
-                selectedImageUri = uri;
-                ivChannelIcon.setImageURI(uri);
-            }
+            if (uri != null) copyToCacheThen(uri, local -> {
+                selectedImageUri = local;
+                ivChannelIcon.setImageURI(local);
+            });
         });
+
+    /**
+     * Snapshots a picked content:// URI into this app's private cache
+     * immediately, so the later icon upload (which may happen well after
+     * picking — user still typing name/description) doesn't depend on the
+     * system picker's short-lived read grant. Without this, putFile()
+     * intermittently failed with Firebase Storage's
+     * "Object does not exist at location" once that grant/backing temp
+     * file was gone by upload time.
+     */
+    private void copyToCacheThen(Uri source, Consumer<Uri> callback) {
+        new Thread(() -> {
+            File out = null;
+            try {
+                out = new File(getCacheDir(), "channel_icon_" + System.currentTimeMillis() + ".jpg");
+                try (InputStream in = getContentResolver().openInputStream(source);
+                     FileOutputStream fos = new FileOutputStream(out)) {
+                    if (in == null) throw new java.io.IOException("Unable to open picked file");
+                    byte[] buf = new byte[8192];
+                    int n;
+                    while ((n = in.read(buf)) != -1) fos.write(buf, 0, n);
+                }
+            } catch (Exception e) {
+                out = null;
+            }
+            final Uri localUri = out != null ? Uri.fromFile(out) : null;
+            new Handler(Looper.getMainLooper()).post(() -> {
+                if (localUri != null) {
+                    callback.accept(localUri);
+                } else {
+                    Toast.makeText(this, "Couldn't read the selected image. Please try again.",
+                            Toast.LENGTH_SHORT).show();
+                }
+            });
+        }).start();
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
