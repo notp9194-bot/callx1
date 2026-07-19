@@ -50,6 +50,131 @@ public class FirebaseUtils {
         return db().getReference("deliveryPending");
     }
 
+    /** Per-user 1:1 blocklist: blocks/{uid}/{blockedUid} = true */
+    public static DatabaseReference getBlocksRef(String uid) {
+        return db().getReference("blocks").child(uid);
+    }
+
+    // ── Chat presence (typing / viewing / recording / playback / screenshot) ───
+
+    public static DatabaseReference getChatPresenceRef(String chatOrGroupId) {
+        return db().getReference("chatPresence").child(chatOrGroupId);
+    }
+
+    public static DatabaseReference getChatTypingReplyRef(String chatOrGroupId) {
+        return db().getReference("chatTypingReply").child(chatOrGroupId);
+    }
+
+    public static DatabaseReference getChatViewingRef(String chatOrGroupId) {
+        return db().getReference("chatViewing").child(chatOrGroupId);
+    }
+
+    public static DatabaseReference getChatRecordingRef(String chatOrGroupId) {
+        return db().getReference("chatRecording").child(chatOrGroupId);
+    }
+
+    public static DatabaseReference getChatRecordingWaveRef(String chatOrGroupId) {
+        return db().getReference("chatRecordingWave").child(chatOrGroupId);
+    }
+
+    public static DatabaseReference getChatPlaybackRef(String chatOrGroupId) {
+        return db().getReference("chatPlayback").child(chatOrGroupId);
+    }
+
+    public static DatabaseReference getChatScreenshotRef(String chatOrGroupId) {
+        return db().getReference("chatScreenshot").child(chatOrGroupId);
+    }
+
+    // ── Reels ────────────────────────────────────────────────────────────────
+
+    /** Root reel metadata: reels/{reelId}/ */
+    public static DatabaseReference getReelsRef() {
+        return db().getReference("reels");
+    }
+
+    /** Per-user reel index (profile grid): reelsByUser/{uid}/{reelId} */
+    public static DatabaseReference getReelsByUserRef(String uid) {
+        return db().getReference("reelsByUser").child(uid);
+    }
+
+    public static DatabaseReference getReelCommentsRef(String reelId) {
+        return db().getReference("reelComments").child(reelId);
+    }
+
+    public static DatabaseReference getReelLikesRef(String reelId) {
+        return db().getReference("reelLikes").child(reelId);
+    }
+
+    public static DatabaseReference getReelSavesRef(String uid) {
+        return db().getReference("reelSaves").child(uid);
+    }
+
+    public static DatabaseReference getReelRepostsRef(String reelId) {
+        return db().getReference("reelReposts").child(reelId);
+    }
+
+    public static DatabaseReference getReelReportsRef(String reelId) {
+        return db().getReference("reelReports").child(reelId);
+    }
+
+    /** uid's outgoing follows: reelFollows/{uid}/{targetUid} = true */
+    public static DatabaseReference getReelFollowsRef(String uid) {
+        return db().getReference("reelFollows").child(uid);
+    }
+
+    /** uid's incoming followers: reelFollowers/{uid}/{followerUid} = true */
+    public static DatabaseReference getReelFollowersRef(String uid) {
+        return db().getReference("reelFollowers").child(uid);
+    }
+
+    public static DatabaseReference getTrendingHashtagsRef() {
+        return db().getReference("trendingHashtags");
+    }
+
+    public static DatabaseReference getMusicLibraryRef() {
+        return db().getReference("musicLibrary");
+    }
+
+    /** Per-user unpublished drafts: reelDrafts/{uid}/{draftId} */
+    public static DatabaseReference getReelDraftsRef(String uid) {
+        return db().getReference("reelDrafts").child(uid);
+    }
+
+    /** Reels a user has liked (profile "liked" tab index): reelLikedByUser/{uid}/{reelId} */
+    public static DatabaseReference getReelLikedByUserRef(String uid) {
+        return db().getReference("reelLikedByUser").child(uid);
+    }
+
+    public static DatabaseReference getReelReactionsRef(String reelId) {
+        return db().getReference("reelReactions").child(reelId);
+    }
+
+    /** Reels a user has reposted (profile "reposts" tab index): reelRepostsByUser/{uid}/{reelId} */
+    public static DatabaseReference getReelRepostsByUserRef(String uid) {
+        return db().getReference("reelRepostsByUser").child(uid);
+    }
+
+    /** Per-reel saved-by index: reelSavesIndex/{reelId}/{uid} = true */
+    public static DatabaseReference getReelSavesIndexRef(String reelId) {
+        return db().getReference("reelSavesIndex").child(reelId);
+    }
+
+    public static DatabaseReference getReelViewsRef(String reelId) {
+        return db().getReference("reelViews").child(reelId);
+    }
+
+    public static DatabaseReference getReelWatchHistoryRef(String uid) {
+        return db().getReference("reelWatchHistory").child(uid);
+    }
+
+    public static DatabaseReference getReelWatchProgressRef(String uid) {
+        return db().getReference("reelWatchProgress").child(uid);
+    }
+
+    public static DatabaseReference getScheduledReelsRef(String uid) {
+        return db().getReference("scheduledReels").child(uid);
+    }
+
     public static DatabaseReference getContactsRef(String uid) {
         return db().getReference("contacts").child(uid);
     }
