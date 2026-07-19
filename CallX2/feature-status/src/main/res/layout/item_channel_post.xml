@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A single post in a channel (like a WhatsApp message bubble, read-only) -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:paddingHorizontal="12dp"
+    android:paddingVertical="6dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:background="#F0F0F0"
+        android:padding="12dp">
+
+        <!-- Media image/video thumbnail -->
+        <ImageView
+            android:id="@+id/iv_post_media"
+            android:layout_width="match_parent"
+            android:layout_height="200dp"
+            android:scaleType="centerCrop"
+            android:visibility="gone"
+            android:layout_marginBottom="8dp"/>
+
+        <!-- Video play icon overlay -->
+        <ImageView
+            android:id="@+id/iv_post_play"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_gravity="center"
+            android:src="@android:drawable/ic_media_play"
+            android:background="#80000000"
+            android:padding="10dp"
+            android:tint="@android:color/white"
+            android:visibility="gone"/>
+
+        <!-- Text content -->
+        <TextView
+            android:id="@+id/tv_post_text"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="15sp"
+            android:textColor="#1A1A1A"
+            android:lineSpacingMultiplier="1.2"/>
+
+        <!-- Bottom row: time + buttons -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginTop="8dp">
+
+            <TextView
+                android:id="@+id/tv_post_time"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:textSize="11sp"
+                android:textColor="#999999"/>
+
+            <!-- Reactions summary (e.g. 👍 12  ❤️ 3) -->
+            <TextView
+                android:id="@+id/tv_post_reactions"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textSize="13sp"
+                android:visibility="gone"
+                android:layout_marginEnd="6dp"/>
+
+            <!-- View count -->
+            <TextView
+                android:id="@+id/tv_post_views"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textSize="11sp"
+                android:textColor="#999999"
+                android:layout_marginEnd="8dp"/>
+
+            <!-- React button -->
+            <ImageButton
+                android:id="@+id/btn_post_react"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:src="@android:drawable/btn_star_big_off"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:tint="#888888"
+                android:contentDescription="React"/>
+
+            <!-- Forward count + button -->
+            <ImageButton
+                android:id="@+id/btn_post_forward"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:src="@drawable/ic_send_fill"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:tint="#888888"
+                android:contentDescription="Forward"/>
+
+            <TextView
+                android:id="@+id/tv_post_forwards"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textSize="11sp"
+                android:textColor="#999999"/>
+
+        </LinearLayout>
+    </LinearLayout>
+
+</LinearLayout>

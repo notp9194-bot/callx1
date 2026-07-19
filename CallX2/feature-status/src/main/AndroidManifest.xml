@@ -4,8 +4,6 @@
         <activity android:name="com.callx.app.viewer.StatusViewerActivity"
             android:exported="false"
             android:theme="@style/Theme.CallX.Fullscreen">
-            <!-- ACTION_OPEN_STATUS: allows feature-chat to open this activity
-                 via implicit Intent without a compile-time class reference -->
             <intent-filter>
                 <action android:name="com.callx.app.ACTION_OPEN_STATUS"/>
                 <category android:name="android.intent.category.DEFAULT"/>
@@ -15,6 +13,18 @@
             android:exported="false"/>
         <activity android:name="com.callx.app.highlights.StatusHighlightsActivity"
             android:exported="false"/>
+
+        <!-- ── Channel Activities ──────────────────────────────────────── -->
+        <activity android:name="com.callx.app.channel.ExploreChannelsActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
+        <activity android:name="com.callx.app.channel.ChannelViewerActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
+        <activity android:name="com.callx.app.channel.CreateChannelActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
+        <!-- ──────────────────────────────────────────────────────────────── -->
 
         <service android:name="com.callx.app.services.StatusBackgroundService"
             android:exported="false"

@@ -51,19 +51,23 @@ dependencies {
     annotationProcessor 'androidx.room:room-compiler:2.6.1'
     implementation 'androidx.room:room-paging:2.6.1'
 
-    // SwipeReplySystem: spring-back animation (DynamicAnimation / SpringAnimation)
+    // SwipeReplySystem
     implementation 'androidx.dynamicanimation:dynamicanimation:1.0.0'
 
-    // Chrome Custom Tabs — in-app browser
+    // Chrome Custom Tabs
     implementation 'androidx.browser:browser:1.8.0'
 
-    // WorkManager — ChatScheduledMessageWorker (scheduled message send)
+    // WorkManager
     implementation 'androidx.work:work-runtime:2.9.0'
-    // Required alongside work-runtime — without it javac can't resolve
-    // ListenableFuture on Worker's supertype chain (same fix already
-    // applied in :app and :feature-reels for the same error).
     implementation 'com.google.guava:guava:31.1-android'
 
-    // Location share — FusedLocationProviderClient + Geocoder
+    // Location share
     implementation 'com.google.android.gms:play-services-location:21.2.0'
+
+    // ── WhatsApp-level architecture: ViewModel + LiveData ──────────────────
+    // ChatListViewModel, RecyclerViewPoolViewModel extend ViewModel/AndroidViewModel
+    // and observe Room LiveData from MessageRepository.
+    implementation 'androidx.lifecycle:lifecycle-viewmodel:2.7.0'
+    implementation 'androidx.lifecycle:lifecycle-livedata:2.7.0'
+    implementation 'androidx.lifecycle:lifecycle-runtime:2.7.0'
 }

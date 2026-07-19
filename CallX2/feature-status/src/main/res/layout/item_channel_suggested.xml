@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Suggested channel row: icon, name+verified, followers, Follow button, X -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:paddingHorizontal="16dp"
+    android:paddingVertical="10dp"
+    android:background="?attr/selectableItemBackground">
+
+    <de.hdodenhof.circleimageview.CircleImageView
+        android:id="@+id/iv_channel_icon"
+        android:layout_width="46dp"
+        android:layout_height="46dp"
+        android:src="@drawable/bg_channel_avatar_default"/>
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:layout_marginStart="12dp">
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:id="@+id/tv_channel_name"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textSize="15sp"
+                android:textStyle="bold"
+                android:textColor="#111111"
+                android:maxWidth="180dp"
+                android:singleLine="true"
+                android:ellipsize="end"/>
+
+            <TextView
+                android:id="@+id/tv_channel_verified"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text=" \u2713"
+                android:textColor="#0075C9"
+                android:textSize="13sp"
+                android:visibility="gone"/>
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/tv_channel_followers"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="13sp"
+            android:textColor="#666666"
+            android:layout_marginTop="2dp"/>
+    </LinearLayout>
+
+    <!-- Follow pill button -->
+    <Button
+        android:id="@+id/btn_channel_follow"
+        android:layout_width="wrap_content"
+        android:layout_height="32dp"
+        android:text="Follow"
+        android:textSize="13sp"
+        android:textColor="#1A773A"
+        android:paddingHorizontal="14dp"
+        android:backgroundTint="#DCF5E7"
+        style="@style/Widget.MaterialComponents.Button.UnelevatedButton"
+        android:layout_marginEnd="6dp"/>
+
+    <!-- Dismiss X -->
+    <ImageButton
+        android:id="@+id/btn_channel_dismiss"
+        android:layout_width="32dp"
+        android:layout_height="32dp"
+        android:src="@android:drawable/ic_menu_close_clear_cancel"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:tint="#AAAAAA"
+        android:contentDescription="Dismiss"/>
+
+</LinearLayout>

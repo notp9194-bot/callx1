@@ -35,6 +35,7 @@ dependencies {
     implementation 'com.google.firebase:firebase-database'
     implementation 'com.google.firebase:firebase-auth'
     implementation 'com.google.firebase:firebase-messaging'
+    implementation 'com.google.firebase:firebase-storage'
 
     implementation 'com.github.bumptech.glide:glide:4.16.0'
     annotationProcessor 'com.github.bumptech.glide:compiler:4.16.0'
@@ -45,10 +46,15 @@ dependencies {
     implementation 'androidx.media3:media3-ui:1.2.1'
     implementation 'androidx.media3:media3-common:1.2.1'
 
-    // Room DB — required because StatusFragment and StatusBackgroundService
-    // directly access AppDatabase (RoomDatabase) and StatusEntity/StatusDao
-    // from :core. Since :core uses 'implementation' (not 'api') for Room,
-    // the classes are not exposed transitively to this module.
+    // Room DB — required because feature-status directly accesses AppDatabase / StatusDao / ChannelDao
     implementation 'androidx.room:room-runtime:2.6.1'
     annotationProcessor 'androidx.room:room-compiler:2.6.1'
+
+    // ── WhatsApp-level architecture: ViewModel + LiveData ──────────────────
+    // Feature ViewModels (ChannelViewModel, StatusViewModel) extend AndroidViewModel
+    // and observe LiveData from core Repositories.
+    implementation 'androidx.lifecycle:lifecycle-viewmodel:2.7.0'
+    implementation 'androidx.lifecycle:lifecycle-livedata:2.7.0'
+    // lifecycle-runtime is needed for LifecycleObserver / repeatOnLifecycle
+    implementation 'androidx.lifecycle:lifecycle-runtime:2.7.0'
 }

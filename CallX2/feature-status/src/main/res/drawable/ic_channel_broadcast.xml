@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Broadcast / channel icon — radio waves around a chat bubble -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+
+    <!-- Left outer wave -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#25D366"
+        android:strokeWidth="2.2"
+        android:strokeLineCap="round"
+        android:pathData="M 11,24 A 13,13 0 0,1 24,11"/>
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#25D366"
+        android:strokeWidth="2.2"
+        android:strokeLineCap="round"
+        android:pathData="M 11,24 A 13,13 0 0,0 24,37"/>
+    <!-- Left inner wave -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#25D366"
+        android:strokeWidth="2.2"
+        android:strokeLineCap="round"
+        android:pathData="M 15,24 A 9,9 0 0,1 24,15"/>
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#25D366"
+        android:strokeWidth="2.2"
+        android:strokeLineCap="round"
+        android:pathData="M 15,24 A 9,9 0 0,0 24,33"/>
+
+    <!-- Right outer wave -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#25D366"
+        android:strokeWidth="2.2"
+        android:strokeLineCap="round"
+        android:pathData="M 37,24 A 13,13 0 0,0 24,11"/>
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#25D366"
+        android:strokeWidth="2.2"
+        android:strokeLineCap="round"
+        android:pathData="M 37,24 A 13,13 0 0,1 24,37"/>
+    <!-- Right inner wave -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#25D366"
+        android:strokeWidth="2.2"
+        android:strokeLineCap="round"
+        android:pathData="M 33,24 A 9,9 0 0,0 24,15"/>
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#25D366"
+        android:strokeWidth="2.2"
+        android:strokeLineCap="round"
+        android:pathData="M 33,24 A 9,9 0 0,1 24,33"/>
+
+    <!-- Center chat bubble -->
+    <path
+        android:fillColor="#25D366"
+        android:pathData="M 24,19 C 20.134,19 17,21.686 17,25 C 17,27.172 18.285,29.086 20.25,30.17 L 20.25,33 L 23.25,31 C 23.497,31.007 23.747,31 24,31 C 27.866,31 31,28.314 31,25 C 31,21.686 27.866,19 24,19 Z"/>
+
+</vector>
