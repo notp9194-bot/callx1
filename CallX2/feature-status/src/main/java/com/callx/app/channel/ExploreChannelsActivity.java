@@ -201,7 +201,7 @@ public class ExploreChannelsActivity extends AppCompatActivity {
 
         private void bindChannel(ChannelVH h, ChannelEntity ch) {
             if (h.tvName != null) {
-                String name = ch.isVerified ? ch.name + " ✓" : ch.name;
+                String name = ch.verified ? ch.name + " ✓" : ch.name;
                 h.tvName.setText(name);
             }
             if (h.tvFollowers != null)

@@ -116,6 +116,14 @@
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
 
+                <TextView
+                    android:id="@+id/tv_link_status"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textSize="12sp"
+                    android:textColor="@color/colorTextSecondary"
+                    android:layout_marginBottom="8dp" />
+
                 <!-- Action buttons -->
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btn_copy_link"

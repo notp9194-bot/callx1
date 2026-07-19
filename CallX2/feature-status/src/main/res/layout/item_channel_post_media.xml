@@ -8,6 +8,43 @@
     android:paddingBottom="0dp"
     android:background="@android:color/white">
 
+    <!-- Author header (channel post author icon/name + pinned badge) -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingHorizontal="14dp"
+        android:layout_marginBottom="6dp">
+
+        <de.hdodenhof.circleimageview.CircleImageView
+            android:id="@+id/iv_post_author_icon"
+            android:layout_width="26dp"
+            android:layout_height="26dp"
+            android:src="@drawable/ic_verified"
+            android:layout_marginEnd="8dp"
+            android:visibility="gone"/>
+
+        <TextView
+            android:id="@+id/tv_post_author_name"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:textColor="#111111"
+            android:visibility="gone"/>
+
+        <TextView
+            android:id="@+id/tv_post_pinned_badge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="📌 Pinned"
+            android:textSize="11sp"
+            android:textColor="#25D366"
+            android:visibility="gone"/>
+    </LinearLayout>
+
     <!-- Media frame -->
     <FrameLayout
         android:layout_width="match_parent"
@@ -74,6 +111,10 @@
         <TextView android:id="@+id/tv_post_forwards"
             android:layout_width="wrap_content" android:layout_height="wrap_content"
             android:textSize="11sp" android:textColor="#AAAAAA"
+            android:layout_marginEnd="8dp" android:visibility="gone"/>
+        <TextView android:id="@+id/tv_post_replies"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:textSize="11sp" android:textColor="#25D366"
             android:layout_marginEnd="8dp" android:visibility="gone"/>
         <ImageButton android:id="@+id/btn_post_react"
             android:layout_width="32dp" android:layout_height="32dp"

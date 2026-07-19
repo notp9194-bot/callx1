@@ -46,6 +46,14 @@
             android:layout_marginStart="8dp"
             android:visibility="gone"/>
 
+        <!-- Multi-select checkbox (shown only when poll allows multiple answers) -->
+        <CheckBox
+            android:id="@+id/cb_poll_option"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="6dp"
+            android:visibility="gone"/>
+
         <!-- Check icon for own vote -->
         <ImageView
             android:id="@+id/iv_poll_option_check"

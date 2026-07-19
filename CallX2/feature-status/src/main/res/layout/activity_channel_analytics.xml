@@ -98,6 +98,10 @@
                         <TextView android:id="@+id/tv_stat_engagement_rate" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="—" android:textSize="18sp" android:textStyle="bold" android:textColor="@color/colorPrimary" />
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Engagement" android:textSize="11sp" android:textColor="@color/colorTextSecondary" />
                     </LinearLayout>
+                    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:gravity="center">
+                        <TextView android:id="@+id/tv_stat_avg_forwards" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="—" android:textSize="18sp" android:textStyle="bold" android:textColor="@color/colorPrimary" />
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Avg forwards" android:textSize="11sp" android:textColor="@color/colorTextSecondary" />
+                    </LinearLayout>
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 

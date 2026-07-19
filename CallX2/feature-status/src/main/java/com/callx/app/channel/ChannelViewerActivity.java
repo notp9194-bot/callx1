@@ -61,6 +61,7 @@ public class ChannelViewerActivity extends AppCompatActivity
     public static final String EXTRA_CHANNEL_ICON      = "channelIcon";
     public static final String EXTRA_CHANNEL_VERIFIED  = "channelVerified";
     public static final String EXTRA_CHANNEL_FOLLOWERS = "channelFollowers";
+    public static final String EXTRA_OWNER_UID         = "ownerUid";
 
     private static final int RC_NEW_POST    = 1001;
     private static final int RC_EDIT_CHAN   = 1002;
@@ -181,7 +182,7 @@ public class ChannelViewerActivity extends AppCompatActivity
         // Pagination: load older posts when scrolled near the bottom of the feed
         rvPosts.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
-                if (dy > 0 && !llm.canScrollVertically(1) && postAdapter.getItemCount() > 0) {
+                if (dy > 0 && !rv.canScrollVertically(1) && postAdapter.getItemCount() > 0) {
                     long oldest = postAdapter.getOldestTimestamp();
                     if (oldest > 0) viewModel.loadMorePosts(channelId, oldest);
                 }

@@ -65,6 +65,40 @@
                 android:textColor="#AAAAAA"
                 android:layout_marginTop="4dp"/>
 
+            <com.google.android.material.chip.ChipGroup
+                android:id="@+id/chip_group_post_types"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                app:singleSelection="true"/>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginTop="4dp">
+
+                <ProgressBar
+                    android:id="@+id/progress_post_upload"
+                    android:layout_width="match_parent"
+                    android:layout_height="4dp"
+                    android:layout_weight="1"
+                    android:max="100"
+                    style="@style/Widget.AppCompat.ProgressBar.Horizontal"
+                    android:progressTint="#25D366"
+                    android:visibility="gone"/>
+
+                <TextView
+                    android:id="@+id/tv_upload_percent"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="6dp"
+                    android:textSize="11sp"
+                    android:textColor="#888888"
+                    android:visibility="gone"/>
+            </LinearLayout>
+
             <!-- Media preview (hidden until media selected) -->
             <FrameLayout
                 android:id="@+id/layout_media_preview"
@@ -138,14 +172,32 @@
                         android:ellipsize="end"/>
 
                     <TextView
-                        android:id="@+id/tv_link_url_preview"
+                        android:id="@+id/tv_link_url"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:textSize="11sp"
                         android:textColor="#888888"
                         android:singleLine="true"
                         android:ellipsize="end"/>
+
+                    <TextView
+                        android:id="@+id/tv_link_domain"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:textSize="10sp"
+                        android:textColor="#AAAAAA"
+                        android:singleLine="true"
+                        android:ellipsize="end"/>
                 </LinearLayout>
+
+                <ProgressBar
+                    android:id="@+id/progress_link_fetch"
+                    style="?android:attr/progressBarStyleSmall"
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:layout_gravity="center_vertical"
+                    android:layout_marginEnd="6dp"
+                    android:visibility="gone"/>
 
                 <ImageButton
                     android:id="@+id/btn_remove_link"
@@ -213,6 +265,170 @@
                     android:backgroundTint="@android:color/transparent"
                     style="@style/Widget.MaterialComponents.Button.TextButton"
                     android:layout_marginTop="6dp"/>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginTop="8dp">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Allow multiple answers"
+                        android:textSize="13sp"
+                        android:textColor="#555555"/>
+
+                    <Switch
+                        android:id="@+id/switch_poll_multiselect"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"/>
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/tv_poll_expiry"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Poll closes: never"
+                    android:textSize="13sp"
+                    android:textColor="#25D366"
+                    android:padding="6dp"
+                    android:layout_marginTop="4dp"/>
+            </LinearLayout>
+
+            <!-- Audio section (hidden until audio attached) -->
+            <LinearLayout
+                android:id="@+id/layout_audio_section"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:padding="10dp"
+                android:background="#F8F8F8"
+                android:layout_marginTop="8dp"
+                android:visibility="gone">
+
+                <ImageButton
+                    android:id="@+id/btn_record_audio"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:src="@android:drawable/ic_btn_speak_now"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:tint="#E53935"
+                    android:contentDescription="Record audio"/>
+
+                <ImageButton
+                    android:id="@+id/btn_stop_audio"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:src="@android:drawable/ic_media_pause"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:tint="#555555"
+                    android:visibility="gone"
+                    android:contentDescription="Stop recording"/>
+
+                <ImageButton
+                    android:id="@+id/btn_play_audio"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:src="@android:drawable/ic_media_play"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:tint="#555555"
+                    android:visibility="gone"
+                    android:contentDescription="Play audio"/>
+
+                <TextView
+                    android:id="@+id/tv_audio_duration"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginStart="8dp"
+                    android:text="00:00"
+                    android:textSize="13sp"
+                    android:textColor="#555555"/>
+            </LinearLayout>
+
+            <!-- Document section (hidden until doc attached) -->
+            <LinearLayout
+                android:id="@+id/layout_doc_section"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:padding="10dp"
+                android:background="#F8F8F8"
+                android:layout_marginTop="8dp"
+                android:visibility="gone">
+
+                <ImageView
+                    android:id="@+id/iv_doc_icon"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:src="@android:drawable/ic_menu_agenda"
+                    android:tint="#555555"
+                    android:layout_marginEnd="10dp"/>
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/tv_doc_name"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:textSize="13sp"
+                        android:textStyle="bold"
+                        android:textColor="#111111"
+                        android:singleLine="true"
+                        android:ellipsize="middle"/>
+
+                    <TextView
+                        android:id="@+id/tv_doc_size"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:textSize="11sp"
+                        android:textColor="#888888"/>
+                </LinearLayout>
+
+                <ImageButton
+                    android:id="@+id/btn_remove_doc"
+                    android:layout_width="28dp"
+                    android:layout_height="28dp"
+                    android:src="@android:drawable/ic_menu_close_clear_cancel"
+                    android:tint="#AAAAAA"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="Remove document"/>
+            </LinearLayout>
+
+            <!-- Schedule row -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginTop="8dp">
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_schedule_post"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Schedule"
+                    android:textSize="13sp"
+                    android:textColor="#25D366"
+                    android:backgroundTint="@android:color/transparent"
+                    style="@style/Widget.MaterialComponents.Button.TextButton"/>
+
+                <TextView
+                    android:id="@+id/tv_scheduled_time"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:textSize="13sp"
+                    android:textColor="#555555"/>
             </LinearLayout>
 
         </LinearLayout>
