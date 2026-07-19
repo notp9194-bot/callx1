@@ -22,7 +22,10 @@ import androidx.core.widget.NestedScrollView;
 import androidx.fragment.app.Fragment;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.Player;
+import androidx.media3.datasource.cache.CacheDataSource;
 import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.exoplayer.source.MediaSource;
+import androidx.media3.exoplayer.source.ProgressiveMediaSource;
 import androidx.media3.ui.PlayerView;
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 import androidx.recyclerview.widget.RecyclerView;
@@ -43,6 +46,7 @@ import com.callx.app.explore.HashtagReelsActivity;
 import com.callx.app.notifications.ReelNotificationsActivity;
 import com.callx.app.explore.ReelSearchActivity;
 import com.callx.app.profile.UserReelsActivity;
+import com.callx.app.cache.UnifiedVideoCacheManager;
 import com.callx.app.models.ReelModel;
 import com.callx.app.utils.FirebaseUtils;
 import com.google.firebase.database.*;
@@ -111,6 +115,17 @@ public class HomeFragment extends Fragment {
     private final Handler      scrollHandler = new Handler(Looper.getMainLooper());
     private Runnable           scrollRunnable;
 
+    // ── v177: preload feature (same as Reels tab) ──────────────────────────
+    // Preloads upcoming videos/thumbnails a couple cards ahead of whichever
+    // card is currently playing, so by the time the user scrolls to them
+    // they're already sitting in the shared cache (same one buildCachedMediaSource
+    // reads from) — no spinner, no wait, no fresh download.
+    private com.callx.app.cache.ReelVideoPreloader       videoPreloader;
+    private com.callx.app.cache.ReelThumbnailPreloader   thumbPreloader;
+    private com.callx.app.cache.ReelPredictivePreloader  predictivePreloader;
+    /** The exact list of posts currently backing feedCards, index-aligned with it. */
+    private List<ReelModel> currentFeedPosts = new ArrayList<>();
+
     /** Lightweight holder for each inline feed card. */
     private static class HomeFeedCard {
         View      rootView;
@@ -160,6 +175,10 @@ public class HomeFragment extends Fragment {
                 }
             }
         });
+        // ── v177: same preload feature Reels tab has ──────────────────────
+        videoPreloader      = new com.callx.app.cache.ReelVideoPreloader(requireContext());
+        thumbPreloader      = new com.callx.app.cache.ReelThumbnailPreloader(requireContext());
+        predictivePreloader = new com.callx.app.cache.ReelPredictivePreloader(requireContext());
         setupListeners();
         loadAllSections();
         return v;
@@ -319,6 +338,23 @@ public class HomeFragment extends Fragment {
     }
 
     /**
+     * Builds a MediaSource backed by the SAME on-disk cache
+     * (UnifiedVideoCacheManager.Module.REELS) that the Reels tab's
+     * AdaptiveStreamingManager uses. Cache key = video URL, so a reel
+     * already downloaded/cached from either tab is served from disk in
+     * the other — no duplicate downloads.
+     */
+    private MediaSource buildCachedMediaSource(String url) {
+        if (!UnifiedVideoCacheManager.isInitialized()) {
+            UnifiedVideoCacheManager.init(requireContext().getApplicationContext());
+        }
+        CacheDataSource.Factory cacheFactory =
+            UnifiedVideoCacheManager.getFactory(UnifiedVideoCacheManager.Module.REELS);
+        return new ProgressiveMediaSource.Factory(cacheFactory)
+            .createMediaSource(MediaItem.fromUri(android.net.Uri.parse(url)));
+    }
+
+    /**
      * Detach the shared ExoPlayer from any previous card, then attach+play on the new one.
      */
     private void attachPlayerToCard(int index) {
@@ -331,10 +367,29 @@ public class HomeFragment extends Fragment {
         }
         currentPlayingIndex = index;
         HomeFeedCard card = feedCards.get(index);
+
+        // ── v177: preload the next few cards' video + thumbnails ahead of
+        // time, same as Reels tab does on every onPageSelected. Uses the
+        // SAME UnifiedVideoCacheManager.Module.REELS cache buildCachedMediaSource
+        // reads from, so by the time the user scrolls here it's cache-hot.
+        if (!currentFeedPosts.isEmpty() && index < currentFeedPosts.size()) {
+            if (videoPreloader      != null) videoPreloader.preloadFrom(currentFeedPosts, index);
+            if (thumbPreloader      != null) thumbPreloader.preloadFrom(currentFeedPosts, index);
+            if (predictivePreloader != null) predictivePreloader.preloadSmartFrom(currentFeedPosts, index);
+        }
+
         if (card.videoUrl == null || card.videoUrl.isEmpty()) return;
         if (card.endOverlay != null) card.endOverlay.setVisibility(View.GONE);
         if (card.playerView != null) card.playerView.setPlayer(feedPlayer);
-        feedPlayer.setMediaItem(MediaItem.fromUri(card.videoUrl));
+        // PERF/DATA: was feedPlayer.setMediaItem(MediaItem.fromUri(card.videoUrl)) —
+        // that builds ExoPlayer's DEFAULT MediaSource (plain network HTTP data
+        // source), completely bypassing the shared video cache. Any reel already
+        // cached by the Reels tab (or by this same Home feed) was re-downloaded
+        // from scratch every time it played here. Building the MediaSource
+        // through the SAME UnifiedVideoCacheManager.Module.REELS cache the Reels
+        // tab's AdaptiveStreamingManager uses means identical video URLs hit the
+        // same on-disk cache — no duplicate downloads, in either direction.
+        feedPlayer.setMediaSource(buildCachedMediaSource(card.videoUrl));
         feedPlayer.prepare();
         feedPlayer.setVolume(isMuted ? 0f : 1f);
         feedPlayer.play();
@@ -360,13 +415,19 @@ public class HomeFragment extends Fragment {
     @Override public void onPause() {
         super.onPause();
         if (feedPlayer != null) feedPlayer.pause();
+        // Don't waste bandwidth preloading cards the user can't see right now.
+        if (videoPreloader != null) videoPreloader.cancelAll();
     }
 
     @Override public void onDestroyView() {
         super.onDestroyView();
         if (scrollRunnable != null) scrollHandler.removeCallbacks(scrollRunnable);
         if (feedPlayer != null) { feedPlayer.release(); feedPlayer = null; }
+        if (videoPreloader != null) { videoPreloader.shutdown(); videoPreloader = null; }
+        thumbPreloader      = null;
+        predictivePreloader = null;
         feedCards.clear();
+        currentFeedPosts = new ArrayList<>();
         currentPlayingIndex = -1;
     }
 
@@ -688,7 +749,25 @@ public class HomeFragment extends Fragment {
                             }
                         }
                         posts.sort((a, b) -> Float.compare(b.trendingScore(), a.trendingScore()));
-                        renderFeedPosts(posts, uid);
+                        // PERF: fetch the current user's full follow-set ONCE here
+                        // instead of each card independently querying Firebase for
+                        // its own follow status (was: up to 10 extra network round
+                        // trips per feed render in For-You mode).
+                        if (uid != null) {
+                            FirebaseUtils.getReelFollowsRef(uid)
+                                .addListenerForSingleValueEvent(new ValueEventListener() {
+                                    @Override public void onDataChange(@NonNull DataSnapshot fSnap) {
+                                        Set<String> followedUids = new HashSet<>();
+                                        for (DataSnapshot s : fSnap.getChildren()) followedUids.add(s.getKey());
+                                        renderFeedPosts(posts, uid, followedUids);
+                                    }
+                                    @Override public void onCancelled(@NonNull DatabaseError e) {
+                                        renderFeedPosts(posts, uid, new HashSet<>());
+                                    }
+                                });
+                        } else {
+                            renderFeedPosts(posts, uid, new HashSet<>());
+                        }
                     }
                     @Override public void onCancelled(@NonNull DatabaseError e) {
                         showFeedLoading(false);
@@ -714,7 +793,7 @@ public class HomeFragment extends Fragment {
                         }
                     }
                     posts.sort((a, b) -> Long.compare(b.timestamp, a.timestamp));
-                    renderFeedPosts(posts, myUid);
+                    renderFeedPosts(posts, myUid, followedUids);
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) {
                     showFeedLoading(false);
@@ -723,7 +802,7 @@ public class HomeFragment extends Fragment {
             });
     }
 
-    private void renderFeedPosts(List<ReelModel> posts, String myUid) {
+    private void renderFeedPosts(List<ReelModel> posts, String myUid, Set<String> followedUids) {
         if (!isAdded() || getContext() == null) return;
         showFeedLoading(false);
         if (swipeRefresh != null) swipeRefresh.setRefreshing(false);
@@ -746,33 +825,49 @@ public class HomeFragment extends Fragment {
                             @Override public void onDataChange(@NonNull DataSnapshot likedSnap) {
                                 Set<String> likedIds = new HashSet<>();
                                 for (DataSnapshot s : likedSnap.getChildren()) likedIds.add(s.getKey());
-                                renderFeedPostsWithState(posts, likedIds, savedIds, myUid);
+                                renderFeedPostsWithState(posts, likedIds, savedIds, myUid, followedUids);
                             }
                             @Override public void onCancelled(@NonNull DatabaseError e) {
-                                renderFeedPostsWithState(posts, new HashSet<>(), savedIds, myUid);
+                                renderFeedPostsWithState(posts, new HashSet<>(), savedIds, myUid, followedUids);
                             }
                         });
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) {
-                    renderFeedPostsWithState(posts, new HashSet<>(), new HashSet<>(), myUid);
+                    renderFeedPostsWithState(posts, new HashSet<>(), new HashSet<>(), myUid, followedUids);
                 }
             });
         } else {
-            renderFeedPostsWithState(posts, new HashSet<>(), new HashSet<>(), null);
+            renderFeedPostsWithState(posts, new HashSet<>(), new HashSet<>(), null, followedUids);
         }
     }
 
     private void renderFeedPostsWithState(List<ReelModel> posts, Set<String> likedIds,
-                                           Set<String> savedIds, String myUid) {
+                                           Set<String> savedIds, String myUid, Set<String> followedUids) {
         if (!isAdded() || getContext() == null) return;
         requireActivity().runOnUiThread(() -> {
             if (containerFeed == null || !isAdded()) return;
             containerFeed.removeAllViews();
             feedCards.clear();
+            currentFeedPosts = posts;
             currentPlayingIndex = -1;
             int count = Math.min(posts.size(), 10);
-            for (int i = 0; i < count; i++) {
-                addFeedPostCard(posts.get(i), likedIds, savedIds, myUid);
+            // PERF: stagger card creation across frames. Inflating a card +
+            // dispatching its avatar/thumb Glide requests is real work; doing
+            // all 10 in one runOnUiThread block competes for the same 16ms
+            // frame budget and is the main cause of a visible stutter when
+            // opening Home or switching Following/For You. The first 3 cards
+            // (~one screen) still render immediately so content is visible
+            // instantly; the rest are added one-per-frame via postDelayed.
+            int immediate = Math.min(count, 3);
+            for (int i = 0; i < immediate; i++) {
+                addFeedPostCard(posts.get(i), likedIds, savedIds, myUid, followedUids);
+            }
+            for (int i = immediate; i < count; i++) {
+                final int idx = i;
+                containerFeed.postDelayed(() -> {
+                    if (!isAdded() || containerFeed == null) return;
+                    addFeedPostCard(posts.get(idx), likedIds, savedIds, myUid, followedUids);
+                }, (long) (idx - immediate + 1) * 16L);
             }
             // Auto-play first visible card after layout
             containerFeed.post(() -> {
@@ -783,7 +878,7 @@ public class HomeFragment extends Fragment {
     }
 
     private void addFeedPostCard(ReelModel reel, Set<String> likedIds,
-                                  Set<String> savedIds, String myUid) {
+                                  Set<String> savedIds, String myUid, Set<String> followedUids) {
         if (!isAdded() || getContext() == null || containerFeed == null) return;
         View card = LayoutInflater.from(requireContext())
             .inflate(R.layout.item_home_feed_post, containerFeed, false);
@@ -881,20 +976,12 @@ public class HomeFragment extends Fragment {
             tvSuggested.setVisibility(android.view.View.VISIBLE);
             if (tvTime   != null) tvTime.setVisibility(android.view.View.GONE);
             if (btnPostFollow != null) {
-                btnPostFollow.setVisibility(android.view.View.VISIBLE);
-                final boolean[] isFollowed = {false};
-                if (myUid != null) {
-                    FirebaseUtils.getReelFollowsRef(myUid).child(ownerUidRef)
-                        .addListenerForSingleValueEvent(new ValueEventListener() {
-                            @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                                isFollowed[0] = snap.exists();
-                                if (btnPostFollow != null) {
-                                    if (isFollowed[0]) btnPostFollow.setVisibility(android.view.View.GONE);
-                                }
-                            }
-                            @Override public void onCancelled(@NonNull DatabaseError e) {}
-                        });
-                }
+                // PERF: was an individual Firebase read per card
+                // (getReelFollowsRef(myUid).child(ownerUidRef)) — now a single
+                // pre-fetched Set lookup, since followedUids is fetched ONCE
+                // per feed render in loadFeed()/loadReelsForFeed().
+                final boolean[] isFollowed = {followedUids != null && followedUids.contains(ownerUidRef)};
+                btnPostFollow.setVisibility(isFollowed[0] ? android.view.View.GONE : android.view.View.VISIBLE);
                 btnPostFollow.setOnClickListener(x -> {
                     if (myUid == null || ownerUidRef.isEmpty()) return;
                     isFollowed[0] = true;
