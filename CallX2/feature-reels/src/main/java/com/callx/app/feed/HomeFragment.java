@@ -1027,7 +1027,7 @@ public class HomeFragment extends Fragment {
                 public RecyclerView.ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int vt) {
                     ImageView iv = new ImageView(parent.getContext());
                     iv.setLayoutParams(new ViewGroup.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT, photoH));
+                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
                     iv.setScaleType(ImageView.ScaleType.CENTER_CROP);
                     return new RecyclerView.ViewHolder(iv) {};
                 }
