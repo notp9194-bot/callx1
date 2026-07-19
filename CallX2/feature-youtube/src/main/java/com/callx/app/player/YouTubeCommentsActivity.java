@@ -10,6 +10,7 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import com.callx.app.player.YouTubeCommentAdapter;
+import com.callx.app.player.YouTubeCommentRepliesSheet;
 import com.callx.app.models.YouTubeComment;
 import com.callx.app.models.YouTubeNotification;
 import com.callx.app.utils.Constants;
@@ -62,6 +63,14 @@ public class YouTubeCommentsActivity extends AppCompatActivity {
             });
 
         adapter = new YouTubeCommentAdapter(this, new ArrayList<>());
+        adapter.setOnReplyClickListener(comment ->
+            YouTubeCommentRepliesSheet.newInstance(
+                videoId,
+                comment.commentId,
+                comment.authorUid != null ? comment.authorUid : "",
+                comment.text != null ? comment.text : "",
+                comment.authorName != null ? comment.authorName : "User"
+            ).show(getSupportFragmentManager(), "yt_replies"));
         rvComments.setLayoutManager(new LinearLayoutManager(this));
         rvComments.setAdapter(adapter);
 

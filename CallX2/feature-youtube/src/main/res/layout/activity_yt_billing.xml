@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/yt_bg">
+
+    <androidx.appcompat.widget.Toolbar
+        android:id="@+id/toolbar_yt_billing"
+        android:layout_width="match_parent"
+        android:layout_height="?attr/actionBarSize"
+        android:background="@color/yt_bg"/>
+
+    <View android:layout_width="match_parent" android:layout_height="1dp"
+        android:background="@color/yt_divider"/>
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingBottom="32dp">
+
+            <!-- Account info -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp"
+                android:background="#1A1A1A"
+                android:layout_margin="16dp">
+
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="Billing Account" android:textColor="#AAAAAA"
+                    android:textSize="11sp" android:layout_marginBottom="8dp"/>
+
+                <TextView android:id="@+id/tv_yt_billing_account"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:textColor="#FFFFFF" android:textSize="15sp"/>
+
+                <View android:layout_width="match_parent" android:layout_height="1dp"
+                    android:background="#333333" android:layout_marginTop="12dp" android:layout_marginBottom="12dp"/>
+
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="Current Plan" android:textColor="#AAAAAA"
+                    android:textSize="11sp" android:layout_marginBottom="4dp"/>
+
+                <TextView android:id="@+id/tv_yt_billing_plan"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:textColor="#FFFFFF" android:textSize="14sp"/>
+            </LinearLayout>
+
+            <View android:layout_width="match_parent" android:layout_height="1dp"
+                android:background="@color/yt_divider"/>
+
+            <LinearLayout
+                android:id="@+id/btn_yt_add_payment"
+                android:layout_width="match_parent"
+                android:layout_height="56dp"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:background="?attr/selectableItemBackground"
+                android:clickable="true"
+                android:focusable="true">
+                <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Add payment method" android:textColor="#FFFFFF" android:textSize="14sp"/>
+                <ImageView android:layout_width="20dp" android:layout_height="20dp"
+                    android:src="@drawable/ic_arrow_right" android:tint="#666666"/>
+            </LinearLayout>
+
+            <View android:layout_width="match_parent" android:layout_height="1dp"
+                android:background="@color/yt_divider"/>
+
+            <LinearLayout
+                android:id="@+id/btn_yt_view_invoices"
+                android:layout_width="match_parent"
+                android:layout_height="56dp"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:background="?attr/selectableItemBackground"
+                android:clickable="true"
+                android:focusable="true">
+                <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="View invoices" android:textColor="#FFFFFF" android:textSize="14sp"/>
+                <ImageView android:layout_width="20dp" android:layout_height="20dp"
+                    android:src="@drawable/ic_arrow_right" android:tint="#666666"/>
+            </LinearLayout>
+
+            <View android:layout_width="match_parent" android:layout_height="1dp"
+                android:background="@color/yt_divider"/>
+
+        </LinearLayout>
+    </ScrollView>
+
+</LinearLayout>

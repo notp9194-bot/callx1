@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/yt_bg">
+
+    <androidx.appcompat.widget.Toolbar
+        android:id="@+id/toolbar_yt_about"
+        android:layout_width="match_parent"
+        android:layout_height="?attr/actionBarSize"
+        android:background="@color/yt_bg"/>
+
+    <View android:layout_width="match_parent" android:layout_height="1dp"
+        android:background="@color/yt_divider"/>
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingBottom="32dp">
+
+            <!-- Logo / hero -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="120dp"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:background="#1A1A1A">
+
+                <ImageView
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:src="@drawable/ic_youtube_logo"/>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="YouTube"
+                    android:textColor="#FFFFFF"
+                    android:textSize="18sp"
+                    android:textStyle="bold"
+                    android:layout_marginTop="8dp"/>
+            </LinearLayout>
+
+            <!-- Version info -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <TextView android:id="@+id/tv_yt_about_version"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:textColor="#FFFFFF" android:textSize="15sp" android:layout_marginBottom="4dp"/>
+
+                <TextView android:id="@+id/tv_yt_about_build"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:textColor="#888888" android:textSize="12sp" android:lineSpacingMultiplier="1.4"/>
+            </LinearLayout>
+
+            <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/yt_divider"/>
+
+            <!-- Links -->
+            <LinearLayout android:id="@+id/btn_yt_privacy_policy"
+                android:layout_width="match_parent" android:layout_height="56dp"
+                android:orientation="horizontal" android:gravity="center_vertical"
+                android:paddingStart="16dp" android:paddingEnd="16dp"
+                android:background="?attr/selectableItemBackground"
+                android:clickable="true" android:focusable="true">
+                <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+                    android:text="Privacy Policy" android:textColor="#FFFFFF" android:textSize="14sp"/>
+                <ImageView android:layout_width="20dp" android:layout_height="20dp"
+                    android:src="@drawable/ic_arrow_right" android:tint="#666666"/>
+            </LinearLayout>
+
+            <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/yt_divider"/>
+
+            <LinearLayout android:id="@+id/btn_yt_about_tos"
+                android:layout_width="match_parent" android:layout_height="56dp"
+                android:orientation="horizontal" android:gravity="center_vertical"
+                android:paddingStart="16dp" android:paddingEnd="16dp"
+                android:background="?attr/selectableItemBackground"
+                android:clickable="true" android:focusable="true">
+                <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+                    android:text="Terms of Service" android:textColor="#FFFFFF" android:textSize="14sp"/>
+                <ImageView android:layout_width="20dp" android:layout_height="20dp"
+                    android:src="@drawable/ic_arrow_right" android:tint="#666666"/>
+            </LinearLayout>
+
+            <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/yt_divider"/>
+
+            <LinearLayout android:id="@+id/btn_yt_open_source"
+                android:layout_width="match_parent" android:layout_height="56dp"
+                android:orientation="horizontal" android:gravity="center_vertical"
+                android:paddingStart="16dp" android:paddingEnd="16dp"
+                android:background="?attr/selectableItemBackground"
+                android:clickable="true" android:focusable="true">
+                <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+                    android:text="Open Source Licenses" android:textColor="#FFFFFF" android:textSize="14sp"/>
+                <ImageView android:layout_width="20dp" android:layout_height="20dp"
+                    android:src="@drawable/ic_arrow_right" android:tint="#666666"/>
+            </LinearLayout>
+
+            <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/yt_divider"/>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="© 2024 Google LLC\nMade with ❤️ in CallX2"
+                android:textColor="#555555"
+                android:textSize="12sp"
+                android:gravity="center"
+                android:lineSpacingMultiplier="1.4"
+                android:padding="24dp"/>
+
+        </LinearLayout>
+    </ScrollView>
+
+</LinearLayout>

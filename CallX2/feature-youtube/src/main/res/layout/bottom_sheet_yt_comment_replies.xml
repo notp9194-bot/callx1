@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@color/yt_bg">
+
+    <!-- Header -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="52dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="16dp"
+        android:paddingEnd="8dp">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Replies"
+            android:textColor="#FFFFFF"
+            android:textSize="16sp"
+            android:textStyle="bold"/>
+
+        <ImageButton
+            android:id="@+id/btn_replies_close"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:src="@drawable/ic_close"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:tint="#AAAAAA"/>
+    </LinearLayout>
+
+    <View android:layout_width="match_parent" android:layout_height="1dp"
+        android:background="@color/yt_divider"/>
+
+    <!-- Parent comment preview -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp"
+        android:background="#1A1A1A">
+
+        <TextView
+            android:id="@+id/tv_replies_parent_author"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="#FF4444"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="4dp"/>
+
+        <TextView
+            android:id="@+id/tv_replies_parent_text"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="#CCCCCC"
+            android:textSize="13sp"
+            android:maxLines="3"
+            android:ellipsize="end"/>
+    </LinearLayout>
+
+    <View android:layout_width="match_parent" android:layout_height="1dp"
+        android:background="@color/yt_divider"/>
+
+    <!-- Replies list -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/rv_yt_replies"
+        android:layout_width="match_parent"
+        android:layout_height="300dp"
+        android:overScrollMode="never"/>
+
+    <View android:layout_width="match_parent" android:layout_height="1dp"
+        android:background="@color/yt_divider"/>
+
+    <!-- Reply input -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:padding="8dp"
+        android:background="@color/yt_bg">
+
+        <EditText
+            android:id="@+id/et_yt_reply"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:hint="Reply likhein..."
+            android:hintTextColor="#555555"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp"
+            android:maxLines="4"
+            android:inputType="textMultiLine|textCapSentences"
+            android:background="@drawable/bg_rounded_outline"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:paddingTop="8dp"
+            android:paddingBottom="8dp"/>
+
+        <ImageButton
+            android:id="@+id/btn_yt_send_reply"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:src="@drawable/ic_send"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:tint="#FF4444"
+            android:layout_marginStart="8dp"/>
+    </LinearLayout>
+
+</LinearLayout>

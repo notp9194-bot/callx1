@@ -20,8 +20,13 @@ import java.util.List;
 public class YouTubeCommentAdapter
     extends RecyclerView.Adapter<YouTubeCommentAdapter.VH> {
 
+    public interface OnReplyClickListener {
+        void onReply(YouTubeComment comment);
+    }
+
     private final Context ctx;
     private List<YouTubeComment> data;
+    private OnReplyClickListener replyListener;
 
     public YouTubeCommentAdapter(Context ctx, List<YouTubeComment> data) {
         this.ctx  = ctx;
@@ -31,6 +36,10 @@ public class YouTubeCommentAdapter
     public void setData(List<YouTubeComment> data) {
         this.data = data != null ? new ArrayList<>(data) : new ArrayList<>();
         notifyDataSetChanged();
+    }
+
+    public void setOnReplyClickListener(OnReplyClickListener listener) {
+        this.replyListener = listener;
     }
 
     @NonNull @Override
@@ -54,6 +63,19 @@ public class YouTubeCommentAdapter
         // 3-dot comment options
         if (h.btnMore != null) {
             h.btnMore.setOnClickListener(v -> showCommentOptions(c, pos));
+        }
+
+        // Reply button
+        if (h.btnReply != null) {
+            // Show reply count if available
+            if (c.replyCount > 0) {
+                h.btnReply.setText(c.replyCount + " replies");
+            } else {
+                h.btnReply.setText("Reply");
+            }
+            h.btnReply.setOnClickListener(v -> {
+                if (replyListener != null) replyListener.onReply(c);
+            });
         }
     }
 
@@ -85,7 +107,7 @@ public class YouTubeCommentAdapter
 
     static class VH extends RecyclerView.ViewHolder {
         CircleImageView ivAvatar;
-        TextView tvName, tvText, tvTime, tvLikes, tvPinned;
+        TextView tvName, tvText, tvTime, tvLikes, tvPinned, btnReply;
         ImageButton btnMore;
 
         VH(@NonNull View v) {
@@ -97,6 +119,7 @@ public class YouTubeCommentAdapter
             tvLikes  = v.findViewById(R.id.tv_yt_comment_likes);
             tvPinned = v.findViewById(R.id.tv_yt_comment_pinned);
             btnMore  = v.findViewById(R.id.btn_yt_comment_more);
+            btnReply = v.findViewById(R.id.btn_yt_comment_reply);
         }
     }
 

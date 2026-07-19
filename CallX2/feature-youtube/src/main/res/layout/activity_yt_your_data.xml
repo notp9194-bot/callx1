@@ -1,0 +1,197 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/yt_bg">
+
+    <androidx.appcompat.widget.Toolbar
+        android:id="@+id/toolbar_yt_your_data"
+        android:layout_width="match_parent"
+        android:layout_height="?attr/actionBarSize"
+        android:background="@color/yt_bg"/>
+
+    <View android:layout_width="match_parent" android:layout_height="1dp"
+        android:background="@color/yt_divider"/>
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingBottom="32dp">
+
+            <!-- Stats card -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:background="#1A1A1A"
+                android:padding="16dp"
+                android:layout_margin="16dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="YOUR DATA SUMMARY"
+                    android:textColor="#AAAAAA"
+                    android:textSize="11sp"
+                    android:letterSpacing="0.1"
+                    android:layout_marginBottom="12dp"/>
+
+                <TextView
+                    android:id="@+id/tv_yt_data_videos"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Loading..."
+                    android:textColor="#FFFFFF"
+                    android:textSize="14sp"
+                    android:drawableStart="@drawable/ic_yt_upload"
+                    android:drawablePadding="8dp"
+                    android:layout_marginBottom="8dp"/>
+
+                <TextView
+                    android:id="@+id/tv_yt_data_history"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Loading..."
+                    android:textColor="#FFFFFF"
+                    android:textSize="14sp"
+                    android:drawableStart="@drawable/ic_yt_history"
+                    android:drawablePadding="8dp"
+                    android:layout_marginBottom="8dp"/>
+
+                <TextView
+                    android:id="@+id/tv_yt_data_liked"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Loading..."
+                    android:textColor="#FFFFFF"
+                    android:textSize="14sp"
+                    android:drawableStart="@drawable/ic_yt_like"
+                    android:drawablePadding="8dp"/>
+            </LinearLayout>
+
+            <!-- Section: Your data controls -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="YOUR DATA CONTROLS"
+                android:textColor="#AAAAAA"
+                android:textSize="11sp"
+                android:letterSpacing="0.1"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:paddingTop="8dp"
+                android:paddingBottom="8dp"/>
+
+            <View android:layout_width="match_parent" android:layout_height="1dp"
+                android:background="@color/yt_divider"/>
+
+            <LinearLayout
+                android:id="@+id/btn_yt_request_data"
+                android:layout_width="match_parent"
+                android:layout_height="56dp"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:background="?attr/selectableItemBackground"
+                android:clickable="true"
+                android:focusable="true">
+                <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                    android:layout_weight="1" android:orientation="vertical">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Request a copy of your data" android:textColor="#FFFFFF" android:textSize="14sp"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Download all your YouTube data" android:textColor="#888888" android:textSize="12sp"/>
+                </LinearLayout>
+                <ImageView android:layout_width="20dp" android:layout_height="20dp"
+                    android:src="@drawable/ic_arrow_right" android:tint="#666666"/>
+            </LinearLayout>
+
+            <View android:layout_width="match_parent" android:layout_height="1dp"
+                android:background="@color/yt_divider"/>
+
+            <LinearLayout
+                android:id="@+id/btn_yt_clear_watch_data"
+                android:layout_width="match_parent"
+                android:layout_height="56dp"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:background="?attr/selectableItemBackground"
+                android:clickable="true"
+                android:focusable="true">
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="Delete watch history" android:textColor="#FF4444" android:textSize="14sp"/>
+            </LinearLayout>
+
+            <View android:layout_width="match_parent" android:layout_height="1dp"
+                android:background="@color/yt_divider"/>
+
+            <LinearLayout
+                android:id="@+id/btn_yt_clear_search_data"
+                android:layout_width="match_parent"
+                android:layout_height="56dp"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:background="?attr/selectableItemBackground"
+                android:clickable="true"
+                android:focusable="true">
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="Delete search history" android:textColor="#FF4444" android:textSize="14sp"/>
+            </LinearLayout>
+
+            <View android:layout_width="match_parent" android:layout_height="1dp"
+                android:background="@color/yt_divider"/>
+
+            <!-- Danger zone -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="DANGER ZONE"
+                android:textColor="#FF6666"
+                android:textSize="11sp"
+                android:letterSpacing="0.1"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:paddingTop="16dp"
+                android:paddingBottom="8dp"/>
+
+            <View android:layout_width="match_parent" android:layout_height="1dp"
+                android:background="@color/yt_divider"/>
+
+            <LinearLayout
+                android:id="@+id/btn_yt_delete_account_data"
+                android:layout_width="match_parent"
+                android:layout_height="56dp"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:background="?attr/selectableItemBackground"
+                android:clickable="true"
+                android:focusable="true">
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="vertical">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Delete all account data" android:textColor="#FF4444" android:textSize="14sp"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Channel, videos, comments sab permanent delete" android:textColor="#888888" android:textSize="12sp"/>
+                </LinearLayout>
+            </LinearLayout>
+
+            <View android:layout_width="match_parent" android:layout_height="1dp"
+                android:background="@color/yt_divider"/>
+
+        </LinearLayout>
+    </ScrollView>
+
+</LinearLayout>

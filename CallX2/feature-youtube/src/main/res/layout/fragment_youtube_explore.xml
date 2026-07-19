@@ -5,14 +5,65 @@
     android:orientation="vertical"
     android:background="@color/yt_bg">
 
-    <TextView
-        android:layout_width="wrap_content"
+    <!-- Category chips horizontal scroll -->
+    <HorizontalScrollView
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Trending"
-        android:textColor="#FFFFFF"
-        android:textSize="20sp"
-        android:textStyle="bold"
-        android:padding="16dp"/>
+        android:scrollbars="none"
+        android:background="@color/yt_bg"
+        android:elevation="4dp">
+
+        <LinearLayout
+            android:id="@+id/ll_yt_category_chips"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"/>
+
+    </HorizontalScrollView>
+
+    <View android:layout_width="match_parent" android:layout_height="1dp"
+        android:background="@color/yt_divider"/>
+
+    <!-- Trending header -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingTop="8dp"
+        android:paddingBottom="4dp">
+
+        <ImageView
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:src="@drawable/ic_yt_trending"
+            android:tint="#FF4444"/>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Trending"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:layout_marginStart="8dp"/>
+    </LinearLayout>
+
+    <!-- Empty state -->
+    <TextView
+        android:id="@+id/tv_yt_explore_empty"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Is category mein abhi koi video nahi hai"
+        android:textColor="#666666"
+        android:textSize="14sp"
+        android:gravity="center"
+        android:padding="32dp"
+        android:visibility="gone"/>
 
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/rv_yt_trending"

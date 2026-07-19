@@ -33,9 +33,12 @@ public class YouTubeVideoAdapter
 
     public interface OnVideoClickListener { void onClick(YouTubeVideo video); }
 
+    public interface OnVideoLongClickListener { void onLongClick(YouTubeVideo video, int position); }
+
     private final Context ctx;
     private List<YouTubeVideo> data;
     private final OnVideoClickListener listener;
+    private OnVideoLongClickListener longClickListener;
 
     // Optional callback for feed-level actions (not interested / deleted)
     private YouTubeVideoOptionsSheet.OptionsCallback optionsCallback;
@@ -52,6 +55,17 @@ public class YouTubeVideoAdapter
 
     public void setOptionsCallback(YouTubeVideoOptionsSheet.OptionsCallback cb) {
         this.optionsCallback = cb;
+    }
+
+    public void setOnLongClickListener(OnVideoLongClickListener listener) {
+        this.longClickListener = listener;
+    }
+
+    public void removeAt(int position) {
+        if (position >= 0 && position < data.size()) {
+            data.remove(position);
+            notifyItemRemoved(position);
+        }
     }
 
     /**
@@ -103,6 +117,12 @@ public class YouTubeVideoAdapter
         // Video click → play
         h.itemView.setOnClickListener(v -> {
             if (listener != null) listener.onClick(video);
+        });
+
+        // Video long-click (for delete-from-history etc)
+        h.itemView.setOnLongClickListener(v -> {
+            if (longClickListener != null) { longClickListener.onLongClick(video, pos); return true; }
+            return false;
         });
 
         // Avatar click → open YouTubeChannelActivity for the uploader (same module, direct ref ok)

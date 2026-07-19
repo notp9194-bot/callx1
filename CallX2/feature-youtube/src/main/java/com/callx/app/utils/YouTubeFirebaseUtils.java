@@ -80,4 +80,14 @@ public class YouTubeFirebaseUtils {
     public static DatabaseReference reportsRef(String videoId, String uid) {
         return root().child("reports").child(videoId).child(uid);
     }
+
+    // ── Feedback ──────────────────────────────────────────────────────────────
+    public static DatabaseReference feedbackRef(String uid) {
+        return root().child("feedback").child(!uid.isEmpty() ? uid : "anonymous");
+    }
+
+    // ── User data management ───────────────────────────────────────────────────
+    public static DatabaseReference userDataRef(String uid) {
+        return root().child("user_data").child(uid);
+    }
 }

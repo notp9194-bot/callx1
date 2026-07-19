@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/yt_bg">
+
+    <androidx.appcompat.widget.Toolbar
+        android:id="@+id/toolbar_yt_purchases"
+        android:layout_width="match_parent"
+        android:layout_height="?attr/actionBarSize"
+        android:background="@color/yt_bg"/>
+
+    <View android:layout_width="match_parent" android:layout_height="1dp"
+        android:background="@color/yt_divider"/>
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingBottom="32dp">
+
+            <!-- Premium card -->
+            <LinearLayout
+                android:id="@+id/card_yt_premium"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:background="#1A1A1A"
+                android:padding="16dp"
+                android:layout_margin="16dp">
+
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:gravity="center_vertical">
+
+                    <ImageView android:layout_width="32dp" android:layout_height="32dp"
+                        android:src="@drawable/ic_youtube_logo" android:layout_marginEnd="12dp"/>
+
+                    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:orientation="vertical">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="YouTube Premium" android:textColor="#FFFFFF"
+                            android:textSize="16sp" android:textStyle="bold"/>
+                        <TextView android:id="@+id/tv_yt_premium_status"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:textColor="#888888" android:textSize="13sp"/>
+                    </LinearLayout>
+                </LinearLayout>
+
+                <Button
+                    android:id="@+id/btn_yt_upgrade_premium"
+                    android:layout_width="match_parent"
+                    android:layout_height="40dp"
+                    android:text="Try YouTube Premium"
+                    android:textColor="#000000"
+                    android:backgroundTint="#FF0000"
+                    android:layout_marginTop="12dp"/>
+            </LinearLayout>
+
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="CHANNEL MEMBERSHIPS" android:textColor="#AAAAAA"
+                android:textSize="11sp" android:letterSpacing="0.1"
+                android:paddingStart="16dp" android:paddingEnd="16dp" android:paddingBottom="8dp"/>
+            <View android:layout_width="match_parent" android:layout_height="1dp"
+                android:background="@color/yt_divider"/>
+
+            <TextView android:id="@+id/tv_yt_no_memberships"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:textColor="#888888" android:textSize="13sp"
+                android:padding="16dp" android:lineSpacingMultiplier="1.4"/>
+
+            <View android:layout_width="match_parent" android:layout_height="8dp"
+                android:background="@color/yt_divider"/>
+
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="SUPER CHATS &amp; STICKERS" android:textColor="#AAAAAA"
+                android:textSize="11sp" android:letterSpacing="0.1"
+                android:paddingStart="16dp" android:paddingEnd="16dp" android:paddingBottom="8dp"/>
+            <View android:layout_width="match_parent" android:layout_height="1dp"
+                android:background="@color/yt_divider"/>
+            <TextView android:id="@+id/tv_yt_no_superchats"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:textColor="#888888" android:textSize="13sp" android:padding="16dp"/>
+
+        </LinearLayout>
+    </ScrollView>
+
+</LinearLayout>

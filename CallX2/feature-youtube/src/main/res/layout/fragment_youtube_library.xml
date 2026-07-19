@@ -143,5 +143,63 @@
                 android:textSize="15sp"/>
         </LinearLayout>
 
+        <!-- Liked Videos ends above — divider before Playlists section -->
+        <View android:layout_width="match_parent" android:layout_height="8dp"
+            android:background="#111111" android:layout_marginTop="8dp"/>
+
+        <!-- Playlists Section Header -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingTop="12dp"
+            android:paddingBottom="4dp">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Playlists"
+                android:textColor="#FFFFFF"
+                android:textSize="16sp"
+                android:textStyle="bold"/>
+
+            <TextView
+                android:id="@+id/btn_yt_new_playlist"
+                android:layout_width="wrap_content"
+                android:layout_height="32dp"
+                android:text="+ New"
+                android:textColor="#FF4444"
+                android:textSize="13sp"
+                android:gravity="center"
+                android:paddingStart="12dp"
+                android:paddingEnd="4dp"
+                android:clickable="true"
+                android:focusable="true"
+                android:background="?attr/selectableItemBackgroundBorderless"/>
+        </LinearLayout>
+
+        <View android:layout_width="match_parent" android:layout_height="1dp"
+            android:background="@color/yt_divider" android:layout_marginBottom="4dp"/>
+
+        <!-- Empty playlists message -->
+        <TextView
+            android:id="@+id/tv_yt_no_playlists"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Koi playlist nahi hai. + New se banao."
+            android:textColor="#555555"
+            android:textSize="13sp"
+            android:padding="12dp"
+            android:visibility="gone"/>
+
+        <!-- Playlist rows inserted dynamically by YouTubeLibraryFragment -->
+        <LinearLayout
+            android:id="@+id/ll_yt_playlists_container"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"/>
+
     </LinearLayout>
 </ScrollView>

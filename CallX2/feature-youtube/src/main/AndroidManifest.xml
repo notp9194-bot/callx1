@@ -184,6 +184,12 @@
             android:theme="@style/YouTubeActivity.Theme" android:exported="false"
             android:parentActivityName="com.callx.app.settings.YouTubeSettingsActivity"/>
 
+        <!-- Background Play Service -->
+        <service
+            android:name="com.callx.app.service.YouTubeBackgroundPlayService"
+            android:foregroundServiceType="mediaPlayback"
+            android:exported="false"/>
+
         <receiver android:name="com.callx.app.notifications.YouTubeNotificationBootReceiver"
             android:exported="true">
             <intent-filter>

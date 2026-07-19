@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/yt_bg">
+
+    <androidx.appcompat.widget.Toolbar
+        android:id="@+id/toolbar_yt_developer"
+        android:layout_width="match_parent"
+        android:layout_height="?attr/actionBarSize"
+        android:background="@color/yt_bg"/>
+
+    <View android:layout_width="match_parent" android:layout_height="1dp"
+        android:background="@color/yt_divider"/>
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingBottom="32dp">
+
+            <!-- Info card -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:background="#0D1A00"
+                android:padding="16dp"
+                android:layout_margin="16dp">
+
+                <TextView android:id="@+id/tv_yt_dev_version"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:textColor="#88FF44" android:textSize="13sp" android:fontFamily="monospace"
+                    android:layout_marginBottom="6dp"/>
+
+                <TextView android:id="@+id/tv_yt_dev_uid"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:textColor="#88FF44" android:textSize="11sp" android:fontFamily="monospace"
+                    android:layout_marginBottom="6dp" android:clickable="true" android:focusable="true"/>
+
+                <TextView android:id="@+id/tv_yt_dev_db_url"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:textColor="#88FF44" android:textSize="11sp" android:fontFamily="monospace"
+                    android:clickable="true" android:focusable="true"/>
+            </LinearLayout>
+
+            <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/yt_divider"/>
+
+            <LinearLayout android:layout_width="match_parent" android:layout_height="56dp" android:orientation="horizontal" android:gravity="center_vertical" android:paddingStart="16dp" android:paddingEnd="16dp">
+                <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Stats for nerds" android:textColor="#FFFFFF" android:textSize="14sp"/>
+                <androidx.appcompat.widget.SwitchCompat android:id="@+id/sw_yt_dev_stats" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+            </LinearLayout>
+            <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/yt_divider"/>
+
+            <LinearLayout android:layout_width="match_parent" android:layout_height="56dp" android:orientation="horizontal" android:gravity="center_vertical" android:paddingStart="16dp" android:paddingEnd="16dp">
+                <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Debug overlay" android:textColor="#FFFFFF" android:textSize="14sp"/>
+                <androidx.appcompat.widget.SwitchCompat android:id="@+id/sw_yt_dev_debug_overlay" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+            </LinearLayout>
+            <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/yt_divider"/>
+
+            <LinearLayout android:layout_width="match_parent" android:layout_height="56dp" android:orientation="horizontal" android:gravity="center_vertical" android:paddingStart="16dp" android:paddingEnd="16dp">
+                <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Verbose logging" android:textColor="#FFFFFF" android:textSize="14sp"/>
+                <androidx.appcompat.widget.SwitchCompat android:id="@+id/sw_yt_dev_verbose_log" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+            </LinearLayout>
+            <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/yt_divider"/>
+
+            <LinearLayout android:layout_width="match_parent" android:layout_height="56dp" android:orientation="horizontal" android:gravity="center_vertical" android:paddingStart="16dp" android:paddingEnd="16dp">
+                <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Disable cache" android:textColor="#FFFFFF" android:textSize="14sp"/>
+                <androidx.appcompat.widget.SwitchCompat android:id="@+id/sw_yt_dev_disable_cache" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+            </LinearLayout>
+            <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/yt_divider"/>
+
+            <LinearLayout android:layout_width="match_parent" android:layout_height="56dp" android:orientation="horizontal" android:gravity="center_vertical" android:paddingStart="16dp" android:paddingEnd="16dp">
+                <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Network request logging" android:textColor="#FFFFFF" android:textSize="14sp"/>
+                <androidx.appcompat.widget.SwitchCompat android:id="@+id/sw_yt_dev_net_log" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+            </LinearLayout>
+            <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/yt_divider"/>
+
+            <!-- Cache info and clear -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="56dp"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:background="?attr/selectableItemBackground"
+                android:clickable="true"
+                android:focusable="true"
+                android:id="@+id/btn_yt_dev_clear_cache">
+                <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Clear cache" android:textColor="#FF9800" android:textSize="14sp"/>
+                    <TextView android:id="@+id/tv_yt_dev_cache_size" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textColor="#888888" android:textSize="12sp"/>
+                </LinearLayout>
+                <ImageView android:layout_width="20dp" android:layout_height="20dp" android:src="@drawable/ic_arrow_right" android:tint="#666666"/>
+            </LinearLayout>
+            <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/yt_divider"/>
+
+        </LinearLayout>
+    </ScrollView>
+
+</LinearLayout>

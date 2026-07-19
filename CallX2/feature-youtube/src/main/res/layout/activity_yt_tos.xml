@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/yt_bg">
+
+    <androidx.appcompat.widget.Toolbar
+        android:id="@+id/toolbar_yt_tos"
+        android:layout_width="match_parent"
+        android:layout_height="?attr/actionBarSize"
+        android:background="@color/yt_bg"/>
+
+    <View android:layout_width="match_parent" android:layout_height="1dp"
+        android:background="@color/yt_divider"/>
+
+    <TextView
+        android:id="@+id/tv_yt_tos_last_updated"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Last updated: January 5, 2024"
+        android:textColor="#888888"
+        android:textSize="12sp"
+        android:padding="16dp"
+        android:paddingBottom="8dp"/>
+
+    <View android:layout_width="match_parent" android:layout_height="1dp"
+        android:background="@color/yt_divider"/>
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+
+        <TextView
+            android:id="@+id/tv_yt_tos_content"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="#DDDDDD"
+            android:textSize="13sp"
+            android:lineSpacingMultiplier="1.5"
+            android:padding="16dp"
+            android:paddingBottom="48dp"/>
+
+    </ScrollView>
+
+</LinearLayout>
