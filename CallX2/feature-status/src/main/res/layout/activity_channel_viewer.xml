@@ -92,11 +92,56 @@
         android:background="#EEEEEE"/>
 
     <!-- Channel posts -->
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/rv_channel_posts"
+    <FrameLayout
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:clipToPadding="false"
-        android:paddingBottom="16dp"/>
+        android:layout_height="match_parent">
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/rv_channel_posts"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:clipToPadding="false"
+            android:paddingBottom="16dp"/>
+
+        <LinearLayout
+            android:id="@+id/layout_channel_empty"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="No updates yet"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:textColor="#666666"/>
+
+            <TextView
+                android:id="@+id/tv_channel_empty_sub"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="Updates from this channel will show up here"
+                android:textSize="13sp"
+                android:textColor="#999999"/>
+        </LinearLayout>
+
+        <com.google.android.material.floatingactionbutton.FloatingActionButton
+            android:id="@+id/fab_new_post"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|end"
+            android:layout_margin="20dp"
+            android:src="@android:drawable/ic_input_add"
+            app:backgroundTint="#25D366"
+            android:tint="#FFFFFF"
+            android:visibility="gone"
+            android:contentDescription="New post"/>
+
+    </FrameLayout>
 
 </LinearLayout>

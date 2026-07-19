@@ -24,6 +24,9 @@
         <activity android:name="com.callx.app.channel.CreateChannelActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize"/>
+        <activity android:name="com.callx.app.channel.ChannelPostComposerActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
         <!-- ──────────────────────────────────────────────────────────────── -->
 
         <service android:name="com.callx.app.services.StatusBackgroundService"

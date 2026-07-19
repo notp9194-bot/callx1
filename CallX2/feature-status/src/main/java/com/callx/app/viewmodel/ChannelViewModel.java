@@ -145,6 +145,25 @@ public class ChannelViewModel extends AndroidViewModel {
         repo.incrementPostView(channelId, postId);
     }
 
+    /** True if the current user owns this channel — drives the "New Post" button. */
+    public boolean isOwner(ChannelEntity ch) {
+        return ch != null && myUid != null && myUid.equals(ch.ownerUid);
+    }
+
+    /** Post a new text update into the channel. */
+    public void createPost(String channelId, String text) {
+        if (text == null || text.trim().isEmpty()) return;
+        _loading.postValue(true);
+        com.callx.app.models.ChannelPost post = new com.callx.app.models.ChannelPost();
+        post.text      = text.trim();
+        post.type      = "text";
+        post.timestamp = System.currentTimeMillis();
+        repo.postToChannel(channelId, post, ok -> {
+            _loading.postValue(false);
+            _toastMessage.postValue(ok ? "Posted" : "Failed to post");
+        });
+    }
+
     // ── Helper ────────────────────────────────────────────────────────────
 
     /** Convert Channel model → ChannelEntity for passing to createChannel. */

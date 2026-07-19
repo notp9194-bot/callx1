@@ -84,6 +84,9 @@ public class ChannelViewerActivity extends AppCompatActivity {
 
         // ── Posts list ────────────────────────────────────────────────────
         RecyclerView rv = findViewById(R.id.rv_channel_posts);
+        View emptyState = findViewById(R.id.layout_channel_empty);
+        com.google.android.material.floatingactionbutton.FloatingActionButton fabNewPost =
+                findViewById(R.id.fab_new_post);
         rv.setLayoutManager(new LinearLayoutManager(this));
         postAdapter = new ChannelPostAdapter();
         postAdapter.setOnForwardClick(post -> Toast.makeText(this, "Forwarded!", Toast.LENGTH_SHORT).show());
@@ -110,13 +113,22 @@ public class ChannelViewerActivity extends AppCompatActivity {
                 }
             }
             postAdapter.setPosts(models);
+            emptyState.setVisibility(models.isEmpty() ? View.VISIBLE : View.GONE);
         });
 
-        // ── Observe the channel itself for follow state ───────────────────
+        // ── Observe the channel itself for follow state + ownership ───────
         viewModel.getChannel(channelId).observe(this, ch -> {
             if (ch == null) return;
             isFollowing = ch.isFollowed;
             updateFollowButton();
+            fabNewPost.setVisibility(viewModel.isOwner(ch) ? View.VISIBLE : View.GONE);
+        });
+
+        fabNewPost.setOnClickListener(v -> {
+            android.content.Intent i = new android.content.Intent(this, ChannelPostComposerActivity.class);
+            i.putExtra(ChannelPostComposerActivity.EXTRA_CHANNEL_ID, channelId);
+            i.putExtra(ChannelPostComposerActivity.EXTRA_CHANNEL_NAME, channelName);
+            startActivity(i);
         });
 
         // ── Follow toggle ─────────────────────────────────────────────────
