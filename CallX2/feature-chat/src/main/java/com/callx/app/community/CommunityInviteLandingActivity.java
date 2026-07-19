@@ -7,6 +7,7 @@ import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 
+import com.callx.app.community.CommunityRole;
 import com.callx.app.repository.CommunityRepository;
 import com.google.firebase.auth.FirebaseAuth;
 

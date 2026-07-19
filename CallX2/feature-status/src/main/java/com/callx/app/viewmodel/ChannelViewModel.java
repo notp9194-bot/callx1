@@ -99,8 +99,6 @@ public class ChannelViewModel extends AndroidViewModel {
             if (ok) {
                 // Auto-follow own channel
                 if (ch.id != null) repo.followChannel(myUid, ch.id, null);
-                ChannelEntity entity = repo.entityToModel(repo.entityToModel(ch) != null
-                        ? new com.callx.app.db.entity.ChannelEntity() : new com.callx.app.db.entity.ChannelEntity());
                 // Build entity for callback
                 com.callx.app.db.entity.ChannelEntity e = new com.callx.app.db.entity.ChannelEntity();
                 e.id       = ch.id != null ? ch.id : "";
