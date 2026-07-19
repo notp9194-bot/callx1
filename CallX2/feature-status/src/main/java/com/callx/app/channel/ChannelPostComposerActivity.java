@@ -25,6 +25,7 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.Toolbar;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
+import androidx.core.util.Consumer;
 import androidx.lifecycle.ViewModelProvider;
 import com.bumptech.glide.Glide;
 import com.callx.app.status.R;
@@ -35,6 +36,7 @@ import com.google.android.material.chip.ChipGroup;
 import com.google.android.material.snackbar.Snackbar;
 import com.google.android.material.textfield.TextInputEditText;
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -142,17 +144,17 @@ public class ChannelPostComposerActivity extends AppCompatActivity {
     // ── Launchers ─────────────────────────────────────────────────────────
     private final ActivityResultLauncher<String> pickImage =
         registerForActivityResult(new ActivityResultContracts.GetContent(), uri -> {
-            if (uri != null) attachMedia(uri, "image");
+            if (uri != null) copyToCacheThen(uri, ".jpg", local -> attachMedia(local, "image"));
         });
 
     private final ActivityResultLauncher<String> pickVideo =
         registerForActivityResult(new ActivityResultContracts.GetContent(), uri -> {
-            if (uri != null) attachMedia(uri, "video");
+            if (uri != null) copyToCacheThen(uri, ".mp4", local -> attachMedia(local, "video"));
         });
 
     private final ActivityResultLauncher<String> pickAudio =
         registerForActivityResult(new ActivityResultContracts.GetContent(), uri -> {
-            if (uri != null) attachAudioFile(uri);
+            if (uri != null) copyToCacheThen(uri, ".m4a", this::attachAudioFile);
         });
 
     private final ActivityResultLauncher<String[]> pickDocument =
@@ -408,6 +410,54 @@ public class ChannelPostComposerActivity extends AppCompatActivity {
     }
 
     // ── Attachment helpers ─────────────────────────────────────────────────
+
+    /**
+     * Immediately copies a picked content:// URI into this app's private cache
+     * directory on a background thread, then hands the resulting local file
+     * URI to {@code callback} on the main thread.
+     *
+     * Why: the raw URI returned by the system picker only carries a
+     * short-lived read grant (and on some OEM ROMs — MIUI/ColorOS — the
+     * backing temp file can be cleared under memory pressure well before the
+     * user finishes composing and hits Post). Uploading straight from that
+     * URI later intermittently failed with Firebase Storage's
+     * "Object does not exist at location", because by upload time the source
+     * was already gone. Snapshotting it into our own cache the moment it's
+     * picked removes that dependency entirely.
+     */
+    private void copyToCacheThen(Uri source, String fallbackExt, Consumer<Uri> callback) {
+        new Thread(() -> {
+            File out = null;
+            try {
+                String mime = getContentResolver().getType(source);
+                String ext = fallbackExt;
+                if (mime != null) {
+                    String fromMime = android.webkit.MimeTypeMap.getSingleton()
+                            .getExtensionFromMimeType(mime);
+                    if (fromMime != null) ext = "." + fromMime;
+                }
+                out = new File(getCacheDir(), "post_" + System.currentTimeMillis() + ext);
+                try (InputStream in = getContentResolver().openInputStream(source);
+                     FileOutputStream fos = new FileOutputStream(out)) {
+                    if (in == null) throw new java.io.IOException("Unable to open picked file");
+                    byte[] buf = new byte[8192];
+                    int n;
+                    while ((n = in.read(buf)) != -1) fos.write(buf, 0, n);
+                }
+            } catch (Exception e) {
+                out = null;
+            }
+            final Uri localUri = out != null ? Uri.fromFile(out) : null;
+            new Handler(Looper.getMainLooper()).post(() -> {
+                if (localUri != null) {
+                    callback.accept(localUri);
+                } else {
+                    Toast.makeText(this, "Couldn't read the selected file. Please try again.",
+                            Toast.LENGTH_SHORT).show();
+                }
+            });
+        }).start();
+    }
 
     private void attachMedia(Uri uri, String type) {
         selectedMediaUri  = uri;
