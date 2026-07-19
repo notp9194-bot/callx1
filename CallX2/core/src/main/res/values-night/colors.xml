@@ -43,4 +43,12 @@
     <!-- Shared AlertDialog panel background — dark mode (unchanged, this was
          the original hardcoded value in bg_rounded_alert_dialog.xml). -->
     <color name="dialog_surface">#1E1E1E</color>
+
+    <!-- Aliases for feature-status layouts that reference Material-style
+         color names directly; kept in sync with the palette above. -->
+    <color name="colorBackground">@color/surface_bg</color>
+    <color name="colorSurface">@color/surface_card</color>
+    <color name="colorTextPrimary">@color/text_primary</color>
+    <color name="colorTextSecondary">@color/text_secondary</color>
+    <color name="colorError">@color/action_danger</color>
 </resources>

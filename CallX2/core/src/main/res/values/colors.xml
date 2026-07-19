@@ -69,4 +69,12 @@
          Was hardcoded #1E1E1E (dark) before, so dialogs looked broken
          in light mode (dark panel + dark platform text = unreadable). -->
     <color name="dialog_surface">#FFFFFF</color>
+
+    <!-- Aliases for feature-status layouts that reference Material-style
+         color names directly; kept in sync with the palette above. -->
+    <color name="colorBackground">@color/surface_bg</color>
+    <color name="colorSurface">@color/surface_card</color>
+    <color name="colorTextPrimary">@color/text_primary</color>
+    <color name="colorTextSecondary">@color/text_secondary</color>
+    <color name="colorError">@color/action_danger</color>
 </resources>
