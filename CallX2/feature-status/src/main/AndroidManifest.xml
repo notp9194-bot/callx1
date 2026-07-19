@@ -12,28 +12,28 @@
         <!-- Channel feed / viewer (follower view) -->
         <activity
             android:name="com.callx.app.channel.ChannelViewerActivity"
-            android:theme="@style/AppTheme"
+            android:theme="@style/Theme.CallX"
             android:windowSoftInputMode="adjustResize"
             android:exported="false"/>
 
         <!-- New post composer: text / image / video / link / poll / audio / document -->
         <activity
             android:name="com.callx.app.channel.ChannelPostComposerActivity"
-            android:theme="@style/AppTheme"
+            android:theme="@style/Theme.CallX"
             android:windowSoftInputMode="adjustResize|stateHidden"
             android:exported="false"/>
 
         <!-- Create a new channel (name / desc / icon / category / privacy) -->
         <activity
             android:name="com.callx.app.channel.CreateChannelActivity"
-            android:theme="@style/AppTheme"
+            android:theme="@style/Theme.CallX"
             android:windowSoftInputMode="adjustResize"
             android:exported="false"/>
 
         <!-- Explore / search public channels with category chips -->
         <activity
             android:name="com.callx.app.channel.ExploreChannelsActivity"
-            android:theme="@style/AppTheme"
+            android:theme="@style/Theme.CallX"
             android:exported="false"/>
 
         <!-- Full-screen image / video viewer for channel post media -->
@@ -46,7 +46,7 @@
         <!-- Forward a channel post to individual chats or groups (ACTUAL Firebase send) -->
         <activity
             android:name="com.callx.app.channel.ForwardPostActivity"
-            android:theme="@style/AppTheme"
+            android:theme="@style/Theme.CallX"
             android:windowSoftInputMode="adjustResize"
             android:exported="false"/>
 
@@ -54,20 +54,20 @@
              followers, invite link, and scheduled posts -->
         <activity
             android:name="com.callx.app.channel.ChannelAdminActivity"
-            android:theme="@style/AppTheme"
+            android:theme="@style/Theme.CallX"
             android:exported="false"/>
 
         <!-- Full analytics dashboard: overview, averages, content mix, peak hour,
              top posts by views / reactions, poll performance -->
         <activity
             android:name="com.callx.app.channel.ChannelAnalyticsActivity"
-            android:theme="@style/AppTheme"
+            android:theme="@style/Theme.CallX"
             android:exported="false"/>
 
         <!-- Per-channel mute/notification settings (duration picker) -->
         <activity
             android:name="com.callx.app.channel.ChannelNotificationSettingsActivity"
-            android:theme="@style/AppTheme"
+            android:theme="@style/Theme.CallX"
             android:exported="false"/>
 
         <!-- ── NEW v2 activities ─────────────────────────────────────────── -->
@@ -75,32 +75,32 @@
         <!-- Edit channel metadata: name / description / icon / category / privacy -->
         <activity
             android:name="com.callx.app.channel.ChannelEditActivity"
-            android:theme="@style/AppTheme"
+            android:theme="@style/Theme.CallX"
             android:windowSoftInputMode="adjustResize"
             android:exported="false"/>
 
         <!-- Admin view / manage channel followers (join date, promote, block/remove) -->
         <activity
             android:name="com.callx.app.channel.ChannelFollowersActivity"
-            android:theme="@style/AppTheme"
+            android:theme="@style/Theme.CallX"
             android:exported="false"/>
 
         <!-- Generate / share / revoke invite link + QR code (private channels) -->
         <activity
             android:name="com.callx.app.channel.ChannelInviteLinkActivity"
-            android:theme="@style/AppTheme"
+            android:theme="@style/Theme.CallX"
             android:exported="false"/>
 
         <!-- Reactions detail: who reacted, per-emoji filter chips -->
         <activity
             android:name="com.callx.app.channel.ChannelReactionsDetailActivity"
-            android:theme="@style/AppTheme"
+            android:theme="@style/Theme.CallX"
             android:exported="false"/>
 
         <!-- Scheduled posts: list, publish now, delete / cancel -->
         <activity
             android:name="com.callx.app.channel.ChannelScheduledPostsActivity"
-            android:theme="@style/AppTheme"
+            android:theme="@style/Theme.CallX"
             android:exported="false"/>
 
         <!-- ── NEW v3 activities ─────────────────────────────────────────── -->
@@ -108,14 +108,14 @@
         <!-- Reply / comment thread per channel post -->
         <activity
             android:name="com.callx.app.channel.ChannelReplyActivity"
-            android:theme="@style/AppTheme"
+            android:theme="@style/Theme.CallX"
             android:windowSoftInputMode="adjustResize"
             android:exported="false"/>
 
         <!-- Join a channel via invite link / deep link (callx://channel/join/{code}) -->
         <activity
             android:name="com.callx.app.channel.ChannelJoinActivity"
-            android:theme="@style/AppTheme"
+            android:theme="@style/Theme.CallX"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.VIEW"/>
@@ -134,7 +134,7 @@
         <!-- Share a post as a branded image card -->
         <activity
             android:name="com.callx.app.channel.ChannelPostShareActivity"
-            android:theme="@style/AppTheme"
+            android:theme="@style/Theme.CallX"
             android:exported="false"/>
 
     </application>
