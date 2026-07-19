@@ -1,43 +1,142 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.callx.app.status">
+
     <application>
-        <activity android:name="com.callx.app.viewer.StatusViewerActivity"
-            android:exported="false"
-            android:theme="@style/Theme.CallX.Fullscreen">
+
+        <!-- ══════════════════════════════════════════════════════════════════
+             CHANNEL ACTIVITIES — WhatsApp-level upgrade (v2)
+             All new activities added below existing ones.
+             ══════════════════════════════════════════════════════════════════ -->
+
+        <!-- Channel feed / viewer (follower view) -->
+        <activity
+            android:name="com.callx.app.channel.ChannelViewerActivity"
+            android:theme="@style/AppTheme"
+            android:windowSoftInputMode="adjustResize"
+            android:exported="false"/>
+
+        <!-- New post composer: text / image / video / link / poll / audio / document -->
+        <activity
+            android:name="com.callx.app.channel.ChannelPostComposerActivity"
+            android:theme="@style/AppTheme"
+            android:windowSoftInputMode="adjustResize|stateHidden"
+            android:exported="false"/>
+
+        <!-- Create a new channel (name / desc / icon / category / privacy) -->
+        <activity
+            android:name="com.callx.app.channel.CreateChannelActivity"
+            android:theme="@style/AppTheme"
+            android:windowSoftInputMode="adjustResize"
+            android:exported="false"/>
+
+        <!-- Explore / search public channels with category chips -->
+        <activity
+            android:name="com.callx.app.channel.ExploreChannelsActivity"
+            android:theme="@style/AppTheme"
+            android:exported="false"/>
+
+        <!-- Full-screen image / video viewer for channel post media -->
+        <activity
+            android:name="com.callx.app.channel.ChannelMediaViewerActivity"
+            android:theme="@style/Theme.AppCompat.NoActionBar"
+            android:configChanges="orientation|screenSize"
+            android:exported="false"/>
+
+        <!-- Forward a channel post to individual chats or groups (ACTUAL Firebase send) -->
+        <activity
+            android:name="com.callx.app.channel.ForwardPostActivity"
+            android:theme="@style/AppTheme"
+            android:windowSoftInputMode="adjustResize"
+            android:exported="false"/>
+
+        <!-- Admin management: add / remove / transfer ownership + quick links to
+             followers, invite link, and scheduled posts -->
+        <activity
+            android:name="com.callx.app.channel.ChannelAdminActivity"
+            android:theme="@style/AppTheme"
+            android:exported="false"/>
+
+        <!-- Full analytics dashboard: overview, averages, content mix, peak hour,
+             top posts by views / reactions, poll performance -->
+        <activity
+            android:name="com.callx.app.channel.ChannelAnalyticsActivity"
+            android:theme="@style/AppTheme"
+            android:exported="false"/>
+
+        <!-- Per-channel mute/notification settings (duration picker) -->
+        <activity
+            android:name="com.callx.app.channel.ChannelNotificationSettingsActivity"
+            android:theme="@style/AppTheme"
+            android:exported="false"/>
+
+        <!-- ── NEW v2 activities ─────────────────────────────────────────── -->
+
+        <!-- Edit channel metadata: name / description / icon / category / privacy -->
+        <activity
+            android:name="com.callx.app.channel.ChannelEditActivity"
+            android:theme="@style/AppTheme"
+            android:windowSoftInputMode="adjustResize"
+            android:exported="false"/>
+
+        <!-- Admin view / manage channel followers (join date, promote, block/remove) -->
+        <activity
+            android:name="com.callx.app.channel.ChannelFollowersActivity"
+            android:theme="@style/AppTheme"
+            android:exported="false"/>
+
+        <!-- Generate / share / revoke invite link + QR code (private channels) -->
+        <activity
+            android:name="com.callx.app.channel.ChannelInviteLinkActivity"
+            android:theme="@style/AppTheme"
+            android:exported="false"/>
+
+        <!-- Reactions detail: who reacted, per-emoji filter chips -->
+        <activity
+            android:name="com.callx.app.channel.ChannelReactionsDetailActivity"
+            android:theme="@style/AppTheme"
+            android:exported="false"/>
+
+        <!-- Scheduled posts: list, publish now, delete / cancel -->
+        <activity
+            android:name="com.callx.app.channel.ChannelScheduledPostsActivity"
+            android:theme="@style/AppTheme"
+            android:exported="false"/>
+
+        <!-- ── NEW v3 activities ─────────────────────────────────────────── -->
+
+        <!-- Reply / comment thread per channel post -->
+        <activity
+            android:name="com.callx.app.channel.ChannelReplyActivity"
+            android:theme="@style/AppTheme"
+            android:windowSoftInputMode="adjustResize"
+            android:exported="false"/>
+
+        <!-- Join a channel via invite link / deep link (callx://channel/join/{code}) -->
+        <activity
+            android:name="com.callx.app.channel.ChannelJoinActivity"
+            android:theme="@style/AppTheme"
+            android:exported="true">
             <intent-filter>
-                <action android:name="com.callx.app.ACTION_OPEN_STATUS"/>
+                <action android:name="android.intent.action.VIEW"/>
                 <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="callx" android:host="channel" android:pathPrefix="/join/"/>
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="https" android:host="callx.app" android:pathPrefix="/channel/join/"/>
             </intent-filter>
         </activity>
-        <activity android:name="com.callx.app.compose.NewStatusActivity"
-            android:exported="false"/>
-        <activity android:name="com.callx.app.highlights.StatusHighlightsActivity"
+
+        <!-- Share a post as a branded image card -->
+        <activity
+            android:name="com.callx.app.channel.ChannelPostShareActivity"
+            android:theme="@style/AppTheme"
             android:exported="false"/>
 
-        <!-- ── Channel Activities ──────────────────────────────────────── -->
-        <activity android:name="com.callx.app.channel.ExploreChannelsActivity"
-            android:exported="false"
-            android:windowSoftInputMode="adjustResize"/>
-        <activity android:name="com.callx.app.channel.ChannelViewerActivity"
-            android:exported="false"
-            android:windowSoftInputMode="adjustResize"/>
-        <activity android:name="com.callx.app.channel.CreateChannelActivity"
-            android:exported="false"
-            android:windowSoftInputMode="adjustResize"/>
-        <activity android:name="com.callx.app.channel.ChannelPostComposerActivity"
-            android:exported="false"
-            android:windowSoftInputMode="adjustResize"/>
-        <!-- ──────────────────────────────────────────────────────────────── -->
-
-        <service android:name="com.callx.app.services.StatusBackgroundService"
-            android:exported="false"
-            android:foregroundServiceType="dataSync"
-            android:stopWithTask="false"/>
-        <receiver android:name="com.callx.app.services.StatusExpiryReceiver"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="com.callx.app.STATUS_EXPIRY_REMINDER"/>
-            </intent-filter>
-        </receiver>
     </application>
+
 </manifest>

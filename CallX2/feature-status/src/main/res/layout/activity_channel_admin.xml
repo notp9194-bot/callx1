@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/colorBackground">
+
+    <com.google.android.material.appbar.MaterialToolbar
+        android:id="@+id/toolbar_admin"
+        android:layout_width="match_parent"
+        android:layout_height="?attr/actionBarSize"
+        android:background="@color/colorPrimary"
+        app:titleTextColor="@android:color/white"
+        app:navigationIconTint="@android:color/white" />
+
+    <!-- Quick-access buttons for admin tools -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:background="@color/colorSurface"
+        android:padding="12dp"
+        android:elevation="2dp">
+
+        <LinearLayout
+            android:id="@+id/btn_view_followers"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:padding="8dp"
+            android:background="?attr/selectableItemBackgroundBorderless">
+            <ImageView android:layout_width="24dp" android:layout_height="24dp" android:src="@drawable/ic_group" android:tint="@color/colorPrimary" />
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Followers" android:textSize="11sp" android:textColor="@color/colorTextSecondary" android:layout_marginTop="2dp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/btn_manage_invite_link"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:padding="8dp"
+            android:background="?attr/selectableItemBackgroundBorderless">
+            <ImageView android:layout_width="24dp" android:layout_height="24dp" android:src="@drawable/ic_link" android:tint="@color/colorPrimary" />
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Invite link" android:textSize="11sp" android:textColor="@color/colorTextSecondary" android:layout_marginTop="2dp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/btn_scheduled_posts"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:padding="8dp"
+            android:background="?attr/selectableItemBackgroundBorderless">
+            <ImageView android:layout_width="24dp" android:layout_height="24dp" android:src="@drawable/ic_schedule" android:tint="@color/colorPrimary" />
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Scheduled" android:textSize="11sp" android:textColor="@color/colorTextSecondary" android:layout_marginTop="2dp" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="ADMINS"
+        android:textSize="11sp"
+        android:textColor="@color/colorTextSecondary"
+        android:letterSpacing="0.12"
+        android:paddingHorizontal="16dp"
+        android:paddingTop="16dp"
+        android:paddingBottom="8dp" />
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/rv_admins"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
+
+    <com.google.android.material.floatingactionbutton.FloatingActionButton
+        android:id="@+id/fab_add_admin"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|end"
+        android:layout_margin="16dp"
+        android:src="@drawable/ic_add"
+        app:tint="@android:color/white"
+        android:contentDescription="Add admin" />
+</LinearLayout>

@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <!-- Search (icon in toolbar) -->
+    <item
+        android:id="@+id/action_search_posts"
+        android:title="Search posts"
+        android:icon="@android:drawable/ic_menu_search"
+        app:showAsAction="ifRoom"
+        app:actionViewClass="androidx.appcompat.widget.SearchView"/>
+
+    <!-- ─── Overflow menu ─────────────────────────────────────── -->
+
+    <!-- Mute / Unmute (title toggled in code) -->
+    <item
+        android:id="@+id/action_mute_channel"
+        android:title="Mute notifications"
+        app:showAsAction="never"/>
+
+    <!-- Notification settings (full page) -->
+    <item
+        android:id="@+id/action_notification_settings"
+        android:title="Notification settings"
+        app:showAsAction="never"/>
+
+    <!-- Channel info bottom sheet -->
+    <item
+        android:id="@+id/action_channel_info"
+        android:title="Channel info"
+        app:showAsAction="never"/>
+
+    <!-- Share channel link (or invite link for private) -->
+    <item
+        android:id="@+id/action_share_channel"
+        android:title="Share channel"
+        app:showAsAction="never"/>
+
+    <!-- ─── Admin-only items (hidden for followers) ───────────── -->
+
+    <!-- Edit channel: name / desc / icon / category / privacy -->
+    <item
+        android:id="@+id/action_edit_channel"
+        android:title="Edit channel"
+        app:showAsAction="never"/>
+
+    <!-- Admin panel: add/remove admins, transfer ownership -->
+    <item
+        android:id="@+id/action_admin_panel"
+        android:title="Manage admins"
+        app:showAsAction="never"/>
+
+    <!-- Analytics dashboard -->
+    <item
+        android:id="@+id/action_analytics"
+        android:title="Channel analytics"
+        app:showAsAction="never"/>
+
+    <!-- ─── Follower-only items (hidden for admins) ───────────── -->
+
+    <!-- Unfollow (not shown to owner/admins) -->
+    <item
+        android:id="@+id/action_unfollow_channel"
+        android:title="Unfollow"
+        app:showAsAction="never"/>
+
+    <!-- Report channel -->
+    <item
+        android:id="@+id/action_report_channel"
+        android:title="Report channel"
+        app:showAsAction="never"/>
+
+</menu>

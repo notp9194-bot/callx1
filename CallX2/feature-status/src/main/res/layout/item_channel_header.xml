@@ -1,21 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Section header: "Channels" label + "Explore" button -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="wrap_content"
+    android:layout_height="44dp"
     android:orientation="horizontal"
     android:gravity="center_vertical"
     android:paddingHorizontal="16dp"
-    android:paddingVertical="12dp">
+    android:background="@android:color/white">
 
     <TextView
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_weight="1"
         android:text="Channels"
-        android:textSize="17sp"
+        android:textSize="22sp"
         android:textStyle="bold"
-        android:textColor="#1A1A1A"/>
+        android:textColor="#111111"/>
 
     <Button
         android:id="@+id/btn_channel_explore"
@@ -23,9 +22,8 @@
         android:layout_height="32dp"
         android:text="Explore"
         android:textSize="13sp"
-        android:textColor="#1A1A1A"
-        android:paddingHorizontal="14dp"
-        android:backgroundTint="#EBEBEB"
-        style="@style/Widget.MaterialComponents.Button.UnelevatedButton"/>
+        android:textColor="#25D366"
+        android:backgroundTint="@android:color/transparent"
+        style="@style/Widget.MaterialComponents.Button.TextButton"/>
 
 </LinearLayout>

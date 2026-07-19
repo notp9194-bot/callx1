@@ -1,35 +1,31 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Channel section footer: "Explore more" + "+ Create channel" -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
     android:paddingHorizontal="16dp"
-    android:paddingBottom="8dp">
+    android:paddingVertical="12dp"
+    android:background="@android:color/white">
 
-    <Button
+    <com.google.android.material.button.MaterialButton
         android:id="@+id/btn_explore_more"
         android:layout_width="match_parent"
-        android:layout_height="46dp"
-        android:text="Explore more"
-        android:textSize="14sp"
-        android:textColor="#1A1A1A"
-        android:backgroundTint="#00000000"
-        android:drawableStart="@android:drawable/ic_menu_view"
-        android:drawablePadding="8dp"
-        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-        android:strokeColor="#DDDDDD"
-        android:layout_marginBottom="8dp"/>
+        android:layout_height="44dp"
+        android:text="Explore more channels"
+        android:textColor="#25D366"
+        android:layout_marginBottom="8dp"
+        app:backgroundTint="#DCF5E7"
+        style="@style/Widget.MaterialComponents.Button.UnelevatedButton"
+        xmlns:app="http://schemas.android.com/apk/res-auto"/>
 
-    <Button
+    <com.google.android.material.button.MaterialButton
         android:id="@+id/btn_create_channel"
         android:layout_width="match_parent"
-        android:layout_height="46dp"
-        android:text="+ Create channel"
-        android:textSize="14sp"
-        android:textColor="#25D366"
-        android:backgroundTint="#00000000"
-        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-        android:strokeColor="#DDDDDD"/>
+        android:layout_height="44dp"
+        android:text="+ Create a channel"
+        android:textColor="#555555"
+        app:backgroundTint="#F5F5F5"
+        style="@style/Widget.MaterialComponents.Button.UnelevatedButton"
+        xmlns:app="http://schemas.android.com/apk/res-auto"/>
 
 </LinearLayout>

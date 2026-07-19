@@ -3,7 +3,6 @@ package com.callx.app.utils;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.database.DatabaseReference;
 import com.google.firebase.database.FirebaseDatabase;
-import java.util.Arrays;
 
 public class FirebaseUtils {
 
@@ -21,6 +20,12 @@ public class FirebaseUtils {
         if (_fu2 == null) return "";
         String n = _fu2.getDisplayName();
         return (n == null || n.isEmpty()) ? "CallX User" : n;
+    }
+
+    public static String getCurrentPhotoUrl() {
+        com.google.firebase.auth.FirebaseUser fu = FirebaseAuth.getInstance().getCurrentUser();
+        if (fu == null || fu.getPhotoUrl() == null) return "";
+        return fu.getPhotoUrl().toString();
     }
 
     public static DatabaseReference getUserRef(String uid) {
@@ -95,180 +100,110 @@ public class FirebaseUtils {
 
     // ── Channels ──────────────────────────────────────────────────────────────
 
-    /**
-     * Root channel metadata: channels/{channelId}/
-     * Shared by ChannelRepository for all channel CRUD operations.
-     */
+    /** Root channel metadata: channels/{channelId}/ */
     public static DatabaseReference getChannelsRef() {
         return db().getReference("channels");
     }
 
-    /**
-     * Single channel: channels/{channelId}/
-     */
+    /** Single channel: channels/{channelId}/ */
     public static DatabaseReference getChannelRef(String channelId) {
         return db().getReference("channels").child(channelId);
     }
 
-    /**
-     * User's channel follows: channelFollows/{uid}/{channelId} = true
-     * Written by ChannelRepository.followChannel / unfollowChannel.
-     */
+    /** User's channel follows: channelFollows/{uid}/{channelId} = true */
     public static DatabaseReference getChannelFollowsRef(String uid) {
         return db().getReference("channelFollows").child(uid);
     }
 
-    /**
-     * Posts inside a channel: channelPosts/{channelId}/{postId}/
-     * Written by ChannelRepository.postToChannel.
-     */
+    /** Channel posts: channelPosts/{channelId}/{postId}/ */
     public static DatabaseReference getChannelPostsRef(String channelId) {
         return db().getReference("channelPosts").child(channelId);
     }
 
-    // ── Unified Block System ───────────────────────────────────────────────
-
-    public static DatabaseReference getBlocksRef(String uid) {
-        return db().getReference("blocks").child(uid);
+    /** Single channel post: channelPosts/{channelId}/{postId}/ */
+    public static DatabaseReference getChannelPostRef(String channelId, String postId) {
+        return db().getReference("channelPosts").child(channelId).child(postId);
     }
 
-    public static DatabaseReference getBlockRef(String myUid, String targetUid) {
-        return db().getReference("blocks").child(myUid).child(targetUid);
+    /** Channel post reactions: channelPosts/{channelId}/{postId}/reactions/{uid} */
+    public static DatabaseReference getChannelPostReactionRef(String channelId, String postId, String uid) {
+        return db().getReference("channelPosts").child(channelId).child(postId)
+                   .child("reactions").child(uid);
     }
 
-    public static String getChatId(String uid1, String uid2) {
-        String[] ids = {uid1, uid2};
-        Arrays.sort(ids);
-        return ids[0] + "_" + ids[1];
+    /** Channel post poll votes: channelPosts/{channelId}/{postId}/pollVotes/{uid} */
+    public static DatabaseReference getChannelPostPollVoteRef(String channelId, String postId, String uid) {
+        return db().getReference("channelPosts").child(channelId).child(postId)
+                   .child("pollVotes").child(uid);
     }
 
-    public static DatabaseReference getChatPresenceRef(String chatOrGroupId) {
-        return db().getReference("chatPresence").child(chatOrGroupId);
+    /** Channel admins: channelAdmins/{channelId}/{uid} = role */
+    public static DatabaseReference getChannelAdminsRef(String channelId) {
+        return db().getReference("channelAdmins").child(channelId);
     }
 
-    public static DatabaseReference getChatViewingRef(String chatOrGroupId) {
-        return db().getReference("chatViewing").child(chatOrGroupId);
+    /** Channel followers: channelFollowers/{channelId}/{uid} = {joinedAt, uid} */
+    public static DatabaseReference getChannelFollowersRef(String channelId) {
+        return db().getReference("channelFollowers").child(channelId);
     }
 
-    public static DatabaseReference getChatTypingReplyRef(String chatOrGroupId) {
-        return db().getReference("chatTypingReply").child(chatOrGroupId);
+    /** A specific follower entry: channelFollowers/{channelId}/{uid} */
+    public static DatabaseReference getChannelFollowerRef(String channelId, String uid) {
+        return db().getReference("channelFollowers").child(channelId).child(uid);
     }
 
-    public static DatabaseReference getChatPlaybackRef(String chatOrGroupId) {
-        return db().getReference("chatPlayback").child(chatOrGroupId);
+    /** Channel reports: channelReports/{channelId}/{reportId} */
+    public static DatabaseReference getChannelReportsRef(String channelId) {
+        return db().getReference("channelReports").child(channelId);
     }
 
-    public static DatabaseReference getChatRecordingRef(String chatOrGroupId) {
-        return db().getReference("chatRecording").child(chatOrGroupId);
+    /** Post reports: channelPostReports/{channelId}/{postId}/{reportId} */
+    public static DatabaseReference getChannelPostReportsRef(String channelId, String postId) {
+        return db().getReference("channelPostReports").child(channelId).child(postId);
     }
 
-    public static DatabaseReference getChatRecordingWaveRef(String chatOrGroupId) {
-        return db().getReference("chatRecordingWave").child(chatOrGroupId);
+    /** Channel invite codes: channelInviteCodes/{code} = channelId */
+    public static DatabaseReference getChannelInviteCodesRef() {
+        return db().getReference("channelInviteCodes");
     }
 
-    public static DatabaseReference getChatScreenshotRef(String chatOrGroupId) {
-        return db().getReference("chatScreenshot").child(chatOrGroupId);
+    /** Specific invite code: channelInviteCodes/{code} */
+    public static DatabaseReference getChannelInviteCodeRef(String code) {
+        return db().getReference("channelInviteCodes").child(code);
     }
 
-    // ── Reels ─────────────────────────────────────────────────────────────
-
-    public static DatabaseReference getReelsRef() {
-        return db().getReference("reels");
+    /** Muted channels for a user: channelMutes/{uid}/{channelId} = {mutedUntil} */
+    public static DatabaseReference getChannelMutesRef(String uid) {
+        return db().getReference("channelMutes").child(uid);
     }
 
-    public static DatabaseReference getReelLikesRef(String reelId) {
-        return db().getReference("reelLikes").child(reelId);
+    /** User's channel mute entry: channelMutes/{uid}/{channelId} */
+    public static DatabaseReference getChannelMuteRef(String uid, String channelId) {
+        return db().getReference("channelMutes").child(uid).child(channelId);
     }
 
-    public static DatabaseReference getReelCommentsRef(String reelId) {
-        return db().getReference("reelComments").child(reelId);
+    /** Last read timestamp: channelLastSeen/{uid}/{channelId} = timestamp */
+    public static DatabaseReference getChannelLastSeenRef(String uid, String channelId) {
+        return db().getReference("channelLastSeen").child(uid).child(channelId);
     }
 
-    public static DatabaseReference getReelSavesRef(String uid) {
-        return db().getReference("reelSaves").child(uid);
+    /** Channel scheduled posts: channelScheduled/{channelId}/{postId} */
+    public static DatabaseReference getChannelScheduledRef(String channelId) {
+        return db().getReference("channelScheduled").child(channelId);
     }
 
-    public static DatabaseReference getReelViewsRef(String reelId) {
-        return db().getReference("reelViews").child(reelId);
+    /** Channel analytics: channelAnalytics/{channelId}/ */
+    public static DatabaseReference getChannelAnalyticsRef(String channelId) {
+        return db().getReference("channelAnalytics").child(channelId);
     }
 
-    public static DatabaseReference getReelFollowsRef(String followerUid) {
-        return db().getReference("reelFollows").child(followerUid);
+    /** Blocked followers: channelBlockedFollowers/{channelId}/{uid} = true */
+    public static DatabaseReference getChannelBlockedFollowersRef(String channelId) {
+        return db().getReference("channelBlockedFollowers").child(channelId);
     }
 
-    public static DatabaseReference getReelReactionsRef(String reelId) {
-        return db().getReference("reelReactions").child(reelId);
-    }
-
-    public static DatabaseReference getReelWatchHistoryRef(String uid) {
-        return db().getReference("reelWatchHistory").child(uid);
-    }
-
-    public static DatabaseReference getReelWatchProgressRef(String uid) {
-        return db().getReference("reelWatchProgress").child(uid);
-    }
-
-    public static DatabaseReference getReelsByUserRef(String uid) {
-        return db().getReference("reelsByUser").child(uid);
-    }
-
-    public static DatabaseReference getReelLikedByUserRef(String uid) {
-        return db().getReference("reelLikedByUser").child(uid);
-    }
-
-    public static DatabaseReference getReelDraftsRef(String uid) {
-        return db().getReference("reelDrafts").child(uid);
-    }
-
-    public static DatabaseReference getReelReportsRef(String reelId) {
-        return db().getReference("reelReports").child(reelId);
-    }
-
-    public static DatabaseReference getMusicLibraryRef() {
-        return db().getReference("musicLibrary");
-    }
-
-    public static DatabaseReference getReelDuetsRef(String originalReelId) {
-        return db().getReference("reelDuets").child(originalReelId);
-    }
-
-    public static DatabaseReference getReelSavesIndexRef(String reelId) {
-        return db().getReference("reelSavesIndex").child(reelId);
-    }
-
-    public static DatabaseReference getTrendingHashtagsRef() {
-        return db().getReference("trendingHashtags");
-    }
-
-    public static DatabaseReference getScheduledReelsRef(String uid) {
-        return db().getReference("scheduledReels").child(uid);
-    }
-
-    public static DatabaseReference getReelFollowersRef(String uid) {
-        return db().getReference("reelFollowers").child(uid);
-    }
-
-    public static DatabaseReference getSavedSoundsRef(String uid) {
-        return db().getReference("users").child(uid).child("saved_sounds");
-    }
-
-    public static DatabaseReference getReelVideoRepliesRef(String reelId, String commentId) {
-        return db().getReference("reelVideoReplies").child(reelId).child(commentId);
-    }
-
-    public static DatabaseReference getReelSubtitlesRef(String reelId) {
-        return db().getReference("reelSubtitles").child(reelId);
-    }
-
-    public static DatabaseReference getReelRepostsRef(String reelId) {
-        return db().getReference("reelReposts").child(reelId);
-    }
-
-    public static DatabaseReference getReelRepostsByUserRef(String uid) {
-        return db().getReference("userReposts").child(uid);
-    }
-
-    public static DatabaseReference getDeliveryPendingRef() {
-        return db().getReference("deliveryPending");
+    /** Per-user channel notification prefs: channelNotifPrefs/{uid}/{channelId} */
+    public static DatabaseReference getChannelNotifPrefsRef(String uid, String channelId) {
+        return db().getReference("channelNotifPrefs").child(uid).child(channelId);
     }
 }

@@ -1,0 +1,216 @@
+{
+  "rules": {
+    // ── User profiles ───────────────────────────────────────────────────────
+    "users": {
+      "$uid": {
+        ".read":  "auth != null",
+        ".write": "auth != null && auth.uid == $uid"
+      }
+    },
+
+    // ── Channels ────────────────────────────────────────────────────────────
+    "channels": {
+      ".read":  "auth != null",
+      "$channelId": {
+        ".write": "auth != null",
+        ".validate": "newData.hasChildren(['id','name','ownerUid','createdAt'])"
+      }
+    },
+
+    // ── Channel posts ───────────────────────────────────────────────────────
+    "channelPosts": {
+      "$channelId": {
+        ".read":  "auth != null",
+        "$postId": {
+          ".write": "auth != null",
+          "reactions": {
+            "$uid": {
+              ".write": "auth != null && auth.uid == $uid"
+            }
+          },
+          "pollVotes": {
+            "$uid": {
+              ".write": "auth != null && auth.uid == $uid"
+            }
+          }
+        }
+      }
+    },
+
+    // ── Channel scheduled posts ─────────────────────────────────────────────
+    "channelScheduled": {
+      "$channelId": {
+        ".read":  "auth != null",
+        "$postId": {
+          ".write": "auth != null"
+        }
+      }
+    },
+
+    // ── Channel follows (user → channel index) ──────────────────────────────
+    "channelFollows": {
+      "$uid": {
+        ".read":  "auth != null && auth.uid == $uid",
+        ".write": "auth != null && auth.uid == $uid"
+      }
+    },
+
+    // ── Channel followers (channel → user reverse index) ───────────────────
+    "channelFollowers": {
+      "$channelId": {
+        ".read":  "auth != null",
+        "$uid": {
+          ".write": "auth != null && (auth.uid == $uid || root.child('channelAdmins').child($channelId).child(auth.uid).exists())"
+        }
+      }
+    },
+
+    // ── Channel admins ─────────────────────────────────────────────────────
+    "channelAdmins": {
+      "$channelId": {
+        ".read":  "auth != null",
+        "$uid": {
+          ".write": "auth != null && root.child('channelAdmins').child($channelId).child(auth.uid).val() == 'owner'"
+        }
+      }
+    },
+
+    // ── Channel mutes ──────────────────────────────────────────────────────
+    "channelMutes": {
+      "$uid": {
+        ".read":  "auth != null && auth.uid == $uid",
+        ".write": "auth != null && auth.uid == $uid"
+      }
+    },
+
+    // ── Channel last-seen timestamps ───────────────────────────────────────
+    "channelLastSeen": {
+      "$uid": {
+        ".read":  "auth != null && auth.uid == $uid",
+        ".write": "auth != null && auth.uid == $uid"
+      }
+    },
+
+    // ── Channel invite codes ───────────────────────────────────────────────
+    "channelInviteCodes": {
+      ".read":  "auth != null",
+      "$code": {
+        ".write": "auth != null"
+      }
+    },
+
+    // ── Blocked followers ──────────────────────────────────────────────────
+    "channelBlockedFollowers": {
+      "$channelId": {
+        ".read":  "auth != null && root.child('channelAdmins').child($channelId).child(auth.uid).exists()",
+        ".write": "auth != null && root.child('channelAdmins').child($channelId).child(auth.uid).exists()"
+      }
+    },
+
+    // ── Channel reports ────────────────────────────────────────────────────
+    "channelReports": {
+      "$channelId": {
+        ".read":  false,
+        ".write": "auth != null"
+      }
+    },
+    "channelPostReports": {
+      "$channelId": {
+        "$postId": {
+          ".read":  false,
+          ".write": "auth != null"
+        }
+      }
+    },
+
+    // ── Channel analytics ──────────────────────────────────────────────────
+    "channelAnalytics": {
+      "$channelId": {
+        ".read":  "auth != null && root.child('channelAdmins').child($channelId).child(auth.uid).exists()",
+        ".write": false
+      }
+    },
+
+    // ── Channel notification prefs ─────────────────────────────────────────
+    "channelNotifPrefs": {
+      "$uid": {
+        ".read":  "auth != null && auth.uid == $uid",
+        ".write": "auth != null && auth.uid == $uid"
+      }
+    },
+
+    // ── Direct messages ────────────────────────────────────────────────────
+    "messages": {
+      "$chatId": {
+        ".read":  "auth != null",
+        ".write": "auth != null"
+      }
+    },
+
+    // ── Group messages ─────────────────────────────────────────────────────
+    "groupMessages": {
+      "$groupId": {
+        ".read":  "auth != null",
+        ".write": "auth != null"
+      }
+    },
+
+    // ── Groups ─────────────────────────────────────────────────────────────
+    "groups": {
+      ".read":  "auth != null",
+      "$groupId": {
+        ".write": "auth != null"
+      }
+    },
+    "userGroups": {
+      "$uid": {
+        ".read":  "auth != null && auth.uid == $uid",
+        ".write": "auth != null && auth.uid == $uid"
+      }
+    },
+
+    // ── Contacts ───────────────────────────────────────────────────────────
+    "contacts": {
+      "$uid": {
+        ".read":  "auth != null && auth.uid == $uid",
+        ".write": "auth != null && auth.uid == $uid"
+      }
+    },
+
+    // ── Status ─────────────────────────────────────────────────────────────
+    "status": {
+      ".read":  "auth != null",
+      "$uid": {
+        ".write": "auth != null && auth.uid == $uid"
+      }
+    },
+    "statusSeen": {
+      "$uid": {
+        ".read":  "auth != null && auth.uid == $uid",
+        ".write": "auth != null && auth.uid == $uid"
+      }
+    },
+    "statusHighlights": {
+      "$uid": {
+        ".read":  "auth != null",
+        ".write": "auth != null && auth.uid == $uid"
+      }
+    },
+
+    // ── Calls ──────────────────────────────────────────────────────────────
+    "calls": {
+      "$uid": {
+        ".read":  "auth != null && auth.uid == $uid",
+        ".write": "auth != null"
+      }
+    },
+
+    // ── Requests ───────────────────────────────────────────────────────────
+    "requests": {
+      "$uid": {
+        ".read":  "auth != null && auth.uid == $uid",
+        ".write": "auth != null"
+      }
+    }
+  }
+}

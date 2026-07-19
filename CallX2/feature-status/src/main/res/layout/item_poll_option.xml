@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Single poll option row — text + progress bar -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="44dp"
+    android:layout_marginBottom="6dp"
+    android:background="@android:color/white">
+
+    <!-- Progress bar fill (shown after voting) -->
+    <ProgressBar
+        android:id="@+id/pb_poll_option"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:indeterminate="false"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:progressTint="#DCF5E7"
+        android:progressBackgroundTint="#F2F2F2"
+        android:max="100"
+        android:visibility="gone"/>
+
+    <!-- Option border (always shown) -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingHorizontal="12dp"
+        android:background="@drawable/bg_poll_option_border">
+
+        <TextView
+            android:id="@+id/tv_poll_option_text"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textSize="14sp"
+            android:textColor="#111111"/>
+
+        <!-- Percentage shown after voting -->
+        <TextView
+            android:id="@+id/tv_poll_option_percent"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:textColor="#25D366"
+            android:layout_marginStart="8dp"
+            android:visibility="gone"/>
+
+        <!-- Check icon for own vote -->
+        <ImageView
+            android:id="@+id/iv_poll_option_check"
+            android:layout_width="16dp"
+            android:layout_height="16dp"
+            android:src="@android:drawable/checkbox_on_background"
+            android:tint="#25D366"
+            android:layout_marginStart="6dp"
+            android:visibility="gone"/>
+    </LinearLayout>
+
+</FrameLayout>

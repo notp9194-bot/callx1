@@ -6,36 +6,39 @@
     android:orientation="vertical"
     android:background="@android:color/white">
 
-    <androidx.appcompat.widget.Toolbar
-        android:id="@+id/toolbar_explore"
+    <com.google.android.material.appbar.AppBarLayout
         android:layout_width="match_parent"
-        android:layout_height="?attr/actionBarSize"
-        android:background="@android:color/white"
-        app:titleTextColor="#111111"
-        app:navigationIconTint="#111111"/>
+        android:layout_height="wrap_content"
+        android:background="@android:color/white">
+
+        <androidx.appcompat.widget.Toolbar
+            android:id="@+id/toolbar_explore"
+            android:layout_width="match_parent"
+            android:layout_height="?attr/actionBarSize"
+            app:navigationIconTint="#111111"
+            app:titleTextColor="#111111"/>
+    </com.google.android.material.appbar.AppBarLayout>
 
     <!-- Search bar -->
     <com.google.android.material.textfield.TextInputLayout
-        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginHorizontal="12dp"
-        android:layout_marginTop="4dp"
+        android:layout_marginTop="8dp"
         android:layout_marginBottom="4dp"
-        app:startIconDrawable="@android:drawable/ic_menu_search"
-        app:hintAnimationEnabled="true">
+        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox.Dense"
+        app:startIconDrawable="@android:drawable/ic_menu_search">
 
         <com.google.android.material.textfield.TextInputEditText
             android:id="@+id/et_explore_search"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:hint="Search"
-            android:singleLine="true"
-            android:imeOptions="actionSearch"
-            android:inputType="text"/>
+            android:hint="Search channels"
+            android:inputType="text"
+            android:imeOptions="actionSearch"/>
     </com.google.android.material.textfield.TextInputLayout>
 
-    <!-- Category chips -->
+    <!-- Category chip group -->
     <HorizontalScrollView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -51,13 +54,57 @@
             app:selectionRequired="true"/>
     </HorizontalScrollView>
 
+    <View android:layout_width="match_parent" android:layout_height="1dp"
+        android:background="#EEEEEE"/>
+
     <!-- Channel list -->
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/rv_explore_channels"
+    <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1"
-        android:clipToPadding="false"
-        android:paddingBottom="16dp"/>
+        android:layout_weight="1">
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/rv_explore_channels"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:clipToPadding="false"
+            android:paddingBottom="16dp"/>
+
+        <!-- Empty state -->
+        <LinearLayout
+            android:id="@+id/layout_explore_empty"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:padding="32dp"
+            android:visibility="gone">
+
+            <ImageView
+                android:layout_width="64dp"
+                android:layout_height="64dp"
+                android:src="@android:drawable/ic_menu_search"
+                android:tint="#CCCCCC"
+                android:layout_marginBottom="16dp"/>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="No channels found"
+                android:textSize="17sp"
+                android:textStyle="bold"
+                android:textColor="#555555"/>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="Try a different search or category"
+                android:textSize="14sp"
+                android:textColor="#999999"
+                android:gravity="center"/>
+        </LinearLayout>
+    </FrameLayout>
 
 </LinearLayout>

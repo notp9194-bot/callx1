@@ -1,0 +1,139 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/colorBackground">
+
+    <com.google.android.material.appbar.MaterialToolbar
+        android:id="@+id/toolbar_analytics"
+        android:layout_width="match_parent"
+        android:layout_height="?attr/actionBarSize"
+        android:background="@color/colorPrimary"
+        app:titleTextColor="@android:color/white"
+        app:navigationIconTint="@android:color/white" />
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <!-- ═══ Section: Overview ═══ -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="OVERVIEW"
+                android:textSize="11sp"
+                android:textColor="@color/colorTextSecondary"
+                android:letterSpacing="0.12"
+                android:layout_marginBottom="8dp"
+                android:layout_marginTop="4dp" />
+
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="2dp"
+                android:layout_marginBottom="12dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <!-- Row 1 -->
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:layout_marginBottom="16dp">
+                        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:gravity="center">
+                            <TextView android:id="@+id/tv_stat_followers" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="—" android:textSize="22sp" android:textStyle="bold" android:textColor="@color/colorPrimary" />
+                            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Followers" android:textSize="11sp" android:textColor="@color/colorTextSecondary" />
+                        </LinearLayout>
+                        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:gravity="center">
+                            <TextView android:id="@+id/tv_stat_total_posts" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="—" android:textSize="22sp" android:textStyle="bold" android:textColor="@color/colorPrimary" />
+                            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Posts" android:textSize="11sp" android:textColor="@color/colorTextSecondary" />
+                        </LinearLayout>
+                        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:gravity="center">
+                            <TextView android:id="@+id/tv_stat_total_views" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="—" android:textSize="22sp" android:textStyle="bold" android:textColor="@color/colorPrimary" />
+                            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Views" android:textSize="11sp" android:textColor="@color/colorTextSecondary" />
+                        </LinearLayout>
+                    </LinearLayout>
+
+                    <!-- Row 2 -->
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+                        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:gravity="center">
+                            <TextView android:id="@+id/tv_stat_total_reactions" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="—" android:textSize="22sp" android:textStyle="bold" android:textColor="@color/colorPrimary" />
+                            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Reactions" android:textSize="11sp" android:textColor="@color/colorTextSecondary" />
+                        </LinearLayout>
+                        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:gravity="center">
+                            <TextView android:id="@+id/tv_stat_total_forwards" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="—" android:textSize="22sp" android:textStyle="bold" android:textColor="@color/colorPrimary" />
+                            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Forwards" android:textSize="11sp" android:textColor="@color/colorTextSecondary" />
+                        </LinearLayout>
+                        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:gravity="center">
+                            <TextView android:id="@+id/tv_stat_weekly_growth" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="—" android:textSize="22sp" android:textStyle="bold" android:textColor="@color/colorPrimary" />
+                            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Growth / wk" android:textSize="11sp" android:textColor="@color/colorTextSecondary" />
+                        </LinearLayout>
+                    </LinearLayout>
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- ═══ Section: Averages + Engagement ═══ -->
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="AVERAGES" android:textSize="11sp" android:textColor="@color/colorTextSecondary" android:letterSpacing="0.12" android:layout_marginBottom="8dp" android:layout_marginTop="8dp" />
+            <com.google.android.material.card.MaterialCardView android:layout_width="match_parent" android:layout_height="wrap_content" app:cardCornerRadius="12dp" app:cardElevation="2dp" android:layout_marginBottom="12dp">
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:padding="16dp">
+                    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:gravity="center">
+                        <TextView android:id="@+id/tv_stat_avg_views" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="—" android:textSize="18sp" android:textStyle="bold" android:textColor="@color/colorPrimary" />
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Avg views" android:textSize="11sp" android:textColor="@color/colorTextSecondary" />
+                    </LinearLayout>
+                    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:gravity="center">
+                        <TextView android:id="@+id/tv_stat_avg_reactions" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="—" android:textSize="18sp" android:textStyle="bold" android:textColor="@color/colorPrimary" />
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Avg reactions" android:textSize="11sp" android:textColor="@color/colorTextSecondary" />
+                    </LinearLayout>
+                    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:gravity="center">
+                        <TextView android:id="@+id/tv_stat_engagement_rate" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="—" android:textSize="18sp" android:textStyle="bold" android:textColor="@color/colorPrimary" />
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Engagement" android:textSize="11sp" android:textColor="@color/colorTextSecondary" />
+                    </LinearLayout>
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- ═══ Section: Content Mix ═══ -->
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="CONTENT MIX" android:textSize="11sp" android:textColor="@color/colorTextSecondary" android:letterSpacing="0.12" android:layout_marginBottom="8dp" android:layout_marginTop="8dp" />
+            <com.google.android.material.card.MaterialCardView android:layout_width="match_parent" android:layout_height="wrap_content" app:cardCornerRadius="12dp" app:cardElevation="2dp" android:layout_marginBottom="12dp">
+                <LinearLayout android:id="@+id/layout_content_mix" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="16dp" />
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- ═══ Section: Peak Hour ═══ -->
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="BEST TIME TO POST" android:textSize="11sp" android:textColor="@color/colorTextSecondary" android:letterSpacing="0.12" android:layout_marginBottom="8dp" android:layout_marginTop="8dp" />
+            <com.google.android.material.card.MaterialCardView android:layout_width="match_parent" android:layout_height="wrap_content" app:cardCornerRadius="12dp" app:cardElevation="2dp" android:layout_marginBottom="12dp">
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="16dp">
+                    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Peak engagement hour:" android:textSize="13sp" android:textColor="@color/colorTextSecondary" android:layout_marginBottom="4dp" />
+                    <TextView android:id="@+id/tv_stat_peak_hour" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="—" android:textSize="20sp" android:textStyle="bold" android:textColor="@color/colorPrimary" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- ═══ Section: Top Posts by Views ═══ -->
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="TOP POSTS BY VIEWS" android:textSize="11sp" android:textColor="@color/colorTextSecondary" android:letterSpacing="0.12" android:layout_marginBottom="8dp" android:layout_marginTop="8dp" />
+            <com.google.android.material.card.MaterialCardView android:layout_width="match_parent" android:layout_height="wrap_content" app:cardCornerRadius="12dp" app:cardElevation="2dp" android:layout_marginBottom="12dp">
+                <LinearLayout android:id="@+id/layout_top_posts_views" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="12dp" />
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- ═══ Section: Top Posts by Reactions ═══ -->
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="TOP POSTS BY REACTIONS" android:textSize="11sp" android:textColor="@color/colorTextSecondary" android:letterSpacing="0.12" android:layout_marginBottom="8dp" android:layout_marginTop="8dp" />
+            <com.google.android.material.card.MaterialCardView android:layout_width="match_parent" android:layout_height="wrap_content" app:cardCornerRadius="12dp" app:cardElevation="2dp" android:layout_marginBottom="12dp">
+                <LinearLayout android:id="@+id/layout_top_posts_reactions" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="12dp" />
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- ═══ Section: Poll Performance ═══ -->
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="POLL PERFORMANCE" android:textSize="11sp" android:textColor="@color/colorTextSecondary" android:letterSpacing="0.12" android:layout_marginBottom="8dp" android:layout_marginTop="8dp" />
+            <com.google.android.material.card.MaterialCardView android:layout_width="match_parent" android:layout_height="wrap_content" app:cardCornerRadius="12dp" app:cardElevation="2dp" android:layout_marginBottom="24dp">
+                <LinearLayout android:id="@+id/layout_poll_performance" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="16dp" />
+            </com.google.android.material.card.MaterialCardView>
+
+        </LinearLayout>
+    </ScrollView>
+</LinearLayout>
