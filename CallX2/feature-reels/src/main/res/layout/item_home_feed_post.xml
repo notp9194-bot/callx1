@@ -1,180 +1,241 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  item_home_feed_post.xml — Instagram-style Reels home feed card
+  ■ Video fills 9:16 aspect (height set in Java from screen width)
+  ■ Header (avatar + username + suggested + audio) overlaid on video — top gradient
+  ■ Mute button overlaid — bottom-right of video
+  ■ End-of-reel overlay — "Watch more reels" pill + "Watch again" text — GONE by default
+  ■ Action bar (❤ | 💬 | 🔄 | ▷ | 🔖) below video with counts
+  ■ Timestamp + caption below action bar
+-->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:background="#1A1A1A"
-    android:layout_marginBottom="8dp">
+    android:background="#000000"
+    android:layout_marginBottom="2dp">
 
-    <!-- Header -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:paddingStart="12dp"
-        android:paddingEnd="6dp"
-        android:paddingTop="10dp"
-        android:paddingBottom="10dp">
-
-        <!-- Avatar with story-ring possibility -->
-        <FrameLayout
-            android:layout_width="42dp"
-            android:layout_height="42dp">
-
-            <ImageView
-                android:id="@+id/iv_post_story_ring"
-                android:layout_width="42dp"
-                android:layout_height="42dp"
-                android:layout_gravity="center"
-                android:background="@drawable/story_ring_insta_gradient"
-                android:visibility="gone"/>
-
-            <de.hdodenhof.circleimageview.CircleImageView
-                android:id="@+id/iv_post_avatar"
-                android:layout_width="36dp"
-                android:layout_height="36dp"
-                android:layout_gravity="center"
-                android:src="@drawable/ic_person"
-                app:civ_border_width="1.5dp"
-                app:civ_border_color="@color/brand_primary"/>
-        </FrameLayout>
-
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:orientation="vertical"
-            android:layout_marginStart="10dp">
-
-            <TextView
-                android:id="@+id/tv_post_owner"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@username"
-                android:textColor="#FFFFFF"
-                android:textSize="13sp"
-                android:fontFamily="sans-serif-medium"/>
-
-            <!-- "Suggested for you" label — GONE by default, shown for non-following posts -->
-            <TextView
-                android:id="@+id/tv_post_suggested"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Suggested for you"
-                android:textColor="#AAAAAA"
-                android:textSize="11sp"
-                android:visibility="gone"/>
-
-            <TextView
-                android:id="@+id/tv_post_time"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="2h ago"
-                android:textColor="#AAAAAA"
-                android:textSize="11sp"/>
-        </LinearLayout>
-
-        <!-- Follow pill — GONE by default, shown for suggested posts -->
-        <TextView
-            android:id="@+id/btn_post_follow"
-            android:layout_width="wrap_content"
-            android:layout_height="32dp"
-            android:text="Follow"
-            android:textColor="#FFFFFF"
-            android:textSize="13sp"
-            android:fontFamily="sans-serif-medium"
-            android:gravity="center"
-            android:paddingStart="14dp"
-            android:paddingEnd="14dp"
-            android:background="@drawable/bg_btn_follow_pill"
-            android:visibility="gone"
-            android:layout_marginEnd="8dp"
-            android:clickable="true"
-            android:focusable="true"/>
-
-        <ImageButton
-            android:id="@+id/btn_post_more"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
-            android:src="@drawable/ic_more_vert"
-            android:tint="#AAAAAA"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="More"/>
-    </LinearLayout>
-
-    <!-- Thumbnail / Video preview — tall card like Instagram Reels -->
+    <!-- ══════════ VIDEO BLOCK ══════════ -->
     <FrameLayout
+        android:id="@+id/frame_video"
         android:layout_width="match_parent"
-        android:layout_height="380dp">
+        android:layout_height="600dp">
+        <!-- height overridden in Java: screenWidth × 16/9 for exact 9:16 -->
 
+        <!-- ExoPlayer surface — MediaItem set in HomeFragment -->
+        <androidx.media3.ui.PlayerView
+            android:id="@+id/pv_feed_post"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            app:use_controller="false"
+            app:resize_mode="zoom"
+            app:surface_type="surface_view"/>
+
+        <!-- Thumbnail — shown until video starts, fades out -->
         <ImageView
             android:id="@+id/iv_post_thumb"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:scaleType="centerCrop"
-            android:background="#222222"/>
+            android:background="#111111"/>
 
-        <!-- Play icon overlay for video posts -->
-        <ImageView
-            android:id="@+id/iv_video_badge"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:layout_gravity="center"
-            android:src="@drawable/ic_play"
-            android:tint="#CCFFFFFF"
-            android:visibility="gone"/>
-
-        <!-- Repost badge -->
+        <!-- ── Overlaid header strip at top of video ── -->
         <LinearLayout
-            android:id="@+id/layout_repost_badge"
-            android:layout_width="wrap_content"
+            android:id="@+id/overlay_post_header"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_gravity="top|start"
-            android:layout_margin="8dp"
+            android:layout_gravity="top"
             android:orientation="horizontal"
             android:gravity="center_vertical"
-            android:background="#99000000"
-            android:paddingStart="6dp"
-            android:paddingEnd="6dp"
-            android:paddingTop="3dp"
-            android:paddingBottom="3dp"
+            android:paddingStart="12dp"
+            android:paddingEnd="8dp"
+            android:paddingTop="14dp"
+            android:paddingBottom="20dp"
+            android:background="@drawable/gradient_top_to_trans">
+
+            <!-- Avatar + optional gradient ring -->
+            <FrameLayout
+                android:layout_width="46dp"
+                android:layout_height="46dp">
+
+                <ImageView
+                    android:id="@+id/iv_post_story_ring"
+                    android:layout_width="46dp"
+                    android:layout_height="46dp"
+                    android:layout_gravity="center"
+                    android:background="@drawable/story_ring_insta_gradient"
+                    android:visibility="gone"/>
+
+                <de.hdodenhof.circleimageview.CircleImageView
+                    android:id="@+id/iv_post_avatar"
+                    android:layout_width="38dp"
+                    android:layout_height="38dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_person"
+                    app:civ_border_width="2dp"
+                    app:civ_border_color="@android:color/white"/>
+            </FrameLayout>
+
+            <!-- Username + Suggested + Audio -->
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:layout_marginStart="10dp">
+
+                <TextView
+                    android:id="@+id/tv_post_owner"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@username"
+                    android:textColor="#FFFFFF"
+                    android:textSize="13sp"
+                    android:fontFamily="sans-serif-medium"/>
+
+                <!-- Shown only for suggested / For You posts -->
+                <TextView
+                    android:id="@+id/tv_post_suggested"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Suggested for you"
+                    android:textColor="#CCCCCC"
+                    android:textSize="11sp"
+                    android:visibility="gone"/>
+
+                <!-- Audio track info -->
+                <TextView
+                    android:id="@+id/tv_post_audio"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:drawableStart="@drawable/ic_music"
+                    android:drawablePadding="4dp"
+                    android:drawableTint="#CCCCCC"
+                    android:text="Original audio"
+                    android:textColor="#CCCCCC"
+                    android:textSize="11sp"
+                    android:visibility="gone"/>
+            </LinearLayout>
+
+            <!-- Follow pill — GONE by default -->
+            <TextView
+                android:id="@+id/btn_post_follow"
+                android:layout_width="wrap_content"
+                android:layout_height="32dp"
+                android:text="Follow"
+                android:textColor="#FFFFFF"
+                android:textSize="13sp"
+                android:fontFamily="sans-serif-medium"
+                android:gravity="center"
+                android:paddingStart="14dp"
+                android:paddingEnd="14dp"
+                android:background="@drawable/bg_reel_follow_btn"
+                android:visibility="gone"
+                android:layout_marginEnd="6dp"
+                android:clickable="true"
+                android:focusable="true"/>
+
+            <!-- More / ≡ -->
+            <ImageButton
+                android:id="@+id/btn_post_more"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:src="@drawable/ic_more_vert"
+                android:tint="#FFFFFF"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="More"/>
+        </LinearLayout>
+
+        <!-- Mute toggle — bottom-right corner of video -->
+        <ImageButton
+            android:id="@+id/btn_post_mute"
+            android:layout_width="34dp"
+            android:layout_height="34dp"
+            android:layout_gravity="bottom|end"
+            android:layout_margin="10dp"
+            android:src="@drawable/ic_volume_off"
+            android:tint="#FFFFFF"
+            android:background="#55000000"
+            android:padding="6dp"
+            android:contentDescription="Mute"/>
+
+        <!-- ── End-of-reel overlay — GONE until video ends ── -->
+        <LinearLayout
+            android:id="@+id/layout_end_of_reel_card"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:background="#66000000"
             android:visibility="gone">
 
-            <ImageView
-                android:layout_width="12dp"
-                android:layout_height="12dp"
-                android:src="@drawable/ic_repost"
-                android:tint="#FFFFFF"/>
+            <!-- "Watch more reels" white pill -->
+            <LinearLayout
+                android:id="@+id/btn_watch_more_card"
+                android:layout_width="wrap_content"
+                android:layout_height="50dp"
+                android:orientation="horizontal"
+                android:gravity="center"
+                android:paddingStart="28dp"
+                android:paddingEnd="28dp"
+                android:background="@drawable/bg_watch_more_pill"
+                android:clickable="true"
+                android:focusable="true">
 
+                <ImageView
+                    android:layout_width="18dp"
+                    android:layout_height="18dp"
+                    android:src="@drawable/ic_play"
+                    android:tint="#000000"
+                    android:layout_marginEnd="10dp"/>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Watch more reels"
+                    android:textColor="#000000"
+                    android:textSize="15sp"
+                    android:fontFamily="sans-serif-medium"/>
+            </LinearLayout>
+
+            <!-- "Watch again" plain text below pill -->
             <TextView
-                android:id="@+id/tv_repost_by"
+                android:id="@+id/btn_watch_again_card"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="4dp"
-                android:text="Reposted"
+                android:text="Watch again"
                 android:textColor="#FFFFFF"
-                android:textSize="10sp"/>
+                android:textSize="14sp"
+                android:layout_marginTop="16dp"
+                android:paddingStart="20dp"
+                android:paddingEnd="20dp"
+                android:paddingTop="10dp"
+                android:paddingBottom="10dp"
+                android:clickable="true"
+                android:focusable="true"
+                android:background="?attr/selectableItemBackgroundBorderless"/>
         </LinearLayout>
-    </FrameLayout>
 
-    <!-- Actions row -->
+    </FrameLayout>
+    <!-- ═══ End video block ═══ -->
+
+    <!-- ══════════ ACTION BAR ══════════ -->
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:layout_height="48dp"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:paddingStart="8dp"
-        android:paddingEnd="8dp"
-        android:paddingTop="4dp">
+        android:paddingStart="6dp"
+        android:paddingEnd="6dp">
 
+        <!-- ❤ Like -->
         <ImageButton
             android:id="@+id/btn_post_like"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
             android:src="@drawable/ic_heart"
-            android:tint="#FF416C"
+            android:tint="#FFFFFF"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="Like"/>
 
@@ -185,14 +246,15 @@
             android:text="0"
             android:textColor="#CCCCCC"
             android:textSize="12sp"
-            android:layout_marginEnd="8dp"/>
+            android:layout_marginEnd="6dp"/>
 
+        <!-- 💬 Comment -->
         <ImageButton
             android:id="@+id/btn_post_comment"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
             android:src="@drawable/ic_comment_reel"
-            android:tint="#00C6FF"
+            android:tint="#FFFFFF"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="Comment"/>
 
@@ -203,12 +265,13 @@
             android:text="0"
             android:textColor="#CCCCCC"
             android:textSize="12sp"
-            android:layout_marginEnd="8dp"/>
+            android:layout_marginEnd="6dp"/>
 
+        <!-- 🔄 Repost -->
         <ImageButton
             android:id="@+id/btn_post_repost"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
             android:src="@drawable/ic_repost"
             android:tint="#FFFFFF"
             android:background="?attr/selectableItemBackgroundBorderless"
@@ -221,13 +284,13 @@
             android:text="0"
             android:textColor="#CCCCCC"
             android:textSize="12sp"
-            android:layout_marginEnd="8dp"/>
+            android:layout_marginEnd="6dp"/>
 
-        <!-- Send / Share — like Instagram's paper-plane button -->
+        <!-- ▷ Send / Share -->
         <ImageButton
             android:id="@+id/btn_post_send"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
             android:src="@drawable/ic_share_reel"
             android:tint="#FFFFFF"
             android:background="?attr/selectableItemBackgroundBorderless"
@@ -242,15 +305,28 @@
             android:textColor="#CCCCCC"
             android:textSize="12sp"/>
 
+        <!-- 🔖 Save -->
         <ImageButton
             android:id="@+id/btn_post_save"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
             android:src="@drawable/ic_bookmark"
             android:tint="#FFFFFF"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="Save"/>
     </LinearLayout>
+
+    <!-- Timestamp -->
+    <TextView
+        android:id="@+id/tv_post_time"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:paddingBottom="4dp"
+        android:text="1 day ago"
+        android:textColor="#777777"
+        android:textSize="11sp"/>
 
     <!-- Caption -->
     <TextView
@@ -259,10 +335,11 @@
         android:layout_height="wrap_content"
         android:paddingStart="12dp"
         android:paddingEnd="12dp"
-        android:paddingBottom="10dp"
+        android:paddingBottom="14dp"
         android:text=""
         android:textColor="#DDDDDD"
         android:textSize="13sp"
         android:maxLines="2"
         android:ellipsize="end"/>
+
 </LinearLayout>

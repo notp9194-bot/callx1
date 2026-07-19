@@ -5,11 +5,18 @@ import com.callx.app.workers.ReelRepostWorker;
 import android.content.Intent;
 import android.graphics.drawable.Drawable;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.*;
 import android.widget.*;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.core.widget.NestedScrollView;
 import androidx.fragment.app.Fragment;
+import androidx.media3.common.MediaItem;
+import androidx.media3.common.Player;
+import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.ui.PlayerView;
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 
 import com.bumptech.glide.Glide;
@@ -85,6 +92,24 @@ public class HomeFragment extends Fragment {
     private TextView           tvFeedTitle;
     private ImageButton        btnNewPost;
     private ImageButton        btnNotifications;
+    // ── Inline auto-play (single ExoPlayer shared across feed cards) ──
+    private ExoPlayer          feedPlayer;
+    private NestedScrollView   scrollView;
+    private final List<HomeFeedCard> feedCards = new ArrayList<>();
+    private int                currentPlayingIndex = -1;
+    private boolean            isMuted = false;
+    private final Handler      scrollHandler = new Handler(Looper.getMainLooper());
+    private Runnable           scrollRunnable;
+
+    /** Lightweight holder for each inline feed card. */
+    private static class HomeFeedCard {
+        View      rootView;
+        PlayerView playerView;
+        ImageView  thumbView;
+        View       endOverlay;
+        String     videoUrl;
+        String     reelId;
+    }
 
     private boolean isFollowingMode = true;
 
@@ -109,6 +134,22 @@ public class HomeFragment extends Fragment {
                              @Nullable Bundle savedInstanceState) {
         View v = inflater.inflate(R.layout.fragment_home, container, false);
         bindViews(v);
+        // ── Initialise the single shared ExoPlayer for inline feed playback ──
+        feedPlayer = new ExoPlayer.Builder(requireContext()).build();
+        feedPlayer.setRepeatMode(Player.REPEAT_MODE_OFF);
+        feedPlayer.addListener(new Player.Listener() {
+            @Override
+            public void onPlaybackStateChanged(int state) {
+                if (state == Player.STATE_ENDED && currentPlayingIndex >= 0
+                        && currentPlayingIndex < feedCards.size()) {
+                    HomeFeedCard card = feedCards.get(currentPlayingIndex);
+                    if (card.endOverlay != null && isAdded()) {
+                        requireActivity().runOnUiThread(
+                            () -> card.endOverlay.setVisibility(View.VISIBLE));
+                    }
+                }
+            }
+        });
         setupListeners();
         loadAllSections();
         return v;
@@ -140,6 +181,8 @@ public class HomeFragment extends Fragment {
         tvFeedTitle               = v.findViewById(R.id.tv_feed_title);
         btnNewPost                = v.findViewById(R.id.btn_new_post);
         btnNotifications          = v.findViewById(R.id.btn_notifications);
+        // NestedScrollView for scroll-triggered auto-play
+        scrollView                = v.findViewById(R.id.nested_scroll_home);
     }
 
     private void setupListeners() {
@@ -229,6 +272,92 @@ public class HomeFragment extends Fragment {
         }
 
         loadMyAvatar();
+
+        // ── Scroll-triggered auto-play ──────────────────────────────────────
+        if (scrollView != null) {
+            scrollView.setOnScrollChangeListener(
+                (NestedScrollView.OnScrollChangeListener) (sv, sx, sy, osx, osy) -> {
+                    if (scrollRunnable != null) scrollHandler.removeCallbacks(scrollRunnable);
+                    scrollRunnable = this::playMostVisibleCard;
+                    scrollHandler.postDelayed(scrollRunnable, 120);
+                });
+        }
+    }
+
+    // ── Auto-play helpers ─────────────────────────────────────────────────
+
+    /**
+     * Walk all tracked feed cards; find the one with the largest visible area
+     * on screen, then attach the shared ExoPlayer to it.
+     */
+    private void playMostVisibleCard() {
+        if (!isAdded() || feedPlayer == null || feedCards.isEmpty()) return;
+        int screenH = getResources().getDisplayMetrics().heightPixels;
+        int bestIdx = -1;
+        int bestPx  = 0;
+        for (int i = 0; i < feedCards.size(); i++) {
+            View root = feedCards.get(i).rootView;
+            if (root == null || root.getHeight() == 0) continue;
+            int[] loc = new int[2];
+            root.getLocationOnScreen(loc);
+            int cardTop = loc[1];
+            int cardBot = cardTop + root.getHeight();
+            int vis     = Math.max(0, Math.min(cardBot, screenH) - Math.max(cardTop, 0));
+            if (vis > bestPx) { bestPx = vis; bestIdx = i; }
+        }
+        if (bestIdx >= 0 && bestIdx != currentPlayingIndex) attachPlayerToCard(bestIdx);
+    }
+
+    /**
+     * Detach the shared ExoPlayer from any previous card, then attach+play on the new one.
+     */
+    private void attachPlayerToCard(int index) {
+        if (!isAdded() || feedPlayer == null || index >= feedCards.size()) return;
+        // Detach old
+        if (currentPlayingIndex >= 0 && currentPlayingIndex < feedCards.size()) {
+            HomeFeedCard old = feedCards.get(currentPlayingIndex);
+            if (old.playerView != null) old.playerView.setPlayer(null);
+            if (old.endOverlay  != null) old.endOverlay.setVisibility(View.GONE);
+        }
+        currentPlayingIndex = index;
+        HomeFeedCard card = feedCards.get(index);
+        if (card.videoUrl == null || card.videoUrl.isEmpty()) return;
+        if (card.endOverlay != null) card.endOverlay.setVisibility(View.GONE);
+        if (card.playerView != null) card.playerView.setPlayer(feedPlayer);
+        feedPlayer.setMediaItem(MediaItem.fromUri(card.videoUrl));
+        feedPlayer.prepare();
+        feedPlayer.setVolume(isMuted ? 0f : 1f);
+        feedPlayer.play();
+        // Fade thumbnail out once player is attached
+        if (card.thumbView != null) {
+            card.thumbView.animate().alpha(0f).setDuration(300)
+                .withEndAction(() -> {
+                    if (card.thumbView != null) card.thumbView.setVisibility(View.INVISIBLE);
+                }).start();
+        }
+    }
+
+    // ── Lifecycle ─────────────────────────────────────────────────────────
+
+    @Override public void onResume() {
+        super.onResume();
+        if (feedPlayer != null) {
+            if (currentPlayingIndex >= 0) feedPlayer.play();
+            else if (!feedCards.isEmpty()) scrollHandler.postDelayed(this::playMostVisibleCard, 300);
+        }
+    }
+
+    @Override public void onPause() {
+        super.onPause();
+        if (feedPlayer != null) feedPlayer.pause();
+    }
+
+    @Override public void onDestroyView() {
+        super.onDestroyView();
+        if (scrollRunnable != null) scrollHandler.removeCallbacks(scrollRunnable);
+        if (feedPlayer != null) { feedPlayer.release(); feedPlayer = null; }
+        feedCards.clear();
+        currentPlayingIndex = -1;
     }
 
     /**
@@ -449,29 +578,23 @@ public class HomeFragment extends Fragment {
 
             tvName.setText(entry.name != null ? entry.name : "User");
 
-            // ★ Gradient ring for reel_story type (Instagram-style)
+            // ★ Instagram-style: gradient ring for ALL stories that have unseen content
             ImageView ivGradientRing = storyView.findViewById(R.id.iv_reel_story_gradient_ring);
 
-            if (entry.hasReelStory) {
-                // Show gradient sweep ring, with a white gap between ring and avatar (Instagram-style)
+            if (entry.hasUnseen || entry.hasReelStory) {
+                // Gradient pink/orange ring — same as Instagram, for any unseen story
                 if (ivGradientRing != null) ivGradientRing.setVisibility(View.VISIBLE);
                 avatar.setBorderColor(0xFFFFFFFF);
                 avatar.setBorderWidth(dpToPx(3));
                 if (ivSeenRing != null) ivSeenRing.setVisibility(View.GONE);
-            } else if (entry.hasUnseen) {
-                // Brand color ring for unseen WhatsApp-style status
-                if (ivGradientRing != null) ivGradientRing.setVisibility(View.GONE);
-                avatar.setBorderColor(getResources().getColor(R.color.brand_primary, null));
-                avatar.setBorderWidth(dpToPx(3));
-                if (ivSeenRing != null) ivSeenRing.setVisibility(View.GONE);
             } else {
-                // Gray ring for all-seen status
+                // Gray ring for all-seen stories
                 if (ivGradientRing != null) ivGradientRing.setVisibility(View.GONE);
-                avatar.setBorderColor(0xFF666666);
+                avatar.setBorderColor(0xFF888888);
                 avatar.setBorderWidth(dpToPx(2));
                 if (ivSeenRing != null) {
                     ivSeenRing.setVisibility(View.VISIBLE);
-                    ivSeenRing.setColorFilter(0xFF666666, android.graphics.PorterDuff.Mode.SRC_IN);
+                    ivSeenRing.setColorFilter(0xFF888888, android.graphics.PorterDuff.Mode.SRC_IN);
                 }
             }
 
@@ -635,10 +758,17 @@ public class HomeFragment extends Fragment {
         requireActivity().runOnUiThread(() -> {
             if (containerFeed == null || !isAdded()) return;
             containerFeed.removeAllViews();
+            feedCards.clear();
+            currentPlayingIndex = -1;
             int count = Math.min(posts.size(), 10);
             for (int i = 0; i < count; i++) {
                 addFeedPostCard(posts.get(i), likedIds, savedIds, myUid);
             }
+            // Auto-play first visible card after layout
+            containerFeed.post(() -> {
+                if (scrollRunnable != null) scrollHandler.removeCallbacks(scrollRunnable);
+                scrollHandler.postDelayed(this::playMostVisibleCard, 400);
+            });
         });
     }
 
@@ -651,10 +781,10 @@ public class HomeFragment extends Fragment {
         CircleImageView avatar    = card.findViewById(R.id.iv_post_avatar);
         TextView tvOwner          = card.findViewById(R.id.tv_post_owner);
         TextView tvTime           = card.findViewById(R.id.tv_post_time);
+        TextView tvAudio          = card.findViewById(R.id.tv_post_audio);
         TextView tvSuggested      = card.findViewById(R.id.tv_post_suggested);
         TextView btnPostFollow    = card.findViewById(R.id.btn_post_follow);
         ImageView ivThumb         = card.findViewById(R.id.iv_post_thumb);
-        ImageView ivVideoBadge    = card.findViewById(R.id.iv_video_badge);
         TextView tvCaption        = card.findViewById(R.id.tv_post_caption);
         TextView tvLikes          = card.findViewById(R.id.tv_post_likes);
         TextView tvComments       = card.findViewById(R.id.tv_post_comments);
@@ -663,6 +793,77 @@ public class HomeFragment extends Fragment {
         ImageButton btnComment    = card.findViewById(R.id.btn_post_comment);
         ImageButton btnRepost     = card.findViewById(R.id.btn_post_repost);
         ImageButton btnSave       = card.findViewById(R.id.btn_post_save);
+        PlayerView  pvFeed        = card.findViewById(R.id.pv_feed_post);
+        FrameLayout frameVideo    = card.findViewById(R.id.frame_video);
+        View        endOverlay    = card.findViewById(R.id.layout_end_of_reel_card);
+        View        watchMore     = card.findViewById(R.id.btn_watch_more_card);
+        TextView    watchAgain    = card.findViewById(R.id.btn_watch_again_card);
+        ImageButton btnMute       = card.findViewById(R.id.btn_post_mute);
+
+        // ── 9:16 aspect ratio for video frame ──────────────────────────────
+        if (frameVideo != null) {
+            int screenW = getResources().getDisplayMetrics().widthPixels;
+            int videoH  = (int)(screenW * 16f / 9f);
+            android.view.ViewGroup.LayoutParams lp = frameVideo.getLayoutParams();
+            lp.height = videoH;
+            frameVideo.setLayoutParams(lp);
+        }
+
+        // ── Register HomeFeedCard for auto-play ─────────────────────────────
+        final int cardIndex = feedCards.size();
+        HomeFeedCard feedCard = new HomeFeedCard();
+        feedCard.rootView   = card;
+        feedCard.playerView = pvFeed;
+        feedCard.thumbView  = ivThumb;
+        feedCard.endOverlay = endOverlay;
+        feedCard.videoUrl   = (reel.videoUrl != null && !reel.videoUrl.isEmpty())
+                              ? reel.videoUrl
+                              : (reel.video480 != null ? reel.video480 : "");
+        feedCard.reelId     = reel.reelId;
+        feedCards.add(feedCard);
+
+        // ── End-of-reel overlay buttons ──────────────────────────────────────
+        if (watchMore != null) {
+            watchMore.setOnClickListener(x -> {
+                if (!isAdded() || getContext() == null) return;
+                // Open the fullscreen reels explore feed
+                startActivity(new Intent(getContext(), ReelExploreActivity.class));
+            });
+        }
+        if (watchAgain != null) {
+            watchAgain.setOnClickListener(x -> {
+                if (feedPlayer == null) return;
+                // Hide overlay, reset thumb visibility, seek to 0, replay
+                if (endOverlay != null) endOverlay.setVisibility(View.GONE);
+                if (ivThumb != null) { ivThumb.setAlpha(0f); ivThumb.setVisibility(View.INVISIBLE); }
+                feedPlayer.seekTo(0);
+                feedPlayer.play();
+                currentPlayingIndex = cardIndex;
+            });
+        }
+
+        // ── Mute toggle ──────────────────────────────────────────────────────
+        if (btnMute != null) {
+            btnMute.setOnClickListener(x -> {
+                isMuted = !isMuted;
+                if (feedPlayer != null) feedPlayer.setVolume(isMuted ? 0f : 1f);
+                btnMute.setImageResource(isMuted
+                    ? R.drawable.ic_volume_off : R.drawable.ic_volume_on);
+            });
+        }
+
+        // ── Audio track label ────────────────────────────────────────────────
+        if (tvAudio != null) {
+            String audioLabel = reel.musicName != null && !reel.musicName.isEmpty()
+                ? reel.musicName
+                : (reel.musicArtist != null && !reel.musicArtist.isEmpty()
+                   ? reel.musicArtist + " · Original audio"
+                   : null);
+            if (audioLabel != null) {
+                tvAudio.setText(audioLabel);
+                tvAudio.setVisibility(View.VISIBLE);
+            }
+        }
 
         // ── "Suggested for you" — shown for non-following posts (For You mode) ──
         final String ownerUidRef = reel.uid != null ? reel.uid : "";
@@ -695,7 +896,7 @@ public class HomeFragment extends Fragment {
         }
 
         tvOwner.setText(reel.ownerName != null ? "@" + reel.ownerName : "@user");
-        tvTime.setText(formatAgo(reel.timestamp));
+        if (tvTime != null) tvTime.setText(formatAgo(reel.timestamp));
         String captionText = reel.caption != null ? reel.caption : "";
         tvCaption.setText(captionText);
         if (captionText.contains("#")) {
@@ -724,8 +925,7 @@ public class HomeFragment extends Fragment {
         tvComments.setText(formatCount(reel.commentsCount));
         tvReposts.setText(formatCount(reel.repostCount));
 
-        // Video posts show play icon
-        if (ivVideoBadge != null) ivVideoBadge.setVisibility(View.VISIBLE);
+        // (PlayerView handles video rendering — no separate badge needed)
 
         // ── Liked state ──
         final boolean[] isLiked = {reel.reelId != null && likedIds.contains(reel.reelId)};
@@ -862,6 +1062,18 @@ public class HomeFragment extends Fragment {
                     FirebaseUtils.getReelSavesRef(myUid).child(reelId).removeValue();
                     FirebaseUtils.getReelSavesIndexRef(reelId).child(myUid).removeValue();
                 }
+            });
+        }
+
+        // ── Send / Share button — open share sheet ──
+        View btnSend = card.findViewById(R.id.btn_post_send);
+        if (btnSend != null) {
+            btnSend.setOnClickListener(x -> {
+                if (!isAdded() || getContext() == null || reelId == null) return;
+                Intent share = new Intent(Intent.ACTION_SEND);
+                share.setType("text/plain");
+                share.putExtra(Intent.EXTRA_TEXT, "Check out this reel on CallX!");
+                startActivity(Intent.createChooser(share, "Share reel"));
             });
         }
 
