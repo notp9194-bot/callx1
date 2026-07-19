@@ -54,7 +54,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="160dp"
                 android:hint="Aapki problem ya suggestion detail mein likhein..."
-                android:hintTextColor="#555555"
+                android:textColorHint="#555555"
                 android:textColor="#FFFFFF"
                 android:textSize="14sp"
                 android:inputType="textMultiLine|textCapSentences"

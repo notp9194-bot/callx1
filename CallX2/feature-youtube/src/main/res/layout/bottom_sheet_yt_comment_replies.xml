@@ -90,7 +90,7 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:hint="Reply likhein..."
-            android:hintTextColor="#555555"
+            android:textColorHint="#555555"
             android:textColor="#FFFFFF"
             android:textSize="14sp"
             android:maxLines="4"
