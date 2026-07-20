@@ -55,7 +55,7 @@ import com.callx.app.db.entity.*;
         ChatFolderEntity.class,
         SavedMessageEntity.class
     },
-    version = 40,
+    version = 42,
     exportSchema = false
 )
 public abstract class AppDatabase extends RoomDatabase {
@@ -467,6 +467,53 @@ public abstract class AppDatabase extends RoomDatabase {
         }
     };
 
+    // ─── Migration 40 → 41 ────────────────────────────────────────────────────
+    //
+    // FIX: CommunityEntity.isVerified (owner-verified badge) existed in code
+    // but no migration ever added it to the "communities" table — same class
+    // of bug as MIGRATION_39_40. Caused IllegalStateException("Migration
+    // didn't properly handle: communities") crashing any LiveData query that
+    // touches the communities table (e.g. ChatFolderDao live queries that
+    // join/observe it).
+    //
+    static final Migration MIGRATION_40_41 = new Migration(40, 41) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase db) {
+            db.execSQL("ALTER TABLE communities ADD COLUMN isVerified INTEGER NOT NULL DEFAULT 0");
+        }
+    };
+
+    // ─── Migration 41 → 42 ────────────────────────────────────────────────────
+    //
+    // FIX: Same class of bug as MIGRATION_39_40 / MIGRATION_40_41. The
+    // ChannelEntity and ChannelPostEntity "NEW in v5" fields (isVerified,
+    // topicTagsJson, isFollowing on channels; broadcastPriority, event*,
+    // pollAnonymous, topicTagsJson, mentionedUidsJson on channel_posts) were
+    // added to the entity classes but never had a matching ALTER TABLE,
+    // so Room's schema check would eventually crash on these tables too.
+    //
+    static final Migration MIGRATION_41_42 = new Migration(41, 42) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase db) {
+            // ── channels ──────────────────────────────────────────────────────
+            db.execSQL("ALTER TABLE channels ADD COLUMN isVerified INTEGER NOT NULL DEFAULT 0");
+            db.execSQL("ALTER TABLE channels ADD COLUMN topicTagsJson TEXT");
+            db.execSQL("ALTER TABLE channels ADD COLUMN isFollowing INTEGER NOT NULL DEFAULT 0");
+
+            // ── channel_posts ─────────────────────────────────────────────────
+            db.execSQL("ALTER TABLE channel_posts ADD COLUMN broadcastPriority TEXT");
+            db.execSQL("ALTER TABLE channel_posts ADD COLUMN eventTitle TEXT");
+            db.execSQL("ALTER TABLE channel_posts ADD COLUMN eventLocation TEXT");
+            db.execSQL("ALTER TABLE channel_posts ADD COLUMN eventStartAt INTEGER NOT NULL DEFAULT 0");
+            db.execSQL("ALTER TABLE channel_posts ADD COLUMN eventEndAt INTEGER NOT NULL DEFAULT 0");
+            db.execSQL("ALTER TABLE channel_posts ADD COLUMN eventImageUrl TEXT");
+            db.execSQL("ALTER TABLE channel_posts ADD COLUMN eventRsvpEnabled INTEGER NOT NULL DEFAULT 0");
+            db.execSQL("ALTER TABLE channel_posts ADD COLUMN pollAnonymous INTEGER NOT NULL DEFAULT 0");
+            db.execSQL("ALTER TABLE channel_posts ADD COLUMN topicTagsJson TEXT");
+            db.execSQL("ALTER TABLE channel_posts ADD COLUMN mentionedUidsJson TEXT");
+        }
+    };
+
     // ─── Singleton ────────────────────────────────────────────────────────────
 
     public static boolean isWarm() { return sInstance != null; }
@@ -484,7 +531,8 @@ public abstract class AppDatabase extends RoomDatabase {
                                     MIGRATION_32_33, MIGRATION_33_34,
                                     MIGRATION_34_35, MIGRATION_35_36,
                                     MIGRATION_36_37, MIGRATION_37_38,
-                                    MIGRATION_38_39, MIGRATION_39_40)
+                                    MIGRATION_38_39, MIGRATION_39_40,
+                                    MIGRATION_40_41, MIGRATION_41_42)
                             .fallbackToDestructiveMigrationFrom(1, 2, 3, 4, 5, 6, 7, 8,
                                     9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
                                     21, 22, 23, 24, 25, 26, 27, 28, 29)
