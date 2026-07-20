@@ -1,0 +1,192 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="#000000">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="#1A1A1A"
+        android:paddingHorizontal="8dp">
+        <ImageButton
+            android:id="@+id/btn_reshare_back"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@drawable/ic_arrow_back"
+            android:tint="#FFFFFF"/>
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Add to Your Story"
+            android:textColor="#FFFFFF"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:paddingStart="12dp"/>
+    </LinearLayout>
+
+    <FrameLayout
+        android:id="@+id/fl_reshare_preview"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+        
+        <LinearLayout
+            android:id="@+id/ll_reshare_bg"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="vertical"
+            android:background="#1A1A2E"/>
+
+        <androidx.media3.ui.PlayerView
+            android:id="@+id/pv_reshare_video"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:visibility="gone"
+            android:use_controller="false"/>
+
+        <ImageView
+            android:id="@+id/iv_reshare_image"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:scaleType="centerCrop"
+            android:visibility="gone"/>
+
+        <FrameLayout
+            android:id="@+id/fl_card_sticker_container"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"/>
+
+        <EditText
+            android:id="@+id/et_reshare_text_overlay"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:gravity="center"
+            android:textColor="#FFFFFF"
+            android:textSize="22sp"
+            android:background="@android:color/transparent"
+            android:visibility="gone"
+            android:hint="Tap to type..."
+            android:textColorHint="#88FFFFFF"/>
+    </FrameLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:orientation="horizontal"
+        android:background="#1A1A1A">
+        <Button
+            android:id="@+id/btn_tool_text"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:text="📝 Text"
+            android:textColor="#FFFFFF"
+            style="?android:attr/borderlessButtonStyle"/>
+        <Button
+            android:id="@+id/btn_tool_bg"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:text="🎨 BG"
+            android:textColor="#FFFFFF"
+            style="?android:attr/borderlessButtonStyle"/>
+        <Button
+            android:id="@+id/btn_tool_caption"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:text="✏️ Caption"
+            android:textColor="#FFFFFF"
+            style="?android:attr/borderlessButtonStyle"/>
+    </LinearLayout>
+
+    <HorizontalScrollView
+        android:id="@+id/hsv_bg_colors"
+        android:layout_width="match_parent"
+        android:layout_height="52dp"
+        android:background="#111111"
+        android:visibility="gone">
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingHorizontal="8dp">
+            <View android:id="@+id/bg_color_1" android:layout_width="28dp" android:layout_height="28dp" android:layout_margin="8dp" android:background="@android:color/white"/>
+            <View android:id="@+id/bg_color_2" android:layout_width="28dp" android:layout_height="28dp" android:layout_margin="8dp" android:background="@android:color/white"/>
+            <View android:id="@+id/bg_color_3" android:layout_width="28dp" android:layout_height="28dp" android:layout_margin="8dp" android:background="@android:color/white"/>
+            <View android:id="@+id/bg_color_4" android:layout_width="28dp" android:layout_height="28dp" android:layout_margin="8dp" android:background="@android:color/white"/>
+            <View android:id="@+id/bg_color_5" android:layout_width="28dp" android:layout_height="28dp" android:layout_margin="8dp" android:background="@android:color/white"/>
+            <View android:id="@+id/bg_color_6" android:layout_width="28dp" android:layout_height="28dp" android:layout_margin="8dp" android:background="@android:color/white"/>
+        </LinearLayout>
+    </HorizontalScrollView>
+
+    <LinearLayout
+        android:id="@+id/ll_caption_row"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="#1A1A1A"
+        android:visibility="gone"
+        android:padding="8dp">
+        <EditText
+            android:id="@+id/et_reshare_caption"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Add a caption..."
+            android:textColor="#FFFFFF"
+            android:textColorHint="#888888"
+            android:background="@android:color/transparent"/>
+    </LinearLayout>
+
+    <RadioGroup
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:orientation="horizontal"
+        android:gravity="center"
+        android:background="#1A1A1A">
+        <RadioButton
+            android:id="@+id/rb_story_everyone"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Your Story 🌍"
+            android:textColor="#FFFFFF"
+            android:checked="true"/>
+        <RadioButton
+            android:id="@+id/rb_story_closefriends"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Close Friends 🟢"
+            android:textColor="#FFFFFF"
+            android:layout_marginStart="24dp"/>
+    </RadioGroup>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:padding="12dp"
+        android:background="#000000"
+        android:orientation="vertical">
+        <ProgressBar
+            android:id="@+id/progress_reshare"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:visibility="gone"/>
+        <Button
+            android:id="@+id/btn_add_to_story"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:text="Add to Your Story"
+            android:backgroundTint="#C13584"
+            android:textColor="#FFFFFF"
+            android:textSize="16sp"
+            android:textStyle="bold"/>
+    </LinearLayout>
+</LinearLayout>

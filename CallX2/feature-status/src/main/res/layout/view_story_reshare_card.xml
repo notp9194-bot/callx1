@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:background="@drawable/bg_reshare_card"
+    android:minWidth="220dp">
+
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <!-- Thumbnail (left side) -->
+        <ImageView
+            android:id="@+id/iv_reshare_thumb"
+            android:layout_width="72dp"
+            android:layout_height="72dp"
+            android:scaleType="centerCrop"
+            android:background="#CCCCCC"/>
+
+        <!-- Info (right side) -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="10dp">
+
+            <!-- Type badge chip -->
+            <TextView
+                android:id="@+id/tv_reshare_badge"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Reel"
+                android:textSize="10sp"
+                android:textColor="#FFFFFF"
+                android:background="#C13584"
+                android:paddingStart="6dp"
+                android:paddingEnd="6dp"
+                android:paddingTop="2dp"
+                android:paddingBottom="2dp"/>
+
+            <!-- Owner row: avatar + name -->
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginTop="5dp">
+
+                <de.hdodenhof.circleimageview.CircleImageView
+                    android:id="@+id/iv_reshare_owner_avatar"
+                    android:layout_width="16dp"
+                    android:layout_height="16dp"
+                    android:src="@drawable/ic_person"/>
+
+                <TextView
+                    android:id="@+id/tv_reshare_owner_name"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="4dp"
+                    android:textSize="12sp"
+                    android:textColor="#333333"
+                    android:fontFamily="sans-serif-medium"
+                    android:maxWidth="120dp"
+                    android:maxLines="1"
+                    android:ellipsize="end"/>
+            </LinearLayout>
+
+            <!-- View original link -->
+            <TextView
+                android:id="@+id/tv_view_original"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="View Original →"
+                android:textSize="11sp"
+                android:textColor="#0095F6"
+                android:clickable="true"
+                android:focusable="true"
+                android:background="?attr/selectableItemBackground"/>
+        </LinearLayout>
+    </LinearLayout>
+</FrameLayout>

@@ -175,6 +175,30 @@ public class StatusItem {
         return "Expires in " + mins + "m";
     }
 
+    // ── Story Reshare fields ────────────────────────────────────────────────
+    /** "reel", "post", or "channel_post" — what content was reshared */
+    public String resharedFromType       = "";
+    /** ID of the original reel/post that was reshared */
+    public String resharedFromId         = "";
+    /** UID of the original content creator */
+    public String resharedFromOwnerUid   = "";
+    /** Display name of the original creator */
+    public String resharedFromOwnerName  = "";
+    /** Avatar URL of the original creator */
+    public String resharedFromOwnerAvatar= "";
+    /** Thumbnail URL of the original content for the card sticker */
+    public String resharedThumbnailUrl   = "";
+    /** Attribution text e.g. "Originally posted by @username" */
+    public String attribution            = "";
+    /** Text overlay typed by the resharer on top of story background */
+    public String stickerText            = "";
+    /** Relative X position of the card sticker (0.0–1.0 fraction of width) */
+    public float  cardStickerX           = 0.1f;
+    /** Relative Y position of the card sticker (0.0–1.0 fraction of height) */
+    public float  cardStickerY           = 0.35f;
+    /** Background hex color chosen for a text/card-style reshare story */
+    public String reshareBackgroundColor = "";
+
     /** Convert to Firebase Map (preserves all fields, excludes nulls). */
     @Exclude
     public Map<String, Object> toMap() {

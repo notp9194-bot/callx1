@@ -246,9 +246,68 @@ package com.callx.app.viewer;
                   next(); break;
               case "link":  showLinkStatus(s); break;
               case "gif": case "sticker": showGifStatus(s); break;
+              case "reel_reshare": case "post_reshare": case "channel_post_reshare":
+                  // Show as video if mediaUrl present, else thumbnail
+                  if (s.mediaUrl != null && !s.mediaUrl.isEmpty()) { showVideoStatus(s); }
+                  else if (s.thumbnailUrl != null && !s.thumbnailUrl.isEmpty()) { showImageStatusFromUrl(s.thumbnailUrl, s.caption); }
+                  else if (s.resharedThumbnailUrl != null && !s.resharedThumbnailUrl.isEmpty()) { showImageStatusFromUrl(s.resharedThumbnailUrl, s.caption); }
+                  else { next(); return; }
+                  break;
               default: next();
           }
+
+          // ── Reshare attribution card ─────────────────────────────────────
+          try {
+              android.view.View flReshare = findViewById(R.id.fl_reshare_attribution_container);
+              if (flReshare != null) {
+                  boolean isReshare = "reel_reshare".equals(s.type)
+                                   || "post_reshare".equals(s.type)
+                                   || "channel_post_reshare".equals(s.type);
+                  if (isReshare && s.resharedFromOwnerName != null && !s.resharedFromOwnerName.isEmpty()) {
+                      flReshare.setVisibility(android.view.View.VISIBLE);
+                      android.widget.ImageView ivThumb = flReshare.findViewById(R.id.iv_reshare_thumb);
+                      if (ivThumb != null && s.resharedThumbnailUrl != null && !s.resharedThumbnailUrl.isEmpty())
+                          com.bumptech.glide.Glide.with(this).load(s.resharedThumbnailUrl).centerCrop().into(ivThumb);
+                      android.widget.TextView tvOwner = flReshare.findViewById(R.id.tv_reshare_original_owner);
+                      if (tvOwner != null) tvOwner.setText("@" + s.resharedFromOwnerName);
+                      android.widget.TextView tvBadge = flReshare.findViewById(R.id.tv_reshare_type_badge);
+                      if (tvBadge != null) tvBadge.setText(
+                          "post".equals(s.resharedFromType) ? "Post" :
+                          "channel_post".equals(s.resharedFromType) ? "Channel" : "Reel");
+                      android.widget.TextView tvView = flReshare.findViewById(R.id.tv_view_original_btn);
+                      if (tvView != null) {
+                          final String ft = s.resharedFromType != null ? s.resharedFromType : "reel";
+                          final String fi = s.resharedFromId   != null ? s.resharedFromId   : "";
+                          final String fu = s.resharedFromOwnerUid != null ? s.resharedFromOwnerUid : "";
+                          tvView.setOnClickListener(v -> openOriginalContent(ft, fi, fu));
+                      }
+                  } else {
+                      flReshare.setVisibility(android.view.View.GONE);
+                  }
+              }
+          } catch (Exception ignored) { /* never crash the viewer */ }
       }
+
+      /** Navigate to the original reel or post that was reshared. */
+      private void openOriginalContent(String fromType, String fromId, String fromUid) {
+          if (fromId == null || fromId.isEmpty()) return;
+          try {
+              android.content.Intent i;
+              if ("reel".equals(fromType)) {
+                  i = new android.content.Intent(this, com.callx.app.feed.SingleReelPlayerActivity.class);
+                  i.putExtra("reel_id", fromId);
+                  i.putExtra("owner_uid", fromUid);
+              } else {
+                  i = new android.content.Intent(this, com.callx.app.activities.UserProfileActivity.class);
+                  i.putExtra("uid", fromUid);
+              }
+              startActivity(i);
+          } catch (Exception e) {
+              android.widget.Toast.makeText(this, "Could not open original post",
+                  android.widget.Toast.LENGTH_SHORT).show();
+          }
+      }
+
       // ── Content renderers ─────────────────────────────────────────────────
       private void showTextStatus(StatusItem s) {
           binding.flTextStatus.setVisibility(View.VISIBLE);

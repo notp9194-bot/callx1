@@ -182,6 +182,11 @@
             android:exported="false"
             tools:node="merge" />
 
+        <activity android:name="com.callx.app.social.StoryReshareActivity" 
+            android:exported="false" 
+            android:screenOrientation="portrait" 
+            android:theme="@style/Theme.AppCompat.NoActionBar" 
+            android:windowSoftInputMode="adjustResize"/>
     </application>
 
 </manifest>

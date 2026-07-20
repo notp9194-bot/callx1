@@ -220,10 +220,19 @@ public class ReelShareSheetActivity extends AppCompatActivity
             if (ownerName == null) ownerName = "";
         } catch (Exception ignored) {}
 
-        Intent i = new Intent(this, ReelShareToStoryActivity.class);
-        i.putExtra(ReelShareToStoryActivity.EXTRA_REEL_ID,        reelId);
-        i.putExtra(ReelShareToStoryActivity.EXTRA_REEL_URL,        videoUrl);
-        i.putExtra(ReelShareToStoryActivity.EXTRA_REEL_OWNER_NAME, ownerName);
+        // ── Story Reshare: launch full StoryReshareActivity ──────────────────
+        String thumbUrl  = getIntent().getStringExtra(EXTRA_THUMB_URL);
+        Intent i = new Intent(this, com.callx.app.social.StoryReshareActivity.class);
+        i.putExtra(com.callx.app.social.StoryReshareActivity.EXTRA_CONTENT_TYPE,  "reel");
+        i.putExtra(com.callx.app.social.StoryReshareActivity.EXTRA_CONTENT_ID,    reelId != null ? reelId : "");
+        i.putExtra(com.callx.app.social.StoryReshareActivity.EXTRA_OWNER_UID,     ownerUid != null ? ownerUid : "");
+        i.putExtra(com.callx.app.social.StoryReshareActivity.EXTRA_OWNER_NAME,    ownerName);
+        i.putExtra(com.callx.app.social.StoryReshareActivity.EXTRA_OWNER_AVATAR,  "");
+        i.putExtra(com.callx.app.social.StoryReshareActivity.EXTRA_MEDIA_URL,     videoUrl != null ? videoUrl : "");
+        i.putExtra(com.callx.app.social.StoryReshareActivity.EXTRA_THUMB_URL,     thumbUrl != null ? thumbUrl : "");
+        i.putExtra(com.callx.app.social.StoryReshareActivity.EXTRA_CAPTION,       caption != null ? caption : "");
+        i.putExtra(com.callx.app.social.StoryReshareActivity.EXTRA_MEDIA_TYPE,    "video");
+        i.putExtra(com.callx.app.social.StoryReshareActivity.EXTRA_ALLOW_RESHARE, allowRepost);
         incrementShareCount();
         startActivity(i);
         finish();

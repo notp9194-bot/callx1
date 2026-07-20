@@ -38,6 +38,77 @@
               android:lineSpacingMultiplier="1.2"/>
       </FrameLayout>
 
+      <!-- ── Reshare attribution card overlay (reel_reshare / post_reshare) ── -->
+      <FrameLayout
+          android:id="@+id/fl_reshare_attribution_container"
+          android:layout_width="wrap_content"
+          android:layout_height="wrap_content"
+          android:layout_gravity="bottom|center_horizontal"
+          android:layout_marginBottom="100dp"
+          android:visibility="gone">
+
+          <LinearLayout
+              android:id="@+id/ll_reshare_attribution_card"
+              android:layout_width="280dp"
+              android:layout_height="wrap_content"
+              android:orientation="horizontal"
+              android:background="@drawable/bg_reshare_card"
+              android:padding="10dp"
+              android:gravity="center_vertical">
+
+              <ImageView
+                  android:id="@+id/iv_reshare_thumb"
+                  android:layout_width="56dp"
+                  android:layout_height="56dp"
+                  android:scaleType="centerCrop"
+                  android:background="#CCCCCC"/>
+
+              <LinearLayout
+                  android:layout_width="0dp"
+                  android:layout_height="wrap_content"
+                  android:layout_weight="1"
+                  android:orientation="vertical"
+                  android:layout_marginStart="10dp">
+
+                  <TextView
+                      android:id="@+id/tv_reshare_type_badge"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:text="Reel"
+                      android:textSize="10sp"
+                      android:textColor="#FFFFFF"
+                      android:background="#C13584"
+                      android:paddingStart="6dp"
+                      android:paddingEnd="6dp"
+                      android:paddingTop="2dp"
+                      android:paddingBottom="2dp"/>
+
+                  <TextView
+                      android:id="@+id/tv_reshare_original_owner"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:textSize="13sp"
+                      android:textStyle="bold"
+                      android:textColor="#1A1A1A"
+                      android:layout_marginTop="4dp"
+                      android:maxLines="1"
+                      android:ellipsize="end"/>
+
+                  <TextView
+                      android:id="@+id/tv_view_original_btn"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:text="View Original →"
+                      android:textSize="12sp"
+                      android:textColor="#0095F6"
+                      android:layout_marginTop="3dp"
+                      android:clickable="true"
+                      android:focusable="true"
+                      android:background="?attr/selectableItemBackground"/>
+              </LinearLayout>
+          </LinearLayout>
+      </FrameLayout>
+
       <!-- Touch capture layer -->
       <View
           android:id="@+id/touch_layer"
