@@ -10,6 +10,7 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.callx.app.chat.R;
+import com.callx.app.community.canvas.CommunityScrollOptimizer;
 import com.callx.app.db.entity.CommunityScheduledPostEntity;
 import com.callx.app.repository.CommunityRepository;
 
@@ -47,6 +48,8 @@ public class CommunityScheduledPostsActivity extends AppCompatActivity
         rvScheduled.setLayoutManager(llm);
         rvScheduled.setHasFixedSize(false);
         rvScheduled.setItemAnimator(null);
+        CommunityScrollOptimizer.apply(rvScheduled, llm);
+        CommunityScrollOptimizer.applySharedPool(rvScheduled);
 
         adapter = new CommunityScheduledPostAdapter(this);
         rvScheduled.setAdapter(adapter);

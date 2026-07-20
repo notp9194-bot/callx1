@@ -1,11 +1,7 @@
 package com.callx.app.community;
 
-import android.text.format.DateUtils;
-import android.view.LayoutInflater;
-import android.view.View;
+import android.graphics.Bitmap;
 import android.view.ViewGroup;
-import android.widget.Button;
-import android.widget.TextView;
 
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.AsyncListDiffer;
@@ -13,16 +9,23 @@ import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.bumptech.glide.Glide;
-import com.callx.app.chat.R;
+import com.bumptech.glide.load.DecodeFormat;
+import com.bumptech.glide.load.engine.DiskCacheStrategy;
+import com.bumptech.glide.request.RequestOptions;
+import com.bumptech.glide.request.target.CustomTarget;
+import com.bumptech.glide.request.target.Target;
+import com.bumptech.glide.request.transition.Transition;
+import com.callx.app.community.canvas.CommunityJoinRequestCanvasView;
 import com.callx.app.db.entity.CommunityJoinRequestEntity;
 
 import java.util.Collections;
 import java.util.List;
 
-import de.hdodenhof.circleimageview.CircleImageView;
-
 /**
- * v31: RecyclerView adapter for pending join requests.
+ * v34-canvas: RecyclerView adapter for pending join requests.
+ * Migrated from item_community_join_request.xml + CircleImageView to
+ * CommunityJoinRequestCanvasView — no XML inflate, avatar drawn on canvas
+ * using Glide asBitmap() + CustomTarget (mirrors CommunityPostAdapter pattern).
  */
 public class CommunityJoinRequestAdapter
         extends RecyclerView.Adapter<CommunityJoinRequestAdapter.VH> {
@@ -49,6 +52,7 @@ public class CommunityJoinRequestAdapter
     private final AsyncListDiffer<CommunityJoinRequestEntity> differ =
             new AsyncListDiffer<>(this, DIFF);
     private final Listener listener;
+    private RequestOptions avatarOptions;
 
     public CommunityJoinRequestAdapter(Listener listener) {
         this.listener = listener;
@@ -58,68 +62,74 @@ public class CommunityJoinRequestAdapter
         differ.submitList(list == null ? Collections.emptyList() : list);
     }
 
+    private RequestOptions avatarOptions(android.content.Context ctx) {
+        if (avatarOptions == null) {
+            int px = Math.round(44 * ctx.getResources().getDisplayMetrics().density);
+            avatarOptions = RequestOptions.circleCropTransform()
+                    .override(px, px)
+                    .format(DecodeFormat.PREFER_RGB_565)
+                    .diskCacheStrategy(DiskCacheStrategy.ALL);
+        }
+        return avatarOptions;
+    }
+
     @NonNull
     @Override
     public VH onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-        View v = LayoutInflater.from(parent.getContext())
-                .inflate(R.layout.item_community_join_request, parent, false);
-        return new VH(v);
+        CommunityJoinRequestCanvasView cv = new CommunityJoinRequestCanvasView(parent.getContext());
+        cv.setLayoutParams(new RecyclerView.LayoutParams(
+                RecyclerView.LayoutParams.MATCH_PARENT, RecyclerView.LayoutParams.WRAP_CONTENT));
+        return new VH(cv);
     }
 
     @Override
     public void onBindViewHolder(@NonNull VH h, int pos) {
         CommunityJoinRequestEntity req = differ.getCurrentList().get(pos);
+        h.canvasView.bind(req);
+        h.canvasView.setListener(new CommunityJoinRequestCanvasView.Listener() {
+            @Override public void onApprove(CommunityJoinRequestEntity r) { if (listener != null) listener.onApprove(r); }
+            @Override public void onReject(CommunityJoinRequestEntity r)  { if (listener != null) listener.onReject(r);  }
+        });
 
-        h.tvName.setText(req.requesterName != null ? req.requesterName : "Unknown");
-        h.tvTimestamp.setText(req.createdAt > 0
-                ? DateUtils.getRelativeTimeSpanString(req.createdAt,
-                System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS) : "");
-
-        if (req.message != null && !req.message.isEmpty()) {
-            h.tvMessage.setVisibility(View.VISIBLE);
-            h.tvMessage.setText("\"" + req.message + "\"");
-        } else if (req.groupId != null) {
-            // v32: Community Access System — ask-to-join a specific ADMIN_ONLY group
-            h.tvMessage.setVisibility(View.VISIBLE);
-            h.tvMessage.setText("Wants to join a group in this community");
-        } else {
-            h.tvMessage.setVisibility(View.GONE);
-        }
+        if (h.avatarTarget != null) Glide.with(h.canvasView.getContext()).clear(h.avatarTarget);
 
         if (req.requesterPhoto != null && !req.requesterPhoto.isEmpty()) {
-            Glide.with(h.ivAvatar.getContext()).load(req.requesterPhoto)
-                    .override(96, 96)
-                    .circleCrop().placeholder(R.drawable.ic_person).into(h.ivAvatar);
+            final String reqId = req.id;
+            h.avatarTarget = new CustomTarget<Bitmap>() {
+                @Override public void onResourceReady(@NonNull Bitmap bmp, Transition<? super Bitmap> t) {
+                    h.canvasView.setAvatarBitmap(reqId, bmp);
+                }
+                @Override public void onLoadCleared(android.graphics.drawable.Drawable p) {
+                    h.canvasView.setAvatarBitmap(reqId, null);
+                }
+            };
+            Glide.with(h.canvasView.getContext()).asBitmap()
+                    .load(req.requesterPhoto)
+                    .apply(avatarOptions(h.canvasView.getContext()))
+                    .into(h.avatarTarget);
         } else {
-            h.ivAvatar.setImageResource(R.drawable.ic_person);
+            h.avatarTarget = null;
         }
-
-        h.btnApprove.setOnClickListener(v -> { if (listener != null) listener.onApprove(req); });
-        h.btnReject.setOnClickListener(v -> { if (listener != null) listener.onReject(req); });
     }
 
     @Override
     public void onViewRecycled(@NonNull VH h) {
         super.onViewRecycled(h);
-        try { Glide.with(h.ivAvatar.getContext()).clear(h.ivAvatar); } catch (Exception ignored) {}
+        if (h.avatarTarget != null) {
+            Glide.with(h.canvasView.getContext()).clear(h.avatarTarget);
+            h.avatarTarget = null;
+        }
     }
 
     @Override
     public int getItemCount() { return differ.getCurrentList().size(); }
 
     static class VH extends RecyclerView.ViewHolder {
-        CircleImageView ivAvatar;
-        TextView tvName, tvTimestamp, tvMessage;
-        Button btnApprove, btnReject;
-
-        VH(@NonNull View itemView) {
-            super(itemView);
-            ivAvatar    = itemView.findViewById(R.id.iv_avatar);
-            tvName      = itemView.findViewById(R.id.tv_name);
-            tvTimestamp = itemView.findViewById(R.id.tv_timestamp);
-            tvMessage   = itemView.findViewById(R.id.tv_message);
-            btnApprove  = itemView.findViewById(R.id.btn_approve);
-            btnReject   = itemView.findViewById(R.id.btn_reject);
+        final CommunityJoinRequestCanvasView canvasView;
+        Target<Bitmap> avatarTarget;
+        VH(@NonNull CommunityJoinRequestCanvasView cv) {
+            super(cv);
+            this.canvasView = cv;
         }
     }
 }

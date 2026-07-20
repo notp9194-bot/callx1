@@ -1,27 +1,22 @@
 package com.callx.app.community;
 
-import android.view.LayoutInflater;
-import android.view.View;
 import android.view.ViewGroup;
-import android.widget.Button;
-import android.widget.TextView;
 
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.AsyncListDiffer;
 import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.RecyclerView;
 
-import com.callx.app.chat.R;
+import com.callx.app.community.canvas.CommunityScheduledPostCanvasView;
 import com.callx.app.db.entity.CommunityScheduledPostEntity;
 
-import java.text.SimpleDateFormat;
 import java.util.Collections;
-import java.util.Date;
 import java.util.List;
-import java.util.Locale;
 
 /**
- * v31: Adapter for scheduled posts list.
+ * v34-canvas: Adapter for scheduled posts list.
+ * Migrated from item_community_scheduled_post.xml to
+ * CommunityScheduledPostCanvasView — no XML inflate, everything painted on canvas.
  */
 public class CommunityScheduledPostAdapter
         extends RecyclerView.Adapter<CommunityScheduledPostAdapter.VH> {
@@ -57,42 +52,27 @@ public class CommunityScheduledPostAdapter
     @NonNull
     @Override
     public VH onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-        View v = LayoutInflater.from(parent.getContext())
-                .inflate(R.layout.item_community_scheduled_post, parent, false);
-        return new VH(v);
+        CommunityScheduledPostCanvasView cv = new CommunityScheduledPostCanvasView(parent.getContext());
+        cv.setLayoutParams(new RecyclerView.LayoutParams(
+                RecyclerView.LayoutParams.MATCH_PARENT, RecyclerView.LayoutParams.WRAP_CONTENT));
+        return new VH(cv);
     }
 
     @Override
     public void onBindViewHolder(@NonNull VH h, int pos) {
         CommunityScheduledPostEntity p = differ.getCurrentList().get(pos);
-
-        SimpleDateFormat sdf = new SimpleDateFormat("EEE, MMM d 'at' h:mm a", Locale.getDefault());
-        h.tvScheduledTime.setText("⏰ Scheduled: " + sdf.format(new Date(p.scheduledAt)));
-
-        String preview = p.text != null && !p.text.isEmpty()
-                ? p.text : (p.mediaUrl != null ? "📷 Media post" : "(no text)");
-        h.tvPostTextPreview.setText(preview);
-
-        h.tvMediaBadge.setVisibility(p.mediaUrl != null && !p.mediaUrl.isEmpty() ? View.VISIBLE : View.GONE);
-        h.tvAnnouncementBadge.setVisibility(p.isAnnouncement ? View.VISIBLE : View.GONE);
-
-        h.btnCancel.setOnClickListener(v -> { if (listener != null) listener.onCancelClicked(p); });
+        h.canvasView.bind(p);
+        h.canvasView.setListener(post -> { if (listener != null) listener.onCancelClicked(post); });
     }
 
     @Override
     public int getItemCount() { return differ.getCurrentList().size(); }
 
     static class VH extends RecyclerView.ViewHolder {
-        TextView tvScheduledTime, tvPostTextPreview, tvMediaBadge, tvAnnouncementBadge;
-        Button btnCancel;
-
-        VH(@NonNull View itemView) {
-            super(itemView);
-            tvScheduledTime      = itemView.findViewById(R.id.tv_scheduled_time);
-            tvPostTextPreview    = itemView.findViewById(R.id.tv_post_text_preview);
-            tvMediaBadge         = itemView.findViewById(R.id.tv_media_badge);
-            tvAnnouncementBadge  = itemView.findViewById(R.id.tv_announcement_badge);
-            btnCancel            = itemView.findViewById(R.id.btn_cancel_scheduled);
+        final CommunityScheduledPostCanvasView canvasView;
+        VH(@NonNull CommunityScheduledPostCanvasView cv) {
+            super(cv);
+            this.canvasView = cv;
         }
     }
 }

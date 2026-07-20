@@ -16,6 +16,8 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.callx.app.chat.R;
+import com.callx.app.community.canvas.CommunityAvatarPreloader;
+import com.callx.app.community.canvas.CommunityScrollOptimizer;
 import com.callx.app.db.entity.CommunityMemberEntity;
 import com.callx.app.repository.CommunityRepository;
 import com.google.firebase.auth.FirebaseAuth;
@@ -77,12 +79,23 @@ public class CommunityMembersFragment extends Fragment {
 
         LinearLayoutManager llm = new LinearLayoutManager(requireContext());
         rvMembers.setLayoutManager(llm);
+        CommunityScrollOptimizer.apply(rvMembers, llm);
+        CommunityScrollOptimizer.applySharedPool(rvMembers);
         rvMembers.setHasFixedSize(true);
-        rvMembers.setItemViewCacheSize(15);
         rvMembers.setItemAnimator(null);
         rvMembers.setOverScrollMode(View.OVER_SCROLL_NEVER);
 
         adapter = new CommunityMemberAdapter(currentUid);
+        rvMembers.setAdapter(adapter);
+        CommunityAvatarPreloader.attachAvatar(this, rvMembers,
+                new CommunityAvatarPreloader.UrlProvider() {
+                    @Override public String urlAt(int pos) {
+                        java.util.List<com.callx.app.db.entity.CommunityMemberEntity> list =
+                                adapter.getCurrentList();
+                        return (pos >= 0 && pos < list.size()) ? list.get(pos).photoUrl : null;
+                    }
+                    @Override public int count() { return adapter.getItemCount(); }
+                }, 44);
         adapter.setOnMemberLongPressListener(this::onMemberLongPress);
         rvMembers.setAdapter(adapter);
 

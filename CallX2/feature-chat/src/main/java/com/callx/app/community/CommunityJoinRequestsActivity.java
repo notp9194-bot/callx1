@@ -10,6 +10,8 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.callx.app.chat.R;
+import com.callx.app.community.canvas.CommunityAvatarPreloader;
+import com.callx.app.community.canvas.CommunityScrollOptimizer;
 import com.callx.app.db.entity.CommunityJoinRequestEntity;
 import com.callx.app.repository.CommunityRepository;
 import com.google.firebase.auth.FirebaseAuth;
@@ -54,9 +56,20 @@ public class CommunityJoinRequestsActivity extends AppCompatActivity
         rvRequests.setLayoutManager(llm);
         rvRequests.setHasFixedSize(false);
         rvRequests.setItemAnimator(null);
+        CommunityScrollOptimizer.apply(rvRequests, llm);
+        CommunityScrollOptimizer.applySharedPool(rvRequests);
 
         adapter = new CommunityJoinRequestAdapter(this);
         rvRequests.setAdapter(adapter);
+        CommunityAvatarPreloader.attachAvatar(this, rvRequests,
+                new CommunityAvatarPreloader.UrlProvider() {
+                    @Override public String urlAt(int pos) {
+                        java.util.List<com.callx.app.db.entity.CommunityJoinRequestEntity> list =
+                                adapter.getCurrentList();
+                        return (pos >= 0 && pos < list.size()) ? list.get(pos).requesterPhoto : null;
+                    }
+                    @Override public int count() { return adapter.getItemCount(); }
+                }, 44);
 
         if (communityId != null) {
             repo.observePendingJoinRequests(communityId).observe(this, requests -> {

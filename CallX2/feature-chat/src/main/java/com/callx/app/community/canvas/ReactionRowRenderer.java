@@ -19,8 +19,10 @@ import java.util.Map;
 final class ReactionRowRenderer {
 
     private final CommunityPostCanvasView host;
-    private final List<RectF> chipRects = new ArrayList<>();
+    private final List<RectF> chipRects  = new ArrayList<>();
     private final List<String> chipLabels = new ArrayList<>();
+    /** Pre-allocated RectF pool — grown lazily, never shrunk. Avoids per-chip allocation. */
+    private final List<RectF> chipPool   = new ArrayList<>();
 
     ReactionRowRenderer(CommunityPostCanvasView host) {
         this.host = host;
@@ -49,7 +51,16 @@ final class ReactionRowRenderer {
                 x = left;
                 y += chipH + host.reactionChipRowGap;
             }
-            chipRects.add(new RectF(x, y, x + w, y + chipH));
+            // Reuse a pooled RectF rather than allocating on every layout pass
+            RectF r;
+            if (chipRects.size() < chipPool.size()) {
+                r = chipPool.get(chipRects.size());
+            } else {
+                r = new RectF();
+                chipPool.add(r);
+            }
+            r.set(x, y, x + w, y + chipH);
+            chipRects.add(r);
             chipLabels.add(label);
             x += w + chipGap;
         }

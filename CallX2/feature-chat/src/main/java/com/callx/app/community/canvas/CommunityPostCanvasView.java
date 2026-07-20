@@ -387,14 +387,14 @@ public class CommunityPostCanvasView extends View {
         mediaShaderBitmap = null;
         mediaShaderCache = null;
         requestLayout();
-        invalidate();
+        invalidateEngagementBar();
     }
 
     /** Called once Glide resolves the author avatar (or with null to reset). */
     public void setAuthorAvatarBitmap(String forPostId, @Nullable Bitmap bmp) {
         if (!java.util.Objects.equals(forPostId, currentPostId)) return;
         authorAvatarBitmap = bmp;
-        invalidate();
+        invalidateEngagementBar();
     }
 
     /** Called once Glide resolves the single-media bitmap. */
@@ -656,4 +656,31 @@ public class CommunityPostCanvasView extends View {
         super.onDetachedFromWindow();
         removeCallbacks(longPressRunnable);
     }
+
+    // ── Partial dirty-rect invalidation ──────────────────────────────────────────
+
+    /**
+     * Invalidates only the engagement bar region (like count, comment count,
+     * bookmark, share glyph row) instead of the full view.
+     *
+     * Called by updateLikeCount(), updateBookmarkState(), setReactions(), and
+     * setCommentCount() so a Firebase real-time counter tick repaints only ~40dp
+     * at the bottom of the card rather than re-rasterizing the whole post
+     * (author header, image/media, poll, text body, reaction chips).
+     *
+     * Falls back to full invalidate() if onMeasure hasn't run yet (engagementTop == 0).
+     */
+    public void invalidateEngagementBar() {
+        if (engagementTop <= 0f || engagementBottom <= engagementTop) {
+            invalidateEngagementBar();
+            return;
+        }
+        invalidate(0, (int) (engagementTop - 1f), getWidth(), (int) (engagementBottom + 2f));
+    }
+
+    /** Convenience alias — same as invalidateEngagementBar(). */
+    public void invalidateLikeState() {
+        invalidateEngagementBar();
+    }
+
 }

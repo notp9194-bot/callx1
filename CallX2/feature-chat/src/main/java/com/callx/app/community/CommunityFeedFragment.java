@@ -16,6 +16,8 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.callx.app.chat.R;
+import com.callx.app.community.canvas.CommunityAvatarPreloader;
+import com.callx.app.community.canvas.CommunityScrollOptimizer;
 import com.callx.app.db.entity.CommunityMemberEntity;
 import com.callx.app.db.entity.CommunityPostEntity;
 import com.callx.app.repository.CommunityRepository;
@@ -102,9 +104,20 @@ public class CommunityFeedFragment extends Fragment implements CommunityPostAdap
         emptyState = view.findViewById(R.id.layout_empty_feed);
 
         adapter = new CommunityPostAdapter(currentUid, this);
-        rvFeed.setLayoutManager(new LinearLayoutManager(requireContext()));
+        LinearLayoutManager llm = new LinearLayoutManager(requireContext());
+        rvFeed.setLayoutManager(llm);
         rvFeed.setAdapter(adapter);
-        rvFeed.setItemAnimator(null);
+        CommunityScrollOptimizer.apply(rvFeed, llm);
+        // Glide preloader — prefetches post author avatars 6 items ahead
+        CommunityAvatarPreloader.attachAvatar(this, rvFeed,
+                new CommunityAvatarPreloader.UrlProvider() {
+                    @Override public String urlAt(int pos) {
+                        java.util.List<com.callx.app.db.entity.CommunityPostEntity> list =
+                                adapter.getCurrentList();
+                        return (pos >= 0 && pos < list.size()) ? list.get(pos).authorPhotoUrl : null;
+                    }
+                    @Override public int count() { return adapter.getItemCount(); }
+                }, 40);
         rvFeed.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
                 if (dy > 0) loadOlderIfNeeded();

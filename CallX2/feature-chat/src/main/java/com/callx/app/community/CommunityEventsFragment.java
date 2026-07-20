@@ -14,6 +14,8 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.callx.app.chat.R;
+import com.callx.app.community.canvas.CommunityAvatarPreloader;
+import com.callx.app.community.canvas.CommunityScrollOptimizer;
 import com.callx.app.db.entity.CommunityEventEntity;
 import com.callx.app.db.entity.CommunityMemberEntity;
 import com.callx.app.repository.CommunityRepository;
@@ -80,7 +82,9 @@ public class CommunityEventsFragment extends Fragment implements CommunityEventA
         layoutEmpty = view.findViewById(R.id.layout_empty_events);
         fabCreate   = view.findViewById(R.id.fab_create_event);
 
-        rvEvents.setLayoutManager(new LinearLayoutManager(requireContext()));
+        LinearLayoutManager llm = new LinearLayoutManager(requireContext());
+        rvEvents.setLayoutManager(llm);
+        CommunityScrollOptimizer.apply(rvEvents, llm);
         rvEvents.setHasFixedSize(false);
         rvEvents.setItemAnimator(null);
         rvEvents.setOverScrollMode(View.OVER_SCROLL_NEVER);
@@ -88,6 +92,17 @@ public class CommunityEventsFragment extends Fragment implements CommunityEventA
         adapter = new CommunityEventAdapter(this);
         adapter.setCurrentUid(currentUid);
         rvEvents.setAdapter(adapter);
+        // Glide cover-image preloader — pre-fetches event covers 6 items ahead
+        rvEvents.post(() -> CommunityAvatarPreloader.attachCover(this, rvEvents,
+                new CommunityAvatarPreloader.UrlProvider() {
+                    @Override public String urlAt(int pos) {
+                        java.util.List<com.callx.app.db.entity.CommunityEventEntity> list =
+                                adapter.getCurrentList();
+                        return (pos >= 0 && pos < list.size()) ? list.get(pos).coverImageUrl : null;
+                    }
+                    @Override public int count() { return adapter.getItemCount(); }
+                }, rvEvents.getWidth() > 0 ? rvEvents.getWidth()
+                : getResources().getDisplayMetrics().widthPixels, 160));
 
         fabCreate.setOnClickListener(v -> openCreateEvent());
 

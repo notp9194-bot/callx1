@@ -8,6 +8,7 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.callx.app.chat.R;
+import com.callx.app.community.canvas.CommunityScrollOptimizer;
 import com.callx.app.repository.CommunityRepository;
 
 /**
@@ -44,6 +45,8 @@ public class CommunityModerationLogActivity extends AppCompatActivity {
         rvLog.setLayoutManager(llm);
         rvLog.setHasFixedSize(false);
         rvLog.setItemAnimator(null);
+        CommunityScrollOptimizer.apply(rvLog, llm);
+        CommunityScrollOptimizer.applySharedPool(rvLog);
 
         adapter = new CommunityModerationLogAdapter();
         rvLog.setAdapter(adapter);

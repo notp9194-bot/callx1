@@ -11,6 +11,7 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.callx.app.chat.R;
+import com.callx.app.community.canvas.CommunityScrollOptimizer;
 import com.callx.app.db.entity.CommunityNotificationEntity;
 import com.callx.app.repository.CommunityRepository;
 import com.google.firebase.auth.FirebaseAuth;
@@ -54,6 +55,8 @@ public class CommunityNotificationsActivity extends AppCompatActivity
         rvNotifications.setLayoutManager(llm);
         rvNotifications.setHasFixedSize(false);
         rvNotifications.setItemAnimator(null);
+        CommunityScrollOptimizer.apply(rvNotifications, llm);
+        CommunityScrollOptimizer.applySharedPool(rvNotifications);
 
         adapter = new CommunityNotificationAdapter(this);
         rvNotifications.setAdapter(adapter);
@@ -86,6 +89,7 @@ public class CommunityNotificationsActivity extends AppCompatActivity
     @Override
     public void onNotificationClicked(CommunityNotificationEntity notif) {
         repo.markNotificationRead(notif.id);
-        adapter.notifyDataSetChanged();
+        // LiveData observer in onCreate re-submits the updated list automatically;
+        // notifyDataSetChanged() was O(N) and caused full-row flicker — removed.
     }
 }
