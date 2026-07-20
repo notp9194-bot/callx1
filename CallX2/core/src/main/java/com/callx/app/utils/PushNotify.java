@@ -12,6 +12,28 @@ public class PushNotify {
         .readTimeout(30, TimeUnit.SECONDS)
         .build();
 
+    // ── Generic single-user push (used by FirebaseUtils.sendPushToUser) ────
+
+    public static void send(String recipientUid, String title, String body,
+                             java.util.Map<String, String> data) {
+        try {
+            JSONObject payload = new JSONObject()
+                .put("toUid", recipientUid)
+                .put("title", title == null ? "" : title)
+                .put("body",  body  == null ? "" : body);
+            if (data != null) {
+                JSONObject dataObj = new JSONObject();
+                for (java.util.Map.Entry<String, String> entry : data.entrySet()) {
+                    dataObj.put(entry.getKey(), entry.getValue());
+                }
+                payload.put("data", dataObj);
+            }
+            postAsync(Constants.SERVER_URL + "/notify", payload);
+        } catch (Exception e) {
+            Log.w("PushNotify", "send err: " + e.getMessage());
+        }
+    }
+
     // ── 1:1 message / call notify ─────────────────────────────────────────
 
     public static void notifyUser(String toUid, String fromUid, String fromName,

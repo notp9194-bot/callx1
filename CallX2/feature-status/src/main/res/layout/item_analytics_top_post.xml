@@ -21,7 +21,7 @@
 
     <!-- Rank label over circle -->
     <TextView
-        android:id="@+id/tv_top_post_rank"
+        android:id="@+id/tv_top_post_rank_label"
         android:layout_width="32dp"
         android:layout_height="32dp"
         android:gravity="center"

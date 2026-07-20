@@ -87,10 +87,6 @@ public class ChannelPost {
     public boolean allowReactions;  // default true
     public boolean allowForward;    // default true
 
-    // ── Mentions ─────────────────────────────────────────────────────────
-    /** List of UIDs mentioned in this post (e.g., "@username" mentions resolved to UIDs) */
-    public List<String> mentionedUids;
-
     // ── Social ────────────────────────────────────────────────────────────
     /** uid → emoji, e.g. "uid123" → "👍" */
     public Map<String, String> reactions;

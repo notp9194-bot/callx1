@@ -1572,7 +1572,7 @@ public class CommunityRepository {
                 .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
                     @Override
                     public void onDataChange(com.google.firebase.database.DataSnapshot s) {
-                        CommunityEntity c = parseCommunitySnapshot(s);
+                        CommunityEntity c = parseCommunity(s);
                         if (cb != null) cb.onResult(c);
                     }
                     @Override
