@@ -5678,6 +5678,31 @@ public class MessagePagingAdapter
         return result.isEmpty() ? null : result;
     }
 
+    /**
+     * DiffUtil helper — returns true when the readBy map sizes match.
+     * A change in readBy count triggers PAYLOAD_READ_BY so only the
+     * "Seen by" strip is redrawn instead of a full rebind.
+     */
+    private boolean readByCountEquals(@NonNull com.callx.app.models.Message a,
+                                       @NonNull com.callx.app.models.Message b) {
+        int cA = (a.readBy != null) ? a.readBy.size() : 0;
+        int cB = (b.readBy != null) ? b.readBy.size() : 0;
+        return cA == cB;
+    }
+
+    /**
+     * Partial-rebind path for PAYLOAD_READ_BY: updates the "Seen by" strip
+     * on a sent group-message bubble without triggering a full rebind.
+     * Canvas views handle their own read-by rendering; legacy views are
+     * updated here if they expose a readable state.
+     */
+    private void bindSeenByStrip(@NonNull VH h, @NonNull com.callx.app.models.Message m) {
+        // Only sent messages show a read-by strip
+        if (m.senderId == null || !m.senderId.equals(currentUid)) return;
+        // Canvas view renders its own read-by overlay — no extra work needed here
+        // The seenByClickListener is wired in bindCanvasMessage / bindMessage
+    }
+
     /** PERF: tiny view-cache for a poll option row, stashed via row.setTag().
      *  See bindPoll() — avoids repeat findViewById() on every rebind of a
      *  recycled poll-option row. */

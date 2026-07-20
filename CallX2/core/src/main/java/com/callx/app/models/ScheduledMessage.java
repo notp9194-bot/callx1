@@ -29,9 +29,10 @@ public class ScheduledMessage {
     /** When the user created this scheduled entry, epoch ms — shown in the
      *  manage-scheduled list ("queued 2h ago"). */
     public long   createdAt;
-    /** replyToId/replyToText etc. intentionally omitted — replying to a
-     *  message that may itself disappear/edit before send time adds more
-     *  edge cases than the feature is worth; scheduled sends are plain text. */
+    /** Optional: ID of the message being replied to (if this scheduled send is a reply). */
+    public String replyToId;
+    /** Optional: preview text of the message being replied to. */
+    public String replyToText;
 
     public ScheduledMessage() {}
 }

@@ -319,7 +319,7 @@ public class CollabPostInviteActivity extends AppCompatActivity {
         @NonNull @Override
         public VH onCreateViewHolder(@NonNull android.view.ViewGroup parent, int type) {
             View v = android.view.LayoutInflater.from(parent.getContext())
-                .inflate(R.layout.item_collab_invite, parent, false);
+                .inflate(R.layout.item_collab_user_row, parent, false);
             return new VH(v);
         }
         @Override public void onBindViewHolder(@NonNull VH h, int pos) {

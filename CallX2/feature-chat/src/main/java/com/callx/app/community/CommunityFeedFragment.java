@@ -114,7 +114,7 @@ public class CommunityFeedFragment extends Fragment implements CommunityPostAdap
                     @Override public String urlAt(int pos) {
                         java.util.List<com.callx.app.db.entity.CommunityPostEntity> list =
                                 adapter.getCurrentList();
-                        return (pos >= 0 && pos < list.size()) ? list.get(pos).authorPhotoUrl : null;
+                        return (pos >= 0 && pos < list.size()) ? list.get(pos).authorPhoto : null;
                     }
                     @Override public int count() { return adapter.getItemCount(); }
                 }, 40);
@@ -124,10 +124,7 @@ public class CommunityFeedFragment extends Fragment implements CommunityPostAdap
             }
         });
 
-        reactionPicker = view.findViewById(R.id.reaction_picker);
-        if (reactionPicker == null) {
-            reactionPicker = new CommunityReactionPickerView(requireContext());
-        }
+        reactionPicker = new CommunityReactionPickerView(requireContext());
 
         if (communityId != null) {
             repo.observeFeedWindowed(communityId, isAnnouncement, WINDOW_SIZE)
@@ -217,9 +214,10 @@ public class CommunityFeedFragment extends Fragment implements CommunityPostAdap
     @Override
     public void onLongPressLike(CommunityPostEntity post, android.view.View anchorView) {
         if (!isAdded() || reactionPicker == null) return;
-        reactionPicker.show(anchorView, reactionType -> {
+        reactionPicker.setOnReactionSelectedListener(reactionType -> {
             if (currentUid != null) repo.reactToPost(communityId, post.id, currentUid, reactionType, null);
         });
+        reactionPicker.showAtView(anchorView);
     }
 
     @Override

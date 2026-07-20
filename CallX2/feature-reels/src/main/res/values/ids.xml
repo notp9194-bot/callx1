@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Explicit ID declarations for IDs referenced in Java code but defined
+    only on views that may not always be inflated (e.g. optional overlays,
+    close-friends UI, etc.).  Adding them here ensures R.id.xxx compiles
+    even when the view is absent from the current layout.
+-->
+<resources>
+    <!-- Close-friends ring / label — used by ReelUiController -->
+    <item name="avatar_container"        type="id"/>
+    <item name="tv_close_friends_label"  type="id"/>
+
+    <!-- Collab user search row — used by CollabPostInviteActivity search adapter -->
+    <item name="iv_collab_user_avatar"   type="id"/>
+    <item name="tv_collab_user_name"     type="id"/>
+    <item name="tv_collab_user_handle"   type="id"/>
+</resources>

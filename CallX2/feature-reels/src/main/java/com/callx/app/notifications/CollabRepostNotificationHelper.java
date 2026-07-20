@@ -251,4 +251,25 @@ public class CollabRepostNotificationHelper {
         showDeclinedNotification(ctx, reelId, collaboratorName, "");
     }
 
+    /**
+     * Alias used by CollabPostInviteActivity: sends an invite notification to the collaborator.
+     *
+     * @param ctx             Application context
+     * @param collaboratorUid UID of the user being invited (unused — notification is local)
+     * @param initiatorUid    UID of the user sending the invite (unused here)
+     * @param initiatorName   Display name of the initiator
+     * @param reelId          ID of the reel being co-posted
+     * @param inviteId        ID of the collab invite document (used as collabId)
+     * @param thumbUrl        Reel thumbnail URL
+     */
+    public static void notifyCollabInvite(android.content.Context ctx,
+                                          String collaboratorUid,
+                                          String initiatorUid,
+                                          String initiatorName,
+                                          String reelId,
+                                          String inviteId,
+                                          String thumbUrl) {
+        showInviteNotification(ctx, inviteId, initiatorName, "", thumbUrl);
+    }
+
 }

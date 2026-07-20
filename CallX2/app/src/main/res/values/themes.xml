@@ -74,5 +74,10 @@
         <item name="android:windowFullscreen">true</item>
     </style>
 
+    <!-- Theme.App — alias for Theme.CallX (used by feature-chat manifest entries) -->
+    <style name="Theme.App" parent="Theme.CallX" />
+
+    <!-- Theme.App.Immersive — used by feature-status manifest entries -->
+    <style name="Theme.App.Immersive" parent="Theme.CallX.Fullscreen" />
 
 </resources>

@@ -33,6 +33,7 @@ public class SoundDetailActivity extends AppCompatActivity {
     public static final String EXTRA_SOUND_URL = "extra_sound_url";
     public static final String EXTRA_COVER_URL = "extra_cover_url";
     public static final String EXTRA_DURATION_MS = "extra_duration_ms";
+    public static final String EXTRA_BPM = "extra_bpm";
     public static final String EXTRA_GENRE = "extra_genre";
     public static final String EXTRA_CREATOR_UID = "extra_creator_uid";
     public static final String EXTRA_ORIGINAL_AUDIO_URL = "extra_original_audio_url";

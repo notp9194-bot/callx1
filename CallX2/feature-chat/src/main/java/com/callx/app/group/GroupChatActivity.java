@@ -1101,6 +1101,7 @@ public class GroupChatActivity extends AppCompatActivity
                     @Override public void runOnMain(Runnable r) { runOnUiThread(r); }
                     @Override public com.callx.app.conversation.MessagePagingAdapter getPagingAdapter() { return pagingAdapter; }
                     @Override public void navigateToMessage(String messageId) { scrollToMessageId(messageId); }
+                    @Override public boolean severPagingIfAtBottom() { return false; }
                     @Override public void reanchorPagingToBottom() { /* group: no-op */ }
                 });
 
