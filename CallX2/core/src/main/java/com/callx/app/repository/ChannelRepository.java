@@ -68,6 +68,8 @@ public class ChannelRepository {
     public interface StringResult { void onResult(String value); }
     public interface MapResult { void onResult(Map<String, String> map); }
     public interface ListResult<T> { void onResult(List<T> list); }
+    public interface Callback<T> { void onResult(T value); }
+    public interface BooleanCallback { void onResult(boolean success); }
 
     private ChannelRepository(Context ctx) {
         this.dao = AppDatabase.getInstance(ctx).channelDao();
