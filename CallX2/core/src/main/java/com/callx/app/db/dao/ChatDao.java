@@ -99,4 +99,38 @@ public interface ChatDao {
     /** Read receipt successfully pushed — clear karo. */
     @Query("UPDATE chats SET pendingMarkRead = 0 WHERE chatId = :chatId")
     void clearPendingMarkRead(String chatId);
+
+    // ── v38: Chat Folders ─────────────────────────────────────────────────────
+
+    /** Chats belonging to a specific folder (non-archived). */
+    @Query("SELECT * FROM chats WHERE folderId = :folderId AND (archived = 0 OR archived IS NULL) ORDER BY lastMessageAt DESC")
+    LiveData<List<ChatEntity>> getChatsForFolder(int folderId);
+
+    /** Contacts (type='private') only — for "Contacts" folder type. */
+    @Query("SELECT * FROM chats WHERE type = 'private' AND (archived = 0 OR archived IS NULL) ORDER BY lastMessageAt DESC")
+    LiveData<List<ChatEntity>> getPrivateChats();
+
+    /** Groups (type='group') only — for "Groups" folder type. */
+    @Query("SELECT * FROM chats WHERE type = 'group' AND (archived = 0 OR archived IS NULL) ORDER BY lastMessageAt DESC")
+    LiveData<List<ChatEntity>> getGroupChats();
+
+    /** Unread chats only — for "Unread" folder type. */
+    @Query("SELECT * FROM chats WHERE (unread IS NOT NULL AND unread > 0) AND (archived = 0 OR archived IS NULL) ORDER BY lastMessageAt DESC")
+    LiveData<List<ChatEntity>> getUnreadChats();
+
+    /** Assign a chat to a folder. */
+    @Query("UPDATE chats SET folderId = :folderId WHERE chatId = :chatId")
+    void setChatFolder(String chatId, int folderId);
+
+    /** Remove a chat from its folder (put back in All Chats). */
+    @Query("UPDATE chats SET folderId = NULL WHERE chatId = :chatId")
+    void removeChatFromFolder(String chatId);
+
+    /** When a folder is deleted, remove all chats from that folder. */
+    @Query("UPDATE chats SET folderId = NULL WHERE folderId = :folderId")
+    void clearFolder(int folderId);
+
+    /** Set labels on a chat (comma-separated string). */
+    @Query("UPDATE chats SET labels = :labels WHERE chatId = :chatId")
+    void setLabels(String chatId, String labels);
 }

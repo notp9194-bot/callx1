@@ -234,6 +234,12 @@ public class GroupChatActivity extends AppCompatActivity
     private ChatContactShareController  contactShareController;
     private ChatLocationShareController locationShareController;
 
+    // ── Message Edit History ───────────────────────────────────────────────
+    private com.callx.app.conversation.controllers.MessageEditHistoryController editHistoryController;
+
+    // ── Group Scheduled Send ───────────────────────────────────────────────
+    private GroupScheduledSendController groupScheduledController;
+
     // ── Edge-swipe-to-back (left/right screen edge se swipe karke back) ────
     private com.callx.app.utils.EdgeSwipeBackHelper edgeSwipeBackHelper;
 
@@ -351,6 +357,7 @@ public class GroupChatActivity extends AppCompatActivity
         java.util.ArrayList<String> fwdFileNames = i.getStringArrayListExtra("forwardFileNames");
         java.util.ArrayList<String> fwdMediaItemsJsonList = i.getStringArrayListExtra("forwardMediaItemsJsonList");
         java.util.ArrayList<String> fwdCaptionsList       = i.getStringArrayListExtra("forwardCaptionsList");
+        java.util.ArrayList<String> fwdPollJsonList       = i.getStringArrayListExtra("forwardPollJsonList");
         String fwdMediaItemsJson = i.getStringExtra("forwardMediaItemsJson");
         String fwdCaption        = i.getStringExtra("forwardCaption");
 
@@ -381,6 +388,27 @@ public class GroupChatActivity extends AppCompatActivity
                             Object firstUrl = !m2.mediaItems.isEmpty() ? m2.mediaItems.get(0).get("url") : null;
                             if (firstUrl instanceof String) m2.mediaUrl = (String) firstUrl;
                             pushMessage(m2, "\uD83D\uDCF7 Photos (forwarded)");
+                        } else if ("poll".equals(tp)) {
+                            // Reconstruct forwarded poll from serialized JSON
+                            String pollJson = fwdPollJsonList != null && fi < fwdPollJsonList.size()
+                                    ? fwdPollJsonList.get(fi) : "";
+                            if (pollJson != null && !pollJson.isEmpty()) {
+                                try {
+                                    org.json.JSONObject pj = new org.json.JSONObject(pollJson);
+                                    m2.type = "poll";
+                                    m2.pollQuestion = pj.optString("question", "");
+                                    m2.pollAnonymous = pj.optBoolean("anonymous", false);
+                                    m2.pollMultiChoice = pj.optBoolean("multiChoice", false);
+                                    org.json.JSONArray opts = pj.optJSONArray("options");
+                                    if (opts != null) {
+                                        java.util.List<String> optList = new java.util.ArrayList<>();
+                                        for (int oi = 0; oi < opts.length(); oi++) optList.add(opts.getString(oi));
+                                        m2.pollOptions = optList;
+                                    }
+                                    m2.text = "📊 " + m2.pollQuestion + " (forwarded)";
+                                    pushMessage(m2, "📊 " + m2.pollQuestion + " (forwarded)");
+                                } catch (Exception ex) { /* skip malformed poll data */ }
+                            }
                         } else if ("text".equals(tp) || tp == null) {
                             m2.type = "text"; m2.text = t;
                             pushMessage(m2, t != null ? t : "");
@@ -550,6 +578,8 @@ public class GroupChatActivity extends AppCompatActivity
         // Feature: clean up search highlights + mention watcher
         if (searchController       != null) searchController.onDestroy();
         if (groupMentionController != null) groupMentionController.onDestroy();
+        if (groupScheduledController != null) groupScheduledController.release();
+        editHistoryController = null;
         super.onDestroy();
     }
 
@@ -730,6 +760,12 @@ public class GroupChatActivity extends AppCompatActivity
             @Override public void onForward(Message m)             { forwardMessage(m); }
             @Override public void onPollVote(Message m, int idx)   { castPollVote(m, idx); }
             @Override public void onPollToggleClose(Message m)    { togglePollClosed(m); }
+            @Override public void onEdit(Message m) {
+                if (editHistoryController != null) editHistoryController.editMessage(m);
+            }
+            @Override public void onShowEditHistory(Message m) {
+                if (editHistoryController != null) editHistoryController.showHistory(m);
+            }
             @Override public void onNavigateToOriginal(String messageId) {
                 scrollToMessageId(messageId);
             }
@@ -1010,6 +1046,48 @@ public class GroupChatActivity extends AppCompatActivity
     /** DB ready hone ke baad Room Paging start karo + buffered events flush karo. */
     private void onGroupDbReady() {
         if (isFinishing() || isDestroyed()) return;
+
+        // ── Edit History Controller ────────────────────────────────────────
+        editHistoryController = new com.callx.app.conversation.controllers.MessageEditHistoryController(
+                new com.callx.app.conversation.controllers.ChatActivityDelegate() {
+                    @Override public android.app.Activity getActivity() { return GroupChatActivity.this; }
+                    @Override public String getCurrentUid() { return currentUid; }
+                    @Override public com.callx.app.db.AppDatabase getDb() { return db; }
+                    @Override public java.util.concurrent.Executor getIoExecutor() { return ioExecutor; }
+                    @Override public com.google.firebase.database.DatabaseReference getMessagesRef() { return groupMessagesRef; }
+                    @Override public void showToast(String msg) { runOnUiThread(() -> android.widget.Toast.makeText(GroupChatActivity.this, msg, android.widget.Toast.LENGTH_SHORT).show()); }
+                    @Override public String getChatId() { return groupId; }
+                    @Override public String getPartnerUid() { return null; }
+                    @Override public String getCurrentName() { return currentName; }
+                    // getBinding() returns null — MessageEditHistoryController does not call it
+                    @Override public com.callx.app.chat.databinding.ActivityChatBinding getBinding() { return null; }
+                    @Override public boolean isBlocked() { return false; }
+                    @Override public boolean isOnline() { return GroupChatActivity.this.isOnline(); }
+                    @Override public void pushMessage(com.callx.app.models.Message m, String preview) { GroupChatActivity.this.pushMessage(m, preview); }
+                    @Override public com.callx.app.models.Message buildOutgoing() { return GroupChatActivity.this.buildOutgoing(); }
+                    @Override public void launchPollCreator() {}
+                    // SearchDelegate extras — not used by MessageEditHistoryController
+                    @Override public void runOnMain(Runnable r) { runOnUiThread(r); }
+                    @Override public com.callx.app.conversation.MessagePagingAdapter getPagingAdapter() { return pagingAdapter; }
+                    @Override public void navigateToMessage(String messageId) { scrollToMessageId(messageId); }
+                });
+
+        // ── Group Scheduled Send Controller ────────────────────────────────
+        groupScheduledController = new GroupScheduledSendController(
+                new GroupScheduledSendController.Delegate() {
+                    @Override public android.app.Activity getActivity() { return GroupChatActivity.this; }
+                    @Override public String getGroupId() { return groupId; }
+                    @Override public String getCurrentUid() { return currentUid; }
+                    @Override public String getCurrentName() { return currentName; }
+                    @Override public com.callx.app.db.AppDatabase getDb() { return db; }
+                    @Override public java.util.concurrent.Executor getIoExecutor() { return ioExecutor; }
+                    @Override public com.callx.app.chat.databinding.ActivityChatBinding getBinding() { return binding; }
+                    @Override public void showToast(String msg) { runOnUiThread(() -> android.widget.Toast.makeText(GroupChatActivity.this, msg, android.widget.Toast.LENGTH_SHORT).show()); }
+                    @Override public void onMessageScheduled() { runOnUiThread(() -> { binding.etMessage.setText(""); clearReply(); }); }
+                    @Override public com.callx.app.models.Message getReplyingTo() { return replyingTo; }
+                });
+        groupScheduledController.init();
+
         observePagedMessages();
         // Pending Firebase events (jo pehle se aa chuke hain) ek transaction mein flush karo
         writeFlushHandler.removeCallbacks(writeFlushRunnable);
@@ -1343,6 +1421,15 @@ public class GroupChatActivity extends AppCompatActivity
         binding.btnAttach.setOnClickListener(v -> showAttachSheet());
         binding.btnCamera.setOnClickListener(v -> imagePicker.launch("image/*"));
         binding.btnSend.setOnClickListener(v -> sendText());
+        binding.btnSend.setOnLongClickListener(v -> {
+            if (groupScheduledController == null) return false;
+            String text = binding.etMessage.getText().toString().trim();
+            groupScheduledController.showSchedulePicker(text, () -> {
+                binding.etMessage.setText("");
+                clearReply();
+            });
+            return true;
+        });
         attachMicGesture();
 
         // ── @Mention suggest (group) ───────────────────────────────────────
@@ -1857,6 +1944,8 @@ public class GroupChatActivity extends AppCompatActivity
         // multi_media (grouped) message is part of a multi-select forward.
         java.util.ArrayList<String> mediaItemsJsonList = new java.util.ArrayList<>();
         java.util.ArrayList<String> captions = new java.util.ArrayList<>();
+        // Poll data serialized as JSON so polls can be forwarded with full structure
+        java.util.ArrayList<String> pollJsonList = new java.util.ArrayList<>();
         selected.sort((a, b) -> Long.compare(a.timestamp, b.timestamp));
         for (com.callx.app.models.Message m : selected) {
             texts.add(m.text != null ? m.text : "");
@@ -1867,6 +1956,21 @@ public class GroupChatActivity extends AppCompatActivity
             mediaItemsJsonList.add(isGroupMsg
                     ? com.callx.app.utils.MediaItemsJsonUtil.mediaItemsToJson(m.mediaItems) : "");
             captions.add(isGroupMsg && m.caption != null ? m.caption : "");
+            // Serialize poll data for forwarding (preserves multiChoice, options, etc.)
+            String pollJson = "";
+            if ("poll".equals(m.type) && m.pollQuestion != null) {
+                try {
+                    org.json.JSONObject pj = new org.json.JSONObject();
+                    pj.put("question", m.pollQuestion != null ? m.pollQuestion : "");
+                    pj.put("anonymous", Boolean.TRUE.equals(m.pollAnonymous));
+                    pj.put("multiChoice", Boolean.TRUE.equals(m.pollMultiChoice));
+                    org.json.JSONArray opts = new org.json.JSONArray();
+                    if (m.pollOptions != null) { for (String o : m.pollOptions) opts.put(o); }
+                    pj.put("options", opts);
+                    pollJson = pj.toString();
+                } catch (Exception ignored) {}
+            }
+            pollJsonList.add(pollJson);
         }
         Intent i = new Intent().setClassName(this, "com.callx.app.activities.ContactsActivity");
         i.putStringArrayListExtra("forwardTexts",     texts);
@@ -1875,6 +1979,7 @@ public class GroupChatActivity extends AppCompatActivity
         i.putStringArrayListExtra("forwardFileNames", fileNames);
         i.putStringArrayListExtra("forwardMediaItemsJsonList", mediaItemsJsonList);
         i.putStringArrayListExtra("forwardCaptionsList", captions);
+        i.putStringArrayListExtra("forwardPollJsonList", pollJsonList);
         startActivity(i);
         pagingAdapter.exitMultiSelectMode();
     }
@@ -2963,32 +3068,57 @@ public class GroupChatActivity extends AppCompatActivity
             return;
         }
 
-        String folder  = "callx/video";
-        String resType = "video";
-
-        com.callx.app.utils.CloudinaryUploader.upload(this, uri, folder, resType,
-            new com.callx.app.utils.CloudinaryUploader.UploadCallback() {
-                @Override public void onSuccess(com.callx.app.utils.CloudinaryUploader.Result r) {
-                    java.util.Map<String, Object> item = new java.util.HashMap<>();
-                    item.put("url", r.secureUrl);
-                    item.put("mediaType", "video");
-                    if (r.thumbnailUrl != null && !r.thumbnailUrl.isEmpty())
-                        item.put("thumbUrl", r.thumbnailUrl);
-                    if (r.durationMs != null) {
-                        item.put("duration", formatDuration(r.durationMs));
-                        item.put("durationMs", r.durationMs);
-                    }
-                    if (r.bytes != null) item.put("fileSize", r.bytes);
-                    if (itemCaption != null && !itemCaption.isEmpty())
-                        item.put("caption", itemCaption);
-                    collected.add(item);
-                    uploadSequentially(uris, perItemCaptions, caption, index + 1, collected, isHD);
+        // VIDEO — compress with HD quality when flag is set, then upload via VideoUploader
+        com.callx.app.utils.VideoQualityPreferences.Quality vq = isHD
+                ? com.callx.app.utils.VideoQualityPreferences.Quality.HD
+                : com.callx.app.utils.VideoQualityPreferences.Quality.STANDARD;
+        com.callx.app.utils.VideoCompressor.compress(this, uri, vq,
+            new com.callx.app.utils.VideoCompressor.Callback() {
+                @Override public void onProgress(int pct) {}
+                @Override public void onSuccess(com.callx.app.utils.VideoCompressor.Result r) {
+                    com.callx.app.utils.VideoUploader.upload(GroupChatActivity.this, r,
+                        new com.callx.app.utils.VideoUploader.UploadCallback() {
+                            @Override public void onProgress(int pct) {}
+                            @Override public void onSuccess(String thumbUrl, String videoUrl,
+                                                            int durationMs, int width, int height) {
+                                java.util.Map<String, Object> item = new java.util.HashMap<>();
+                                item.put("url", videoUrl);
+                                item.put("mediaType", "video");
+                                if (thumbUrl != null && !thumbUrl.isEmpty()) item.put("thumbUrl", thumbUrl);
+                                if (durationMs > 0) {
+                                    item.put("duration", formatDuration(durationMs));
+                                    item.put("durationMs", (long) durationMs);
+                                }
+                                if (itemCaption != null && !itemCaption.isEmpty()) item.put("caption", itemCaption);
+                                collected.add(item);
+                                uploadSequentially(uris, perItemCaptions, caption, index + 1, collected, isHD);
+                            }
+                            @Override public void onError(Exception e) {
+                                runOnUiThread(() -> Toast.makeText(GroupChatActivity.this,
+                                        "Video " + (index + 1) + " upload failed", Toast.LENGTH_SHORT).show());
+                                uploadSequentially(uris, perItemCaptions, caption, index + 1, collected, isHD);
+                            }
+                        });
                 }
-                @Override public void onError(String err) {
-                    runOnUiThread(() -> Toast.makeText(GroupChatActivity.this,
-                            "File " + (index + 1) + " fail: " + (err != null ? err : "Unknown"),
-                            Toast.LENGTH_SHORT).show());
-                    uploadSequentially(uris, perItemCaptions, caption, index + 1, collected, isHD);
+                @Override public void onError(Exception e) {
+                    // Compress failed — fall back to direct Cloudinary upload
+                    com.callx.app.utils.CloudinaryUploader.upload(GroupChatActivity.this, uri, "callx/video", "video",
+                        new com.callx.app.utils.CloudinaryUploader.UploadCallback() {
+                            @Override public void onSuccess(com.callx.app.utils.CloudinaryUploader.Result r) {
+                                java.util.Map<String, Object> item = new java.util.HashMap<>();
+                                item.put("url", r.secureUrl);
+                                item.put("mediaType", "video");
+                                if (r.thumbnailUrl != null && !r.thumbnailUrl.isEmpty()) item.put("thumbUrl", r.thumbnailUrl);
+                                if (r.durationMs != null) { item.put("duration", formatDuration(r.durationMs)); item.put("durationMs", r.durationMs); }
+                                if (r.bytes != null) item.put("fileSize", r.bytes);
+                                if (itemCaption != null && !itemCaption.isEmpty()) item.put("caption", itemCaption);
+                                collected.add(item);
+                                uploadSequentially(uris, perItemCaptions, caption, index + 1, collected, isHD);
+                            }
+                            @Override public void onError(String err) {
+                                uploadSequentially(uris, perItemCaptions, caption, index + 1, collected, isHD);
+                            }
+                        });
                 }
             });
     }
@@ -3029,6 +3159,10 @@ public class GroupChatActivity extends AppCompatActivity
     }
 
     private void uploadAndSend(Uri uri, String msgType, String resourceType, String fileName) {
+        uploadAndSend(uri, msgType, resourceType, fileName, false);
+    }
+
+    private void uploadAndSend(Uri uri, String msgType, String resourceType, String fileName, boolean isHD) {
         // OFFLINE FIX: Media upload needs internet — check before starting
         if (!isOnline()) {
             Toast.makeText(this,
@@ -3045,8 +3179,11 @@ public class GroupChatActivity extends AppCompatActivity
             binding.uploadProgress.setMax(100);
             binding.uploadProgress.setProgress(0);
 
+            com.callx.app.utils.VideoQualityPreferences.Quality videoQuality = isHD
+                    ? com.callx.app.utils.VideoQualityPreferences.Quality.HD
+                    : com.callx.app.utils.VideoQualityPreferences.Quality.STANDARD;
             com.callx.app.utils.VideoCompressor.compress(
-                    this, uri, new com.callx.app.utils.VideoCompressor.Callback() {
+                    this, uri, videoQuality, new com.callx.app.utils.VideoCompressor.Callback() {
 
                 @Override
                 public void onProgress(int percent) {

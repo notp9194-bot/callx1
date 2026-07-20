@@ -140,6 +140,31 @@
                 android:background="@drawable/bg_circle_white"/>
         </LinearLayout>
 
+        <!-- Feature 1: Chat Folders horizontal chip row.
+             Shown only when the user has at least one folder (gone by default).
+             "All Chats" chip is always added first programmatically.
+             Chips are built/rebuilt in ChatsFragment.setupFolderTabs(). -->
+        <HorizontalScrollView
+            android:id="@+id/hsv_folders"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:scrollbars="none"
+            android:paddingTop="4dp"
+            android:paddingBottom="4dp"
+            android:overScrollMode="never"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:id="@+id/ll_folder_tabs"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:paddingStart="10dp"
+                android:paddingEnd="10dp"
+                android:gravity="center_vertical"/>
+
+        </HorizontalScrollView>
+
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/rv_chats"
             android:layout_width="match_parent"

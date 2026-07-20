@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Background for a SELECTED Chat Folder chip in the horizontal tab row. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/brand_primary"/>
+    <corners android:radius="18dp"/>
+</shape>

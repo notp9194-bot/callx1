@@ -67,6 +67,23 @@ public class ChatEntity {
      */
     public Boolean pendingMarkRead;
 
+    // ── v38: Chat Folders / Labels ────────────────────────────────────────────
+
+    /**
+     * ID of the Chat Folder this chat belongs to.
+     * NULL = shown in "All Chats" (not in any specific folder).
+     * Set via ChatDao.setChatFolder(). Cleared when folder is deleted
+     * via ChatDao.clearFolder(folderId).
+     */
+    public Integer folderId;
+
+    /**
+     * Comma-separated label tags attached to this chat, e.g. "work,important".
+     * NULL = no labels. Max 5 recommended (UI truncates beyond that).
+     * Labels are shown as small chips on the chat row in the chat list.
+     */
+    public String labels;
+
     public ChatEntity() {
         this.syncedAt = System.currentTimeMillis();
     }

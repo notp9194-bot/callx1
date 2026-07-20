@@ -329,6 +329,10 @@ public final class AttachSheetRecentMediaBinder {
         final String[] currentFilter = {RecentMediaLoader.FILTER_ALL};
 
         Runnable[] loadFirstPageHolder = new Runnable[1];
+        // De-dupe: track URI strings already submitted to the grid adapter so a
+        // MediaStore update mid-session can't introduce duplicate items on re-load.
+        final java.util.Set<String> submittedUriStrings = new java.util.LinkedHashSet<>();
+
         if (hasPerm) {
             loadFirstPageHolder[0] = () -> {
                 loadingMore[0] = false;
@@ -337,11 +341,19 @@ public final class AttachSheetRecentMediaBinder {
                 mediaQueryExecutor.execute(() -> {
                     List<RecentMediaLoader.Item> items =
                             RecentMediaLoader.loadRecentPage(activity, 0, RECENT_MEDIA_LIMIT, filterAtRequestTime);
+                    if (activity.isFinishing() || activity.isDestroyed()) return;
                     activity.runOnUiThread(() -> {
+                        if (activity.isFinishing() || activity.isDestroyed()) return;
                         if (!java.util.Objects.equals(filterAtRequestTime, currentFilter[0])) return; // stale
-                        finalGridAdapter.submit(items);
+                        // New filter = new page = reset de-dupe tracking
+                        submittedUriStrings.clear();
+                        List<RecentMediaLoader.Item> deduped = new java.util.ArrayList<>();
+                        for (RecentMediaLoader.Item item : items) {
+                            if (submittedUriStrings.add(item.uri.toString())) deduped.add(item);
+                        }
+                        finalGridAdapter.submit(deduped);
                         grid.scrollToPosition(0);
-                        if (recentsEmpty != null) recentsEmpty.setVisibility(items.isEmpty() ? View.VISIBLE : View.GONE);
+                        if (recentsEmpty != null) recentsEmpty.setVisibility(deduped.isEmpty() ? View.VISIBLE : View.GONE);
                         if (items.size() < RECENT_MEDIA_LIMIT) noMorePages[0] = true;
                     });
                 });
@@ -366,13 +378,20 @@ public final class AttachSheetRecentMediaBinder {
                         mediaQueryExecutor.execute(() -> {
                             List<RecentMediaLoader.Item> more =
                                     RecentMediaLoader.loadRecentPage(activity, offset, GRID_PAGE_SIZE, filterAtRequestTime);
+                            if (activity.isFinishing() || activity.isDestroyed()) return;
                             activity.runOnUiThread(() -> {
+                                if (activity.isFinishing() || activity.isDestroyed()) return;
                                 if (!java.util.Objects.equals(filterAtRequestTime, currentFilter[0])) return; // stale
                                 loadingMore[0] = false;
                                 if (more.isEmpty()) {
                                     noMorePages[0] = true;
                                 } else {
-                                    finalGridAdapter.append(more);
+                                    // De-dupe before appending
+                                    List<RecentMediaLoader.Item> deduped = new java.util.ArrayList<>();
+                                    for (RecentMediaLoader.Item item : more) {
+                                        if (submittedUriStrings.add(item.uri.toString())) deduped.add(item);
+                                    }
+                                    if (!deduped.isEmpty()) finalGridAdapter.append(deduped);
                                     if (more.size() < GRID_PAGE_SIZE) noMorePages[0] = true;
                                 }
                             });

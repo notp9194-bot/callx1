@@ -100,5 +100,17 @@
             android:exported="false"
             android:windowSoftInputMode="adjustResize"/>
 
+        <!-- Feature 1: Chat Folders — create/edit folder activity -->
+        <activity android:name="com.callx.app.chatlist.FolderEditActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"
+            android:parentActivityName="com.callx.app.MainActivity"/>
+
+        <!-- Feature 2: Saved Messages — global cross-chat bookmarks -->
+        <activity android:name="com.callx.app.starred.GlobalSavedMessagesActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"
+            android:parentActivityName="com.callx.app.MainActivity"/>
+
     </application>
 </manifest>

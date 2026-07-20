@@ -1,4 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  layout_msg_audio.xml — Voice message bubble row.
+  v2 (Feature 4): Added btn_audio_speed for playback speed toggle
+  (0.5x / 1x / 1.5x / 2x). Speed label auto-updates as user cycles.
+  AudioWaveformView replaces the old SeekBar for a proper waveform UI.
+-->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/ll_audio"
     android:layout_width="match_parent"
@@ -10,27 +16,49 @@
     android:paddingBottom="8dp"
     android:gravity="center_vertical">
 
+    <!-- Play / Pause circle button -->
     <ImageButton
         android:id="@+id/btn_play_pause"
         android:layout_width="40dp"
         android:layout_height="40dp"
         android:src="@drawable/ic_play"
-        android:background="@drawable/circle_primary"/>
+        android:background="@drawable/circle_primary"
+        android:contentDescription="Play/Pause"/>
 
+    <!-- Waveform progress bar (pre-rendered bars, cheap progress updates) -->
     <com.callx.app.chat.ui.AudioWaveformView
         android:id="@+id/seek_audio"
         android:layout_width="0dp"
         android:layout_height="28dp"
         android:layout_weight="1"
         android:layout_marginStart="8dp"
-        android:layout_marginEnd="8dp"/>
+        android:layout_marginEnd="4dp"/>
 
+    <!-- Elapsed time label -->
     <TextView
         android:id="@+id/tv_audio_dur"
-        android:layout_width="40dp"
+        android:layout_width="36dp"
         android:layout_height="wrap_content"
         android:textColor="#CCFFFFFF"
-        android:textSize="11sp"
+        android:textSize="10sp"
         android:gravity="end"/>
+
+    <!-- Speed toggle button: 1x → 1.5x → 2x → 0.5x → 1x
+         Hidden until playback starts; shown after first tap on play. -->
+    <TextView
+        android:id="@+id/btn_audio_speed"
+        android:layout_width="36dp"
+        android:layout_height="28dp"
+        android:text="1×"
+        android:textColor="#CCFFFFFF"
+        android:textSize="11sp"
+        android:textStyle="bold"
+        android:gravity="center"
+        android:layout_marginStart="4dp"
+        android:background="@drawable/bg_speed_chip"
+        android:clickable="true"
+        android:focusable="true"
+        android:visibility="visible"
+        android:contentDescription="Playback speed"/>
 
 </LinearLayout>

@@ -566,6 +566,15 @@ public class MessagePagingAdapter
     // FIX [P3-1]: Track the ViewHolder that is currently playing so we can
     // reset its UI (icon + seekbar) when a different message starts playing.
     private VH playingVH = null;
+    // Feature 4: Voice speed. Resets to 1.0f each time a new audio starts.
+    private float currentPlaybackSpeed = 1.0f;
+
+    // Feature 3: Spoiler — per-message map of revealed span-start indices.
+    // Keyed by messageId so reveal state persists across recycler reuse.
+    // When user taps a spoiler span, its startIndex is added here and the
+    // adapter rebinds that position (notifyItemChanged) to re-draw revealed.
+    private final java.util.Map<String, java.util.Set<Integer>> revealedSpoilers
+            = new java.util.HashMap<>();
     // FIX: SeekBar progress update via Handler — 250ms interval during playback
     private final android.os.Handler seekHandler = new android.os.Handler(android.os.Looper.getMainLooper());
     private Runnable seekUpdater;
@@ -618,6 +627,14 @@ public class MessagePagingAdapter
         default void onPlaybackStateChanged(Message m, boolean playing) {}
         /** Called when user taps "Info" on a message to see delivery/read receipts. */
         default void onInfo(Message m) {}
+        /**
+         * Feature 2: Called when the user taps "Save" or "Unsave" in the
+         * long-press action sheet. The implementor should toggle the
+         * SavedMessageEntity in Room and show a snackbar.
+         * @param m        The message to save/unsave.
+         * @param save     true = save, false = unsave.
+         */
+        default void onSaveMessage(Message m, boolean save) {}
     }
 
     // ── Multi-select interface ────────────────────────────────────
@@ -2599,7 +2616,12 @@ public class MessagePagingAdapter
             // exactly why voting silently did nothing. See that override's
             // comment for details.
         } else {
-            cv.bind(m.text != null ? m.text : "", timeStr, sent, isRead, isDelivered);
+            // Feature 3: strip ||spoiler|| markers for canvas path (canvas can't render custom spans)
+            String canvasText = m.text != null ? m.text : "";
+            if (com.callx.app.utils.SpoilerTextHelper.hasSpoiler(canvasText)) {
+                canvasText = com.callx.app.utils.SpoilerTextHelper.stripMarkers(canvasText);
+            }
+            cv.bind(canvasText, timeStr, sent, isRead, isDelivered);
             cv.setDeletedStyle(false); // clears any italic/dim state a recycled view carried from a deleted message
             cv.setSearchHighlight(activeSearchQuery);
 
@@ -3754,6 +3776,33 @@ public class MessagePagingAdapter
                     }
                     final int pos = position;
                     h.btnPlayPause.setOnClickListener(v -> toggleAudio(h, aUrl, pos));
+                    // Feature 4: Speed toggle chip — 1x → 1.5x → 2x → 0.5x → 1x
+                    if (h.btnAudioSpeed != null) {
+                        h.btnAudioSpeed.setVisibility(View.VISIBLE);
+                        h.btnAudioSpeed.setText("1×");
+                        h.btnAudioSpeed.setOnClickListener(v -> {
+                            // Cycle speed: 1.0 → 1.5 → 2.0 → 0.5 → 1.0
+                            if      (currentPlaybackSpeed == 1.0f)  currentPlaybackSpeed = 1.5f;
+                            else if (currentPlaybackSpeed == 1.5f)  currentPlaybackSpeed = 2.0f;
+                            else if (currentPlaybackSpeed == 2.0f)  currentPlaybackSpeed = 0.5f;
+                            else                                     currentPlaybackSpeed = 1.0f;
+                            // Format label
+                            String label = (currentPlaybackSpeed == 0.5f) ? "0.5×"
+                                         : (currentPlaybackSpeed == 1.0f) ? "1×"
+                                         : (currentPlaybackSpeed == 1.5f) ? "1.5×" : "2×";
+                            h.btnAudioSpeed.setText(label);
+                            // Apply to active player (API 23+)
+                            if (player != null) {
+                                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                                    try {
+                                        android.media.PlaybackParams pp = new android.media.PlaybackParams();
+                                        pp.setSpeed(currentPlaybackSpeed);
+                                        player.setPlaybackParams(pp);
+                                    } catch (Exception ignored) {}
+                                }
+                            }
+                        });
+                    }
                     // FIX v14: Audio preload — MediaStreamCache se pehle 512KB cache karo
                     // Taaki play button press karne par turant start ho, buffer nahi kare
                     java.io.File cachedAudio = MediaCache.getCached(ctx, aUrl);
@@ -4075,6 +4124,36 @@ public class MessagePagingAdapter
             default: // "text", "emoji", etc.
                 h.tvMessage.setVisibility(View.VISIBLE);
                 String txt = m.text != null ? m.text : "";
+                // Feature 3: Spoiler text — parse ||hidden|| syntax before edited suffix
+                final String spoilerMsgId = m.messageId != null ? m.messageId : m.id;
+                if (com.callx.app.utils.SpoilerTextHelper.hasSpoiler(txt)) {
+                    final String fTxt = txt;
+                    final int fPos   = position;
+                    java.util.Set<Integer> revealed = revealedSpoilers.computeIfAbsent(
+                            spoilerMsgId, k -> new java.util.HashSet<>());
+                    android.text.SpannableString spoilerSpan = com.callx.app.utils.SpoilerTextHelper.apply(
+                            fTxt, revealed, () -> {
+                                // Record which spans are now revealed via the span objects
+                                android.text.SpannableString cur = null;
+                                if (h.tvMessage.getText() instanceof android.text.SpannableString)
+                                    cur = (android.text.SpannableString) h.tvMessage.getText();
+                                if (cur != null) {
+                                    com.callx.app.chat.ui.SpoilerSpan[] spans = cur.getSpans(
+                                            0, cur.length(), com.callx.app.chat.ui.SpoilerSpan.class);
+                                    if (spans != null) for (com.callx.app.chat.ui.SpoilerSpan sp : spans)
+                                        if (sp.isRevealed()) revealed.add(cur.getSpanStart(sp));
+                                }
+                                notifyItemChanged(fPos);
+                            });
+                    if (spoilerSpan != null) {
+                        if (Boolean.TRUE.equals(m.edited))
+                            spoilerSpan = android.text.SpannableString.valueOf(
+                                    android.text.TextUtils.concat(spoilerSpan, " (edited)"));
+                        h.tvMessage.setText(spoilerSpan);
+                        h.tvMessage.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
+                        break; // skip the rest of the default case text binding
+                    }
+                }
                 if (Boolean.TRUE.equals(m.edited)) txt += " (edited)";
                 // ── Font Style — cached static Typeface, no allocation ────────
                 h.tvMessage.setTypeface(TF_NORMAL);
@@ -4689,7 +4768,19 @@ public class MessagePagingAdapter
             
             player.prepareAsync();
             player.setOnPreparedListener(mp -> {
+                // Feature 4: reset to 1x speed for each new audio playback
+                currentPlaybackSpeed = 1.0f;
+                if (h.btnAudioSpeed != null) h.btnAudioSpeed.setText("1×");
                 mp.start();
+                // Apply initial speed (API 23+) — usually 1x, but applied
+                // to match any speed set before prepare completed.
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                    try {
+                        android.media.PlaybackParams pp = new android.media.PlaybackParams();
+                        pp.setSpeed(currentPlaybackSpeed);
+                        mp.setPlaybackParams(pp);
+                    } catch (Exception ignored) {}
+                }
                 setPlayPauseIcon(h, true);
                 notifyPlaybackChanged(getItem(position), true);
                 // FIX: SeekBar live progress update — runs every 250ms while playing
@@ -5068,10 +5159,20 @@ public class MessagePagingAdapter
         boolean isPollClosed = Boolean.TRUE.equals(m.pollClosed);
         boolean hasEditHistory = Boolean.TRUE.equals(m.edited);
 
+        // Feature 2: check if this message is currently saved in global bookmarks
+        boolean isSaved = false;
+        if (m.id != null) {
+            try {
+                isSaved = com.callx.app.db.AppDatabase.getInstance(ctx)
+                        .savedMessageDao().isSaved(m.id) > 0;
+            } catch (Exception ignored) {}
+        }
+
         java.util.List<String> optList = new java.util.ArrayList<>();
         optList.add("Reply");
         optList.add("Copy");
         optList.add(isStarred ? "Unstar" : "Star");
+        optList.add(isSaved  ? "Unsave" : "Save");    // Feature 2
         optList.add(isPinned ? "Unpin" : "Pin");
         optList.add("Forward");
         if (canEdit) optList.add("Edit");
@@ -5090,6 +5191,8 @@ public class MessagePagingAdapter
                             case "Copy":    actionListener.onCopy(m);    break;
                             case "Star":    // fall-through
                             case "Unstar":  actionListener.onStar(m);    break;
+                            case "Save":    actionListener.onSaveMessage(m, true);  break;  // Feature 2
+                            case "Unsave":  actionListener.onSaveMessage(m, false); break;  // Feature 2
                             case "Pin":     // fall-through
                             case "Unpin":   actionListener.onPin(m);     break;
                             case "Forward": actionListener.onForward(m); break;
@@ -5156,10 +5259,11 @@ public class MessagePagingAdapter
     private void ensureAudioInflated(@NonNull VH h, Context ctx, boolean sent) {
         if (h.llAudio != null || h.stubAudio == null) return;
         h.stubAudio.inflate(); h.stubAudio = null;
-        h.llAudio      = h.itemView.findViewById(R.id.ll_audio);
-        h.btnPlayPause = h.itemView.findViewById(R.id.btn_play_pause);
-        h.seekAudio    = h.itemView.findViewById(R.id.seek_audio);
-        h.tvAudioDur   = h.itemView.findViewById(R.id.tv_audio_dur);
+        h.llAudio        = h.itemView.findViewById(R.id.ll_audio);
+        h.btnPlayPause   = h.itemView.findViewById(R.id.btn_play_pause);
+        h.seekAudio      = h.itemView.findViewById(R.id.seek_audio);
+        h.tvAudioDur     = h.itemView.findViewById(R.id.tv_audio_dur);
+        h.btnAudioSpeed  = h.itemView.findViewById(R.id.btn_audio_speed); // Feature 4
         if (h.tvAudioDur != null) {
             try {
                 int color = ctx.getResources().getColor(
@@ -5650,6 +5754,8 @@ public class MessagePagingAdapter
         // FIX: AudioWaveformView — pre-rendered bitmap waveform, wired for live progress updates
         com.callx.app.chat.ui.AudioWaveformView seekAudio;
         TextView     tvAudioDur;
+        // Feature 4: playback speed chip (1x → 1.5x → 2x → 0.5x → 1x)
+        TextView     btnAudioSpeed;
         // SwipeReplySystem v1: reply preview views
         LinearLayout llReplyPreview;
         TextView     tvReplySender, tvReplyText;
@@ -5740,7 +5846,7 @@ public class MessagePagingAdapter
             stubContact     = v.findViewById(R.id.stub_contact);
             stubLocation    = v.findViewById(R.id.stub_location);
             // Heavy child refs start null; populated by ensure*Inflated() below
-            llAudio = null; btnPlayPause = null; seekAudio = null; tvAudioDur = null;
+            llAudio = null; btnPlayPause = null; seekAudio = null; tvAudioDur = null; btnAudioSpeed = null;
             llFile  = null; tvFileName   = null; btnDownload = null;
             flVideo = null; ivVideoThumb = null; tvDuration  = null;
             llLinkPreview = null; tvLinkTitle = null; tvLinkDomain = null; ivLinkThumb = null;

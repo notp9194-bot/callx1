@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  item_folder_tab.xml — single chip in the Chat Folders horizontal scroll row.
+  Used by FolderTabAdapter (inflated programmatically in ChatsFragment).
+
+  Selected state: brand_primary background, white text.
+  Unselected state: transparent/surface background, secondary text.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="wrap_content"
+    android:layout_height="36dp"
+    android:orientation="horizontal"
+    android:gravity="center"
+    android:paddingStart="14dp"
+    android:paddingEnd="14dp"
+    android:layout_marginStart="6dp"
+    android:layout_marginEnd="6dp"
+    android:clickable="true"
+    android:focusable="true"
+    android:background="@drawable/bg_folder_tab_unselected">
+
+    <!-- Emoji icon -->
+    <TextView
+        android:id="@+id/tv_folder_emoji"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textSize="16sp"
+        android:paddingEnd="6dp"/>
+
+    <!-- Folder name -->
+    <TextView
+        android:id="@+id/tv_folder_name"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textSize="14sp"
+        android:textColor="@color/text_primary"
+        android:maxLines="1"
+        android:ellipsize="end"
+        android:maxWidth="120dp"/>
+
+    <!-- Unread count badge (hidden when 0) -->
+    <TextView
+        android:id="@+id/tv_folder_unread"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:minWidth="18dp"
+        android:gravity="center"
+        android:textSize="10sp"
+        android:textColor="@color/white"
+        android:paddingStart="4dp"
+        android:paddingEnd="4dp"
+        android:paddingTop="1dp"
+        android:paddingBottom="1dp"
+        android:layout_marginStart="6dp"
+        android:background="@drawable/bg_unread_badge"
+        android:visibility="gone"/>
+
+</LinearLayout>

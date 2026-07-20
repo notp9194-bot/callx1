@@ -341,4 +341,91 @@ public class FirebaseUtils {
     public static DatabaseReference getChannelNotifPrefsRef(String uid, String channelId) {
         return db().getReference("channelNotifPrefs").child(uid).child(channelId);
     }
+
+    // ── FCM Push Notification Helpers ─────────────────────────────────────────
+    // Writes a notification payload to notifyQueue/{recipientUid}/{pushId}.
+    // A Cloud Function (or a lightweight WorkManager background worker) picks
+    // these up and dispatches them via FCM HTTP v1. Also calls PushNotify.send()
+    // as a foreground best-effort fallback — same approach as the legacy
+    // PushNotify usage elsewhere in the app.
+
+    /**
+     * Sends a push notification to a single user.
+     * Writes to notifyQueue/{recipientUid}/{pushId} and calls PushNotify.send()
+     * as a foreground fallback.
+     */
+    public static void sendPushToUser(String recipientUid, String title, String body,
+                                       java.util.Map<String, String> data) {
+        if (recipientUid == null || recipientUid.isEmpty()) return;
+        java.util.Map<String, Object> payload = new java.util.HashMap<>();
+        payload.put("to", recipientUid);
+        payload.put("title", title != null ? title : "");
+        payload.put("body", body != null ? body : "");
+        payload.put("sentAt", System.currentTimeMillis());
+        if (data != null) payload.put("data", data);
+        // Server-side dispatch queue
+        db().getReference("notifyQueue").child(recipientUid).push().setValue(payload);
+        // Foreground fallback
+        try {
+            com.callx.app.utils.PushNotify.send(recipientUid, title, body, data);
+        } catch (Exception ignored) {}
+    }
+
+    /**
+     * Sends a push notification to all group members except the sender.
+     */
+    public static void sendGroupPushNotification(String groupId,
+                                                  java.util.Collection<String> memberUids,
+                                                  String senderUid,
+                                                  String title, String body,
+                                                  java.util.Map<String, String> data) {
+        if (memberUids == null || memberUids.isEmpty()) return;
+        java.util.Map<String, String> enriched = new java.util.HashMap<>();
+        if (data != null) enriched.putAll(data);
+        if (groupId != null) enriched.put("groupId", groupId);
+        enriched.put("type", "group_message");
+        for (String uid : memberUids) {
+            if (uid == null || uid.isEmpty() || uid.equals(senderUid)) continue;
+            sendPushToUser(uid, title, body, enriched);
+        }
+    }
+
+    /**
+     * Sends a push notification for a 1:1 chat message.
+     */
+    public static void sendChatPushNotification(String recipientUid, String senderName,
+                                                  String body, String chatId) {
+        java.util.Map<String, String> data = new java.util.HashMap<>();
+        data.put("chatId", chatId != null ? chatId : "");
+        data.put("type", "chat_message");
+        sendPushToUser(recipientUid, senderName, body, data);
+    }
+
+    /**
+     * Increments the unread notification badge count for a user (transactionally).
+     */
+    public static void incrementNotifyBadge(String uid) {
+        if (uid == null || uid.isEmpty()) return;
+        db().getReference("notifyBadge").child(uid)
+            .runTransaction(new com.google.firebase.database.Transaction.Handler() {
+                @Override
+                public com.google.firebase.database.Transaction.Result doTransaction(
+                        com.google.firebase.database.MutableData current) {
+                    Long val = current.getValue(Long.class);
+                    current.setValue(val == null ? 1L : val + 1L);
+                    return com.google.firebase.database.Transaction.success(current);
+                }
+                @Override public void onComplete(com.google.firebase.database.DatabaseError e,
+                                                  boolean committed,
+                                                  com.google.firebase.database.DataSnapshot s) {}
+            });
+    }
+
+    /**
+     * Resets the unread badge count to 0 for a user — call when the user opens the chat.
+     */
+    public static void resetNotifyBadge(String uid) {
+        if (uid == null || uid.isEmpty()) return;
+        db().getReference("notifyBadge").child(uid).setValue(0);
+    }
 }

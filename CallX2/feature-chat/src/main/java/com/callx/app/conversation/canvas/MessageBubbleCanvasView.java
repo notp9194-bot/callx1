@@ -4938,7 +4938,7 @@ public class MessageBubbleCanvasView extends View {
             canvas.drawText(expiryText, timeX - expiryReserveWidth(), footerBaselineY, expiryPaint);
         }
 
-        if (sent) {
+        if (sent && !isDeletedStyle) {
             drawTick(canvas, footerRightX - TICK_SIZE_DP * density, footerBaselineY);
         }
     }

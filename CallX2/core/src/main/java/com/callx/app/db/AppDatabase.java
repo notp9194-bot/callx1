@@ -13,23 +13,15 @@ import com.callx.app.db.dao.*;
 import com.callx.app.db.entity.*;
 
 /**
- * v37: AppDatabase — Room database (WhatsApp-level offline-first architecture).
+ * v38: AppDatabase — Room database (WhatsApp/Telegram-level offline-first architecture).
  *
- * Schema bump: 36 → 37
+ * Schema bump: 37 → 38
  * Migration adds:
- *   channels: ownerName, ownerIconUrl, isPrivate, inviteLink, inviteCode,
- *             totalPosts, totalViews, weeklyGrowth, pinnedPostId, isMuted,
- *             isAdmin, unreadCount, lastSeenPostTimestamp, followersSyncedAt
- *             + indices on category, isFollowed, weeklyGrowth
- *   channel_posts: authorUid, authorName, authorIconUrl, mediaWidth, mediaHeight,
- *             linkImageUrl, linkDomain, pollQuestion, pollOptionsJson, pollVotesJson,
- *             pollTotalVotes, pollMultiSelect, pollExpiresAt, audioUrl, audioDurationMs,
- *             audioWaveformJson, documentUrl, documentName, documentSizeBytes,
- *             documentMimeType, isPinned, scheduledAt, isDraft, editedAt, isDeleted,
- *             replyCount, allowReactions, allowForward
- *             + indices on (channelId,isDeleted), (channelId,isPinned), (channelId,scheduledAt)
- *   (Channels v2 feature fields — these existed on the Java entities but were
- *   never added to the DB schema, causing a Room identity-hash mismatch crash.)
+ *   chats table:
+ *     - folderId INTEGER (nullable) — which Chat Folder this chat belongs to
+ *     - labels TEXT (nullable) — comma-separated label tags
+ *   NEW TABLE chat_folders — Telegram-style folder metadata
+ *   NEW TABLE saved_messages — global cross-chat saved messages bookmark store
  */
 @Database(
     entities = {
@@ -58,9 +50,12 @@ import com.callx.app.db.entity.*;
         ReelThumbCacheEntity.class,
         // Channels offline cache (v34) ────────────────────────────
         ChannelEntity.class,
-        ChannelPostEntity.class
+        ChannelPostEntity.class,
+        // Chat Folders + Saved Messages (v38) ──────────────────────
+        ChatFolderEntity.class,
+        SavedMessageEntity.class
     },
-    version = 37,
+    version = 38,
     exportSchema = false
 )
 public abstract class AppDatabase extends RoomDatabase {
@@ -93,6 +88,10 @@ public abstract class AppDatabase extends RoomDatabase {
 
     // Channels offline cache (v34)
     public abstract ChannelDao                 channelDao();
+
+    // Chat Folders + Saved Messages (v38)
+    public abstract ChatFolderDao              chatFolderDao();
+    public abstract SavedMessageDao            savedMessageDao();
 
     // ─── Migrations ───────────────────────────────────────────────────────────
 
@@ -360,6 +359,64 @@ public abstract class AppDatabase extends RoomDatabase {
         }
     };
 
+    /**
+     * Migration 37 → 38
+     * Adds:
+     *  - chats.folderId (nullable INTEGER) — Chat Folder assignment
+     *  - chats.labels (nullable TEXT) — comma-separated label tags
+     *  - NEW TABLE chat_folders — Telegram-style folders
+     *  - NEW TABLE saved_messages — global cross-chat bookmarks
+     */
+    static final Migration MIGRATION_37_38 = new Migration(37, 38) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase db) {
+            // chats: new columns
+            db.execSQL("ALTER TABLE chats ADD COLUMN folderId INTEGER");
+            db.execSQL("ALTER TABLE chats ADD COLUMN labels TEXT");
+
+            // chat_folders: new table
+            db.execSQL("CREATE TABLE IF NOT EXISTS `chat_folders` ("
+                + "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,"
+                + "`name` TEXT,"
+                + "`emoji` TEXT,"
+                + "`sortOrder` INTEGER NOT NULL DEFAULT 0,"
+                + "`chatIdsJson` TEXT,"
+                + "`includeContacts` INTEGER NOT NULL DEFAULT 0,"
+                + "`includeGroups` INTEGER NOT NULL DEFAULT 0,"
+                + "`includeNonContacts` INTEGER NOT NULL DEFAULT 0,"
+                + "`includeMuted` INTEGER NOT NULL DEFAULT 0,"
+                + "`includeUnreadOnly` INTEGER NOT NULL DEFAULT 0,"
+                + "`createdAt` INTEGER NOT NULL DEFAULT 0"
+                + ")");
+
+            // saved_messages: new table
+            db.execSQL("CREATE TABLE IF NOT EXISTS `saved_messages` ("
+                + "`id` TEXT NOT NULL,"
+                + "`origChatId` TEXT,"
+                + "`chatName` TEXT,"
+                + "`isGroup` INTEGER NOT NULL DEFAULT 0,"
+                + "`senderUid` TEXT,"
+                + "`senderName` TEXT,"
+                + "`senderPhoto` TEXT,"
+                + "`text` TEXT,"
+                + "`type` TEXT,"
+                + "`mediaUrl` TEXT,"
+                + "`thumbnailUrl` TEXT,"
+                + "`fileName` TEXT,"
+                + "`duration` INTEGER,"
+                + "`origTimestamp` INTEGER,"
+                + "`savedAt` INTEGER,"
+                + "`note` TEXT,"
+                + "`reactionsJson` TEXT,"
+                + "`replyToText` TEXT,"
+                + "`replyToSenderName` TEXT,"
+                + "PRIMARY KEY(`id`)"
+                + ")");
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_saved_messages_savedAt` ON `saved_messages` (`savedAt`)");
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_saved_messages_origChatId` ON `saved_messages` (`origChatId`)");
+        }
+    };
+
     // ─── Singleton ────────────────────────────────────────────────────────────
 
     public static boolean isWarm() { return sInstance != null; }
@@ -376,7 +433,7 @@ public abstract class AppDatabase extends RoomDatabase {
                                     MIGRATION_30_31, MIGRATION_31_32,
                                     MIGRATION_32_33, MIGRATION_33_34,
                                     MIGRATION_34_35, MIGRATION_35_36,
-                                    MIGRATION_36_37)
+                                    MIGRATION_36_37, MIGRATION_37_38)
                             .fallbackToDestructiveMigrationFrom(1, 2, 3, 4, 5, 6, 7, 8,
                                     9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
                                     21, 22, 23, 24, 25, 26, 27, 28, 29)

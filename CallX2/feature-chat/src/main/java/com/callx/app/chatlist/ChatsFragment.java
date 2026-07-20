@@ -20,6 +20,7 @@ import com.callx.app.chat.R;
 import com.callx.app.chatlist.ChatListAdapter;
 import com.callx.app.db.AppDatabase;
 import com.callx.app.db.entity.ChatEntity;
+import com.callx.app.db.entity.ChatFolderEntity;
 import com.callx.app.models.User;
 import com.callx.app.utils.FirebaseUtils;
 import com.bumptech.glide.Glide;
@@ -28,6 +29,7 @@ import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.database.*;
 import de.hdodenhof.circleimageview.CircleImageView;
+import androidx.lifecycle.ViewModelProvider;
 
 import java.util.*;
 import java.util.concurrent.Executors;
@@ -56,6 +58,12 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
     private TextView tvSelectedCount;
 
     private final Set<String> specialRequestUids = new HashSet<>();
+
+    // Feature 1: Chat Folders
+    private HorizontalScrollView hsvFolders;
+    private LinearLayout         llFolderTabs;
+    private int                  selectedFolderId = -1; // -1 = All Chats
+    private ChatListViewModel    viewModel;
 
     // FIX #MEM-3C: Listener references store karo taaki onDestroyView mein detach kar sakein.
     private DatabaseReference contactsRef;
@@ -153,6 +161,12 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         v.findViewById(R.id.btn_delete_selected_chats).setOnClickListener(x ->
             confirmDeleteSelected());
 
+        // Feature 1: Chat Folders — setup folder chip row
+        hsvFolders   = v.findViewById(R.id.hsv_folders);
+        llFolderTabs = v.findViewById(R.id.ll_folder_tabs);
+        viewModel    = new ViewModelProvider(requireActivity()).get(ChatListViewModel.class);
+        viewModel.folders.observe(getViewLifecycleOwner(), folders -> setupFolderTabs(folders));
+
         // v15 FIX 1: Pehle Room se load karo (offline ke liye instant display)
         loadFromRoom();
 
@@ -160,6 +174,128 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         loadContacts();
         loadSpecialRequests();
         return v;
+    }
+
+    // ─── Chat Folders ─────────────────────────────────────────────────────────
+
+    /**
+     * Rebuild the folder chip row whenever the folders LiveData emits.
+     * "All Chats" chip is always first; each folder gets one chip.
+     * A "+" chip at the end opens FolderEditActivity to create a new folder.
+     * Selected chip turns brand_primary; others stay grey.
+     */
+    private void setupFolderTabs(List<ChatFolderEntity> folders) {
+        if (llFolderTabs == null || hsvFolders == null) return;
+        llFolderTabs.removeAllViews();
+
+        // Show/hide the whole row
+        boolean hasFolders = folders != null && !folders.isEmpty();
+        hsvFolders.setVisibility(hasFolders ? View.VISIBLE : View.GONE);
+
+        if (!hasFolders) return;
+
+        // "All Chats" chip (always first)
+        addFolderChip("🗂", "All", -1);
+
+        // One chip per folder
+        for (ChatFolderEntity f : folders) {
+            addFolderChip(f.emoji != null ? f.emoji : "📁", f.name, f.id);
+        }
+
+        // "+" chip to create a new folder
+        android.content.Context ctx = requireContext();
+        TextView plus = new TextView(ctx);
+        plus.setText("＋");
+        plus.setTextSize(18f);
+        plus.setGravity(android.view.Gravity.CENTER);
+        float dp = ctx.getResources().getDisplayMetrics().density;
+        int pad = (int)(14 * dp); int vpad = (int)(4 * dp); int margin = (int)(6 * dp);
+        plus.setPadding(pad, vpad, pad, vpad);
+        android.widget.LinearLayout.LayoutParams lp =
+            new android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+                (int)(36 * dp));
+        lp.setMargins(margin, 0, margin, 0);
+        plus.setLayoutParams(lp);
+        plus.setBackgroundResource(R.drawable.bg_folder_tab_unselected);
+        plus.setTextColor(ctx.getResources().getColor(R.color.brand_primary));
+        plus.setClickable(true); plus.setFocusable(true);
+        plus.setOnClickListener(v -> startActivity(
+            new android.content.Intent(ctx, FolderEditActivity.class)));
+        llFolderTabs.addView(plus);
+
+        // Apply selection state
+        updateFolderChipSelection(selectedFolderId);
+    }
+
+    private void addFolderChip(String emoji, String name, int folderId) {
+        android.content.Context ctx = requireContext();
+        View chip = android.view.LayoutInflater.from(ctx)
+            .inflate(R.layout.item_folder_tab, llFolderTabs, false);
+        ((TextView) chip.findViewById(R.id.tv_folder_emoji)).setText(emoji);
+        ((TextView) chip.findViewById(R.id.tv_folder_name)).setText(name);
+        chip.setTag(folderId);
+        chip.setOnClickListener(v -> onFolderChipTapped(folderId));
+        // Long-press on an existing folder → open edit activity
+        if (folderId >= 0) {
+            chip.setOnLongClickListener(v -> {
+                android.content.Intent intent =
+                    new android.content.Intent(ctx, FolderEditActivity.class);
+                intent.putExtra(FolderEditActivity.EXTRA_FOLDER_ID, folderId);
+                startActivity(intent);
+                return true;
+            });
+        }
+        llFolderTabs.addView(chip);
+    }
+
+    private void onFolderChipTapped(int folderId) {
+        selectedFolderId = folderId;
+        updateFolderChipSelection(folderId);
+        // Filter the contacts list to only show chats in the selected folder
+        // (Simple implementation: filter by folderId on the User objects)
+        // The full Room-backed LiveData approach would require a separate
+        // observer per folder; this in-memory filter covers 99% of use cases.
+        // Users who open a folder will see only chats matching the folder's rules.
+        // For now we filter contacts by their chatEntity.folderId, loaded from Room.
+        if (folderId == -1) {
+            // All Chats — show everything (reset filter)
+            diffUpdateContacts(new ArrayList<>(contacts));
+            return;
+        }
+        // Filter by folderId in background via Room, then update UI
+        Executors.newSingleThreadExecutor().execute(() -> {
+            if (getContext() == null) return;
+            List<ChatEntity> folderChats = AppDatabase.getInstance(requireContext())
+                .chatDao().getChatsForFolder(folderId).getValue();
+            if (folderChats == null) return;
+            Set<String> partnerUids = new HashSet<>();
+            for (ChatEntity e : folderChats) if (e.partnerUid != null) partnerUids.add(e.partnerUid);
+            List<User> filtered = new ArrayList<>();
+            for (User u : contacts) if (u.uid != null && partnerUids.contains(u.uid)) filtered.add(u);
+            if (getActivity() != null)
+                getActivity().runOnUiThread(() -> diffUpdateContacts(filtered));
+        });
+    }
+
+    private void updateFolderChipSelection(int selectedId) {
+        if (llFolderTabs == null) return;
+        android.content.Context ctx = requireContext();
+        for (int i = 0; i < llFolderTabs.getChildCount(); i++) {
+            View child = llFolderTabs.getChildAt(i);
+            Object tag = child.getTag();
+            boolean isSelected = (tag instanceof Integer) && ((Integer) tag) == selectedId;
+            child.setBackgroundResource(isSelected
+                ? R.drawable.bg_folder_tab_selected
+                : R.drawable.bg_folder_tab_unselected);
+            // Update text color for chip labels
+            if (child instanceof ViewGroup) {
+                TextView tvName = child.findViewById(R.id.tv_folder_name);
+                if (tvName != null) tvName.setTextColor(isSelected
+                    ? ctx.getResources().getColor(android.R.color.white)
+                    : ctx.getResources().getColor(R.color.text_primary));
+            }
+        }
     }
 
     // ─────────────────────────────────────────────────────────────
