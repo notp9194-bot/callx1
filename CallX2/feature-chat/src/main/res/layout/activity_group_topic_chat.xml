@@ -104,7 +104,7 @@
             app:boxCornerRadiusTopEnd="24dp"
             app:boxCornerRadiusBottomStart="24dp"
             app:boxCornerRadiusBottomEnd="24dp"
-            app:hintText="Message…"
+            android:hint="Message…"
             android:layout_marginEnd="6dp">
             <com.google.android.material.textfield.TextInputEditText
                 android:id="@+id/et_message"

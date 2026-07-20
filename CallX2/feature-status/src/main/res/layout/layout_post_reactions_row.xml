@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Included in item_channel_post_broadcast and item_channel_post_event
+     to show the emoji-reaction summary strip below a channel post. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:paddingStart="12dp"
+    android:paddingEnd="12dp"
+    android:paddingTop="6dp"
+    android:paddingBottom="6dp"
+    android:gravity="center_vertical">
+
+    <!-- Reaction emoji chips filled programmatically -->
+    <LinearLayout
+        android:id="@+id/layout_reactions_strip"
+        android:layout_width="0dp"
+        android:layout_weight="1"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"/>
+
+    <!-- Total reaction count -->
+    <TextView
+        android:id="@+id/tv_total_reactions"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textSize="12sp"
+        android:textColor="#64748B"
+        android:visibility="gone"/>
+
+</LinearLayout>

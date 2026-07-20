@@ -1104,6 +1104,32 @@ public class GroupChatActivity extends AppCompatActivity
                     @Override public boolean severPagingIfAtBottom() { return false; }
                     @Override public void reanchorPagingToBottom() { /* group: no-op */ }
                     @Override public void queueMarkRead(String messageId) { /* group: handled by GroupChatActivity */ }
+                    // ── Remaining ChatActivityDelegate stubs (unused by MessageEditHistoryController) ──
+                    @Override public String getPartnerName() { return ""; }
+                    @Override public String getPartnerPhoto() { return ""; }
+                    @Override public String getPartnerThumb() { return ""; }
+                    @Override public boolean isMuted() { return false; }
+                    @Override public void setMuted(boolean m) {}
+                    @Override public void setBlocked(boolean b) {}
+                    @Override public boolean isPartnerPermaBlockedMe() { return false; }
+                    @Override public void setPartnerPermaBlockedMe(boolean v) {}
+                    @Override public boolean isIPermaBlockedPartner() { return false; }
+                    @Override public void setIPermaBlockedPartner(boolean v) {}
+                    @Override public boolean isRecording() { return false; }
+                    @Override public void setRecording(boolean r) {}
+                    @Override public void invalidateMenu() {}
+                    @Override public void clearReply() {}
+                    @Override public void startReply(com.callx.app.models.Message m) {}
+                    @Override public void activateReplyDirect(com.callx.app.models.Message m) {}
+                    @Override public void navigateToOriginal(String messageId) {}
+                    @Override public String getCurrentReplyTargetId() { return null; }
+                    @Override public androidx.fragment.app.FragmentManager getSupportFragmentManager() { return GroupChatActivity.this.getSupportFragmentManager(); }
+                    @Override public void refreshScreenTheme() {}
+                    @Override public void refreshWallpaper() {}
+                    @Override public void launchWallpaperPicker() {}
+                    @Override public void launchContactSharePicker() {}
+                    @Override public void launchLocationSharePicker() {}
+                    @Override public void firebasePushMessage(com.callx.app.models.Message m, String key, String preview) {}
                 });
 
         // ── Group Scheduled Send Controller ────────────────────────────────

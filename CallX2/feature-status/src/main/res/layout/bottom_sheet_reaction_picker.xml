@@ -39,7 +39,7 @@
         android:layout_height="40dp"
         app:tabMode="scrollable"
         app:tabGravity="start"
-        app:tabTextSize="12sp"
+        android:textSize="12sp"
         android:layout_marginBottom="8dp" />
 
     <!-- Full emoji grid (filled programmatically) -->

@@ -86,7 +86,7 @@
                 app:boxCornerRadiusTopEnd="10dp"
                 app:boxCornerRadiusBottomStart="10dp"
                 app:boxCornerRadiusBottomEnd="10dp"
-                app:hintText="e.g. General, Announcements, Help…">
+                android:hint="e.g. General, Announcements, Help…">
                 <com.google.android.material.textfield.TextInputEditText
                     android:id="@+id/et_topic_name"
                     android:layout_width="match_parent"
@@ -116,7 +116,7 @@
                 app:boxCornerRadiusTopEnd="10dp"
                 app:boxCornerRadiusBottomStart="10dp"
                 app:boxCornerRadiusBottomEnd="10dp"
-                app:hintText="Short description of this topic…">
+                android:hint="Short description of this topic…">
                 <com.google.android.material.textfield.TextInputEditText
                     android:id="@+id/et_topic_desc"
                     android:layout_width="match_parent"
