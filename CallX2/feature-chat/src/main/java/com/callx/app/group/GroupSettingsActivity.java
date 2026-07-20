@@ -69,6 +69,21 @@ public class GroupSettingsActivity extends AppCompatActivity {
     private TextView tvSendPerm, tvEditPerm;
     private SwitchCompat swApprovalRequired, swAdminAddOnly;
 
+    // Views — Slow Mode (admin)
+    private View    labelSlowMode, cardSlowMode;
+    private TextView tvSlowModeStatus;
+
+    // Views — Anonymous Posting (admin)
+    private View    labelAnonymous, cardAnonymous;
+    private SwitchCompat swAnonymousPosting;
+
+    // Views — Topics (admin)
+    private View    labelTopics, cardTopics;
+    private SwitchCompat swTopicsEnabled;
+
+    // ── Local state ───────────────────────────────────────────────────────
+    private int currentSlowModeSecs = 0;
+
     // Views — Privacy
     private TextView    tvDisappearing;
     private TextView    tvMsgTimer;
@@ -121,6 +136,21 @@ public class GroupSettingsActivity extends AppCompatActivity {
         tvEditPerm          = findViewById(R.id.tv_edit_perm);
         swApprovalRequired  = findViewById(R.id.sw_approval_required);
         swAdminAddOnly      = findViewById(R.id.sw_admin_add_only);
+
+        // Slow Mode views
+        labelSlowMode       = findViewById(R.id.label_slow_mode);
+        cardSlowMode        = findViewById(R.id.card_slow_mode);
+        tvSlowModeStatus    = findViewById(R.id.tv_slow_mode_status);
+
+        // Anonymous Posting views
+        labelAnonymous      = findViewById(R.id.label_anonymous);
+        cardAnonymous       = findViewById(R.id.card_anonymous);
+        swAnonymousPosting  = findViewById(R.id.sw_anonymous_posting);
+
+        // Topics views
+        labelTopics         = findViewById(R.id.label_topics);
+        cardTopics          = findViewById(R.id.card_topics);
+        swTopicsEnabled     = findViewById(R.id.sw_topics_enabled);
         tvDisappearing      = findViewById(R.id.tv_disappearing);
         tvMsgTimer          = findViewById(R.id.tv_msg_timer);
         tvAutoDeleteOld     = findViewById(R.id.tv_auto_delete_old);
@@ -215,6 +245,18 @@ public class GroupSettingsActivity extends AppCompatActivity {
         // Encryption info
         findViewById(R.id.row_encryption).setOnClickListener(v -> showEncryptionInfo());
 
+        // Slow Mode (admin only)
+        if (cardSlowMode != null) {
+            View rowSlowMode = cardSlowMode.findViewById(R.id.row_slow_mode);
+            if (rowSlowMode != null) rowSlowMode.setOnClickListener(v -> {
+                if (!isAdmin) {
+                    Toast.makeText(this, "Only admins can change slow mode", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                showSlowModeDialog();
+            });
+        }
+
         // Permissions (admin only)
         if (cardPermissions != null) {
             View rowSend = cardPermissions.findViewById(R.id.row_send_messages);
@@ -259,6 +301,18 @@ public class GroupSettingsActivity extends AppCompatActivity {
         });
 
         // Admin-only switches
+        swAnonymousPosting.setOnCheckedChangeListener((btn, checked) -> {
+            if (!isAdmin) { swAnonymousPosting.setChecked(!checked); return; }
+            saveGroupSetting("anonymousPostingEnabled", checked ? "true" : "false");
+            Toast.makeText(this, checked ? "Anonymous posting enabled" : "Anonymous posting disabled", Toast.LENGTH_SHORT).show();
+        });
+
+        swTopicsEnabled.setOnCheckedChangeListener((btn, checked) -> {
+            if (!isAdmin) { swTopicsEnabled.setChecked(!checked); return; }
+            saveGroupSettingBool("topicsEnabled", checked);
+            Toast.makeText(this, checked ? "Topics enabled" : "Topics disabled", Toast.LENGTH_SHORT).show();
+        });
+
         swApprovalRequired.setOnCheckedChangeListener((btn, checked) -> {
             if (!isAdmin) { swApprovalRequired.setChecked(!checked); return; }
             saveGroupSetting("approvalRequired", checked ? "1" : "0");
@@ -644,6 +698,21 @@ public class GroupSettingsActivity extends AppCompatActivity {
 
                         String adminAddStr = snap.child("adminAddOnly").getValue(String.class);
                         swAdminAddOnly.setChecked("1".equals(adminAddStr));
+
+                        // Slow Mode
+                        Long slowModeLong = snap.child("slowModeSecs").getValue(Long.class);
+                        currentSlowModeSecs = slowModeLong != null ? slowModeLong.intValue() : 0;
+                        updateSlowModeStatus();
+
+                        // Anonymous Posting
+                        Boolean anonEnabled = snap.child("anonymousPostingEnabled").getValue(Boolean.class);
+                        if (swAnonymousPosting != null)
+                            swAnonymousPosting.setChecked(Boolean.TRUE.equals(anonEnabled));
+
+                        // Topics
+                        Boolean topicsOn = snap.child("topicsEnabled").getValue(Boolean.class);
+                        if (swTopicsEnabled != null)
+                            swTopicsEnabled.setChecked(Boolean.TRUE.equals(topicsOn));
                     }
                     @Override public void onCancelled(DatabaseError e) {}
                 });
@@ -671,9 +740,66 @@ public class GroupSettingsActivity extends AppCompatActivity {
                             isAdmin = true;
                             labelPermissions.setVisibility(View.VISIBLE);
                             cardPermissions.setVisibility(View.VISIBLE);
+                            if (labelSlowMode   != null) labelSlowMode.setVisibility(View.VISIBLE);
+                            if (cardSlowMode    != null) cardSlowMode.setVisibility(View.VISIBLE);
+                            if (labelAnonymous  != null) labelAnonymous.setVisibility(View.VISIBLE);
+                            if (cardAnonymous   != null) cardAnonymous.setVisibility(View.VISIBLE);
+                            if (labelTopics     != null) labelTopics.setVisibility(View.VISIBLE);
+                            if (cardTopics      != null) cardTopics.setVisibility(View.VISIBLE);
                         }
                     }
                     @Override public void onCancelled(DatabaseError e) {}
                 });
+    }
+
+    // ── Slow Mode ──────────────────────────────────────────────────────────
+
+    private void updateSlowModeStatus() {
+        if (tvSlowModeStatus == null) return;
+        if (currentSlowModeSecs <= 0) {
+            tvSlowModeStatus.setText("Off");
+        } else if (currentSlowModeSecs < 60) {
+            tvSlowModeStatus.setText(currentSlowModeSecs + "s");
+        } else if (currentSlowModeSecs < 3600) {
+            tvSlowModeStatus.setText((currentSlowModeSecs / 60) + "m");
+        } else {
+            tvSlowModeStatus.setText((currentSlowModeSecs / 3600) + "h");
+        }
+    }
+
+    private void showSlowModeDialog() {
+        String[] labels  = {"Off", "10 seconds", "30 seconds", "1 minute",
+                            "5 minutes", "15 minutes", "1 hour"};
+        int[]    seconds = {0, 10, 30, 60, 300, 900, 3600};
+        int current = 0;
+        for (int i = 0; i < seconds.length; i++) {
+            if (seconds[i] == currentSlowModeSecs) { current = i; break; }
+        }
+        final int[] sel = {current};
+        new AlertDialog.Builder(this)
+                .setTitle("Slow Mode")
+                .setSingleChoiceItems(labels, current, (d, which) -> sel[0] = which)
+                .setPositiveButton("Save", (d, w) -> {
+                    currentSlowModeSecs = seconds[sel[0]];
+                    saveGroupSettingInt("slowModeSecs", currentSlowModeSecs);
+                    updateSlowModeStatus();
+                    String msg = currentSlowModeSecs == 0 ? "Slow mode disabled"
+                            : "Slow mode: " + labels[sel[0]];
+                    Toast.makeText(this, msg, Toast.LENGTH_SHORT).show();
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    // ── Extra save helpers ─────────────────────────────────────────────────
+
+    private void saveGroupSettingBool(String key, boolean value) {
+        FirebaseUtils.getGroupsRef().child(groupId).child("groupSettings")
+                .child(key).setValue(value);
+    }
+
+    private void saveGroupSettingInt(String key, int value) {
+        FirebaseUtils.getGroupsRef().child(groupId).child("groupSettings")
+                .child(key).setValue(value);
     }
 }

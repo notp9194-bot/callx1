@@ -112,5 +112,27 @@
             android:windowSoftInputMode="adjustResize"
             android:parentActivityName="com.callx.app.MainActivity"/>
 
+        <!-- ──────────────────────────────────────────────────────────────
+             GROUP TOPICS / THREADS — Telegram-style topic threads
+             ────────────────────────────────────────────────────────────── -->
+
+        <!-- Topics list: shows all topics for a group -->
+        <activity android:name="com.callx.app.group.GroupTopicsActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"
+            android:label="Topics"/>
+
+        <!-- Topic chat: messages filtered to a single topic -->
+        <activity android:name="com.callx.app.group.GroupTopicChatActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"
+            android:label="Topic Chat"/>
+
+        <!-- Create/edit topic: admin-only topic management -->
+        <activity android:name="com.callx.app.group.CreateTopicActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"
+            android:label="Create Topic"/>
+
     </application>
 </manifest>

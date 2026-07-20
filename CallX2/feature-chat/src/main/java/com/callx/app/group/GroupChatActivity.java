@@ -160,6 +160,14 @@ public class GroupChatActivity extends AppCompatActivity
     private int   totalMembers = 0;
     private boolean amTyping   = false;
 
+    // ── Slow Mode ──────────────────────────────────────────────────────────
+    private int  slowModeSecs    = 0;                // 0 = off
+    private long lastSentMs      = 0L;               // epoch ms of last message sent by this user
+
+    // ── Anonymous Posting ──────────────────────────────────────────────────
+    private boolean anonymousPostingEnabled = false;
+    private boolean postAnonymously         = false;  // current toggle state
+
     // ── "Watching banner" — overlapping avatars for members who currently
     //    have this group's chat screen open & foregrounded ────────────────
     private GroupWatchingController watchingController;
@@ -325,6 +333,7 @@ public class GroupChatActivity extends AppCompatActivity
 
         // Analytics + delta sync + predictive preload
         CacheManager.getInstance(this).getAnalytics().recordChatOpen(groupId);
+        loadGroupAdminSettings();   // slow mode + anonymous posting settings
         ChatRepository.getInstance(this).preloadRecentChats(groupId);
 
         // Fix 10: Group unread counter reset karo jab chat khulo
@@ -1451,9 +1460,60 @@ public class GroupChatActivity extends AppCompatActivity
 
     private static final int MAX_MESSAGE_LENGTH = 4000;
 
+    /**
+     * Load group-level admin settings (slow mode, anonymous posting) once on open.
+     * Called from onCreate after groupId is confirmed.
+     */
+    private void loadGroupAdminSettings() {
+        FirebaseUtils.getGroupsRef().child(groupId).child("groupSettings")
+                .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
+                    @Override
+                    public void onDataChange(com.google.firebase.database.DataSnapshot snap) {
+                        // Slow mode
+                        Long sm = snap.child("slowModeSecs").getValue(Long.class);
+                        slowModeSecs = sm != null ? sm.intValue() : 0;
+
+                        // Anonymous posting
+                        Boolean anon = snap.child("anonymousPostingEnabled").getValue(Boolean.class);
+                        anonymousPostingEnabled = Boolean.TRUE.equals(anon);
+                        updateAnonButtonVisibility();
+                    }
+                    @Override public void onCancelled(com.google.firebase.database.DatabaseError e) {}
+                });
+    }
+
+    private void updateAnonButtonVisibility() {
+        // Try to find the anon toggle button in the toolbar or input area
+        // (optional icon in input bar — only show when group has anon posting enabled)
+        View anonBtn = findViewById(R.id.btn_post_anonymous);
+        if (anonBtn != null) {
+            anonBtn.setVisibility(anonymousPostingEnabled ? android.view.View.VISIBLE : android.view.View.GONE);
+            anonBtn.setAlpha(postAnonymously ? 1.0f : 0.4f);
+            anonBtn.setOnClickListener(v -> {
+                postAnonymously = !postAnonymously;
+                anonBtn.setAlpha(postAnonymously ? 1.0f : 0.4f);
+                Toast.makeText(GroupChatActivity.this,
+                        postAnonymously ? "Posting anonymously 🎭" : "Posting as yourself",
+                        Toast.LENGTH_SHORT).show();
+            });
+        }
+    }
+
     private void sendText() {
         String text = binding.etMessage.getText().toString().trim();
         if (text.isEmpty()) return;
+
+        // ── Slow Mode enforcement ───────────────────────────────────────────
+        if (slowModeSecs > 0 && !isAdmin) {
+            long nowMs  = System.currentTimeMillis();
+            long elapsed = (nowMs - lastSentMs) / 1000L;
+            if (lastSentMs > 0 && elapsed < slowModeSecs) {
+                long wait = slowModeSecs - elapsed;
+                Toast.makeText(this, "Slow mode: please wait " + wait + "s", Toast.LENGTH_SHORT).show();
+                return;
+            }
+        }
+
         if (text.length() > MAX_MESSAGE_LENGTH) {
             binding.etMessage.setError("Message too long! Max " + MAX_MESSAGE_LENGTH + " characters allowed.");
             Toast.makeText(this, "Message too long! Max " + MAX_MESSAGE_LENGTH + " characters.", Toast.LENGTH_SHORT).show();
@@ -1469,7 +1529,14 @@ public class GroupChatActivity extends AppCompatActivity
         m.type = "text";
         m.fontStyle = 0;
         m.text = text;
+        // Anonymous posting: replace name+photo before push
+        if (postAnonymously && anonymousPostingEnabled) {
+            m.senderName  = "Anonymous";
+            m.senderPhoto = null;
+            m.isAnonymous = true;
+        }
         pushMessage(m, text);
+        lastSentMs = System.currentTimeMillis();
         clearReply();
     }
 
@@ -3569,6 +3636,14 @@ public class GroupChatActivity extends AppCompatActivity
                     .setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
         }
         return true;
+    }
+
+    // Topics shortcut — opens GroupTopicsActivity for this group
+    private void openTopics() {
+        Intent i = new Intent(this, GroupTopicsActivity.class);
+        i.putExtra(GroupTopicsActivity.EXTRA_GROUP_ID,   groupId);
+        i.putExtra(GroupTopicsActivity.EXTRA_GROUP_NAME, groupName);
+        startActivity(i);
     }
 
     @Override public boolean onOptionsItemSelected(MenuItem item) {

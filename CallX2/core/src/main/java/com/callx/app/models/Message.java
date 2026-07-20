@@ -283,5 +283,22 @@ public class Message {
         return key.hashCode();
     }
 }
-// INJECTED BY PATCH — do not edit manually
+
+    // ── Group Topics / Threads ───────────────────────────────────────────
+    /** If non-null, this message belongs to the given topic thread. */
+    public String topicId;
+    /** Display name of the topic, cached for quick rendering without a lookup. */
+    public String topicName;
+
+    // ── Anonymous Posting ────────────────────────────────────────────────
+    /**
+     * True when a group member chose "Post anonymously".
+     * When true, GroupChatActivity replaces senderName with "Anonymous"
+     * and clears senderPhoto before pushing to Firebase.
+     * The original senderId is still recorded (for admin audit) but is
+     * never exposed in the UI when isAnonymous = true.
+     */
+    public boolean isAnonymous;
+
+    // INJECTED BY PATCH — do not edit manually
 // The actual insertion is done via sed below

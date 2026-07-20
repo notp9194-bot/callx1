@@ -238,12 +238,36 @@ public class GroupInfoActivity extends AppCompatActivity {
             startActivity(i);
         });
 
+        // Topics button (shown conditionally when topicsEnabled = true in group)
+        View btnTopics = findViewById(R.id.btn_topics);
+        if (btnTopics != null) {
+            btnTopics.setOnClickListener(v -> {
+                Intent i = new Intent(this, GroupTopicsActivity.class);
+                i.putExtra(GroupTopicsActivity.EXTRA_GROUP_ID,   groupId);
+                i.putExtra(GroupTopicsActivity.EXTRA_GROUP_NAME, groupName);
+                startActivity(i);
+            });
+        }
+
         // Add member
         btnAddMember.setOnClickListener(v -> showAddMemberDialog());
 
         // Invite link — copy
         findViewById(R.id.btn_copy_link).setOnClickListener(v -> {
-            String link = com.callx.app.utils.Constants.DEEP_LINK_BASE_URL + "/join/" + groupId;
+            // Topics button visibility based on topicsEnabled flag
+        FirebaseUtils.getGroupsRef().child(groupId).child("topicsEnabled")
+                .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
+                    @Override public void onDataChange(com.google.firebase.database.DataSnapshot snap) {
+                        View btnTopics = findViewById(R.id.btn_topics);
+                        if (btnTopics != null) {
+                            boolean enabled = Boolean.TRUE.equals(snap.getValue(Boolean.class));
+                            btnTopics.setVisibility(enabled ? View.VISIBLE : View.GONE);
+                        }
+                    }
+                    @Override public void onCancelled(com.google.firebase.database.DatabaseError e) {}
+                });
+
+        String link = com.callx.app.utils.Constants.DEEP_LINK_BASE_URL + "/join/" + groupId;
             ClipboardManager cm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
             if (cm != null) cm.setPrimaryClip(ClipData.newPlainText("Invite Link", link));
             Toast.makeText(this, "Link copied!", Toast.LENGTH_SHORT).show();

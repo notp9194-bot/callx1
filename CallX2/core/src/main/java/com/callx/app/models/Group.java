@@ -29,4 +29,18 @@ public class Group {
     // unread/{uid} = count for that user (server-incremented)
     public Map<String, Long>    unread   = new HashMap<>();
     public Group() {}
+
+    // ── Group Topics (Telegram-style threads) ────────────────────────────
+    // topicsEnabled = admin-toggled; hides Topics UI when false
+    public boolean topicsEnabled;
+
+    // ── Anonymous Posting ────────────────────────────────────────────────
+    // anonymousPostingEnabled = true means non-admin members can tick
+    // "Post anonymously" before sending.
+    // Stored at: groups/{groupId}/groupSettings/anonymousPostingEnabled
+
+    // ── Slow Mode ────────────────────────────────────────────────────────
+    // slowModeSecs stored at: groups/{groupId}/groupSettings/slowModeSecs
+    // Enforced client-side in GroupChatActivity.
 }
+
