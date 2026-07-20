@@ -215,10 +215,10 @@ public class CollabInboxActivity extends AppCompatActivity {
                 ivThumb    = v.findViewById(R.id.iv_collab_req_thumb);
                 ivAvatar   = v.findViewById(R.id.iv_collab_req_avatar);
                 tvName     = v.findViewById(R.id.tv_collab_req_name);
-                tvCaption  = v.findViewById(R.id.tv_collab_req_caption);
+                tvCaption  = v.findViewById(R.id.tv_collab_req_message);
                 tvStatus   = v.findViewById(R.id.tv_collab_req_status);
-                btnAccept  = v.findViewById(R.id.btn_collab_req_accept);
-                btnDecline = v.findViewById(R.id.btn_collab_req_decline);
+                btnAccept  = v.findViewById(R.id.btn_collab_accept);
+                btnDecline = v.findViewById(R.id.btn_collab_decline);
             }
         }
     }

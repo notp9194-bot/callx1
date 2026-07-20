@@ -34,6 +34,8 @@ public class SoundDetailActivity extends AppCompatActivity {
     public static final String EXTRA_COVER_URL = "extra_cover_url";
     public static final String EXTRA_DURATION_MS = "extra_duration_ms";
     public static final String EXTRA_GENRE = "extra_genre";
+    public static final String EXTRA_CREATOR_UID = "extra_creator_uid";
+    public static final String EXTRA_ORIGINAL_AUDIO_URL = "extra_original_audio_url";
 
     private String soundId, title, artist, audioUrl, coverUrl;
     private long durationMs;
@@ -173,6 +175,8 @@ public class SoundDetailActivity extends AppCompatActivity {
 
     public static class ReelThumbItem {
         public String reelId, thumbnailUrl, videoUrl;
+        public String uid;
+        public boolean isOriginalCreator;
         public long viewsCount;
         public ReelThumbItem() {}
         public ReelThumbItem(String id, String t, String v) { reelId=id; thumbnailUrl=t; videoUrl=v; }
@@ -180,20 +184,34 @@ public class SoundDetailActivity extends AppCompatActivity {
 
     /** Simple data model for related/recommended sounds. */
     public static class RelatedItem {
-        public String soundId, title, artist, coverUrl;
+        public String soundId, title, artist, coverUrl, audioUrl;
+        /** Alias for soundId used by SoundDetailFragment. */
+        public String id;
         public int reelCount;
         public RelatedItem() {}
+        public RelatedItem(String id, String title, String artist, String coverUrl, String audioUrl) {
+            this.soundId = id; this.id = id; this.title = title;
+            this.artist = artist; this.coverUrl = coverUrl; this.audioUrl = audioUrl;
+        }
     }
 
     /** RecyclerView adapter displaying reel thumbnail images for this sound. */
     public static class ReelThumbAdapter extends androidx.recyclerview.widget.RecyclerView.Adapter<ReelThumbAdapter.VH> {
-        private final java.util.List<ReelThumbItem> items = new java.util.ArrayList<>();
+        public interface OnItemClick { void onClick(int position); }
+        private final java.util.List<ReelThumbItem> items;
+        private final OnItemClick listener;
+        public ReelThumbAdapter() { items = new java.util.ArrayList<>(); listener = null; }
+        public ReelThumbAdapter(java.util.List<ReelThumbItem> items, OnItemClick listener) {
+            this.items = items != null ? items : new java.util.ArrayList<>();
+            this.listener = listener;
+        }
 
         public void setItems(java.util.List<ReelThumbItem> data) {
             items.clear();
             if (data != null) items.addAll(data);
             notifyDataSetChanged();
         }
+        private java.util.List<ReelThumbItem> items_mutable() { return new java.util.ArrayList<>(items); }
 
         @androidx.annotation.NonNull
         @Override
@@ -210,6 +228,7 @@ public class SoundDetailActivity extends AppCompatActivity {
             ReelThumbItem item = items.get(pos);
             if (item.thumbnailUrl != null && !item.thumbnailUrl.isEmpty())
                 com.bumptech.glide.Glide.with(h.iv.getContext()).load(item.thumbnailUrl).into(h.iv);
+            if (listener != null) { int fp = pos; h.iv.setOnClickListener(v -> { int p = h.getAdapterPosition(); if (p >= 0) listener.onClick(p); }); }
         }
 
         @Override public int getItemCount() { return items.size(); }
@@ -219,4 +238,50 @@ public class SoundDetailActivity extends AppCompatActivity {
             VH(android.widget.ImageView v) { super(v); iv = v; }
         }
     }
+
+    /** Adapter for the related sounds list in SoundDetailFragment. */
+    public static class RelatedAdapter extends androidx.recyclerview.widget.RecyclerView.Adapter<RelatedAdapter.VH> {
+        public interface OnItemClick { void onClick(RelatedItem item); }
+        private final java.util.List<RelatedItem> items;
+        private final OnItemClick listener;
+        public RelatedAdapter(java.util.List<RelatedItem> items, OnItemClick listener) {
+            this.items = items != null ? items : new java.util.ArrayList<>();
+            this.listener = listener;
+        }
+        @androidx.annotation.NonNull @Override
+        public VH onCreateViewHolder(@androidx.annotation.NonNull android.view.ViewGroup parent, int vt) {
+            android.widget.LinearLayout ll = new android.widget.LinearLayout(parent.getContext());
+            ll.setOrientation(android.widget.LinearLayout.VERTICAL);
+            float d = parent.getContext().getResources().getDisplayMetrics().density;
+            int dp80 = (int)(80*d); int dp120 = (int)(120*d);
+            ll.setLayoutParams(new androidx.recyclerview.widget.RecyclerView.LayoutParams(dp120, dp80));
+            ll.setPadding(4,2,4,2);
+            android.widget.ImageView iv = new android.widget.ImageView(parent.getContext());
+            iv.setLayoutParams(new android.widget.LinearLayout.LayoutParams(dp80, dp80));
+            iv.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
+            android.widget.TextView tv = new android.widget.TextView(parent.getContext());
+            tv.setTextSize(11); tv.setMaxLines(1);
+            tv.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            ll.addView(iv); ll.addView(tv);
+            return new VH(ll, iv, tv);
+        }
+        @Override
+        public void onBindViewHolder(@androidx.annotation.NonNull VH h, int pos) {
+            RelatedItem item = items.get(pos);
+            h.tvTitle.setText(item.title != null ? item.title : "");
+            if (item.coverUrl != null && !item.coverUrl.isEmpty())
+                com.bumptech.glide.Glide.with(h.ivCover.getContext()).load(item.coverUrl).into(h.ivCover);
+            if (listener != null) h.root.setOnClickListener(v -> listener.onClick(item));
+        }
+        @Override public int getItemCount() { return items.size(); }
+        public static class VH extends androidx.recyclerview.widget.RecyclerView.ViewHolder {
+            final android.widget.LinearLayout root;
+            final android.widget.ImageView ivCover;
+            final android.widget.TextView tvTitle;
+            VH(android.widget.LinearLayout r, android.widget.ImageView iv, android.widget.TextView tv) {
+                super(r); root=r; ivCover=iv; tvTitle=tv;
+            }
+        }
+    }
+
 }

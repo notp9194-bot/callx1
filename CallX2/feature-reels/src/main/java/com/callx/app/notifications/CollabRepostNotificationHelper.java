@@ -231,4 +231,24 @@ public class CollabRepostNotificationHelper {
         int base = (collabId != null ? collabId.hashCode() : 0) ^ (type != null ? type.hashCode() : 0);
         return Math.abs(base) + 90000; // offset to avoid collision with other notification IDs
     }
+
+    // ── Alias wrappers used by CollabPostAcceptActivity ──────────────────────
+
+    public static void notifyCollabAccepted(android.content.Context ctx,
+                                            String initiatorUid,
+                                            String collaboratorUid,
+                                            String collaboratorName,
+                                            String reelId,
+                                            String thumbUrl) {
+        showAcceptedNotification(ctx, reelId, reelId, collaboratorName, thumbUrl);
+    }
+
+    public static void notifyCollabDeclined(android.content.Context ctx,
+                                            String initiatorUid,
+                                            String collaboratorUid,
+                                            String collaboratorName,
+                                            String reelId) {
+        showDeclinedNotification(ctx, reelId, collaboratorName, "");
+    }
+
 }

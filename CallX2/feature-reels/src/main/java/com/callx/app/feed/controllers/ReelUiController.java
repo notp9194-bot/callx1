@@ -63,6 +63,9 @@ public class ReelUiController {
     private TextView tvPinnedAuthor, tvPinnedText, tvPinnedLikes;
     private CircleImageView ivPinnedAvatar;
 
+    // ── Fragment root view ─────────────────────────────────────────────────
+    private View fragmentView;
+
     // ── Disc animation ────────────────────────────────────────────────────
     private ObjectAnimator discAnimator;
 
@@ -76,6 +79,7 @@ public class ReelUiController {
     // ── View binding ──────────────────────────────────────────────────────
 
     public void bindViews(View root) {
+        this.fragmentView = root;
         ivOwnerAvatar      = root.findViewById(R.id.iv_owner_avatar);
         ivOwnerStoryRing   = root.findViewById(R.id.iv_owner_story_ring);
         tvOwnerName        = root.findViewById(R.id.tv_owner_name);
