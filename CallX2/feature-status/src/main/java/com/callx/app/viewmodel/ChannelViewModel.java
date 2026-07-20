@@ -11,10 +11,8 @@ import com.callx.app.db.entity.ChannelPostEntity;
 import com.callx.app.models.Channel;
 import com.callx.app.models.ChannelPost;
 import com.callx.app.repository.ChannelRepository;
+import com.callx.app.utils.CloudinaryUploader;
 import com.callx.app.utils.FirebaseUtils;
-import com.google.firebase.storage.FirebaseStorage;
-import com.google.firebase.storage.StorageReference;
-import com.google.firebase.storage.UploadTask;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -253,34 +251,22 @@ public class ChannelViewModel extends AndroidViewModel {
                                  android.content.Context ctx, long scheduledAtMs) {
         _uploadProgress.postValue(true);
         _uploadPercent.postValue(0);
-        String uid = myUid;
-        String ext = "image".equals(mediaType) ? ".jpg" : ".mp4";
-        StorageReference ref = FirebaseStorage.getInstance().getReference()
-            .child("channelMedia").child(channelId)
-            .child(uid + "_" + System.currentTimeMillis() + ext);
+        String resType = "image".equals(mediaType) ? "image" : "video";
 
-        UploadTask uploadTask = ref.putFile(mediaUri);
-        uploadTask
-            .addOnProgressListener(snap -> {
-                int pct = (int)(100.0 * snap.getBytesTransferred() / snap.getTotalByteCount());
-                _uploadPercent.postValue(pct);
-            })
-            .addOnSuccessListener(snap -> ref.getDownloadUrl()
-                .addOnSuccessListener(uri -> {
+        CloudinaryUploader.upload(ctx, mediaUri, "callx/channelMedia/" + channelId, resType,
+            new CloudinaryUploader.UploadCallback() {
+                @Override public void onSuccess(CloudinaryUploader.Result r) {
                     ChannelPost p = basePost(channelId);
                     p.type     = mediaType;
                     p.text     = caption != null ? caption : "";
-                    p.mediaUrl = uri.toString();
+                    p.mediaUrl = r.secureUrl;
                     if (scheduledAtMs > 0) schedulePost(p, scheduledAtMs);
                     else submitPost(p);
-                })
-                .addOnFailureListener(e -> {
+                }
+                @Override public void onError(String message) {
                     _uploadProgress.postValue(false);
-                    _toastMessage.postValue("Upload failed: " + e.getMessage());
-                }))
-            .addOnFailureListener(e -> {
-                _uploadProgress.postValue(false);
-                _toastMessage.postValue("Upload failed: " + e.getMessage());
+                    _toastMessage.postValue("Upload failed: " + message);
+                }
             });
     }
 
@@ -335,32 +321,22 @@ public class ChannelViewModel extends AndroidViewModel {
                                  android.content.Context ctx, long scheduledAtMs) {
         _uploadProgress.postValue(true);
         _uploadPercent.postValue(0);
-        StorageReference ref = FirebaseStorage.getInstance().getReference()
-            .child("channelAudio").child(channelId)
-            .child(myUid + "_" + System.currentTimeMillis() + ".aac");
 
-        ref.putFile(audioUri)
-            .addOnProgressListener(snap -> {
-                int pct = (int)(100.0 * snap.getBytesTransferred() / snap.getTotalByteCount());
-                _uploadPercent.postValue(pct);
-            })
-            .addOnSuccessListener(snap -> ref.getDownloadUrl()
-                .addOnSuccessListener(uri -> {
+        CloudinaryUploader.upload(ctx, audioUri, "callx/channelAudio/" + channelId, "raw",
+            new CloudinaryUploader.UploadCallback() {
+                @Override public void onSuccess(CloudinaryUploader.Result r) {
                     ChannelPost p = basePost(channelId);
                     p.type          = "audio";
                     p.text          = caption != null ? caption : "";
-                    p.audioUrl      = uri.toString();
+                    p.audioUrl      = r.secureUrl;
                     p.audioDurationMs = durationMs;
                     if (scheduledAtMs > 0) schedulePost(p, scheduledAtMs);
                     else submitPost(p);
-                })
-                .addOnFailureListener(e -> {
+                }
+                @Override public void onError(String message) {
                     _uploadProgress.postValue(false);
-                    _toastMessage.postValue("Audio upload failed.");
-                }))
-            .addOnFailureListener(e -> {
-                _uploadProgress.postValue(false);
-                _toastMessage.postValue("Audio upload failed: " + e.getMessage());
+                    _toastMessage.postValue("Audio upload failed: " + message);
+                }
             });
     }
 
@@ -375,35 +351,24 @@ public class ChannelViewModel extends AndroidViewModel {
                                     android.content.Context ctx, long scheduledAtMs) {
         _uploadProgress.postValue(true);
         _uploadPercent.postValue(0);
-        String ext = mimeType != null && mimeType.contains("pdf") ? ".pdf" : "";
-        StorageReference ref = FirebaseStorage.getInstance().getReference()
-            .child("channelDocs").child(channelId)
-            .child(myUid + "_" + System.currentTimeMillis() + ext);
 
-        ref.putFile(documentUri)
-            .addOnProgressListener(snap -> {
-                int pct = (int)(100.0 * snap.getBytesTransferred() / snap.getTotalByteCount());
-                _uploadPercent.postValue(pct);
-            })
-            .addOnSuccessListener(snap -> ref.getDownloadUrl()
-                .addOnSuccessListener(uri -> {
+        CloudinaryUploader.upload(ctx, documentUri, "callx/channelDocs/" + channelId, "raw",
+            new CloudinaryUploader.UploadCallback() {
+                @Override public void onSuccess(CloudinaryUploader.Result r) {
                     ChannelPost p = basePost(channelId);
                     p.type              = "document";
                     p.text              = caption != null ? caption : "";
-                    p.documentUrl       = uri.toString();
+                    p.documentUrl       = r.secureUrl;
                     p.documentName      = documentName;
                     p.documentSizeBytes = documentSizeBytes;
                     p.documentMimeType  = mimeType;
                     if (scheduledAtMs > 0) schedulePost(p, scheduledAtMs);
                     else submitPost(p);
-                })
-                .addOnFailureListener(e -> {
+                }
+                @Override public void onError(String message) {
                     _uploadProgress.postValue(false);
-                    _toastMessage.postValue("Document upload failed.");
-                }))
-            .addOnFailureListener(e -> {
-                _uploadProgress.postValue(false);
-                _toastMessage.postValue("Document upload failed: " + e.getMessage());
+                    _toastMessage.postValue("Document upload failed: " + message);
+                }
             });
     }
 

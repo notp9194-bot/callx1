@@ -23,8 +23,7 @@ import com.google.android.material.chip.Chip;
 import com.google.android.material.chip.ChipGroup;
 import com.google.android.material.switchmaterial.SwitchMaterial;
 import com.google.android.material.textfield.TextInputEditText;
-import com.google.firebase.storage.FirebaseStorage;
-import com.google.firebase.storage.StorageReference;
+import com.callx.app.utils.CloudinaryUploader;
 import de.hdodenhof.circleimageview.CircleImageView;
 import java.io.File;
 import java.io.FileOutputStream;
@@ -245,17 +244,16 @@ public class ChannelEditActivity extends AppCompatActivity {
     private void uploadIconAndSave(String name, String desc, boolean isPrivate) {
         if (progressBar != null) progressBar.setVisibility(View.VISIBLE);
         if (btnSave    != null) btnSave.setEnabled(false);
-        StorageReference ref = FirebaseStorage.getInstance().getReference()
-            .child("channelIcons").child(channelId + "_" + System.currentTimeMillis() + ".jpg");
-        ref.putFile(newIconUri)
-            .addOnSuccessListener(t -> ref.getDownloadUrl()
-                .addOnSuccessListener(uri -> {
-                    currentIconUrl = uri.toString();
+        CloudinaryUploader.upload(this, newIconUri, "callx/channelIcons", "image",
+            new CloudinaryUploader.UploadCallback() {
+                @Override public void onSuccess(CloudinaryUploader.Result r) {
+                    currentIconUrl = r.secureUrl;
                     viewModel.editChannel(channelId, name, desc, currentIconUrl, selectedCategory, isPrivate);
-                })
-                .addOnFailureListener(e -> viewModel.editChannel(channelId, name, desc,
-                    currentIconUrl != null ? currentIconUrl : "", selectedCategory, isPrivate)))
-            .addOnFailureListener(e -> viewModel.editChannel(channelId, name, desc,
-                currentIconUrl != null ? currentIconUrl : "", selectedCategory, isPrivate));
+                }
+                @Override public void onError(String message) {
+                    viewModel.editChannel(channelId, name, desc,
+                        currentIconUrl != null ? currentIconUrl : "", selectedCategory, isPrivate);
+                }
+            });
     }
 }

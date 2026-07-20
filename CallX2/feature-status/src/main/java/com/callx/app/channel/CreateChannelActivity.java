@@ -25,9 +25,7 @@ import com.google.android.material.chip.Chip;
 import com.google.android.material.chip.ChipGroup;
 import com.google.android.material.switchmaterial.SwitchMaterial;
 import com.google.android.material.textfield.TextInputEditText;
-import com.google.firebase.storage.FirebaseStorage;
-import com.google.firebase.storage.StorageReference;
-import com.callx.app.utils.FirebaseUtils;
+import com.callx.app.utils.CloudinaryUploader;
 import de.hdodenhof.circleimageview.CircleImageView;
 
 /**
@@ -222,14 +220,15 @@ public class CreateChannelActivity extends AppCompatActivity {
     private void uploadIconAndCreate(String name, String desc, boolean isPrivate) {
         progressBar.setVisibility(View.VISIBLE);
         btnCreate.setEnabled(false);
-        String uid = FirebaseUtils.getCurrentUid();
-        StorageReference iconRef = FirebaseStorage.getInstance().getReference()
-            .child("channelIcons").child(uid + "_" + System.currentTimeMillis() + ".jpg");
-        iconRef.putFile(selectedImageUri)
-            .addOnSuccessListener(t -> iconRef.getDownloadUrl()
-                .addOnSuccessListener(uri -> createViaViewModel(name, desc, uri.toString(), isPrivate))
-                .addOnFailureListener(e -> createViaViewModel(name, desc, "", isPrivate)))
-            .addOnFailureListener(e -> createViaViewModel(name, desc, "", isPrivate));
+        CloudinaryUploader.upload(this, selectedImageUri, "callx/channelIcons", "image",
+            new CloudinaryUploader.UploadCallback() {
+                @Override public void onSuccess(CloudinaryUploader.Result r) {
+                    createViaViewModel(name, desc, r.secureUrl, isPrivate);
+                }
+                @Override public void onError(String message) {
+                    createViaViewModel(name, desc, "", isPrivate);
+                }
+            });
     }
 
     private void createViaViewModel(String name, String desc, String iconUrl, boolean isPrivate) {
