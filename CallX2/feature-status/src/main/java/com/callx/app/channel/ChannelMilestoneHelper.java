@@ -36,7 +36,7 @@ public class ChannelMilestoneHelper {
                 + "Thank you to everyone who joined. Keep growing!";
 
         activity.runOnUiThread(() -> {
-            AlertDialog dialog = new AlertDialog.Builder(activity, R.style.AlertDialogTheme)
+            AlertDialog dialog = new AlertDialog.Builder(activity)
                 .setTitle(title)
                 .setMessage(body)
                 .setPositiveButton("🎉 Awesome!", null)

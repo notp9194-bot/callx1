@@ -1101,6 +1101,7 @@ public class GroupChatActivity extends AppCompatActivity
                     @Override public void runOnMain(Runnable r) { runOnUiThread(r); }
                     @Override public com.callx.app.conversation.MessagePagingAdapter getPagingAdapter() { return pagingAdapter; }
                     @Override public void navigateToMessage(String messageId) { scrollToMessageId(messageId); }
+                    @Override public void reanchorPagingToBottom() { /* group: no-op */ }
                 });
 
         // ── Group Scheduled Send Controller ────────────────────────────────
@@ -1475,7 +1476,7 @@ public class GroupChatActivity extends AppCompatActivity
                 readByIntent.putExtra(GroupReadByActivity.EXTRA_MSG_TEXT,
                         m.text != null ? m.text : "[" + (m.type != null ? m.type : "message") + "]");
                 readByIntent.putExtra(GroupReadByActivity.EXTRA_TOTAL_OTHERS,
-                        memberNames != null ? Math.max(0, memberNames.size() - 1) : 0);
+                        (int)(memberNames != null ? Math.max(0, memberNames.size() - 1) : 0));
                 startActivity(readByIntent);
             });
         }

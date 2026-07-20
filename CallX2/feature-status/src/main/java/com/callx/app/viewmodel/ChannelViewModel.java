@@ -618,7 +618,7 @@ public class ChannelViewModel extends AndroidViewModel {
     // ── Followers ─────────────────────────────────────────────────────────
 
     public void loadFollowers(String channelId) {
-        repo.loadFollowers(channelId, list -> _followers.postValue(list));
+        repo.loadChannelFollowers(channelId, 500, list -> _followers.postValue(list));
     }
 
     public void blockFollower(String channelId, String followerUid) {

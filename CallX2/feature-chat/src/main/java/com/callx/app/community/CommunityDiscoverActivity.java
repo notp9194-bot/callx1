@@ -255,7 +255,7 @@ public class CommunityDiscoverActivity extends AppCompatActivity {
                 ? FirebaseAuth.getInstance().getCurrentUser().getPhotoUrl().toString() : null;
 
         if (c.isPrivate) {
-            repo.sendJoinRequest(c.id, uid, uname, uphoto, (success, error) ->
+            repo.sendJoinRequest(c.id, uid, uname, uphoto, null, (success, error) ->
                     runOnUiThread(() -> Toast.makeText(this,
                             success ? "Request sent!" : "Error: " + error, Toast.LENGTH_SHORT).show()));
         } else {

@@ -40,6 +40,9 @@ import com.callx.app.utils.LinkPreviewFetcher;
  */
 public class MessagePagingAdapter
         extends PagingDataAdapter<Message, MessagePagingAdapter.VH> {
+    private java.util.function.Consumer<com.callx.app.models.Message> seenByClickListener;
+    private java.util.Map<String, String> memberPhotos;
+
 
     // CONFIRMED (user asked to verify): PagingDataAdapter(DiffUtil.ItemCallback)
     // below is called with no explicit dispatcher args, which means it uses
@@ -6076,4 +6079,13 @@ public class MessagePagingAdapter
     }
 
 
+
+    public void setOnSeenByClickListener(java.util.function.Consumer<com.callx.app.models.Message> l) {
+        this.seenByClickListener = l;
+    }
+
+    public void setMemberPhotos(java.util.Map<String, String> photos) {
+        this.memberPhotos = photos;
+        notifyDataSetChanged();
+    }
 }

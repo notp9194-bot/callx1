@@ -233,7 +233,7 @@ public class CreateChannelActivity extends AppCompatActivity {
 
     private void createViaViewModel(String name, String desc, String iconUrl, boolean isPrivate) {
         viewModel.createChannel(name, desc, iconUrl, selectedCategory, isPrivate,
-            new ChannelViewModel.CreateCallback() {
+            new ChannelViewModel.CreateChannelCallback() {
                 @Override public void onCreated(com.callx.app.db.entity.ChannelEntity ch) {
                     Toast.makeText(CreateChannelActivity.this,
                         "Channel \"" + name + "\" created!", Toast.LENGTH_LONG).show();

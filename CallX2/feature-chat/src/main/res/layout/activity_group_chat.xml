@@ -68,4 +68,8 @@
 
     </LinearLayout>
 
+
+    <com.google.android.material.button.MaterialButton android:id="@+id/btn_post_anonymous"
+        android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:text="Post Anonymously" android:visibility="gone"/>
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

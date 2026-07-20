@@ -353,7 +353,7 @@ public class CommunityPostCommentsActivity extends AppCompatActivity {
             tv.setPadding(8,4,8,4);
             tv.setLayoutParams(new LinearLayout.LayoutParams(btnSizePx, btnSizePx));
             tv.setGravity(android.view.Gravity.CENTER);
-            tv.setBackground(android.graphics.drawable.getSelectableItemBackgroundBorderless(this));
+            tv.setBackground(androidx.core.content.ContextCompat.getDrawable(this, android.R.drawable.list_selector_background));
             tv.setOnClickListener(v -> {
                 pw.dismiss();
                 sendCommentReaction(commentId, rtype);

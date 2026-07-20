@@ -11,6 +11,7 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 
 import com.callx.app.chat.databinding.ActivityGroupChatBinding;
+import com.callx.app.chat.databinding.ActivityChatBinding;
 import com.callx.app.conversation.workers.ChatScheduledMessageWorker;
 import com.callx.app.db.AppDatabase;
 import com.callx.app.db.entity.ScheduledMessageEntity;
@@ -57,7 +58,7 @@ public class GroupScheduledSendController {
         String                   getCurrentName();
         AppDatabase              getDb();
         Executor                 getIoExecutor();
-        ActivityGroupChatBinding getBinding();
+        ActivityChatBinding getBinding();
         void                     showToast(String msg);
         /** Called (on the main thread) immediately after a message is scheduled. */
         void                     onMessageScheduled();
@@ -156,7 +157,7 @@ public class GroupScheduledSendController {
     }
 
     private void updateBanner() {
-        ActivityGroupChatBinding binding = delegate.getBinding();
+        ActivityChatBinding binding = delegate.getBinding();
         if (binding == null) return;
 
         // The group layout may not have a scheduled-messages banner — skip gracefully.
@@ -292,7 +293,7 @@ public class GroupScheduledSendController {
         }
         delegate.getIoExecutor().execute(() ->
                 delegate.getDb().scheduledMessageDao().deleteById(sm.id));
-        ChatScheduledMessageWorker.cancel(delegate.getActivity(), sm.id);
+        ChatScheduledMessageWorker.cancel(delegate.getActivity(), delegate.getGroupId(), sm.id);
         pending.remove(sm);
         delegate.showToast("Scheduled message cancelled");
     }

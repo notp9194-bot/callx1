@@ -90,6 +90,12 @@ public class MediaEditActivity extends AppCompatActivity {
     public static final String EXTRA_CAPTION  = "media_edit_caption";
     public static final String EXTRA_HD       = "media_edit_hd";
 
+    /** Aliases used by CommunityPostComposerActivity */
+    public static final String RESULT_URI              = RESULT_URIS;
+    public static final String RESULT_MEDIA_TYPE       = "media_edit_result_type";
+    public static final String EXTRA_MEDIA_URI         = EXTRA_URIS;
+    public static final String EXTRA_MEDIA_TYPE        = "media_edit_type";
+    public static final String EXTRA_MEDIA_TYPE_COMPAT = "media_edit_type";
     public static final String RESULT_URIS    = "media_edit_result_uris";
     public static final String RESULT_CAPTION = "media_edit_result_caption";
     public static final String RESULT_HD      = "media_edit_result_hd";

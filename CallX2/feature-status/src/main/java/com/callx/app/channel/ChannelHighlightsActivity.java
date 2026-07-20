@@ -296,4 +296,25 @@ public class ChannelHighlightsActivity extends AppCompatActivity {
             default:          return "💬 Text";
         }
     }
+
+    /** Static helper used by ChannelViewerActivity.onSavePost. */
+    public static void toggleBookmark(android.content.Context ctx, String channelId, String postId) {
+        if (ctx == null || postId == null) return;
+        String myUid = com.google.firebase.auth.FirebaseAuth.getInstance()
+                .getCurrentUser() != null
+                ? com.google.firebase.auth.FirebaseAuth.getInstance().getCurrentUser().getUid() : null;
+        if (myUid == null) return;
+        com.google.firebase.database.DatabaseReference ref =
+                com.callx.app.utils.FirebaseUtils.db()
+                        .getReference(channelBookmarks).child(myUid).child(postId);
+        ref.addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
+            @Override public void onDataChange(@androidx.annotation.NonNull com.google.firebase.database.DataSnapshot snap) {
+                if (snap.exists()) { ref.removeValue(); } else {
+                    ref.setValue(java.util.Collections.singletonMap(channelId, channelId));
+                }
+            }
+            @Override public void onCancelled(@androidx.annotation.NonNull com.google.firebase.database.DatabaseError e) {}
+        });
+    }
+
 }

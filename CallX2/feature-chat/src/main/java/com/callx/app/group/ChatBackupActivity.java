@@ -214,7 +214,7 @@ public class ChatBackupActivity extends AppCompatActivity {
                 if (!dateStr.equals(lastDate)) { w.write("<div class='ds'>" + esc(dateStr) + "</div>"); lastDate = dateStr; }
                 boolean mine = currentUid.equals(m.senderId);
                 String sender = mine ? currentName : (m.senderName != null ? m.senderName : "Member");
-                if (Boolean.TRUE.equals(m.isAnonymous)) sender = "Anonymous";
+                if (Boolean.TRUE.equals(Boolean.TRUE.equals(m.isAnonymous))) sender = "Anonymous";
                 String time = m.timestamp != null ? new SimpleDateFormat("h:mm a", Locale.getDefault()).format(new Date(m.timestamp)) : "";
                 String body = bodyFor(m, media);
                 w.write("<div class='msg " + (mine ? "s" : "r") + "'><div class='b'>");
@@ -230,7 +230,7 @@ public class ChatBackupActivity extends AppCompatActivity {
         String time   = m.timestamp != null ? LINE_FMT.format(new Date(m.timestamp)) : "?";
         boolean mine  = currentUid.equals(m.senderId);
         String sender = mine ? currentName : (m.senderName != null ? m.senderName : "Member");
-        if (Boolean.TRUE.equals(m.isAnonymous)) sender = "Anonymous";
+        if (Boolean.TRUE.equals(Boolean.TRUE.equals(m.isAnonymous))) sender = "Anonymous";
         return "[" + time + "] " + sender + ": " + bodyFor(m, media);
     }
 

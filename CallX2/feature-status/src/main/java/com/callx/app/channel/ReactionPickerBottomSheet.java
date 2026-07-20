@@ -252,7 +252,7 @@ public class ReactionPickerBottomSheet extends BottomSheetDialogFragment {
             grid[0] = recentEmojis.toArray(new String[0]);
             return grid;
         }
-        String[][][] cat = ALL_CATEGORIES[categoryIdx];
+        String[][] cat = ALL_CATEGORIES[categoryIdx];
         return cat != null ? cat : EMOJI_SMILEYS;
     }
 }

@@ -59,6 +59,7 @@ public class MessageEntity {
      *  conversion. Null for never-edited messages. */
     public String editHistoryJson;
     public Boolean deleted;
+    public Boolean isAnonymous;
     public String forwardedFrom;
     public Boolean starred;
     public Boolean pinned;

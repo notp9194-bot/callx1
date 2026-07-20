@@ -272,7 +272,7 @@ public class ChannelPostComposerActivity extends AppCompatActivity {
     // ── Post type chips ───────────────────────────────────────────────────
 
     private void setupTypeChips() {
-        ChipGroup cgType = findViewById(R.id.chip_group_post_type);
+        ChipGroup cgType = findViewById(R.id.chip_group_post_types);
         if (cgType == null) return;
         for (int i = 0; i < cgType.getChildCount(); i++) {
             if (cgType.getChildAt(i) instanceof Chip) {

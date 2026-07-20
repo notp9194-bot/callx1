@@ -217,7 +217,7 @@ public class CommunityMemberCanvasView extends View {
         float optW = showOptions ? optionsBtnSize : 0f;
         nameMaxW = Math.max(1f, w - textLeft - padH - optW - (showOptions ? padH * 0.5f : 0));
 
-                float nameH = nfm.descent - memNameFm.ascent;
+                float nameH = memNameFm.descent - memNameFm.ascent;
 
         boolean hasBadgeRow = showRole || showMemberBadge || isMuted;
         float badgeRowH = hasBadgeRow ? badgeH : 0f;
@@ -226,7 +226,7 @@ public class CommunityMemberCanvasView extends View {
         float blockH = nameH + (hasBadgeRow ? nameGapBadge + badgeRowH : 0f);
         float blockTop = (Math.max(avatarSize, blockH) - blockH) / 2f + padV;
 
-        nameBaselineY = blockTop - nfm.ascent;
+        nameBaselineY = blockTop - memNameFm.ascent;
         nameX = textLeft;
         badgesRowY = blockTop + nameH + nameGapBadge;
 
@@ -239,7 +239,7 @@ public class CommunityMemberCanvasView extends View {
 
         // Re-center text block
         blockTop = (totalH - blockH) / 2f;
-        nameBaselineY = blockTop - nfm.ascent;
+        nameBaselineY = blockTop - memNameFm.ascent;
         badgesRowY = blockTop + nameH + nameGapBadge;
 
         // Layout badge rects

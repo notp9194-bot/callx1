@@ -28,6 +28,12 @@ import java.util.*;
  *   ✓ Live real-time updates via Firebase ValueEventListener
  */
 public class ChannelPollResultsActivity extends AppCompatActivity {
+    public static final String EXTRA_POLL_QUESTION = "pollQuestion";
+    public static final String EXTRA_POLL_OPTIONS = "pollOptions";
+    public static final String EXTRA_POLL_MULTI = "pollMulti";
+    public static final String EXTRA_POLL_EXPIRES = "pollExpires";
+    public static final String EXTRA_IS_ADMIN = "isAdmin";
+
 
     public static final String EXTRA_CHANNEL_ID   = "channelId";
     public static final String EXTRA_POST_ID      = "postId";

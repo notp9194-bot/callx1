@@ -101,6 +101,8 @@ public class CloudinaryUploader {
     }
     public static class Result {
         public String secureUrl;
+        public int    width;
+        public int    height;
         public String publicId;
         public String resourceType;
         public String format;
@@ -353,5 +355,11 @@ public class CloudinaryUploader {
         new Handler(Looper.getMainLooper()).post(() -> cb.onFullReady(photoUrl));
     }
 
-    private CloudinaryUploader() {}
+    CloudinaryUploader() {}
+
+    /** Instance shim used by legacy callers that do new CloudinaryUploader().uploadFile(…). */
+    public void uploadFile(android.content.Context ctx, android.net.Uri uri, String folder,
+                           UploadCallback cb) {
+        upload(ctx, uri, folder, "image", cb);
+    }
 }

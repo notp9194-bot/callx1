@@ -54,4 +54,19 @@
         android:layout_weight="1"
         android:clipToPadding="false"
         android:paddingBottom="8dp" />
+
+    <!-- bulk actions (hidden until multi-select) -->
+    <LinearLayout android:id="@+id/layout_bulk_actions"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="horizontal" android:visibility="gone">
+        <TextView android:id="@+id/tv_selected_count"
+            android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"/>
+        <com.google.android.material.button.MaterialButton android:id="@+id/btn_bulk_remove"
+            android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Remove"/>
+        <com.google.android.material.button.MaterialButton android:id="@+id/btn_cancel_selection"
+            android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Cancel"/>
+    </LinearLayout>
+    <com.google.android.material.chip.ChipGroup android:id="@+id/chip_group_follower_filter"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:visibility="gone"/>
 </LinearLayout>

@@ -326,4 +326,13 @@ public class CommunityFeedFragment extends Fragment implements CommunityPostAdap
         i.putExtra(CommunityFullscreenMediaActivity.EXTRA_AUTHOR_NAME, post.authorName);
         startActivity(i);
     }
+
+    /** Hook for subclasses to supply a different LiveData source. */
+    protected androidx.lifecycle.LiveData<java.util.List<com.callx.app.db.entity.CommunityPostEntity>> observeFeedSource() {
+        return repo.observeFeedWindowed(communityId, isAnnouncement, WINDOW_SIZE);
+    }
+
+    /** Returns true when this fragment is the announcements tab. */
+    protected boolean isAnnouncementsTab() { return false; }
+
 }

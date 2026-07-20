@@ -122,6 +122,7 @@ public class CommunityJoinRequestAdapter
     }
 
     @Override
+    public java.util.List<com.callx.app.db.entity.CommunityJoinRequestEntity> getCurrentList() { return differ.getCurrentList(); }
     public int getItemCount() { return differ.getCurrentList().size(); }
 
     static class VH extends RecyclerView.ViewHolder {

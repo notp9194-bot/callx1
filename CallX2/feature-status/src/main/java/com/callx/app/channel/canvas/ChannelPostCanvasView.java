@@ -235,7 +235,7 @@ public class ChannelPostCanvasView extends View {
 
     // Bitmaps (set by adapter after Glide decode)
     @Nullable Bitmap authorAvatarBitmap;
-    @Nullable Bitmap mediaBitmap;
+    @Nullable public Bitmap mediaBitmap;
     @Nullable Bitmap linkThumbBitmap;
     @Nullable Bitmap eventBannerBitmap;
 

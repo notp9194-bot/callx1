@@ -146,4 +146,18 @@
 
     </LinearLayout>
 
+
+    <HorizontalScrollView android:id="@+id/scroll_media_strip"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:visibility="gone">
+        <LinearLayout android:id="@+id/layout_media_strip"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:orientation="horizontal"/>
+    </HorizontalScrollView>
+    <com.google.android.material.button.MaterialButton android:id="@+id/btn_add_more_media"
+        android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:text="Add Media" android:visibility="gone"/>
+    <TextView android:id="@+id/tv_scheduled_label"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:visibility="gone"/>
 </LinearLayout>

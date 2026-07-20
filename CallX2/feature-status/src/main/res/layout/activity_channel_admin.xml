@@ -89,4 +89,11 @@
         android:src="@drawable/ic_add"
         app:tint="@android:color/white"
         android:contentDescription="Add admin" />
+
+    <com.google.android.material.button.MaterialButton android:id="@+id/btn_auto_reply_settings"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:text="Auto Reply Settings" android:visibility="gone"/>
+    <com.google.android.material.button.MaterialButton android:id="@+id/btn_manage_topics"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:text="Manage Topics" android:visibility="gone"/>
 </LinearLayout>

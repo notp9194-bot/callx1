@@ -117,4 +117,27 @@
             app:tint="#FFFFFF"/>
     </FrameLayout>
 
+
+    <!-- stubs for filter row -->
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btn_toggle_filters"
+        android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:text="Filters" android:visibility="gone"/>
+    <LinearLayout android:id="@+id/layout_advanced_filters"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="vertical" android:visibility="gone">
+        <com.google.android.material.chip.ChipGroup
+            android:layout_width="match_parent" android:layout_height="wrap_content">
+            <com.google.android.material.chip.Chip android:id="@+id/chip_verified_only"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="Verified"/>
+            <com.google.android.material.chip.Chip android:id="@+id/chip_local"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="Local"/>
+        </com.google.android.material.chip.ChipGroup>
+        <SeekBar android:id="@+id/range_follower_count"
+            android:layout_width="match_parent" android:layout_height="wrap_content"/>
+        <TextView android:id="@+id/tv_follower_range_label"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+    </LinearLayout>
 </LinearLayout>

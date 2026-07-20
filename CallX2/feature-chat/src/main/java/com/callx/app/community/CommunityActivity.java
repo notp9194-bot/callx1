@@ -265,8 +265,7 @@ public class CommunityActivity extends AppCompatActivity {
         if (btnGateJoin  != null) btnGateJoin.setEnabled(false);
 
         if (gateIsPrivate) {
-            repo.sendJoinRequest(communityId, currentUid, pendingUname, pendingUphoto,
-                    (s, e) -> runOnUiThread(() -> {
+            repo.sendJoinRequest(communityId, currentUid, pendingUname, pendingUphoto, null, (s, e) -> runOnUiThread(() -> {
                         if (progressGate != null) progressGate.setVisibility(View.GONE);
                         if (tvGateStatus != null) {
                             tvGateStatus.setVisibility(View.VISIBLE);

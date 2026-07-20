@@ -207,4 +207,14 @@
         android:enabled="false"
         android:layout_margin="16dp"/>
 
+
+    <com.google.android.material.button.MaterialButton android:id="@+id/btn_broadcast_schedule"
+        android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:text="Schedule" android:visibility="gone"/>
+    <LinearLayout android:id="@+id/layout_broadcast_schedule_info"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="horizontal" android:visibility="gone">
+        <TextView android:id="@+id/tv_broadcast_schedule_label"
+            android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"/>
+    </LinearLayout>
 </LinearLayout>

@@ -146,8 +146,8 @@ public class CommunityPostComposerActivity extends AppCompatActivity {
         mediaEditLauncher = registerForActivityResult(
                 new ActivityResultContracts.StartActivityForResult(), result -> {
                     if (result.getResultCode() == RESULT_OK && result.getData() != null) {
-                        Uri edited = result.getData().getParcelableExtra(MediaEditActivity.RESULT_URI);
-                        String type = result.getData().getStringExtra(MediaEditActivity.RESULT_MEDIA_TYPE);
+                        Uri edited = result.getData().getParcelableExtra(MediaEditActivity.RESULT_URIS);
+                        String type = result.getData().getStringExtra(MediaEditActivity.EXTRA_MEDIA_TYPE_COMPAT);
                         if (edited != null) addMediaToStrip(edited, type != null ? type : "image");
                     }
                 });
@@ -176,8 +176,8 @@ public class CommunityPostComposerActivity extends AppCompatActivity {
         }
         // Launch image editor for images
         Intent editIntent = new Intent(this, MediaEditActivity.class);
-        editIntent.putExtra(MediaEditActivity.EXTRA_MEDIA_URI, uri.toString());
-        editIntent.putExtra(MediaEditActivity.EXTRA_MEDIA_TYPE, type);
+        editIntent.putExtra(MediaEditActivity.EXTRA_URIS, uri.toString());
+        editIntent.putExtra(MediaEditActivity.EXTRA_MEDIA_TYPE_COMPAT, type);
         mediaEditLauncher.launch(editIntent);
     }
 

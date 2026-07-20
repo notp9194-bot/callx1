@@ -474,4 +474,6 @@
         app:layout_constraintTop_toTopOf="@id/ll_bubble"
         app:layout_constraintBottom_toBottomOf="@id/ll_bubble"/>
 
+    <View android:id="@+id/tv_message_text" android:layout_width="0dp" android:layout_height="0dp" android:visibility="gone"/>
+    <View android:id="@+id/tv_message_time" android:layout_width="0dp" android:layout_height="0dp" android:visibility="gone"/>
 </androidx.constraintlayout.widget.ConstraintLayout>

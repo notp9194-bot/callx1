@@ -725,4 +725,8 @@
         </LinearLayout>
     </androidx.core.widget.NestedScrollView>
 
+
+    <com.google.android.material.button.MaterialButton android:id="@+id/btn_topics"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:text="Topics" android:visibility="gone"/>
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

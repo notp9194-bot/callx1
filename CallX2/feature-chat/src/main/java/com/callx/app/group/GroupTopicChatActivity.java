@@ -258,7 +258,7 @@ public class GroupTopicChatActivity extends AppCompatActivity {
 
         @Override public int getItemViewType(int pos) {
             String sid = messages.get(pos).senderId;
-            return myUid.equals(sid) && !messages.get(pos).isAnonymous ? VIEW_SENT : VIEW_RECV;
+            return myUid.equals(sid) && !(Boolean.TRUE.equals(messages.get(pos).isAnonymous)) ? VIEW_SENT : VIEW_RECV;
         }
 
         @NonNull @Override

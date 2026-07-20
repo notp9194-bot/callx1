@@ -70,4 +70,8 @@
     <com.google.android.material.button.MaterialButton android:id="@+id/btn_forward_send"
         android:layout_width="wrap_content" android:layout_height="wrap_content" android:visibility="gone"/>
 
+
+    <TextView android:id="@+id/tv_forward_subtitle"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:visibility="gone"/>
 </LinearLayout>

@@ -294,11 +294,11 @@ package com.callx.app.viewer;
           try {
               android.content.Intent i;
               if ("reel".equals(fromType)) {
-                  i = new android.content.Intent(this, com.callx.app.feed.SingleReelPlayerActivity.class);
+                  try { i = new android.content.Intent(this, Class.forName("com.callx.app.feed.SingleReelPlayerActivity")); } catch (ClassNotFoundException _e) { return; }
                   i.putExtra("reel_id", fromId);
                   i.putExtra("owner_uid", fromUid);
               } else {
-                  i = new android.content.Intent(this, com.callx.app.activities.UserProfileActivity.class);
+                  try { i = new android.content.Intent(this, Class.forName("com.callx.app.activities.UserProfileActivity")); } catch (ClassNotFoundException _e) { return; }
                   i.putExtra("uid", fromUid);
               }
               startActivity(i);

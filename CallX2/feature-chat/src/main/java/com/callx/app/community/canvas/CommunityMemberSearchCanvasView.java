@@ -131,13 +131,13 @@ public class CommunityMemberSearchCanvasView extends View {
         nameX = padH + avatarSize + avatarTextGap;
         textMaxW = Math.max(1f, w - nameX - padH);
 
-                        float nameH = nfm.descent - nameFm.ascent;
-        float roleH = rfm.descent - roleFm.ascent;
+                        float nameH = nameFm.descent - nameFm.ascent;
+        float roleH = roleFm.descent - roleFm.ascent;
         float blockH = nameH + nameRoleGap + roleH;
         float blockTop = (totalH - blockH) / 2f;
 
-        nameBaselineY = blockTop - nfm.ascent;
-        roleBaselineY = blockTop + nameH + nameRoleGap - rfm.ascent;
+        nameBaselineY = blockTop - nameFm.ascent;
+        roleBaselineY = blockTop + nameH + nameRoleGap - roleFm.ascent;
 
         setMeasuredDimension(w, (int) totalH);
     }

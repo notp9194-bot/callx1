@@ -42,6 +42,7 @@ public class ForwardPostActivity extends AppCompatActivity {
     public static final String EXTRA_POST_ID       = "postId";
     public static final String EXTRA_POST_TYPE     = "postType";
     public static final String EXTRA_POST_TEXT     = "postText";
+    public static final String EXTRA_CHANNEL_NAME  = "channelName";
     public static final String EXTRA_POST_MEDIA_URL= "postMediaUrl";
 
     private ChannelViewModel viewModel;

@@ -166,7 +166,7 @@ public class GroupChatExportController {
     private String resolveSender(MessageEntity m) {
         if (m.senderId != null && m.senderId.equals(host.getCurrentUid()))
             return host.getCurrentName() != null ? host.getCurrentName() : "You";
-        if (Boolean.TRUE.equals(m.isAnonymous)) return "Anonymous";
+        if (Boolean.TRUE.equals(Boolean.TRUE.equals(m.isAnonymous))) return "Anonymous";
         return m.senderName != null ? m.senderName : "Member";
     }
 
@@ -186,7 +186,7 @@ public class GroupChatExportController {
             case "location":return "[location] " + (m.locationAddress != null ? m.locationAddress : "");
             default:
                 String t = m.text != null ? m.text : "";
-                return Boolean.TRUE.equals(m.isAnonymous) ? "🎭 " + t : t;
+                return Boolean.TRUE.equals(Boolean.TRUE.equals(m.isAnonymous)) ? "🎭 " + t : t;
         }
     }
 

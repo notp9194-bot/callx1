@@ -46,4 +46,16 @@
         android:padding="8dp"
         android:contentDescription="More options"
         android:visibility="gone" />
+
+    <!-- alias id used in ChannelFollowersActivity -->
+    <ImageView android:id="@+id/iv_follower_icon"
+        android:layout_width="0dp" android:layout_height="0dp" android:visibility="gone"/>
+    <TextView android:id="@+id/tv_follower_role"
+        android:layout_width="wrap_content" android:layout_height="wrap_content" android:visibility="gone"/>
+    <TextView android:id="@+id/tv_follower_blocked"
+        android:layout_width="wrap_content" android:layout_height="wrap_content" android:visibility="gone"/>
+    <ImageView android:id="@+id/iv_follower_check"
+        android:layout_width="wrap_content" android:layout_height="wrap_content" android:visibility="gone"/>
+    <com.google.android.material.button.MaterialButton android:id="@+id/btn_follower_action"
+        android:layout_width="wrap_content" android:layout_height="wrap_content" android:visibility="gone"/>
 </LinearLayout>

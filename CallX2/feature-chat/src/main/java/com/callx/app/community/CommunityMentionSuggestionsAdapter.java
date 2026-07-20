@@ -46,6 +46,7 @@ public class CommunityMentionSuggestionsAdapter
         this.clickListener = clickListener;
     }
 
+    public void setMembers(List<CommunityMemberEntity> list) { submitList(list); }
     public void submitList(List<CommunityMemberEntity> list) {
         differ.submitList(list == null ? Collections.emptyList() : list);
     }

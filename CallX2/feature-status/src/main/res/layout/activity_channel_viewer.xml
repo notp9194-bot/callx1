@@ -238,4 +238,8 @@
             android:contentDescription="New post"/>
     </FrameLayout>
 
+
+    <com.google.android.material.chip.ChipGroup android:id="@+id/chip_group_topic_filter"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:visibility="gone"/>
 </LinearLayout>
