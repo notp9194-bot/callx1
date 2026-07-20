@@ -2,7 +2,7 @@ package com.callx.reels.privacy;
 
 import android.content.Context;
 import com.callx.app.models.ReelModel;
-import com.callx.app.utils.StatusCloseFriendsManager;
+import com.callx.reels.utils.ReelCloseFriendsUtil;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -28,12 +28,12 @@ public class ReelCloseFriendsManager {
             cb.onResult(true);
             return;
         }
-        cb.onResult(StatusCloseFriendsManager.isCloseFriend(ctx, uploaderUid));
+        cb.onResult(ReelCloseFriendsUtil.isCloseFriend(ctx, uploaderUid));
     }
 
     public List<ReelModel> filterReelsList(Context ctx, List<ReelModel> reels, String myUid) {
         List<ReelModel> filtered = new ArrayList<>();
-        Set<String> cfList = StatusCloseFriendsManager.getLocalList(ctx);
+        Set<String> cfList = ReelCloseFriendsUtil.getLocalList(ctx);
         for (ReelModel reel : reels) {
             String va = reel.audienceType;
             if (!"close_friends".equals(va)) {

@@ -640,7 +640,7 @@ public class ReelsFragment extends Fragment {
                     ReelModel reel = s.getValue(ReelModel.class);
                     if (reel != null) {
                         if (reel.reelId == null) reel.reelId = s.getKey();
-                        if (!"close_friends".equals(reel.audienceType) || (safeMyUid() != null && (safeMyUid().equals(reel.uid) || com.callx.app.utils.StatusCloseFriendsManager.isCloseFriend(getContext(), reel.uid)))) {
+                        if (!"close_friends".equals(reel.audienceType) || (safeMyUid() != null && (safeMyUid().equals(reel.uid) || com.callx.reels.utils.ReelCloseFriendsUtil.isCloseFriend(getContext(), reel.uid)))) {
                         allReels.add(reel);
                         }
                     }
