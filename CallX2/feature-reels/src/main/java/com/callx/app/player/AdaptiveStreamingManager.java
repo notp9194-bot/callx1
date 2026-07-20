@@ -169,7 +169,10 @@ public class AdaptiveStreamingManager {
                 bufferForPlaybackMs = 1_500; bufferForPlaybackAfterRebufferMs = 3_000;
                 break;
             default: // 2G / offline
-                minBufferMs = 1_500;  maxBufferMs = 4_000;
+                // NOTE: minBufferMs must always be >= bufferForPlaybackMs, or
+                // DefaultLoadControl.Builder#setBufferDurationsMs throws
+                // IllegalArgumentException at player build time.
+                minBufferMs = 2_500;  maxBufferMs = 4_000;
                 bufferForPlaybackMs = 2_000; bufferForPlaybackAfterRebufferMs = 4_000;
                 break;
         }
