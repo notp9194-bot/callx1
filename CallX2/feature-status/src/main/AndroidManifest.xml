@@ -188,6 +188,31 @@
             android:screenOrientation="portrait" 
             android:theme="@style/Theme.AppCompat.NoActionBar" 
             android:windowSoftInputMode="adjustResize"/>
+
+        <!-- BUG FIX: these two were never actually declared here despite the
+             app manifest's v72 comment claiming they were — StatusFragment's
+             explicit Intent to NewStatusActivity threw ActivityNotFoundException,
+             and ChatActivity/MessagePagingAdapter's implicit ACTION_OPEN_STATUS
+             intent silently failed (caught + Toast'd) with no working target. -->
+
+        <!-- Compose a new status (camera / gallery / text) -->
+        <activity
+            android:name="com.callx.app.compose.NewStatusActivity"
+            android:theme="@style/Theme.CallX"
+            android:exported="false"/>
+
+        <!-- View a status (own or another user's), reached explicitly from
+             StatusFragment/StatusListAdapter, and implicitly via
+             ACTION_OPEN_STATUS from status-reply/reaction quote taps in chat. -->
+        <activity
+            android:name="com.callx.app.viewer.StatusViewerActivity"
+            android:theme="@style/Theme.CallX"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.callx.app.ACTION_OPEN_STATUS"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+            </intent-filter>
+        </activity>
     </application>
 
 </manifest>
