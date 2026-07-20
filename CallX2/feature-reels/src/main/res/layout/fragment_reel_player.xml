@@ -640,6 +640,39 @@
 
         <!-- Animated Music Ticker -->
         <LinearLayout
+            android:id="@+id/layout_music_ticker"
+            android:layout_width="wrap_content"
+            android:layout_height="32dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            
+            android:paddingStart="8dp"
+            android:paddingEnd="10dp"
+            android:layout_marginTop="2dp">
+
+            <ImageView
+                android:id="@+id/iv_music_disc"
+                android:layout_width="22dp"
+                android:layout_height="22dp"
+                android:src="@drawable/ic_music_disc"
+                android:tint="#00E5FF"
+                android:contentDescription="Music disc"/>
+
+            <TextView
+                android:id="@+id/tv_music_name"
+                android:layout_width="140dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:text="Original Audio"
+                android:textColor="#00E5FF"
+                android:textSize="12sp"
+                android:singleLine="true"
+                android:ellipsize="marquee"
+                android:marqueeRepeatLimit="marquee_forever"
+                android:scrollHorizontally="true"
+                android:focusable="true"
+                android:focusableInTouchMode="true"/>
+        </LinearLayout>
         <!-- 📌 Pinned Comment Overlay -->
         <LinearLayout
             android:id="@+id/reel_pinned_comment_container"
@@ -714,39 +747,6 @@
                     android:textColor="#FFFFFF"
                     android:textSize="10sp" />
             </LinearLayout>
-        </LinearLayout>
-            android:id="@+id/layout_music_ticker"
-            android:layout_width="wrap_content"
-            android:layout_height="32dp"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            
-            android:paddingStart="8dp"
-            android:paddingEnd="10dp"
-            android:layout_marginTop="2dp">
-
-            <ImageView
-                android:id="@+id/iv_music_disc"
-                android:layout_width="22dp"
-                android:layout_height="22dp"
-                android:src="@drawable/ic_music_disc"
-                android:tint="#00E5FF"
-                android:contentDescription="Music disc"/>
-
-            <TextView
-                android:id="@+id/tv_music_name"
-                android:layout_width="140dp"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="6dp"
-                android:text="Original Audio"
-                android:textColor="#00E5FF"
-                android:textSize="12sp"
-                android:singleLine="true"
-                android:ellipsize="marquee"
-                android:marqueeRepeatLimit="marquee_forever"
-                android:scrollHorizontally="true"
-                android:focusable="true"
-                android:focusableInTouchMode="true"/>
         </LinearLayout>
 
         <!-- Live Reaction Counts -->

@@ -282,7 +282,6 @@ public class Message {
         String key = (messageId != null ? messageId : (id != null ? id : "")) + status;
         return key.hashCode();
     }
-}
 
     // ── Group Topics / Threads ───────────────────────────────────────────
     /** If non-null, this message belongs to the given topic thread. */
@@ -299,6 +298,4 @@ public class Message {
      * never exposed in the UI when isAnonymous = true.
      */
     public boolean isAnonymous;
-
-    // INJECTED BY PATCH — do not edit manually
-// The actual insertion is done via sed below
+}
