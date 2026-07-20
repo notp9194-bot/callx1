@@ -236,17 +236,13 @@ public class CommunityPostComposerActivity extends AppCompatActivity {
     }
 
     private void setupMentionAutocomplete() {
-        mentionAdapter = new CommunityMentionSuggestionsAdapter(uid -> {
+        mentionAdapter = new CommunityMentionSuggestionsAdapter(picked -> {
             String text   = etPostText.getText().toString();
             int cursor    = etPostText.getSelectionStart();
             int atPos     = text.lastIndexOf('@', cursor - 1);
             if (atPos >= 0) {
-                CommunityMemberEntity picked = null;
-                for (CommunityMemberEntity m : allMembers) {
-                    if (uid.equals(m.uid)) { picked = m; break; }
-                }
                 if (picked != null) {
-                    if (!pendingMentionedUids.contains(uid)) pendingMentionedUids.add(uid);
+                    if (!pendingMentionedUids.contains(picked.uid)) pendingMentionedUids.add(picked.uid);
                     String before  = text.substring(0, atPos);
                     String after   = text.substring(cursor);
                     String mention = "@" + picked.name + " ";

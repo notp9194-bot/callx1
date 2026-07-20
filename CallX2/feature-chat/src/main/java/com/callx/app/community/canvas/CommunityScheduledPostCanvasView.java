@@ -130,7 +130,7 @@ public class CommunityScheduledPostCanvasView extends View {
         previewPaint.getFontMetrics(schedPreviewFm);
         cancelBtnTextPaint.getFontMetrics(schedCancelFm);
         mediaBadgePaint.getFontMetrics(schedBadge1Fm);
-        announceBadgePaint.getFontMetrics(schedBadge2Fm);
+        announcementBadgePaint.getFontMetrics(schedBadge2Fm);
     }
 
     public void bind(CommunityScheduledPostEntity p) {

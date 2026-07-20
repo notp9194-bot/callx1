@@ -120,6 +120,8 @@ public class CommunityEventAdapter extends RecyclerView.Adapter<CommunityEventAd
         }
     }
 
+    public java.util.List<CommunityEventEntity> getCurrentList() { return differ.getCurrentList(); }
+
     @Override public int getItemCount() { return differ.getCurrentList().size(); }
 
     static class VH extends RecyclerView.ViewHolder {

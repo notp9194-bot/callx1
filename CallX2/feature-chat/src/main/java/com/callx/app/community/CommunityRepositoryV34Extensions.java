@@ -82,6 +82,7 @@ public class CommunityRepositoryV34Extensions {
         repo.publishPost(communityId, authorUid, authorName, authorPhoto,
                 text, primaryMediaUrl, primaryMediaType, isAnnouncement,
                 mediaUrlsJson, mediaTypesJson,
-                mentionedUids, scheduledAt, cb);
+                mentionedUids, scheduledAt,
+                (success, error) -> { if (cb != null) cb.onResult(success, error); });
     }
 }

@@ -132,6 +132,8 @@ public class CommunityMemberAdapter extends RecyclerView.Adapter<CommunityMember
     }
 
     @Override
+    public java.util.List<CommunityMemberEntity> getCurrentList() { return differ.getCurrentList(); }
+
     public int getItemCount() { return differ.getCurrentList().size(); }
 
     static class VH extends RecyclerView.ViewHolder {

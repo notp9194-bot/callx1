@@ -290,12 +290,12 @@ public class ManageCommunityActivity extends AppCompatActivity {
         if (currentInviteToken != null && !currentInviteToken.isEmpty()) {
             showInviteLink("https://callx.app/community/join/" + communityId + "?t=" + currentInviteToken);
         } else {
-            repo.generateInviteLink(communityId, (link, error) -> runOnUiThread(() -> {
+            repo.generateInviteToken(communityId, link -> runOnUiThread(() -> {
                 if (link != null) {
                     currentInviteToken = link;
                     showInviteLink("https://callx.app/community/join/" + communityId + "?t=" + link);
                 } else {
-                    Toast.makeText(this, "Error: " + error, Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, "Error generating invite link", Toast.LENGTH_SHORT).show();
                 }
             }));
         }

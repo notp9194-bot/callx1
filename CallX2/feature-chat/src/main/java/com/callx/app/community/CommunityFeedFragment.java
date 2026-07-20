@@ -100,8 +100,8 @@ public class CommunityFeedFragment extends Fragment implements CommunityPostAdap
     @Override
     public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
-        rvFeed     = view.findViewById(R.id.rv_feed);
-        emptyState = view.findViewById(R.id.layout_empty_feed);
+        rvFeed     = view.findViewById(R.id.rv_community_feed);
+        emptyState = view.findViewById(R.id.empty_feed);
 
         adapter = new CommunityPostAdapter(currentUid, this);
         LinearLayoutManager llm = new LinearLayoutManager(requireContext());

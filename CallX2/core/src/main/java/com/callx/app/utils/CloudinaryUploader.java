@@ -355,7 +355,7 @@ public class CloudinaryUploader {
         new Handler(Looper.getMainLooper()).post(() -> cb.onFullReady(photoUrl));
     }
 
-    CloudinaryUploader() {}
+    public CloudinaryUploader() {}
 
     /** Instance shim used by legacy callers that do new CloudinaryUploader().uploadFile(…). */
     public void uploadFile(android.content.Context ctx, android.net.Uri uri, String folder,

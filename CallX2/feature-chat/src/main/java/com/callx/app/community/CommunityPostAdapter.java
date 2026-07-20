@@ -275,7 +275,6 @@ public class CommunityPostAdapter extends RecyclerView.Adapter<CommunityPostAdap
         }
     }
 
-    @Override
     public java.util.List<com.callx.app.db.entity.CommunityPostEntity> getCurrentList() { return differ.getCurrentList(); }
     public int getItemCount() { return differ.getCurrentList().size(); }
 
