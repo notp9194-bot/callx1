@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="20dp">
+
+    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:text="Command name (no spaces, e.g. rules)"
+        android:textColor="@color/text_muted" android:textSize="12sp"
+        android:layout_marginBottom="4dp"/>
+    <com.google.android.material.textfield.TextInputLayout
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginBottom="14dp"
+        app:boxBackgroundMode="outline" app:hintText="/command"
+        app:boxCornerRadiusTopStart="8dp" app:boxCornerRadiusTopEnd="8dp"
+        app:boxCornerRadiusBottomStart="8dp" app:boxCornerRadiusBottomEnd="8dp">
+        <com.google.android.material.textfield.TextInputEditText
+            android:id="@+id/et_cmd_name"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:inputType="text" android:maxLength="30"
+            android:hint="e.g. rules, links, welcome"/>
+    </com.google.android.material.textfield.TextInputLayout>
+
+    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:text="Description (shown in suggestion list)"
+        android:textColor="@color/text_muted" android:textSize="12sp"
+        android:layout_marginBottom="4dp"/>
+    <com.google.android.material.textfield.TextInputLayout
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginBottom="14dp"
+        app:boxBackgroundMode="outline"
+        app:boxCornerRadiusTopStart="8dp" app:boxCornerRadiusTopEnd="8dp"
+        app:boxCornerRadiusBottomStart="8dp" app:boxCornerRadiusBottomEnd="8dp">
+        <com.google.android.material.textfield.TextInputEditText
+            android:id="@+id/et_cmd_desc"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:inputType="text" android:maxLength="80"
+            android:hint="Short description (optional)"/>
+    </com.google.android.material.textfield.TextInputLayout>
+
+    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:text="Bot reply text (what the bot sends when command is typed)"
+        android:textColor="@color/text_muted" android:textSize="12sp"
+        android:layout_marginBottom="4dp"/>
+    <com.google.android.material.textfield.TextInputLayout
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        app:boxBackgroundMode="outline"
+        app:boxCornerRadiusTopStart="8dp" app:boxCornerRadiusTopEnd="8dp"
+        app:boxCornerRadiusBottomStart="8dp" app:boxCornerRadiusBottomEnd="8dp">
+        <com.google.android.material.textfield.TextInputEditText
+            android:id="@+id/et_cmd_response"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:inputType="textMultiLine" android:minLines="3" android:maxLines="6"
+            android:hint="Text to send when /{command} is typed…"/>
+    </com.google.android.material.textfield.TextInputLayout>
+
+</LinearLayout>

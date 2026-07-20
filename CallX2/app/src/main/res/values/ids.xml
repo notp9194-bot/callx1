@@ -4,6 +4,9 @@
     <item name="menu_invite"        type="id"/>
     <item name="menu_starred"       type="id"/>
     <item name="menu_admin_panel"   type="id"/>
+    <item name="menu_bot_settings"  type="id"/>
+    <item name="action_chat_backup"  type="id"/>
+    <item name="rv_bot_suggestions"  type="id"/>
     <item name="menu_rename"        type="id"/>
     <item name="menu_group_info"    type="id"/>
     <item name="menu_group_settings" type="id"/>

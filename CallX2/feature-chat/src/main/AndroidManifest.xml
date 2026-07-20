@@ -134,5 +134,15 @@
             android:windowSoftInputMode="adjustResize"
             android:label="Create Topic"/>
 
+        <activity android:name=".bots.BotSettingsActivity"
+            android:label="Bot Commands"
+            android:theme="@style/Theme.App"
+            android:exported="false"/>
+
+        <activity android:name=".group.ChatBackupActivity"
+            android:label="Chat Backup"
+            android:theme="@style/Theme.App"
+            android:exported="false"/>
+
     </application>
 </manifest>

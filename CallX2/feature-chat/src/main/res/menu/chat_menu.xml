@@ -52,6 +52,10 @@
         android:title="📤 Export Chat"
         app:showAsAction="never"/>
 
+    <item android:id="@+id/action_chat_backup"
+        android:title="💾 Backup Chat"
+        app:showAsAction="never"/>
+
     <item android:id="@+id/action_small_window"
         android:title="🗔 Small window"
         app:showAsAction="never"/>

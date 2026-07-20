@@ -45,6 +45,11 @@ import com.callx.app.utils.FileUtils;
 import com.callx.app.utils.FirebaseUtils;
 import com.callx.app.utils.PushNotify;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
+import com.callx.app.bots.BotManager;
+import com.callx.app.bots.BotCommandSuggestionsAdapter;
+import com.callx.app.models.BotCommand;
+import com.callx.app.group.GroupChatExportController;
+import com.callx.app.group.ChatBackupActivity;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.database.*;
 
@@ -188,6 +193,14 @@ public class GroupChatActivity extends AppCompatActivity
             subtitleHandler.postDelayed(this, 30_000L);
         }
     };
+
+    // ── Bot Commands ──────────────────────────────────────────────────────
+    private BotManager botManager;
+    private BotCommandSuggestionsAdapter botSuggestionsAdapter;
+    private androidx.recyclerview.widget.RecyclerView rvBotSuggestions;
+
+    // ── Export / Backup ────────────────────────────────────────────────────
+    private GroupChatExportController exportController;
 
     // ── Reply ──────────────────────────────────────────────────────────────
     private Message replyingTo = null;
@@ -334,6 +347,8 @@ public class GroupChatActivity extends AppCompatActivity
         // Analytics + delta sync + predictive preload
         CacheManager.getInstance(this).getAnalytics().recordChatOpen(groupId);
         loadGroupAdminSettings();   // slow mode + anonymous posting settings
+        initBotSupport();
+        initExportController();
         ChatRepository.getInstance(this).preloadRecentChats(groupId);
 
         // Fix 10: Group unread counter reset karo jab chat khulo
@@ -734,7 +749,10 @@ public class GroupChatActivity extends AppCompatActivity
             if (isAdmin) {
                 m.add(0, R.id.menu_admin_panel, 6, "👑 Admin Panel").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
                 m.add(0, R.id.menu_rename,      7, "✏ Rename Group").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
+                m.add(0, R.id.menu_bot_settings, 8, "🤖 Bot Commands").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
             }
+            m.add(0, R.id.action_export_chat, 9, "📤 Export Chat").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
+            m.add(0, R.id.action_chat_backup, 10, "💾 Backup Chat").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
             popup.setOnMenuItemClickListener(item -> onOptionsItemSelected(item));
             popup.show();
         });
@@ -1460,6 +1478,61 @@ public class GroupChatActivity extends AppCompatActivity
 
     private static final int MAX_MESSAGE_LENGTH = 4000;
 
+    // ── Bot Support ───────────────────────────────────────────────────────────
+
+    private void initBotSupport() {
+        botManager = BotManager.get(this, groupId);
+        // Find or create the suggestions RecyclerView above the input bar
+        rvBotSuggestions = findViewById(R.id.rv_bot_suggestions);
+        if (rvBotSuggestions == null) return;  // layout does not have it yet — safe no-op
+        botSuggestionsAdapter = new BotCommandSuggestionsAdapter(this::onBotCommandSelected);
+        rvBotSuggestions.setLayoutManager(
+                new androidx.recyclerview.widget.LinearLayoutManager(this,
+                        androidx.recyclerview.widget.LinearLayoutManager.HORIZONTAL, false));
+        rvBotSuggestions.setAdapter(botSuggestionsAdapter);
+        rvBotSuggestions.setVisibility(android.view.View.GONE);
+
+        // Attach "/" detection to the existing TextWatcher
+        binding.etMessage.addTextChangedListener(new android.text.TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
+            @Override public void afterTextChanged(android.text.Editable s) {}
+            @Override public void onTextChanged(CharSequence s, int a, int b, int cnt) {
+                String text = s.toString();
+                if (text.startsWith("/")) {
+                    String partial = text.length() > 1 ? text.substring(1) : "";
+                    java.util.List<BotCommand> suggestions = botManager.getSuggestions(partial);
+                    if (!suggestions.isEmpty()) {
+                        botSuggestionsAdapter.update(suggestions);
+                        rvBotSuggestions.setVisibility(android.view.View.VISIBLE);
+                        return;
+                    }
+                }
+                rvBotSuggestions.setVisibility(android.view.View.GONE);
+            }
+        });
+    }
+
+    private void onBotCommandSelected(BotCommand cmd) {
+        binding.etMessage.setText("/" + cmd.command + " ");
+        binding.etMessage.setSelection(binding.etMessage.getText().length());
+        if (rvBotSuggestions != null) rvBotSuggestions.setVisibility(android.view.View.GONE);
+    }
+
+    private void initExportController() {
+        GroupChatActivity self = this;
+        exportController = new GroupChatExportController(new GroupChatExportController.Host() {
+            @Override public com.callx.app.db.AppDatabase getDb()        { return db; }
+            @Override public java.util.concurrent.Executor getIoExecutor() { return ioExecutor; }
+            @Override public void runOnUiThread(Runnable r)               { self.runOnUiThread(r); }
+            @Override public android.app.Activity getActivity()           { return self; }
+            @Override public androidx.fragment.app.FragmentManager getSupportFragmentManager() { return self.getSupportFragmentManager(); }
+            @Override public String getGroupId()                          { return groupId; }
+            @Override public String getGroupName()                        { return groupName; }
+            @Override public String getCurrentUid()                       { return currentUid; }
+            @Override public String getCurrentName()                      { return currentName; }
+        });
+    }
+
     /**
      * Load group-level admin settings (slow mode, anonymous posting) once on open.
      * Called from onCreate after groupId is confirmed.
@@ -1502,6 +1575,26 @@ public class GroupChatActivity extends AppCompatActivity
     private void sendText() {
         String text = binding.etMessage.getText().toString().trim();
         if (text.isEmpty()) return;
+
+        // ── Bot command intercept ──────────────────────────────────────────────
+        if (text.startsWith("/") && botManager != null) {
+            boolean consumed = botManager.parseAndExecute(text, botText -> {
+                // Bot posts a message attributed to the bot, not the user
+                Message botMsg  = new Message();
+                botMsg.senderId   = "bot";
+                botMsg.senderName = "🤖 CallX Bot";
+                botMsg.text       = botText;
+                botMsg.type       = "text";
+                botMsg.timestamp  = System.currentTimeMillis();
+                botMsg.status     = "sent";
+                pushMessage(botMsg, botText);
+            }, isAdmin);
+            if (consumed) {
+                binding.etMessage.setText("");
+                if (rvBotSuggestions != null) rvBotSuggestions.setVisibility(android.view.View.GONE);
+                return;
+            }
+        }
 
         // ── Slow Mode enforcement ───────────────────────────────────────────
         if (slowModeSecs > 0 && !isAdmin) {
@@ -3691,6 +3784,24 @@ public class GroupChatActivity extends AppCompatActivity
         }
         if (id == R.id.menu_admin_panel) { if (isAdmin) showAdminPanel(); return true; }
         if (id == R.id.menu_rename)      { if (isAdmin) renameGroup(); return true; }
+        if (id == R.id.menu_bot_settings && isAdmin) {
+            Intent botI = new Intent(this, com.callx.app.bots.BotSettingsActivity.class);
+            botI.putExtra(com.callx.app.bots.BotSettingsActivity.EXTRA_GROUP_ID,   groupId);
+            botI.putExtra(com.callx.app.bots.BotSettingsActivity.EXTRA_GROUP_NAME, groupName);
+            startActivity(botI);
+            return true;
+        }
+        if (id == R.id.action_export_chat) {
+            if (exportController != null) exportController.showExportSheet();
+            return true;
+        }
+        if (id == R.id.action_chat_backup) {
+            Intent backupI = new Intent(this, ChatBackupActivity.class);
+            backupI.putExtra(ChatBackupActivity.EXTRA_GROUP_ID,  groupId);
+            backupI.putExtra(ChatBackupActivity.EXTRA_CHAT_NAME, groupName);
+            startActivity(backupI);
+            return true;
+        }
         if (id == R.id.action_chat_customization) { showChatCustomizationMenu(); return true; }
         if (id == R.id.action_chat_privacy) { showGroupChatPrivacySheet(); return true; }
         return super.onOptionsItemSelected(item);

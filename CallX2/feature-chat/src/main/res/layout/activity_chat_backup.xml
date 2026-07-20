@@ -1,0 +1,222 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.coordinatorlayout.widget.CoordinatorLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="?attr/colorSurface">
+
+    <com.google.android.material.appbar.AppBarLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@drawable/gradient_brand"
+        app:elevation="0dp">
+        <androidx.appcompat.widget.Toolbar
+            android:id="@+id/toolbar"
+            android:layout_width="match_parent"
+            android:layout_height="?attr/actionBarSize"
+            android:background="@color/transparent"
+            app:title="Chat Backup"
+            app:titleTextColor="@color/white"
+            app:navigationIcon="@drawable/ic_back"
+            app:navigationIconTint="@color/white"/>
+    </com.google.android.material.appbar.AppBarLayout>
+
+    <androidx.core.widget.NestedScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        app:layout_behavior="@string/appbar_scrolling_view_behavior">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingTop="20dp"
+            android:paddingBottom="40dp">
+
+            <!-- Status card -->
+            <androidx.cardview.widget.CardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="16dp" android:layout_marginEnd="16dp"
+                android:layout_marginBottom="20dp"
+                app:cardCornerRadius="12dp" app:cardElevation="1dp"
+                app:cardBackgroundColor="@color/brand_primary">
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="vertical" android:padding="20dp">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="💾 Chat Backup" android:textColor="@color/white"
+                        android:textSize="18sp" android:textStyle="bold" android:layout_marginBottom="4dp"/>
+                    <TextView android:id="@+id/tv_last_backup"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Last backup: Never"
+                        android:textColor="@color/white_70" android:textSize="13sp"/>
+                    <TextView android:id="@+id/tv_backup_size"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Backup size: —"
+                        android:textColor="@color/white_70" android:textSize="13sp"/>
+                </LinearLayout>
+            </androidx.cardview.widget.CardView>
+
+            <!-- Export section -->
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="EXPORT CHAT"
+                android:textColor="@color/brand_primary" android:textSize="11sp"
+                android:textStyle="bold" android:letterSpacing="0.1" android:textAllCaps="true"
+                android:paddingStart="20dp" android:paddingEnd="20dp" android:paddingBottom="6dp"/>
+
+            <androidx.cardview.widget.CardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="16dp" android:layout_marginEnd="16dp"
+                android:layout_marginBottom="20dp"
+                app:cardCornerRadius="12dp" app:cardElevation="1dp">
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
+                    <!-- Export as .txt -->
+                    <LinearLayout android:id="@+id/row_export_txt"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:orientation="horizontal" android:gravity="center_vertical"
+                        android:padding="14dp" android:background="?attr/selectableItemBackground"
+                        android:clickable="true" android:focusable="true">
+                        <TextView android:layout_width="36dp" android:layout_height="36dp"
+                            android:text="📄" android:textSize="22sp" android:gravity="center"
+                            android:layout_marginEnd="14dp"/>
+                        <LinearLayout android:layout_width="0dp" android:layout_weight="1"
+                            android:layout_height="wrap_content" android:orientation="vertical">
+                            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                                android:text="Export as plain text (.txt)"
+                                android:textColor="@color/text_primary" android:textSize="15sp"/>
+                            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                                android:text="WhatsApp-style transcript, shareable anywhere"
+                                android:textColor="@color/text_muted" android:textSize="12sp"/>
+                        </LinearLayout>
+                        <ImageView android:layout_width="16dp" android:layout_height="16dp"
+                            android:src="@drawable/ic_back" android:tint="@color/text_muted" android:rotation="180"/>
+                    </LinearLayout>
+
+                    <View android:layout_width="match_parent" android:layout_height="0.5dp"
+                        android:background="@color/divider" android:layout_marginStart="64dp"/>
+
+                    <!-- Export as .html -->
+                    <LinearLayout android:id="@+id/row_export_html"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:orientation="horizontal" android:gravity="center_vertical"
+                        android:padding="14dp" android:background="?attr/selectableItemBackground"
+                        android:clickable="true" android:focusable="true">
+                        <TextView android:layout_width="36dp" android:layout_height="36dp"
+                            android:text="🌐" android:textSize="22sp" android:gravity="center"
+                            android:layout_marginEnd="14dp"/>
+                        <LinearLayout android:layout_width="0dp" android:layout_weight="1"
+                            android:layout_height="wrap_content" android:orientation="vertical">
+                            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                                android:text="Export as HTML (.html)"
+                                android:textColor="@color/text_primary" android:textSize="15sp"/>
+                            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                                android:text="Colour-coded, sender names, timestamps"
+                                android:textColor="@color/text_muted" android:textSize="12sp"/>
+                        </LinearLayout>
+                        <ImageView android:layout_width="16dp" android:layout_height="16dp"
+                            android:src="@drawable/ic_back" android:tint="@color/text_muted" android:rotation="180"/>
+                    </LinearLayout>
+
+                    <View android:layout_width="match_parent" android:layout_height="0.5dp"
+                        android:background="@color/divider" android:layout_marginStart="64dp"/>
+
+                    <!-- Include media toggle -->
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:orientation="horizontal" android:gravity="center_vertical"
+                        android:padding="14dp">
+                        <LinearLayout android:layout_width="0dp" android:layout_weight="1"
+                            android:layout_height="wrap_content" android:orientation="vertical">
+                            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                                android:text="Include media links"
+                                android:textColor="@color/text_primary" android:textSize="15sp"/>
+                            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                                android:text="Append Cloudinary URLs for images/videos"
+                                android:textColor="@color/text_muted" android:textSize="12sp"/>
+                        </LinearLayout>
+                        <androidx.appcompat.widget.SwitchCompat
+                            android:id="@+id/sw_include_media"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:checked="false"/>
+                    </LinearLayout>
+
+                </LinearLayout>
+            </androidx.cardview.widget.CardView>
+
+            <!-- Local backup section -->
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="LOCAL BACKUP"
+                android:textColor="@color/brand_primary" android:textSize="11sp"
+                android:textStyle="bold" android:letterSpacing="0.1" android:textAllCaps="true"
+                android:paddingStart="20dp" android:paddingEnd="20dp" android:paddingBottom="6dp"/>
+
+            <androidx.cardview.widget.CardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="16dp" android:layout_marginEnd="16dp"
+                android:layout_marginBottom="20dp"
+                app:cardCornerRadius="12dp" app:cardElevation="1dp">
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
+                    <LinearLayout android:id="@+id/row_backup_now"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:orientation="horizontal" android:gravity="center_vertical"
+                        android:padding="14dp" android:background="?attr/selectableItemBackground"
+                        android:clickable="true" android:focusable="true">
+                        <TextView android:layout_width="36dp" android:layout_height="36dp"
+                            android:text="💾" android:textSize="22sp" android:gravity="center"
+                            android:layout_marginEnd="14dp"/>
+                        <LinearLayout android:layout_width="0dp" android:layout_weight="1"
+                            android:layout_height="wrap_content" android:orientation="vertical">
+                            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                                android:text="Backup Now"
+                                android:textColor="@color/text_primary" android:textSize="15sp"/>
+                            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                                android:text="Save all messages to device storage"
+                                android:textColor="@color/text_muted" android:textSize="12sp"/>
+                        </LinearLayout>
+                        <ProgressBar android:id="@+id/pb_backup"
+                            android:layout_width="24dp" android:layout_height="24dp"
+                            android:visibility="gone"/>
+                        <ImageView android:layout_width="16dp" android:layout_height="16dp"
+                            android:src="@drawable/ic_back" android:tint="@color/text_muted"
+                            android:rotation="180"/>
+                    </LinearLayout>
+
+                    <View android:layout_width="match_parent" android:layout_height="0.5dp"
+                        android:background="@color/divider" android:layout_marginStart="64dp"/>
+
+                    <LinearLayout android:id="@+id/row_view_backups"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:orientation="horizontal" android:gravity="center_vertical"
+                        android:padding="14dp" android:background="?attr/selectableItemBackground"
+                        android:clickable="true" android:focusable="true">
+                        <TextView android:layout_width="36dp" android:layout_height="36dp"
+                            android:text="📂" android:textSize="22sp" android:gravity="center"
+                            android:layout_marginEnd="14dp"/>
+                        <LinearLayout android:layout_width="0dp" android:layout_weight="1"
+                            android:layout_height="wrap_content" android:orientation="vertical">
+                            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                                android:text="View Saved Backups"
+                                android:textColor="@color/text_primary" android:textSize="15sp"/>
+                            <TextView android:id="@+id/tv_backup_count"
+                                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                                android:text="0 backups saved"
+                                android:textColor="@color/text_muted" android:textSize="12sp"/>
+                        </LinearLayout>
+                        <ImageView android:layout_width="16dp" android:layout_height="16dp"
+                            android:src="@drawable/ic_back" android:tint="@color/text_muted"
+                            android:rotation="180"/>
+                    </LinearLayout>
+
+                </LinearLayout>
+            </androidx.cardview.widget.CardView>
+
+        </LinearLayout>
+    </androidx.core.widget.NestedScrollView>
+
+</androidx.coordinatorlayout.widget.CoordinatorLayout>

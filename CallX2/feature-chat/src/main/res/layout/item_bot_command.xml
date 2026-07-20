@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:padding="14dp"
+    android:background="?attr/selectableItemBackground"
+    android:clickable="true" android:focusable="true">
+
+    <TextView android:layout_width="28dp" android:layout_height="28dp"
+        android:text="🤖" android:textSize="18sp" android:gravity="center"
+        android:layout_marginEnd="14dp"/>
+
+    <LinearLayout android:layout_width="0dp" android:layout_weight="1"
+        android:layout_height="wrap_content" android:orientation="vertical">
+        <TextView android:id="@+id/tv_cmd"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="/help" android:textColor="@color/brand_primary"
+            android:textSize="14sp" android:textStyle="bold"/>
+        <TextView android:id="@+id/tv_desc"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="Show all available commands"
+            android:textColor="@color/text_muted" android:textSize="12sp"/>
+    </LinearLayout>
+
+    <TextView android:id="@+id/badge_disabled"
+        android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:text="OFF" android:textColor="@color/white" android:textSize="10sp"
+        android:textStyle="bold"
+        android:paddingStart="6dp" android:paddingEnd="6dp"
+        android:paddingTop="2dp" android:paddingBottom="2dp"
+        android:background="@drawable/badge_bg"
+        android:visibility="gone"/>
+</LinearLayout>

@@ -110,3 +110,94 @@ messages/{groupId}/{msgId}/isAnonymous = true | false
 - All new Activities are registered in `feature-chat/AndroidManifest.xml`
 - Backward-compatible: existing messages without topicId / isAnonymous fields work fine (treated as general / non-anonymous)
 
+
+
+---
+
+# Upgrade Notes — v180: Bot Commands + Chat Backup/Export
+
+## Feature 8: Bot Support / Commands
+
+**New files:**
+- `core/.../models/BotCommand.java` — Data model + built-in command catalogue
+- `feature-chat/.../bots/BotManager.java` — Slash-command engine (built-ins + custom)
+- `feature-chat/.../bots/BotCommandSuggestionsAdapter.java` — Horizontal suggestion strip
+- `feature-chat/.../bots/BotSettingsActivity.java` — Admin: manage custom commands
+- `feature-chat/res/layout/activity_bot_settings.xml`
+- `feature-chat/res/layout/item_bot_command.xml`
+- `feature-chat/res/layout/item_bot_suggestion.xml`
+- `feature-chat/res/layout/dialog_add_bot_command.xml`
+- `feature-chat/res/drawable/ic_bot.xml`
+
+**Modified files:**
+- `feature-chat/.../group/GroupChatActivity.java` — "/" TextWatcher, bot intercept in sendText, new menu items
+- `feature-chat/AndroidManifest.xml` — BotSettingsActivity registered
+
+**Built-in commands (no setup needed):**
+
+| Command | Description | Admin only? |
+|---------|-------------|-------------|
+| `/help` | Show all available commands | No |
+| `/flip` | Flip a coin (heads/tails) | No |
+| `/roll [N]` | Roll a dice (default d6, e.g. `/roll 20`) | No |
+| `/stats` | Group member count + message count | No |
+| `/announce <text>` | Send bold announcement | ✅ Yes |
+| `/pin` | Reminder to use long-press pin | ✅ Yes |
+| `/mute @user` | Hint to use Group Info for muting | ✅ Yes |
+| `/kick @user` | Hint to use Group Info for removing | ✅ Yes |
+| `/remind <time> <msg>` | Timed reminder (10s / 5m / 2h) | No |
+
+**Custom commands (admin-defined):**
+1. Admin → Group Chat 3-dot → "🤖 Bot Commands" → opens BotSettingsActivity
+2. Tap FAB (+) → enter command name + description + bot reply text
+3. Members type `/rules` (or whatever you named it) → bot sends the saved reply
+4. Long-press custom command → Edit / Enable-Disable / Delete
+
+**Firebase:**
+```
+groups/{groupId}/botCommands/{commandName}/
+  command, description, response, kind="custom",
+  enabled, createdBy, createdAt
+```
+
+**Suggestion strip:**
+- User types "/" → horizontal RecyclerView appears above keyboard
+- Shows matching built-in + custom commands
+- Tap any row → auto-fills the command in EditText
+
+---
+
+## Feature 9: Chat Backup / Export
+
+**New files:**
+- `feature-chat/.../group/GroupChatExportController.java` — Group export engine (.txt + .html)
+- `feature-chat/.../group/ChatBackupActivity.java` — Standalone backup screen
+- `feature-chat/res/layout/activity_chat_backup.xml`
+
+**Modified files:**
+- `feature-chat/.../group/GroupChatActivity.java` — "📤 Export Chat" + "💾 Backup Chat" in 3-dot menu
+- `feature-chat/.../conversation/ChatActivity.java` — "💾 Backup Chat" added to menu
+- `feature-chat/res/menu/chat_menu.xml` — action_chat_backup item added
+- `feature-chat/AndroidManifest.xml` — ChatBackupActivity registered
+
+**How to use (Export):**
+1. Group Chat → 3-dot → "📤 Export Chat"
+2. Picker: "With media links" / "Without media"
+3. Format picker: Plain text (.txt) or HTML (.html)
+4. System share-sheet opens → save to Files, email, send to Drive, etc.
+
+**How to use (Backup):**
+1. Group Chat → 3-dot → "💾 Backup Chat"
+2. ChatBackupActivity opens
+3. Toggle "Include media links" if needed
+4. Tap "Export as plain text" / "Export as HTML" → share
+5. Tap "Backup Now" → saves .txt to `External Files / CallX_Backups/`
+6. Tap "View Saved Backups" → list of previous backup files → tap to share
+
+**Export formats:**
+- **.txt** — `[dd/MM/yy, HH:mm] Sender: message text` per line (WhatsApp-style)
+- **.html** — Chat-bubble UI with colour-coded sent/received, date separators, anonymous masking
+
+**Anonymous messages:** Export shows "Anonymous" as sender name (identity protected)
+
+**Note:** Media files are not downloaded into the export; Cloudinary URLs are embedded inline when "Include media links" is on.

@@ -90,6 +90,7 @@ import com.callx.app.conversation.controllers.ChatScreenshotNotifier;
 import com.callx.app.conversation.controllers.ChatSearchController;
 import com.callx.app.conversation.controllers.ChatThemeController;
 import com.callx.app.conversation.controllers.ChatExportController;
+import com.callx.app.group.ChatBackupActivity;
 import com.callx.app.conversation.controllers.ChatContactShareController;
 import com.callx.app.conversation.controllers.ChatLocationShareController;
 import com.callx.app.db.AppDatabase;
@@ -4217,6 +4218,13 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         if (id == R.id.action_security)              { themeController.showChatSecuritySheet();   return true; }
         if (id == R.id.action_chat_privacy)          { themeController.showChatPrivacySheet();    return true; }
         if (id == R.id.action_export_chat)           { exportController.showExportSheet();        return true; }
+        if (id == R.id.action_chat_backup) {
+            Intent bi = new Intent(this, ChatBackupActivity.class);
+            bi.putExtra(ChatBackupActivity.EXTRA_CHAT_ID,   chatId);
+            bi.putExtra(ChatBackupActivity.EXTRA_CHAT_NAME, partnerName);
+            startActivity(bi);
+            return true;
+        }
         if (id == R.id.action_small_window)          { openSmallWindow();                          return true; }
         return super.onOptionsItemSelected(item);
     }
