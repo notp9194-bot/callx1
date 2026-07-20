@@ -27,8 +27,10 @@ import com.callx.app.utils.StatusLinkPreviewHelper;
 import com.callx.app.utils.StatusMentionHelper;
 import com.callx.app.utils.StatusNotificationHelper;
 import com.callx.app.utils.StatusPrivacyManager;
+import com.callx.app.stickers.StatusStickerPickerSheet;
+import com.callx.app.stickers.StatusStickerOverlayView;
 /**
- * NewStatusActivity v25 — Fully comprehensive status creation.
+ * NewStatusActivity v26 — Fully comprehensive status creation + Interactive Stickers.
  *
  * ORIGINAL features:
  *   ✅ Text status + 10 bg color presets + font styles
@@ -37,7 +39,7 @@ import com.callx.app.utils.StatusPrivacyManager;
  *   ✅ Privacy mode selector
  *   ✅ Upload progress display + draft save
  *
- * NEW features:
+ * v25 features:
  *   ✅ Camera capture (photo + video) — direct capture without gallery
  *   ✅ Link preview — type/paste URL → OG card preview
  *   ✅ GIF / Sticker via URL input (extensible to Giphy)
@@ -51,6 +53,16 @@ import com.callx.app.utils.StatusPrivacyManager;
  *   ✅ Image/Video compression with progress
  *   ✅ Cloudinary upload with retry
  *   ✅ Character counter (700 max)
+ *
+ * NEW v26 features — Interactive Stickers for Status/Stories:
+ *   ✅ 🎵 Music Sticker   — show song + artist + animated equaliser bars
+ *   ✅ ⏳ Countdown Timer — live ticking countdown card to any future date
+ *   ✅ 🧠 Quiz Sticker    — multiple-choice question with one correct answer
+ *   ✅ 💬 Question Box    — open-ended question box for viewer replies
+ *   ✅ Stickers draggable on the status preview
+ *   ✅ Long-press sticker to remove it
+ *   ✅ Multiple stickers supported simultaneously
+ *   ✅ Sticker JSON serialized and stored with the status post
  */
 public class NewStatusActivity extends AppCompatActivity {
     private static final String PREFS_DRAFT = "status_draft";
@@ -82,6 +94,12 @@ public class NewStatusActivity extends AppCompatActivity {
     private ActivityResultLauncher<String>  videoPicker;
     private ActivityResultLauncher<Uri>     cameraCapture;
     private ActivityResultLauncher<String>  cameraVideoCapture;
+
+    /** FrameLayout that holds the status preview + sticker overlays */
+    private android.widget.FrameLayout stickerOverlayFrame;
+    /** JSON array of all added sticker configs (serialised for post metadata) */
+    private final java.util.List<String> addedStickerJsons = new java.util.ArrayList<>();
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -97,6 +115,7 @@ public class NewStatusActivity extends AppCompatActivity {
         setupCloseFriendsToggle();
         setupTextAlignButtons();
         setupTextInput();
+        setupStickerOverlayFrame();
         restoreDraft();
         binding.btnPickImage.setOnClickListener(v -> showMediaSourceDialog("image"));
         binding.btnPickVideo.setOnClickListener(v -> showMediaSourceDialog("video"));
@@ -105,6 +124,73 @@ public class NewStatusActivity extends AppCompatActivity {
         // GIF / Sticker button
         View btnGif = binding.getRoot().findViewWithTag("btn_gif");
         if (btnGif != null) btnGif.setOnClickListener(v -> showGifInputDialog());
+        // ── NEW: Interactive Sticker picker button ────────────────────────
+        View btnSticker = binding.getRoot().findViewWithTag("btn_add_sticker");
+        if (btnSticker != null) btnSticker.setOnClickListener(v -> openStickerPicker());
+    }
+
+    // ── Sticker overlay frame setup ───────────────────────────────────────
+
+    /**
+     * Finds or creates the FrameLayout that wraps the status preview so
+     * sticker overlay cards can be layered on top of it.
+     */
+    private void setupStickerOverlayFrame() {
+        View frame = binding.getRoot().findViewWithTag("sticker_overlay_frame");
+        if (frame instanceof android.widget.FrameLayout) {
+            stickerOverlayFrame = (android.widget.FrameLayout) frame;
+        }
+    }
+
+    /** Open the sticker type picker sheet. */
+    private void openStickerPicker() {
+        StatusStickerPickerSheet.show(this, result -> {
+            addedStickerJsons.add(result.json);
+            addStickerOverlay(result.json);
+            Toast.makeText(this,
+                getStickerAddedLabel(result.type) + " added! Drag to reposition.",
+                Toast.LENGTH_SHORT).show();
+        });
+    }
+
+    private String getStickerAddedLabel(String type) {
+        switch (type) {
+            case "music":     return "🎵 Music sticker";
+            case "countdown": return "⏳ Countdown";
+            case "quiz":      return "🧠 Quiz sticker";
+            case "question":  return "💬 Question box";
+            default:          return "✨ Sticker";
+        }
+    }
+
+    /**
+     * Inflate the sticker view and add it to the overlay frame.
+     * Falls back gracefully if there is no overlay frame in the layout.
+     */
+    private void addStickerOverlay(String stickerJson) {
+        if (stickerOverlayFrame == null) return;
+
+        StatusStickerOverlayView stickerView = StatusStickerOverlayView.fromJson(this, stickerJson);
+
+        // Position sticker near centre-top of frame
+        int dp = (int) getResources().getDisplayMetrics().density;
+        android.widget.FrameLayout.LayoutParams lp = new android.widget.FrameLayout.LayoutParams(
+            Math.min(stickerOverlayFrame.getWidth() > 0 ? stickerOverlayFrame.getWidth() - dp * 32 : dp * 280,
+                dp * 280),
+            android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
+            android.view.Gravity.TOP | android.view.Gravity.CENTER_HORIZONTAL);
+        lp.topMargin = dp * (16 + addedStickerJsons.size() * 12);
+        stickerOverlayFrame.addView(stickerView, lp);
+
+        // Enable drag + long-press-remove
+        stickerView.attachDragToParent(stickerOverlayFrame);
+
+        // Pop-in animation
+        stickerView.setScaleX(0.3f);
+        stickerView.setScaleY(0.3f);
+        stickerView.setAlpha(0f);
+        stickerView.animate().scaleX(1f).scaleY(1f).alpha(1f).setDuration(300)
+            .setInterpolator(new android.view.animation.OvershootInterpolator(1.3f)).start();
     }
     @Override protected void onPause() { super.onPause(); saveDraft(); }
     // ── Toolbar ───────────────────────────────────────────────────────────
@@ -453,6 +539,8 @@ public class NewStatusActivity extends AppCompatActivity {
         binding.ivPreview.setVisibility(View.VISIBLE);
         binding.ivVideoHint.setVisibility(View.GONE);
         binding.btnDiscardMedia.setVisibility(View.VISIBLE);
+        // Also show the overlay frame (so stickers are visible over the image)
+        if (stickerOverlayFrame != null) stickerOverlayFrame.setVisibility(View.VISIBLE);
         Glide.with(this).load(uri).centerCrop().override(480, 853).into(binding.ivPreview);
         binding.captionGroup.setVisibility(View.VISIBLE);
         hideBgColorPicker();
@@ -461,6 +549,7 @@ public class NewStatusActivity extends AppCompatActivity {
         binding.ivPreview.setVisibility(View.VISIBLE);
         binding.ivVideoHint.setVisibility(View.VISIBLE);
         binding.btnDiscardMedia.setVisibility(View.VISIBLE);
+        if (stickerOverlayFrame != null) stickerOverlayFrame.setVisibility(View.VISIBLE);
         Glide.with(this).load(uri).centerCrop().override(480, 853).into(binding.ivPreview);
         binding.captionGroup.setVisibility(View.VISIBLE);
         hideBgColorPicker();
@@ -472,6 +561,18 @@ public class NewStatusActivity extends AppCompatActivity {
         binding.btnDiscardMedia.setVisibility(View.GONE);
         binding.captionGroup.setVisibility(View.GONE);
         showBgColorPicker();
+    }
+
+    /** Returns a JSON array string of all added sticker configs, or "" if none. */
+    private String buildStickersJson() {
+        if (addedStickerJsons.isEmpty()) return "";
+        StringBuilder sb = new StringBuilder("[");
+        for (int i = 0; i < addedStickerJsons.size(); i++) {
+            if (i > 0) sb.append(",");
+            sb.append(addedStickerJsons.get(i));
+        }
+        sb.append("]");
+        return sb.toString();
     }
     // ── Post ──────────────────────────────────────────────────────────────
     private void post() {
@@ -607,6 +708,11 @@ public class NewStatusActivity extends AppCompatActivity {
         item.timestamp        = now;
         item.expiresAt        = StatusCustomExpiryHelper.computeExpiresAt(selectedExpiryHours);
         item.deleted          = false;
+        // ── v26: Attach interactive sticker JSON ──────────────────────────
+        String stickersJson = buildStickersJson();
+        if (!stickersJson.isEmpty()) {
+            item.stickersJson = stickersJson;
+        }
         // Mentions
         if (txt != null && !txt.isEmpty()) {
             StatusMentionHelper.MentionResult mentions = StatusMentionHelper.extract(txt);

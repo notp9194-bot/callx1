@@ -31,15 +31,24 @@
             android:textStyle="bold"/>
     </RelativeLayout>
 
-    <!-- Tab bar -->
-    <LinearLayout
-        android:id="@+id/tab_bar_sticker"
+    <!-- Tab bar — now 5 tabs: Emoji | Text | GIF | Trending | Interactive -->
+    <HorizontalScrollView
         android:layout_width="match_parent"
         android:layout_height="44dp"
-        android:orientation="horizontal"
-        android:background="#1A1A1A"/>
+        android:scrollbars="none"
+        android:background="#1A1A1A">
 
-    <!-- Search -->
+        <LinearLayout
+            android:id="@+id/tab_bar_sticker"
+            android:layout_width="wrap_content"
+            android:layout_height="44dp"
+            android:orientation="horizontal"
+            android:minWidth="@dimen/match_parent"
+            android:background="#1A1A1A"/>
+
+    </HorizontalScrollView>
+
+    <!-- Search (hidden for Text + Interactive tabs) -->
     <EditText
         android:id="@+id/et_sticker_search"
         android:layout_width="match_parent"
@@ -105,7 +114,16 @@
             android:textStyle="bold"/>
     </LinearLayout>
 
-    <!-- Stickers grid -->
+    <!-- Interactive stickers layout (shown for Interactive tab) -->
+    <ScrollView
+        android:id="@+id/layout_interactive_stickers"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:scrollbars="vertical"
+        android:visibility="gone"/>
+
+    <!-- Stickers grid (shown for Emoji / GIF / Trending tabs) -->
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/rv_stickers_grid"
         android:layout_width="match_parent"

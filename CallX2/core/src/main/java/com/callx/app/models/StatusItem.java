@@ -107,6 +107,12 @@ public class StatusItem {
     public String gifUrl;
     public String stickerUrl;
 
+    // ── Interactive stickers (v26) ─────────────────────────────────────
+    /** JSON array of all interactive sticker configs added to this status.
+     *  Format: [{"type":"music","song":"..."},{"type":"countdown",...},...]
+     *  Each element is a sticker produced by StatusStickerPickerSheet. */
+    public String stickersJson;
+
     // ── Link preview ──────────────────────────────────────────────────
     public String linkUrl;
     public String linkTitle;
@@ -241,6 +247,7 @@ public class StatusItem {
         if (forwardCount != 0)        m.put("forwardCount", forwardCount);
         if (gifUrl != null)           m.put("gifUrl", gifUrl);
         if (stickerUrl != null)       m.put("stickerUrl", stickerUrl);
+        if (stickersJson != null && !stickersJson.isEmpty()) m.put("stickersJson", stickersJson);
         if (linkUrl != null)          m.put("linkUrl", linkUrl);
         if (linkTitle != null)        m.put("linkTitle", linkTitle);
         if (linkDescription != null)  m.put("linkDescription", linkDescription);

@@ -446,9 +446,13 @@ public class ReelEditorActivity extends AppCompatActivity {
     }
 
     /**
-     * Add a sticker as a draggable TextView on the video FrameLayout.
-     * Each call adds a new sticker (supports multiple stickers).
-     * Sticker JSON format: {"type":"emoji","value":"😀","x":0.5,"y":0.5}
+     * Add a sticker as a draggable overlay on the video FrameLayout.
+     * Supports: emoji, text, gif (plain TextView) AND interactive stickers
+     * (poll, quiz, slider, question — rendered as styled card views).
+     *
+     * Plain sticker JSON:       {"type":"emoji","value":"😀","x":0.5,"y":0.5}
+     * Interactive sticker JSON: {"type":"interactive","stickerType":"poll",
+     *                            "question":"...","options":[...],"extra":"...","x":0.5,"y":0.4}
      */
     @android.annotation.SuppressLint("ClickableViewAccessibility")
     private void addStickerOverlay(String stickerJson) {
@@ -458,7 +462,15 @@ public class ReelEditorActivity extends AppCompatActivity {
         FrameLayout fl = (FrameLayout) parent;
         int dp = (int) getResources().getDisplayMetrics().density;
 
-        // Parse value from JSON (simple substring approach, no heavy JSON lib)
+        // Detect interactive sticker
+        boolean isInteractive = stickerJson.contains("\"type\":\"interactive\"");
+
+        if (isInteractive) {
+            addInteractiveStickerOverlay(fl, stickerJson, dp);
+            return;
+        }
+
+        // ── Plain sticker (emoji / text / gif) ────────────────────────────
         String value = "";
         try {
             int vStart = stickerJson.indexOf("\"value\":\"") + 9;
@@ -489,10 +501,297 @@ public class ReelEditorActivity extends AppCompatActivity {
             Gravity.CENTER);
         fl.addView(stickerView, lp);
 
-        // Make sticker draggable
+        makeDraggableAndRemovable(stickerView, fl);
+
+        // Bounce animation
+        stickerView.setScaleX(0.3f);
+        stickerView.setScaleY(0.3f);
+        stickerView.animate().scaleX(1f).scaleY(1f).setDuration(250).start();
+
+        updateBadge("sticker", "✨ Sticker");
+    }
+
+    /**
+     * Render an interactive sticker (Poll / Quiz / Slider / Question) as a styled
+     * card overlay on the video FrameLayout. The card is draggable and long-press removes it.
+     */
+    @android.annotation.SuppressLint("ClickableViewAccessibility")
+    private void addInteractiveStickerOverlay(FrameLayout fl, String json, int dp) {
+        // Parse fields from JSON
+        String stickerType = jsonStr(json, "stickerType", "poll");
+        String question    = jsonStr(json, "question",    "");
+        String extra       = jsonStr(json, "extra",       "");
+
+        // Parse options array
+        java.util.List<String> options = new java.util.ArrayList<>();
+        try {
+            int arrStart = json.indexOf("\"options\":[") + 10;
+            int arrEnd   = json.indexOf("]", arrStart);
+            if (arrStart > 9 && arrEnd > arrStart) {
+                String arrContent = json.substring(arrStart + 1, arrEnd);
+                for (String part : arrContent.split(",")) {
+                    String opt = part.trim().replace("\"","");
+                    if (!opt.isEmpty()) options.add(opt);
+                }
+            }
+        } catch (Exception ignored) {}
+
+        // Build the card
+        android.widget.LinearLayout card = buildInteractiveCardView(stickerType, question, options, extra, dp);
+
+        int cardWidth  = (int)(Math.min(fl.getWidth() > 0 ? fl.getWidth() : 360 * dp, 300 * dp));
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(cardWidth,
+            FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.CENTER);
+        lp.topMargin = dp * 40;
+        fl.addView(card, lp);
+
+        makeDraggableAndRemovable(card, fl);
+
+        // Pop-in animation
+        card.setScaleX(0.3f);
+        card.setScaleY(0.3f);
+        card.setAlpha(0f);
+        card.animate().scaleX(1f).scaleY(1f).alpha(1f).setDuration(300)
+            .setInterpolator(new android.view.animation.OvershootInterpolator(1.3f))
+            .start();
+
+        String badge;
+        switch (stickerType) {
+            case "poll":     badge = "📊 Poll";     break;
+            case "quiz":     badge = "🧠 Quiz";     break;
+            case "slider":   badge = "😍 Slider";   break;
+            case "question": badge = "💬 Question"; break;
+            default:         badge = "✨ Sticker";
+        }
+        updateBadge("sticker", badge);
+    }
+
+    /**
+     * Build the visual card view for an interactive sticker.
+     */
+    private android.widget.LinearLayout buildInteractiveCardView(
+            String stickerType, String question,
+            java.util.List<String> options, String extra, int dp) {
+
+        android.widget.LinearLayout card = new android.widget.LinearLayout(this);
+        card.setOrientation(android.widget.LinearLayout.VERTICAL);
+        card.setPadding(dp * 14, dp * 12, dp * 14, dp * 14);
+
+        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+        bg.setCornerRadius(dp * 18);
+
+        // Card style per sticker type
+        int accentColor;
+        String headerEmoji;
+        String headerLabel;
+        switch (stickerType) {
+            case "poll":
+                bg.setColor(0xEE1B3D6F);
+                accentColor = 0xFF4A90E2;
+                headerEmoji = "📊"; headerLabel = "POLL"; break;
+            case "quiz":
+                bg.setColor(0xEE2D1B6F);
+                accentColor = 0xFFAA55FF;
+                headerEmoji = "🧠"; headerLabel = "QUIZ"; break;
+            case "slider":
+                bg.setColor(0xEE6F1B1B);
+                accentColor = 0xFFFF5555;
+                headerEmoji = ""; headerLabel = "RATE THIS"; break;
+            case "question":
+                bg.setColor(0xEE1B5040);
+                accentColor = 0xFF00C897;
+                headerEmoji = "💬"; headerLabel = "ASK ME"; break;
+            default:
+                bg.setColor(0xEE222222);
+                accentColor = 0xFFFF3B5C;
+                headerEmoji = "✨"; headerLabel = "STICKER";
+        }
+        bg.setStroke(1, accentColor);
+        card.setBackground(bg);
+
+        // Header row: emoji label + type chip
+        android.widget.LinearLayout headerRow = new android.widget.LinearLayout(this);
+        headerRow.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+        headerRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        android.widget.LinearLayout.LayoutParams hrLp = new android.widget.LinearLayout.LayoutParams(
+            android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT);
+        hrLp.bottomMargin = dp * 8;
+
+        if (!headerEmoji.isEmpty()) {
+            TextView tvEmoji = new TextView(this);
+            tvEmoji.setText(headerEmoji);
+            tvEmoji.setTextSize(16);
+            android.widget.LinearLayout.LayoutParams eLP = new android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT);
+            eLP.rightMargin = dp * 4;
+            headerRow.addView(tvEmoji, eLP);
+        }
+
+        TextView tvType = new TextView(this);
+        tvType.setText(headerLabel);
+        tvType.setTextColor(accentColor);
+        tvType.setTextSize(11);
+        tvType.setTypeface(null, android.graphics.Typeface.BOLD);
+        tvType.setLetterSpacing(0.1f);
+        headerRow.addView(tvType, new android.widget.LinearLayout.LayoutParams(
+            0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+
+        card.addView(headerRow, hrLp);
+
+        // Question text
+        TextView tvQuestion = new TextView(this);
+        tvQuestion.setText(question);
+        tvQuestion.setTextColor(Color.WHITE);
+        tvQuestion.setTextSize(15);
+        tvQuestion.setTypeface(null, android.graphics.Typeface.BOLD);
+        tvQuestion.setMaxLines(3);
+        android.widget.LinearLayout.LayoutParams qLp = new android.widget.LinearLayout.LayoutParams(
+            android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT);
+        qLp.bottomMargin = dp * 10;
+        card.addView(tvQuestion, qLp);
+
+        // Body per sticker type
+        switch (stickerType) {
+            case "poll":
+            case "quiz": {
+                // Show options as rounded buttons
+                for (int i = 0; i < options.size() && i < 4; i++) {
+                    TextView opt = new TextView(this);
+                    boolean isCorrect = stickerType.equals("quiz") && extra.contains("correctIndex:" + i);
+                    opt.setText(options.get(i));
+                    opt.setTextColor(isCorrect ? Color.WHITE : 0xFFCCCCCC);
+                    opt.setTextSize(13);
+                    opt.setGravity(android.view.Gravity.CENTER);
+                    opt.setPadding(dp * 12, dp * 8, dp * 12, dp * 8);
+
+                    android.graphics.drawable.GradientDrawable optBg = new android.graphics.drawable.GradientDrawable();
+                    optBg.setCornerRadius(dp * 10);
+                    if (isCorrect) {
+                        optBg.setColor(accentColor);
+                    } else {
+                        optBg.setColor(0x33FFFFFF);
+                        optBg.setStroke(1, 0x55FFFFFF);
+                    }
+                    opt.setBackground(optBg);
+
+                    android.widget.LinearLayout.LayoutParams optLp = new android.widget.LinearLayout.LayoutParams(
+                        android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                        android.widget.LinearLayout.LayoutParams.WRAP_CONTENT);
+                    optLp.bottomMargin = dp * 6;
+                    card.addView(opt, optLp);
+                }
+                break;
+            }
+            case "slider": {
+                // Parse emoji from extra
+                String sliderEmoji = "😍";
+                if (extra.startsWith("emoji:")) sliderEmoji = extra.substring(6);
+
+                android.widget.LinearLayout sliderRow = new android.widget.LinearLayout(this);
+                sliderRow.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+                sliderRow.setGravity(android.view.Gravity.CENTER);
+
+                // Left emoji (dim)
+                TextView tvLeft = new TextView(this);
+                tvLeft.setText(sliderEmoji);
+                tvLeft.setTextSize(20);
+                tvLeft.setAlpha(0.35f);
+                sliderRow.addView(tvLeft);
+
+                // Thumb at 50%
+                android.widget.LinearLayout trackWrap = new android.widget.LinearLayout(this);
+                trackWrap.setGravity(android.view.Gravity.CENTER_VERTICAL);
+                android.widget.LinearLayout.LayoutParams twLp = new android.widget.LinearLayout.LayoutParams(
+                    0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+                twLp.leftMargin  = dp * 8;
+                twLp.rightMargin = dp * 8;
+
+                android.widget.ProgressBar pb = new android.widget.ProgressBar(this,
+                    null, android.R.attr.progressBarStyleHorizontal);
+                pb.setProgress(50);
+                pb.setMax(100);
+                trackWrap.addView(pb, new android.widget.LinearLayout.LayoutParams(
+                    android.widget.LinearLayout.LayoutParams.MATCH_PARENT, dp * 12));
+                sliderRow.addView(trackWrap, twLp);
+
+                // Right emoji (full)
+                TextView tvRight = new TextView(this);
+                tvRight.setText(sliderEmoji);
+                tvRight.setTextSize(26);
+                sliderRow.addView(tvRight);
+
+                android.widget.LinearLayout.LayoutParams srLp = new android.widget.LinearLayout.LayoutParams(
+                    android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT);
+                srLp.bottomMargin = dp * 4;
+                card.addView(sliderRow, srLp);
+
+                TextView tvHint = new TextView(this);
+                tvHint.setText("Slide to react →");
+                tvHint.setTextColor(0x99FFFFFF);
+                tvHint.setTextSize(11);
+                tvHint.setGravity(android.view.Gravity.CENTER);
+                card.addView(tvHint);
+                break;
+            }
+            case "question": {
+                // Reply box
+                android.widget.LinearLayout replyBox = new android.widget.LinearLayout(this);
+                replyBox.setGravity(android.view.Gravity.CENTER_VERTICAL);
+                replyBox.setPadding(dp * 10, dp * 8, dp * 10, dp * 8);
+                android.graphics.drawable.GradientDrawable rBg = new android.graphics.drawable.GradientDrawable();
+                rBg.setCornerRadius(dp * 20);
+                rBg.setColor(0x33FFFFFF);
+                rBg.setStroke(1, 0x55FFFFFF);
+                replyBox.setBackground(rBg);
+
+                TextView tvReply = new TextView(this);
+                tvReply.setText("Send a reply…");
+                tvReply.setTextColor(0x88FFFFFF);
+                tvReply.setTextSize(13);
+                replyBox.addView(tvReply, new android.widget.LinearLayout.LayoutParams(
+                    0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+
+                TextView tvSend = new TextView(this);
+                tvSend.setText("→");
+                tvSend.setTextColor(accentColor);
+                tvSend.setTextSize(16);
+                replyBox.addView(tvSend);
+
+                card.addView(replyBox, new android.widget.LinearLayout.LayoutParams(
+                    android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT));
+                break;
+            }
+        }
+
+        return card;
+    }
+
+    /** Simple JSON string field extractor (no library needed). */
+    private String jsonStr(String json, String key, String defaultVal) {
+        try {
+            String search = "\"" + key + "\":\"";
+            int start = json.indexOf(search);
+            if (start < 0) return defaultVal;
+            start += search.length();
+            int end = json.indexOf("\"", start);
+            if (end < 0) return defaultVal;
+            return json.substring(start, end).replace("\\\"","\"");
+        } catch (Exception e) {
+            return defaultVal;
+        }
+    }
+
+    /** Makes a view draggable within its parent FrameLayout; long-press removes it. */
+    @android.annotation.SuppressLint("ClickableViewAccessibility")
+    private void makeDraggableAndRemovable(View view, FrameLayout fl) {
         final float[] startTouch = new float[2];
         final float[] startPos   = new float[2];
-        stickerView.setOnTouchListener((v, event) -> {
+        view.setOnTouchListener((v, event) -> {
             switch (event.getAction()) {
                 case MotionEvent.ACTION_DOWN:
                     startTouch[0] = event.getRawX();
@@ -505,22 +804,15 @@ public class ReelEditorActivity extends AppCompatActivity {
                     v.setY(startPos[1] + (event.getRawY() - startTouch[1]));
                     return true;
                 case MotionEvent.ACTION_UP:
-                    // Double-tap to remove (long click)
                     return true;
             }
             return false;
         });
-        stickerView.setOnLongClickListener(v -> {
-            fl.removeView(v);
+        view.setOnLongClickListener(v -> {
+            v.animate().scaleX(0f).scaleY(0f).alpha(0f).setDuration(180)
+                .withEndAction(() -> fl.removeView(v)).start();
             return true;
         });
-
-        // Bounce animation
-        stickerView.setScaleX(0.3f);
-        stickerView.setScaleY(0.3f);
-        stickerView.animate().scaleX(1f).scaleY(1f).setDuration(250).start();
-
-        updateBadge("sticker", "✨ Sticker");
     }
 
     /**

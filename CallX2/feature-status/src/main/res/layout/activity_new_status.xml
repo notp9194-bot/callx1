@@ -386,23 +386,46 @@
                 android:text="Add GIF / Sticker"
                 app:icon="@drawable/ic_gif"
                 app:cornerRadius="14dp"
-                android:layout_marginBottom="16dp"/>
+                android:layout_marginBottom="8dp"/>
 
-            <!-- ── Media preview ── -->
+            <!-- ╔══════════════════════════════════════════════════════════╗ -->
+            <!-- ║  NEW v26 — Interactive Sticker Picker Button             ║ -->
+            <!-- ╚══════════════════════════════════════════════════════════╝ -->
+            <com.google.android.material.button.MaterialButton
+                android:tag="btn_add_sticker"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:text="🎵 Add Sticker (Music · Countdown · Quiz · Question)"
+                app:cornerRadius="14dp"
+                android:textSize="13sp"
+                android:layout_marginBottom="16dp"
+                app:strokeColor="@color/brand_primary"
+                app:strokeWidth="1.5dp"/>
+
+            <!-- ── Media preview (wrapped in sticker overlay FrameLayout) ── -->
+            <!--
+                sticker_overlay_frame: Interactive sticker cards (Music, Countdown,
+                Quiz, Question) are injected as child views on top of the preview.
+                The host Activity finds this FrameLayout by tag and adds overlays to it.
+            -->
             <FrameLayout
+                android:tag="sticker_overlay_frame"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="12dp"
-                android:visibility="gone"
                 android:id="@+id/media_preview_frame">
 
+                <!-- Actual media preview image -->
                 <ImageView
                     android:id="@+id/iv_preview"
                     android:layout_width="match_parent"
                     android:layout_height="240dp"
                     android:scaleType="centerCrop"
+                    android:visibility="gone"
                     android:background="@drawable/card_rounded"/>
 
+                <!-- Video play-hint icon -->
                 <ImageView
                     android:id="@+id/iv_video_hint"
                     android:layout_width="56dp"
@@ -412,6 +435,7 @@
                     android:tint="@color/white"
                     android:visibility="gone"/>
 
+                <!-- Discard media button -->
                 <ImageButton
                     android:id="@+id/btn_discard_media"
                     android:layout_width="36dp"
@@ -422,7 +446,10 @@
                     android:tint="@color/white"
                     android:background="@drawable/circle_avatar_bg"
                     android:padding="6dp"
+                    android:visibility="gone"
                     android:contentDescription="Discard media"/>
+
+                <!-- Sticker overlays are added here programmatically by NewStatusActivity -->
 
             </FrameLayout>
 
