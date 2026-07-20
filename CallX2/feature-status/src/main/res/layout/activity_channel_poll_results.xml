@@ -1,0 +1,191 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- activity_channel_poll_results.xml — detailed poll results with voter breakdown -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="#FFFFFF">
+
+    <com.google.android.material.appbar.MaterialToolbar
+        android:id="@+id/toolbar_poll_results"
+        android:layout_width="match_parent"
+        android:layout_height="?attr/actionBarSize"
+        android:background="#FFFFFF"
+        android:elevation="2dp"
+        app:titleTextColor="#111111"
+        app:navigationIconTint="#111111"/>
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingBottom="24dp">
+
+            <!-- Poll question + badges -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp"
+                android:background="#F3FFF8">
+
+                <TextView
+                    android:id="@+id/tv_poll_question"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textSize="17sp"
+                    android:textStyle="bold"
+                    android:textColor="#111111"
+                    android:lineSpacingMultiplier="1.3"/>
+
+                <!-- Multi-select badge -->
+                <TextView
+                    android:id="@+id/tv_poll_multi_badge"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Multiple choices allowed"
+                    android:textSize="12sp"
+                    android:textColor="#25D366"
+                    android:layout_marginTop="4dp"
+                    android:visibility="gone"/>
+
+                <!-- Expiry -->
+                <TextView
+                    android:id="@+id/tv_poll_expiry"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textSize="12sp"
+                    android:textColor="#FF9800"
+                    android:layout_marginTop="4dp"
+                    android:visibility="gone"/>
+            </LinearLayout>
+
+            <!-- Summary row -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:padding="16dp"
+                android:gravity="center_vertical">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:gravity="center">
+
+                    <TextView
+                        android:id="@+id/tv_poll_total_votes"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textSize="20sp"
+                        android:textStyle="bold"
+                        android:textColor="#25D366"/>
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Votes cast"
+                        android:textSize="12sp"
+                        android:textColor="#888888"/>
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:gravity="center">
+
+                    <TextView
+                        android:id="@+id/tv_poll_participation"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textSize="20sp"
+                        android:textStyle="bold"
+                        android:textColor="#2196F3"/>
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Participants"
+                        android:textSize="12sp"
+                        android:textColor="#888888"/>
+                </LinearLayout>
+            </LinearLayout>
+
+            <View android:layout_width="match_parent" android:layout_height="1dp"
+                android:background="#EEEEEE" android:layout_marginHorizontal="16dp"/>
+
+            <!-- Options results list -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="RESULTS BY OPTION"
+                android:textSize="11sp"
+                android:textStyle="bold"
+                android:textColor="#888888"
+                android:letterSpacing="0.1"
+                android:layout_marginStart="16dp"
+                android:layout_marginTop="16dp"
+                android:layout_marginBottom="8dp"/>
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/rv_poll_options"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:nestedScrollingEnabled="false"
+                android:paddingHorizontal="16dp"/>
+
+            <!-- Voter detail panel (shown when an option is tapped) -->
+            <LinearLayout
+                android:id="@+id/layout_voter_panel"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:layout_marginTop="16dp"
+                android:visibility="gone">
+
+                <View android:layout_width="match_parent" android:layout_height="1dp"
+                    android:background="#EEEEEE"/>
+
+                <TextView
+                    android:id="@+id/tv_voter_panel_title"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:textColor="#111111"
+                    android:padding="16dp"/>
+
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/rv_voter_detail"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:nestedScrollingEnabled="false"
+                    android:maxHeight="240dp"/>
+            </LinearLayout>
+
+            <!-- Export button (admin only) -->
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_export_results"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_horizontal"
+                android:layout_marginTop="24dp"
+                android:text="Export results"
+                android:textColor="#25D366"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:visibility="gone"/>
+
+        </LinearLayout>
+    </ScrollView>
+
+</LinearLayout>

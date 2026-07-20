@@ -2,72 +2,78 @@
 <menu xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto">
 
-    <!-- Search (icon in toolbar) -->
+    <!-- Search within channel -->
     <item
-        android:id="@+id/action_search_posts"
-        android:title="Search posts"
-        android:icon="@android:drawable/ic_menu_search"
+        android:id="@+id/action_channel_search"
+        android:title="Search"
+        android:icon="@drawable/ic_search"
         app:showAsAction="ifRoom"
         app:actionViewClass="androidx.appcompat.widget.SearchView"/>
 
-    <!-- ─── Overflow menu ─────────────────────────────────────── -->
-
-    <!-- Mute / Unmute (title toggled in code) -->
+    <!-- Notification mute -->
     <item
-        android:id="@+id/action_mute_channel"
+        android:id="@+id/action_channel_mute"
         android:title="Mute notifications"
         app:showAsAction="never"/>
 
-    <!-- Notification settings (full page) -->
+    <!-- Saved posts -->
     <item
-        android:id="@+id/action_notification_settings"
+        android:id="@+id/action_channel_highlights"
+        android:title="Saved posts"
+        app:showAsAction="never"/>
+
+    <!-- Notification settings -->
+    <item
+        android:id="@+id/action_channel_notif_settings"
         android:title="Notification settings"
         app:showAsAction="never"/>
 
-    <!-- Channel info bottom sheet -->
+    <!-- Admin-only: Edit channel -->
     <item
-        android:id="@+id/action_channel_info"
-        android:title="Channel info"
-        app:showAsAction="never"/>
-
-    <!-- Share channel link (or invite link for private) -->
-    <item
-        android:id="@+id/action_share_channel"
-        android:title="Share channel"
-        app:showAsAction="never"/>
-
-    <!-- ─── Admin-only items (hidden for followers) ───────────── -->
-
-    <!-- Edit channel: name / desc / icon / category / privacy -->
-    <item
-        android:id="@+id/action_edit_channel"
+        android:id="@+id/action_channel_edit"
         android:title="Edit channel"
         app:showAsAction="never"/>
 
-    <!-- Admin panel: add/remove admins, transfer ownership -->
+    <!-- Admin-only: Admin panel -->
     <item
-        android:id="@+id/action_admin_panel"
-        android:title="Manage admins"
+        android:id="@+id/action_channel_admin"
+        android:title="Admin panel"
         app:showAsAction="never"/>
 
-    <!-- Analytics dashboard -->
+    <!-- Admin-only: Analytics -->
     <item
-        android:id="@+id/action_analytics"
-        android:title="Channel analytics"
+        android:id="@+id/action_channel_analytics"
+        android:title="Analytics"
         app:showAsAction="never"/>
 
-    <!-- ─── Follower-only items (hidden for admins) ───────────── -->
-
-    <!-- Unfollow (not shown to owner/admins) -->
+    <!-- Admin-only: Scheduled posts -->
     <item
-        android:id="@+id/action_unfollow_channel"
-        android:title="Unfollow"
+        android:id="@+id/action_channel_scheduled"
+        android:title="Scheduled posts"
         app:showAsAction="never"/>
 
-    <!-- Report channel -->
+    <!-- Admin-only: Broadcast -->
     <item
-        android:id="@+id/action_report_channel"
+        android:id="@+id/action_channel_broadcast"
+        android:title="Broadcast to followers"
+        app:showAsAction="never"/>
+
+    <!-- Follower: Unfollow -->
+    <item
+        android:id="@+id/action_channel_unfollow"
+        android:title="Unfollow channel"
+        app:showAsAction="never"/>
+
+    <!-- Follower: Report -->
+    <item
+        android:id="@+id/action_channel_report"
         android:title="Report channel"
+        app:showAsAction="never"/>
+
+    <!-- Share channel link -->
+    <item
+        android:id="@+id/action_channel_share"
+        android:title="Share channel"
         app:showAsAction="never"/>
 
 </menu>

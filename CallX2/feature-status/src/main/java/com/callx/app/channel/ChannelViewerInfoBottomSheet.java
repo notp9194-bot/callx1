@@ -1,68 +1,68 @@
 package com.callx.app.channel;
 
 import android.content.Intent;
+import android.graphics.Bitmap;
 import android.os.Bundle;
 import android.view.*;
 import android.widget.*;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-import com.bumptech.glide.Glide;
-import com.callx.app.db.entity.ChannelEntity;
 import com.callx.app.status.R;
+import com.callx.app.viewmodel.ChannelViewModel;
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment;
-import de.hdodenhof.circleimageview.CircleImageView;
+import com.google.android.material.button.MaterialButton;
+import com.google.zxing.BarcodeFormat;
+import com.google.zxing.WriterException;
+import com.journeyapps.barcodescanner.BarcodeEncoder;
+import androidx.lifecycle.ViewModelStoreOwner;
+import androidx.lifecycle.ViewModelProvider;
 
 /**
- * ChannelViewerInfoBottomSheet — shows channel info when tapping the header
- * in ChannelViewerActivity. WhatsApp-style info sheet.
+ * ChannelViewerInfoBottomSheet — bottom sheet showing channel info + action buttons (v5).
  *
- * Shows:
- *   - Channel icon (large), name, verified badge
- *   - Description
- *   - Follower count
- *   - Category
- *   - Created date
- *   - Owner info
- *   - Privacy (public/private)
- *   - Action buttons: Share, Mute/Unmute (callback to activity)
+ * v5 additions:
+ *   ✓ NEW: QR code button — generates and shows the channel QR code inline
+ *   ✓ NEW: Share channel button — opens Android share sheet with invite link
+ *   ✓ Existing actions: follow/unfollow, mute, notification settings, report
  */
 public class ChannelViewerInfoBottomSheet extends BottomSheetDialogFragment {
 
     public static final String TAG = "ChannelViewerInfo";
-    private static final String ARG_CHANNEL = "channelJson";
 
-    // Pass as extras on the Bundle for simplicity
-    private static final String ARG_ID          = "id";
-    private static final String ARG_NAME        = "name";
-    private static final String ARG_DESC        = "desc";
-    private static final String ARG_ICON        = "icon";
-    private static final String ARG_FOLLOWERS   = "followers";
-    private static final String ARG_VERIFIED    = "verified";
-    private static final String ARG_CATEGORY    = "category";
-    private static final String ARG_CREATED_AT  = "createdAt";
-    private static final String ARG_IS_PRIVATE  = "isPrivate";
-    private static final String ARG_TOTAL_POSTS = "totalPosts";
+    private static final String ARG_CHANNEL_ID      = "channelId";
+    private static final String ARG_CHANNEL_NAME    = "channelName";
+    private static final String ARG_CHANNEL_DESC    = "channelDesc";
+    private static final String ARG_CHANNEL_INVITE  = "inviteLink";
+    private static final String ARG_FOLLOWER_COUNT  = "followerCount";
+    private static final String ARG_IS_FOLLOWING    = "isFollowing";
+    private static final String ARG_IS_MUTED        = "isMuted";
+    private static final String ARG_IS_ADMIN        = "isAdmin";
+    private static final int    QR_SIZE             = 400;
 
-    public static ChannelViewerInfoBottomSheet newInstance(ChannelEntity ch) {
+    private ChannelViewModel viewModel;
+    private String channelId, channelName, channelDesc, inviteLink;
+    private long   followerCount;
+    private boolean isFollowing, isMuted, isAdmin;
+
+    public static ChannelViewerInfoBottomSheet newInstance(String channelId, String channelName,
+            String channelDesc, String inviteLink, long followerCount,
+            boolean isFollowing, boolean isMuted, boolean isAdmin) {
         ChannelViewerInfoBottomSheet sheet = new ChannelViewerInfoBottomSheet();
         Bundle args = new Bundle();
-        args.putString(ARG_ID,        ch.id);
-        args.putString(ARG_NAME,      ch.name != null ? ch.name : "");
-        args.putString(ARG_DESC,      ch.description != null ? ch.description : "");
-        args.putString(ARG_ICON,      ch.iconUrl != null ? ch.iconUrl : "");
-        args.putLong  (ARG_FOLLOWERS, ch.followers);
-        args.putBoolean(ARG_VERIFIED, ch.verified);
-        args.putString(ARG_CATEGORY,  ch.category != null ? ch.category : "General");
-        args.putLong  (ARG_CREATED_AT,ch.createdAt);
-        args.putBoolean(ARG_IS_PRIVATE, ch.isPrivate);
-        args.putLong  (ARG_TOTAL_POSTS, ch.totalPosts);
+        args.putString(ARG_CHANNEL_ID,     channelId);
+        args.putString(ARG_CHANNEL_NAME,   channelName);
+        args.putString(ARG_CHANNEL_DESC,   channelDesc);
+        args.putString(ARG_CHANNEL_INVITE, inviteLink);
+        args.putLong(  ARG_FOLLOWER_COUNT, followerCount);
+        args.putBoolean(ARG_IS_FOLLOWING,  isFollowing);
+        args.putBoolean(ARG_IS_MUTED,      isMuted);
+        args.putBoolean(ARG_IS_ADMIN,      isAdmin);
         sheet.setArguments(args);
         return sheet;
     }
 
     @Nullable @Override
-    public View onCreateView(@NonNull LayoutInflater inflater,
-                             @Nullable ViewGroup container,
+    public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container,
                              @Nullable Bundle savedInstanceState) {
         return inflater.inflate(R.layout.bottom_sheet_channel_viewer_info, container, false);
     }
@@ -70,67 +70,116 @@ public class ChannelViewerInfoBottomSheet extends BottomSheetDialogFragment {
     @Override
     public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
-        if (getArguments() == null) return;
 
-        Bundle a = getArguments();
-        String channelId  = a.getString(ARG_ID, "");
-        String name       = a.getString(ARG_NAME, "");
-        String desc       = a.getString(ARG_DESC, "");
-        String iconUrl    = a.getString(ARG_ICON, "");
-        long followers    = a.getLong(ARG_FOLLOWERS, 0);
-        boolean verified  = a.getBoolean(ARG_VERIFIED, false);
-        String category   = a.getString(ARG_CATEGORY, "General");
-        long createdAt    = a.getLong(ARG_CREATED_AT, 0);
-        boolean isPrivate = a.getBoolean(ARG_IS_PRIVATE, false);
-        long totalPosts   = a.getLong(ARG_TOTAL_POSTS, 0);
+        Bundle args = getArguments();
+        if (args == null) { dismiss(); return; }
 
-        CircleImageView ivIcon = view.findViewById(R.id.iv_channel_info_icon);
-        if (ivIcon != null && !iconUrl.isEmpty()) {
-            Glide.with(this).load(iconUrl).circleCrop().override(160, 160).into(ivIcon);
-        }
+        channelId     = args.getString(ARG_CHANNEL_ID);
+        channelName   = args.getString(ARG_CHANNEL_NAME);
+        channelDesc   = args.getString(ARG_CHANNEL_DESC);
+        inviteLink    = args.getString(ARG_CHANNEL_INVITE);
+        followerCount = args.getLong(ARG_FOLLOWER_COUNT);
+        isFollowing   = args.getBoolean(ARG_IS_FOLLOWING);
+        isMuted       = args.getBoolean(ARG_IS_MUTED);
+        isAdmin       = args.getBoolean(ARG_IS_ADMIN);
 
-        setText(view, R.id.tv_channel_info_name, name);
+        viewModel = new ViewModelProvider((ViewModelStoreOwner) requireActivity())
+            .get(ChannelViewModel.class);
 
-        TextView tvVerified = view.findViewById(R.id.tv_channel_info_verified);
-        if (tvVerified != null) tvVerified.setVisibility(verified ? View.VISIBLE : View.GONE);
+        // Info labels
+        TextView tvName = view.findViewById(R.id.tv_info_channel_name);
+        TextView tvDesc = view.findViewById(R.id.tv_info_channel_desc);
+        TextView tvFollowers = view.findViewById(R.id.tv_info_follower_count);
+        if (tvName      != null) tvName.setText(channelName != null ? channelName : "");
+        if (tvDesc      != null) tvDesc.setText(channelDesc != null ? channelDesc : "No description.");
+        if (tvFollowers != null) tvFollowers.setText(formatCompact(followerCount) + " followers");
 
-        setText(view, R.id.tv_channel_info_desc,
-            desc.isEmpty() ? "No description provided." : desc);
-
-        setText(view, R.id.tv_channel_info_followers, formatFollowers(followers) + " followers");
-        setText(view, R.id.tv_channel_info_category, category);
-        setText(view, R.id.tv_channel_info_privacy, isPrivate ? "Private channel" : "Public channel");
-        setText(view, R.id.tv_channel_info_posts, totalPosts + " posts");
-
-        if (createdAt > 0) {
-            java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("MMMM yyyy",
-                java.util.Locale.getDefault());
-            setText(view, R.id.tv_channel_info_created, "Created " + sdf.format(new java.util.Date(createdAt)));
-        }
-
-        // Share button
-        Button btnShare = view.findViewById(R.id.btn_channel_info_share);
-        if (btnShare != null) {
-            btnShare.setOnClickListener(v -> {
-                String link = "https://callx.app/channel/" + channelId;
-                Intent share = new Intent(Intent.ACTION_SEND);
-                share.setType("text/plain");
-                share.putExtra(Intent.EXTRA_TEXT, "Follow " + name + " on CallX: " + link);
-                startActivity(Intent.createChooser(share, "Share channel"));
+        // Follow / Unfollow button
+        MaterialButton btnFollow = view.findViewById(R.id.btn_info_follow);
+        if (btnFollow != null) {
+            btnFollow.setText(isFollowing ? "Unfollow" : "Follow");
+            btnFollow.setOnClickListener(v -> {
+                viewModel.getChannel(channelId).observe(getViewLifecycleOwner(), ch -> {
+                    if (ch == null) return;
+                    if (isFollowing) { viewModel.unfollowChannel(ch); btnFollow.setText("Follow"); }
+                    else             { viewModel.followChannel(ch);   btnFollow.setText("Unfollow"); }
+                    isFollowing = !isFollowing;
+                });
             });
         }
 
-        // Close button
-        Button btnClose = view.findViewById(R.id.btn_channel_info_close);
-        if (btnClose != null) btnClose.setOnClickListener(v -> dismiss());
+        // Mute button
+        MaterialButton btnMute = view.findViewById(R.id.btn_info_mute);
+        if (btnMute != null) {
+            btnMute.setText(isMuted ? "Unmute" : "Mute");
+            btnMute.setOnClickListener(v -> {
+                viewModel.getChannel(channelId).observe(getViewLifecycleOwner(), ch -> {
+                    if (ch == null) return;
+                    if (isMuted) { viewModel.unmuteChannel(ch);            btnMute.setText("Mute"); }
+                    else         { viewModel.muteChannel(ch, 0); btnMute.setText("Unmute"); }
+                    isMuted = !isMuted;
+                });
+            });
+        }
+
+        // Notifications button
+        MaterialButton btnNotif = view.findViewById(R.id.btn_info_notifications);
+        if (btnNotif != null) {
+            btnNotif.setOnClickListener(v -> {
+                Intent i = new Intent(requireContext(), ChannelNotificationSettingsActivity.class);
+                i.putExtra(ChannelNotificationSettingsActivity.EXTRA_CHANNEL_ID,   channelId);
+                i.putExtra(ChannelNotificationSettingsActivity.EXTRA_CHANNEL_NAME, channelName);
+                startActivity(i);
+                dismiss();
+            });
+        }
+
+        // ── NEW: QR Code button ─────────────────────────────────────────
+        MaterialButton btnQr = view.findViewById(R.id.btn_info_qr_code);
+        ImageView ivQr       = view.findViewById(R.id.iv_info_qr_code);
+        if (btnQr != null) {
+            btnQr.setOnClickListener(v -> {
+                String linkForQr = inviteLink != null && !inviteLink.isEmpty()
+                    ? inviteLink : "https://callx.app/channel/" + channelId;
+                if (ivQr != null) {
+                    if (ivQr.getVisibility() == View.VISIBLE) {
+                        ivQr.setVisibility(View.GONE);
+                        btnQr.setText("Show QR code");
+                    } else {
+                        try {
+                            BarcodeEncoder encoder = new BarcodeEncoder();
+                            Bitmap bmp = encoder.encodeBitmap(linkForQr, BarcodeFormat.QR_CODE, QR_SIZE, QR_SIZE);
+                            ivQr.setImageBitmap(bmp);
+                            ivQr.setVisibility(View.VISIBLE);
+                            btnQr.setText("Hide QR code");
+                        } catch (WriterException e) {
+                            Toast.makeText(requireContext(), "Could not generate QR.", Toast.LENGTH_SHORT).show();
+                        }
+                    }
+                }
+            });
+        }
+
+        // ── NEW: Share channel button ───────────────────────────────────
+        MaterialButton btnShare = view.findViewById(R.id.btn_info_share_channel);
+        if (btnShare != null) {
+            btnShare.setOnClickListener(v -> {
+                ChannelShareHelper.shareChannelViaAndroid(requireContext(), channelId, channelName, inviteLink);
+                dismiss();
+            });
+        }
+
+        // Report button
+        MaterialButton btnReport = view.findViewById(R.id.btn_info_report);
+        if (btnReport != null) {
+            btnReport.setOnClickListener(v -> {
+                viewModel.reportChannel(channelId);
+                dismiss();
+            });
+        }
     }
 
-    private void setText(View root, int id, String text) {
-        TextView tv = root.findViewById(id);
-        if (tv != null) tv.setText(text);
-    }
-
-    private String formatFollowers(long n) {
+    private String formatCompact(long n) {
         if (n >= 1_000_000L) return String.format("%.1fM", n / 1_000_000.0);
         if (n >= 1_000L)     return String.format("%.1fK", n / 1_000.0);
         return String.valueOf(n);

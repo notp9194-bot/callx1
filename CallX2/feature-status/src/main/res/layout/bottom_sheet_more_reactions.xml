@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Extended emoji reaction picker bottom sheet -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@android:color/white"
+    android:paddingTop="8dp"
+    android:paddingBottom="16dp">
+
+    <!-- Handle -->
+    <View
+        android:layout_width="40dp"
+        android:layout_height="4dp"
+        android:layout_gravity="center_horizontal"
+        android:background="@drawable/bg_drag_handle"
+        android:layout_marginBottom="12dp"/>
+
+    <!-- Title -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="React"
+        android:textSize="15sp"
+        android:textStyle="bold"
+        android:textColor="#111111"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginBottom="12dp"/>
+
+    <!-- Quick 6 reaction row -->
+    <LinearLayout
+        android:id="@+id/layout_reactions_row"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:orientation="horizontal"
+        android:gravity="center"
+        android:paddingHorizontal="8dp"/>
+
+    <!-- Divider -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="#F0F0F0"
+        android:layout_marginVertical="8dp"
+        android:layout_marginHorizontal="16dp"/>
+
+    <!-- Extended emoji grid (3 rows × 8 cols = 24 more emojis) -->
+    <com.google.android.material.chip.ChipGroup
+        android:id="@+id/chip_group_more_emojis"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingHorizontal="12dp"/>
+
+</LinearLayout>

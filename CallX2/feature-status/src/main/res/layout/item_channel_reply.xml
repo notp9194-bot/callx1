@@ -1,25 +1,35 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  item_channel_reply.xml — WhatsApp-level v4 reply item.
+  Added: quote-reply bubble, delete button, emoji reaction strip.
+-->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="horizontal"
-    android:paddingHorizontal="14dp"
-    android:paddingVertical="8dp"
+    android:paddingStart="10dp"
+    android:paddingEnd="4dp"
+    android:paddingTop="8dp"
+    android:paddingBottom="4dp"
     android:background="@android:color/white">
 
+    <!-- Author avatar -->
     <de.hdodenhof.circleimageview.CircleImageView
         android:id="@+id/iv_reply_author_icon"
-        android:layout_width="32dp"
-        android:layout_height="32dp"
+        android:layout_width="34dp"
+        android:layout_height="34dp"
         android:src="@drawable/bg_channel_avatar_default"
-        android:layout_marginEnd="10dp"/>
+        android:layout_marginEnd="10dp"
+        android:layout_marginTop="2dp"/>
 
+    <!-- Content column -->
     <LinearLayout
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_weight="1"
         android:orientation="vertical">
 
+        <!-- Name + time row -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -39,25 +49,92 @@
                 android:id="@+id/tv_reply_time"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:textSize="11sp"
-                android:textColor="#AAAAAA"/>
+                android:textSize="10sp"
+                android:textColor="#AAAAAA"
+                android:layout_marginEnd="4dp"/>
+
+            <!-- Delete button (own reply or admin) -->
+            <ImageButton
+                android:id="@+id/btn_reply_delete"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:src="@android:drawable/ic_menu_delete"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:tint="#CCCCCC"
+                android:contentDescription="Delete comment"
+                android:visibility="gone"/>
         </LinearLayout>
 
+        <!-- Quote-reply bubble (shown if this reply quotes another) -->
+        <LinearLayout
+            android:id="@+id/layout_reply_quote"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:background="#F5F5F5"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:paddingTop="5dp"
+            android:paddingBottom="5dp"
+            android:layout_marginTop="4dp"
+            android:layout_marginBottom="2dp"
+            android:visibility="gone">
+
+            <View
+                android:layout_width="2dp"
+                android:layout_height="match_parent"
+                android:minHeight="20dp"
+                android:background="#25D366"
+                android:layout_marginEnd="6dp"/>
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/tv_reply_quoted_author"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textSize="11sp"
+                    android:textStyle="bold"
+                    android:textColor="#25D366"/>
+
+                <TextView
+                    android:id="@+id/tv_reply_quoted_text"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textSize="12sp"
+                    android:textColor="#666666"
+                    android:maxLines="1"
+                    android:ellipsize="end"/>
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- Reply text -->
         <TextView
             android:id="@+id/tv_reply_text"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:textSize="14sp"
             android:textColor="#111111"
-            android:layout_marginTop="2dp"/>
+            android:lineSpacingMultiplier="1.25"
+            android:layout_marginTop="3dp"/>
 
+        <!-- Reactions summary bubbles -->
         <TextView
             android:id="@+id/tv_reply_reactions"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:textSize="13sp"
+            android:background="#F0F0F0"
+            android:paddingHorizontal="8dp"
+            android:paddingVertical="3dp"
             android:layout_marginTop="4dp"
+            android:layout_marginBottom="2dp"
             android:visibility="gone"/>
+
     </LinearLayout>
 
 </LinearLayout>

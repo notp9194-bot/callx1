@@ -198,6 +198,10 @@ public class CallxApp extends Application {
         // ✅ FIX: Trending Sound worker was built but never scheduled anywhere,
         // so it never actually ran. Enqueue it here alongside the other workers.
         com.callx.app.workers.TrendingSoundWorker.scheduleIfNeeded(this);
+        // ✅ Channel scheduled posts: auto-publish overdue posts every 15 min.
+        // Must run at startup so posts scheduled before the last app kill are
+        // published promptly — not just when the user opens the composer.
+        com.callx.app.channel.ChannelScheduledPostWorker.schedulePeriodicWork(this);
 
         // Activity lifecycle + AppLock wiring — must be main thread
         com.callx.app.utils.PresenceManager.getInstance().init(this);
@@ -539,6 +543,11 @@ public class CallxApp extends Application {
         makeChannel(nm, Constants.CHANNEL_STATUS_BG_SERVICE, "Status Sync Service",
             NotificationManager.IMPORTANCE_MIN, false, false, null,
             android.app.Notification.VISIBILITY_SECRET, false);
+
+        // ── Channel post notifications ─────────────────────────────────────
+        makeChannel(nm, "channel_posts", "Channel Updates",
+            NotificationManager.IMPORTANCE_DEFAULT, false, false, null,
+            android.app.Notification.VISIBILITY_PUBLIC, true);
     }
 
     @Override

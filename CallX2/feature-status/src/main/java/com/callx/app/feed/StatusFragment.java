@@ -230,6 +230,36 @@ public class StatusFragment extends BaseFragment {
                 new CreateChannelInfoSheet()
                     .show(getParentFragmentManager(), CreateChannelInfoSheet.TAG);
         };
+
+        // ── Mute / Unmute / Notification Settings (long-press menu callbacks) ─
+        channelAdapter.onMuteClick = ch -> {
+            if (getContext() == null) return;
+            String[] options = {"For 8 hours", "For 1 week", "Always"};
+            new androidx.appcompat.app.AlertDialog.Builder(requireContext())
+                .setTitle("Mute " + (ch.name != null ? ch.name : "channel") + " notifications")
+                .setItems(options, (d, which) -> {
+                    long until;
+                    if      (which == 0) until = System.currentTimeMillis() + 8L  * 3_600_000L;
+                    else if (which == 1) until = System.currentTimeMillis() + 7L * 24L * 3_600_000L;
+                    else                 until = 0L; // permanent
+                    channelViewModel.muteChannel(ch, until);
+                })
+                .show();
+        };
+
+        channelAdapter.onUnmuteClick = ch -> {
+            if (ch != null) channelViewModel.unmuteChannel(ch);
+        };
+
+        channelAdapter.onNotifSettingsClick = ch -> {
+            if (getContext() != null && ch != null) {
+                Intent i = new Intent(requireContext(),
+                    com.callx.app.channel.ChannelNotificationSettingsActivity.class);
+                i.putExtra(com.callx.app.channel.ChannelNotificationSettingsActivity.EXTRA_CHANNEL_ID,   ch.id);
+                i.putExtra(com.callx.app.channel.ChannelNotificationSettingsActivity.EXTRA_CHANNEL_NAME, ch.name);
+                startActivity(i);
+            }
+        };
     }
 
     // ── Status legacy section (unchanged — Firebase listeners) ────────────

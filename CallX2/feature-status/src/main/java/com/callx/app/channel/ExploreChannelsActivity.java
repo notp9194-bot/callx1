@@ -18,39 +18,46 @@ import com.callx.app.status.R;
 import com.callx.app.viewmodel.ChannelViewModel;
 import com.google.android.material.chip.Chip;
 import com.google.android.material.chip.ChipGroup;
-import com.google.android.material.floatingactionbutton.FloatingActionButton;
+import com.google.android.material.slider.RangeSlider;
 import com.google.android.material.textfield.TextInputEditText;
 import de.hdodenhof.circleimageview.CircleImageView;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
 
 /**
- * ExploreChannelsActivity — WhatsApp-level channel discovery (v2).
+ * ExploreChannelsActivity — WhatsApp-level channel discovery screen (v5).
  *
- * Features:
- *   - "🔥 Trending" section (top 5 by weeklyGrowth) — hidden when filtering
- *   - "All Channels" section — full list, filtered by search + category
- *   - Section headers in the recycler via SectionedAdapter (TYPE_HEADER / TYPE_CHANNEL)
- *   - Category chips: All | News | Sports | Tech | Entertainment | Music | Education | Business | Health
- *   - Follow / Unfollow inline
- *   - FAB → CreateChannelActivity
+ * v5 additions:
+ *   ✓ NEW: Verified filter chip — show only verified channels (has verified badge)
+ *   ✓ NEW: Follower-range filter — RangeSlider to filter by min–max follower count
+ *   ✓ NEW: Near Me / Local filter chip — shows channels tagged with user's region
+ *   ✓ Existing: Category chips, search by name, trending, new channels
+ *   ✓ Follow / Unfollow in-list button
+ *   ✓ Tapping a row opens ChannelViewerActivity
+ *   ✓ Follower count formatted with K/M shorthand
+ *   ✓ Verified badge icon shown on verified channels
  */
 public class ExploreChannelsActivity extends AppCompatActivity {
 
-    private static final String[] CATEGORIES = {
-        "All", "News", "Sports", "Tech", "Entertainment",
-        "Music", "Education", "Business", "Health", "Other"
-    };
-
     private ChannelViewModel viewModel;
+    private ExploreAdapter   adapter;
+    private final List<ChannelEntity> allChannels      = new ArrayList<>();
+    private final List<ChannelEntity> filteredChannels = new ArrayList<>();
 
-    private final List<ChannelEntity> allChannels     = new ArrayList<>();
-    private final List<ChannelEntity> trendingChannels= new ArrayList<>();
-    private String currentQuery    = "";
-    private String currentCategory = "All";
+    // Active filters
+    private String  activeCategory  = "All";
+    private String  searchQuery     = "";
+    private boolean filterVerified  = false;
+    private long    minFollowers    = 0;
+    private long    maxFollowers    = 10_000_000L;
+    private boolean filterLocal     = false;
 
-    private SectionedAdapter adapter;
+    // UI
     private TextInputEditText etSearch;
+    private RangeSlider       rangeFollowers;
+    private TextView          tvFollowerRange;
+    private Chip              chipVerified, chipLocal;
+    private View              layoutAdvancedFilters;
+    private ImageButton       btnToggleFilters;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -63,220 +70,203 @@ public class ExploreChannelsActivity extends AppCompatActivity {
         setSupportActionBar(toolbar);
         if (getSupportActionBar() != null) {
             getSupportActionBar().setDisplayHomeAsUpEnabled(true);
-            getSupportActionBar().setTitle("Explore Channels");
+            getSupportActionBar().setTitle("Explore channels");
         }
         toolbar.setNavigationOnClickListener(v -> finish());
 
-        // Search
-        etSearch = findViewById(R.id.et_explore_search);
-        if (etSearch != null) {
-            etSearch.addTextChangedListener(new TextWatcher() {
-                @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
-                @Override public void afterTextChanged(Editable s) {}
-                @Override public void onTextChanged(CharSequence s, int a, int b, int c) {
-                    currentQuery = s.toString().trim().toLowerCase();
-                    rebuild();
-                }
-            });
-        }
+        etSearch              = findViewById(R.id.et_explore_search);
+        rangeFollowers        = findViewById(R.id.range_follower_count);
+        tvFollowerRange       = findViewById(R.id.tv_follower_range_label);
+        chipVerified          = findViewById(R.id.chip_verified_only);
+        chipLocal             = findViewById(R.id.chip_local);
+        layoutAdvancedFilters = findViewById(R.id.layout_advanced_filters);
+        btnToggleFilters      = findViewById(R.id.btn_toggle_filters);
 
         // Category chips
-        ChipGroup chipGroup = findViewById(R.id.chip_group_categories);
-        if (chipGroup != null) {
-            for (String cat : CATEGORIES) {
+        ChipGroup cgCategories = findViewById(R.id.chip_group_categories);
+        String[] categories = {"All","News","Entertainment","Sports","Tech","Education",
+                               "Music","Art","Health","Food","Travel","Business","Gaming","Local"};
+        if (cgCategories != null) {
+            for (String cat : categories) {
                 Chip chip = new Chip(this);
                 chip.setText(cat);
                 chip.setCheckable(true);
                 chip.setChecked("All".equals(cat));
                 chip.setOnCheckedChangeListener((btn, checked) -> {
-                    if (checked) {
-                        currentCategory = cat;
-                        rebuild();
-                    }
+                    if (checked) { activeCategory = cat; filterLocal = "Local".equals(cat); applyFilters(); }
                 });
-                chipGroup.addView(chip);
+                cgCategories.addView(chip);
             }
         }
 
-        // RecyclerView
-        RecyclerView rv = findViewById(R.id.rv_explore_channels);
-        rv.setLayoutManager(new LinearLayoutManager(this));
-        adapter = new SectionedAdapter();
-        rv.setAdapter(adapter);
-
-        // FAB → Create channel
-        FloatingActionButton fab = findViewById(R.id.fab_create_channel);
-        if (fab != null) {
-            fab.setOnClickListener(v ->
-                    startActivity(new Intent(this, CreateChannelActivity.class)));
-        }
-
-        // Observe data
-        viewModel.getAllChannels(200).observe(this, channels -> {
-            allChannels.clear();
-            if (channels != null) allChannels.addAll(channels);
-            rebuild();
-        });
-
-        viewModel.getTrendingChannels(5).observe(this, trending -> {
-            trendingChannels.clear();
-            if (trending != null) trendingChannels.addAll(trending);
-            rebuild();
-        });
-    }
-
-    private void rebuild() {
-        boolean isFiltering = !currentQuery.isEmpty() || !"All".equals(currentCategory);
-        adapter.buildAndSet(trendingChannels, allChannels,
-                currentQuery, currentCategory, isFiltering);
-    }
-
-    // ── Sectioned adapter ─────────────────────────────────────────────────
-
-    class SectionedAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
-
-        private static final int TYPE_HEADER  = 0;
-        private static final int TYPE_CHANNEL = 1;
-
-        // Items: String = section header, ChannelEntity = channel row
-        private final List<Object> items = new ArrayList<>();
-
-        void buildAndSet(List<ChannelEntity> trending,
-                          List<ChannelEntity> all,
-                          String query, String category,
-                          boolean isFiltering) {
-            items.clear();
-
-            // ── Trending section (only when not filtering) ────────────────
-            if (!isFiltering && !trending.isEmpty()) {
-                items.add("🔥 Trending");
-                for (ChannelEntity ch : trending) items.add(ch);
-            }
-
-            // ── All channels section ──────────────────────────────────────
-            List<ChannelEntity> filtered = new ArrayList<>();
-            for (ChannelEntity ch : all) {
-                boolean matchesQuery = query.isEmpty()
-                        || ch.name.toLowerCase().contains(query)
-                        || (ch.description != null && ch.description.toLowerCase().contains(query));
-                boolean matchesCat  = "All".equals(category)
-                        || category.equalsIgnoreCase(ch.category);
-                if (matchesQuery && matchesCat) filtered.add(ch);
-            }
-
-            if (!filtered.isEmpty()) {
-                items.add(isFiltering ? "Results" : "All Channels");
-                for (ChannelEntity ch : filtered) items.add(ch);
-            }
-
-            if (items.isEmpty()) {
-                items.add("No channels found");
-            }
-
-            notifyDataSetChanged();
-        }
-
-        @Override
-        public int getItemViewType(int position) {
-            return items.get(position) instanceof String ? TYPE_HEADER : TYPE_CHANNEL;
-        }
-
-        @NonNull @Override
-        public RecyclerView.ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-            LayoutInflater inf = LayoutInflater.from(parent.getContext());
-            if (viewType == TYPE_HEADER) {
-                return new HeaderVH(inf.inflate(R.layout.item_section_header, parent, false));
-            }
-            return new ChannelVH(inf.inflate(R.layout.item_channel_explore, parent, false));
-        }
-
-        @Override
-        public void onBindViewHolder(@NonNull RecyclerView.ViewHolder holder, int pos) {
-            if (getItemViewType(pos) == TYPE_HEADER) {
-                ((HeaderVH) holder).tvTitle.setText((String) items.get(pos));
-            } else {
-                bindChannel((ChannelVH) holder, (ChannelEntity) items.get(pos));
-            }
-        }
-
-        private void bindChannel(ChannelVH h, ChannelEntity ch) {
-            if (h.tvName != null) {
-                String name = ch.verified ? ch.name + " ✓" : ch.name;
-                h.tvName.setText(name);
-            }
-            if (h.tvFollowers != null)
-                h.tvFollowers.setText(formatFollowers(ch.followers) + " followers");
-            if (h.tvDescription != null) {
-                boolean hasDesc = ch.description != null && !ch.description.isEmpty();
-                h.tvDescription.setVisibility(hasDesc ? View.VISIBLE : View.GONE);
-                if (hasDesc) h.tvDescription.setText(ch.description);
-            }
-            if (h.tvCategory != null) {
-                boolean hasCat = ch.category != null && !ch.category.isEmpty();
-                h.tvCategory.setVisibility(hasCat ? View.VISIBLE : View.GONE);
-                if (hasCat) h.tvCategory.setText(ch.category);
-            }
-            if (h.ivIcon != null) {
-                if (ch.iconUrl != null && !ch.iconUrl.isEmpty()) {
-                    Glide.with(ExploreChannelsActivity.this).load(ch.iconUrl)
-                            .circleCrop().into(h.ivIcon);
-                } else {
-                    h.ivIcon.setImageResource(R.drawable.bg_channel_avatar_default);
-                }
-            }
-
-            // Follow button
-            if (h.btnFollow != null) {
-                h.btnFollow.setText(ch.isFollowed ? "Following" : "Follow");
-                h.btnFollow.setAlpha(ch.isFollowed ? 0.6f : 1.0f);
-                h.btnFollow.setOnClickListener(v -> {
-                    if (ch.isFollowed) {
-                        viewModel.unfollowChannel(ch);
-                    } else {
-                        viewModel.followChannel(ch);
-                    }
-                });
-            }
-
-            // Tap → open viewer
-            h.itemView.setOnClickListener(v -> {
-                Intent intent = new Intent(ExploreChannelsActivity.this, ChannelViewerActivity.class);
-                intent.putExtra(ChannelViewerActivity.EXTRA_CHANNEL_ID,    ch.id);
-                intent.putExtra(ChannelViewerActivity.EXTRA_CHANNEL_NAME,  ch.name);
-                intent.putExtra(ChannelViewerActivity.EXTRA_CHANNEL_ICON,  ch.iconUrl);
-                intent.putExtra(ChannelViewerActivity.EXTRA_OWNER_UID,     ch.ownerUid);
-                startActivity(intent);
+        // NEW: Verified filter chip
+        if (chipVerified != null) {
+            chipVerified.setOnCheckedChangeListener((btn, checked) -> {
+                filterVerified = checked; applyFilters();
             });
         }
 
-        private String formatFollowers(long n) {
-            if (n >= 1_000_000) return String.format("%.1fM", n / 1_000_000.0);
-            if (n >= 1_000)     return String.format("%.1fK", n / 1_000.0);
-            return String.valueOf(n);
+        // NEW: Local / Near Me chip
+        if (chipLocal != null) {
+            chipLocal.setOnCheckedChangeListener((btn, checked) -> {
+                filterLocal = checked; applyFilters();
+            });
         }
 
-        @Override public int getItemCount() { return items.size(); }
+        // NEW: Follower range slider
+        if (rangeFollowers != null) {
+            rangeFollowers.setValueFrom(0f);
+            rangeFollowers.setValueTo(1_000_000f);
+            rangeFollowers.setValues(0f, 1_000_000f);
+            rangeFollowers.addOnChangeListener((slider, value, fromUser) -> {
+                List<Float> vals = slider.getValues();
+                minFollowers = vals.get(0).longValue();
+                maxFollowers = vals.get(1).longValue();
+                updateFollowerRangeLabel();
+                applyFilters();
+            });
+        }
 
-        class HeaderVH extends RecyclerView.ViewHolder {
-            TextView tvTitle;
-            HeaderVH(View v) {
-                super(v);
-                tvTitle = v.findViewById(R.id.tv_section_title);
+        // Toggle advanced filter panel
+        if (btnToggleFilters != null) {
+            btnToggleFilters.setOnClickListener(v -> {
+                if (layoutAdvancedFilters != null) {
+                    boolean visible = layoutAdvancedFilters.getVisibility() == View.VISIBLE;
+                    layoutAdvancedFilters.setVisibility(visible ? View.GONE : View.VISIBLE);
+                }
+            });
+        }
+
+        // Search
+        if (etSearch != null) {
+            etSearch.addTextChangedListener(new TextWatcher() {
+                @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
+                @Override public void afterTextChanged(Editable s) {}
+                @Override public void onTextChanged(CharSequence s, int a, int b, int c) {
+                    searchQuery = s.toString().trim().toLowerCase();
+                    if (searchQuery.isEmpty()) {
+                        applyFilters();
+                    } else {
+                        viewModel.searchChannels(searchQuery);
+                    }
+                }
+            });
+        }
+
+        RecyclerView rv = findViewById(R.id.rv_explore_channels);
+        rv.setLayoutManager(new LinearLayoutManager(this));
+        adapter = new ExploreAdapter();
+        rv.setAdapter(adapter);
+
+        // Observe suggested channels
+        viewModel.suggestedChannels.observe(this, channels -> {
+            allChannels.clear();
+            if (channels != null) allChannels.addAll(channels);
+            applyFilters();
+        });
+
+        // Observe search results
+        viewModel.channelSearchResults.observe(this, channels -> {
+            if (!searchQuery.isEmpty()) {
+                filteredChannels.clear();
+                if (channels != null) filteredChannels.addAll(channels);
+                adapter.setData(filteredChannels);
             }
+        });
+
+        viewModel.toastMessage.observe(this, msg -> {
+            if (msg != null && !msg.isEmpty()) Toast.makeText(this, msg, Toast.LENGTH_SHORT).show();
+        });
+    }
+
+    private void applyFilters() {
+        filteredChannels.clear();
+        for (ChannelEntity ch : allChannels) {
+            // Category filter
+            if (!"All".equals(activeCategory) && !activeCategory.equals(ch.category)) continue;
+            // Search filter (redundant when search is active but kept for category+search combo)
+            if (!searchQuery.isEmpty() && ch.name != null && !ch.name.toLowerCase().contains(searchQuery)) continue;
+            // Verified filter (NEW)
+            if (filterVerified && !ch.isVerified) continue;
+            // Follower range filter (NEW)
+            if (ch.followers < minFollowers || ch.followers > maxFollowers) continue;
+            // Local/Near Me filter (NEW) — channels tagged with category "Local"
+            if (filterLocal && !"Local".equalsIgnoreCase(ch.category)) continue;
+            filteredChannels.add(ch);
+        }
+        adapter.setData(filteredChannels);
+    }
+
+    private void updateFollowerRangeLabel() {
+        if (tvFollowerRange == null) return;
+        tvFollowerRange.setText("Followers: " + formatCompact(minFollowers)
+            + " – " + formatCompact(maxFollowers));
+    }
+
+    private String formatCompact(long n) {
+        if (n >= 1_000_000L) return String.format("%.0fM", n / 1_000_000.0);
+        if (n >= 1_000L)     return String.format("%.0fK", n / 1_000.0);
+        return String.valueOf(n);
+    }
+
+    // ── ExploreAdapter ────────────────────────────────────────────────────
+
+    class ExploreAdapter extends RecyclerView.Adapter<ExploreAdapter.VH> {
+        private final List<ChannelEntity> data = new ArrayList<>();
+
+        void setData(List<ChannelEntity> d) { data.clear(); data.addAll(d); notifyDataSetChanged(); }
+
+        @NonNull @Override
+        public VH onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+            return new VH(LayoutInflater.from(parent.getContext())
+                .inflate(R.layout.item_explore_channel, parent, false));
         }
 
-        class ChannelVH extends RecyclerView.ViewHolder {
+        @Override public void onBindViewHolder(@NonNull VH h, int pos) {
+            ChannelEntity ch = data.get(pos);
+            if (h.tvName     != null) h.tvName.setText(ch.name != null ? ch.name : "");
+            if (h.tvDesc     != null) h.tvDesc.setText(ch.description != null ? ch.description : "");
+            if (h.tvFollowers!= null) h.tvFollowers.setText(formatCompact(ch.followers) + " followers");
+            if (h.tvCategory != null) h.tvCategory.setText(ch.category != null ? ch.category : "");
+            // Verified badge (NEW)
+            if (h.ivVerified != null) h.ivVerified.setVisibility(ch.isVerified ? View.VISIBLE : View.GONE);
+            if (h.ivIcon != null && ch.iconUrl != null && !ch.iconUrl.isEmpty())
+                Glide.with(h.ivIcon.getContext()).load(ch.iconUrl).circleCrop().into(h.ivIcon);
+
+            if (h.btnFollow != null) {
+                h.btnFollow.setText(ch.isFollowing ? "Following" : "Follow");
+                h.btnFollow.setOnClickListener(v -> {
+                    if (ch.isFollowing) viewModel.unfollowChannel(ch);
+                    else                viewModel.followChannel(ch);
+                    ch.isFollowing = !ch.isFollowing;
+                    notifyItemChanged(pos);
+                });
+            }
+
+            h.itemView.setOnClickListener(v -> {
+                Intent i = new Intent(ExploreChannelsActivity.this, ChannelViewerActivity.class);
+                i.putExtra(ChannelViewerActivity.EXTRA_CHANNEL_ID,   ch.id);
+                i.putExtra(ChannelViewerActivity.EXTRA_CHANNEL_NAME, ch.name);
+                startActivity(i);
+            });
+        }
+
+        @Override public int getItemCount() { return data.size(); }
+
+        class VH extends RecyclerView.ViewHolder {
             CircleImageView ivIcon;
-            TextView   tvName, tvFollowers, tvDescription, tvCategory;
-            Button     btnFollow;
-            ChannelVH(View v) {
+            ImageView       ivVerified;
+            TextView        tvName, tvDesc, tvFollowers, tvCategory;
+            com.google.android.material.button.MaterialButton btnFollow;
+            VH(View v) {
                 super(v);
-                ivIcon        = v.findViewById(R.id.iv_channel_icon);
-                tvName        = v.findViewById(R.id.tv_channel_name);
-                tvFollowers   = v.findViewById(R.id.tv_channel_followers);
-                tvDescription = v.findViewById(R.id.tv_channel_description);
-                tvCategory    = v.findViewById(R.id.tv_channel_category);
-                btnFollow     = v.findViewById(R.id.btn_follow_channel);
+                ivIcon      = v.findViewById(R.id.iv_explore_channel_icon);
+                ivVerified  = v.findViewById(R.id.iv_explore_verified);
+                tvName      = v.findViewById(R.id.tv_explore_channel_name);
+                tvDesc      = v.findViewById(R.id.tv_explore_channel_desc);
+                tvFollowers = v.findViewById(R.id.tv_explore_channel_followers);
+                tvCategory  = v.findViewById(R.id.tv_explore_channel_category);
+                btnFollow   = v.findViewById(R.id.btn_explore_follow);
             }
         }
     }

@@ -63,4 +63,14 @@ public class ChannelEntity {
     public long    lastSeenPostTimestamp; // timestamp of last post the user viewed
     public long    syncedAt;              // last Firebase sync timestamp (ms)
     public long    followersSyncedAt;     // last time followers list was synced
+
+    // ── NEW in v5 ─────────────────────────────────────────────────────────
+    /** isVerified — shown with a checkmark badge in channel lists/header. */
+    public boolean isVerified;
+
+    /** topicTags — JSON array of topic tag strings, e.g. ["tech","news"] */
+    public String topicTagsJson;
+
+    /** isFollowing — alias kept for backwards compat with ExploreChannelsActivity. */
+    public boolean isFollowing;
 }

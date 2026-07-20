@@ -1,36 +1,97 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  activity_channel_reply.xml — WhatsApp-level v4 comment/reply layout.
+  Added: emoji quick bar, quote-reply preview strip, typing indicator,
+  delete button per item, empty state, keyboard-aware adjustResize.
+-->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="@android:color/white">
+    android:background="#FFFFFF">
 
+    <!-- Toolbar -->
     <androidx.appcompat.widget.Toolbar
         android:id="@+id/toolbar_reply"
         android:layout_width="match_parent"
         android:layout_height="?attr/actionBarSize"
-        android:background="@android:color/white"
+        android:background="#FFFFFF"
+        android:elevation="2dp"
         app:navigationIcon="@drawable/ic_arrow_back"
         app:navigationIconTint="#111111"
-        app:titleTextColor="#111111"/>
+        app:titleTextColor="#111111"
+        app:subtitleTextColor="#888888"/>
 
-    <!-- Original post preview -->
-    <TextView
-        android:id="@+id/tv_original_post"
+    <!-- Original post preview strip -->
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:padding="12dp"
-        android:textSize="13sp"
-        android:textColor="#555555"
-        android:background="#F8F8F8"
-        android:maxLines="3"
-        android:ellipsize="end"/>
+        android:orientation="horizontal"
+        android:background="#F3FFF8"
+        android:paddingStart="14dp"
+        android:paddingEnd="14dp"
+        android:paddingTop="10dp"
+        android:paddingBottom="10dp"
+        android:gravity="center_vertical">
+
+        <View
+            android:layout_width="3dp"
+            android:layout_height="match_parent"
+            android:minHeight="30dp"
+            android:background="#25D366"
+            android:layout_marginEnd="10dp"/>
+
+        <TextView
+            android:id="@+id/tv_original_post"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textSize="13sp"
+            android:textColor="#444444"
+            android:maxLines="2"
+            android:ellipsize="end"/>
+    </LinearLayout>
 
     <View
         android:layout_width="match_parent"
         android:layout_height="1dp"
         android:background="#EEEEEE"/>
+
+    <!-- Empty state -->
+    <LinearLayout
+        android:id="@+id/layout_reply_empty"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:visibility="gone"
+        android:padding="32dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="💬"
+            android:textSize="48sp"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="No comments yet"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:textColor="#333333"
+            android:layout_marginTop="12dp"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Be the first to comment"
+            android:textSize="13sp"
+            android:textColor="#888888"
+            android:layout_marginTop="4dp"/>
+    </LinearLayout>
 
     <!-- Replies feed -->
     <androidx.recyclerview.widget.RecyclerView
@@ -40,6 +101,71 @@
         android:layout_weight="1"
         android:clipToPadding="false"
         android:paddingVertical="6dp"/>
+
+    <!-- Typing indicator -->
+    <TextView
+        android:id="@+id/tv_typing_indicator"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingHorizontal="14dp"
+        android:paddingVertical="4dp"
+        android:textSize="12sp"
+        android:textStyle="italic"
+        android:textColor="#25D366"
+        android:visibility="gone"/>
+
+    <!-- Quote-reply preview strip -->
+    <LinearLayout
+        android:id="@+id/layout_quote_preview"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:background="#F0F0F0"
+        android:paddingStart="12dp"
+        android:paddingEnd="4dp"
+        android:paddingTop="6dp"
+        android:paddingBottom="6dp"
+        android:gravity="center_vertical"
+        android:visibility="gone">
+
+        <View
+            android:layout_width="3dp"
+            android:layout_height="match_parent"
+            android:minHeight="24dp"
+            android:background="#25D366"
+            android:layout_marginEnd="8dp"/>
+
+        <TextView
+            android:id="@+id/tv_quote_preview_text"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textSize="12sp"
+            android:textColor="#555555"
+            android:maxLines="1"
+            android:ellipsize="end"/>
+
+        <ImageButton
+            android:id="@+id/btn_clear_quote"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:src="@drawable/ic_close"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:tint="#888888"
+            android:contentDescription="Clear quote"/>
+    </LinearLayout>
+
+    <!-- Quick emoji reaction bar -->
+    <LinearLayout
+        android:id="@+id/layout_quick_emoji"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:orientation="horizontal"
+        android:background="#FAFAFA"
+        android:gravity="center_vertical"
+        android:paddingHorizontal="8dp">
+        <!-- Emoji buttons populated programmatically -->
+    </LinearLayout>
 
     <View
         android:layout_width="match_parent"
@@ -52,7 +178,8 @@
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:padding="8dp">
+        android:padding="8dp"
+        android:background="#FFFFFF">
 
         <com.google.android.material.textfield.TextInputEditText
             android:id="@+id/et_reply_input"

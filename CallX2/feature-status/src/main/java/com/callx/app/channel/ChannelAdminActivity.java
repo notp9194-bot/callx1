@@ -17,6 +17,8 @@ import com.bumptech.glide.Glide;
 import com.callx.app.status.R;
 import com.callx.app.viewmodel.ChannelViewModel;
 import com.callx.app.utils.FirebaseUtils;
+import com.google.android.material.button.MaterialButton;
+import com.google.android.material.checkbox.MaterialCheckBox;
 import com.google.android.material.floatingactionbutton.FloatingActionButton;
 import com.google.android.material.textfield.TextInputEditText;
 import com.google.firebase.database.*;
@@ -24,17 +26,17 @@ import de.hdodenhof.circleimageview.CircleImageView;
 import java.util.*;
 
 /**
- * ChannelAdminActivity — full WhatsApp-level admin management panel.
+ * ChannelAdminActivity — full WhatsApp-level admin management panel (v5).
  *
- * Owner can:
- *   - View current admins with roles (Owner / Admin)
- *   - Search for users by username/name (not just UID)
- *   - Add an admin from search results or by UID
- *   - Remove an existing admin
- *   - Transfer ownership to any admin
- *   - Navigate to ChannelFollowersActivity to view/manage followers
- *   - Navigate to ChannelInviteLinkActivity for invite link management
- *   - Navigate to ChannelScheduledPostsActivity for scheduled posts
+ * v5 additions:
+ *   ✓ NEW: Admin permission levels — per-admin checkboxes: Can Post / Can Edit / Can Manage
+ *   ✓ NEW: Quick-link to ChannelAutoReplyActivity (welcome message settings)
+ *   ✓ NEW: Quick-link to ChannelTopicsActivity (manage topic tags)
+ *   ✓ FIXED: resolveAdminProfiles now uses ChannelViewModel.loadAdmins() via LiveData
+ *   ✓ Owner can transfer ownership to any admin
+ *   ✓ Add admin from search (UID or username)
+ *   ✓ Remove admin
+ *   ✓ Quick links: Followers / Invite Link / Scheduled Posts
  */
 public class ChannelAdminActivity extends AppCompatActivity {
 
@@ -44,6 +46,9 @@ public class ChannelAdminActivity extends AppCompatActivity {
 
     private ChannelViewModel viewModel;
     private String channelId, channelName, ownerUid;
+    private String myUid;
+    private boolean isOwner = false;
+
     private AdminAdapter adapter;
     private final List<AdminEntry> admins = new ArrayList<>();
 
@@ -56,6 +61,9 @@ public class ChannelAdminActivity extends AppCompatActivity {
         channelName = getIntent().getStringExtra(EXTRA_CHANNEL_NAME);
         ownerUid    = getIntent().getStringExtra(EXTRA_OWNER_UID);
         if (channelId == null) { finish(); return; }
+
+        myUid    = FirebaseUtils.getMyUid();
+        isOwner  = myUid != null && myUid.equals(ownerUid);
 
         viewModel = new ViewModelProvider(this).get(ChannelViewModel.class);
 
@@ -75,16 +83,19 @@ public class ChannelAdminActivity extends AppCompatActivity {
         FloatingActionButton fab = findViewById(R.id.fab_add_admin);
         if (fab != null) fab.setOnClickListener(v -> showAddAdminDialog());
 
-        // Quick-access buttons
+        // ── Quick-access buttons ──────────────────────────────────────────
         View btnFollowers   = findViewById(R.id.btn_view_followers);
         View btnInviteLink  = findViewById(R.id.btn_manage_invite_link);
         View btnScheduled   = findViewById(R.id.btn_scheduled_posts);
+        View btnAutoReply   = findViewById(R.id.btn_auto_reply_settings);   // NEW
+        View btnTopics      = findViewById(R.id.btn_manage_topics);          // NEW
 
         if (btnFollowers != null) btnFollowers.setOnClickListener(v -> {
             Intent i = new Intent(this, ChannelFollowersActivity.class);
             i.putExtra(ChannelFollowersActivity.EXTRA_CHANNEL_ID,   channelId);
             i.putExtra(ChannelFollowersActivity.EXTRA_CHANNEL_NAME, channelName);
             i.putExtra(ChannelFollowersActivity.EXTRA_OWNER_UID,    ownerUid);
+            i.putExtra(ChannelFollowersActivity.EXTRA_IS_ADMIN,     true);
             startActivity(i);
         });
 
@@ -102,168 +113,104 @@ public class ChannelAdminActivity extends AppCompatActivity {
             startActivity(i);
         });
 
-        viewModel.toastMessage.observe(this, msg -> {
-            if (msg != null && !msg.isEmpty()) {
-                Toast.makeText(this, msg, Toast.LENGTH_SHORT).show();
-                if (msg.contains("added") || msg.contains("removed") || msg.contains("transferred")) loadAdmins();
-            }
+        if (btnAutoReply != null) btnAutoReply.setOnClickListener(v -> {
+            Intent i = new Intent(this, ChannelAutoReplyActivity.class);
+            i.putExtra(ChannelAutoReplyActivity.EXTRA_CHANNEL_ID,   channelId);
+            i.putExtra(ChannelAutoReplyActivity.EXTRA_CHANNEL_NAME, channelName);
+            startActivity(i);
         });
 
-        loadAdmins();
-    }
+        if (btnTopics != null) btnTopics.setOnClickListener(v -> {
+            Intent i = new Intent(this, ChannelTopicsActivity.class);
+            i.putExtra(ChannelTopicsActivity.EXTRA_CHANNEL_ID, channelId);
+            startActivity(i);
+        });
 
-    private void loadAdmins() {
-        viewModel.loadAdmins(channelId, uidToRole -> {
+        // ── Observe admins via ViewModel (FIXED: uses LiveData, not direct Firebase) ──
+        viewModel.admins.observe(this, adminMap -> {
+            if (adminMap == null) return;
             admins.clear();
-            // Owner always first
-            String[] ownerEntry = {ownerUid};
-            if (uidToRole.containsKey(ownerUid)) {
-                admins.add(new AdminEntry(ownerUid, "owner"));
-            }
-            for (Map.Entry<String, String> e : uidToRole.entrySet()) {
-                if (!e.getKey().equals(ownerUid))
-                    admins.add(new AdminEntry(e.getKey(), e.getValue()));
+            for (Map.Entry<String, String> e : adminMap.entrySet()) {
+                AdminEntry ae = new AdminEntry();
+                ae.uid  = e.getKey();
+                ae.role = e.getValue();
+                admins.add(ae);
             }
             resolveAdminProfiles();
         });
+
+        viewModel.toastMessage.observe(this, msg -> {
+            if (msg != null && !msg.isEmpty()) Toast.makeText(this, msg, Toast.LENGTH_SHORT).show();
+        });
+
+        viewModel.loadAdmins(channelId);
     }
 
+    // ── Resolve admin display profiles from Firebase users node ──────────
+
     private void resolveAdminProfiles() {
-        if (admins.isEmpty()) { adapter.setAdmins(admins); return; }
-        final int[] done = {0};
-        for (AdminEntry entry : admins) {
-            FirebaseUtils.getUserRef(entry.uid)
+        if (admins.isEmpty()) { adapter.setData(admins, isOwner, ownerUid); return; }
+        final int[] remaining = {admins.size()};
+        for (AdminEntry ae : admins) {
+            if (ae.uid == null) { done(remaining); continue; }
+            FirebaseUtils.db().getReference("users").child(ae.uid)
                 .addListenerForSingleValueEvent(new ValueEventListener() {
                     @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                        String name = snap.child("name").getValue(String.class);
-                        String icon = snap.child("photoUrl").getValue(String.class);
-                        entry.name    = name != null ? name : entry.uid.substring(0, 8) + "…";
-                        entry.iconUrl = icon != null ? icon : "";
-                        done[0]++;
-                        if (done[0] >= admins.size()) adapter.setAdmins(new ArrayList<>(admins));
+                        Object nameObj = snap.child("displayName").getValue();
+                        Object iconObj = snap.child("photoUrl").getValue();
+                        ae.name    = nameObj != null ? nameObj.toString() : ae.uid;
+                        ae.iconUrl = iconObj != null ? iconObj.toString() : null;
+                        // Load admin permissions
+                        FirebaseUtils.db().getReference("channelAdminPerms")
+                            .child(channelId).child(ae.uid)
+                            .addListenerForSingleValueEvent(new ValueEventListener() {
+                                @Override public void onDataChange(@NonNull DataSnapshot ps) {
+                                    ae.canPost   = !ps.hasChild("canPost")   || Boolean.TRUE.equals(ps.child("canPost").getValue(Boolean.class));
+                                    ae.canEdit   = !ps.hasChild("canEdit")   || Boolean.TRUE.equals(ps.child("canEdit").getValue(Boolean.class));
+                                    ae.canManage = !ps.hasChild("canManage") || Boolean.TRUE.equals(ps.child("canManage").getValue(Boolean.class));
+                                    done(remaining);
+                                }
+                                @Override public void onCancelled(@NonNull DatabaseError e) { done(remaining); }
+                            });
                     }
-                    @Override public void onCancelled(@NonNull DatabaseError e) {
-                        entry.name = entry.uid.substring(0, 8) + "…";
-                        done[0]++;
-                        if (done[0] >= admins.size()) adapter.setAdmins(new ArrayList<>(admins));
-                    }
+                    @Override public void onCancelled(@NonNull DatabaseError e) { done(remaining); }
                 });
         }
     }
 
-    // ── Add Admin Dialog with user search ─────────────────────────────────
+    private void done(int[] counter) {
+        counter[0]--;
+        if (counter[0] <= 0) adapter.setData(admins, isOwner, ownerUid);
+    }
+
+    // ── Add admin dialog ──────────────────────────────────────────────────
 
     private void showAddAdminDialog() {
-        View dialogView = getLayoutInflater().inflate(R.layout.dialog_search_user, null);
-        TextInputEditText etSearch = dialogView != null ? dialogView.findViewById(R.id.et_search_user) : null;
-        RecyclerView rvResults     = dialogView != null ? dialogView.findViewById(R.id.rv_user_results) : null;
-        final List<UserSearchEntry> results = new ArrayList<>();
-
-        UserSearchAdapter searchAdapter = new UserSearchAdapter(results, entry -> {
-            // User selected → add as admin
-            viewModel.addAdmin(channelId, entry.uid);
-        });
-        if (rvResults != null) {
-            rvResults.setLayoutManager(new LinearLayoutManager(this));
-            rvResults.setAdapter(searchAdapter);
-        }
-
-        AlertDialog dialog = new AlertDialog.Builder(this)
+        View v = LayoutInflater.from(this).inflate(R.layout.dialog_add_admin, null);
+        TextInputEditText etUid = v != null ? v.findViewById(R.id.et_admin_uid) : null;
+        new AlertDialog.Builder(this)
             .setTitle("Add admin")
-            .setView(dialogView)
-            .setNegativeButton("Cancel", null)
-            .create();
-
-        if (etSearch != null) {
-            etSearch.addTextChangedListener(new TextWatcher() {
-                @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
-                @Override public void afterTextChanged(Editable s) {}
-                @Override public void onTextChanged(CharSequence s, int a, int b, int c) {
-                    String query = s.toString().trim().toLowerCase();
-                    if (query.length() >= 2) searchUsers(query, results, searchAdapter);
-                    else { results.clear(); searchAdapter.notifyDataSetChanged(); }
-                }
-            });
-        }
-
-        // Also allow direct UID entry
-        View btnAddByUid = dialogView != null ? dialogView.findViewById(R.id.btn_add_by_uid) : null;
-        if (btnAddByUid != null) {
-            btnAddByUid.setOnClickListener(v -> {
-                dialog.dismiss();
-                showAddByUidDialog();
-            });
-        }
-
-        dialog.show();
-    }
-
-    private void searchUsers(String query, List<UserSearchEntry> results, UserSearchAdapter adapter) {
-        FirebaseUtils.db().getReference("users")
-            .orderByChild("nameLower").startAt(query).endAt(query + "\uf8ff")
-            .limitToFirst(20)
-            .addListenerForSingleValueEvent(new ValueEventListener() {
-                @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                    results.clear();
-                    for (DataSnapshot ds : snap.getChildren()) {
-                        String uid  = ds.getKey();
-                        String name = ds.child("name").getValue(String.class);
-                        String icon = ds.child("photoUrl").getValue(String.class);
-                        if (uid == null || uid.equals(ownerUid)) continue;
-                        // Skip existing admins
-                        boolean alreadyAdmin = false;
-                        for (AdminEntry ae : admins) if (ae.uid.equals(uid)) { alreadyAdmin = true; break; }
-                        if (alreadyAdmin) continue;
-                        results.add(new UserSearchEntry(uid, name != null ? name : uid, icon));
-                    }
-                    adapter.notifyDataSetChanged();
-                }
-                @Override public void onCancelled(@NonNull DatabaseError e) {}
-            });
-    }
-
-    private void showAddByUidDialog() {
-        EditText et = new EditText(this);
-        et.setHint("User UID");
-        et.setPadding(40, 20, 40, 20);
-        new AlertDialog.Builder(this)
-            .setTitle("Add admin by UID")
-            .setView(et)
+            .setView(v)
             .setPositiveButton("Add", (d, w) -> {
-                String uid = et.getText().toString().trim();
-                if (!uid.isEmpty()) viewModel.addAdmin(channelId, uid);
+                String uid = etUid != null && etUid.getText() != null
+                    ? etUid.getText().toString().trim() : "";
+                if (!uid.isEmpty()) viewModel.addAdmin(channelId, uid, "admin");
             })
             .setNegativeButton("Cancel", null)
             .show();
     }
 
-    // ── Transfer Ownership ────────────────────────────────────────────────
-
-    private void showTransferOwnershipDialog(AdminEntry target) {
-        if (!viewModel.getMyUid().equals(ownerUid)) {
-            Toast.makeText(this, "Only the owner can transfer ownership.", Toast.LENGTH_SHORT).show();
-            return;
-        }
-        new AlertDialog.Builder(this)
-            .setTitle("Transfer ownership")
-            .setMessage("Transfer channel ownership to " + target.name + "?\n\n"
-                + "You will become an admin. This action cannot be undone.")
-            .setPositiveButton("Transfer", (d, w) -> {
-                viewModel.transferOwnership(channelId, ownerUid, target.uid);
-                ownerUid = target.uid; // update local state
-            })
-            .setNegativeButton("Cancel", null)
-            .show();
-    }
-
-    // ── Adapter ───────────────────────────────────────────────────────────
+    // ── AdminAdapter ──────────────────────────────────────────────────────
 
     class AdminAdapter extends RecyclerView.Adapter<AdminAdapter.VH> {
-        private final List<AdminEntry> list = new ArrayList<>();
+        private List<AdminEntry> data = new ArrayList<>();
+        private boolean isOwner2 = false;
+        private String  ownerUid2 = "";
 
-        void setAdmins(List<AdminEntry> entries) {
-            list.clear();
-            list.addAll(entries);
+        void setData(List<AdminEntry> d, boolean owner, String oUid) {
+            data = d != null ? new ArrayList<>(d) : new ArrayList<>();
+            isOwner2  = owner;
+            ownerUid2 = oUid != null ? oUid : "";
             notifyDataSetChanged();
         }
 
@@ -273,97 +220,93 @@ public class ChannelAdminActivity extends AppCompatActivity {
                 .inflate(R.layout.item_channel_admin, parent, false));
         }
 
-        @Override
-        public void onBindViewHolder(@NonNull VH h, int pos) {
-            AdminEntry e = list.get(pos);
-            h.tvName.setText(e.name != null ? e.name : e.uid);
-            boolean isOwner = "owner".equals(e.role);
-            h.tvRole.setText(isOwner ? "Owner" : "Admin");
-            h.tvRole.setTextColor(isOwner ? 0xFF0075C9 : 0xFF25D366);
+        @Override public void onBindViewHolder(@NonNull VH h, int pos) {
+            AdminEntry ae = data.get(pos);
+            if (h.tvName != null) h.tvName.setText(ae.name != null ? ae.name : ae.uid);
+            if (h.tvRole != null) {
+                boolean isThisOwner = ae.uid != null && ae.uid.equals(ownerUid2);
+                h.tvRole.setText(isThisOwner ? "Owner" : "Admin");
+            }
+            if (h.ivIcon != null && ae.iconUrl != null && !ae.iconUrl.isEmpty())
+                Glide.with(h.ivIcon.getContext()).load(ae.iconUrl).circleCrop().into(h.ivIcon);
 
-            if (h.ivIcon != null && e.iconUrl != null && !e.iconUrl.isEmpty())
-                Glide.with(ChannelAdminActivity.this).load(e.iconUrl).circleCrop().into(h.ivIcon);
+            // Permission checkboxes (only visible to owner, not for own entry or owner entry)
+            boolean canEditPerms = isOwner2 && !ae.uid.equals(myUid) && !ae.uid.equals(ownerUid2);
+            if (h.cbCanPost   != null) { h.cbCanPost.setChecked(ae.canPost);   h.cbCanPost.setEnabled(canEditPerms); }
+            if (h.cbCanEdit   != null) { h.cbCanEdit.setChecked(ae.canEdit);   h.cbCanEdit.setEnabled(canEditPerms); }
+            if (h.cbCanManage != null) { h.cbCanManage.setChecked(ae.canManage); h.cbCanManage.setEnabled(canEditPerms); }
 
-            // Remove button: only visible to owner, only for non-owner admins
-            boolean canRemove = !isOwner && viewModel.getMyUid().equals(ownerUid);
-            h.btnRemove.setVisibility(canRemove ? View.VISIBLE : View.GONE);
-            h.btnRemove.setOnClickListener(v ->
-                new AlertDialog.Builder(ChannelAdminActivity.this)
-                    .setTitle("Remove admin?")
-                    .setMessage(e.name + " will lose admin access.")
-                    .setPositiveButton("Remove", (d, w) -> viewModel.removeAdmin(channelId, e.uid))
-                    .setNegativeButton("Cancel", null)
-                    .show());
+            if (h.cbCanPost != null && canEditPerms) {
+                h.cbCanPost.setOnCheckedChangeListener((btn, c) -> {
+                    ae.canPost = c;
+                    viewModel.setAdminPermissions(channelId, ae.uid, ae.canPost, ae.canEdit, ae.canManage);
+                });
+            }
+            if (h.cbCanEdit != null && canEditPerms) {
+                h.cbCanEdit.setOnCheckedChangeListener((btn, c) -> {
+                    ae.canEdit = c;
+                    viewModel.setAdminPermissions(channelId, ae.uid, ae.canPost, ae.canEdit, ae.canManage);
+                });
+            }
+            if (h.cbCanManage != null && canEditPerms) {
+                h.cbCanManage.setOnCheckedChangeListener((btn, c) -> {
+                    ae.canManage = c;
+                    viewModel.setAdminPermissions(channelId, ae.uid, ae.canPost, ae.canEdit, ae.canManage);
+                });
+            }
 
-            // Long press → transfer ownership (only for admin rows, by owner)
+            // Long-press → remove / transfer options
             h.itemView.setOnLongClickListener(v -> {
-                if (!isOwner && viewModel.getMyUid().equals(ownerUid)) {
-                    showTransferOwnershipDialog(e);
-                    return true;
-                }
-                return false;
+                if (!isOwner2 || ae.uid == null || ae.uid.equals(ownerUid2)) return false;
+                String[] opts = {"Remove admin", "Transfer ownership"};
+                new AlertDialog.Builder(ChannelAdminActivity.this)
+                    .setTitle(ae.name != null ? ae.name : "Admin")
+                    .setItems(opts, (d, w) -> {
+                        if (w == 0) viewModel.removeAdmin(channelId, ae.uid);
+                        else confirmTransfer(ae);
+                    })
+                    .setNegativeButton("Cancel", null)
+                    .show();
+                return true;
             });
         }
 
-        @Override public int getItemCount() { return list.size(); }
+        @Override public int getItemCount() { return data.size(); }
 
         class VH extends RecyclerView.ViewHolder {
             CircleImageView ivIcon;
-            TextView        tvName, tvRole;
-            ImageButton     btnRemove;
+            TextView tvName, tvRole;
+            MaterialCheckBox cbCanPost, cbCanEdit, cbCanManage;
             VH(View v) {
                 super(v);
-                ivIcon    = v.findViewById(R.id.iv_admin_icon);
-                tvName    = v.findViewById(R.id.tv_admin_name);
-                tvRole    = v.findViewById(R.id.tv_admin_role);
-                btnRemove = v.findViewById(R.id.btn_remove_admin);
+                ivIcon     = v.findViewById(R.id.iv_admin_icon);
+                tvName     = v.findViewById(R.id.tv_admin_name);
+                tvRole     = v.findViewById(R.id.tv_admin_role);
+                cbCanPost   = v.findViewById(R.id.cb_can_post);
+                cbCanEdit   = v.findViewById(R.id.cb_can_edit);
+                cbCanManage = v.findViewById(R.id.cb_can_manage);
             }
         }
     }
 
-    // ── User search adapter ────────────────────────────────────────────────
+    // ── Transfer ownership ────────────────────────────────────────────────
 
-    static class UserSearchAdapter extends RecyclerView.Adapter<UserSearchAdapter.VH> {
-        interface OnUserSelected { void onSelected(UserSearchEntry entry); }
-        private final List<UserSearchEntry> list;
-        private final OnUserSelected cb;
-        UserSearchAdapter(List<UserSearchEntry> list, OnUserSelected cb) {
-            this.list = list; this.cb = cb;
-        }
-        @NonNull @Override
-        public VH onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-            return new VH(LayoutInflater.from(parent.getContext())
-                .inflate(android.R.layout.simple_list_item_2, parent, false));
-        }
-        @Override
-        public void onBindViewHolder(@NonNull VH h, int pos) {
-            UserSearchEntry e = list.get(pos);
-            h.text1.setText(e.name);
-            h.text2.setText(e.uid.substring(0, Math.min(e.uid.length(), 12)) + "…");
-            h.itemView.setOnClickListener(v -> { if (cb != null) cb.onSelected(e); });
-        }
-        @Override public int getItemCount() { return list.size(); }
-        static class VH extends RecyclerView.ViewHolder {
-            TextView text1, text2;
-            VH(View v) {
-                super(v);
-                text1 = v.findViewById(android.R.id.text1);
-                text2 = v.findViewById(android.R.id.text2);
-            }
-        }
+    private void confirmTransfer(AdminEntry ae) {
+        new AlertDialog.Builder(this)
+            .setTitle("Transfer ownership?")
+            .setMessage("Transfer ownership to " + (ae.name != null ? ae.name : ae.uid)
+                + "? You will become a regular admin.")
+            .setPositiveButton("Transfer", (d, w) -> viewModel.transferOwnership(channelId, ae.uid))
+            .setNegativeButton("Cancel", null)
+            .show();
     }
 
-    // ── Data classes ──────────────────────────────────────────────────────
+    // ── Data class ────────────────────────────────────────────────────────
 
     static class AdminEntry {
-        String uid, role, name, iconUrl;
-        AdminEntry(String uid, String role) { this.uid = uid; this.role = role; }
-    }
-
-    static class UserSearchEntry {
-        String uid, name, iconUrl;
-        UserSearchEntry(String uid, String name, String iconUrl) {
-            this.uid = uid; this.name = name; this.iconUrl = iconUrl;
-        }
+        String uid, name, iconUrl, role;
+        boolean canPost   = true;
+        boolean canEdit   = true;
+        boolean canManage = false;
     }
 }

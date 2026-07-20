@@ -4,69 +4,53 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:paddingHorizontal="8dp"
-    android:paddingTop="16dp"
-    android:paddingBottom="24dp"
-    android:background="@android:color/white">
+    android:padding="12dp">
 
-    <!-- Drag handle -->
-    <View
-        android:layout_width="36dp"
-        android:layout_height="4dp"
-        android:layout_gravity="center_horizontal"
-        android:background="#DDDDDD"
-        android:layout_marginBottom="16dp"/>
-
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="center_horizontal"
-        android:text="React"
-        android:textSize="13sp"
-        android:textColor="#888888"
-        android:layout_marginBottom="12dp"/>
-
-    <!-- Main emoji row (populated in code) -->
+    <!-- Quick reactions row -->
     <LinearLayout
-        android:id="@+id/layout_reactions_row"
+        android:id="@+id/layout_quick_reactions"
         android:layout_width="match_parent"
-        android:layout_height="64dp"
+        android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center"
-        android:layout_marginBottom="12dp"/>
+        android:layout_marginBottom="10dp" />
 
-    <View android:layout_width="match_parent" android:layout_height="1dp"
-        android:background="#EEEEEE" android:layout_marginBottom="8dp"/>
-
-    <!-- More emojis + Remove reaction row -->
-    <LinearLayout
+    <View
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:paddingHorizontal="8dp">
+        android:layout_height="1dp"
+        android:background="#EEEEEE"
+        android:layout_marginBottom="8dp" />
 
-        <TextView
-            android:id="@+id/tv_more_emojis"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="More emojis…"
-            android:textSize="14sp"
-            android:textColor="#555555"
-            android:padding="8dp"
-            android:background="?attr/selectableItemBackground"/>
+    <!-- Search emoji -->
+    <EditText
+        android:id="@+id/et_emoji_search"
+        android:layout_width="match_parent"
+        android:layout_height="36dp"
+        android:hint="Search emoji..."
+        android:padding="6dp"
+        android:textSize="13sp"
+        android:background="@drawable/bg_search_input"
+        android:layout_marginBottom="8dp" />
 
-        <TextView
-            android:id="@+id/tv_remove_reaction"
-            android:layout_width="wrap_content"
+    <!-- Category tabs -->
+    <com.google.android.material.tabs.TabLayout
+        android:id="@+id/tab_emoji_categories"
+        android:layout_width="match_parent"
+        android:layout_height="40dp"
+        app:tabMode="scrollable"
+        app:tabGravity="start"
+        app:tabTextSize="12sp"
+        android:layout_marginBottom="8dp" />
+
+    <!-- Full emoji grid (filled programmatically) -->
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="240dp">
+        <LinearLayout
+            android:id="@+id/layout_emoji_grid"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Remove reaction"
-            android:textSize="14sp"
-            android:textColor="#E74C3C"
-            android:padding="8dp"
-            android:background="?attr/selectableItemBackground"
-            android:visibility="gone"/>
-    </LinearLayout>
+            android:orientation="vertical" />
+    </ScrollView>
 
 </LinearLayout>

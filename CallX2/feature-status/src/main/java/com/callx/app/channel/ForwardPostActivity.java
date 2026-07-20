@@ -18,50 +18,58 @@ import com.callx.app.status.R;
 import com.callx.app.viewmodel.ChannelViewModel;
 import com.callx.app.utils.FirebaseUtils;
 import com.google.android.material.textfield.TextInputEditText;
-import com.google.android.material.button.MaterialButton;
-import com.google.firebase.database.*;
 import de.hdodenhof.circleimageview.CircleImageView;
 import java.util.*;
 
 /**
- * ForwardPostActivity — forward a channel post to individual chats or groups.
+ * ForwardPostActivity — forward a channel post to a chat, group, or status (v5).
  *
- * Full WhatsApp-level implementation:
- *   - Loads recent contacts + joined groups from Firebase
- *   - Tapping a target ACTUALLY sends the post content to the Firebase chat/group node
- *   - Shows checkmarks for multi-select (select multiple targets)
- *   - Shows "via [Channel]" attribution in the forwarded message
- *   - System share sheet fallback ("Share via other apps")
- *   - Records forward count on the source post
+ * v5 additions:
+ *   ✓ NEW: "Share to my Status" — first row at top of list; shares post to user's story feed
+ *     via ChannelViewModel.sharePostToStatus()
+ *   ✓ NEW: Share externally via Android share sheet (link only)
+ *   ✓ Forward to 1-on-1 chats (contacts tab)
+ *   ✓ Forward to groups (groups tab)
+ *   ✓ Optional forward note / caption
+ *   ✓ Search contacts / groups by name
+ *   ✓ Multi-select up to 5 recipients
+ *   ✓ Send button shows recipient count
+ *   ✓ Tapping "Share to Status" immediately shares and shows a success toast
  */
 public class ForwardPostActivity extends AppCompatActivity {
 
-    public static final String EXTRA_POST_TEXT       = "postText";
-    public static final String EXTRA_POST_MEDIA_URL  = "postMediaUrl";
-    public static final String EXTRA_POST_TYPE       = "postType";
-    public static final String EXTRA_CHANNEL_NAME    = "channelName";
-    public static final String EXTRA_CHANNEL_ID      = "channelId";
-    public static final String EXTRA_POST_ID         = "postId";
+    public static final String EXTRA_CHANNEL_ID    = "channelId";
+    public static final String EXTRA_POST_ID       = "postId";
+    public static final String EXTRA_POST_TYPE     = "postType";
+    public static final String EXTRA_POST_TEXT     = "postText";
+    public static final String EXTRA_POST_MEDIA_URL= "postMediaUrl";
 
     private ChannelViewModel viewModel;
-    private String postText, postMediaUrl, postType, channelName, channelId, postId;
-    private ForwardAdapter adapter;
-    private final List<ForwardTarget> allTargets      = new ArrayList<>();
-    private final Set<String>         selectedIds     = new LinkedHashSet<>();
-    private TextInputEditText         etSearch;
-    private MaterialButton            btnForwardSelected;
+    private ChannelPost      post;
+
+    private ForwardAdapter   adapter;
+    private final List<ForwardTarget>   allTargets      = new ArrayList<>();
+    private final List<ForwardTarget>   filteredTargets = new ArrayList<>();
+    private final Set<String>           selectedIds     = new LinkedHashSet<>();
+
+    private TextInputEditText etSearch, etForwardNote;
+    private com.google.android.material.button.MaterialButton btnSend;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_forward_post);
 
-        postText     = getIntent().getStringExtra(EXTRA_POST_TEXT);
-        postMediaUrl = getIntent().getStringExtra(EXTRA_POST_MEDIA_URL);
-        postType     = getIntent().getStringExtra(EXTRA_POST_TYPE);
-        channelName  = getIntent().getStringExtra(EXTRA_CHANNEL_NAME);
-        channelId    = getIntent().getStringExtra(EXTRA_CHANNEL_ID);
-        postId       = getIntent().getStringExtra(EXTRA_POST_ID);
+        String channelId   = getIntent().getStringExtra(EXTRA_CHANNEL_ID);
+        String postId      = getIntent().getStringExtra(EXTRA_POST_ID);
+        String postType    = getIntent().getStringExtra(EXTRA_POST_TYPE);
+        String postText    = getIntent().getStringExtra(EXTRA_POST_TEXT);
+        String postMediaUrl= getIntent().getStringExtra(EXTRA_POST_MEDIA_URL);
+        if (channelId == null || postId == null) { finish(); return; }
+
+        post = new ChannelPost();
+        post.channelId = channelId; post.id = postId;
+        post.type = postType; post.text = postText; post.mediaUrl = postMediaUrl;
 
         viewModel = new ViewModelProvider(this).get(ChannelViewModel.class);
 
@@ -73,14 +81,16 @@ public class ForwardPostActivity extends AppCompatActivity {
         }
         toolbar.setNavigationOnClickListener(v -> finish());
 
-        etSearch           = findViewById(R.id.et_forward_search);
-        btnForwardSelected = findViewById(R.id.btn_forward_selected);
+        etSearch      = findViewById(R.id.et_forward_search);
+        etForwardNote = findViewById(R.id.et_forward_note);
+        btnSend       = findViewById(R.id.btn_forward_send);
 
         RecyclerView rv = findViewById(R.id.rv_forward_targets);
         rv.setLayoutManager(new LinearLayoutManager(this));
         adapter = new ForwardAdapter();
         rv.setAdapter(adapter);
 
+        // Search
         if (etSearch != null) {
             etSearch.addTextChangedListener(new TextWatcher() {
                 @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
@@ -91,197 +101,197 @@ public class ForwardPostActivity extends AppCompatActivity {
             });
         }
 
-        View btnShareSystem = findViewById(R.id.btn_share_via_other);
-        if (btnShareSystem != null) btnShareSystem.setOnClickListener(v -> shareViaSystem());
-
-        if (btnForwardSelected != null) {
-            btnForwardSelected.setVisibility(View.GONE);
-            btnForwardSelected.setOnClickListener(v -> forwardToSelected());
+        // Send button
+        if (btnSend != null) {
+            btnSend.setEnabled(false);
+            btnSend.setOnClickListener(v -> sendForward());
         }
+
+        // Build target list
+        buildTargets();
 
         viewModel.toastMessage.observe(this, msg -> {
             if (msg != null && !msg.isEmpty()) Toast.makeText(this, msg, Toast.LENGTH_SHORT).show();
         });
-
-        loadTargets();
     }
 
-    private void loadTargets() {
-        String uid = FirebaseUtils.getCurrentUid();
+    // ── Build target list ─────────────────────────────────────────────────
 
-        // Load contacts
-        FirebaseUtils.getContactsRef(uid)
-            .addListenerForSingleValueEvent(new ValueEventListener() {
-                @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                    for (DataSnapshot ds : snap.getChildren()) {
-                        String name    = ds.child("name").getValue(String.class);
-                        String cUid    = ds.getKey();
-                        String icon    = ds.child("photoUrl").getValue(String.class);
-                        if (name != null && cUid != null)
-                            allTargets.add(new ForwardTarget(cUid, name, "contact", icon != null ? icon : ""));
-                    }
-                    filterTargets("");
-                }
-                @Override public void onCancelled(@NonNull DatabaseError e) {}
-            });
+    private void buildTargets() {
+        allTargets.clear();
 
-        // Load groups
-        FirebaseUtils.getUserGroupsRef(uid)
-            .addListenerForSingleValueEvent(new ValueEventListener() {
-                @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                    for (DataSnapshot ds : snap.getChildren()) {
-                        String gId   = ds.getKey();
-                        String gName = ds.child("name").getValue(String.class);
-                        String icon  = ds.child("icon").getValue(String.class);
-                        if (gId != null && gName != null)
-                            allTargets.add(new ForwardTarget(gId, gName, "group", icon != null ? icon : ""));
+        // ── NEW: "Share to my Status" special entry at top ─────────────
+        ForwardTarget statusTarget = new ForwardTarget();
+        statusTarget.id       = "__status__";
+        statusTarget.name     = "My Status";
+        statusTarget.subtitle = "Share as a 24h story";
+        statusTarget.type     = "status";
+        statusTarget.isSpecial= true;
+        allTargets.add(statusTarget);
+
+        // ── Share externally ───────────────────────────────────────────
+        ForwardTarget shareTarget = new ForwardTarget();
+        shareTarget.id       = "__share__";
+        shareTarget.name     = "Share externally";
+        shareTarget.subtitle = "Share link via any app";
+        shareTarget.type     = "external";
+        shareTarget.isSpecial= true;
+        allTargets.add(shareTarget);
+
+        // ── Load contacts from Firebase ────────────────────────────────
+        String myUid = FirebaseUtils.getMyUid();
+        if (myUid == null) { adapter.setData(allTargets); return; }
+
+        FirebaseUtils.db().getReference("userContacts").child(myUid)
+            .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
+                @Override public void onDataChange(@NonNull com.google.firebase.database.DataSnapshot snap) {
+                    for (com.google.firebase.database.DataSnapshot child : snap.getChildren()) {
+                        ForwardTarget t = new ForwardTarget();
+                        t.id   = child.getKey();
+                        Object n = child.child("name").getValue(); t.name = n != null ? n.toString() : t.id;
+                        Object i = child.child("iconUrl").getValue(); t.iconUrl = i != null ? i.toString() : null;
+                        t.type = "chat";
+                        allTargets.add(t);
                     }
-                    filterTargets(etSearch != null && etSearch.getText() != null
-                        ? etSearch.getText().toString().trim().toLowerCase() : "");
+                    loadGroups();
                 }
-                @Override public void onCancelled(@NonNull DatabaseError e) {}
+                @Override public void onCancelled(@NonNull com.google.firebase.database.DatabaseError e) {
+                    loadGroups();
+                }
             });
     }
 
-    private void filterTargets(String query) {
-        List<ForwardTarget> filtered = new ArrayList<>();
+    private void loadGroups() {
+        String myUid = FirebaseUtils.getMyUid();
+        if (myUid == null) { filteredTargets.addAll(allTargets); adapter.setData(filteredTargets); return; }
+
+        FirebaseUtils.db().getReference("userGroups").child(myUid)
+            .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
+                @Override public void onDataChange(@NonNull com.google.firebase.database.DataSnapshot snap) {
+                    for (com.google.firebase.database.DataSnapshot child : snap.getChildren()) {
+                        ForwardTarget t = new ForwardTarget();
+                        t.id   = child.getKey();
+                        Object n = child.child("name").getValue(); t.name = n != null ? n.toString() : "Group";
+                        Object i = child.child("iconUrl").getValue(); t.iconUrl = i != null ? i.toString() : null;
+                        t.type = "group";
+                        allTargets.add(t);
+                    }
+                    filteredTargets.clear(); filteredTargets.addAll(allTargets);
+                    adapter.setData(filteredTargets);
+                }
+                @Override public void onCancelled(@NonNull com.google.firebase.database.DatabaseError e) {
+                    filteredTargets.clear(); filteredTargets.addAll(allTargets);
+                    adapter.setData(filteredTargets);
+                }
+            });
+    }
+
+    // ── Filter ────────────────────────────────────────────────────────────
+
+    private void filterTargets(String q) {
+        filteredTargets.clear();
         for (ForwardTarget t : allTargets) {
-            if (query.isEmpty() || t.name.toLowerCase().contains(query)) filtered.add(t);
+            if (t.isSpecial || q.isEmpty() || (t.name != null && t.name.toLowerCase().contains(q)))
+                filteredTargets.add(t);
         }
-        adapter.setTargets(filtered);
+        adapter.setData(filteredTargets);
     }
 
-    // ── Forward logic ─────────────────────────────────────────────────────
+    // ── Send / share ──────────────────────────────────────────────────────
 
-    /** Single-tap → forward immediately to one target. */
-    private void forwardToTarget(ForwardTarget target) {
-        sendToFirebase(target);
-        if (channelId != null && postId != null) viewModel.recordForward(channelId, postId);
-        Toast.makeText(this, "Forwarded to " + target.name, Toast.LENGTH_SHORT).show();
-        finish();
-    }
+    private void sendForward() {
+        String note = etForwardNote != null && etForwardNote.getText() != null
+            ? etForwardNote.getText().toString().trim() : "";
 
-    /** Multi-select forward button. */
-    private void forwardToSelected() {
-        if (selectedIds.isEmpty()) return;
-        int count = 0;
-        for (ForwardTarget t : allTargets) {
-            if (selectedIds.contains(t.id)) {
-                sendToFirebase(t);
-                count++;
+        for (String id : selectedIds) {
+            if ("__status__".equals(id)) {
+                // NEW: share to user's own status story
+                viewModel.sharePostToStatus(post);
+            } else if ("__share__".equals(id)) {
+                ChannelShareHelper.shareViaAndroid(this, post, null);
+            } else {
+                // Find type
+                String type = "chat";
+                for (ForwardTarget t : allTargets) if (id.equals(t.id)) { type = t.type; break; }
+                viewModel.forwardPostToChat(id, type, post, note);
             }
         }
-        if (channelId != null && postId != null) viewModel.recordForward(channelId, postId);
-        Toast.makeText(this, "Forwarded to " + count + " chat(s)", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, selectedIds.size() == 1 ? "Forwarded!" : "Forwarded to " + selectedIds.size() + " chats.", Toast.LENGTH_SHORT).show();
+        setResult(RESULT_OK);
         finish();
     }
 
-    private void sendToFirebase(ForwardTarget target) {
-        ChannelPost post = new ChannelPost();
-        post.channelId  = channelId;
-        post.id         = postId;
-        post.text       = postText;
-        post.mediaUrl   = postMediaUrl;
-        post.type       = postType;
-        viewModel.forwardPostToChat(target.id, "group".equals(target.type), post, channelName);
-    }
-
-    private void shareViaSystem() {
-        Intent share = new Intent(Intent.ACTION_SEND);
-        share.setType("text/plain");
-        String content = postText != null && !postText.isEmpty() ? postText
-            : (postMediaUrl != null ? postMediaUrl : "");
-        if (channelName != null && !channelName.isEmpty())
-            content = "[via " + channelName + " on CallX]\n" + content;
-        share.putExtra(Intent.EXTRA_TEXT, content);
-        startActivity(Intent.createChooser(share, "Forward post via"));
-        if (channelId != null && postId != null) viewModel.recordForward(channelId, postId);
-    }
-
-    // ── Adapter ───────────────────────────────────────────────────────────
+    // ── ForwardAdapter ────────────────────────────────────────────────────
 
     class ForwardAdapter extends RecyclerView.Adapter<ForwardAdapter.VH> {
-        private final List<ForwardTarget> targets = new ArrayList<>();
+        private final List<ForwardTarget> data = new ArrayList<>();
 
-        void setTargets(List<ForwardTarget> list) {
-            targets.clear(); targets.addAll(list); notifyDataSetChanged();
-        }
+        void setData(List<ForwardTarget> d) { data.clear(); data.addAll(d); notifyDataSetChanged(); }
 
         @NonNull @Override
         public VH onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-            return new VH(LayoutInflater.from(parent.getContext())
-                .inflate(R.layout.item_forward_target, parent, false));
+            int layout = viewType == 1
+                ? R.layout.item_forward_target_special
+                : R.layout.item_forward_target;
+            return new VH(LayoutInflater.from(parent.getContext()).inflate(layout, parent, false));
         }
 
-        @Override
-        public void onBindViewHolder(@NonNull VH h, int pos) {
-            ForwardTarget t = targets.get(pos);
-            h.tvName.setText(t.name);
-            h.tvType.setText("group".equals(t.type) ? "Group" : "");
+        @Override public int getItemViewType(int pos) { return data.get(pos).isSpecial ? 1 : 0; }
 
+        @Override public void onBindViewHolder(@NonNull VH h, int pos) {
+            ForwardTarget t = data.get(pos);
+            if (h.tvName     != null) h.tvName.setText(t.name != null ? t.name : "");
+            if (h.tvSubtitle != null) h.tvSubtitle.setText(t.subtitle != null ? t.subtitle : "");
+            if (h.ivCheck    != null) h.ivCheck.setVisibility(selectedIds.contains(t.id) ? View.VISIBLE : View.GONE);
             if (h.ivIcon != null && t.iconUrl != null && !t.iconUrl.isEmpty())
-                Glide.with(ForwardPostActivity.this).load(t.iconUrl).circleCrop().into(h.ivIcon);
-            else if (h.ivIcon != null)
-                h.ivIcon.setImageResource(R.drawable.bg_channel_avatar_default);
-
-            boolean selected = selectedIds.contains(t.id);
-            if (h.ivCheck != null) h.ivCheck.setVisibility(selected ? View.VISIBLE : View.GONE);
+                Glide.with(h.ivIcon.getContext()).load(t.iconUrl).circleCrop().into(h.ivIcon);
+            else if (h.ivIcon != null && t.isSpecial) {
+                if ("__status__".equals(t.id)) h.ivIcon.setImageResource(R.drawable.ic_status_story);
+                else                            h.ivIcon.setImageResource(android.R.drawable.ic_menu_share);
+            }
+            if (h.tvType != null && !t.isSpecial) h.tvType.setText("group".equals(t.type) ? "Group" : "");
 
             h.itemView.setOnClickListener(v -> {
-                // Single-tap: if nothing selected → forward immediately
-                if (selectedIds.isEmpty()) {
-                    forwardToTarget(t);
-                } else {
-                    // Toggle selection
-                    if (selectedIds.contains(t.id)) selectedIds.remove(t.id);
-                    else selectedIds.add(t.id);
-                    notifyItemChanged(pos);
-                    updateForwardButton();
+                if (t.isSpecial && "status".equals(t.type)) {
+                    // Immediate share to status
+                    viewModel.sharePostToStatus(post);
+                    Toast.makeText(ForwardPostActivity.this, "Shared to your Status!", Toast.LENGTH_SHORT).show();
+                    return;
                 }
-            });
-
-            h.itemView.setOnLongClickListener(v -> {
-                // Long press → enter multi-select mode
+                if (t.isSpecial && "external".equals(t.type)) {
+                    ChannelShareHelper.shareViaAndroid(ForwardPostActivity.this, post, null);
+                    return;
+                }
                 if (selectedIds.contains(t.id)) selectedIds.remove(t.id);
-                else selectedIds.add(t.id);
+                else if (selectedIds.size() < 5) selectedIds.add(t.id);
+                else Toast.makeText(ForwardPostActivity.this, "Max 5 recipients.", Toast.LENGTH_SHORT).show();
                 notifyItemChanged(pos);
-                updateForwardButton();
-                return true;
+                if (btnSend != null) {
+                    btnSend.setEnabled(!selectedIds.isEmpty());
+                    btnSend.setText(selectedIds.isEmpty() ? "Send" : "Send (" + selectedIds.size() + ")");
+                }
             });
         }
 
-        @Override public int getItemCount() { return targets.size(); }
+        @Override public int getItemCount() { return data.size(); }
 
         class VH extends RecyclerView.ViewHolder {
             CircleImageView ivIcon;
-            TextView   tvName, tvType;
-            ImageView  ivCheck;
+            ImageView ivCheck;
+            TextView tvName, tvSubtitle, tvType;
             VH(View v) {
                 super(v);
-                ivIcon  = v.findViewById(R.id.iv_forward_icon);
-                tvName  = v.findViewById(R.id.tv_forward_name);
-                tvType  = v.findViewById(R.id.tv_forward_type);
-                ivCheck = v.findViewById(R.id.iv_forward_check);
+                ivIcon     = v.findViewById(R.id.iv_forward_icon);
+                ivCheck    = v.findViewById(R.id.iv_forward_check);
+                tvName     = v.findViewById(R.id.tv_forward_name);
+                tvSubtitle = v.findViewById(R.id.tv_forward_subtitle);
+                tvType     = v.findViewById(R.id.tv_forward_type);
             }
         }
     }
 
-    private void updateForwardButton() {
-        if (btnForwardSelected == null) return;
-        if (selectedIds.isEmpty()) {
-            btnForwardSelected.setVisibility(View.GONE);
-        } else {
-            btnForwardSelected.setVisibility(View.VISIBLE);
-            btnForwardSelected.setText("Forward (" + selectedIds.size() + ")");
-        }
-    }
-
-    // ── Data class ────────────────────────────────────────────────────────
-
     static class ForwardTarget {
-        String id, name, type, iconUrl;
-        ForwardTarget(String id, String name, String type, String iconUrl) {
-            this.id = id; this.name = name; this.type = type; this.iconUrl = iconUrl;
-        }
+        String id, name, subtitle, iconUrl, type;
+        boolean isSpecial = false;
     }
 }

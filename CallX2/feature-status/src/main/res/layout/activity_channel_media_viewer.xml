@@ -1,46 +1,75 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  ChannelMediaViewerActivity layout — WhatsApp-level full-screen media viewer (v4).
+  Added: author/channel info bar, counter badge, forward button, swipe hint,
+  bottom bar separated from caption, immersive-friendly overlay toggle.
+-->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="#000000">
 
-    <!-- Full-screen image -->
-    <ImageView
+    <!-- Full-screen image with pinch-to-zoom (PhotoView) -->
+    <com.github.chrisbanes.photoview.PhotoView
         android:id="@+id/iv_media_viewer_image"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:scaleType="fitCenter"
-        android:adjustViewBounds="true"/>
+        android:visibility="gone"/>
 
-    <!-- Full-screen video -->
-    <VideoView
-        android:id="@+id/video_viewer"
+    <!-- Full-screen video (ExoPlayer PlayerView) -->
+    <androidx.media3.ui.PlayerView
+        android:id="@+id/player_view_video"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:layout_height="match_parent"
         android:layout_gravity="center"
         android:visibility="gone"/>
 
-    <!-- Top bar overlay -->
+    <!-- TOP OVERLAY BAR: back + counter + share/download/forward -->
     <LinearLayout
+        android:id="@+id/layout_media_top_bar"
         android:layout_width="match_parent"
-        android:layout_height="56dp"
+        android:layout_height="60dp"
         android:layout_gravity="top"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:background="#80000000"
-        android:paddingHorizontal="8dp">
+        android:background="#B0000000"
+        android:paddingHorizontal="4dp">
 
+        <!-- Back -->
         <ImageButton
             android:id="@+id/btn_media_viewer_back"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
             android:src="@drawable/ic_arrow_back"
             android:tint="#FFFFFF"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="Back"/>
 
-        <View android:layout_width="0dp" android:layout_height="1dp" android:layout_weight="1"/>
+        <!-- Channel / author info -->
+        <TextView
+            android:id="@+id/tv_media_viewer_info"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:paddingHorizontal="4dp"
+            android:visibility="gone"/>
 
+        <!-- Counter: "3 / 12" -->
+        <TextView
+            android:id="@+id/tv_media_viewer_counter"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp"
+            android:layout_marginEnd="4dp"
+            android:visibility="gone"/>
+
+        <!-- Share -->
         <ImageButton
             android:id="@+id/btn_media_viewer_share"
             android:layout_width="44dp"
@@ -49,18 +78,59 @@
             android:tint="#FFFFFF"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="Share"/>
+
+        <!-- Save to gallery -->
+        <ImageButton
+            android:id="@+id/btn_media_viewer_download"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:src="@android:drawable/stat_sys_download_done"
+            android:tint="#FFFFFF"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Save to gallery"/>
+
+        <!-- Forward -->
+        <ImageButton
+            android:id="@+id/btn_media_viewer_forward"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:src="@android:drawable/ic_menu_send"
+            android:tint="#FFFFFF"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Forward"/>
     </LinearLayout>
 
-    <!-- Bottom caption overlay -->
-    <TextView
-        android:id="@+id/tv_media_viewer_caption"
+    <!-- BOTTOM OVERLAY: caption + swipe hint -->
+    <LinearLayout
+        android:id="@+id/layout_media_bottom_bar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
-        android:background="#80000000"
-        android:textColor="#FFFFFF"
-        android:textSize="14sp"
-        android:padding="14dp"
-        android:visibility="gone"/>
+        android:orientation="vertical"
+        android:background="#B0000000">
+
+        <!-- Caption -->
+        <TextView
+            android:id="@+id/tv_media_viewer_caption"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp"
+            android:lineSpacingMultiplier="1.3"
+            android:padding="14dp"
+            android:visibility="gone"/>
+
+        <!-- Swipe hint (only when multiple media items) -->
+        <TextView
+            android:id="@+id/tv_media_viewer_swipe_hint"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal"
+            android:text="← Swipe to browse →"
+            android:textSize="11sp"
+            android:textColor="#AAFFFFFF"
+            android:paddingBottom="8dp"
+            android:visibility="gone"/>
+    </LinearLayout>
 
 </FrameLayout>

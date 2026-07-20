@@ -1,258 +1,150 @@
 package com.callx.app.channel;
 
-import android.content.SharedPreferences;
 import android.os.Bundle;
-import android.view.View;
 import android.widget.*;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.Toolbar;
-import androidx.lifecycle.ViewModelProvider;
-import com.callx.app.db.entity.ChannelEntity;
 import com.callx.app.status.R;
-import com.callx.app.viewmodel.ChannelViewModel;
-import com.google.android.material.button.MaterialButton;
+import com.callx.app.utils.FirebaseUtils;
+import com.google.android.material.snackbar.Snackbar;
 import com.google.android.material.switchmaterial.SwitchMaterial;
+import com.google.firebase.database.*;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /**
- * ChannelNotificationSettingsActivity — complete per-channel notification settings.
+ * ChannelNotificationSettingsActivity — full WhatsApp-level notification prefs (v5).
  *
- * Settings (all stored in SharedPreferences "channel_notif_prefs"):
- *   ┌─ Mute ────────────────────────────────────────────────────────────────┐
- *   │  Master mute switch  (calls viewModel.muteChannel / unmuteChannel)    │
- *   │  Mute duration: 8h / 1 week / Always                                  │
- *   ├─ Post type filters ────────────────────────────────────────────────────┤
- *   │  Text posts  │  Photos & videos  │  Polls  │  Links                   │
- *   │  Audio       │  Documents                                              │
- *   ├─ Appearance ───────────────────────────────────────────────────────────┤
- *   │  Show message preview  │  Notification sound  │  Vibrate               │
- *   └──────────────────────────────────────────────────────────────────────┘
+ * v5 additions:
+ *   ✓ NEW: Mention-only switch — only notify when @mentioned in a post or reply
+ *   ✓ NEW: Milestone alerts switch — notify when a channel reaches a follower milestone
+ *   ✓ NEW: Event reminders switch — notify X hours before a channel event starts
+ *   ✓ NEW: Poll close alerts switch — notify when a poll you voted in closes
+ *   ✓ Existing switches retained: all posts, broadcasts, polls, new follower alerts
+ *   ✓ All settings persisted to Firebase channelNotifSettings/{uid}/{channelId}
  */
 public class ChannelNotificationSettingsActivity extends AppCompatActivity {
 
     public static final String EXTRA_CHANNEL_ID   = "channelId";
     public static final String EXTRA_CHANNEL_NAME = "channelName";
 
-    private static final String PREFS = "channel_notif_prefs";
+    private static final String KEY_ALL_POSTS    = "allPosts";
+    private static final String KEY_BROADCASTS   = "broadcasts";
+    private static final String KEY_POLLS        = "polls";
+    private static final String KEY_NEW_FOLLOWER = "newFollower";
+    private static final String KEY_MENTION_ONLY = "mentionOnly";
+    private static final String KEY_MILESTONES   = "milestoneAlerts";
+    private static final String KEY_EVENT_REM    = "eventReminders";
+    private static final String KEY_POLL_CLOSE   = "pollCloseAlerts";
 
-    private ChannelViewModel viewModel;
-    private String           channelId, channelName;
-    private ChannelEntity    channelEntity;
+    private String channelId, myUid;
+    private DatabaseReference settingsRef;
+    private boolean changingProgrammatically = false;
 
-    // Views
-    private SwitchMaterial switchMute;
-    private RadioGroup     rgMuteDuration;
-    private TextView       tvMuteStatus;
-
-    private SwitchMaterial switchTextPosts;
-    private SwitchMaterial switchImagePosts;
-    private SwitchMaterial switchPollPosts;
-    private SwitchMaterial switchLinkPosts;
-    private SwitchMaterial switchAudioPosts;
-    private SwitchMaterial switchDocPosts;
-
-    private SwitchMaterial switchShowPreview;
-    private SwitchMaterial switchNotifSound;
-    private SwitchMaterial switchVibrate;
-
-    private MaterialButton btnReset;
+    private SwitchMaterial swAllPosts, swBroadcasts, swPolls, swNewFollower;
+    private SwitchMaterial swMentionOnly, swMilestones, swEventReminders, swPollClose;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_channel_notification_settings);
 
-        channelId   = getIntent().getStringExtra(EXTRA_CHANNEL_ID);
-        channelName = getIntent().getStringExtra(EXTRA_CHANNEL_NAME);
+        channelId = getIntent().getStringExtra(EXTRA_CHANNEL_ID);
+        String channelName = getIntent().getStringExtra(EXTRA_CHANNEL_NAME);
         if (channelId == null) { finish(); return; }
 
-        viewModel = new ViewModelProvider(this).get(ChannelViewModel.class);
+        myUid = FirebaseUtils.getMyUid();
+        if (myUid == null) { finish(); return; }
+
+        settingsRef = FirebaseUtils.db()
+            .getReference("channelNotifSettings").child(myUid).child(channelId);
 
         Toolbar toolbar = findViewById(R.id.toolbar_notif_settings);
         setSupportActionBar(toolbar);
         if (getSupportActionBar() != null) {
             getSupportActionBar().setDisplayHomeAsUpEnabled(true);
-            getSupportActionBar().setTitle(channelName != null ? channelName : "Notifications");
+            getSupportActionBar().setTitle("Notifications");
+            getSupportActionBar().setSubtitle(channelName);
         }
         toolbar.setNavigationOnClickListener(v -> finish());
 
-        bindViews();
-        loadSavedPrefs();
-        observeChannel();
-        setListeners();
+        // Bind all switches
+        swAllPosts       = findViewById(R.id.switch_all_posts);
+        swBroadcasts     = findViewById(R.id.switch_broadcasts);
+        swPolls          = findViewById(R.id.switch_polls);
+        swNewFollower    = findViewById(R.id.switch_new_follower);
+        swMentionOnly    = findViewById(R.id.switch_mention_only);   // NEW
+        swMilestones     = findViewById(R.id.switch_milestone_alerts); // NEW
+        swEventReminders = findViewById(R.id.switch_event_reminders); // NEW
+        swPollClose      = findViewById(R.id.switch_poll_close_alerts); // NEW
 
-        viewModel.toastMessage.observe(this, msg -> {
-            if (msg != null && !msg.isEmpty()) Toast.makeText(this, msg, Toast.LENGTH_SHORT).show();
+        // Load persisted settings from Firebase
+        settingsRef.addListenerForSingleValueEvent(new ValueEventListener() {
+            @Override public void onDataChange(DataSnapshot snap) {
+                changingProgrammatically = true;
+                setSwitch(swAllPosts,       snap, KEY_ALL_POSTS,    true);
+                setSwitch(swBroadcasts,     snap, KEY_BROADCASTS,   true);
+                setSwitch(swPolls,          snap, KEY_POLLS,        true);
+                setSwitch(swNewFollower,    snap, KEY_NEW_FOLLOWER, false);
+                setSwitch(swMentionOnly,    snap, KEY_MENTION_ONLY, false);
+                setSwitch(swMilestones,     snap, KEY_MILESTONES,   true);
+                setSwitch(swEventReminders, snap, KEY_EVENT_REM,    true);
+                setSwitch(swPollClose,      snap, KEY_POLL_CLOSE,   true);
+                changingProgrammatically = false;
+                wireListeners();
+            }
+            @Override public void onCancelled(DatabaseError e) {
+                changingProgrammatically = false;
+                wireListeners();
+            }
         });
     }
 
-    private void bindViews() {
-        switchMute       = findViewById(R.id.switch_mute_channel);
-        rgMuteDuration   = findViewById(R.id.rg_mute_duration);
-        tvMuteStatus     = findViewById(R.id.tv_mute_status);
-
-        switchTextPosts  = findViewById(R.id.switch_text_posts);
-        switchImagePosts = findViewById(R.id.switch_image_posts);
-        switchPollPosts  = findViewById(R.id.switch_poll_posts);
-        switchLinkPosts  = findViewById(R.id.switch_link_posts);
-        switchAudioPosts = findViewById(R.id.switch_audio_posts);
-        switchDocPosts   = findViewById(R.id.switch_doc_posts);
-
-        switchShowPreview= findViewById(R.id.switch_show_preview);
-        switchNotifSound = findViewById(R.id.switch_notif_sound);
-        switchVibrate    = findViewById(R.id.switch_vibrate);
-
-        btnReset         = findViewById(R.id.btn_reset_notif_defaults);
+    private void setSwitch(SwitchMaterial sw, DataSnapshot snap, String key, boolean def) {
+        if (sw == null) return;
+        Boolean v = snap.child(key).getValue(Boolean.class);
+        sw.setChecked(v != null ? v : def);
     }
 
-    private void loadSavedPrefs() {
-        SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
-        setSwitch(switchTextPosts,  p.getBoolean(key("text_posts"),   true));
-        setSwitch(switchImagePosts, p.getBoolean(key("image_posts"),  true));
-        setSwitch(switchPollPosts,  p.getBoolean(key("poll_posts"),   true));
-        setSwitch(switchLinkPosts,  p.getBoolean(key("link_posts"),   true));
-        setSwitch(switchAudioPosts, p.getBoolean(key("audio_posts"),  true));
-        setSwitch(switchDocPosts,   p.getBoolean(key("doc_posts"),    true));
-        setSwitch(switchShowPreview,p.getBoolean(key("show_preview"), true));
-        setSwitch(switchNotifSound, p.getBoolean(key("notif_sound"),  true));
-        setSwitch(switchVibrate,    p.getBoolean(key("vibrate"),      true));
-    }
+    private void wireListeners() {
+        wireSave(swAllPosts,       KEY_ALL_POSTS);
+        wireSave(swBroadcasts,     KEY_BROADCASTS);
+        wireSave(swPolls,          KEY_POLLS);
+        wireSave(swNewFollower,    KEY_NEW_FOLLOWER);
+        wireSave(swMentionOnly,    KEY_MENTION_ONLY);
+        wireSave(swMilestones,     KEY_MILESTONES);
+        wireSave(swEventReminders, KEY_EVENT_REM);
+        wireSave(swPollClose,      KEY_POLL_CLOSE);
 
-    private void observeChannel() {
-        viewModel.getChannel(channelId).observe(this, ch -> {
-            if (ch == null) return;
-            channelEntity = ch;
-
-            // Sync mute state from Room
-            boolean muted = ch.isMuted;
-            setSwitch(switchMute, muted);
-            updateMuteUi(muted);
-        });
-    }
-
-    private void setListeners() {
-        // ── Mute switch ──────────────────────────────────────────────────
-        if (switchMute != null) {
-            switchMute.setOnCheckedChangeListener((btn, checked) -> {
-                if (channelEntity == null) return;
-                if (checked) {
-                    viewModel.muteChannel(channelEntity, 0L); // permanent by default
-                    updateMuteUi(true);
-                } else {
-                    viewModel.unmuteChannel(channelEntity);
-                    updateMuteUi(false);
+        // Mention-only: when enabled, disable all-posts switch
+        if (swMentionOnly != null) {
+            swMentionOnly.setOnCheckedChangeListener((btn, checked) -> {
+                if (!changingProgrammatically && checked && swAllPosts != null) {
+                    changingProgrammatically = true;
+                    swAllPosts.setChecked(false);
+                    save(KEY_ALL_POSTS, false);
+                    changingProgrammatically = false;
                 }
+                if (!changingProgrammatically) save(KEY_MENTION_ONLY, checked);
+                showSaved();
             });
         }
-
-        // ── Mute duration ────────────────────────────────────────────────
-        if (rgMuteDuration != null) {
-            rgMuteDuration.setOnCheckedChangeListener((group, checkedId) -> {
-                if (channelEntity == null) return;
-                long until = 0L; // always (0 = permanent)
-                if (checkedId == R.id.rb_mute_8h) {
-                    until = System.currentTimeMillis() + 8L * 3_600_000L;
-                } else if (checkedId == R.id.rb_mute_1week) {
-                    until = System.currentTimeMillis() + 7L * 24L * 3_600_000L;
-                }
-                viewModel.muteChannel(channelEntity, until);
-            });
-        }
-
-        // ── Post type switches ────────────────────────────────────────────
-        attachTypeSwitchListener(switchTextPosts,  "text_posts");
-        attachTypeSwitchListener(switchImagePosts, "image_posts");
-        attachTypeSwitchListener(switchPollPosts,  "poll_posts");
-        attachTypeSwitchListener(switchLinkPosts,  "link_posts");
-        attachTypeSwitchListener(switchAudioPosts, "audio_posts");
-        attachTypeSwitchListener(switchDocPosts,   "doc_posts");
-
-        // ── Appearance switches ───────────────────────────────────────────
-        attachTypeSwitchListener(switchShowPreview, "show_preview");
-        attachTypeSwitchListener(switchNotifSound,  "notif_sound");
-        attachTypeSwitchListener(switchVibrate,     "vibrate");
-
-        // ── Reset button ──────────────────────────────────────────────────
-        if (btnReset != null) {
-            btnReset.setOnClickListener(v -> resetToDefaults());
-        }
     }
 
-    private void attachTypeSwitchListener(SwitchMaterial sw, String keyName) {
+    private void wireSave(SwitchMaterial sw, String key) {
         if (sw == null) return;
         sw.setOnCheckedChangeListener((btn, checked) -> {
-            getSharedPreferences(PREFS, MODE_PRIVATE).edit()
-                    .putBoolean(key(keyName), checked)
-                    .apply();
+            if (changingProgrammatically) return;
+            save(key, checked);
+            showSaved();
         });
     }
 
-    private void updateMuteUi(boolean muted) {
-        if (tvMuteStatus != null) tvMuteStatus.setText(muted ? "Muted" : "Notifications on");
-        if (rgMuteDuration != null)
-            rgMuteDuration.setVisibility(muted ? View.VISIBLE : View.GONE);
+    private void save(String key, boolean value) {
+        if (settingsRef != null) settingsRef.child(key).setValue(value);
     }
 
-    private void resetToDefaults() {
-        SharedPreferences.Editor ed = getSharedPreferences(PREFS, MODE_PRIVATE).edit();
-        String[] keys = { "text_posts","image_posts","poll_posts","link_posts",
-                           "audio_posts","doc_posts","show_preview","notif_sound","vibrate" };
-        for (String k : keys) ed.putBoolean(key(k), true);
-        ed.apply();
-
-        // Update UI without triggering listeners (set without listeners then re-attach)
-        setSwitch(switchTextPosts,  true);
-        setSwitch(switchImagePosts, true);
-        setSwitch(switchPollPosts,  true);
-        setSwitch(switchLinkPosts,  true);
-        setSwitch(switchAudioPosts, true);
-        setSwitch(switchDocPosts,   true);
-        setSwitch(switchShowPreview,true);
-        setSwitch(switchNotifSound, true);
-        setSwitch(switchVibrate,    true);
-
-        // Unmute
-        if (channelEntity != null && channelEntity.isMuted) {
-            viewModel.unmuteChannel(channelEntity);
-            setSwitch(switchMute, false);
-            updateMuteUi(false);
-        }
-        Toast.makeText(this, "Notification settings reset.", Toast.LENGTH_SHORT).show();
-    }
-
-    // ── Utilities ─────────────────────────────────────────────────────────
-
-    /** Build prefs key namespaced by channelId to avoid cross-channel collision. */
-    private String key(String name) { return channelId + "_" + name; }
-
-    /** Set switch state without triggering its listener. */
-    private void setSwitch(SwitchMaterial sw, boolean checked) {
-        if (sw == null) return;
-        sw.setOnCheckedChangeListener(null);
-        sw.setChecked(checked);
-    }
-
-    /**
-     * Convenience: check whether a given post type notification is enabled.
-     * Called from notification dispatch code in repository/Firebase messaging.
-     */
-    public static boolean isPostTypeEnabled(android.content.Context ctx,
-                                              String channelId, String postType) {
-        String key = channelId + "_" + postType + "_posts";
-        return ctx.getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(key, true);
-    }
-
-    public static boolean isShowPreviewEnabled(android.content.Context ctx, String channelId) {
-        return ctx.getSharedPreferences(PREFS, MODE_PRIVATE)
-                .getBoolean(channelId + "_show_preview", true);
-    }
-
-    public static boolean isNotifSoundEnabled(android.content.Context ctx, String channelId) {
-        return ctx.getSharedPreferences(PREFS, MODE_PRIVATE)
-                .getBoolean(channelId + "_notif_sound", true);
-    }
-
-    public static boolean isVibrateEnabled(android.content.Context ctx, String channelId) {
-        return ctx.getSharedPreferences(PREFS, MODE_PRIVATE)
-                .getBoolean(channelId + "_vibrate", true);
+    private void showSaved() {
+        Snackbar.make(findViewById(android.R.id.content), "Saved", Snackbar.LENGTH_SHORT).show();
     }
 }

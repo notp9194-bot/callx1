@@ -90,4 +90,24 @@ public class ChannelPostEntity {
     public boolean allowForward;     // default true
 
     public long   syncedAt;
+
+    // ── NEW in v5: Broadcast ────────────────────────────────────────────
+    public String broadcastPriority;   // "normal"|"important"|"urgent"
+
+    // ── NEW in v5: Event ────────────────────────────────────────────────
+    public String  eventTitle;
+    public String  eventLocation;
+    public long    eventStartAt;
+    public long    eventEndAt;
+    public String  eventImageUrl;
+    public boolean eventRsvpEnabled;
+
+    // ── NEW in v5: Anonymous poll ───────────────────────────────────────
+    public boolean pollAnonymous;
+
+    // ── NEW in v5: Topic tags ───────────────────────────────────────────
+    public String topicTagsJson;       // JSON array of tag strings
+
+    // ── NEW in v5: Mentions ─────────────────────────────────────────────
+    public String mentionedUidsJson;   // JSON array of mentioned UIDs
 }

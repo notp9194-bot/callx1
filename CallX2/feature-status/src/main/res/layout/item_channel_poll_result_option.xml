@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Per-option row in ChannelPollResultsActivity -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:paddingVertical="10dp"
+    android:background="?attr/selectableItemBackground">
+
+    <!-- Option label + leading badge + percent -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <TextView
+            android:id="@+id/tv_poll_option_label"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textSize="14sp"
+            android:textColor="#111111"
+            android:textStyle="bold"/>
+
+        <TextView
+            android:id="@+id/tv_poll_option_leading"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="★ Leading"
+            android:textSize="11sp"
+            android:textColor="#25D366"
+            android:layout_marginEnd="8dp"
+            android:visibility="gone"/>
+
+        <TextView
+            android:id="@+id/tv_poll_option_percent"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:textColor="#25D366"/>
+    </LinearLayout>
+
+    <!-- Progress bar -->
+    <ProgressBar
+        android:id="@+id/progress_poll_option"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="8dp"
+        android:layout_marginTop="6dp"
+        android:max="100"
+        android:progress="0"
+        android:progressDrawable="@android:drawable/progress_horizontal"/>
+
+    <!-- Vote count -->
+    <TextView
+        android:id="@+id/tv_poll_option_votes"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textSize="11sp"
+        android:textColor="#888888"
+        android:layout_marginTop="3dp"/>
+
+</LinearLayout>

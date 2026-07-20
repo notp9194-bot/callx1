@@ -156,4 +156,43 @@ public class ChannelPost {
         long secs = audioDurationMs / 1000;
         return String.format("%d:%02d", secs / 60, secs % 60);
     }
+
+    // ── NEW in v5: Broadcast ─────────────────────────────────────────────
+    /**
+     * broadcastPriority: "normal" | "important" | "urgent"
+     * Used only when type == "broadcast"
+     */
+    public String broadcastPriority;
+
+    // ── NEW in v5: Event ─────────────────────────────────────────────────
+    /**
+     * Event fields — used only when type == "event"
+     */
+    public String eventTitle;
+    public String eventLocation;
+    public long   eventStartAt;        // epoch millis
+    public long   eventEndAt;          // epoch millis; 0 = open-ended
+    public String eventImageUrl;       // banner image
+    public boolean eventRsvpEnabled;   // true = show Going/Maybe/Not Going buttons
+
+    // ── NEW in v5: Anonymous poll voting ─────────────────────────────────
+    /**
+     * pollAnonymous — when true, voter identities are hidden in ChannelPollResultsActivity.
+     * Only the aggregate vote count per option is shown.
+     */
+    public boolean pollAnonymous;
+
+    // ── NEW in v5: Topic tags ─────────────────────────────────────────────
+    /**
+     * topicTags — list of topic tag strings (e.g. ["news", "sports"]).
+     * Used for filtering in ChannelViewerActivity topic chip row.
+     */
+    public java.util.List<String> topicTags;
+
+    // ── NEW in v5: @Mentions ─────────────────────────────────────────────
+    /**
+     * mentionedUids — list of UIDs @mentioned in this post's text.
+     */
+    public java.util.List<String> mentionedUids;
+
 }

@@ -137,6 +137,51 @@
             android:theme="@style/Theme.CallX"
             android:exported="false"/>
 
+        <!-- ── NEW v4 activities ─────────────────────────────────────────── -->
+
+        <!-- Detailed poll results: per-option progress, voter list, real-time -->
+        <activity
+            android:name="com.callx.app.channel.ChannelPollResultsActivity"
+            android:theme="@style/Theme.CallX"
+            android:windowSoftInputMode="adjustResize"
+            android:exported="false"/>
+
+        <!-- Saved / bookmarked posts per channel (offline-first, SharedPreferences) -->
+        <activity
+            android:name="com.callx.app.channel.ChannelHighlightsActivity"
+            android:theme="@style/Theme.CallX"
+            android:exported="false"/>
+
+        <!-- Admin broadcast to all followers with priority + FCM trigger -->
+        <activity
+            android:name="com.callx.app.channel.ChannelBroadcastActivity"
+            android:theme="@style/Theme.CallX"
+            android:windowSoftInputMode="adjustResize"
+            android:exported="false"/>
+
+        <!-- ── NEW v5 activities ──────────────────────────────────────────── -->
+
+        <!-- Welcome message / auto-reply for new followers -->
+        <activity
+            android:name="com.callx.app.channel.ChannelAutoReplyActivity"
+            android:theme="@style/Theme.CallX"
+            android:windowSoftInputMode="adjustResize"
+            android:exported="false"/>
+
+        <!-- Topic tag management per channel -->
+        <activity
+            android:name="com.callx.app.channel.ChannelTopicsActivity"
+            android:theme="@style/Theme.CallX"
+            android:windowSoftInputMode="adjustResize"
+            android:exported="false"/>
+
+        <!-- WorkManager background task: deliver welcome DM to new followers -->
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:foregroundServiceType="shortService"
+            android:exported="false"
+            tools:node="merge" />
+
     </application>
 
 </manifest>

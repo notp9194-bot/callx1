@@ -1,31 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Single poll option row — text + progress bar -->
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<!-- Poll option row shown inside the channel post feed (voting state) -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="44dp"
-    android:layout_marginBottom="6dp"
-    android:background="@android:color/white">
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:paddingVertical="6dp"
+    android:background="?attr/selectableItemBackground">
 
-    <!-- Progress bar fill (shown after voting) -->
-    <ProgressBar
-        android:id="@+id/pb_poll_option"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:indeterminate="false"
-        style="?android:attr/progressBarStyleHorizontal"
-        android:progressTint="#DCF5E7"
-        android:progressBackgroundTint="#F2F2F2"
-        android:max="100"
-        android:visibility="gone"/>
-
-    <!-- Option border (always shown) -->
+    <!-- Option text + percent row -->
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
+        android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:paddingHorizontal="12dp"
-        android:background="@drawable/bg_poll_option_border">
+        android:gravity="center_vertical">
 
         <TextView
             android:id="@+id/tv_poll_option_text"
@@ -35,34 +22,24 @@
             android:textSize="14sp"
             android:textColor="#111111"/>
 
-        <!-- Percentage shown after voting -->
         <TextView
-            android:id="@+id/tv_poll_option_percent"
-            android:layout_width="wrap_content"
+            android:id="@+id/tv_poll_option_pct"
+            android:layout_width="40dp"
             android:layout_height="wrap_content"
-            android:textSize="13sp"
-            android:textStyle="bold"
+            android:textSize="12sp"
             android:textColor="#25D366"
-            android:layout_marginStart="8dp"
-            android:visibility="gone"/>
-
-        <!-- Multi-select checkbox (shown only when poll allows multiple answers) -->
-        <CheckBox
-            android:id="@+id/cb_poll_option"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="6dp"
-            android:visibility="gone"/>
-
-        <!-- Check icon for own vote -->
-        <ImageView
-            android:id="@+id/iv_poll_option_check"
-            android:layout_width="16dp"
-            android:layout_height="16dp"
-            android:src="@android:drawable/checkbox_on_background"
-            android:tint="#25D366"
-            android:layout_marginStart="6dp"
-            android:visibility="gone"/>
+            android:gravity="end"/>
     </LinearLayout>
 
-</FrameLayout>
+    <!-- Votes progress bar -->
+    <ProgressBar
+        android:id="@+id/progress_poll_option_bar"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="6dp"
+        android:layout_marginTop="4dp"
+        android:max="100"
+        android:progress="0"
+        android:progressTint="#25D366"
+        android:visibility="invisible"/>
+</LinearLayout>
