@@ -5683,8 +5683,8 @@ public class MessagePagingAdapter
      * A change in readBy count triggers PAYLOAD_READ_BY so only the
      * "Seen by" strip is redrawn instead of a full rebind.
      */
-    private boolean readByCountEquals(@NonNull com.callx.app.models.Message a,
-                                       @NonNull com.callx.app.models.Message b) {
+    private static boolean readByCountEquals(@NonNull com.callx.app.models.Message a,
+                                              @NonNull com.callx.app.models.Message b) {
         int cA = (a.readBy != null) ? a.readBy.size() : 0;
         int cB = (b.readBy != null) ? b.readBy.size() : 0;
         return cA == cB;

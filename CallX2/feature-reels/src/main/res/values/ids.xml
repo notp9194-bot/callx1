@@ -14,4 +14,7 @@
     <item name="iv_collab_user_avatar"   type="id"/>
     <item name="tv_collab_user_name"     type="id"/>
     <item name="tv_collab_user_handle"   type="id"/>
+
+    <!-- Sound detail bottom sheet — "See full page" button -->
+    <item name="btn_see_full_page"       type="id"/>
 </resources>

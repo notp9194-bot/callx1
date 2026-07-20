@@ -62,4 +62,17 @@
     <color name="white">#FFFFFF</color>
     <color name="black">#000000</color>
     <color name="transparent">#00000000</color>
+
+    <!-- Semantic aliases referenced by feature modules -->
+    <!-- 70% opaque white — used in chat/status overlays -->
+    <color name="white_70">#B3FFFFFF</color>
+    <!-- Secondary text — alias of text_secondary -->
+    <color name="textSecondary">#64748B</color>
+    <!-- Generic background / surface tokens used by reels/status layouts -->
+    <color name="background">#F5F6FA</color>
+    <color name="surface">#FFFFFF</color>
+    <!-- Shimmer placeholder base colour -->
+    <color name="shimmer_base">#E0E0E0</color>
+    <!-- Error / destructive colour -->
+    <color name="error">#EF4444</color>
 </resources>

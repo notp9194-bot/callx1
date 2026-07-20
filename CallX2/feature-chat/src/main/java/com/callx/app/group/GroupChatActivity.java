@@ -1103,6 +1103,7 @@ public class GroupChatActivity extends AppCompatActivity
                     @Override public void navigateToMessage(String messageId) { scrollToMessageId(messageId); }
                     @Override public boolean severPagingIfAtBottom() { return false; }
                     @Override public void reanchorPagingToBottom() { /* group: no-op */ }
+                    @Override public void queueMarkRead(String messageId) { /* group: handled by GroupChatActivity */ }
                 });
 
         // ── Group Scheduled Send Controller ────────────────────────────────
