@@ -500,13 +500,13 @@
     <!-- ════ Stub views for IDs referenced by ChannelPostComposerActivity (visibility=gone) ════ -->
     <androidx.appcompat.widget.Toolbar android:id="@+id/toolbar_composer"
         android:layout_width="match_parent" android:layout_height="?attr/actionBarSize" android:visibility="gone"/>
-    <EditText android:id="@+id/et_post_caption"
+    <com.google.android.material.textfield.TextInputEditText android:id="@+id/et_post_caption"
         android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone"/>
-    <EditText android:id="@+id/et_link_url"
+    <com.google.android.material.textfield.TextInputEditText android:id="@+id/et_link_url"
         android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone"/>
-    <EditText android:id="@+id/et_event_title"
+    <com.google.android.material.textfield.TextInputEditText android:id="@+id/et_event_title"
         android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone"/>
-    <EditText android:id="@+id/et_event_location"
+    <com.google.android.material.textfield.TextInputEditText android:id="@+id/et_event_location"
         android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone"/>
     <TextView android:id="@+id/tv_caption_count"
         android:layout_width="wrap_content" android:layout_height="wrap_content" android:visibility="gone"/>
@@ -522,11 +522,11 @@
         android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone"/>
     <ProgressBar android:id="@+id/progress_link_preview"
         android:layout_width="wrap_content" android:layout_height="wrap_content" android:visibility="gone"/>
-    <View android:id="@+id/btn_post_send"
+    <com.google.android.material.button.MaterialButton android:id="@+id/btn_post_send"
         android:layout_width="wrap_content" android:layout_height="wrap_content" android:visibility="gone"/>
-    <View android:id="@+id/btn_schedule"
+    <com.google.android.material.button.MaterialButton android:id="@+id/btn_schedule"
         android:layout_width="wrap_content" android:layout_height="wrap_content" android:visibility="gone"/>
-    <View android:id="@+id/btn_clear_schedule"
+    <com.google.android.material.button.MaterialButton android:id="@+id/btn_clear_schedule"
         android:layout_width="wrap_content" android:layout_height="wrap_content" android:visibility="gone"/>
     <View android:id="@+id/layout_schedule_info"
         android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone"/>
@@ -542,13 +542,13 @@
         android:layout_width="wrap_content" android:layout_height="wrap_content" android:visibility="gone"/>
     <TextView android:id="@+id/tv_topic_count"
         android:layout_width="wrap_content" android:layout_height="wrap_content" android:visibility="gone"/>
-    <com.google.android.material.switchmaterial.SwitchMaterial android:id="@+id/switch_poll_multi"
+    <Switch android:id="@+id/switch_poll_multi"
         android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone"/>
-    <com.google.android.material.switchmaterial.SwitchMaterial android:id="@+id/switch_poll_anonymous"
+    <Switch android:id="@+id/switch_poll_anonymous"
         android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone"/>
-    <com.google.android.material.switchmaterial.SwitchMaterial android:id="@+id/switch_event_rsvp"
+    <Switch android:id="@+id/switch_event_rsvp"
         android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone"/>
-    <com.google.android.material.switchmaterial.SwitchMaterial android:id="@+id/switch_notify_all"
+    <Switch android:id="@+id/switch_notify_all"
         android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone"/>
     <ProgressBar android:id="@+id/progress_upload"
         android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone"/>
@@ -556,7 +556,7 @@
         android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone"/>
     <com.google.android.material.chip.ChipGroup android:id="@+id/chip_group_post_topics"
         android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone"/>
-    <EditText android:id="@+id/et_new_post_topic"
+    <com.google.android.material.textfield.TextInputEditText android:id="@+id/et_new_post_topic"
         android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone"/>
     <androidx.recyclerview.widget.RecyclerView android:id="@+id/rv_mention_suggestions"
         android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone"/>
