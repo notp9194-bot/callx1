@@ -55,7 +55,7 @@ import com.callx.app.db.entity.*;
         ChatFolderEntity.class,
         SavedMessageEntity.class
     },
-    version = 39,
+    version = 40,
     exportSchema = false
 )
 public abstract class AppDatabase extends RoomDatabase {
@@ -450,6 +450,23 @@ public abstract class AppDatabase extends RoomDatabase {
         }
     };
 
+    // ─── Migration 39 → 40 ────────────────────────────────────────────────────
+    //
+    // FIX: MessageEntity.isAnonymous existed in code for a while (anonymous
+    // poll voting) but no migration ever ran "ALTER TABLE messages ADD COLUMN
+    // isAnonymous" — the DB version was never bumped for it. Room's schema
+    // validation therefore always found the "messages" table missing this
+    // column vs. the entity, crashing with IllegalStateException on every
+    // app start ("Migration didn't properly handle: messages"). This
+    // migration finally adds the missing column.
+    //
+    static final Migration MIGRATION_39_40 = new Migration(39, 40) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase db) {
+            db.execSQL("ALTER TABLE messages ADD COLUMN isAnonymous INTEGER");
+        }
+    };
+
     // ─── Singleton ────────────────────────────────────────────────────────────
 
     public static boolean isWarm() { return sInstance != null; }
@@ -467,7 +484,7 @@ public abstract class AppDatabase extends RoomDatabase {
                                     MIGRATION_32_33, MIGRATION_33_34,
                                     MIGRATION_34_35, MIGRATION_35_36,
                                     MIGRATION_36_37, MIGRATION_37_38,
-                                    MIGRATION_38_39)
+                                    MIGRATION_38_39, MIGRATION_39_40)
                             .fallbackToDestructiveMigrationFrom(1, 2, 3, 4, 5, 6, 7, 8,
                                     9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
                                     21, 22, 23, 24, 25, 26, 27, 28, 29)
