@@ -277,9 +277,4 @@ public class CommunityBookmarksActivity extends AppCompatActivity {
         }
     }
 
-    /** 2-arg overload for callers that don't have communityId (e.g. canvas views). */
-    public static boolean isBookmarked(Context ctx, String postId) {
-        return isBookmarked(ctx, , postId);
-    }
-
 }

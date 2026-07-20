@@ -374,7 +374,7 @@ public class CommunityPostCanvasView extends View {
         hasReactions = reactionCounts != null && !reactionCounts.isEmpty();
         myReacted    = post.myReactionType != null && !post.myReactionType.isEmpty();
         isBookmarked = com.callx.app.community.CommunityBookmarksActivity
-                           .isBookmarked(getContext(), post.id);
+                           .isBookmarked(getContext(), post.communityId, post.id);
 
         long totalReactions = CommunityReaction.totalCount(post.reactionCountsJson);
         long displayLikes = totalReactions > 0 ? totalReactions : post.likeCount;

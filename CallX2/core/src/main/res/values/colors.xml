@@ -77,4 +77,5 @@
     <color name="colorTextPrimary">@color/text_primary</color>
     <color name="colorTextSecondary">@color/text_secondary</color>
     <color name="colorError">@color/action_danger</color>
+    <color name="colorPrimary">@color/brand_primary</color>
 </resources>

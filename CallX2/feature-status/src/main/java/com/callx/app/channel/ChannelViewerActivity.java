@@ -521,7 +521,9 @@ public class ChannelViewerActivity extends AppCompatActivity
     private void openChannelInfo() {
         if (channelEntity == null) return;
         ChannelViewerInfoBottomSheet sheet =
-            ChannelViewerInfoBottomSheet.newInstance(channelEntity);
+            ChannelViewerInfoBottomSheet.newInstance(channelEntity.id, channelEntity.name,
+                channelEntity.description, channelEntity.inviteLink, channelEntity.followers,
+                channelEntity.isFollowing, channelEntity.isMuted, channelEntity.isAdmin);
         sheet.show(getSupportFragmentManager(), ChannelViewerInfoBottomSheet.TAG);
     }
 
@@ -739,8 +741,14 @@ public class ChannelViewerActivity extends AppCompatActivity
 
     @Override public void onReactionsDetail(ChannelPost post) {
         Intent i = new Intent(this, ChannelReactionsDetailActivity.class);
-        i.putExtra(ChannelReactionsDetailActivity.EXTRA_CHANNEL_ID, channelId);
-        i.putExtra(ChannelReactionsDetailActivity.EXTRA_POST_ID,    post.id);
+        org.json.JSONObject reactionsJson = new org.json.JSONObject();
+        if (post.reactions != null) {
+            for (Map.Entry<String, String> e : post.reactions.entrySet()) {
+                try { reactionsJson.put(e.getKey(), e.getValue()); } catch (Exception ignored) {}
+            }
+        }
+        i.putExtra(ChannelReactionsDetailActivity.EXTRA_REACTIONS_JSON, reactionsJson.toString());
+        i.putExtra(ChannelReactionsDetailActivity.EXTRA_POST_ID,        post.id);
         startActivity(i);
     }
 

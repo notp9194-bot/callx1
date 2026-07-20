@@ -306,7 +306,7 @@ public class ChannelHighlightsActivity extends AppCompatActivity {
         if (myUid == null) return;
         com.google.firebase.database.DatabaseReference ref =
                 com.callx.app.utils.FirebaseUtils.db()
-                        .getReference(channelBookmarks).child(myUid).child(postId);
+                        .getReference("channelBookmarks").child(myUid).child(postId);
         ref.addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
             @Override public void onDataChange(@androidx.annotation.NonNull com.google.firebase.database.DataSnapshot snap) {
                 if (snap.exists()) { ref.removeValue(); } else {

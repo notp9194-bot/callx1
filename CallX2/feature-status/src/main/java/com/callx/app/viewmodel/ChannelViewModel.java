@@ -489,6 +489,18 @@ public class ChannelViewModel extends AndroidViewModel {
             _toastMessage.postValue(ok ? "Post unpinned." : "Failed to unpin."));
     }
 
+    /** pinPost by channelId + postId strings */
+    public void pinPost(String channelId, String postId) {
+        repo.pinPost(channelId, postId, ok ->
+            _toastMessage.postValue(ok ? "Post pinned." : "Failed to pin."));
+    }
+
+    /** unpinPost by channelId + postId strings */
+    public void unpinPost(String channelId, String postId) {
+        repo.unpinPost(channelId, postId, ok ->
+            _toastMessage.postValue(ok ? "Post unpinned." : "Failed to unpin."));
+    }
+
     /** saveBookmark — saves post ID to Firebase so bookmarks sync across devices. */
     public void saveBookmark(String channelId, String postId) {
         if (myUid == null) return;
@@ -518,6 +530,22 @@ public class ChannelViewModel extends AndroidViewModel {
     public void removeReaction(ChannelPost post) {
         if (myUid == null || post == null) return;
         repo.removeReaction(myUid, post.channelId, post.id, ok -> {
+            if (!ok) _toastMessage.postValue("Failed to remove reaction.");
+        });
+    }
+
+    /** reactToPost by channelId + postId strings */
+    public void reactToPost(String channelId, String postId, String emoji) {
+        if (myUid == null) return;
+        repo.reactToPost(myUid, channelId, postId, emoji, ok -> {
+            if (!ok) _toastMessage.postValue("Reaction failed.");
+        });
+    }
+
+    /** removeReaction by channelId + postId strings */
+    public void removeReaction(String channelId, String postId) {
+        if (myUid == null) return;
+        repo.removeReaction(myUid, channelId, postId, ok -> {
             if (!ok) _toastMessage.postValue("Failed to remove reaction.");
         });
     }
