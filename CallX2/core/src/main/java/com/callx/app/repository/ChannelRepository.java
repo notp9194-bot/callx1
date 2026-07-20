@@ -1185,7 +1185,7 @@ public class ChannelRepository {
     // ════════════════════════════════════════════════════════════════════════
 
     public void getWelcomeMessage(String channelId, Callback<String> cb) {
-        db.getReference("channelSettings").child(channelId).child("welcomeMessage")
+        FirebaseUtils.db().getReference("channelSettings").child(channelId).child("welcomeMessage")
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(@NonNull DataSnapshot s) {
                     Object v = s.getValue(); mainHandler.post(() -> cb.onResult(v != null ? v.toString() : null));
@@ -1195,7 +1195,7 @@ public class ChannelRepository {
     }
 
     public void setWelcomeMessage(String channelId, String message, BooleanCallback cb) {
-        DatabaseReference ref = db.getReference("channelSettings").child(channelId).child("welcomeMessage");
+        DatabaseReference ref = FirebaseUtils.db().getReference("channelSettings").child(channelId).child("welcomeMessage");
         if (message == null || message.isEmpty()) {
             ref.removeValue().addOnSuccessListener(v -> mainHandler.post(() -> cb.onResult(true)))
                .addOnFailureListener(e -> mainHandler.post(() -> cb.onResult(false)));
@@ -1208,7 +1208,7 @@ public class ChannelRepository {
     /** Send a welcome DM from the channel to a new follower's chat inbox. */
     public void sendWelcomeDm(String channelId, String toUid, String message, BooleanCallback cb) {
         // Look up channel name + icon to set as DM sender
-        db.getReference("channels").child(channelId)
+        FirebaseUtils.db().getReference("channels").child(channelId)
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(@NonNull DataSnapshot s) {
                     Object nameObj = s.child("name").getValue();
@@ -1217,7 +1217,7 @@ public class ChannelRepository {
                     String chIcon = iconObj != null ? iconObj.toString() : "";
 
                     // Write a synthetic DM into the recipient's inbox
-                    String dmId = db.getReference("messages").child(toUid).push().getKey();
+                    String dmId = FirebaseUtils.db().getReference("messages").child(toUid).push().getKey();
                     if (dmId == null) { if (cb != null) mainHandler.post(() -> cb.onResult(false)); return; }
 
                     java.util.Map<String, Object> dm = new java.util.LinkedHashMap<>();
@@ -1229,7 +1229,7 @@ public class ChannelRepository {
                     dm.put("type",        "channel_welcome");
                     dm.put("channelId",   channelId);
 
-                    db.getReference("messages").child(toUid).child(dmId).setValue(dm)
+                    FirebaseUtils.db().getReference("messages").child(toUid).child(dmId).setValue(dm)
                       .addOnSuccessListener(v -> { if (cb != null) mainHandler.post(() -> cb.onResult(true)); })
                       .addOnFailureListener(e -> { if (cb != null) mainHandler.post(() -> cb.onResult(false)); });
                 }
@@ -1249,14 +1249,14 @@ public class ChannelRepository {
         data.put("channelId", channelId);
         data.put("postId",    postId);
         data.put("savedAt",   ServerValue.TIMESTAMP);
-        db.getReference("channelBookmarks").child(myUid).child(key).setValue(data)
+        FirebaseUtils.db().getReference("channelBookmarks").child(myUid).child(key).setValue(data)
           .addOnSuccessListener(v -> mainHandler.post(() -> cb.onResult(true)))
           .addOnFailureListener(e -> mainHandler.post(() -> cb.onResult(false)));
     }
 
     public void removeBookmark(String myUid, String channelId, String postId, BooleanCallback cb) {
         String key = channelId + "_" + postId;
-        db.getReference("channelBookmarks").child(myUid).child(key).removeValue()
+        FirebaseUtils.db().getReference("channelBookmarks").child(myUid).child(key).removeValue()
           .addOnSuccessListener(v -> mainHandler.post(() -> cb.onResult(true)))
           .addOnFailureListener(e -> mainHandler.post(() -> cb.onResult(false)));
     }
@@ -1275,7 +1275,7 @@ public class ChannelRepository {
      * This avoids embedding FCM server keys in the Android client.
      */
     public void sendBroadcastPush(String channelId, String text, String priority, BooleanCallback cb) {
-        String triggerKey = db.getReference("channelBroadcastTriggers")
+        String triggerKey = FirebaseUtils.db().getReference("channelBroadcastTriggers")
             .child(channelId).push().getKey();
         if (triggerKey == null) { mainHandler.post(() -> cb.onResult(false)); return; }
 
@@ -1285,7 +1285,7 @@ public class ChannelRepository {
         trigger.put("timestamp", ServerValue.TIMESTAMP);
         trigger.put("channelId", channelId);
 
-        db.getReference("channelBroadcastTriggers").child(channelId).child(triggerKey)
+        FirebaseUtils.db().getReference("channelBroadcastTriggers").child(channelId).child(triggerKey)
           .setValue(trigger)
           .addOnSuccessListener(v -> mainHandler.post(() -> cb.onResult(true)))
           .addOnFailureListener(e -> mainHandler.post(() -> cb.onResult(false)));
@@ -1302,7 +1302,7 @@ public class ChannelRepository {
         perms.put("canPost",   canPost);
         perms.put("canEdit",   canEdit);
         perms.put("canManage", canManage);
-        db.getReference("channelAdminPerms").child(channelId).child(adminUid).setValue(perms)
+        FirebaseUtils.db().getReference("channelAdminPerms").child(channelId).child(adminUid).setValue(perms)
           .addOnSuccessListener(v -> mainHandler.post(() -> cb.onResult(true)))
           .addOnFailureListener(e -> mainHandler.post(() -> cb.onResult(false)));
     }
@@ -1312,14 +1312,14 @@ public class ChannelRepository {
     // ════════════════════════════════════════════════════════════════════════
 
     public void setChannelTopicTags(String channelId, java.util.List<String> tags, BooleanCallback cb) {
-        db.getReference("channels").child(channelId).child("topicTags").setValue(tags)
+        FirebaseUtils.db().getReference("channels").child(channelId).child("topicTags").setValue(tags)
           .addOnSuccessListener(v -> mainHandler.post(() -> cb.onResult(true)))
           .addOnFailureListener(e -> mainHandler.post(() -> cb.onResult(false)));
     }
 
     public void setPostTopicTags(String channelId, String postId,
                                   java.util.List<String> tags, BooleanCallback cb) {
-        db.getReference("channelPosts").child(channelId).child(postId).child("topicTags").setValue(tags)
+        FirebaseUtils.db().getReference("channelPosts").child(channelId).child(postId).child("topicTags").setValue(tags)
           .addOnSuccessListener(v -> mainHandler.post(() -> cb.onResult(true)))
           .addOnFailureListener(e -> mainHandler.post(() -> cb.onResult(false)));
     }
@@ -1334,7 +1334,7 @@ public class ChannelRepository {
      */
     public void checkAndMarkMilestone(String channelId, long milestone, BooleanCallback cb) {
         String key = String.valueOf(milestone);
-        DatabaseReference ref = db.getReference("channelMilestones").child(channelId).child(key);
+        DatabaseReference ref = FirebaseUtils.db().getReference("channelMilestones").child(channelId).child(key);
         ref.addListenerForSingleValueEvent(new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot s) {
                 if (s.exists()) {
@@ -1361,7 +1361,7 @@ public class ChannelRepository {
      */
     public void shareChannelPostToStatus(String myUid, String myName, String myIconUrl,
                                           com.callx.app.models.ChannelPost post, BooleanCallback cb) {
-        String statusId = db.getReference("statusUpdates").child(myUid).push().getKey();
+        String statusId = FirebaseUtils.db().getReference("statusUpdates").child(myUid).push().getKey();
         if (statusId == null) { mainHandler.post(() -> cb.onResult(false)); return; }
 
         java.util.Map<String, Object> status = new java.util.LinkedHashMap<>();
@@ -1379,7 +1379,7 @@ public class ChannelRepository {
         if (post.mediaUrl   != null) status.put("mediaUrl",  post.mediaUrl);
         if (post.thumbnailUrl != null) status.put("thumbUrl", post.thumbnailUrl);
 
-        db.getReference("statusUpdates").child(myUid).child(statusId).setValue(status)
+        FirebaseUtils.db().getReference("statusUpdates").child(myUid).child(statusId).setValue(status)
           .addOnSuccessListener(v -> mainHandler.post(() -> cb.onResult(true)))
           .addOnFailureListener(e -> mainHandler.post(() -> cb.onResult(false)));
     }
@@ -1390,7 +1390,7 @@ public class ChannelRepository {
 
     public void rsvpEvent(String myUid, String channelId, String postId,
                            String status, BooleanCallback cb) {
-        db.getReference("channelEventRsvp").child(channelId).child(postId).child(myUid)
+        FirebaseUtils.db().getReference("channelEventRsvp").child(channelId).child(postId).child(myUid)
           .setValue(status)
           .addOnSuccessListener(v -> mainHandler.post(() -> cb.onResult(true)))
           .addOnFailureListener(e -> mainHandler.post(() -> cb.onResult(false)));
@@ -1403,13 +1403,13 @@ public class ChannelRepository {
     public void blockFollower(String channelId, String followerUid, BooleanCallback cb) {
         java.util.Map<String, Object> u = new java.util.LinkedHashMap<>();
         u.put("blocked", true); u.put("blockedAt", ServerValue.TIMESTAMP);
-        db.getReference("channelFollowers").child(channelId).child(followerUid).updateChildren(u)
+        FirebaseUtils.db().getReference("channelFollowers").child(channelId).child(followerUid).updateChildren(u)
           .addOnSuccessListener(v -> mainHandler.post(() -> cb.onResult(true)))
           .addOnFailureListener(e -> mainHandler.post(() -> cb.onResult(false)));
     }
 
     public void unblockFollower(String channelId, String followerUid, BooleanCallback cb) {
-        db.getReference("channelFollowers").child(channelId).child(followerUid).child("blocked")
+        FirebaseUtils.db().getReference("channelFollowers").child(channelId).child(followerUid).child("blocked")
           .removeValue()
           .addOnSuccessListener(v -> mainHandler.post(() -> cb.onResult(true)))
           .addOnFailureListener(e -> mainHandler.post(() -> cb.onResult(false)));
@@ -1424,7 +1424,7 @@ public class ChannelRepository {
                                    com.callx.app.models.ChannelPost post,
                                    String note, BooleanCallback cb) {
         String node = "group".equals(targetType) ? "groupMessages" : "messages";
-        String msgId = db.getReference(node).child(targetChatId).push().getKey();
+        String msgId = FirebaseUtils.db().getReference(node).child(targetChatId).push().getKey();
         if (msgId == null) { mainHandler.post(() -> cb.onResult(false)); return; }
 
         java.util.Map<String, Object> msg = new java.util.LinkedHashMap<>();
@@ -1441,7 +1441,7 @@ public class ChannelRepository {
         if (post.mediaUrl!= null)                         msg.put("mediaUrl",  post.mediaUrl);
         if (note         != null && !note.isEmpty())      msg.put("forwardNote", note);
 
-        db.getReference(node).child(targetChatId).child(msgId).setValue(msg)
+        FirebaseUtils.db().getReference(node).child(targetChatId).child(msgId).setValue(msg)
           .addOnSuccessListener(v -> mainHandler.post(() -> cb.onResult(true)))
           .addOnFailureListener(e -> mainHandler.post(() -> cb.onResult(false)));
     }
@@ -1454,7 +1454,7 @@ public class ChannelRepository {
         // Mark post as scheduled in Firebase; ChannelScheduledPostWorker picks it up
         post.scheduledAt = scheduledAtMs;
         post.isDraft     = false;
-        postToChannel(post, cb);
+        postToChannel(post, success -> cb.onResult(success));
     }
 
     // ════════════════════════════════════════════════════════════════════════
@@ -1462,12 +1462,12 @@ public class ChannelRepository {
     // ════════════════════════════════════════════════════════════════════════
 
     public void reportChannel(String myUid, String channelId, String reason, BooleanCallback cb) {
-        String key = db.getReference("reports").push().getKey();
+        String key = FirebaseUtils.db().getReference("reports").push().getKey();
         if (key == null) { mainHandler.post(() -> cb.onResult(false)); return; }
         java.util.Map<String, Object> r = new java.util.LinkedHashMap<>();
         r.put("type", "channel"); r.put("channelId", channelId); r.put("reporterUid", myUid);
         r.put("reason", reason); r.put("timestamp", ServerValue.TIMESTAMP);
-        db.getReference("reports").child(key).setValue(r)
+        FirebaseUtils.db().getReference("reports").child(key).setValue(r)
           .addOnSuccessListener(v -> mainHandler.post(() -> cb.onResult(true)))
           .addOnFailureListener(e -> mainHandler.post(() -> cb.onResult(false)));
     }
