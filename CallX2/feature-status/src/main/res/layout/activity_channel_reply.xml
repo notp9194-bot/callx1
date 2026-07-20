@@ -204,5 +204,5 @@
     </LinearLayout>
 
     <View android:id="@+id/layout_empty_replies" android:layout_width="0dp" android:layout_height="0dp" android:visibility="gone"/>
-    <View android:id="@+id/tv_post_preview" android:layout_width="0dp" android:layout_height="0dp" android:visibility="gone"/>
+    <TextView android:id="@+id/tv_post_preview" android:layout_width="0dp" android:layout_height="0dp" android:visibility="gone"/>
 </LinearLayout>
