@@ -55,7 +55,7 @@ import com.callx.app.db.entity.*;
         ChatFolderEntity.class,
         SavedMessageEntity.class
     },
-    version = 38,
+    version = 39,
     exportSchema = false
 )
 public abstract class AppDatabase extends RoomDatabase {
@@ -417,6 +417,39 @@ public abstract class AppDatabase extends RoomDatabase {
         }
     };
 
+
+    // ─── Migration 38 → 39  (community v34 feature upgrade) ─────────────────
+    //
+    // community_posts  : mediaUrlsJson, mediaTypesJson, viewCount, bookmarkCount, shareCount
+    // community_events : coverImageUrl, interestedCount, notGoingCount, eventType, onlineLink, reminderSet
+    // communities      : bannerUrl, rules, category
+    //
+    static final Migration MIGRATION_38_39 = new Migration(38, 39) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase db) {
+
+            // ── community_posts ──────────────────────────────────────────────
+            db.execSQL("ALTER TABLE community_posts ADD COLUMN mediaUrlsJson  TEXT");
+            db.execSQL("ALTER TABLE community_posts ADD COLUMN mediaTypesJson TEXT");
+            db.execSQL("ALTER TABLE community_posts ADD COLUMN viewCount      INTEGER NOT NULL DEFAULT 0");
+            db.execSQL("ALTER TABLE community_posts ADD COLUMN bookmarkCount  INTEGER NOT NULL DEFAULT 0");
+            db.execSQL("ALTER TABLE community_posts ADD COLUMN shareCount     INTEGER NOT NULL DEFAULT 0");
+
+            // ── community_events ─────────────────────────────────────────────
+            db.execSQL("ALTER TABLE community_events ADD COLUMN coverImageUrl   TEXT");
+            db.execSQL("ALTER TABLE community_events ADD COLUMN interestedCount INTEGER NOT NULL DEFAULT 0");
+            db.execSQL("ALTER TABLE community_events ADD COLUMN notGoingCount   INTEGER NOT NULL DEFAULT 0");
+            db.execSQL("ALTER TABLE community_events ADD COLUMN eventType       TEXT    NOT NULL DEFAULT 'OFFLINE'");
+            db.execSQL("ALTER TABLE community_events ADD COLUMN onlineLink      TEXT");
+            db.execSQL("ALTER TABLE community_events ADD COLUMN reminderSet     INTEGER NOT NULL DEFAULT 0");
+
+            // ── communities ──────────────────────────────────────────────────
+            db.execSQL("ALTER TABLE communities ADD COLUMN bannerUrl TEXT");
+            db.execSQL("ALTER TABLE communities ADD COLUMN rules     TEXT");
+            db.execSQL("ALTER TABLE communities ADD COLUMN category  TEXT");
+        }
+    };
+
     // ─── Singleton ────────────────────────────────────────────────────────────
 
     public static boolean isWarm() { return sInstance != null; }
@@ -433,7 +466,8 @@ public abstract class AppDatabase extends RoomDatabase {
                                     MIGRATION_30_31, MIGRATION_31_32,
                                     MIGRATION_32_33, MIGRATION_33_34,
                                     MIGRATION_34_35, MIGRATION_35_36,
-                                    MIGRATION_36_37, MIGRATION_37_38)
+                                    MIGRATION_36_37, MIGRATION_37_38,
+                                    MIGRATION_38_39)
                             .fallbackToDestructiveMigrationFrom(1, 2, 3, 4, 5, 6, 7, 8,
                                     9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
                                     21, 22, 23, 24, 25, 26, 27, 28, 29)

@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
@@ -11,15 +12,74 @@
         android:layout_width="match_parent"
         android:layout_height="?attr/actionBarSize"
         android:background="@color/brand_primary"
-        android:title="Comments"/>
+        android:theme="@style/ThemeOverlay.AppCompat.Dark.ActionBar"
+        app:title="Comments"/>
 
+    <!-- @mention suggestion bar (shown above keyboard when @ is typed) -->
+    <LinearLayout
+        android:id="@+id/layout_mention_bar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:background="@color/surface_card"
+        android:elevation="6dp"
+        android:visibility="gone">
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/rv_mention_suggestions"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:maxHeight="160dp"
+            android:overScrollMode="never"/>
+
+    </LinearLayout>
+
+    <!-- Comments list -->
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/rv_comments"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
         android:clipToPadding="false"
-        android:paddingTop="8dp"/>
+        android:paddingTop="4dp"
+        android:paddingBottom="4dp"
+        android:overScrollMode="never"/>
+
+    <!-- Replying-to bar (shows when user taps Reply on a comment) -->
+    <LinearLayout
+        android:id="@+id/layout_reply_bar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="@color/surface_input"
+        android:paddingStart="12dp"
+        android:paddingEnd="8dp"
+        android:paddingTop="6dp"
+        android:paddingBottom="6dp">
+
+        <TextView
+            android:id="@+id/tv_replying_to"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:text=""
+            android:textSize="12sp"
+            android:textColor="@color/brand_primary"
+            android:visibility="gone"/>
+
+        <ImageView
+            android:id="@+id/btn_cancel_reply"
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:src="@android:drawable/ic_menu_close_clear_cancel"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:clickable="true"
+            android:focusable="true"
+            android:contentDescription="Cancel reply"
+            android:visibility="gone"/>
+
+    </LinearLayout>
 
     <!-- Comment input bar -->
     <LinearLayout
@@ -39,7 +99,7 @@
             android:layout_width="0dp"
             android:layout_weight="1"
             android:layout_height="wrap_content"
-            android:hint="Write a comment…"
+            android:hint="Write a comment… (@ to mention)"
             android:inputType="textCapSentences|textMultiLine"
             android:maxLines="4"
             android:background="@color/surface_input"
@@ -57,7 +117,7 @@
             android:background="?attr/selectableItemBackgroundBorderless"
             android:clickable="true"
             android:focusable="true"
-            android:contentDescription="Send comment"/>
+            android:contentDescription="Send"/>
 
     </LinearLayout>
 

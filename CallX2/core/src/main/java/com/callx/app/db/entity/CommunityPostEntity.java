@@ -7,13 +7,13 @@ import androidx.room.PrimaryKey;
 
 /**
  * v31: Room entity — one row per community feed/announcement post.
- * Firebase source of truth: communities/{communityId}/posts/{id}
  *
- * New in v31:
- *  - reactionCountsJson: JSON Map<reactionType, count> for multi-emoji reactions
- *  - myReactionType:     current user's reaction type (not persisted to Firebase — local only)
- *  - mentionedUids:      comma-separated UIDs mentioned in the post text
- *  - scheduledAt:        if > 0, post was originally a scheduled post
+ * v34 additions:
+ *  - mediaUrlsJson:  JSON array of media URLs for carousel posts (up to 5 items)
+ *  - mediaTypesJson: JSON array matching mediaUrlsJson — "image"|"video" per item
+ *  - viewCount:      how many unique members have viewed this post
+ *  - bookmarkCount:  how many members bookmarked (saved) this post
+ *  - shareCount:     how many times this post was shared out
  */
 @Entity(
     tableName = "community_posts",
@@ -33,7 +33,7 @@ public class CommunityPostEntity {
     public String authorName;
     public String authorPhoto;
     public String text;
-    public String mediaUrl;
+    public String mediaUrl;       // first / primary media URL (backward compat)
     public String mediaType;      // "image" | "video" | null
     public boolean isAnnouncement;
     public boolean pinned;
@@ -52,6 +52,15 @@ public class CommunityPostEntity {
 
     // v31: Scheduled post origin
     public long scheduledAt;          // 0 = posted immediately; >0 = was scheduled
+
+    // v34: Carousel / multi-media
+    public String mediaUrlsJson;      // JSON array: ["url1","url2",...] — null = single media
+    public String mediaTypesJson;     // JSON array: ["image","video",...] — parallel to mediaUrlsJson
+
+    // v34: Engagement counters
+    public long viewCount;            // unique member views
+    public long bookmarkCount;        // saves/bookmarks
+    public long shareCount;           // shares out
 
     public CommunityPostEntity() {
         this.syncedAt = System.currentTimeMillis();

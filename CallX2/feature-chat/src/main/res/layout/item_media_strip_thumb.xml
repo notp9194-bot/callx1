@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="96dp"
+    android:layout_height="96dp"
+    android:layout_marginEnd="6dp"
+    android:background="@color/surface_input">
+
+    <ImageView
+        android:id="@+id/iv_strip_thumb"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="centerCrop"
+        android:contentDescription="Media thumbnail"/>
+
+    <ImageView
+        android:id="@+id/iv_strip_video_icon"
+        android:layout_width="28dp"
+        android:layout_height="28dp"
+        android:layout_gravity="center"
+        android:src="@drawable/ic_play_circle"
+        android:tint="#CCFFFFFF"
+        android:visibility="gone"
+        android:contentDescription="Video"/>
+
+    <!-- Remove button -->
+    <ImageView
+        android:id="@+id/btn_strip_remove"
+        android:layout_width="22dp"
+        android:layout_height="22dp"
+        android:layout_gravity="top|end"
+        android:layout_margin="4dp"
+        android:src="@android:drawable/ic_menu_close_clear_cancel"
+        android:background="#AA000000"
+        android:tint="#FFFFFF"
+        android:clickable="true"
+        android:focusable="true"
+        android:contentDescription="Remove media"/>
+
+    <!-- Media index indicator -->
+    <TextView
+        android:id="@+id/tv_strip_index"
+        android:layout_width="18dp"
+        android:layout_height="18dp"
+        android:layout_gravity="bottom|start"
+        android:layout_margin="4dp"
+        android:background="#AA000000"
+        android:textColor="#FFFFFF"
+        android:textSize="10sp"
+        android:gravity="center"/>
+
+</FrameLayout>

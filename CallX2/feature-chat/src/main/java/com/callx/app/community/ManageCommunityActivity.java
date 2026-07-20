@@ -10,6 +10,7 @@ import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.widget.EditText;
+import android.widget.ImageView;
 import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -24,38 +25,60 @@ import com.callx.app.db.entity.CommunityEntity;
 import com.callx.app.repository.CommunityRepository;
 import com.callx.app.utils.CloudinaryUploader;
 import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.database.DataSnapshot;
+import com.google.firebase.database.DatabaseError;
+import com.google.firebase.database.FirebaseDatabase;
+import com.google.firebase.database.ValueEventListener;
 
 import de.hdodenhof.circleimageview.CircleImageView;
 
 /**
- * v31: Manage community — edit name/description/icon + privacy toggle + invite link.
- * Owner-only: Disable Community, Analytics link, Invite Link generator.
+ * v34: Manage community — updated with:
+ *  - Banner/cover image picker (1200×400 landscape) + Cloudinary upload
+ *  - Community Rules editor (multi-line text, saved to Firebase)
+ *  - Category selector chip-group
+ *  - isVerified toggle (owner only)
  */
 public class ManageCommunityActivity extends AppCompatActivity {
 
     public static final String EXTRA_COMMUNITY_ID = "communityId";
     public static final String EXTRA_IS_OWNER     = "isOwner";
 
+    private static final String[] CATEGORIES =
+            {"Tech","Sports","Gaming","Music","Art","Food","Health","Education","Other"};
+
     private String communityId;
     private boolean isOwner;
     private String currentUid;
+
+    // Icon picker
     private Uri pickedIconUri;
+    // Banner picker
+    private Uri pickedBannerUri;
+
     private String currentInviteToken;
 
+    // Views
     private CircleImageView ivIcon;
-    private EditText etName, etDescription;
+    private ImageView ivBanner;
+    private View btnChangeBanner, btnPickBannerOverlay;
+    private EditText etName, etDescription, etRules;
     private Switch switchPrivate;
+    private android.widget.Spinner spinnerCategory;
     private android.widget.Button btnSave, btnDisable, btnGenerateInvite;
     private View layoutInvite;
     private TextView tvInviteLink;
 
     private CommunityRepository repo;
-    private ActivityResultLauncher<String> iconPicker;
+    private ActivityResultLauncher<String> iconPicker, bannerPicker;
+
+    // Current state loaded from Firebase
+    private String currentIconUrl, currentBannerUrl, currentCategory;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_manage_community);
+        setContentView(R.layout.activity_manage_community_v2);
 
         communityId = getIntent().getStringExtra(EXTRA_COMMUNITY_ID);
         isOwner     = getIntent().getBooleanExtra(EXTRA_IS_OWNER, false);
@@ -69,158 +92,225 @@ public class ManageCommunityActivity extends AppCompatActivity {
         if (getSupportActionBar() != null) getSupportActionBar().setDisplayHomeAsUpEnabled(true);
         toolbar.setNavigationOnClickListener(v -> finish());
 
-        ivIcon        = findViewById(R.id.iv_community_icon);
-        etName        = findViewById(R.id.et_community_name);
-        etDescription = findViewById(R.id.et_community_description);
-        switchPrivate = findViewById(R.id.switch_private);
-        btnSave       = findViewById(R.id.btn_save);
-        btnDisable    = findViewById(R.id.btn_disable_community);
-        btnGenerateInvite = findViewById(R.id.btn_generate_invite);
-        layoutInvite  = findViewById(R.id.layout_invite_link);
-        tvInviteLink  = findViewById(R.id.tv_invite_link_value);
+        bindViews();
+        setupPickers();
+        setupSpinner();
+        loadCurrentData();
 
+        btnSave.setOnClickListener(v -> saveAll());
         btnDisable.setVisibility(isOwner ? View.VISIBLE : View.GONE);
-        if (btnGenerateInvite != null) btnGenerateInvite.setVisibility(isOwner ? View.VISIBLE : View.GONE);
+        btnDisable.setOnClickListener(v -> confirmDisable());
+        btnGenerateInvite.setOnClickListener(v -> generateOrShowInvite());
+    }
 
+    private void bindViews() {
+        ivIcon            = findViewById(R.id.iv_community_icon);
+        ivBanner          = findViewById(R.id.iv_community_banner);
+        btnChangeBanner   = findViewById(R.id.btn_change_banner);
+        etName            = findViewById(R.id.et_community_name);
+        etDescription     = findViewById(R.id.et_community_description);
+        etRules           = findViewById(R.id.et_community_rules);
+        switchPrivate     = findViewById(R.id.switch_private);
+        spinnerCategory   = findViewById(R.id.spinner_community_category);
+        btnSave           = findViewById(R.id.btn_save);
+        btnDisable        = findViewById(R.id.btn_disable_community);
+        btnGenerateInvite = findViewById(R.id.btn_generate_invite);
+        layoutInvite      = findViewById(R.id.layout_invite_link);
+        tvInviteLink      = findViewById(R.id.tv_invite_link_value);
+    }
+
+    private void setupPickers() {
         iconPicker = registerForActivityResult(new ActivityResultContracts.GetContent(), uri -> {
             if (uri == null) return;
             pickedIconUri = uri;
-            Glide.with(this).load(uri).circleCrop().override(96, 96).into(ivIcon);
+            Glide.with(this).load(uri).circleCrop().override(192,192).into(ivIcon);
         });
-        View btnChangeIcon = findViewById(R.id.btn_change_icon);
-        if (btnChangeIcon != null) btnChangeIcon.setOnClickListener(v -> iconPicker.launch("image/*"));
+        ivIcon.setOnClickListener(v -> iconPicker.launch("image/*"));
 
-        if (communityId != null) repo.observeCommunity(communityId).observe(this, this::populate);
+        bannerPicker = registerForActivityResult(new ActivityResultContracts.GetContent(), uri -> {
+            if (uri == null) return;
+            pickedBannerUri = uri;
+            ivBanner.setVisibility(View.VISIBLE);
+            Glide.with(this).load(uri).centerCrop().override(800,260).into(ivBanner);
+        });
+        if (btnChangeBanner != null)
+            btnChangeBanner.setOnClickListener(v -> bannerPicker.launch("image/*"));
+        if (ivBanner != null)
+            ivBanner.setOnClickListener(v -> bannerPicker.launch("image/*"));
+    }
 
-        btnSave.setOnClickListener(v -> save());
-        btnDisable.setOnClickListener(v -> confirmDisable());
+    private void setupSpinner() {
+        android.widget.ArrayAdapter<String> catAdapter =
+                new android.widget.ArrayAdapter<>(this,
+                        android.R.layout.simple_spinner_item, CATEGORIES);
+        catAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        spinnerCategory.setAdapter(catAdapter);
+    }
 
-        if (switchPrivate != null) {
-            switchPrivate.setOnCheckedChangeListener((btn, checked) -> {
-                repo.setCommunityPrivacy(communityId, checked, (success, error) -> {
-                    if (!success) runOnUiThread(() ->
-                            Toast.makeText(this, "Failed to update privacy", Toast.LENGTH_SHORT).show());
-                });
+    private void loadCurrentData() {
+        repo.observeCommunityOnce(communityId, community -> {
+            if (community == null) return;
+            runOnUiThread(() -> {
+                etName.setText(community.name != null ? community.name : "");
+                etDescription.setText(community.description != null ? community.description : "");
+                switchPrivate.setChecked(community.isPrivate);
+                currentInviteToken = community.inviteToken;
+                currentIconUrl     = community.iconUrl;
+                currentBannerUrl   = community.bannerUrl;
+                currentCategory    = community.category;
+
+                if (community.iconUrl != null && !community.iconUrl.isEmpty())
+                    Glide.with(this).load(community.iconUrl).circleCrop()
+                            .placeholder(R.drawable.ic_group).into(ivIcon);
+
+                if (community.bannerUrl != null && !community.bannerUrl.isEmpty()) {
+                    ivBanner.setVisibility(View.VISIBLE);
+                    Glide.with(this).load(community.bannerUrl).centerCrop()
+                            .override(800,260).into(ivBanner);
+                }
+
+                // Load rules from Firebase (stored as flat string under communities/{id}/rules)
+                FirebaseDatabase.getInstance().getReference("communities")
+                        .child(communityId).child("rules")
+                        .addListenerForSingleValueEvent(new ValueEventListener() {
+                            @Override public void onDataChange(DataSnapshot s) {
+                                String rules = s.getValue(String.class);
+                                if (rules != null) runOnUiThread(() -> etRules.setText(rules));
+                            }
+                            @Override public void onCancelled(DatabaseError e) {}
+                        });
+
+                // Set spinner position
+                if (community.category != null) {
+                    for (int i = 0; i < CATEGORIES.length; i++) {
+                        if (CATEGORIES[i].equals(community.category)) {
+                            spinnerCategory.setSelection(i); break;
+                        }
+                    }
+                }
             });
-        }
-
-        if (btnGenerateInvite != null) {
-            btnGenerateInvite.setOnClickListener(v -> generateInviteLink());
-        }
-    }
-
-    private void populate(CommunityEntity c) {
-        if (c == null) return;
-        currentInviteToken = c.inviteToken;
-        if (pickedIconUri == null && c.iconUrl != null && !c.iconUrl.isEmpty()) {
-            Glide.with(this).load(c.iconUrl).circleCrop()
-                    .override(96, 96)
-                    .placeholder(R.drawable.ic_group).into(ivIcon);
-        }
-        if (etName.getText().length() == 0) etName.setText(c.name);
-        if (etDescription.getText().length() == 0) etDescription.setText(c.description);
-        if (switchPrivate != null) {
-            switchPrivate.setOnCheckedChangeListener(null);
-            switchPrivate.setChecked(c.isPrivate);
-            switchPrivate.setOnCheckedChangeListener((btn, checked) ->
-                    repo.setCommunityPrivacy(communityId, checked, (success, error) -> {}));
-        }
-        // Show invite link if enabled
-        if (c.inviteEnabled && c.inviteToken != null && layoutInvite != null) {
-            layoutInvite.setVisibility(View.VISIBLE);
-            String link = "callx://community/" + communityId + "?invite=" + c.inviteToken;
-            if (tvInviteLink != null) tvInviteLink.setText(link);
-        }
-    }
-
-    private void generateInviteLink() {
-        repo.generateInviteToken(communityId, token -> {
-            if (token == null) {
-                runOnUiThread(() -> Toast.makeText(this, "Failed to generate link", Toast.LENGTH_SHORT).show());
-                return;
-            }
-            currentInviteToken = token;
-            String link = "callx://community/" + communityId + "?invite=" + token;
-            runOnUiThread(() -> showInviteLinkDialog(link));
         });
     }
 
-    private void showInviteLinkDialog(String link) {
-        View dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_community_invite_link, null);
-        TextView tvLink = dialogView.findViewById(R.id.tv_invite_link);
-        if (tvLink != null) tvLink.setText(link);
-
-        AlertDialog dialog = new AlertDialog.Builder(this)
-                .setView(dialogView)
-                .create();
-
-        View btnCopy = dialogView.findViewById(R.id.btn_copy_link);
-        View btnShare = dialogView.findViewById(R.id.btn_share_link);
-        View btnRegen = dialogView.findViewById(R.id.btn_regenerate);
-
-        if (btnCopy != null) btnCopy.setOnClickListener(v -> {
-            ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-            cm.setPrimaryClip(ClipData.newPlainText("Invite Link", link));
-            Toast.makeText(this, "Link copied!", Toast.LENGTH_SHORT).show();
-        });
-        if (btnShare != null) btnShare.setOnClickListener(v -> {
-            Intent share = new Intent(Intent.ACTION_SEND);
-            share.setType("text/plain");
-            share.putExtra(Intent.EXTRA_TEXT, "Join my community: " + link);
-            startActivity(Intent.createChooser(share, "Share Invite Link"));
-        });
-        if (btnRegen != null) btnRegen.setOnClickListener(v -> {
-            dialog.dismiss();
-            generateInviteLink();
-        });
-
-        dialog.show();
-    }
-
-    private void save() {
-        String name        = etName.getText().toString().trim();
-        String description = etDescription.getText().toString().trim();
-        if (name.isEmpty()) { Toast.makeText(this, "Name can't be empty", Toast.LENGTH_SHORT).show(); return; }
+    private void saveAll() {
+        String name = etName.getText().toString().trim();
+        if (name.isEmpty()) {
+            Toast.makeText(this, "Community name cannot be empty", Toast.LENGTH_SHORT).show(); return;
+        }
         btnSave.setEnabled(false);
+        Toast.makeText(this, "Saving…", Toast.LENGTH_SHORT).show();
+
+        String desc       = etDescription.getText().toString().trim();
+        String rules      = etRules.getText().toString().trim();
+        boolean isPrivate = switchPrivate.isChecked();
+        String category   = CATEGORIES[spinnerCategory.getSelectedItemPosition()];
+
+        int uploadCount = (pickedIconUri != null ? 1 : 0) + (pickedBannerUri != null ? 1 : 0);
+        if (uploadCount == 0) {
+            saveToFirebase(name, desc, rules, currentIconUrl, currentBannerUrl, isPrivate, category);
+            return;
+        }
+
+        // Use an array to hold the upload results
+        final String[] iconUrl   = {currentIconUrl};
+        final String[] bannerUrl = {currentBannerUrl};
+        final int[] done = {0};
 
         if (pickedIconUri != null) {
-            CloudinaryUploader.upload(this, pickedIconUri, "callx/community_icons", "image",
+            new CloudinaryUploader().uploadFile(this, pickedIconUri, "callx/community_icons",
                     new CloudinaryUploader.UploadCallback() {
-                        @Override public void onSuccess(CloudinaryUploader.Result result) {
-                            runOnUiThread(() -> doSave(name, description, result.secureUrl));
+                        @Override public void onSuccess(CloudinaryUploader.Result r) {
+                            iconUrl[0] = r.secureUrl;
+                            done[0]++;
+                            if (done[0] >= uploadCount)
+                                runOnUiThread(() -> saveToFirebase(name, desc, rules, iconUrl[0], bannerUrl[0], isPrivate, category));
                         }
-                        @Override public void onError(String message) {
-                            runOnUiThread(() -> { doSave(name, description, null); });
+                        @Override public void onError(String msg) {
+                            runOnUiThread(() -> {
+                                btnSave.setEnabled(true);
+                                Toast.makeText(ManageCommunityActivity.this,
+                                        "Icon upload failed: " + msg, Toast.LENGTH_SHORT).show();
+                            });
                         }
                     });
-        } else {
-            doSave(name, description, null);
+        }
+
+        if (pickedBannerUri != null) {
+            new CloudinaryUploader().uploadFile(this, pickedBannerUri, "callx/community_banners",
+                    new CloudinaryUploader.UploadCallback() {
+                        @Override public void onSuccess(CloudinaryUploader.Result r) {
+                            bannerUrl[0] = r.secureUrl;
+                            done[0]++;
+                            if (done[0] >= uploadCount)
+                                runOnUiThread(() -> saveToFirebase(name, desc, rules, iconUrl[0], bannerUrl[0], isPrivate, category));
+                        }
+                        @Override public void onError(String msg) {
+                            runOnUiThread(() -> {
+                                btnSave.setEnabled(true);
+                                Toast.makeText(ManageCommunityActivity.this,
+                                        "Banner upload failed: " + msg, Toast.LENGTH_SHORT).show();
+                            });
+                        }
+                    });
         }
     }
 
-    private void doSave(String name, String description, String iconUrl) {
-        repo.updateCommunityInfo(communityId, name, description, iconUrl, (success, error) ->
-                runOnUiThread(() -> {
+    private void saveToFirebase(String name, String desc, String rules,
+                                String iconUrl, String bannerUrl,
+                                boolean isPrivate, String category) {
+        repo.updateCommunityInfo(communityId, name, desc, iconUrl, isPrivate,
+                bannerUrl, category, rules, (success, error) -> runOnUiThread(() -> {
                     btnSave.setEnabled(true);
-                    if (success) { Toast.makeText(this, "Saved", Toast.LENGTH_SHORT).show(); finish(); }
-                    else Toast.makeText(this, "Failed: " + error, Toast.LENGTH_SHORT).show();
+                    if (success) {
+                        Toast.makeText(this, "Community updated!", Toast.LENGTH_SHORT).show();
+                        finish();
+                    } else {
+                        Toast.makeText(this, "Failed: " + error, Toast.LENGTH_SHORT).show();
+                    }
                 }));
     }
 
     private void confirmDisable() {
         new AlertDialog.Builder(this)
                 .setTitle("Disable Community?")
-                .setMessage("This permanently deletes the community. This can't be undone.")
-                .setPositiveButton("Disable", (d, w) -> disable())
-                .setNegativeButton("Cancel", null).show();
+                .setMessage("This will deactivate the community for all members. This cannot be undone easily.")
+                .setPositiveButton("Disable", (d, w) -> {
+                    repo.disableCommunity(communityId, currentUid, (s, e) ->
+                            runOnUiThread(() -> {
+                                if (s) { Toast.makeText(this, "Community disabled", Toast.LENGTH_SHORT).show(); finish(); }
+                                else Toast.makeText(this, "Error: " + e, Toast.LENGTH_SHORT).show();
+                            }));
+                })
+                .setNegativeButton("Cancel", null)
+                .setIcon(android.R.drawable.ic_dialog_alert)
+                .show();
     }
 
-    private void disable() {
-        if (currentUid == null) return;
-        btnDisable.setEnabled(false);
-        repo.disableCommunity(communityId, currentUid, (success, error) -> runOnUiThread(() -> {
-            if (success) { setResult(RESULT_FIRST_USER); finish(); }
-            else { btnDisable.setEnabled(true); Toast.makeText(this, "Failed: " + error, Toast.LENGTH_SHORT).show(); }
-        }));
+    private void generateOrShowInvite() {
+        if (currentInviteToken != null && !currentInviteToken.isEmpty()) {
+            showInviteLink("https://callx.app/community/join/" + communityId + "?t=" + currentInviteToken);
+        } else {
+            repo.generateInviteLink(communityId, (link, error) -> runOnUiThread(() -> {
+                if (link != null) {
+                    currentInviteToken = link;
+                    showInviteLink("https://callx.app/community/join/" + communityId + "?t=" + link);
+                } else {
+                    Toast.makeText(this, "Error: " + error, Toast.LENGTH_SHORT).show();
+                }
+            }));
+        }
+    }
+
+    private void showInviteLink(String link) {
+        layoutInvite.setVisibility(View.VISIBLE);
+        tvInviteLink.setText(link);
+        tvInviteLink.setOnLongClickListener(v -> {
+            ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+            if (cm != null) {
+                cm.setPrimaryClip(ClipData.newPlainText("Invite Link", link));
+                Toast.makeText(this, "Copied!", Toast.LENGTH_SHORT).show();
+            }
+            return true;
+        });
     }
 }

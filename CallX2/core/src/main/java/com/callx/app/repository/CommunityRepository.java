@@ -1505,4 +1505,136 @@ public class CommunityRepository {
         Long v = snap.getValue(Long.class);
         return v != null ? v : 0L;
     }
+    // ─────────────────────────────────────────────────────────────
+    // v34 ADDITIONS — carousel posts, share/bookmark counters,
+    //                 community banner/rules, discover page
+    // ─────────────────────────────────────────────────────────────
+
+    /** Alias for toggleLike (used by v34 CommunityFeedFragment). */
+    public void likePost(String communityId, String postId, String uid, String name,
+                         @Nullable SimpleCallback cb) {
+        toggleLike(communityId, postId, uid, cb != null ? cb : (s,e) -> {});
+    }
+
+    /** Add/update a reaction emoji on a post. */
+    public void reactToPost(String communityId, String postId, String uid,
+                            String reactionType, @Nullable SimpleCallback cb) {
+        addReaction(communityId, postId, uid, reactionType, cb != null ? cb : (s,e) -> {});
+    }
+
+    /** Increment shareCount counter. */
+    public void incrementPostShareCount(String communityId, String postId) {
+        communitiesRef().child(communityId).child("posts").child(postId)
+                .child("shareCount")
+                .setValue(com.google.firebase.database.ServerValue.increment(1L));
+    }
+
+    /** Increment bookmarkCount counter. */
+    public void incrementPostBookmarkCount(String communityId, String postId) {
+        communitiesRef().child(communityId).child("posts").child(postId)
+                .child("bookmarkCount")
+                .setValue(com.google.firebase.database.ServerValue.increment(1L));
+    }
+
+    /** observeFeedWindowed overload that accepts isAnnouncement flag. */
+    public LiveData<List<CommunityPostEntity>> observeFeedWindowed(
+            String communityId, boolean isAnnouncement, int limit) {
+        if (isAnnouncement) return observeAnnouncementsWindowed(communityId, limit);
+        return observeFeedWindowed(communityId, limit);
+    }
+
+    /** Fetch older posts (paged) from local Room cache. */
+    public interface FetchOlderCallback {
+        void onResult(List<CommunityPostEntity> posts, String error);
+    }
+
+    public void fetchOlderPosts(String communityId, boolean isAnnouncement,
+                                long beforeCreatedAt, int limit,
+                                FetchOlderCallback cb) {
+        mExecutor.execute(() -> {
+            try {
+                java.util.List<CommunityPostEntity> list =
+                        mDao.getOlderPostsSync(communityId, isAnnouncement, beforeCreatedAt, limit);
+                if (cb != null) cb.onResult(list, null);
+            } catch (Exception e) {
+                if (cb != null) cb.onResult(null, e.getMessage());
+            }
+        });
+    }
+
+    /** One-shot community snapshot (for ManageCommunityActivity settings load). */
+    public interface CommunityCallback {
+        void onResult(CommunityEntity community);
+    }
+
+    public void observeCommunityOnce(String communityId, CommunityCallback cb) {
+        communitiesRef().child(communityId)
+                .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
+                    @Override
+                    public void onDataChange(com.google.firebase.database.DataSnapshot s) {
+                        CommunityEntity c = parseCommunitySnapshot(s);
+                        if (cb != null) cb.onResult(c);
+                    }
+                    @Override
+                    public void onCancelled(com.google.firebase.database.DatabaseError e) {
+                        if (cb != null) cb.onResult(null);
+                    }
+                });
+    }
+
+    /** updateCommunityInfo v34 — adds bannerUrl, category, rules. */
+    public void updateCommunityInfo(String communityId, String name, String description,
+                                    @Nullable String iconUrl, boolean isPrivate,
+                                    @Nullable String bannerUrl,
+                                    @Nullable String category,
+                                    @Nullable String rules,
+                                    SimpleCallback cb) {
+        java.util.Map<String, Object> update = new java.util.HashMap<>();
+        update.put("name", name);
+        update.put("description", description != null ? description : "");
+        if (iconUrl   != null) update.put("iconUrl",   iconUrl);
+        if (bannerUrl != null) update.put("bannerUrl", bannerUrl);
+        if (category  != null) update.put("category",  category);
+        if (rules     != null) update.put("rules",     rules);
+        update.put("isPrivate", isPrivate);
+        update.put("isPublic",  !isPrivate);
+
+        communitiesRef().child(communityId).updateChildren(update, (err, ref) -> {
+            if (err != null) { cb.onComplete(false, err.getMessage()); return; }
+            mExecutor.execute(() -> {
+                CommunityEntity c = mDao.getCommunitySync(communityId);
+                if (c != null) {
+                    c.name = name; c.description = description; c.isPrivate = isPrivate;
+                    if (iconUrl   != null) c.iconUrl   = iconUrl;
+                    if (bannerUrl != null) c.bannerUrl = bannerUrl;
+                    if (category  != null) c.category  = category;
+                    mDao.insertCommunity(c);
+                }
+            });
+            cb.onComplete(true, null);
+        });
+    }
+
+    /** Publish post with v34 carousel fields + scheduled origin. */
+    public void publishPost(String communityId, String authorUid, String authorName,
+                            String authorPhoto, String text,
+                            @Nullable String mediaUrl, @Nullable String mediaType,
+                            boolean isAnnouncement,
+                            @Nullable String mediaUrlsJson,
+                            @Nullable String mediaTypesJson,
+                            @Nullable String mentionedUidsStr,
+                            long scheduledAt,
+                            SimpleCallback cb) {
+        java.util.List<String> mentionedUids = new java.util.ArrayList<>();
+        if (mentionedUidsStr != null && !mentionedUidsStr.isEmpty()) {
+            for (String uid : mentionedUidsStr.split(",")) {
+                String t = uid.trim();
+                if (!t.isEmpty()) mentionedUids.add(t);
+            }
+        }
+        createPostWithMentions(communityId, authorUid, authorName, authorPhoto, text,
+                mediaUrl, mediaType, isAnnouncement, null, mentionedUids, cb);
+    }
+
+
 }

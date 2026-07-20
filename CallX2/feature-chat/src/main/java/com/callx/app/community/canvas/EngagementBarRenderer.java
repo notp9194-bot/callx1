@@ -14,10 +14,11 @@ import android.graphics.RectF;
  */
 final class EngagementBarRenderer {
 
-    static final int REGION_NONE = 0;
-    static final int REGION_LIKE = 1;
-    static final int REGION_COMMENT = 2;
-    static final int REGION_SHARE = 3;
+    static final int REGION_NONE     = 0;
+    static final int REGION_LIKE     = 1;
+    static final int REGION_COMMENT  = 2;
+    static final int REGION_SHARE    = 3;
+    static final int REGION_BOOKMARK = 4;
 
     private final CommunityPostCanvasView host;
 
@@ -43,7 +44,11 @@ final class EngagementBarRenderer {
         host.commentCountTextX = x;
         x += commentCountW + host.engagementGroupGap;
 
-        float shareX = right - iconSize;
+        // Bookmark at the far right, share just to its left with a small gap.
+        float gap = iconSize * 0.6f;
+        float bookmarkX = right - iconSize;
+        host.bookmarkIconRect.set(bookmarkX, y, bookmarkX + iconSize, y + iconSize);
+        float shareX = bookmarkX - gap - iconSize;
         host.shareIconRect.set(shareX, y, shareX + iconSize, y + iconSize);
 
         return y + iconSize;
@@ -65,6 +70,7 @@ final class EngagementBarRenderer {
         }
 
         drawShareGlyph(canvas, host.shareIconRect);
+        drawBookmarkGlyph(canvas, host.bookmarkIconRect, host.isBookmarked);
     }
 
     private final Path heartPath = new Path();
@@ -116,11 +122,42 @@ final class EngagementBarRenderer {
         canvas.restore();
     }
 
+    private final Path bookmarkPath = new Path();
+    private float bookmarkForSize = -1f;
+
+    private void drawBookmarkGlyph(Canvas canvas, RectF rect, boolean filled) {
+        float cx = rect.centerX();
+        float top = rect.top + rect.height() * 0.1f;
+        float bottom = rect.bottom - rect.height() * 0.05f;
+        float halfW = rect.width() * 0.28f;
+        float notchDepth = rect.height() * 0.22f;
+        float s = rect.width();  // cache key
+
+        if (bookmarkForSize != s) {
+            bookmarkPath.reset();
+            // Rectangle with a V-notch cut at the bottom
+            bookmarkPath.moveTo(-halfW, top - rect.top - rect.height() * 0.5f);
+            bookmarkPath.lineTo( halfW, top - rect.top - rect.height() * 0.5f);
+            bookmarkPath.lineTo( halfW, bottom - rect.centerY() + notchDepth * 0.5f);
+            bookmarkPath.lineTo(0,      bottom - rect.centerY() - notchDepth * 0.5f);
+            bookmarkPath.lineTo(-halfW, bottom - rect.centerY() + notchDepth * 0.5f);
+            bookmarkPath.close();
+            bookmarkForSize = s;
+        }
+
+        Paint p = filled ? host.likeFilledPaint : host.bookmarkGlyphPaint;
+        canvas.save();
+        canvas.translate(rect.centerX(), rect.centerY());
+        canvas.drawPath(bookmarkPath, p);
+        canvas.restore();
+    }
+
     /** Returns which region (REGION_*) contains (x,y). */
     int hitTest(float x, float y) {
-        if (host.likeIconRect.contains(x, y)) return REGION_LIKE;
-        if (host.commentIconRect.contains(x, y)) return REGION_COMMENT;
-        if (host.shareIconRect.contains(x, y)) return REGION_SHARE;
+        if (host.likeIconRect.contains(x, y))     return REGION_LIKE;
+        if (host.commentIconRect.contains(x, y))  return REGION_COMMENT;
+        if (host.shareIconRect.contains(x, y))    return REGION_SHARE;
+        if (host.bookmarkIconRect.contains(x, y)) return REGION_BOOKMARK;
         return REGION_NONE;
     }
 }

@@ -13,4 +13,15 @@
     <item type="id" name="iv_muted_avatar"/>
     <item type="id" name="tv_muted_name"/>
     <item type="id" name="btn_unmute"/>
+
+    <!-- v34: Community Activity overflow menu -->
+    <item name="menu_notifications"  type="id"/>
+    <item name="menu_search"         type="id"/>
+    <item name="menu_bookmarks"      type="id"/>
+    <item name="menu_rules"          type="id"/>
+    <item name="menu_members"        type="id"/>
+    <item name="menu_analytics"      type="id"/>
+    <item name="menu_manage"         type="id"/>
+    <item name="menu_join_requests"  type="id"/>
+    <item name="menu_discover"       type="id"/>
 </resources>

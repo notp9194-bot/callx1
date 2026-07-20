@@ -47,6 +47,8 @@ public class CommunityPostAdapter extends RecyclerView.Adapter<CommunityPostAdap
         /** New in v32 — share action from the engagement bar. Default no-op so any
          *  pre-existing implementer of this interface keeps compiling unchanged. */
         default void onShare(CommunityPostEntity post) {}
+        /** New in v34 — bookmark (save) action from the engagement bar. Default no-op. */
+        default void onBookmark(CommunityPostEntity post) {}
         /** New in v32 — tapped the author avatar/name. */
         default void onAuthorClick(CommunityPostEntity post) {}
         /** New in v32 — tapped an @mention span inside the post text. */
@@ -236,8 +238,9 @@ public class CommunityPostAdapter extends RecyclerView.Adapter<CommunityPostAdap
             @Override public void onLikeLongClick(android.view.View anchorView) {
                 if (listener != null) listener.onLongPressLike(p, anchorView);
             }
-            @Override public void onCommentClick() { if (listener != null) listener.onComment(p); }
-            @Override public void onShareClick() { if (listener != null) listener.onShare(p); }
+            @Override public void onCommentClick()  { if (listener != null) listener.onComment(p);   }
+            @Override public void onShareClick()    { if (listener != null) listener.onShare(p);    }
+            @Override public void onBookmarkClick() { if (listener != null) listener.onBookmark(p); }
         });
     }
 

@@ -106,6 +106,16 @@
             app:tabGravity="fill"/>
 
     </com.google.android.material.appbar.AppBarLayout>
+    <!-- v34: Community banner/cover image (below AppBar) -->
+    <ImageView
+        android:id="@+id/iv_community_banner"
+        android:layout_width="match_parent"
+        android:layout_height="160dp"
+        android:scaleType="centerCrop"
+        android:visibility="gone"
+        android:contentDescription="Community banner"/>
+
+
 
     <androidx.viewpager2.widget.ViewPager2
         android:id="@+id/view_pager"

@@ -72,7 +72,7 @@ public class CommunityPostCanvasView extends View {
     Paint pollTrackPaint, pollFillPaint, pollFillSelectedPaint, pollSelectedBorderPaint;
     Paint reactionChipBgPaint;
     TextPaint reactionChipTextPaint;
-    Paint likeFilledPaint, likeOutlinePaint, commentGlyphPaint, shareGlyphPaint;
+    Paint likeFilledPaint, likeOutlinePaint, commentGlyphPaint, shareGlyphPaint, bookmarkGlyphPaint;
     TextPaint engagementCountPaint;
 
     Matrix avatarShaderMatrix = new Matrix();
@@ -115,7 +115,8 @@ public class CommunityPostCanvasView extends View {
     final RectF mediaRect = new RectF();
     final RectF likeIconRect = new RectF();
     final RectF commentIconRect = new RectF();
-    final RectF shareIconRect = new RectF();
+    final RectF shareIconRect    = new RectF();
+    final RectF bookmarkIconRect = new RectF();
     float likeCountTextX, commentCountTextX;
 
     // ── Bind state ──
@@ -139,6 +140,7 @@ public class CommunityPostCanvasView extends View {
     boolean hasReactions;
     Map<String, Long> reactionCounts;
     boolean myReacted;
+    boolean isBookmarked;
     String likeCountText = "";
     String commentCountText = "";
 
@@ -313,6 +315,12 @@ public class CommunityPostCanvasView extends View {
         shareGlyphPaint.setColor(textMuted);
         shareGlyphPaint.setStrokeCap(Paint.Cap.ROUND);
         shareGlyphPaint.setStrokeJoin(Paint.Join.ROUND);
+        bookmarkGlyphPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        bookmarkGlyphPaint.setStyle(Paint.Style.STROKE);
+        bookmarkGlyphPaint.setStrokeWidth(1.8f * density);
+        bookmarkGlyphPaint.setColor(textMuted);
+        bookmarkGlyphPaint.setStrokeCap(Paint.Cap.ROUND);
+        bookmarkGlyphPaint.setStrokeJoin(Paint.Join.ROUND);
 
         engagementCountPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
         engagementCountPaint.setTextSize(13 * density);
@@ -364,7 +372,9 @@ public class CommunityPostCanvasView extends View {
 
         reactionCounts = CommunityReaction.fromJson(post.reactionCountsJson);
         hasReactions = reactionCounts != null && !reactionCounts.isEmpty();
-        myReacted = post.myReactionType != null && !post.myReactionType.isEmpty();
+        myReacted    = post.myReactionType != null && !post.myReactionType.isEmpty();
+        isBookmarked = com.callx.app.community.CommunityBookmarksActivity
+                           .isBookmarked(getContext(), post.id);
 
         long totalReactions = CommunityReaction.totalCount(post.reactionCountsJson);
         long displayLikes = totalReactions > 0 ? totalReactions : post.likeCount;
@@ -631,6 +641,10 @@ public class CommunityPostCanvasView extends View {
         }
         if (engagementRegion == EngagementBarRenderer.REGION_SHARE) {
             listener.onShareClick();
+            return;
+        }
+        if (engagementRegion == EngagementBarRenderer.REGION_BOOKMARK) {
+            listener.onBookmarkClick();
             return;
         }
 

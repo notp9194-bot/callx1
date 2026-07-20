@@ -41,4 +41,6 @@ public interface OnPostClickListener {
     default void onCommentClick() {}
     /** Tapped the share icon — caller should open the share sheet for this post. */
     default void onShareClick() {}
+    /** Tapped the bookmark icon — caller should save/unsave this post. */
+    default void onBookmarkClick() {}
 }

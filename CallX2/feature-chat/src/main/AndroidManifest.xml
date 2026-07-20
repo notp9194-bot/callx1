@@ -149,5 +149,29 @@
             android:theme="@style/Theme.App"
             android:exported="false"/>
 
+
+        <!-- v34: Community Discover (browse public communities) -->
+        <activity android:name="com.callx.app.community.CommunityDiscoverActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"
+            android:label="Discover Communities"/>
+
+        <!-- v34: Community Bookmarks / Saved Posts -->
+        <activity android:name="com.callx.app.community.CommunityBookmarksActivity"
+            android:exported="false"
+            android:label="Saved Posts"/>
+
+        <!-- v34: Community Rules viewer / editor -->
+        <activity android:name="com.callx.app.community.CommunityRulesActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"
+            android:label="Community Rules"/>
+
+        <!-- v34: Create event (upgraded with cover image + event type + reminder) -->
+        <activity android:name="com.callx.app.community.CommunityCreateEventActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"
+            android:label="Create Event"/>
+
     </application>
 </manifest>
