@@ -88,6 +88,11 @@ public class CommunityRepository {
         void onComplete(boolean success, @Nullable String error);
     }
 
+    /** Two-argument result callback used by extension APIs (e.g. CommunityRepositoryV34Extensions). */
+    public interface Callback2<A, B> {
+        void onResult(A first, B second);
+    }
+
     public interface ResultCallback<T> {
         void onResult(@Nullable T value);
     }

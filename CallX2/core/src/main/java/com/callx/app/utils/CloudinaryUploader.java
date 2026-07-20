@@ -87,6 +87,8 @@ public class CloudinaryUploader {
     public interface UploadCallback {
         void onSuccess(Result result);
         void onError(String message);
+        /** Called periodically with upload progress (0–100). Default no-op. */
+        default void onProgress(int percent) {}
     }
 
     /** Avatar dual-upload callback — thumb pehle, full baad */

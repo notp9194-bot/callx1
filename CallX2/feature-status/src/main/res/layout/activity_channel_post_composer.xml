@@ -497,4 +497,84 @@
 
     </LinearLayout>
 
+    <!-- ════ Stub views for IDs referenced by ChannelPostComposerActivity (visibility=gone) ════ -->
+    <androidx.appcompat.widget.Toolbar android:id="@+id/toolbar_composer"
+        android:layout_width="match_parent" android:layout_height="?attr/actionBarSize" android:visibility="gone"/>
+    <EditText android:id="@+id/et_post_caption"
+        android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone"/>
+    <EditText android:id="@+id/et_link_url"
+        android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone"/>
+    <EditText android:id="@+id/et_event_title"
+        android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone"/>
+    <EditText android:id="@+id/et_event_location"
+        android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone"/>
+    <TextView android:id="@+id/tv_caption_count"
+        android:layout_width="wrap_content" android:layout_height="wrap_content" android:visibility="gone"/>
+    <ImageView android:id="@+id/iv_link_preview_image"
+        android:layout_width="wrap_content" android:layout_height="wrap_content" android:visibility="gone"/>
+    <TextView android:id="@+id/tv_link_preview_title"
+        android:layout_width="wrap_content" android:layout_height="wrap_content" android:visibility="gone"/>
+    <TextView android:id="@+id/tv_link_preview_desc"
+        android:layout_width="wrap_content" android:layout_height="wrap_content" android:visibility="gone"/>
+    <TextView android:id="@+id/tv_link_preview_domain"
+        android:layout_width="wrap_content" android:layout_height="wrap_content" android:visibility="gone"/>
+    <View android:id="@+id/card_link_preview"
+        android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone"/>
+    <ProgressBar android:id="@+id/progress_link_preview"
+        android:layout_width="wrap_content" android:layout_height="wrap_content" android:visibility="gone"/>
+    <View android:id="@+id/btn_post_send"
+        android:layout_width="wrap_content" android:layout_height="wrap_content" android:visibility="gone"/>
+    <View android:id="@+id/btn_schedule"
+        android:layout_width="wrap_content" android:layout_height="wrap_content" android:visibility="gone"/>
+    <View android:id="@+id/btn_clear_schedule"
+        android:layout_width="wrap_content" android:layout_height="wrap_content" android:visibility="gone"/>
+    <View android:id="@+id/layout_schedule_info"
+        android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone"/>
+    <View android:id="@+id/layout_broadcast_section"
+        android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone"/>
+    <View android:id="@+id/layout_event_section"
+        android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone"/>
+    <View android:id="@+id/layout_topic_section"
+        android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone"/>
+    <TextView android:id="@+id/tv_schedule_info"
+        android:layout_width="wrap_content" android:layout_height="wrap_content" android:visibility="gone"/>
+    <TextView android:id="@+id/tv_poll_option_count"
+        android:layout_width="wrap_content" android:layout_height="wrap_content" android:visibility="gone"/>
+    <TextView android:id="@+id/tv_topic_count"
+        android:layout_width="wrap_content" android:layout_height="wrap_content" android:visibility="gone"/>
+    <com.google.android.material.switchmaterial.SwitchMaterial android:id="@+id/switch_poll_multi"
+        android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone"/>
+    <com.google.android.material.switchmaterial.SwitchMaterial android:id="@+id/switch_poll_anonymous"
+        android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone"/>
+    <com.google.android.material.switchmaterial.SwitchMaterial android:id="@+id/switch_event_rsvp"
+        android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone"/>
+    <com.google.android.material.switchmaterial.SwitchMaterial android:id="@+id/switch_notify_all"
+        android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone"/>
+    <ProgressBar android:id="@+id/progress_upload"
+        android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone"/>
+    <RadioGroup android:id="@+id/rg_broadcast_priority"
+        android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone"/>
+    <com.google.android.material.chip.ChipGroup android:id="@+id/chip_group_post_topics"
+        android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone"/>
+    <EditText android:id="@+id/et_new_post_topic"
+        android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone"/>
+    <androidx.recyclerview.widget.RecyclerView android:id="@+id/rv_mention_suggestions"
+        android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone"/>
+    <View android:id="@+id/btn_attach_audio"
+        android:layout_width="wrap_content" android:layout_height="wrap_content" android:visibility="gone"/>
+    <View android:id="@+id/btn_attach_document"
+        android:layout_width="wrap_content" android:layout_height="wrap_content" android:visibility="gone"/>
+    <View android:id="@+id/btn_event_start_datetime"
+        android:layout_width="wrap_content" android:layout_height="wrap_content" android:visibility="gone"/>
+    <View android:id="@+id/btn_event_end_datetime"
+        android:layout_width="wrap_content" android:layout_height="wrap_content" android:visibility="gone"/>
+    <View android:id="@+id/btn_add_post_topic"
+        android:layout_width="wrap_content" android:layout_height="wrap_content" android:visibility="gone"/>
+    <TextView android:id="@+id/tv_event_start"
+        android:layout_width="wrap_content" android:layout_height="wrap_content" android:visibility="gone"/>
+    <TextView android:id="@+id/tv_event_end"
+        android:layout_width="wrap_content" android:layout_height="wrap_content" android:visibility="gone"/>
+    <View android:id="@+id/btn_poll_expiry"
+        android:layout_width="wrap_content" android:layout_height="wrap_content" android:visibility="gone"/>
+
 </LinearLayout>

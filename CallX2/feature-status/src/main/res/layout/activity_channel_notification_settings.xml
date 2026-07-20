@@ -381,6 +381,24 @@
                 style="@style/Widget.MaterialComponents.Button.TextButton"
                 android:layout_marginTop="16dp"/>
 
+            <!-- ── Stub switches for extended notification settings (visibility=gone) ── -->
+            <com.google.android.material.switchmaterial.SwitchMaterial android:id="@+id/switch_all_posts"
+                android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone"/>
+            <com.google.android.material.switchmaterial.SwitchMaterial android:id="@+id/switch_broadcasts"
+                android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone"/>
+            <com.google.android.material.switchmaterial.SwitchMaterial android:id="@+id/switch_polls"
+                android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone"/>
+            <com.google.android.material.switchmaterial.SwitchMaterial android:id="@+id/switch_new_follower"
+                android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone"/>
+            <com.google.android.material.switchmaterial.SwitchMaterial android:id="@+id/switch_mention_only"
+                android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone"/>
+            <com.google.android.material.switchmaterial.SwitchMaterial android:id="@+id/switch_milestone_alerts"
+                android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone"/>
+            <com.google.android.material.switchmaterial.SwitchMaterial android:id="@+id/switch_event_reminders"
+                android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone"/>
+            <com.google.android.material.switchmaterial.SwitchMaterial android:id="@+id/switch_poll_close_alerts"
+                android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone"/>
+
         </LinearLayout>
     </ScrollView>
 </LinearLayout>

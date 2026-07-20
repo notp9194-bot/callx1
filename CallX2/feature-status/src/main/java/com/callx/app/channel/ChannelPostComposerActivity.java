@@ -354,11 +354,18 @@ public class ChannelPostComposerActivity extends AppCompatActivity {
             rvMentionSuggestions.setAdapter(mentionAdapter);
         }
         mentionHandler = new ChannelMentionHandler(this, etPostText, channelId);
-        mentionHandler.setSuggestionShowCallback((candidates, atStart, atEnd) -> {
-            mentionAtStart = atStart; mentionAtEnd = atEnd;
-            mentionAdapter.update(candidates);
-            if (rvMentionSuggestions != null)
-                rvMentionSuggestions.setVisibility(candidates.isEmpty() ? View.GONE : View.VISIBLE);
+        mentionHandler.setSuggestionShowCallback(new ChannelMentionHandler.SuggestionShowCallback() {
+            @Override
+            public void show(java.util.List<ChannelMentionHandler.MentionCandidate> candidates, int atStart, int atEnd) {
+                mentionAtStart = atStart; mentionAtEnd = atEnd;
+                mentionAdapter.update(candidates);
+                if (rvMentionSuggestions != null)
+                    rvMentionSuggestions.setVisibility(candidates.isEmpty() ? View.GONE : View.VISIBLE);
+            }
+            @Override
+            public void hide() {
+                if (rvMentionSuggestions != null) rvMentionSuggestions.setVisibility(View.GONE);
+            }
         });
     }
 

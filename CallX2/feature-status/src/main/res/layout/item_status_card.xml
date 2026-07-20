@@ -112,4 +112,12 @@
 
     </FrameLayout>
 
+    <!-- ── Stub views referenced by StoryReshareActivity (visibility=gone) ── -->
+    <ImageView android:id="@+id/iv_status_thumb"
+        android:layout_width="0dp" android:layout_height="0dp" android:visibility="gone"/>
+    <TextView android:id="@+id/tv_status_owner_name"
+        android:layout_width="0dp" android:layout_height="0dp" android:visibility="gone"/>
+    <TextView android:id="@+id/tv_status_type_badge"
+        android:layout_width="0dp" android:layout_height="0dp" android:visibility="gone"/>
+
 </FrameLayout>

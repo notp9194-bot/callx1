@@ -681,6 +681,11 @@ public class ChannelRepository {
 
     // ── ADMIN MANAGEMENT ──────────────────────────────────────────────────
 
+    /** Overload that accepts a role string; delegates to the two-param version. */
+    public void addAdmin(String channelId, String targetUid, String role, Result cb) {
+        addAdmin(channelId, targetUid, cb);
+    }
+
     public void addAdmin(String channelId, String targetUid, Result cb) {
         FirebaseUtils.getChannelAdminsRef(channelId).child(targetUid).setValue("admin",
             (e, ref) -> {
@@ -1397,25 +1402,6 @@ public class ChannelRepository {
     }
 
     // ════════════════════════════════════════════════════════════════════════
-    // BLOCK / UNBLOCK FOLLOWER  (v5)
-    // ════════════════════════════════════════════════════════════════════════
-
-    public void blockFollower(String channelId, String followerUid, BooleanCallback cb) {
-        java.util.Map<String, Object> u = new java.util.LinkedHashMap<>();
-        u.put("blocked", true); u.put("blockedAt", ServerValue.TIMESTAMP);
-        FirebaseUtils.db().getReference("channelFollowers").child(channelId).child(followerUid).updateChildren(u)
-          .addOnSuccessListener(v -> mainHandler.post(() -> cb.onResult(true)))
-          .addOnFailureListener(e -> mainHandler.post(() -> cb.onResult(false)));
-    }
-
-    public void unblockFollower(String channelId, String followerUid, BooleanCallback cb) {
-        FirebaseUtils.db().getReference("channelFollowers").child(channelId).child(followerUid).child("blocked")
-          .removeValue()
-          .addOnSuccessListener(v -> mainHandler.post(() -> cb.onResult(true)))
-          .addOnFailureListener(e -> mainHandler.post(() -> cb.onResult(false)));
-    }
-
-    // ════════════════════════════════════════════════════════════════════════
     // FORWARD POST TO CHAT  (v5)
     // ════════════════════════════════════════════════════════════════════════
 
@@ -1442,32 +1428,6 @@ public class ChannelRepository {
         if (note         != null && !note.isEmpty())      msg.put("forwardNote", note);
 
         FirebaseUtils.db().getReference(node).child(targetChatId).child(msgId).setValue(msg)
-          .addOnSuccessListener(v -> mainHandler.post(() -> cb.onResult(true)))
-          .addOnFailureListener(e -> mainHandler.post(() -> cb.onResult(false)));
-    }
-
-    // ════════════════════════════════════════════════════════════════════════
-    // SCHEDULE POST  (v5 — WorkManager bridge)
-    // ════════════════════════════════════════════════════════════════════════
-
-    public void schedulePost(com.callx.app.models.ChannelPost post, long scheduledAtMs, BooleanCallback cb) {
-        // Mark post as scheduled in Firebase; ChannelScheduledPostWorker picks it up
-        post.scheduledAt = scheduledAtMs;
-        post.isDraft     = false;
-        postToChannel(post, success -> cb.onResult(success));
-    }
-
-    // ════════════════════════════════════════════════════════════════════════
-    // REPORT CHANNEL  (v5)
-    // ════════════════════════════════════════════════════════════════════════
-
-    public void reportChannel(String myUid, String channelId, String reason, BooleanCallback cb) {
-        String key = FirebaseUtils.db().getReference("reports").push().getKey();
-        if (key == null) { mainHandler.post(() -> cb.onResult(false)); return; }
-        java.util.Map<String, Object> r = new java.util.LinkedHashMap<>();
-        r.put("type", "channel"); r.put("channelId", channelId); r.put("reporterUid", myUid);
-        r.put("reason", reason); r.put("timestamp", ServerValue.TIMESTAMP);
-        FirebaseUtils.db().getReference("reports").child(key).setValue(r)
           .addOnSuccessListener(v -> mainHandler.post(() -> cb.onResult(true)))
           .addOnFailureListener(e -> mainHandler.post(() -> cb.onResult(false)));
     }

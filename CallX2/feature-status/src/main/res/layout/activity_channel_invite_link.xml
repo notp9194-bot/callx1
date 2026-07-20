@@ -154,5 +154,18 @@
             </LinearLayout>
 
         </LinearLayout>
+
+        <!-- ── Stub views for IDs referenced by ChannelInviteLinkActivity (visibility=gone) ── -->
+        <com.google.android.material.card.MaterialCardView android:id="@+id/card_invite_link"
+            android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone"/>
+        <TextView android:id="@+id/tv_invite_link_usage"
+            android:layout_width="wrap_content" android:layout_height="wrap_content" android:visibility="gone"/>
+        <ProgressBar android:id="@+id/progress_invite_link"
+            android:layout_width="wrap_content" android:layout_height="wrap_content" android:visibility="gone"/>
+        <com.google.android.material.button.MaterialButton android:id="@+id/btn_share_qr"
+            android:layout_width="wrap_content" android:layout_height="wrap_content" android:visibility="gone"/>
+        <com.google.android.material.button.MaterialButton android:id="@+id/btn_save_qr"
+            android:layout_width="wrap_content" android:layout_height="wrap_content" android:visibility="gone"/>
+
     </ScrollView>
 </LinearLayout>

@@ -185,6 +185,14 @@
                 style="@style/Widget.MaterialComponents.Button.OutlinedButton"
                 android:visibility="gone"/>
 
+            <!-- ── Stub views for IDs referenced by ChannelPollResultsActivity (visibility=gone) ── -->
+            <View android:id="@+id/layout_anonymous_banner"
+                android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone"/>
+            <View android:id="@+id/badge_multi_select"
+                android:layout_width="wrap_content" android:layout_height="wrap_content" android:visibility="gone"/>
+            <androidx.recyclerview.widget.RecyclerView android:id="@+id/rv_poll_results"
+                android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone"/>
+
         </LinearLayout>
     </ScrollView>
 

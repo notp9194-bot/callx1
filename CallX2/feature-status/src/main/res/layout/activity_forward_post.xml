@@ -63,4 +63,11 @@
             app:cornerRadius="8dp"
             android:visibility="gone" />
     </LinearLayout>
+
+    <!-- ── Stub views referenced by ForwardPostActivity (visibility=gone) ── -->
+    <EditText android:id="@+id/et_forward_note"
+        android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone"/>
+    <com.google.android.material.button.MaterialButton android:id="@+id/btn_forward_send"
+        android:layout_width="wrap_content" android:layout_height="wrap_content" android:visibility="gone"/>
+
 </LinearLayout>

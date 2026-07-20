@@ -15,6 +15,15 @@ public class FirebaseUtils {
         return _fu1 != null ? _fu1.getUid() : "";
     }
 
+    /** Alias for getCurrentUid() — used by newer feature modules. */
+    public static String getMyUid() { return getCurrentUid(); }
+
+    /** Alias for getCurrentName() — used by newer feature modules. */
+    public static String getMyDisplayName() { return getCurrentName(); }
+
+    /** Alias for getCurrentPhotoUrl() — used by newer feature modules. */
+    public static String getMyIconUrl() { return getCurrentPhotoUrl(); }
+
     public static String getCurrentName() {
         com.google.firebase.auth.FirebaseUser _fu2 = FirebaseAuth.getInstance().getCurrentUser();
         if (_fu2 == null) return "";

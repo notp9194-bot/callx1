@@ -219,6 +219,29 @@
                 android:textColor="#25D366"/>
 
         </LinearLayout>
+
+        <!-- ── Stub views for IDs referenced by ChannelAnalyticsActivity (visibility=gone) ── -->
+        <TextView android:id="@+id/tv_analytics_reach_7d"
+            android:layout_width="wrap_content" android:layout_height="wrap_content" android:visibility="gone"/>
+        <TextView android:id="@+id/tv_analytics_impressions_7d"
+            android:layout_width="wrap_content" android:layout_height="wrap_content" android:visibility="gone"/>
+        <TextView android:id="@+id/tv_analytics_forwards_7d"
+            android:layout_width="wrap_content" android:layout_height="wrap_content" android:visibility="gone"/>
+        <TextView android:id="@+id/tv_analytics_avg_views"
+            android:layout_width="wrap_content" android:layout_height="wrap_content" android:visibility="gone"/>
+        <TextView android:id="@+id/tv_analytics_best_type"
+            android:layout_width="wrap_content" android:layout_height="wrap_content" android:visibility="gone"/>
+        <TextView android:id="@+id/tv_analytics_optimal_time"
+            android:layout_width="wrap_content" android:layout_height="wrap_content" android:visibility="gone"/>
+        <View android:id="@+id/chart_reach_daily"
+            android:layout_width="match_parent" android:layout_height="0dp" android:visibility="gone"/>
+        <View android:id="@+id/chart_impressions_daily"
+            android:layout_width="match_parent" android:layout_height="0dp" android:visibility="gone"/>
+        <View android:id="@+id/chart_forwards_daily"
+            android:layout_width="match_parent" android:layout_height="0dp" android:visibility="gone"/>
+        <View android:id="@+id/chart_sub_growth_30d"
+            android:layout_width="match_parent" android:layout_height="0dp" android:visibility="gone"/>
+
     </ScrollView>
 
 </LinearLayout>

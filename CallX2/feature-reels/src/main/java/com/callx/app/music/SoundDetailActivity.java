@@ -177,4 +177,46 @@ public class SoundDetailActivity extends AppCompatActivity {
         public ReelThumbItem() {}
         public ReelThumbItem(String id, String t, String v) { reelId=id; thumbnailUrl=t; videoUrl=v; }
     }
+
+    /** Simple data model for related/recommended sounds. */
+    public static class RelatedItem {
+        public String soundId, title, artist, coverUrl;
+        public int reelCount;
+        public RelatedItem() {}
+    }
+
+    /** RecyclerView adapter displaying reel thumbnail images for this sound. */
+    public static class ReelThumbAdapter extends androidx.recyclerview.widget.RecyclerView.Adapter<ReelThumbAdapter.VH> {
+        private final java.util.List<ReelThumbItem> items = new java.util.ArrayList<>();
+
+        public void setItems(java.util.List<ReelThumbItem> data) {
+            items.clear();
+            if (data != null) items.addAll(data);
+            notifyDataSetChanged();
+        }
+
+        @androidx.annotation.NonNull
+        @Override
+        public VH onCreateViewHolder(@androidx.annotation.NonNull android.view.ViewGroup parent, int viewType) {
+            android.widget.ImageView iv = new android.widget.ImageView(parent.getContext());
+            int size = (int) (96 * parent.getContext().getResources().getDisplayMetrics().density);
+            iv.setLayoutParams(new androidx.recyclerview.widget.RecyclerView.LayoutParams(size, size));
+            iv.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
+            return new VH(iv);
+        }
+
+        @Override
+        public void onBindViewHolder(@androidx.annotation.NonNull VH h, int pos) {
+            ReelThumbItem item = items.get(pos);
+            if (item.thumbnailUrl != null && !item.thumbnailUrl.isEmpty())
+                com.bumptech.glide.Glide.with(h.iv.getContext()).load(item.thumbnailUrl).into(h.iv);
+        }
+
+        @Override public int getItemCount() { return items.size(); }
+
+        public static class VH extends androidx.recyclerview.widget.RecyclerView.ViewHolder {
+            final android.widget.ImageView iv;
+            VH(android.widget.ImageView v) { super(v); iv = v; }
+        }
+    }
 }

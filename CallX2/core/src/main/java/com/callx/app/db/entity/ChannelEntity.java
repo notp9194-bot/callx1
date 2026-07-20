@@ -71,6 +71,10 @@ public class ChannelEntity {
     /** topicTags — JSON array of topic tag strings, e.g. ["tech","news"] */
     public String topicTagsJson;
 
+    /** Transient list of topic tags; populated by callers that parse topicTagsJson. */
+    @androidx.room.Ignore
+    public java.util.List<String> topicTags;
+
     /** isFollowing — alias kept for backwards compat with ExploreChannelsActivity. */
     public boolean isFollowing;
 }
