@@ -194,6 +194,9 @@ public class GroupChatActivity extends AppCompatActivity
         }
     };
 
+    // ── Read-by observer ──────────────────────────────────────────────────
+    private GroupMessageReadObserver activeReadByObserver;
+
     // ── Bot Commands ──────────────────────────────────────────────────────
     private BotManager botManager;
     private BotCommandSuggestionsAdapter botSuggestionsAdapter;
@@ -572,6 +575,7 @@ public class GroupChatActivity extends AppCompatActivity
 
     @Override
     protected void onDestroy() {
+        if (activeReadByObserver != null) { activeReadByObserver.detach(); activeReadByObserver = null; }
         subtitleHandler.removeCallbacks(subtitleTick);
         typingHandler.removeCallbacks(stopTyping);
         if (expiryRunnable != null) expiryHandler.removeCallbacks(expiryRunnable);
@@ -1460,9 +1464,28 @@ public class GroupChatActivity extends AppCompatActivity
         attachMicGesture();
 
         // ── @Mention suggest (group) ───────────────────────────────────────
+        // Wire "Seen by" strip → GroupReadByActivity
+        if (pagingAdapter != null) {
+            pagingAdapter.setOnSeenByClickListener(m -> {
+                if (m == null || m.id == null) return;
+                android.content.Intent readByIntent =
+                        new android.content.Intent(this, GroupReadByActivity.class);
+                readByIntent.putExtra(GroupReadByActivity.EXTRA_GROUP_ID, groupId);
+                readByIntent.putExtra(GroupReadByActivity.EXTRA_MSG_ID, m.id);
+                readByIntent.putExtra(GroupReadByActivity.EXTRA_MSG_TEXT,
+                        m.text != null ? m.text : "[" + (m.type != null ? m.type : "message") + "]");
+                readByIntent.putExtra(GroupReadByActivity.EXTRA_TOTAL_OTHERS,
+                        memberNames != null ? Math.max(0, memberNames.size() - 1) : 0);
+                startActivity(readByIntent);
+            });
+        }
+
         groupMentionController = new com.callx.app.group.GroupMentionController(
                 this, binding, groupId, currentUid, currentName,
                 memberNames, memberPhotos);
+        // Keep pagingAdapter in sync so avatar circles in "Seen by" strip stay fresh
+        if (pagingAdapter != null && memberPhotos != null)
+            pagingAdapter.setMemberPhotos(memberPhotos);
         groupMentionController.attach();
         setupGroupBackPressHandler();
 
@@ -2268,6 +2291,29 @@ public class GroupChatActivity extends AppCompatActivity
         com.callx.app.conversation.info.MessageInfoBridge.set(data);
         com.callx.app.conversation.info.MessageInfoBottomSheet.newInstance()
                 .show(getSupportFragmentManager(), com.callx.app.conversation.info.MessageInfoBottomSheet.TAG);
+
+        // Attach live observer so info sheet stays fresh as more people read
+        if (activeReadByObserver != null) activeReadByObserver.detach();
+        activeReadByObserver = new GroupMessageReadObserver(groupId, m.id, (rb, db) -> {
+            // Update the live message's readBy so the "Seen by" strip also refreshes
+            if (rb != null) m.readBy = rb;
+            if (db != null) m.deliveredBy = db;
+            // Notify adapter to refresh the bubble (PAYLOAD_READ_BY)
+            if (pagingAdapter != null) {
+                // Find position of this message and notify it
+                for (int i = 0; i < pagingAdapter.getItemCount(); i++) {
+                    com.callx.app.models.Message item = pagingAdapter.peek(i);
+                    if (item != null && m.id.equals(item.id)) {
+                        item.readBy      = rb;
+                        item.deliveredBy = db;
+                        pagingAdapter.notifyItemChanged(i,
+                                com.callx.app.conversation.MessagePagingAdapter.PAYLOAD_READ_BY);
+                        break;
+                    }
+                }
+            }
+        });
+        activeReadByObserver.attach();
     }
 
     // ── MessageInfoBottomSheet.HostRecyclerPauseListener ────────────────────

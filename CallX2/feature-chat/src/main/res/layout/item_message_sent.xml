@@ -381,6 +381,66 @@
     </LinearLayout>
 
     <!--
+        Seen-by strip — shows below the bubble for outgoing group messages.
+        "👁 3" text + up to 3 overlapping tiny avatars of readers.
+        Visibility controlled by MessagePagingAdapter based on readBy map.
+        Tapping opens GroupReadByActivity for the full list.
+    -->
+    <LinearLayout
+        android:id="@+id/ll_seen_by"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="4dp"
+        android:paddingEnd="4dp"
+        android:paddingTop="2dp"
+        android:visibility="gone"
+        android:clickable="true"
+        android:focusable="true"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        app:layout_constraintEnd_toEndOf="@id/ll_bubble"
+        app:layout_constraintTop_toBottomOf="@id/ll_bubble">
+
+        <!-- Up to 3 tiny reader avatars (overlapping) -->
+        <de.hdodenhof.circleimageview.CircleImageView
+            android:id="@+id/iv_reader_1"
+            android:layout_width="16dp" android:layout_height="16dp"
+            android:layout_marginEnd="-5dp"
+            android:src="@drawable/ic_person"
+            android:visibility="gone"/>
+        <de.hdodenhof.circleimageview.CircleImageView
+            android:id="@+id/iv_reader_2"
+            android:layout_width="16dp" android:layout_height="16dp"
+            android:layout_marginEnd="-5dp"
+            android:src="@drawable/ic_person"
+            android:visibility="gone"/>
+        <de.hdodenhof.circleimageview.CircleImageView
+            android:id="@+id/iv_reader_3"
+            android:layout_width="16dp" android:layout_height="16dp"
+            android:layout_marginEnd="4dp"
+            android:src="@drawable/ic_person"
+            android:visibility="gone"/>
+
+        <!-- Eye icon -->
+        <ImageView
+            android:layout_width="13dp" android:layout_height="13dp"
+            android:src="@drawable/ic_eye"
+            android:alpha="0.65"
+            android:layout_marginEnd="2dp"/>
+
+        <!-- Count -->
+        <TextView
+            android:id="@+id/tv_seen_count"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="1"
+            android:textColor="@color/text_muted"
+            android:textSize="11sp"/>
+
+    </LinearLayout>
+
+    <!--
         Reaction badge — WhatsApp style: floats OUTSIDE the bubble, hanging
         over its bottom-end corner. Previously this was a child INSIDE
         ll_bubble's vertical stack with a dark pill background — that made

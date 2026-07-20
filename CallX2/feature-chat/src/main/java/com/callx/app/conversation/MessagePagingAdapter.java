@@ -79,6 +79,7 @@ public class MessagePagingAdapter
                     && a.fontStyle == b.fontStyle
                     && safeEquals(asStr(a.pinned), asStr(b.pinned))  // pinned label rebind (Canvas + legacy)
                     && reactionsEqual(a.reactions, b.reactions)  // FIX: reactions change pe rebind trigger
+                    && readByCountEquals(a, b)   // Group read-by count change → PAYLOAD_READ_BY
                     && pollVotesEqual(a.pollVotes, b.pollVotes)
                     && safeEquals(asStr(a.pollClosed), asStr(b.pollClosed))
                     && safeEquals(asStr(a.broadcast), asStr(b.broadcast))  // broadcast badge rebind
@@ -125,6 +126,10 @@ public class MessagePagingAdapter
                         !(safeEquals(a.status, b.status)
                                 && safeEquals(asStr(a.deliveredAt), asStr(b.deliveredAt))
                                 && safeEquals(asStr(a.readAt), asStr(b.readAt)));
+                // Read-by count changed — only update the "Seen by" strip
+                boolean onlyReadByChanged = onlyStatusChanged
+                        && !readByCountEquals(a, b);
+                if (onlyReadByChanged) return PAYLOAD_READ_BY;
                 if (onlyStatusChanged) return PAYLOAD_STATUS;
 
                 // Only reactions changed — return PAYLOAD_REACTIONS so onBind
@@ -217,6 +222,8 @@ public class MessagePagingAdapter
     // PERF ADV: edited-flag-only change — only the footer timestamp suffix
     // ("✏️ edited") needs updating; no content change at all.
     static final String PAYLOAD_EDITED     = "edited";
+    /** Sent message's readBy map changed — update the "Seen by X" strip only. */
+    public static final String PAYLOAD_READ_BY = "read_by";
     // PERF: search-query-only change (user typed/cleared a character in
     // the search bar). Old code called notifyDataSetChanged() on every
     // keystroke, which rebinds EVERY visible row from scratch — Glide
@@ -1245,6 +1252,12 @@ public class MessagePagingAdapter
     @Override
     public void onBindViewHolder(@NonNull VH h, int position,
                                  @NonNull java.util.List<Object> payloads) {
+        if (!payloads.isEmpty() && PAYLOAD_READ_BY.equals(payloads.get(0))) {
+            // Only update the "Seen by X" strip; skip full rebind
+            Message m = getItem(position);
+            if (m != null) bindSeenByStrip(h, m);
+            return;
+        }
         if (!payloads.isEmpty() && PAYLOAD_STATUS.equals(payloads.get(0))) {
             // Fast path: only tick changed — skip full bind.
             Message m = getItem(position);
@@ -1372,6 +1385,8 @@ public class MessagePagingAdapter
             return;
         }
         bindMessage(h, m, position);
+        // Update "Seen by" strip for sent group messages
+        bindSeenByStrip(h, m);
         } finally {
             android.os.Trace.endSection();
         }

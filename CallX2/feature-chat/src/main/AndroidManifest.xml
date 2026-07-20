@@ -134,6 +134,11 @@
             android:windowSoftInputMode="adjustResize"
             android:label="Create Topic"/>
 
+        <activity android:name=".group.GroupReadByActivity"
+            android:label="Message info"
+            android:theme="@style/Theme.App"
+            android:exported="false"/>
+
         <activity android:name=".bots.BotSettingsActivity"
             android:label="Bot Commands"
             android:theme="@style/Theme.App"

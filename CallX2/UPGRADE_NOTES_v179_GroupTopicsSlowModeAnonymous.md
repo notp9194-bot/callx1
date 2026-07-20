@@ -201,3 +201,105 @@ groups/{groupId}/botCommands/{commandName}/
 **Anonymous messages:** Export shows "Anonymous" as sender name (identity protected)
 
 **Note:** Media files are not downloaded into the export; Cloudinary URLs are embedded inline when "Include media links" is on.
+
+
+---
+
+# Upgrade Notes — v181: Message Read-by List in Groups
+
+## Feature 10: Message Read-by List in Groups
+
+**New files:**
+- `feature-chat/.../group/GroupReadByActivity.java` — Full-screen "Message Info" with live Read/Delivered/Pending sections
+- `feature-chat/.../group/GroupReadByAdapter.java` — RecyclerView adapter for member rows
+- `feature-chat/.../group/GroupMessageReadObserver.java` — Real-time Firebase listener for readBy/deliveredBy on a single message
+- `feature-chat/res/layout/activity_group_read_by.xml` — Full-screen layout
+- `feature-chat/res/layout/item_group_read_by_member.xml` — Member row: avatar + name + timestamp
+- `feature-chat/res/drawable/ic_eye.xml` — Eye/visibility icon
+
+**Modified files:**
+- `feature-chat/res/layout/item_message_sent.xml` — Added `ll_seen_by` strip with 3 avatar circles + eye icon + count
+- `feature-chat/.../conversation/MessagePagingAdapter.java` — `PAYLOAD_READ_BY`, `bindSeenByStrip()`, `OnSeenByClickListener`, `setMemberPhotos()`
+- `feature-chat/.../group/GroupChatActivity.java` — Live observer, wires "Seen by" click → GroupReadByActivity, member photos sync
+- `feature-chat/AndroidManifest.xml` — GroupReadByActivity registered
+
+---
+
+### Architecture
+
+```
+GroupMessages/{groupId}/{msgId}/
+  readBy/{uid}      = epoch ms   ← already written by existing markRead()
+  deliveredBy/{uid} = epoch ms   ← already written by existing ackDelivered()
+```
+
+The backend was already complete. This feature adds the three missing UI layers.
+
+---
+
+### Layer 1 — Inline "Seen by X" strip on sent bubbles
+
+Each outgoing group message now shows a small strip below the bubble:
+
+```
+[bubble content ...]
+👁 3  [tiny avatar][tiny avatar][tiny avatar]
+```
+
+- Only visible on outgoing messages with ≥ 1 reader
+- Shows up to 3 reader avatars (overlapping circles, 16dp each)
+- Count = total number of readers
+- **Tap strip → opens GroupReadByActivity** (full screen)
+- Updates in real-time via `PAYLOAD_READ_BY` partial rebind (no full bubble redraw)
+
+---
+
+### Layer 2 — Full-screen GroupReadByActivity
+
+**How to open:**
+- Tap the "👁 X" strip under any sent message → GroupReadByActivity opens
+- OR: Long-press message → select → ℹ️ Info button in selection bar → MessageInfoBottomSheet (existing) → already shows READ BY sections
+
+**GroupReadByActivity layout:**
+- Message preview card at top
+- Flat list with 3 sections:
+  - **👁 READ BY (X/Y)** — members who read it, newest first, with blue double-tick + timestamp
+  - **✓✓ DELIVERED TO (Y)** — delivered but not opened, grey double-tick + timestamp
+  - **⏳ PENDING (Z)** — not yet delivered (offline members)
+
+**Live updates:**
+- `GroupMessageReadObserver` attaches a Firebase `ValueEventListener` on the message
+- As members open the chat, their row moves from Delivered → Read in real time (no refresh needed)
+
+---
+
+### Layer 3 — Live updates in existing MessageInfoBottomSheet
+
+When the selection-bar "ℹ️ Info" button opens `MessageInfoBottomSheet`:
+- GroupChatActivity now attaches a `GroupMessageReadObserver` for that message
+- If new reads arrive while the sheet is open, `PAYLOAD_READ_BY` triggers a partial rebind of the bubble
+- The observer is detached automatically when GroupChatActivity is destroyed
+
+---
+
+### How it works end-to-end
+
+1. **User A** sends a message in a group (10 members)
+2. `GroupChatActivity.markRead()` fires for **User B** the moment B opens the chat
+3. Firebase write: `groupMessages/{groupId}/{msgId}/readBy/{uidB} = now()`
+4. A's `GroupMessageReadObserver` fires → `m.readBy` updated → `PAYLOAD_READ_BY` rebind
+5. A's bubble now shows "👁 1" with B's avatar
+6. A taps "👁 1" → `GroupReadByActivity` opens:
+   - READ BY (1/9): User B — 2:34 PM ✓✓ (blue)
+   - DELIVERED TO (3): User C, D, E — timestamps
+   - PENDING (5): remaining offline members
+7. As more members open the chat, rows move up in real time
+
+---
+
+### Notes
+- Anonymous messages: `isAnonymous=true` senders are listed as "Anonymous" in export but their readBy entry is still tracked normally (they are a reader, not a sender)
+- Admin & non-admin alike can see read-by info for their OWN sent messages
+- Incoming messages (received by current user) show only a simple status row in MessageInfoBottomSheet — not a per-member breakdown (same as WhatsApp)
+- The `btn_selection_info` in GroupChatActivity's selection bar already wired `showGroupMessageInfoDialog()` — this was already working; the new feature adds inline visibility + dedicated Activity
+
