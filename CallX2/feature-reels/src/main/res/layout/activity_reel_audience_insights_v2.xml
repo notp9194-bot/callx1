@@ -1,0 +1,151 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="?attr/colorSurface">
+
+    <RelativeLayout
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:paddingHorizontal="12dp"
+        android:elevation="2dp">
+        <ImageButton
+            android:id="@+id/btn_insights_back"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_centerVertical="true"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@drawable/ic_arrow_back"/>
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_centerInParent="true"
+            android:text="Audience Insights"
+            android:textSize="17sp"
+            android:textStyle="bold"
+            android:textColor="?attr/colorOnSurface"/>
+    </RelativeLayout>
+
+    <ProgressBar
+        android:id="@+id/progress_insights_load"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="40dp"
+        android:indeterminateTint="#FF3B5C"
+        android:visibility="gone"/>
+
+    <View
+        android:id="@+id/layout_insights_no_data"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="0"
+        android:visibility="gone"/>
+
+    <ScrollView
+        android:id="@+id/scroll_insights_content"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <Button
+                android:id="@+id/btn_view_full_dashboard"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="View Full Dashboard"
+                android:backgroundTint="#FF3B5C"
+                android:textColor="#FFFFFF"
+                android:layout_marginBottom="16dp"/>
+
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="Age Groups" android:textSize="15sp" android:textStyle="bold"
+                android:textColor="?attr/colorOnSurface" android:paddingBottom="10dp"/>
+            <LinearLayout android:layout_width="match_parent" android:layout_height="32dp" android:orientation="horizontal" android:gravity="center_vertical" android:layout_marginBottom="6dp">
+                <TextView android:layout_width="52dp" android:layout_height="wrap_content" android:text="13–17" android:textSize="12sp" android:textColor="?attr/colorOnSurfaceVariant"/>
+                <View android:id="@+id/bar_age_1317" android:layout_width="0dp" android:layout_height="18dp" android:background="#FF3B5C" android:layout_marginEnd="8dp"/>
+                <TextView android:id="@+id/tv_age_1317_pct" android:layout_width="36dp" android:layout_height="wrap_content" android:text="0%" android:textSize="12sp" android:textColor="?attr/colorOnSurface" android:gravity="end"/>
+            </LinearLayout>
+            <LinearLayout android:layout_width="match_parent" android:layout_height="32dp" android:orientation="horizontal" android:gravity="center_vertical" android:layout_marginBottom="6dp">
+                <TextView android:layout_width="52dp" android:layout_height="wrap_content" android:text="18–24" android:textSize="12sp" android:textColor="?attr/colorOnSurfaceVariant"/>
+                <View android:id="@+id/bar_age_1824" android:layout_width="0dp" android:layout_height="18dp" android:background="#FF6B9D" android:layout_marginEnd="8dp"/>
+                <TextView android:id="@+id/tv_age_1824_pct" android:layout_width="36dp" android:layout_height="wrap_content" android:text="0%" android:textSize="12sp" android:textColor="?attr/colorOnSurface" android:gravity="end"/>
+            </LinearLayout>
+            <LinearLayout android:layout_width="match_parent" android:layout_height="32dp" android:orientation="horizontal" android:gravity="center_vertical" android:layout_marginBottom="6dp">
+                <TextView android:layout_width="52dp" android:layout_height="wrap_content" android:text="25–34" android:textSize="12sp" android:textColor="?attr/colorOnSurfaceVariant"/>
+                <View android:id="@+id/bar_age_2534" android:layout_width="0dp" android:layout_height="18dp" android:background="#C84B8B" android:layout_marginEnd="8dp"/>
+                <TextView android:id="@+id/tv_age_2534_pct" android:layout_width="36dp" android:layout_height="wrap_content" android:text="0%" android:textSize="12sp" android:textColor="?attr/colorOnSurface" android:gravity="end"/>
+            </LinearLayout>
+            <LinearLayout android:layout_width="match_parent" android:layout_height="32dp" android:orientation="horizontal" android:gravity="center_vertical" android:layout_marginBottom="6dp">
+                <TextView android:layout_width="52dp" android:layout_height="wrap_content" android:text="35–44" android:textSize="12sp" android:textColor="?attr/colorOnSurfaceVariant"/>
+                <View android:id="@+id/bar_age_3544" android:layout_width="0dp" android:layout_height="18dp" android:background="#8B3A7A" android:layout_marginEnd="8dp"/>
+                <TextView android:id="@+id/tv_age_3544_pct" android:layout_width="36dp" android:layout_height="wrap_content" android:text="0%" android:textSize="12sp" android:textColor="?attr/colorOnSurface" android:gravity="end"/>
+            </LinearLayout>
+            <LinearLayout android:layout_width="match_parent" android:layout_height="32dp" android:orientation="horizontal" android:gravity="center_vertical" android:layout_marginBottom="16dp">
+                <TextView android:layout_width="52dp" android:layout_height="wrap_content" android:text="45+" android:textSize="12sp" android:textColor="?attr/colorOnSurfaceVariant"/>
+                <View android:id="@+id/bar_age_45p" android:layout_width="0dp" android:layout_height="18dp" android:background="#552A55" android:layout_marginEnd="8dp"/>
+                <TextView android:id="@+id/tv_age_45p_pct" android:layout_width="36dp" android:layout_height="wrap_content" android:text="0%" android:textSize="12sp" android:textColor="?attr/colorOnSurface" android:gravity="end"/>
+            </LinearLayout>
+
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="Gender Split" android:textSize="15sp" android:textStyle="bold"
+                android:textColor="?attr/colorOnSurface" android:paddingBottom="10dp"/>
+            <LinearLayout android:layout_width="match_parent" android:layout_height="32dp" android:orientation="horizontal" android:gravity="center_vertical" android:layout_marginBottom="16dp">
+                <TextView android:layout_width="52dp" android:layout_height="wrap_content" android:text="Male" android:textSize="12sp" android:textColor="?attr/colorOnSurfaceVariant"/>
+                <View android:id="@+id/bar_gender_male" android:layout_width="0dp" android:layout_height="18dp" android:background="#4A90E2" android:layout_marginEnd="8dp"/>
+                <TextView android:id="@+id/tv_gender_male_pct" android:layout_width="36dp" android:layout_height="wrap_content" android:text="0%" android:textSize="12sp" android:textColor="?attr/colorOnSurface" android:gravity="end"/>
+            </LinearLayout>
+            <LinearLayout android:layout_width="match_parent" android:layout_height="32dp" android:orientation="horizontal" android:gravity="center_vertical" android:layout_marginBottom="16dp">
+                <TextView android:layout_width="52dp" android:layout_height="wrap_content" android:text="Female" android:textSize="12sp" android:textColor="?attr/colorOnSurfaceVariant"/>
+                <View android:id="@+id/bar_gender_female" android:layout_width="0dp" android:layout_height="18dp" android:background="#FF6B9D" android:layout_marginEnd="8dp"/>
+                <TextView android:id="@+id/tv_gender_female_pct" android:layout_width="36dp" android:layout_height="wrap_content" android:text="0%" android:textSize="12sp" android:textColor="?attr/colorOnSurface" android:gravity="end"/>
+            </LinearLayout>
+
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="Engagement" android:textSize="15sp" android:textStyle="bold"
+                android:textColor="?attr/colorOnSurface" android:paddingBottom="8dp"/>
+            <TextView android:id="@+id/tv_avg_watch_time" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="—" android:textSize="14sp" android:textColor="?attr/colorOnSurface"/>
+            <TextView android:id="@+id/tv_completion_rate" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="—" android:textSize="14sp" android:textColor="?attr/colorOnSurface" android:layout_marginBottom="16dp"/>
+
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="Revenue" android:textSize="15sp" android:textStyle="bold"
+                android:textColor="?attr/colorOnSurface" android:paddingBottom="8dp"/>
+            <TextView android:id="@+id/tv_total_gifts_received" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="/nix/store/smkzrg2vvp3lng3hq7v9svfni5mnqjh2-bash-interactive-5.2p37/bin/bash.00 Total Gifts" android:textSize="16sp" android:textColor="#FFD700" android:layout_marginBottom="16dp"/>
+
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="Top Countries" android:textSize="15sp" android:textStyle="bold"
+                android:textColor="?attr/colorOnSurface" android:paddingBottom="8dp"/>
+            <LinearLayout android:id="@+id/layout_top_countries" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:layout_marginBottom="16dp"/>
+
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="Device Type" android:textSize="15sp" android:textStyle="bold"
+                android:textColor="?attr/colorOnSurface" android:paddingBottom="10dp"/>
+            <LinearLayout android:layout_width="match_parent" android:layout_height="32dp" android:orientation="horizontal" android:gravity="center_vertical" android:layout_marginBottom="16dp">
+                <TextView android:layout_width="64dp" android:layout_height="wrap_content" android:text="Android" android:textSize="12sp" android:textColor="?attr/colorOnSurfaceVariant"/>
+                <View android:id="@+id/bar_device_android" android:layout_width="0dp" android:layout_height="18dp" android:background="#3DDC84" android:layout_marginEnd="8dp"/>
+                <TextView android:id="@+id/tv_device_android_pct" android:layout_width="36dp" android:layout_height="wrap_content" android:text="0%" android:textSize="12sp" android:textColor="?attr/colorOnSurface" android:gravity="end"/>
+            </LinearLayout>
+
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="Peak Watch Hours (24h)" android:textSize="15sp" android:textStyle="bold"
+                android:textColor="?attr/colorOnSurface" android:paddingBottom="8dp"/>
+            <LinearLayout android:id="@+id/layout_peak_hours" android:layout_width="match_parent" android:layout_height="84dp" android:orientation="horizontal" android:gravity="bottom" android:paddingBottom="24dp"/>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Best time to post recommendations available in the full dashboard."
+                android:textSize="12sp"
+                android:textColor="#888888"
+                android:gravity="center"
+                android:paddingTop="16dp"/>
+
+        </LinearLayout>
+    </ScrollView>
+</LinearLayout>

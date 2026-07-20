@@ -1,5 +1,6 @@
 package com.callx.app.analytics;
 
+import android.content.Intent;
 import android.os.Bundle;
 import android.view.View;
 import android.view.ViewGroup;
@@ -14,18 +15,7 @@ import com.google.firebase.database.*;
 import java.util.*;
 
 /**
- * ReelAudienceInsightsActivity — Detailed audience demographics for a creator.
- *
- * Features:
- *  ✅ Age group breakdown (13-17, 18-24, 25-34, 35-44, 45+)
- *  ✅ Gender split (Male / Female / Other) with visual percentage bars
- *  ✅ Top 5 countries audience comes from
- *  ✅ Peak watch hours heatmap (bar chart — 24 hour slots)
- *  ✅ Average watch time per reel (seconds)
- *  ✅ Follower growth chart (last 30 days, simple bar)
- *  ✅ Device type split (Android / iOS / Web)
- *  ✅ All data pulled from Firebase: creatorInsights/{uid}/
- *  ✅ Graceful empty state with "Not enough data yet" message
+ * ReelAudienceInsightsActivity — Updated with Full Dashboard link and Revenue
  */
 public class ReelAudienceInsightsActivity extends AppCompatActivity {
 
@@ -34,39 +24,32 @@ public class ReelAudienceInsightsActivity extends AppCompatActivity {
     private ScrollView  scrollContent;
     private View        layoutNoData;
 
-    // Age bars
     private View tvAge1317, tvAge1824, tvAge2534, tvAge3544, tvAge45p;
     private TextView tvAge1317Pct, tvAge1824Pct, tvAge2534Pct, tvAge3544Pct, tvAge45pPct;
-
-    // Gender
     private View tvGenderMale, tvGenderFemale, tvGenderOther;
     private TextView tvGenderMalePct, tvGenderFemalePct, tvGenderOtherPct;
-
-    // Countries
     private LinearLayout layoutCountries;
-
-    // Watch time
     private TextView tvAvgWatchTime, tvCompletionRate;
-
-    // Device split
     private View tvDeviceAndroid, tvDeviceIos, tvDeviceWeb;
     private TextView tvDeviceAndroidPct, tvDeviceIosPct, tvDeviceWebPct;
-
-    // Peak hours
     private LinearLayout layoutPeakHours;
+    
+    private TextView tvTotalGifts;
+    private Button btnViewDashboard;
 
     private String myUid;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_reel_audience_insights);
+        setContentView(R.layout.activity_reel_audience_insights_v2);
 
         try { myUid = FirebaseUtils.getCurrentUid(); }
         catch (Exception e) { finish(); return; }
 
         bindViews();
         loadInsights();
+        loadRevenue();
     }
 
     private void bindViews() {
@@ -74,8 +57,6 @@ public class ReelAudienceInsightsActivity extends AppCompatActivity {
         progressLoad   = findViewById(R.id.progress_insights_load);
         scrollContent  = findViewById(R.id.scroll_insights_content);
         layoutNoData   = findViewById(R.id.layout_insights_no_data);
-
-        // Age
         tvAge1317     = findViewById(R.id.bar_age_1317);
         tvAge1824     = findViewById(R.id.bar_age_1824);
         tvAge2534     = findViewById(R.id.bar_age_2534);
@@ -86,47 +67,57 @@ public class ReelAudienceInsightsActivity extends AppCompatActivity {
         tvAge2534Pct  = findViewById(R.id.tv_age_2534_pct);
         tvAge3544Pct  = findViewById(R.id.tv_age_3544_pct);
         tvAge45pPct   = findViewById(R.id.tv_age_45p_pct);
-
-        // Gender
         tvGenderMale      = findViewById(R.id.bar_gender_male);
         tvGenderFemale    = findViewById(R.id.bar_gender_female);
         tvGenderOther     = findViewById(R.id.bar_gender_other);
         tvGenderMalePct   = findViewById(R.id.tv_gender_male_pct);
         tvGenderFemalePct = findViewById(R.id.tv_gender_female_pct);
         tvGenderOtherPct  = findViewById(R.id.tv_gender_other_pct);
-
         layoutCountries = findViewById(R.id.layout_top_countries);
         tvAvgWatchTime  = findViewById(R.id.tv_avg_watch_time);
         tvCompletionRate= findViewById(R.id.tv_completion_rate);
-
-        // Device
         tvDeviceAndroid    = findViewById(R.id.bar_device_android);
         tvDeviceIos        = findViewById(R.id.bar_device_ios);
         tvDeviceWeb        = findViewById(R.id.bar_device_web);
         tvDeviceAndroidPct = findViewById(R.id.tv_device_android_pct);
         tvDeviceIosPct     = findViewById(R.id.tv_device_ios_pct);
         tvDeviceWebPct     = findViewById(R.id.tv_device_web_pct);
-
         layoutPeakHours = findViewById(R.id.layout_peak_hours);
+        
+        tvTotalGifts = findViewById(R.id.tv_total_gifts_received);
+        btnViewDashboard = findViewById(R.id.btn_view_full_dashboard);
 
         btnBack.setOnClickListener(v -> finish());
+        btnViewDashboard.setOnClickListener(v -> {
+            startActivity(new Intent(this, ReelCreatorDashboardActivity.class));
+        });
+    }
+
+    private void loadRevenue() {
+        FirebaseUtils.db().getReference("userGifts").child(myUid).child("received")
+            .addValueEventListener(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    double total = 0;
+                    for (DataSnapshot s : snap.getChildren()) {
+                        Double amt = s.child("amount").getValue(Double.class);
+                        if (amt != null) total += amt;
+                    }
+                    tvTotalGifts.setText(String.format(Locale.US, "$%.2f Total Gifts", total));
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) {}
+            });
     }
 
     private void loadInsights() {
         progressLoad.setVisibility(View.VISIBLE);
         scrollContent.setVisibility(View.GONE);
-        layoutNoData.setVisibility(View.GONE);
-
         FirebaseUtils.db().getReference("creatorInsights").child(myUid)
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(@NonNull DataSnapshot snap) {
                     if (isFinishing() || isDestroyed()) return;
                     progressLoad.setVisibility(View.GONE);
-                    if (!snap.exists()) {
-                        renderDefaultDemoData();
-                    } else {
-                        renderFromFirebase(snap);
-                    }
+                    if (!snap.exists()) renderDefaultDemoData();
+                    else renderFromFirebase(snap);
                     scrollContent.setVisibility(View.VISIBLE);
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) {
@@ -137,16 +128,13 @@ public class ReelAudienceInsightsActivity extends AppCompatActivity {
             });
     }
 
-    /** Render live Firebase data */
     private void renderFromFirebase(DataSnapshot snap) {
-        // Age
         renderAgeBar(snap, "age_13_17", tvAge1317, tvAge1317Pct);
         renderAgeBar(snap, "age_18_24", tvAge1824, tvAge1824Pct);
         renderAgeBar(snap, "age_25_34", tvAge2534, tvAge2534Pct);
         renderAgeBar(snap, "age_35_44", tvAge3544, tvAge3544Pct);
         renderAgeBar(snap, "age_45p",   tvAge45p,  tvAge45pPct);
 
-        // Gender
         float male   = floatVal(snap, "gender_male",   0f);
         float female = floatVal(snap, "gender_female", 0f);
         float other  = Math.max(0, 100f - male - female);
@@ -157,16 +145,12 @@ public class ReelAudienceInsightsActivity extends AppCompatActivity {
         tvGenderFemalePct.setText(Math.round(female)+ "%");
         tvGenderOtherPct.setText(Math.round(other)  + "%");
 
-        // Watch time
         Long avgWatch = snap.child("avg_watch_sec").getValue(Long.class);
         Long compRate = snap.child("completion_rate").getValue(Long.class);
         tvAvgWatchTime.setText((avgWatch != null ? avgWatch : 0) + "s average watch time");
         tvCompletionRate.setText((compRate != null ? compRate : 0) + "% completion rate");
-
-        // Countries
         buildCountryList(snap);
 
-        // Devices
         float android_ = floatVal(snap, "device_android", 0f);
         float ios       = floatVal(snap, "device_ios",     0f);
         float web       = Math.max(0, 100f - android_ - ios);
@@ -176,12 +160,9 @@ public class ReelAudienceInsightsActivity extends AppCompatActivity {
         tvDeviceAndroidPct.setText(Math.round(android_) + "%");
         tvDeviceIosPct.setText(Math.round(ios)           + "%");
         tvDeviceWebPct.setText(Math.round(web)           + "%");
-
-        // Peak hours
         buildPeakHours(snap);
     }
 
-    /** Demo data when Firebase has no insights yet */
     private void renderDefaultDemoData() {
         float[] ages = {8f, 38f, 31f, 14f, 9f};
         View[]    ageBars = {tvAge1317, tvAge1824, tvAge2534, tvAge3544, tvAge45p};
@@ -190,22 +171,16 @@ public class ReelAudienceInsightsActivity extends AppCompatActivity {
             setBarWidth(ageBars[i], ages[i] / 100f);
             agePcts[i].setText(Math.round(ages[i]) + "%");
         }
-
         setBarWidth(tvGenderMale, 0.52f);   tvGenderMalePct.setText("52%");
         setBarWidth(tvGenderFemale, 0.43f); tvGenderFemalePct.setText("43%");
         setBarWidth(tvGenderOther, 0.05f);  tvGenderOtherPct.setText("5%");
-
         tvAvgWatchTime.setText("18s average watch time");
         tvCompletionRate.setText("62% completion rate");
-
-        String[] countries = {"🇮🇳 India — 34%","🇺🇸 United States — 18%",
-            "🇧🇷 Brazil — 12%","🇵🇰 Pakistan — 9%","🇮🇩 Indonesia — 7%"};
+        String[] countries = {"🇮🇳 India — 34%","🇺🇸 United States — 18%","🇧🇷 Brazil — 12%","🇵🇰 Pakistan — 9%","🇮🇩 Indonesia — 7%"};
         buildCountryListFromArray(countries);
-
         setBarWidth(tvDeviceAndroid, 0.68f); tvDeviceAndroidPct.setText("68%");
         setBarWidth(tvDeviceIos,     0.28f); tvDeviceIosPct.setText("28%");
         setBarWidth(tvDeviceWeb,     0.04f); tvDeviceWebPct.setText("4%");
-
         buildDemoPeakHours();
     }
 
@@ -248,13 +223,6 @@ public class ReelAudienceInsightsActivity extends AppCompatActivity {
             tv.setPadding(0, dpToPx(4), 0, dpToPx(4));
             layoutCountries.addView(tv);
         }
-        if (items.length == 0) {
-            TextView tv = new TextView(this);
-            tv.setText("Not enough data yet");
-            tv.setTextSize(13);
-            tv.setTextColor(0xFF888888);
-            layoutCountries.addView(tv);
-        }
     }
 
     private void buildPeakHours(DataSnapshot snap) {
@@ -285,18 +253,15 @@ public class ReelAudienceInsightsActivity extends AppCompatActivity {
             col.setOrientation(LinearLayout.VERTICAL);
             col.setGravity(android.view.Gravity.BOTTOM | android.view.Gravity.CENTER_HORIZONTAL);
             col.setPadding(dpToPx(2), 0, dpToPx(2), 0);
-
             View bar = new View(this);
             int barH = (int)(dpToPx(60) * hours[i] / (float) max);
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(barW, Math.max(dpToPx(2), barH));
             bar.setLayoutParams(lp);
             bar.setBackgroundColor(0xFFFF3B5C);
-
             TextView tvHour = new TextView(this);
             tvHour.setText(i % 6 == 0 ? i + "h" : "");
             tvHour.setTextSize(8);
             tvHour.setTextColor(0xFF888888);
-
             col.addView(bar);
             col.addView(tvHour);
             layoutPeakHours.addView(col);

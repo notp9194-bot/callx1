@@ -1,167 +1,180 @@
 package com.callx.app.music;
 
+import android.content.Intent;
+import android.media.MediaPlayer;
 import android.os.Bundle;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.Button;
+import android.widget.ImageView;
+import android.widget.TextView;
+import android.widget.Toast;
+import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.appcompat.app.AppCompatDelegate;
+import androidx.recyclerview.widget.GridLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
+import com.bumptech.glide.Glide;
+import com.callx.app.camera.ReelCameraActivity;
+import com.callx.app.player.SingleReelPlayerActivity;
 import com.callx.app.reels.R;
+import com.callx.app.utils.FirebaseUtils;
+import com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton;
+import com.google.firebase.database.DataSnapshot;
+import com.google.firebase.database.DatabaseError;
+import com.google.firebase.database.ValueEventListener;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
 
-/**
- * SoundDetailActivity — thin host only.
- *
- * Sara logic SoundDetailFragment mein hai.
- * Activity sirf Fragment ko container mein add karti hai
- * aur close callback ke roop mein finish() deti hai.
- *
- * Koi duplicate code nahi — ek hi Fragment Activity
- * aur BottomSheet dono mein use hota hai.
- */
 public class SoundDetailActivity extends AppCompatActivity {
+    public static final String EXTRA_SOUND_ID = "extra_sound_id";
+    public static final String EXTRA_SOUND_TITLE = "extra_sound_title";
+    public static final String EXTRA_ARTIST = "extra_artist";
+    public static final String EXTRA_SOUND_URL = "extra_sound_url";
+    public static final String EXTRA_COVER_URL = "extra_cover_url";
+    public static final String EXTRA_DURATION_MS = "extra_duration_ms";
+    public static final String EXTRA_GENRE = "extra_genre";
 
-    // ── Intent Extras (existing callers ke liye same rakhein) ─────────────────
-    public static final String EXTRA_SOUND_ID           = "sound_id";
-    public static final String EXTRA_SOUND_TITLE        = "sound_title";
-    public static final String EXTRA_SOUND_URL          = "sound_url";
-    public static final String EXTRA_ARTIST             = "sound_artist";
-    public static final String EXTRA_DURATION_MS        = "sound_duration_ms";
-    public static final String EXTRA_COVER_URL          = "sound_cover_url";
-    public static final String EXTRA_BPM                = "sound_bpm";
-    public static final String EXTRA_GENRE              = "sound_genre";
-    public static final String EXTRA_ORIGINAL_AUDIO_URL = "original_audio_url";
-    public static final String EXTRA_CREATOR_UID        = "sound_creator_uid";
-    public static final String EXTRA_PREVIEW_AUDIO_URL  = "sound_preview_audio_url";
+    private String soundId, title, artist, audioUrl, coverUrl;
+    private long durationMs;
+    private SoundWaveformView waveformView;
+    private MediaPlayer mediaPlayer;
+    private boolean isPlaying = false;
 
-    // Inner classes — existing code jo in classes ko import karta hai vo compile hota rahe
-    public static class ReelThumbItem {
-        public String  reelId, thumbnailUrl, videoUrl, uid;
-        public long    viewsCount;
-        public boolean isOriginalCreator;
-        public ReelThumbItem(String r, String t, String v) {
-            reelId = r; thumbnailUrl = t; videoUrl = v;
-        }
-    }
-
-    public static class ReelThumbAdapter
-            extends androidx.recyclerview.widget.RecyclerView.Adapter<ReelThumbAdapter.VH> {
-        public interface OnClick { void click(int position); }
-        private final java.util.List<ReelThumbItem> items;
-        private final OnClick onClick;
-        public ReelThumbAdapter(java.util.List<ReelThumbItem> items, OnClick onClick) {
-            this.items = items; this.onClick = onClick;
-        }
-        @androidx.annotation.NonNull @Override
-        public VH onCreateViewHolder(@androidx.annotation.NonNull android.view.ViewGroup p, int vt) {
-            android.view.View v = android.view.LayoutInflater.from(p.getContext())
-                .inflate(R.layout.item_sound_reel_thumb, p, false);
-            int col = p.getResources().getDisplayMetrics().widthPixels / 3;
-            android.view.ViewGroup.LayoutParams lp = v.getLayoutParams();
-            lp.height = col * 16 / 9; v.setLayoutParams(lp);
-            return new VH(v);
-        }
-        @Override public void onBindViewHolder(@androidx.annotation.NonNull VH h, int pos) {
-            ReelThumbItem item = items.get(pos);
-            if (item.thumbnailUrl != null && !item.thumbnailUrl.isEmpty())
-                com.bumptech.glide.Glide.with(h.ivThumb).load(item.thumbnailUrl)
-                    .placeholder(R.drawable.ic_music_note).override(720, 720)
-                    .centerCrop().into(h.ivThumb);
-            else h.ivThumb.setImageResource(R.drawable.ic_play);
-            h.tvOriginalStrip.setVisibility(item.isOriginalCreator ? android.view.View.VISIBLE : android.view.View.GONE);
-            h.itemView.setOnClickListener(vv -> {
-                int ap = h.getBindingAdapterPosition();
-                if (ap != androidx.recyclerview.widget.RecyclerView.NO_POSITION) onClick.click(ap);
-            });
-        }
-        @Override public int getItemCount() { return items.size(); }
-        public static class VH extends androidx.recyclerview.widget.RecyclerView.ViewHolder {
-            android.widget.ImageView ivThumb;
-            android.widget.TextView  tvOriginalStrip;
-            public VH(android.view.View v) {
-                super(v);
-                ivThumb         = v.findViewById(R.id.iv_media_thumb);
-                tvOriginalStrip = v.findViewById(R.id.tv_original_strip);
-            }
-        }
-    }
-
-    public static class RelatedItem {
-        public String id, title, artist, coverUrl, audioUrl;
-        public RelatedItem(String i, String t, String a, String c, String u) {
-            id = i; title = t; artist = a; coverUrl = c; audioUrl = u;
-        }
-    }
-
-    public static class RelatedAdapter
-            extends androidx.recyclerview.widget.RecyclerView.Adapter<RelatedAdapter.VH> {
-        public interface OnClick { void click(RelatedItem item); }
-        private final java.util.List<RelatedItem> items;
-        private final OnClick onClick;
-        public RelatedAdapter(java.util.List<RelatedItem> i, OnClick c) { items = i; onClick = c; }
-        @androidx.annotation.NonNull @Override
-        public VH onCreateViewHolder(@androidx.annotation.NonNull android.view.ViewGroup p, int vt) {
-            return new VH(android.view.LayoutInflater.from(p.getContext())
-                .inflate(R.layout.item_related_sound, p, false));
-        }
-        @Override public void onBindViewHolder(@androidx.annotation.NonNull VH h, int pos) {
-            RelatedItem item = items.get(pos);
-            h.tvTitle.setText(item.title);
-            h.tvArtist.setText(item.artist == null || item.artist.isEmpty() ? "Unknown" : item.artist);
-            if (item.coverUrl != null && !item.coverUrl.isEmpty())
-                com.bumptech.glide.Glide.with(h.ivCover).load(item.coverUrl)
-                    .transform(new com.bumptech.glide.load.resource.bitmap.CircleCrop())
-                    .placeholder(R.drawable.ic_music_note).override(720, 720).into(h.ivCover);
-            else h.ivCover.setImageResource(R.drawable.ic_music_note);
-            h.itemView.setOnClickListener(v -> onClick.click(item));
-        }
-        @Override public int getItemCount() { return items.size(); }
-        public static class VH extends androidx.recyclerview.widget.RecyclerView.ViewHolder {
-            android.widget.ImageView ivCover;
-            android.widget.TextView  tvTitle, tvArtist;
-            public VH(android.view.View v) {
-                super(v);
-                ivCover  = v.findViewById(R.id.iv_related_cover);
-                tvTitle  = v.findViewById(R.id.tv_related_title);
-                tvArtist = v.findViewById(R.id.tv_related_artist);
-            }
-        }
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Lifecycle — sirf Fragment add karo
-    // ─────────────────────────────────────────────────────────────────────────
+    private RecyclerView rvReels;
+    private SoundReelsAdapter adapter;
+    private final List<ReelThumbItem> reelItems = new ArrayList<>();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM);
         setContentView(R.layout.activity_sound_detail);
 
-        if (savedInstanceState == null) {
-            String soundId         = getIntent().getStringExtra(EXTRA_SOUND_ID);
-            String soundTitle      = getIntent().getStringExtra(EXTRA_SOUND_TITLE);
-            String soundUrl        = getIntent().getStringExtra(EXTRA_SOUND_URL);
-            String artist          = getIntent().getStringExtra(EXTRA_ARTIST);
-            int    durationMs      = getIntent().getIntExtra(EXTRA_DURATION_MS, 0);
-            String coverUrl        = getIntent().getStringExtra(EXTRA_COVER_URL);
-            int    bpm             = getIntent().getIntExtra(EXTRA_BPM, 0);
-            String genre           = getIntent().getStringExtra(EXTRA_GENRE);
-            String creatorUid      = getIntent().getStringExtra(EXTRA_CREATOR_UID);
-            String previewAudioUrl = getIntent().getStringExtra(EXTRA_PREVIEW_AUDIO_URL);
+        soundId = getIntent().getStringExtra(EXTRA_SOUND_ID);
+        title = getIntent().getStringExtra(EXTRA_SOUND_TITLE);
+        artist = getIntent().getStringExtra(EXTRA_ARTIST);
+        audioUrl = getIntent().getStringExtra(EXTRA_SOUND_URL);
+        coverUrl = getIntent().getStringExtra(EXTRA_COVER_URL);
+        durationMs = getIntent().getLongExtra(EXTRA_DURATION_MS, 0);
 
-            // Original audio URL override (legacy callers)
-            String origUrl = getIntent().getStringExtra(EXTRA_ORIGINAL_AUDIO_URL);
-            if (origUrl != null && !origUrl.isEmpty()) soundUrl = origUrl;
+        initViews();
+        loadCreatorInfo();
+        loadReels();
+    }
 
-            SoundDetailFragment fragment = SoundDetailFragment.newInstance(
-                soundId, soundTitle, artist, coverUrl,
-                soundUrl, durationMs, genre, bpm, creatorUid, previewAudioUrl,
-                false /* isSheet = false → Activity mode */
-            );
-            // Close = Activity finish
-            fragment.setOnCloseListener(this::finish);
+    private void initViews() {
+        waveformView = findViewById(R.id.waveform_view);
+        ((TextView) findViewById(R.id.tv_detail_title)).setText(title);
+        ((TextView) findViewById(R.id.tv_detail_artist)).setText(artist);
+        
+        long sec = durationMs / 1000;
+        ((TextView) findViewById(R.id.tv_detail_stats)).setText(String.format(Locale.US, "%d:%02d", sec / 60, sec % 60));
 
-            getSupportFragmentManager()
-                .beginTransaction()
-                .replace(R.id.fragment_container_sound, fragment)
-                .commit();
+        findViewById(R.id.btn_detail_play).setOnClickListener(v -> toggleAudio());
+        findViewById(R.id.btn_save_sound).setOnClickListener(v -> saveSound());
+        
+        ExtendedFloatingActionButton fab = findViewById(R.id.fab_use_sound);
+        fab.setOnClickListener(v -> useSound());
+
+        rvReels = findViewById(R.id.rv_sound_reels_grid);
+        rvReels.setLayoutManager(new GridLayoutManager(this, 2));
+        adapter = new SoundReelsAdapter(reelItems, pos -> {
+            Intent i = new Intent(this, SingleReelPlayerActivity.class);
+            ArrayList<String> ids = new ArrayList<>();
+            for (ReelThumbItem item : reelItems) ids.add(item.reelId);
+            i.putStringArrayListExtra(SingleReelPlayerActivity.EXTRA_REEL_IDS, ids);
+            i.putExtra(SingleReelPlayerActivity.EXTRA_START_POSITION, pos);
+            startActivity(i);
+        });
+        rvReels.setAdapter(adapter);
+    }
+
+    private void toggleAudio() {
+        if (audioUrl == null || audioUrl.isEmpty()) return;
+        if (isPlaying) {
+            if (mediaPlayer != null) mediaPlayer.pause();
+            isPlaying = false;
+        } else {
+            if (mediaPlayer == null) {
+                mediaPlayer = new MediaPlayer();
+                try {
+                    mediaPlayer.setDataSource(audioUrl);
+                    mediaPlayer.prepareAsync();
+                    mediaPlayer.setOnPreparedListener(MediaPlayer::start);
+                } catch (Exception e) { return; }
+            } else {
+                mediaPlayer.start();
+            }
+            isPlaying = true;
         }
+        waveformView.setPlaying(isPlaying);
+    }
+
+    private void useSound() {
+        Intent i = new Intent(this, ReelCameraActivity.class);
+        i.putExtra(EXTRA_SOUND_ID, soundId);
+        i.putExtra(EXTRA_SOUND_TITLE, title);
+        i.putExtra(EXTRA_ARTIST, artist);
+        i.putExtra(EXTRA_SOUND_URL, audioUrl);
+        startActivity(i);
+    }
+
+    private void saveSound() {
+        String uid = FirebaseUtils.getCurrentUid();
+        if (uid == null) return;
+        FirebaseUtils.db().getReference("savedSounds").child(uid).child(soundId).setValue(true)
+            .addOnSuccessListener(a -> Toast.makeText(this, "Sound Saved", Toast.LENGTH_SHORT).show());
+    }
+
+    private void loadCreatorInfo() {
+        FirebaseUtils.db().getReference("sounds").child(soundId)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot s) {
+                    String cUid = s.child("originalCreatorUid").getValue(String.class);
+                    if (cUid != null) {
+                        findViewById(R.id.layout_creator_card).setVisibility(View.VISIBLE);
+                        ((TextView) findViewById(R.id.tv_creator_name)).setText(s.child("originalCreatorName").getValue(String.class));
+                        Glide.with(SoundDetailActivity.this)
+                            .load(s.child("originalCreatorAvatar").getValue(String.class))
+                            .circleCrop().into((ImageView) findViewById(R.id.iv_creator_avatar));
+                        findViewById(R.id.btn_view_profile).setOnClickListener(v -> {
+                            // Intent to UserProfileActivity
+                        });
+                    }
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) {}
+            });
+    }
+
+    private void loadReels() {
+        FirebaseUtils.db().getReference("reelsBySound").child(soundId)
+            .limitToFirst(50)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    reelItems.clear();
+                    for (DataSnapshot s : snap.getChildren()) {
+                        ReelThumbItem item = s.getValue(ReelThumbItem.class);
+                        if (item != null) {
+                            item.reelId = s.getKey();
+                            reelItems.add(item);
+                        }
+                    }
+                    adapter.notifyDataSetChanged();
+                    ((TextView) findViewById(R.id.tv_reel_count_stats)).setText(reelItems.size() + " Reels");
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) {}
+            });
+    }
+
+    @Override protected void onDestroy() {
+        if (mediaPlayer != null) { mediaPlayer.release(); mediaPlayer = null; }
+        super.onDestroy();
+    }
+
+    public static class ReelThumbItem {
+        public String reelId, thumbnailUrl, videoUrl;
+        public long viewsCount;
+        public ReelThumbItem() {}
+        public ReelThumbItem(String id, String t, String v) { reelId=id; thumbnailUrl=t; videoUrl=v; }
     }
 }

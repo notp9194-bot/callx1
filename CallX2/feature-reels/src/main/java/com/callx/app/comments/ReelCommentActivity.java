@@ -94,6 +94,7 @@ public class ReelCommentActivity extends AppCompatActivity {
     private boolean sortByTop    = false;
     private boolean searchActive = false;
     private String  searchQuery  = "";
+    private String  highlightCommentId = "";
 
     private ReelComment replyingToComment = null;
 
@@ -150,6 +151,8 @@ public class ReelCommentActivity extends AppCompatActivity {
         try { reelUid = getIntent().getStringExtra(EXTRA_REEL_UID); } catch (Exception ignored) {}
         if (reelId  == null) reelId  = "";
         if (reelUid == null) reelUid = "";
+        highlightCommentId = getIntent().getStringExtra("EXTRA_HIGHLIGHT_COMMENT_ID");
+        if (highlightCommentId == null) highlightCommentId = "";
     }
 
     private void readCurrentUser() {
@@ -352,6 +355,23 @@ public class ReelCommentActivity extends AppCompatActivity {
     }
 
     /** Apply current search filter + sort to allComments and push to adapter. */
+    // Highlight logic
+
+    private void checkAndHighlightComment() {
+        if (highlightCommentId.isEmpty() || allComments.isEmpty()) return;
+        for (int i = 0; i < allComments.size(); i++) {
+            if (highlightCommentId.equals(allComments.get(i).commentId)) {
+                final int pos = i;
+                rvComments.post(() -> {
+                    rvComments.scrollToPosition(pos);
+                    // Brief flash highlight would require adapter support or view lookup.
+                    // Simplified highlight: scroll to it.
+                    highlightCommentId = ""; // Only once
+                });
+                break;
+            }
+        }
+    }
     private void applyFilterAndSort() {
         List<ReelComment> filtered = new ArrayList<>();
 
@@ -374,6 +394,7 @@ public class ReelCommentActivity extends AppCompatActivity {
 
         updateCountHeader();
         showEmpty(filtered.isEmpty());
+        checkAndHighlightComment();
     }
 
     /** Reels profile photo load karo (reels/users/{uid}) — chat profile nahi. */

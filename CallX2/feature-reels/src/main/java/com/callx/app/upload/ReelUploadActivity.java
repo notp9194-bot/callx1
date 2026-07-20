@@ -2035,6 +2035,10 @@ public class ReelUploadActivity extends AppCompatActivity {
                       );
                   }
 
+                reel.audienceType = a.audience;
+                if ("close_friends".equals(a.audience)) {
+                    FirebaseUtils.db().getReference("closeFriendReels").child(myUid).child(finalReelId).setValue(true);
+                }
                   FirebaseUtils.getReelsRef().child(finalReelId).setValue(reel)
                     .addOnSuccessListener(unused -> {
                         ReelUploadActivity b = ref.get();

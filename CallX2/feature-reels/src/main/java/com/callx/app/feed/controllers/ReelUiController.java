@@ -59,6 +59,9 @@ public class ReelUiController {
     private android.widget.ImageButton btnComment;
     private android.widget.ImageButton btnShare;
     private android.widget.ImageButton btnDownload;
+    private View reelPinnedCommentContainer;
+    private TextView tvPinnedAuthor, tvPinnedText, tvPinnedLikes;
+    private CircleImageView ivPinnedAvatar;
 
     // ── Disc animation ────────────────────────────────────────────────────
     private ObjectAnimator discAnimator;
@@ -89,6 +92,11 @@ public class ReelUiController {
         btnComment         = root.findViewById(R.id.btn_comment);
         btnShare           = root.findViewById(R.id.btn_share);
         btnDownload        = root.findViewById(R.id.btn_download);
+        reelPinnedCommentContainer = root.findViewById(R.id.reel_pinned_comment_container);
+        tvPinnedAuthor = root.findViewById(R.id.reel_pinned_comment_author);
+        tvPinnedText   = root.findViewById(R.id.reel_pinned_comment_text);
+        tvPinnedLikes  = root.findViewById(R.id.reel_pinned_comment_likes);
+        ivPinnedAvatar = root.findViewById(R.id.reel_pinned_comment_avatar);
 
         // Edge-to-edge insets
         View rightActions = root.findViewById(R.id.right_actions);
@@ -115,11 +123,33 @@ public class ReelUiController {
     // ── Static data population ────────────────────────────────────────────
 
     public void populateStaticData() {
+        if ("close_friends".equals(delegate.getReel().audienceType)) {
+            View avatarContainer = fragmentView.findViewById(R.id.avatar_container);
+            if (avatarContainer != null) avatarContainer.setBackgroundResource(R.drawable.bg_close_friends_ring);
+            TextView label = fragmentView.findViewById(R.id.tv_close_friends_label);
+            if (label != null) label.setVisibility(View.VISIBLE);
+        }
         ReelModel reel = delegate.getReel();
         if (reel == null) return;
 
         // Owner name + caption
         if (tvOwnerName != null) tvOwnerName.setText(reel.ownerName != null ? "@" + reel.ownerName : "@user");
+
+        // ── Collab Joint-Author display ──────────────────────────────────────
+        View llCollabAuthors = fragmentView.findViewById(R.id.ll_collab_second_author);
+        if (llCollabAuthors != null) {
+            if (reel.isCollabPost && reel.collabUid != null && !reel.collabUid.isEmpty()) {
+                llCollabAuthors.setVisibility(View.VISIBLE);
+                TextView tvCollabName = fragmentView.findViewById(R.id.tv_collab_author_name);
+                if (tvCollabName != null) tvCollabName.setText("@" + (!reel.collabDisplayName.isEmpty() ? reel.collabDisplayName : reel.collabUid));
+                de.hdodenhof.circleimageview.CircleImageView ivCollabAvatar = fragmentView.findViewById(R.id.iv_collab_author_avatar);
+                if (ivCollabAvatar != null && reel.collabAvatarUrl != null && !reel.collabAvatarUrl.isEmpty() && delegate.isAdded()) {
+                    Glide.with(delegate.requireContext()).load(reel.collabAvatarUrl).circleCrop().placeholder(R.drawable.ic_person).into(ivCollabAvatar);
+                }
+            } else {
+                llCollabAuthors.setVisibility(View.GONE);
+            }
+        }
         String captionText = reel.caption != null ? reel.caption : "";
         if (reel.duetOf != null && !reel.duetOf.isEmpty()) captionText = "🔀 Duet · " + captionText;
         if (tvCaption != null) tvCaption.setText(captionText);
@@ -474,6 +504,59 @@ public class ReelUiController {
 
     // ── Release ───────────────────────────────────────────────────────────
 
+    // Logic for pinned comments added here
+
+    public void setupPinnedComment(ReelModel reel) {
+        if (reelPinnedCommentContainer == null) return;
+        if (reel.pinnedCommentId == null || reel.pinnedCommentId.isEmpty()) {
+            reelPinnedCommentContainer.setVisibility(View.GONE);
+            return;
+        }
+
+        if (!reel.pinnedCommentText.isEmpty()) {
+            populatePinnedCommentUi(reel);
+        } else {
+            // Fetch from Firebase
+            FirebaseDatabase.getInstance(com.callx.app.utils.Constants.DB_URL)
+                .getReference("reelComments").child(reel.reelId).child(reel.pinnedCommentId)
+                .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
+                    @Override
+                    public void onDataChange(@androidx.annotation.NonNull com.google.firebase.database.DataSnapshot snap) {
+                        if (!delegate.isAdded()) return;
+                        com.callx.app.models.ReelComment c = snap.getValue(com.callx.app.models.ReelComment.class);
+                        if (c != null) {
+                            reel.pinnedCommentText = c.text;
+                            reel.pinnedCommentAuthorName = c.ownerName;
+                            reel.pinnedCommentAuthorAvatar = c.ownerPhoto;
+                            reel.pinnedCommentLikes = c.likesCount;
+                            populatePinnedCommentUi(reel);
+                        }
+                    }
+                    @Override public void onCancelled(@androidx.annotation.NonNull com.google.firebase.database.DatabaseError e) {}
+                });
+        }
+
+        reelPinnedCommentContainer.setOnClickListener(v -> {
+            Intent intent = new Intent(delegate.requireContext(), com.callx.app.comments.ReelCommentActivity.class);
+            intent.putExtra(com.callx.app.comments.ReelCommentActivity.EXTRA_REEL_ID, reel.reelId);
+            intent.putExtra(com.callx.app.comments.ReelCommentActivity.EXTRA_REEL_UID, reel.uid);
+            intent.putExtra("EXTRA_HIGHLIGHT_COMMENT_ID", reel.pinnedCommentId);
+            delegate.getFragment().startActivity(intent);
+        });
+    }
+
+    private void populatePinnedCommentUi(ReelModel reel) {
+        reelPinnedCommentContainer.setVisibility(View.VISIBLE);
+        if (tvPinnedAuthor != null) tvPinnedAuthor.setText(reel.pinnedCommentAuthorName);
+        if (tvPinnedText != null) tvPinnedText.setText(reel.pinnedCommentText);
+        if (tvPinnedLikes != null) tvPinnedLikes.setText(String.valueOf(reel.pinnedCommentLikes));
+        if (ivPinnedAvatar != null && delegate.isAdded()) {
+            Glide.with(delegate.requireContext())
+                .load(reel.pinnedCommentAuthorAvatar)
+                .apply(new RequestOptions().circleCrop().placeholder(R.drawable.ic_person))
+                .into(ivPinnedAvatar);
+        }
+    }
     public void release() {
         uiHandler.removeCallbacksAndMessages(null);
         if (discAnimator != null) { discAnimator.cancel(); discAnimator = null; }

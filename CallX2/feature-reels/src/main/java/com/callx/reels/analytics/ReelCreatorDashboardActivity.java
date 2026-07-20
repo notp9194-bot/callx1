@@ -1,4 +1,4 @@
-package com.callx.app.analytics;
+package com.callx.reels.analytics;
 
 import android.os.Bundle;
 import android.view.View;
@@ -14,7 +14,7 @@ import java.util.*;
 
 public class ReelCreatorDashboardActivity extends AppCompatActivity {
     private TextView tvTotalViews, tvTotalReach, tvNewFollowers, tvTotalRevenue, tvBestTimeRec;
-    private ReelTimeSeriesChartView reachChart;
+    private ReelTimeSeriesChartView reachChart, followerGrowthChart;
     private BestTimeToPostView bestTimeGrid;
     private RecyclerView rvTopReels;
     private LinearLayout layoutTopGifters;
@@ -24,7 +24,7 @@ public class ReelCreatorDashboardActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_reel_creator_dashboard);
-        myUid = FirebaseUtils.getCurrentUid();
+        try { myUid = FirebaseUtils.getCurrentUid(); } catch (Exception e) { finish(); return; }
         bindViews();
         loadData();
     }
@@ -36,6 +36,7 @@ public class ReelCreatorDashboardActivity extends AppCompatActivity {
         tvTotalRevenue = findViewById(R.id.tv_total_revenue);
         tvBestTimeRec = findViewById(R.id.tv_best_time_rec);
         reachChart = findViewById(R.id.reach_chart);
+        followerGrowthChart = findViewById(R.id.follower_growth_chart);
         bestTimeGrid = findViewById(R.id.best_time_grid);
         rvTopReels = findViewById(R.id.rv_top_reels);
         layoutTopGifters = findViewById(R.id.layout_top_gifters);
@@ -44,13 +45,12 @@ public class ReelCreatorDashboardActivity extends AppCompatActivity {
     private void loadData() {
         DatabaseReference root = FirebaseUtils.db().getReference();
         
-        // Overview & Reach
         root.child("creatorInsights").child(myUid).addValueEventListener(new ValueEventListener() {
             @Override
             public void onDataChange(@NonNull DataSnapshot snap) {
                 if (!snap.exists()) return;
-                tvTotalViews.setText(snap.child("views_7d").getValue(Long.class) + "");
-                tvTotalReach.setText(snap.child("reach_7d").getValue(Long.class) + "");
+                tvTotalViews.setText(String.valueOf(snap.child("views_7d").getValue(Long.class)));
+                tvTotalReach.setText(String.valueOf(snap.child("reach_7d").getValue(Long.class)));
                 tvNewFollowers.setText("+" + snap.child("followers_7d").getValue(Long.class));
                 
                 List<Float> reachData = new ArrayList<>();
@@ -59,12 +59,18 @@ public class ReelCreatorDashboardActivity extends AppCompatActivity {
                 }
                 if (!reachData.isEmpty()) reachChart.setData(reachData, null);
 
+                List<Float> followerData = new ArrayList<>();
+                for (DataSnapshot d : snap.child("follower_series").getChildren()) {
+                    followerData.add(d.getValue(Float.class));
+                }
+                if (!followerData.isEmpty()) followerGrowthChart.setData(followerData, null);
+
                 float[][] grid = new float[7][24];
                 DataSnapshot heat = snap.child("engagement_heatmap");
                 for (int d = 0; d < 7; d++) {
                     for (int h = 0; h < 24; h++) {
-                        grid[d][h] = heat.child(d + "_" + h).getValue(Float.class) != null ? 
-                                    heat.child(d + "_" + h).getValue(Float.class) : 0f;
+                        Float val = heat.child(d + "_" + h).getValue(Float.class);
+                        grid[d][h] = val != null ? val : 0f;
                     }
                 }
                 bestTimeGrid.setData(grid);
@@ -73,7 +79,6 @@ public class ReelCreatorDashboardActivity extends AppCompatActivity {
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         });
 
-        // Top Performing Reels
         root.child("reelMetrics").child(myUid).orderByChild("engagementRate").limitToLast(10)
             .addValueEventListener(new ValueEventListener() {
                 @Override
@@ -94,7 +99,6 @@ public class ReelCreatorDashboardActivity extends AppCompatActivity {
                 @Override public void onCancelled(@NonNull DatabaseError e) {}
             });
 
-        // Revenue
         root.child("userGifts").child(myUid).child("received").addValueEventListener(new ValueEventListener() {
             @Override
             public void onDataChange(@NonNull DataSnapshot snap) {
@@ -107,6 +111,7 @@ public class ReelCreatorDashboardActivity extends AppCompatActivity {
                     TextView tv = new TextView(ReelCreatorDashboardActivity.this);
                     tv.setText(s.child("senderName").getValue(String.class) + ": $" + amount);
                     tv.setTextColor(0xFFDDDDDD);
+                    tv.setPadding(0, 8, 0, 8);
                     layoutTopGifters.addView(tv);
                 }
                 tvTotalRevenue.setText(String.format(Locale.US, "$%.2f", total));

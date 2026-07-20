@@ -579,6 +579,37 @@
                 android:background="@drawable/bg_reel_follow_btn"
                 android:visibility="visible"/>
         </LinearLayout>
+          <!-- Collab Joint-Author row (shown only when isCollabPost=true) -->
+          <LinearLayout
+              android:id="@+id/ll_collab_second_author"
+              android:layout_width="wrap_content"
+              android:layout_height="wrap_content"
+              android:orientation="horizontal"
+              android:gravity="center_vertical"
+              android:layout_marginTop="3dp"
+              android:visibility="gone">
+              <TextView
+                  android:layout_width="wrap_content"
+                  android:layout_height="wrap_content"
+                  android:text="·"
+                  android:textColor="#AAFFFFFF"
+                  android:textSize="14sp"
+                  android:layout_marginEnd="6dp"/>
+              <de.hdodenhof.circleimageview.CircleImageView
+                  android:id="@+id/iv_collab_author_avatar"
+                  android:layout_width="22dp"
+                  android:layout_height="22dp"
+                  android:src="@drawable/ic_person"
+                  android:layout_marginEnd="5dp"/>
+              <TextView
+                  android:id="@+id/tv_collab_author_name"
+                  android:layout_width="wrap_content"
+                  android:layout_height="wrap_content"
+                  android:textColor="#FFFFFF"
+                  android:textSize="13sp"
+                  android:fontFamily="sans-serif-medium"/>
+          </LinearLayout>
+    
 
         <!-- Caption -->
         <TextView
@@ -609,6 +640,81 @@
 
         <!-- Animated Music Ticker -->
         <LinearLayout
+        <!-- 📌 Pinned Comment Overlay -->
+        <LinearLayout
+            android:id="@+id/reel_pinned_comment_container"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="8dp"
+            android:layout_marginHorizontal="8dp"
+            android:background="@drawable/bg_pinned_comment_overlay"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:padding="8dp"
+            android:visibility="gone">
+
+            <ImageView
+                android:layout_width="18dp"
+                android:layout_height="18dp"
+                android:src="@drawable/ic_pin"
+                android:tint="#FFFFFF" />
+
+            <de.hdodenhof.circleimageview.CircleImageView
+                android:id="@+id/reel_pinned_comment_avatar"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
+                android:layout_marginStart="8dp"
+                android:src="@drawable/ic_person" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/reel_pinned_comment_author"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Author"
+                    android:textColor="#FFFFFF"
+                    android:textSize="12sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/reel_pinned_comment_text"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:maxLines="2"
+                    android:text="Pinned comment content..."
+                    android:textColor="#FFFFFF"
+                    android:textSize="14sp" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:gravity="center"
+                android:orientation="vertical">
+
+                <ImageView
+                    android:layout_width="16dp"
+                    android:layout_height="16dp"
+                    android:src="@drawable/ic_heart_filled"
+                    android:tint="#FF416C" />
+
+                <TextView
+                    android:id="@+id/reel_pinned_comment_likes"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="0"
+                    android:textColor="#FFFFFF"
+                    android:textSize="10sp" />
+            </LinearLayout>
+        </LinearLayout>
             android:id="@+id/layout_music_ticker"
             android:layout_width="wrap_content"
             android:layout_height="32dp"

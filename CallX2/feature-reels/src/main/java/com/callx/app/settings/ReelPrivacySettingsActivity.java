@@ -74,6 +74,7 @@ public class ReelPrivacySettingsActivity extends AppCompatActivity {
                     applyBool(s,"allowReposts",true,switchAllowRepost);
                     applyBool(s,"hideLikes",false,switchHideLikes); applyBool(s,"hideViews",false,switchHideViews);
                     if("followers".equals(va)) rgViewAudience.check(R.id.rb_view_followers);
+                    else if("close_friends".equals(va)) rgViewAudience.check(R.id.rb_view_close_friends);
                     else if("only_me".equals(va)) rgViewAudience.check(R.id.rb_view_only_me);
                     else rgViewAudience.check(R.id.rb_view_everyone);
                     if("followers".equals(ca)) rgCommentAudience.check(R.id.rb_com_followers);
@@ -90,7 +91,7 @@ public class ReelPrivacySettingsActivity extends AppCompatActivity {
     private void saveSettings() {
         btnSave.setEnabled(false); progressSave.setVisibility(View.VISIBLE);
         int vid=rgViewAudience.getCheckedRadioButtonId(), cid=rgCommentAudience.getCheckedRadioButtonId();
-        String va = vid==R.id.rb_view_followers?"followers":vid==R.id.rb_view_only_me?"only_me":"everyone";
+        String va = vid==R.id.rb_view_followers?"followers":vid==R.id.rb_view_only_me?"only_me":vid==R.id.rb_view_close_friends?"close_friends":"everyone";
         String ca = cid==R.id.rb_com_followers?"followers":cid==R.id.rb_com_no_one?"no_one":"everyone";
         Map<String,Object> p = new HashMap<>();
         p.put("viewAudience",va); p.put("commentAudience",ca);

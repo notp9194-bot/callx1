@@ -64,7 +64,7 @@ public class SoundDetailBottomSheet extends BottomSheetDialogFragment implements
     private TextView      tvSoundTitle, tvSoundArtist, tvDuration, tvReelCount;
     private TextView      tvTrendingBadge;
     private ImageButton   btnSaveSound, btnShareSound, btnMore;
-    private Button        btnAddToProfile, btnUseAudio;
+    private Button        btnAddToProfile, btnUseAudio, btnSeeFullPage;
     private RecyclerView  rvSoundReels;
 
     // ── Data ─────────────────────────────────────────────────────────────────
@@ -155,6 +155,7 @@ public class SoundDetailBottomSheet extends BottomSheetDialogFragment implements
         btnMore         = v.findViewById(R.id.btn_sound_more);
         btnAddToProfile = v.findViewById(R.id.btn_add_to_profile);
         btnUseAudio     = v.findViewById(R.id.btn_use_audio);
+        btnSeeFullPage  = v.findViewById(R.id.btn_see_full_page);
         rvSoundReels    = v.findViewById(R.id.rv_sound_reels);
     }
 
@@ -330,18 +331,26 @@ public class SoundDetailBottomSheet extends BottomSheetDialogFragment implements
         });
 
         // Use audio — open reel camera with this sound
+        if (btnSeeFullPage != null) btnSeeFullPage.setOnClickListener(v -> {
+            Intent i = new Intent(requireContext(), SoundDetailActivity.class);
+            i.putExtra(SoundDetailActivity.EXTRA_SOUND_ID,    soundId);
+            i.putExtra(SoundDetailActivity.EXTRA_SOUND_TITLE, soundTitle);
+            i.putExtra(SoundDetailActivity.EXTRA_ARTIST,      artist);
+            i.putExtra(SoundDetailActivity.EXTRA_SOUND_URL,   soundUrl);
+            i.putExtra(SoundDetailActivity.EXTRA_COVER_URL,   coverUrl);
+            i.putExtra(SoundDetailActivity.EXTRA_DURATION_MS, (long)durationMs);
+            startActivity(i);
+            dismiss();
+        });
+
         btnUseAudio.setOnClickListener(v -> {
-            try {
-                Intent i = new Intent(requireContext(), com.callx.app.camera.ReelCameraActivity.class);
-                i.putExtra(SoundDetailActivity.EXTRA_SOUND_ID,    soundId);
-                i.putExtra(SoundDetailActivity.EXTRA_SOUND_TITLE, soundTitle);
-                i.putExtra(SoundDetailActivity.EXTRA_SOUND_URL,   soundUrl);
-                i.putExtra(SoundDetailActivity.EXTRA_ARTIST,      artist);
-                i.putExtra(SoundDetailActivity.EXTRA_COVER_URL,   coverUrl);
-                startActivity(i);
-            } catch (Exception ex) {
-                Toast.makeText(requireContext(), "Camera not available", Toast.LENGTH_SHORT).show();
-            }
+            Intent i = new Intent(requireContext(), com.callx.app.camera.ReelCameraActivity.class);
+            i.putExtra(SoundDetailActivity.EXTRA_SOUND_ID,    soundId);
+            i.putExtra(SoundDetailActivity.EXTRA_SOUND_TITLE, soundTitle);
+            i.putExtra(SoundDetailActivity.EXTRA_SOUND_URL,   soundUrl);
+            i.putExtra(SoundDetailActivity.EXTRA_ARTIST,      artist);
+            i.putExtra(SoundDetailActivity.EXTRA_COVER_URL,   coverUrl);
+            startActivity(i);
             dismiss();
         });
 

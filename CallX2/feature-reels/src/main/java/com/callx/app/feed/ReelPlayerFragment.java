@@ -212,6 +212,7 @@ public class ReelPlayerFragment extends Fragment
 
         // Populate static UI
         uiController.populateStaticData();
+        uiController.setupPinnedComment(reel);
         socialController.populateCounts();
 
         // Wire click listeners

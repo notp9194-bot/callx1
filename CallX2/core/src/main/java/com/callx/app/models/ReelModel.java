@@ -59,6 +59,11 @@ public class ReelModel {
     public int     commentsCount;
     public int     sharesCount;
     public int     viewsCount;
+    public String  pinnedCommentId = "";
+    public String  pinnedCommentText = "";
+    public String  pinnedCommentAuthorName = "";
+    public String  pinnedCommentAuthorAvatar = "";
+    public long    pinnedCommentLikes = 0;
     public int     repostCount;
     public String  compressionSummary;
     public float   savingsPercent;
@@ -365,6 +370,21 @@ public class ReelModel {
      * Both co-authors' profiles show this reel. Default: false.
      */
     public boolean isCollabRepost = false;
+
+    /** True when this reel is a NEW joint-authorship collab post (not a repost). */
+    public boolean isCollabPost    = false;
+    /** True while the collaborator has not yet accepted the invite. */
+    public boolean isCollabPending = false;
+    /** UID of the joint-author collaborator. */
+    public String  collabUid          = "";
+    /** Display name of the collaborator shown in feed. */
+    public String  collabDisplayName  = "";
+    /** @handle of the collaborator. */
+    public String  collabHandle       = "";
+    /** Avatar URL of the collaborator for feed rendering. */
+    public String  collabAvatarUrl    = "";
+    /** Firebase key of the CollabPostInvite record. */
+    public String  collabInviteId     = "";
 
     /**
      * Firebase key of the CollabRepostModel record that produced this reel.

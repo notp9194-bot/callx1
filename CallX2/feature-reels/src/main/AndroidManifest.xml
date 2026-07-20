@@ -458,6 +458,16 @@
                   <category android:name="android.intent.category.DEFAULT"/>
               </intent-filter>
           </activity>
+          <activity android:name="com.callx.app.social.CollabPostInviteActivity"
+              android:exported="false"
+              android:theme="@style/Theme.AppCompat.NoActionBar"
+              android:windowSoftInputMode="adjustResize"/>
+          <activity android:name="com.callx.app.social.CollabPostAcceptActivity"
+              android:exported="true"
+              android:theme="@style/Theme.AppCompat.NoActionBar"/>
+          <activity android:name="com.callx.app.social.CollabInboxActivity"
+              android:exported="false"
+              android:theme="@style/Theme.AppCompat.NoActionBar"/>
           <activity android:name="com.callx.app.social.CollabRepostInboxActivity"
               android:exported="false"
               android:theme="@style/Theme.AppCompat.NoActionBar"/>
