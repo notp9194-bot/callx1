@@ -138,6 +138,7 @@ final class MediaGroupRenderer {
                 float cx = rect.centerX(), cy = rect.centerY();
                 float circleR = (MessageBubbleCanvasView.GROUP_PLAY_CIRCLE_DP * host.density) / 2f;
                 canvas.drawCircle(cx, cy, circleR, host.groupPlayCirclePaint);
+                canvas.drawCircle(cx, cy, circleR - host.groupPlayRingPaint.getStrokeWidth() / 2f, host.groupPlayRingPaint);
 
                 float triR = (MessageBubbleCanvasView.GROUP_PLAY_TRIANGLE_DP * host.density) / 2f;
                 host.groupPlayTrianglePath.reset();
@@ -149,7 +150,7 @@ final class MediaGroupRenderer {
 
                 boolean hasItemCaption = item.caption != null && !item.caption.isEmpty();
                 if (item.duration != null && !item.duration.isEmpty()) {
-                    float durPadH = 3 * host.density, durPadV = 1 * host.density;
+                    float durPadH = 5 * host.density, durPadV = 2 * host.density;
                     float textW = host.groupDurationTextPaint.measureText(item.duration);
                     float textH = host.groupDurationTextPaint.descent() - host.groupDurationTextPaint.ascent();
                     if (hasItemCaption) {
@@ -164,7 +165,9 @@ final class MediaGroupRenderer {
                         float bottom = rect.bottom - 4 * host.density;
                         durBgRect.set(left, bottom - textH - durPadV * 2, left + textW + durPadH * 2, bottom);
                     }
-                    canvas.drawRoundRect(durBgRect, 3 * host.density, 3 * host.density, host.groupDurationBgPaint);
+                    float durR = MessageBubbleCanvasView.GROUP_DURATION_CORNER_DP * host.density;
+                    canvas.drawRoundRect(durBgRect, durR, durR, host.groupDurationBgPaint);
+                    canvas.drawRoundRect(durBgRect, durR, durR, host.groupDurationBorderPaint);
                     float textBaseline = hasItemCaption
                             ? durBgRect.top + durPadV - host.groupDurationTextPaint.ascent()
                             : durBgRect.bottom - durPadV - host.groupDurationTextPaint.descent();

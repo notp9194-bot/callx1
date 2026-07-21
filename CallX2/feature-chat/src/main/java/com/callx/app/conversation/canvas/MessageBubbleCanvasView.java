@@ -5,7 +5,6 @@ import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
-import android.graphics.Path;
 import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.Typeface;
@@ -186,16 +185,6 @@ public class MessageBubbleCanvasView extends View {
     static final float TAIL_RADIUS_DP    = 4f;
     static final float H_PADDING_DP      = 12f;
     static final float V_PADDING_DP      = 8f;
-    // WhatsApp-style photo bubbles hug the image with a thin frame instead
-    // of the normal text-bubble padding — used only in the isMedia
-    // measure/draw paths, everything else keeps H_PADDING_DP/V_PADDING_DP.
-    static final float MEDIA_PAD_DP       = 3f;
-    // Bubble tail (nub) — small pointed triangle at the bubble's tail
-    // corner, only drawn for the first bubble in a consecutive group (see
-    // isFirstInGroup / drawBubbleShape()). TAIL_RADIUS_DP above is reused
-    // as the tight corner-curve radius right where the nub meets the body.
-    static final float TAIL_WIDTH_DP     = 6f;
-    static final float TAIL_HEIGHT_DP    = 10f;
     static final float TEXT_SIZE_SP      = 15f;
     static final float FOOTER_GAP_DP     = 4f;
     static final float FOOTER_TEXT_SP    = 11f;
@@ -223,7 +212,7 @@ public class MessageBubbleCanvasView extends View {
     static final int SENT_REPLY_TEXT   = 0xDDFFFFFF;
     static final int RECEIVED_REPLY_BG = 0x22000000;
 
-    // ── Image media bubble — mirrors iv_image (bg_media_card 12dp corner
+    // ── Image media bubble — mirrors iv_image (bg_media_card, corner
     // radius) in item_message_sent/received.xml. As of the WhatsApp/
     // Telegram-style sizing fix, the slot is no longer a fixed square: its
     // width/height are derived from the real image's aspect ratio (see
@@ -244,16 +233,26 @@ public class MessageBubbleCanvasView extends View {
     static final float MEDIA_MIN_WIDTH_DP      = 120f;  // floor for a very tall/narrow portrait photo
     static final float MEDIA_MAX_HEIGHT_DP     = 300f;  // cap for a very tall portrait photo
     static final float MEDIA_MIN_HEIGHT_DP     = 120f;  // floor for a very wide/short landscape photo
-    static final float MEDIA_CORNER_RADIUS_DP  = 12f;
+    // PREMIUM REDESIGN (v32): corner radius bumped from 12→18dp to match the
+    // bubble's own CORNER_RADIUS_DP (18dp) — image/video now reads as one
+    // continuous rounded shape family with the bubble instead of a boxier
+    // nested rect. Pill/badge treatment below also reworked to a softer
+    // "glass" look (bigger radius, subtle border, slightly deeper scrim)
+    // instead of the flat hard-edged translucent rectangle.
+    static final float MEDIA_CORNER_RADIUS_DP  = 18f;
     static final float MEDIA_MARGIN_DP         = 2f;   // gap between media edge and bubble edge
     static final float MEDIA_CAPTION_GAP_DP    = 6f;   // gap between image and caption text
-    static final float MEDIA_PILL_PADDING_H_DP = 6f;
-    static final float MEDIA_PILL_PADDING_V_DP = 3f;
+    static final float MEDIA_PILL_PADDING_H_DP = 7f;
+    static final float MEDIA_PILL_PADDING_V_DP = 4f;
     static final float MEDIA_PILL_MARGIN_DP    = 6f;   // pill inset from image's bottom-right corner
-    static final float MEDIA_PILL_CORNER_DP    = 8f;
-    static final int   MEDIA_PILL_BG           = 0x66000000; // translucent black, WhatsApp-style
+    static final float MEDIA_PILL_CORNER_DP    = 14f;  // fully-rounded "glass" pill, was a boxy 8dp
+    static final int   MEDIA_PILL_BG           = 0x73000000; // slightly deeper than the old 0x66 for crisper contrast on bright photos
+    static final int   MEDIA_PILL_BORDER_COLOR = 0x33FFFFFF; // hairline glass edge on the pill
+    static final float MEDIA_PILL_BORDER_DP    = 0.75f;
     static final int   MEDIA_PILL_TEXT         = 0xFFFFFFFF;
-    static final int   MEDIA_PLACEHOLDER_COLOR = 0xFFD9D9D9; // shown until Bitmap arrives — no theme lookup yet (see class doc)
+    static final int   MEDIA_PLACEHOLDER_COLOR = 0xFFE1E4E8; // cooler, softer skeleton tone than the old flat 0xD9D9D9 grey
+    static final int   MEDIA_BORDER_COLOR      = 0x24FFFFFF; // subtle glass edge stroked around every media rect (image/video/placeholder)
+    static final float MEDIA_BORDER_WIDTH_DP   = 1f;
 
     // ── Audio (voice message) bubble — mirrors layout_msg_audio.xml
     // exactly: a 40dp circular play/pause button (circle_primary bg,
@@ -345,9 +344,29 @@ public class MessageBubbleCanvasView extends View {
     static final int GROUP_MAX_VISIBLE = 9; // 3x3 cap; beyond this, last cell shows "+N"
     static final float GROUP_CAPTION_SCRIM_H_DP = 40f;
     static final float GROUP_CAPTION_TEXT_SP    = 14f;
-    static final int   GROUP_PLAY_CIRCLE_DP      = 36;
+    // PREMIUM REDESIGN (v32): the play glyph is now a "glass" disc (soft
+    // shadow + translucent white fill + hairline ring) instead of a flat
+    // 60%-black circle, and it's a touch larger so it reads as a deliberate
+    // control rather than a small icon lost in the middle of the thumbnail.
+    static final int   GROUP_PLAY_CIRCLE_DP      = 36;  // grid-cell size, unchanged — cells run as small as 78dp, a bigger disc would swallow them
     static final int   GROUP_PLAY_TRIANGLE_DP    = 20;
+    // PREMIUM REDESIGN (v32): the single "video" bubble (bindVideo) gets its
+    // own, bigger play-disc sizing — its slot is never smaller than
+    // MEDIA_MIN_WIDTH_DP/MEDIA_MIN_HEIGHT_DP (120dp), so a larger glass disc
+    // reads as a deliberate control there without the grid-cell crowding
+    // problem above.
+    static final int   SINGLE_VIDEO_PLAY_CIRCLE_DP   = 46;
+    static final int   SINGLE_VIDEO_PLAY_TRIANGLE_DP  = 22;
+    static final int   GROUP_PLAY_RING_COLOR     = 0xB3FFFFFF;
+    static final float GROUP_PLAY_RING_WIDTH_DP  = 1.5f;
+    static final int   GROUP_PLAY_FILL_COLOR     = 0x40FFFFFF; // frosted-glass disc instead of flat dark circle
+    static final int   GROUP_PLAY_SHADOW_COLOR   = 0x4D000000;
+    static final float GROUP_PLAY_SHADOW_DP      = 8f;
     static final int   GROUP_DURATION_TEXT_SP    = 10;
+    static final float GROUP_DURATION_CORNER_DP  = 8f;  // rounded pill, was a near-square 3dp radius
+    static final int   GROUP_DURATION_BG         = 0xA6000000;
+    static final int   GROUP_DURATION_BORDER     = 0x26FFFFFF;
+    static final float GROUP_DURATION_BORDER_DP  = 0.75f;
     // ── Per-item caption strip — mirrors MediaGroupLayoutHelper's per-cell
     // caption exactly: a 22dp gradient scrim pinned to the cell's bottom
     // edge, single-line ellipsized 10sp white text. When a video cell also
@@ -1048,14 +1067,6 @@ public class MessageBubbleCanvasView extends View {
     boolean footerInlineWithText;
     GradientDrawable bubbleDrawable;
     int lastCacheKey = -1;
-    // ── Custom bubble outline (round-rect body + pointed tail nub) ──────
-    // bubbleDrawable above is still built/cached by every bind* path (its
-    // cacheKey gate is reused as the "needs rebuild" signal), but actual
-    // painting now goes through this Paint + reusable Path instead of
-    // GradientDrawable.draw(), so the tail nub can be added — see
-    // drawBubbleShape() and buildBubbleDrawable()'s bubbleFillPaint.setColor().
-    final Paint bubbleFillPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private Path bubbleOutlinePath;
 
     // ── Perf gap #5: requestLayout() skip-if-unchanged ──────────────────
     // Every bind*/set* method used to call requestLayout() unconditionally,
@@ -1114,6 +1125,13 @@ public class MessageBubbleCanvasView extends View {
     final Paint mediaPlaceholderPaint = new Paint();
     final Paint mediaPillBgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     final TextPaint mediaPillTextPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    // PREMIUM REDESIGN (v32): hairline "glass" borders — one traced around
+    // the media rect itself (image/video/placeholder alike, so even a bare
+    // placeholder box reads as an intentional card edge instead of a flat
+    // grey rect), one traced around the captionless timestamp/tick pill so
+    // it holds together as a distinct chip against bright or busy photos.
+    final Paint mediaBorderPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    final Paint mediaPillBorderPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     final RectF mediaRect = new RectF();
     final RectF mediaPillRect = new RectF();
     final android.graphics.Matrix mediaShaderMatrix = new android.graphics.Matrix();
@@ -1224,13 +1242,6 @@ public class MessageBubbleCanvasView extends View {
     // init, we compute once and reuse.  Nulled out only on text-size change.
     private android.graphics.Paint.FontMetrics reactionsTextFM = null;
 
-    // ── Bubble tail state — only the first bubble in a run of consecutive
-    // same-sender messages gets the pointed tail nub (see drawBubbleShape());
-    // later bubbles in the same group draw a plain rounded rect. Defaults
-    // to true so a view that's never had this called (single/only message)
-    // still gets a tail. ──
-    boolean isFirstInGroup = true;
-
     // ── Pinned label state ────────────────────────────────────────────
     boolean isPinned = false;
     final TextPaint pinnedLabelPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
@@ -1311,9 +1322,11 @@ public class MessageBubbleCanvasView extends View {
     final Paint groupMoreOverlayPaint = new Paint();
     final TextPaint groupMoreTextPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
     final Paint groupPlayCirclePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    final Paint groupPlayRingPaint = new Paint(Paint.ANTI_ALIAS_FLAG); // hairline ring traced around the frosted play disc
     final Paint groupPlayTrianglePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     final TextPaint groupDurationTextPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
     final Paint groupDurationBgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    final Paint groupDurationBorderPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     final android.graphics.Matrix groupShaderMatrix = new android.graphics.Matrix();
     final android.graphics.Path groupPlayTrianglePath = new android.graphics.Path();
     final TextPaint groupCaptionTextPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
@@ -1696,6 +1709,14 @@ public class MessageBubbleCanvasView extends View {
         mediaPillBgPaint.setColor(MEDIA_PILL_BG);
         mediaPillTextPaint.setColor(MEDIA_PILL_TEXT);
         mediaPillTextPaint.setTextSize(spToPx(FOOTER_TEXT_SP));
+        mediaPillTextPaint.setFakeBoldText(true);
+        // PREMIUM REDESIGN (v32): hairline glass borders, see field javadocs above.
+        mediaBorderPaint.setStyle(Paint.Style.STROKE);
+        mediaBorderPaint.setStrokeWidth(MEDIA_BORDER_WIDTH_DP * density);
+        mediaBorderPaint.setColor(MEDIA_BORDER_COLOR);
+        mediaPillBorderPaint.setStyle(Paint.Style.STROKE);
+        mediaPillBorderPaint.setStrokeWidth(MEDIA_PILL_BORDER_DP * density);
+        mediaPillBorderPaint.setColor(MEDIA_PILL_BORDER_COLOR);
 
         // Quick-forward icon button — faint circular tap-target background
         // (mirrors selectableItemBackgroundBorderless's ripple footprint,
@@ -1739,12 +1760,24 @@ public class MessageBubbleCanvasView extends View {
         groupMoreTextPaint.setFakeBoldText(true);
         groupMoreTextPaint.setTextSize(22f * density);
         groupMoreTextPaint.setTextAlign(Paint.Align.CENTER);
-        groupPlayCirclePaint.setColor(0x99000000);
+        // PREMIUM REDESIGN (v32): frosted-glass play disc — translucent
+        // white fill + hairline ring — instead of the old flat 60%-black
+        // circle. (No shadowLayer here: Canvas only reliably renders
+        // shadowLayer for drawText on a hardware-accelerated View, not for
+        // drawCircle/drawPath, so a fill+ring combo is used instead of a
+        // shadow that would silently no-op on most devices.)
+        groupPlayCirclePaint.setColor(GROUP_PLAY_FILL_COLOR);
+        groupPlayRingPaint.setStyle(Paint.Style.STROKE);
+        groupPlayRingPaint.setStrokeWidth(GROUP_PLAY_RING_WIDTH_DP * density);
+        groupPlayRingPaint.setColor(GROUP_PLAY_RING_COLOR);
         groupPlayTrianglePaint.setColor(Color.WHITE);
         groupDurationTextPaint.setColor(Color.WHITE);
         groupDurationTextPaint.setFakeBoldText(true);
         groupDurationTextPaint.setTextSize(GROUP_DURATION_TEXT_SP * density);
-        groupDurationBgPaint.setColor(0x99000000);
+        groupDurationBgPaint.setColor(GROUP_DURATION_BG);
+        groupDurationBorderPaint.setStyle(Paint.Style.STROKE);
+        groupDurationBorderPaint.setStrokeWidth(GROUP_DURATION_BORDER_DP * density);
+        groupDurationBorderPaint.setColor(GROUP_DURATION_BORDER);
         groupCaptionTextPaint.setColor(Color.WHITE);
         groupCaptionTextPaint.setTextSize(GROUP_CAPTION_TEXT_SP * density);
         groupItemCaptionPaint.setColor(Color.WHITE);
@@ -3277,18 +3310,6 @@ public class MessageBubbleCanvasView extends View {
     }
 
     /**
-     * Whether this bubble is the first in a run of consecutive messages from
-     * the same sender — only that bubble gets the pointed tail nub (mirrors
-     * WhatsApp/Telegram grouping); later bubbles in the same run pass false
-     * and draw a plain rounded rect instead. Doesn't affect bubble size, so
-     * no requestLayoutIfSizeChanged() is needed — just a repaint.
-     */
-    public void setFirstInGroup(boolean firstInGroup) {
-        this.isFirstInGroup = firstInGroup;
-        invalidate();
-    }
-
-    /**
      * Show the sender-name row above the bubble's top-start corner, for a
      * received message in a group chat — mirrors tv_sender_name (11sp,
      * bold, brand_primary). Caller (MessagePagingAdapter) only calls this
@@ -3527,13 +3548,9 @@ public class MessageBubbleCanvasView extends View {
 
     private GradientDrawable buildBubbleDrawable(Context ctx, boolean sent) {
         GradientDrawable gd = new GradientDrawable();
-        int color = androidx.core.content.ContextCompat.getColor(ctx, sent
+        gd.setColor(androidx.core.content.ContextCompat.getColor(ctx, sent
                 ? com.callx.app.core.R.color.bubble_sent
-                : com.callx.app.core.R.color.bubble_received);
-        gd.setColor(color);
-        // Kept in sync with gd's fill so drawBubbleShape()'s Path-based
-        // paint matches whatever buildBubbleDrawable() would have drawn.
-        bubbleFillPaint.setColor(color);
+                : com.callx.app.core.R.color.bubble_received));
         float r = CORNER_RADIUS_DP * density;
         float tail = TAIL_RADIUS_DP * density;
         if (sent) {
@@ -3542,70 +3559,6 @@ public class MessageBubbleCanvasView extends View {
             gd.setCornerRadii(new float[]{tail, tail, r, r, r, r, r, r});
         }
         return gd;
-    }
-
-    /**
-     * Paints the bubble background as a custom Path instead of
-     * bubbleDrawable.draw() — a plain round-rect when this isn't the first
-     * bubble in a consecutive group, or a round-rect body with a small
-     * pointed tail nub at the bubble's tail corner when it is (WhatsApp/
-     * Telegram-style grouping: only the first message in a run gets the
-     * tail). Tail corner matches buildBubbleDrawable()'s existing
-     * convention — bottom-right for sent, top-left for received.
-     */
-    private void drawBubbleShape(Canvas canvas) {
-        if (bubbleOutlinePath == null) bubbleOutlinePath = new Path();
-        Path path = bubbleOutlinePath;
-        path.reset();
-
-        float left = bubbleRect.left;
-        float top = bubbleRect.top;
-        float right = bubbleRect.right;
-        float bottom = bubbleRect.bottom;
-        float r = CORNER_RADIUS_DP * density;
-
-        if (!isFirstInGroup) {
-            // Later bubble in the same group — plain rounded rect, no tail.
-            path.addRoundRect(left, top, right, bottom, r, r, Path.Direction.CW);
-            canvas.drawPath(path, bubbleFillPaint);
-            return;
-        }
-
-        float tailR = TAIL_RADIUS_DP * density;
-        float tailW = TAIL_WIDTH_DP * density;
-        float tailH = TAIL_HEIGHT_DP * density;
-
-        if (sent) {
-            // Tail pokes out to the lower-right, next to a tightened
-            // (tailR) bottom-right corner.
-            path.moveTo(left + r, top);
-            path.lineTo(right - r, top);
-            path.quadTo(right, top, right, top + r);
-            path.lineTo(right, bottom - tailR - tailH);
-            path.lineTo(right + tailW, bottom - tailH * 0.35f);
-            path.lineTo(right, bottom - tailR);
-            path.quadTo(right, bottom, right - tailR, bottom);
-            path.lineTo(left + r, bottom);
-            path.quadTo(left, bottom, left, bottom - r);
-            path.lineTo(left, top + r);
-            path.quadTo(left, top, left + r, top);
-        } else {
-            // Tail pokes out to the upper-left, next to a tightened
-            // (tailR) top-left corner.
-            path.moveTo(left, bottom - r);
-            path.lineTo(left, top + tailR + tailH);
-            path.lineTo(left - tailW, top + tailH * 0.35f);
-            path.lineTo(left, top + tailR);
-            path.quadTo(left, top, left + tailR, top);
-            path.lineTo(right - r, top);
-            path.quadTo(right, top, right, top + r);
-            path.lineTo(right, bottom - r);
-            path.quadTo(right, bottom, right - r, bottom);
-            path.lineTo(left + r, bottom);
-            path.quadTo(left, bottom, left, bottom - r);
-        }
-        path.close();
-        canvas.drawPath(path, bubbleFillPaint);
     }
 
     /**
@@ -3801,9 +3754,6 @@ public class MessageBubbleCanvasView extends View {
             // fixed 180dp square, so a portrait photo gets a tall bubble, a
             // landscape photo gets a wide one, and neither is centerCrop'd
             // away — see computeMediaSize(). ──
-            // Photo bubbles hug the image with a thin WhatsApp-style frame
-            // instead of the normal text-bubble vPad.
-            int mediaPad = Math.round(MEDIA_PAD_DP * density);
             computeMediaSize(maxTextWidth, mediaSizeOut);
             int mediaW = mediaSizeOut[0];
             int mediaH = mediaSizeOut[1];
@@ -3846,7 +3796,7 @@ public class MessageBubbleCanvasView extends View {
                 int lastLineW = (int) Math.ceil(textLayout.getLineWidth(textLayout.getLineCount() - 1));
                 captionWidth = Math.max(captionWidth, (int) (lastLineW + captionFooterReserve));
                 captionBlockHeight = Math.round(MEDIA_CAPTION_GAP_DP * density)
-                        + textLayout.getHeight() + mediaPad + footerHeight;
+                        + textLayout.getHeight() + vPad + footerHeight;
                 footerReserveWidth = captionFooterReserve;
             } else {
                 textLayout = null;
@@ -3855,12 +3805,11 @@ public class MessageBubbleCanvasView extends View {
             bubbleContentWidth = Math.min(
                     Math.max(mediaW, Math.max(replyBoxContentWidth, captionWidth)), maxTextWidth);
 
-            // Captionless images get a tight mediaPad margin around the
-            // image (thin WhatsApp-style frame); captioned images get the
-            // same margin plus the caption+footer block below (footer
-            // overlay is skipped when there's a caption — see onDraw —
-            // matching the text-bubble footer placement).
-            bubbleHeight = replyBoxHeight + replyGap + mediaPad + mediaH + mediaPad + captionBlockHeight;
+            // Captionless images get a tight vPad margin around the image;
+            // captioned images get the same margin plus the caption+footer
+            // block below (footer overlay is skipped when there's a caption
+            // — see onDraw — matching the text-bubble footer placement).
+            bubbleHeight = replyBoxHeight + replyGap + vPad + mediaH + vPad + captionBlockHeight;
 
         } else if (isReelShare) {
             // ── Reel-share card, now inside a normal chat bubble ──
@@ -4737,7 +4686,10 @@ public class MessageBubbleCanvasView extends View {
             // style pills/cards, not regular message content.
             // Reel-share and file still draw the normal bubble behind them
             // (file was a genuine missing-background bug fix).
-            drawBubbleShape(canvas);
+            bubbleDrawable.setBounds(
+                    (int) bubbleRect.left, (int) bubbleRect.top,
+                    (int) bubbleRect.right, (int) bubbleRect.bottom);
+            bubbleDrawable.draw(canvas);
         }
 
         if (isPinned) {
@@ -4780,8 +4732,7 @@ public class MessageBubbleCanvasView extends View {
         } else if (isMediaGroup) {
             mediaGroupRenderer.draw(canvas, vPad);
         } else if (isMedia) {
-            int mediaPad = Math.round(MEDIA_PAD_DP * density);
-            drawMediaWithOptionalCache(canvas, mediaPad, mediaPad);
+            drawMediaWithOptionalCache(canvas, hPad, vPad);
         } else if (isAudio) {
             audioRenderer.draw(canvas, hPad, vPad);
         } else if (isFileBubble) {

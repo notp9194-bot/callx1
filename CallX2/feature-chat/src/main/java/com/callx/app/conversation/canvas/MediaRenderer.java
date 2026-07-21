@@ -119,6 +119,13 @@ final class MediaRenderer {
             canvas.drawRoundRect(host.mediaRect, r, r, host.mediaPlaceholderPaint);
         }
 
+        // PREMIUM REDESIGN (v32): hairline glass edge traced around the
+        // media rect — bitmap, placeholder, and (further below) duration
+        // badge/timestamp pill all share this same subtle-border language
+        // so the whole media bubble reads as one deliberate "glass card"
+        // instead of a flat rounded rect with things floating on top of it.
+        canvas.drawRoundRect(host.mediaRect, r, r, host.mediaBorderPaint);
+
         // ── GIF badge — "GIF" pill in top-start corner, WhatsApp/Telegram style ──
         if (host.isGifBubble) {
             float badgePad = 4f * host.density;
@@ -163,6 +170,7 @@ final class MediaRenderer {
             // on the image's bottom-right corner, WhatsApp-style.
             float rr = MessageBubbleCanvasView.MEDIA_PILL_CORNER_DP * host.density;
             canvas.drawRoundRect(host.mediaPillRect, rr, rr, host.mediaPillBgPaint);
+            canvas.drawRoundRect(host.mediaPillRect, rr, rr, host.mediaPillBorderPaint);
             float pillPadH = MessageBubbleCanvasView.MEDIA_PILL_PADDING_H_DP * host.density;
             float textBaselineY = host.mediaPillRect.bottom - (host.mediaPillRect.height()
                     - (host.mediaPillTextPaint.descent() - host.mediaPillTextPaint.ascent())) / 2f
@@ -202,10 +210,14 @@ final class MediaRenderer {
      */
     private void drawVideoPlayOverlay(Canvas canvas) {
         float cx = host.mediaRect.centerX(), cy = host.mediaRect.centerY();
-        float circleR = (MessageBubbleCanvasView.GROUP_PLAY_CIRCLE_DP * host.density) / 2f;
+        float circleR = (MessageBubbleCanvasView.SINGLE_VIDEO_PLAY_CIRCLE_DP * host.density) / 2f;
         canvas.drawCircle(cx, cy, circleR, host.groupPlayCirclePaint);
+        // Hairline ring traced just inside the fill edge (half the stroke
+        // width in from circleR) so the stroke doesn't get clipped/aliased
+        // right at the disc's outer boundary.
+        canvas.drawCircle(cx, cy, circleR - host.groupPlayRingPaint.getStrokeWidth() / 2f, host.groupPlayRingPaint);
 
-        float triR = (MessageBubbleCanvasView.GROUP_PLAY_TRIANGLE_DP * host.density) / 2f;
+        float triR = (MessageBubbleCanvasView.SINGLE_VIDEO_PLAY_TRIANGLE_DP * host.density) / 2f;
         host.groupPlayTrianglePath.reset();
         host.groupPlayTrianglePath.moveTo(cx - triR * 0.5f, cy - triR * 0.8f);
         host.groupPlayTrianglePath.lineTo(cx - triR * 0.5f, cy + triR * 0.8f);
@@ -214,13 +226,15 @@ final class MediaRenderer {
         canvas.drawPath(host.groupPlayTrianglePath, host.groupPlayTrianglePaint);
 
         if (host.videoDuration != null && !host.videoDuration.isEmpty()) {
-            float durPadH = 3 * host.density, durPadV = 1 * host.density;
+            float durPadH = 6 * host.density, durPadV = 3 * host.density;
             float textW = host.groupDurationTextPaint.measureText(host.videoDuration);
             float textH = host.groupDurationTextPaint.descent() - host.groupDurationTextPaint.ascent();
-            float left = host.mediaRect.left + 4 * host.density;
-            float bottom = host.mediaRect.bottom - 4 * host.density;
+            float left = host.mediaRect.left + 6 * host.density;
+            float bottom = host.mediaRect.bottom - 6 * host.density;
             RectF durBg = new RectF(left, bottom - textH - durPadV * 2, left + textW + durPadH * 2, bottom);
-            canvas.drawRoundRect(durBg, 3 * host.density, 3 * host.density, host.groupDurationBgPaint);
+            float durR = MessageBubbleCanvasView.GROUP_DURATION_CORNER_DP * host.density;
+            canvas.drawRoundRect(durBg, durR, durR, host.groupDurationBgPaint);
+            canvas.drawRoundRect(durBg, durR, durR, host.groupDurationBorderPaint);
             float textBaseline = durBg.bottom - durPadV - host.groupDurationTextPaint.descent();
             canvas.drawText(host.videoDuration, durBg.left + durPadH, textBaseline, host.groupDurationTextPaint);
         }
