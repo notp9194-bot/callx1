@@ -396,7 +396,7 @@
             android:id="@+id/btn_composer_attach"
             android:layout_width="40dp"
             android:layout_height="40dp"
-            android:src="@android:drawable/ic_menu_attachment"
+            android:src="@drawable/ic_attach"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:tint="#777777"
             android:contentDescription="Attach"/>
