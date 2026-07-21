@@ -56,6 +56,13 @@ public final class MessageEntityMapper {
         // BUG FIX (v43): these were being dropped on every Room round-trip —
         // see AppDatabase.MIGRATION_42_43 / MessageEntity#mediaWidth.
         m.mediaWidth = e.mediaWidth; m.mediaHeight = e.mediaHeight;
+        // BUG FIX: mediaLocalPath was never copied from entity → model, so
+        // Message.mediaLocalPath was always null after a Room round-trip.
+        // This broke the WhatsApp-style local-first upload bubble: the adapter's
+        // localPendingMedia check (mediaLocalPath != null && mediaUrl == null)
+        // always evaluated false, so the canvas upload-progress gate (spinner /
+        // tap-to-retry) was never armed — only a gray placeholder was drawn.
+        m.mediaLocalPath = e.mediaLocalPath;
         return m;
     }
 }

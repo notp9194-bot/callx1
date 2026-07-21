@@ -1368,6 +1368,10 @@ public class GroupChatActivity extends AppCompatActivity
         m.contactName = e.contactName; m.contactPhone = e.contactPhone;
         m.contactPhone2 = e.contactPhone2; m.contactPhotoUrl = e.contactPhotoUrl;
         m.locationLat = e.locationLat; m.locationLng = e.locationLng; m.locationAddress = e.locationAddress;
+        // BUG FIX: mediaLocalPath must be copied from entity → model so the
+        // adapter's localPendingMedia check works for group-chat uploads too.
+        // See MessageEntityMapper.toModel() for the full explanation.
+        m.mediaLocalPath = e.mediaLocalPath;
         // PERF: same background StaticLayout precompute as 1:1 ChatActivity
         // — see MessageBubbleCanvasView's cache javadoc. Safe no-op for
         // anything not a plain, non-deleted text message.
