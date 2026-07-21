@@ -86,7 +86,11 @@ public class CommunityActivity extends AppCompatActivity {
                 ? FirebaseAuth.getInstance().getCurrentUser().getPhotoUrl().toString() : null;
         repo = CommunityRepository.getInstance(this);
 
-        if (communityId == null || communityId.isEmpty() || currentUid == null) { finish(); return; }
+        if (communityId == null || communityId.isEmpty() || currentUid == null) {
+            com.callx.app.utils.ActivityGuard.reportAndFinish(this,
+                    "communityId=" + communityId + ", currentUid=" + currentUid);
+            return;
+        }
 
         bindViews();
         setupToolbarNav();
