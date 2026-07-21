@@ -250,7 +250,6 @@ public class CommunityActivity extends AppCompatActivity {
             });
         }));
     }
-    }
 
     private void updateToolbarInfo(CommunityEntity c) {
         if (tvName != null) tvName.setText(c.name != null ? c.name : "");
