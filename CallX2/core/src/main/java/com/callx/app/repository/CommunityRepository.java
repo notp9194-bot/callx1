@@ -235,7 +235,24 @@ public class CommunityRepository {
             CommunityEntity entity = new CommunityEntity();
             entity.id = id; entity.name = name; entity.description = description;
             entity.ownerUid = ownerUid; entity.memberCount = 1; entity.createdAt = now;
-            mExecutor.execute(() -> mDao.insertCommunity(entity));
+
+            // v170 fix: insert the owner's member row into Room immediately,
+            // in the same executor task as the community row. Previously the
+            // owner was only written to Firebase here; the local Room row only
+            // appeared after syncMembers()'s async single-value read completed.
+            // CommunityActivity's members LiveData would fire first with an
+            // empty list, get read as "not a member", and show the join gate
+            // for the very owner who just created the community.
+            CommunityMemberEntity ownerMember = new CommunityMemberEntity();
+            ownerMember.communityId = id; ownerMember.uid = ownerUid;
+            ownerMember.name = ownerName; ownerMember.photoUrl = ownerPhoto != null ? ownerPhoto : "";
+            ownerMember.role = CommunityRole.OWNER; ownerMember.joinedAt = now;
+            ownerMember.badge = CommunityBadge.NONE;
+
+            mExecutor.execute(() -> {
+                mDao.insertCommunity(entity);
+                mDao.insertMember(ownerMember);
+            });
             cb.onResult(id);
         });
     }

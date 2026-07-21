@@ -67,6 +67,10 @@ public class CommunityActivity extends AppCompatActivity {
     private boolean gateIsPrivate = false;
     private String pendingUname, pendingUphoto;
 
+    // v171: authoritative-resolution overlay + guard
+    private View groupResolvingAccess;
+    private boolean initialResolved = false;
+
     private CommunityRepository repo;
     private CommunityEntity currentCommunity;
 
@@ -86,11 +90,7 @@ public class CommunityActivity extends AppCompatActivity {
                 ? FirebaseAuth.getInstance().getCurrentUser().getPhotoUrl().toString() : null;
         repo = CommunityRepository.getInstance(this);
 
-        if (communityId == null || communityId.isEmpty() || currentUid == null) {
-            com.callx.app.utils.ActivityGuard.reportAndFinish(this,
-                    "communityId=" + communityId + ", currentUid=" + currentUid);
-            return;
-        }
+        if (communityId == null || communityId.isEmpty() || currentUid == null) { finish(); return; }
 
         bindViews();
         setupToolbarNav();
@@ -118,6 +118,8 @@ public class CommunityActivity extends AppCompatActivity {
         tvGateStatus      = findViewById(R.id.tv_gate_status);
         btnGateJoin       = findViewById(R.id.btn_gate_join);
         progressGate      = findViewById(R.id.progress_gate);
+
+        groupResolvingAccess = findViewById(R.id.group_resolving_access);
     }
 
     private void setupToolbarNav() {
@@ -200,26 +202,54 @@ public class CommunityActivity extends AppCompatActivity {
         repo.observeCommunity(communityId).observe(this, community -> {
             if (community == null) return;
             currentCommunity = community;
+            ownerUid = community.ownerUid;
             updateToolbarInfo(community);
             loadBanner(community);
         });
 
-        repo.observeMembers(communityId).observe(this, members -> {
-            boolean found = false;
-            if (members != null && currentUid != null) {
-                for (CommunityMemberEntity m : members) {
-                    if (currentUid.equals(m.uid)) {
-                        found  = true;
-                        myRole = m.role != null ? m.role : CommunityRole.MEMBER;
-                        break;
+        // v171 fix: the previous approach decided member-vs-gate from Room's
+        // local member-list cache, which starts empty until Firebase syncs
+        // down — for a brand-new community (owner) or a community opened for
+        // the first time (any viewer), that empty snapshot arrived first and
+        // was misread as "not a member", flashing/closing to the join gate
+        // even for confirmed members. Fix: ask Firebase directly, once, for
+        // the authoritative answer before showing content OR the gate. Until
+        // that answer comes back, group_resolving_access stays up covering
+        // both states — this is the same "loading → resolved" pattern apps
+        // like WhatsApp use for any permission/membership gate.
+        repo.checkMembership(communityId, currentUid, confirmedMember -> runOnUiThread(() -> {
+            initialResolved = true;
+            isMember = confirmedMember;
+            if (confirmedMember) {
+                if (currentUid != null && currentUid.equals(ownerUid)) myRole = CommunityRole.OWNER;
+                onJoinedConfirmed();
+            } else {
+                showJoinGate();
+            }
+            if (groupResolvingAccess != null) groupResolvingAccess.setVisibility(View.GONE);
+
+            // Keep observing Room's live member list after the initial
+            // authoritative decision — this keeps role/removal updates live
+            // without letting a stale/empty first emission re-trigger the gate.
+            repo.observeMembers(communityId).observe(this, members -> {
+                if (!initialResolved) return;
+                boolean found = false;
+                if (members != null && currentUid != null) {
+                    for (CommunityMemberEntity m : members) {
+                        if (currentUid.equals(m.uid)) {
+                            found  = true;
+                            myRole = m.role != null ? m.role : CommunityRole.MEMBER;
+                            break;
+                        }
                     }
                 }
-            }
-            boolean wasMember = isMember;
-            isMember = found;
-            if (isMember && !wasMember) onJoinedConfirmed();
-            else if (!isMember) showJoinGate();
-        });
+                boolean wasMember = isMember;
+                isMember = found;
+                if (isMember && !wasMember) onJoinedConfirmed();
+                else if (!isMember && wasMember) showJoinGate();
+            });
+        }));
+    }
     }
 
     private void updateToolbarInfo(CommunityEntity c) {

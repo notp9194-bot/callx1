@@ -223,4 +223,24 @@
 
     </LinearLayout>
 
+    <!-- v171 fix: shown while access (member/owner status) is being resolved
+         directly from Firebase — prevents the join gate from flashing based
+         on a stale/empty local Room cache before the authoritative check
+         completes. Placed last so it draws on top of tabs/content/gate. -->
+    <FrameLayout
+        android:id="@+id/group_resolving_access"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@color/surface_bg"
+        android:visibility="visible"
+        app:layout_behavior="@string/appbar_scrolling_view_behavior">
+
+        <ProgressBar
+            android:id="@+id/progress_resolving_access"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"/>
+
+    </FrameLayout>
+
 </androidx.coordinatorlayout.widget.CoordinatorLayout>
