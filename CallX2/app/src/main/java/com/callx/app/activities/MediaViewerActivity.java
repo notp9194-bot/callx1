@@ -61,6 +61,9 @@ public class MediaViewerActivity extends AppCompatActivity {
     private boolean uiVisible = true;
     private String sharedUrl;
 
+    // Local-first single-item mode (see onCreate doc + LocalMediaAvailability).
+    private String singleItemLocalPath;
+
     // ── Gallery mode (swipeable grouped-media viewer) ────────────────────
     private GalleryPagerAdapter galleryAdapter;
     private List<Map<String, Object>> galleryItems;
@@ -98,6 +101,13 @@ public class MediaViewerActivity extends AppCompatActivity {
         String url  = getIntent().getStringExtra("url");
         String type = getIntent().getStringExtra("type");
         sharedUrl   = url;
+
+        // WhatsApp-style local-first: when the chat bubble passed along the
+        // original local file/content Uri (still present on the device),
+        // render straight from it here — full quality, no network — instead
+        // of the (possibly compressed) remote mediaUrl. Falls back to `url`
+        // automatically if the file's gone (see LocalMediaAvailability).
+        singleItemLocalPath = getIntent().getStringExtra("localPath");
 
         // Optional — only present when opened from a grouped-media message
         // tap. Used to send a swipe-up "reply" request back to the chat
@@ -178,7 +188,7 @@ public class MediaViewerActivity extends AppCompatActivity {
             binding.player.setVisibility(View.VISIBLE);
             binding.ivFull.setVisibility(View.GONE);
             binding.btnEdit.setVisibility(View.VISIBLE);
-            playVideo(url);
+            playVideo(url, singleItemLocalPath);
             if (autoEdit) {
                 binding.getRoot().post(this::onEditClicked);
             }
@@ -198,7 +208,7 @@ public class MediaViewerActivity extends AppCompatActivity {
             }
 
             String thumbUrl = getIntent().getStringExtra("thumbUrl");
-            loadImageProgressive(url, thumbUrl);
+            loadImageProgressive(url, thumbUrl, singleItemLocalPath);
 
             // Tap image → toggle top bar
             binding.ivFull.setOnViewTapListener((view, x, y) -> toggleUI());
@@ -643,7 +653,25 @@ public class MediaViewerActivity extends AppCompatActivity {
 
     // ── Progressive image load ────────────────────────────────────
     private void loadImageProgressive(String fullUrl, String thumbUrl) {
+        loadImageProgressive(fullUrl, thumbUrl, null);
+    }
+
+    private void loadImageProgressive(String fullUrl, String thumbUrl, String localPath) {
         PhotoView pv = binding.ivFull;
+
+        // WhatsApp-style local-first: original local file still on the
+        // device → show it directly, full quality, and skip the remote
+        // load entirely. Falls back to the normal progressive-load path
+        // below the moment the file's gone.
+        if (localPath != null && !localPath.isEmpty()
+                && com.callx.app.utils.LocalMediaAvailability.isAvailable(this, localPath)) {
+            Glide.with(this)
+                .load(Uri.parse(localPath))
+                .diskCacheStrategy(DiskCacheStrategy.NONE)
+                .into(pv);
+            return;
+        }
+
         if (thumbUrl != null && !thumbUrl.isEmpty()) {
             Glide.with(this)
                 .load(thumbUrl)
@@ -680,6 +708,20 @@ public class MediaViewerActivity extends AppCompatActivity {
 
     // ── Video playback (cache-first) ──────────────────────────────
     private void playVideo(String url) {
+        playVideo(url, null);
+    }
+
+    private void playVideo(String url, String localPath) {
+        // WhatsApp-style local-first: original local file still on the
+        // device → play it directly, full quality, no download at all.
+        // Falls back to the normal cache-first remote path the moment
+        // the file's gone (deleted from gallery, storage cleared, etc).
+        if (localPath != null && !localPath.isEmpty()
+                && com.callx.app.utils.LocalMediaAvailability.isAvailable(this, localPath)) {
+            startExoPlayer(Uri.parse(localPath));
+            return;
+        }
+
         File cached = MediaCache.getCached(this, url);
         if (cached != null) {
             startExoPlayer(Uri.fromFile(cached));

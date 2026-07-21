@@ -348,15 +348,21 @@ public class ChatMessageSender {
      * be the SAME Message object returned from insertLocalPendingMedia (same
      * id), now carrying the real mediaUrl/thumbnailUrl/mediaWidth/mediaHeight/
      * fileSize. Replaces the local-pending row in place (REPLACE-by-id, no
-     * second bubble), clears mediaLocalPath, then pushes to Firebase exactly
-     * like a normal send.
+     * second bubble), then pushes to Firebase exactly like a normal send.
+     *
+     * WhatsApp-style local-first rendering: mediaLocalPath is deliberately
+     * KEPT on the row (not nulled out) once the upload succeeds. As long as
+     * the original file is still on the phone, the sent bubble (and the
+     * full-screen viewer) render straight from it — full quality, no
+     * network — and only fall back to mediaUrl once the user deletes it
+     * from their device. See LocalMediaAvailability.
      */
     public void finalizeMediaMessage(Message m, String previewText) {
         if (m == null || m.id == null) return;
         m.status = "pending"; // → "sent" once firebasePushMessage's ack lands
 
         MessageEntity entity = messageToEntity(m, "pending");
-        entity.mediaLocalPath = null; // upload done — drop the local-only pointer
+        entity.mediaLocalPath = m.mediaLocalPath; // kept for local-first render, see doc above
 
         boolean willReanchor = delegate.severPagingIfAtBottom();
         Executors.newSingleThreadExecutor().execute(() -> {

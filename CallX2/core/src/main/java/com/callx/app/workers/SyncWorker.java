@@ -208,7 +208,13 @@ public class SyncWorker extends Worker {
         // 3. Update Room DB
         msg.mediaUrl          = cdnUrl;
         if ("image".equals(msg.type)) msg.mediaUrl = cdnUrl; // imageUrl alias
-        msg.mediaLocalPath    = null; // cleared — won't be retried
+        // WhatsApp-style local-first render: keep mediaLocalPath for image/video
+        // so the sent bubble + full-screen viewer can render the original local
+        // file (full quality) as long as it's still on the phone — falls back to
+        // mediaUrl automatically once the user deletes it (LocalMediaAvailability).
+        if (!"image".equals(msg.type) && !"video".equals(msg.type)) {
+            msg.mediaLocalPath = null; // cleared for non-media file types — won't be retried
+        }
         msg.mediaResourceType = null;
         db.messageDao().insertMessage(msg);
 

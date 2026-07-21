@@ -2155,9 +2155,20 @@ public class MessagePagingAdapter
             java.io.File cachedFile = (!sent && fullUrl != null && !fullUrl.isEmpty())
                     ? com.callx.app.utils.MediaCache.getCached(ctx, fullUrl) : null;
 
+            // WhatsApp-style local-first render: a SENT image whose original
+            // local file is still on the phone renders straight from it —
+            // full quality, no network — instead of the (possibly
+            // compressed) Cloudinary mediaUrl. The instant the user deletes
+            // it from their device this naturally falls back to fullUrl on
+            // the next bind, since the availability check below re-runs
+            // every time. See LocalMediaAvailability + ChatMessageSender.
+            boolean useLocalSent = sent && m.mediaLocalPath != null && !m.mediaLocalPath.isEmpty()
+                    && com.callx.app.utils.LocalMediaAvailability.isAvailable(ctx, m.mediaLocalPath);
+
             if (sent || cachedFile != null) {
                 cv.clearMediaDownloadGate();
-                Object loadSrc = cachedFile != null ? cachedFile : fullUrl;
+                Object loadSrc = useLocalSent ? android.net.Uri.parse(m.mediaLocalPath)
+                        : (cachedFile != null ? cachedFile : fullUrl);
                 if (loadSrc != null) {
                     // PERF #1: check in-memory Bitmap pool before firing a Glide decode
                     final String poolKey = fullUrl != null ? fullUrl : "";
@@ -2981,6 +2992,9 @@ public class MessagePagingAdapter
                             ctx.getPackageName(), "com.callx.app.activities.MediaViewerActivity");
                     i.putExtra("url", vUrl);
                     i.putExtra("type", "video");
+                    if (m.mediaLocalPath != null && !m.mediaLocalPath.isEmpty()) {
+                        i.putExtra("localPath", m.mediaLocalPath);
+                    }
                     i.putExtra("chatId", chatId);
                     i.putExtra("messageId", m.messageId != null ? m.messageId : m.id);
                     ctx.startActivity(i);
@@ -3827,6 +3841,12 @@ public class MessagePagingAdapter
                                 "com.callx.app.activities.MediaViewerActivity");
                         i.putExtra("url", vUrl);
                         i.putExtra("type", "video");
+                        // WhatsApp-style local-first: render from the original
+                        // local file (full quality) as long as it's still on
+                        // the device, falling back to `url` otherwise.
+                        if (m.mediaLocalPath != null && !m.mediaLocalPath.isEmpty()) {
+                            i.putExtra("localPath", m.mediaLocalPath);
+                        }
                         // Lets MediaViewerActivity publish playback presence
                         // (chatPlayback/{chatId}/{uid}=messageId) while the
                         // video is actually playing — null-safe extras.
@@ -3863,6 +3883,9 @@ public class MessagePagingAdapter
                                 "com.callx.app.activities.MediaViewerActivity");
                         i.putExtra("url", vUrl);
                         i.putExtra("type", "video");
+                        if (m.mediaLocalPath != null && !m.mediaLocalPath.isEmpty()) {
+                            i.putExtra("localPath", m.mediaLocalPath);
+                        }
                         i.putExtra("chatId", chatId);
                         i.putExtra("messageId", vMid);
                         ctx.startActivity(i);
@@ -5149,6 +5172,13 @@ public class MessagePagingAdapter
                         i.putExtra("url",      fullUrl);
                         i.putExtra("thumbUrl", thumbForViewer);
                         i.putExtra("type",     "image");
+                        // WhatsApp-style local-first: hand the original local
+                        // file/content Uri to the viewer too — it'll render
+                        // from this (full quality) as long as it still exists
+                        // on the device, falling back to `url` otherwise.
+                        if (m.mediaLocalPath != null && !m.mediaLocalPath.isEmpty()) {
+                            i.putExtra("localPath", m.mediaLocalPath);
+                        }
                         // FIX: chatId/messageId weren't passed before, so
                         // MediaViewerActivity's own Edit pencil couldn't work
                         // once inside the viewer either.

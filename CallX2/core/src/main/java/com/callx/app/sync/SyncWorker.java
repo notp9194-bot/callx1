@@ -251,7 +251,14 @@ public class SyncWorker extends Worker {
                                         if (updated == null) return;
                                         updated.mediaUrl       = r.secureUrl;
                                         updated.thumbnailUrl   = r.thumbnailUrl;
-                                        updated.mediaLocalPath = null;  // cleanup
+                                        // WhatsApp-style local-first render: for image/video keep
+                                        // mediaLocalPath so the sent bubble + full-screen viewer can
+                                        // still render the original full-quality local file for as
+                                        // long as it's on the phone (see LocalMediaAvailability).
+                                        // Other media types (file/audio/doc) still get cleaned up.
+                                        if (!"image".equals(updated.type) && !"video".equals(updated.type)) {
+                                            updated.mediaLocalPath = null;
+                                        }
                                         updated.status         = "sent";
                                         db.messageDao().updateMessage(updated);
 
