@@ -348,6 +348,55 @@ public class MessagePagingAdapter
      *  bubbles — see ChatMediaController#uploadAndSend()/MediaUploadProgressTracker. */
     private final MediaUploadProgressTracker uploadProgressTracker = new MediaUploadProgressTracker();
 
+    // ── Local-first sent-media availability cache ────────────────────────
+    // BUGFIX: LocalMediaAvailability.isAvailable() does a real ContentResolver
+    // round-trip (openFileDescriptor) for content:// Uris — calling that
+    // SYNCHRONOUSLY on every single onBindViewHolder() for every sent image
+    // (including old ones scrolled past during initial chat load) blocked
+    // the main thread just often enough to stall the live upload-percentage
+    // ticks and the failed/tap-to-retry gate for whichever row happened to
+    // be mid-upload at the same time. Now computed once per mediaLocalPath
+    // on a background thread and cached; the bind uses the cached verdict
+    // (defaulting to "not yet known" → falls back to fullUrl for that one
+    // frame) and only refreshes the row once the real answer is in.
+    private static final java.util.concurrent.ConcurrentHashMap<String, Boolean> LOCAL_AVAIL_CACHE =
+            new java.util.concurrent.ConcurrentHashMap<>();
+    private static final java.util.concurrent.ExecutorService LOCAL_AVAIL_EXECUTOR =
+            java.util.concurrent.Executors.newSingleThreadExecutor();
+    private static final android.os.Handler LOCAL_AVAIL_MAIN_HANDLER =
+            new android.os.Handler(android.os.Looper.getMainLooper());
+
+    /**
+     * Returns the cached local-availability verdict for this path, kicking
+     * off a background check (and caching the result) if it isn't known
+     * yet. Never blocks the calling (main) thread.
+     */
+    private Boolean checkLocalAvailabilityAsync(Context ctx, String mediaLocalPath, String messageId) {
+        Boolean cached = LOCAL_AVAIL_CACHE.get(mediaLocalPath);
+        if (cached != null) return cached;
+        final Context appCtx = ctx.getApplicationContext();
+        LOCAL_AVAIL_EXECUTOR.execute(() -> {
+            boolean avail = com.callx.app.utils.LocalMediaAvailability.isAvailable(appCtx, mediaLocalPath);
+            LOCAL_AVAIL_CACHE.put(mediaLocalPath, avail);
+            if (avail && messageId != null) {
+                // Refresh just this row once we know the local file is
+                // usable — cheap full rebind, one-time per message.
+                LOCAL_AVAIL_MAIN_HANDLER.post(() -> {
+                    for (int i = 0; i < getItemCount(); i++) {
+                        Message mm = getItem(i);
+                        if (mm == null) continue;
+                        String id = mm.messageId != null ? mm.messageId : mm.id;
+                        if (messageId.equals(id)) {
+                            notifyItemChanged(i);
+                            break;
+                        }
+                    }
+                });
+            }
+        });
+        return null; // not known yet this frame — caller falls back to fullUrl
+    }
+
     /**
      * Called by ChatMediaController on every upload progress tick for a
      * local-pending media bubble. Updates the tracker and, if that row is
@@ -2159,11 +2208,13 @@ public class MessagePagingAdapter
             // local file is still on the phone renders straight from it —
             // full quality, no network — instead of the (possibly
             // compressed) Cloudinary mediaUrl. The instant the user deletes
-            // it from their device this naturally falls back to fullUrl on
-            // the next bind, since the availability check below re-runs
-            // every time. See LocalMediaAvailability + ChatMessageSender.
+            // it from their device this naturally falls back to fullUrl,
+            // since the cache entry gets recomputed on the next fresh path.
+            // Availability is checked off the main thread (see
+            // checkLocalAvailabilityAsync) so this never blocks a bind.
+            String mid0 = m.messageId != null ? m.messageId : m.id;
             boolean useLocalSent = sent && m.mediaLocalPath != null && !m.mediaLocalPath.isEmpty()
-                    && com.callx.app.utils.LocalMediaAvailability.isAvailable(ctx, m.mediaLocalPath);
+                    && Boolean.TRUE.equals(checkLocalAvailabilityAsync(ctx, m.mediaLocalPath, mid0));
 
             if (sent || cachedFile != null) {
                 cv.clearMediaDownloadGate();
