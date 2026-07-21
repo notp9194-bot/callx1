@@ -384,4 +384,36 @@ public interface MessageDao {
     @WorkerThread
     @Query("DELETE FROM messages")
     void deleteAll();
+
+    // ── Upload-state helpers ──────────────────────────────────────────────
+
+    /**
+     * Feature 7 (failed-state persistence): returns all messages in this
+     * chat that are still marked "uploading" — i.e. an upload was in
+     * progress when the app was killed. Call on chat open/resume and flip
+     * them to "failed" so the user can see the tap-to-retry affordance.
+     */
+    @WorkerThread
+    @Query("SELECT * FROM messages WHERE chatId = :chatId AND status = 'uploading'")
+    List<MessageEntity> getUploadingMessages(String chatId);
+
+    /**
+     * Feature 4 (video thumbnail): set thumbnailUrl on an already-inserted
+     * local-pending row after the first-frame extraction completes in the
+     * background. Lets the video bubble show a real preview frame immediately
+     * without waiting for the full upload to finish.
+     */
+    @WorkerThread
+    @Query("UPDATE messages SET thumbnailUrl = :url WHERE id = :messageId")
+    void updateThumbnailUrl(String messageId, String url);
+
+    /**
+     * Feature 8 (group bubble): atomic in-place update of the mediaItemsJson
+     * column so a live multi_media bubble reflects newly-uploaded URLs without
+     * a full row replace (which would re-trigger the pager's diff unnecessarily
+     * for fields that didn't change).
+     */
+    @WorkerThread
+    @Query("UPDATE messages SET mediaItemsJson = :json WHERE id = :messageId")
+    void updateMediaItemsJson(String messageId, String json);
 }

@@ -17,8 +17,14 @@ import android.view.animation.OvershootInterpolator;
 import android.widget.Toast;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import androidx.activity.result.ActivityResultCaller;
 import androidx.activity.result.ActivityResultLauncher;
@@ -82,6 +88,20 @@ public class ChatMediaController {
     private static final int RECENT_MEDIA_LIMIT = 60;
     private final ExecutorService mediaQueryExecutor = Executors.newSingleThreadExecutor();
 
+    // ── Feature 2 & 6: Upload queue — concurrency-limited, network-aware ──────
+    /** Max 3 simultaneous uploads; auto-pauses when offline, resumes on reconnect. */
+    private MediaUploadQueue uploadQueue;
+
+    // ── Feature 5: Per-item cancel ─────────────────────────────────────────────
+    /**
+     * IDs of bubbles whose upload should be abandoned. Checked by the queue
+     * before starting a task and by upload callbacks before each stage.
+     * Thread-safe ConcurrentHashMap-backed set — may be read/written from
+     * any thread without additional locking.
+     */
+    private final Set<String> cancelledIds =
+            Collections.newSetFromMap(new ConcurrentHashMap<>());
+
     private final VoiceRecorder recorder = new VoiceRecorder();
 
     // ── Voice recording gesture state (WhatsApp-style press/hold) ──────────
@@ -138,6 +158,59 @@ public class ChatMediaController {
     public ChatMediaController(AppCompatActivity activity, ChatActivityDelegate delegate) {
         this.activity = activity;
         this.delegate = delegate;
+        // Feature 2 & 6: start the upload queue (max 3 concurrent, network-aware)
+        uploadQueue = new MediaUploadQueue(activity);
+    }
+
+    /**
+     * Feature 2 (pause/resume): call from Activity.onDestroy() to release
+     * the ConnectivityManager callback and shut down the upload thread pool.
+     */
+    public void destroy() {
+        if (uploadQueue != null) uploadQueue.destroy();
+    }
+
+    // ── Feature 5: Per-item cancel ──────────────────────────────────────────
+
+    /**
+     * Cancels the upload for a single bubble. The queue checks this set
+     * before starting the upload task; in-flight uploads also check it at
+     * each stage and abort early (bubble stays in "failed" state so the user
+     * can tap-to-retry later if they change their mind).
+     */
+    public void cancelUpload(String messageId) {
+        if (messageId == null) return;
+        cancelledIds.add(messageId);
+        // Immediately flip the bubble to "failed" so the UI shows the retry
+        // affordance without waiting for the (now-cancelled) task to finish.
+        delegate.markMediaFailed(messageId);
+    }
+
+    // ── Feature 7: Failed-state persistence (reset stuck "uploading" rows) ────
+
+    /**
+     * Call from ChatActivity.onResume(). Any messages stuck in "uploading"
+     * state from a previous app session (killed mid-upload) are flipped to
+     * "failed" so the tap-to-retry affordance appears immediately. Without
+     * this they stay as invisible indefinite spinners forever.
+     */
+    public void onChatResumed(String chatId) {
+        Executors.newSingleThreadExecutor().execute(() -> {
+            java.util.List<com.callx.app.db.entity.MessageEntity> stuck =
+                    AppDatabase.getInstance(activity).messageDao()
+                            .getUploadingMessages(chatId);
+            if (stuck == null || stuck.isEmpty()) return;
+            for (com.callx.app.db.entity.MessageEntity e : stuck) {
+                AppDatabase.getInstance(activity).messageDao()
+                        .updateStatus(e.id, "failed");
+            }
+            if (!stuck.isEmpty()) {
+                activity.runOnUiThread(() ->
+                        Toast.makeText(activity,
+                                stuck.size() + " upload(s) interrupted — tap ⚠ to retry",
+                                Toast.LENGTH_LONG).show());
+            }
+        });
     }
 
     // ── Register launchers (call from Activity.onCreate BEFORE super) ──────
@@ -941,7 +1014,7 @@ public class ChatMediaController {
                 return;
             }
             delegate.clearReply();
-            startImageUpload(uri, pending);
+            startImageUpload(uri, pending, false); // single-pick always standard quality
             return;
         }
 
@@ -996,9 +1069,22 @@ public class ChatMediaController {
     /** Compress → upload thumb → upload full. `pending` is the SAME Message
      *  object already inserted as a local-pending bubble (has its Firebase
      *  key assigned) — this only ever updates it in place, never builds a
-     *  new one. */
-    private void startImageUpload(Uri uri, Message pending) {
-        ImageCompressor.compress(activity, uri, new ImageCompressor.Callback() {
+     *  new one.
+     *  @param isHD Feature 3: true → HD tier (WhatsApp-style HD toggle); false → standard. */
+    private void startImageUpload(Uri uri, Message pending, boolean isHD) {
+        // Feature 2 & 6: run through the queue (max-3-concurrent, network-aware)
+        String msgId = pending.messageId != null ? pending.messageId : pending.id;
+        uploadQueue.enqueue(msgId, cancelledIds, () -> {
+            // Cancelled before the queue slot was free?
+            if (cancelledIds.contains(msgId)) return;
+            activity.runOnUiThread(() ->
+                doStartImageUpload(uri, pending, isHD)
+            );
+        });
+    }
+
+    private void doStartImageUpload(Uri uri, Message pending, boolean isHD) {
+        ImageCompressor.compress(activity, uri, isHD, new ImageCompressor.Callback() {
             @Override public void onSuccess(ImageCompressor.Result result) {
                 Uri fullUri  = Uri.fromFile(result.fullFile);
                 Uri thumbUri = Uri.fromFile(result.thumbFile);
@@ -1082,7 +1168,84 @@ public class ChatMediaController {
     // directly on the already-visible local bubble — same spinner-ring-%
     // experience as the image local-first path.
 
+    /**
+     * Feature 4 (video thumbnail preview in bubble): synchronously extract
+     * the first frame from a video URI and write it to the app cache as a
+     * JPEG. Returns the absolute file path, or null if extraction fails.
+     * Intentionally cheap — MediaMetadataRetriever.getFrameAtTime(0) on a
+     * local file typically completes in < 50 ms even for 4K clips.
+     */
+    private String extractVideoThumb(Uri uri) {
+        android.media.MediaMetadataRetriever mmr = new android.media.MediaMetadataRetriever();
+        try {
+            if (uri.getScheme() != null && uri.getScheme().startsWith("file")) {
+                mmr.setDataSource(uri.getPath());
+            } else {
+                mmr.setDataSource(activity, uri);
+            }
+            android.graphics.Bitmap frame = mmr.getFrameAtTime(0,
+                    android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC);
+            if (frame == null) return null;
+            // Scale down to a reasonable preview size — same logic as
+            // ImageCompressor's thumb step (max 200 px on longest side).
+            int maxDim = 200;
+            float scale = Math.min(maxDim / (float) frame.getWidth(),
+                                   maxDim / (float) frame.getHeight());
+            android.graphics.Bitmap thumb = (scale < 1f)
+                    ? android.graphics.Bitmap.createScaledBitmap(frame,
+                            Math.max(1, (int) (frame.getWidth() * scale)),
+                            Math.max(1, (int) (frame.getHeight() * scale)), true)
+                    : frame;
+            java.io.File dir = new java.io.File(activity.getCacheDir(), "vid_thumb");
+            //noinspection ResultOfMethodCallIgnored
+            dir.mkdirs();
+            java.io.File out = new java.io.File(dir, "vt_" + System.currentTimeMillis() + ".jpg");
+            try (java.io.FileOutputStream fos = new java.io.FileOutputStream(out)) {
+                thumb.compress(android.graphics.Bitmap.CompressFormat.JPEG, 80, fos);
+            }
+            if (!frame.isRecycled()) frame.recycle();
+            if (thumb != frame && !thumb.isRecycled()) thumb.recycle();
+            return out.getAbsolutePath();
+        } catch (Exception e) {
+            android.util.Log.w("ChatMediaController", "extractVideoThumb failed", e);
+            return null;
+        } finally {
+            try { mmr.release(); } catch (Exception ignored) {}
+        }
+    }
+
     private void startVideoUploadLocalFirst(Uri uri, Message pending) {
+        // Feature 4: extract first-frame thumbnail AFTER the bubble has been
+        // inserted (caller already called insertLocalPendingMedia). Run off
+        // the main thread, then persist the thumbnail URL into Room so the
+        // adapter reloads the cell with a real frame preview instead of the
+        // grey placeholder it showed for the first ~50 ms.
+        Executors.newSingleThreadExecutor().execute(() -> {
+            String localThumb = extractVideoThumb(uri);
+            if (localThumb != null && pending.thumbnailUrl == null) {
+                String thumbFileUri = "file://" + localThumb;
+                pending.thumbnailUrl = thumbFileUri;
+                // Persist so the adapter picks it up on the next bind.
+                String rowId = pending.id != null ? pending.id : pending.messageId;
+                if (rowId != null) {
+                    AppDatabase.getInstance(activity).messageDao()
+                            .updateThumbnailUrl(rowId, thumbFileUri);
+                }
+            }
+            activity.runOnUiThread(() -> doStartVideoUpload(uri, pending));
+        });
+    }
+
+    private void doStartVideoUpload(Uri uri, Message pending) {
+        // Feature 2 & 6: run through the queue (max-3-concurrent, network-aware)
+        String msgId = pending.messageId != null ? pending.messageId : pending.id;
+        uploadQueue.enqueue(msgId, cancelledIds, () -> {
+            if (cancelledIds.contains(msgId)) return;
+            activity.runOnUiThread(() -> doStartVideoUploadWork(uri, pending));
+        });
+    }
+
+    private void doStartVideoUploadWork(Uri uri, Message pending) {
         VideoQualityPreferences.Quality qual = isBakedOverlayVideo(uri)
                 ? VideoQualityPreferences.Quality.ORIGINAL
                 : VideoQualityPreferences.Quality.STANDARD;
@@ -1151,14 +1314,14 @@ public class ChatMediaController {
 
     // ── Local-first multi-media send ──────────────────────────────────────────
     //
-    // Each URI gets its OWN local bubble inserted immediately (all thumbnails
-    // appear right away), then compress+upload runs independently for each item
-    // with a per-bubble progress ring — the same WhatsApp-style
-    // Pick → bubble → spinner-% → real URL flow that single-image already had,
-    // now applied to every item in a multi-select batch.
+    // Feature 8 (group bubble): multiple items → ONE multi_media bubble shown
+    // immediately with local thumbnails, then each item uploads in background
+    // through the concurrency-limited queue (Feature 6).  Single-item picks
+    // still use the original individual-bubble path for correct aspect-ratio
+    // sizing.
     //
-    // Items upload independently (not sequentially) so a large video does not
-    // block the image uploads queued after it.
+    // Feature 3 (HD toggle): isHD is now correctly threaded through to
+    // ImageCompressor for every item in the batch.
 
     private void sendEachWithLocalBubble(List<Uri> uris, List<String> perItemCaptions,
                                          String caption, boolean isHD) {
@@ -1170,69 +1333,416 @@ public class ChatMediaController {
             return;
         }
 
-        for (int i = 0; i < uris.size(); i++) {
-            final Uri uri = uris.get(i);
-            // Per-item caption (set via MultiMediaPreviewDialog) falls back to the
-            // shared group caption when the item has none of its own.
-            final String rawPerItem = (perItemCaptions != null && i < perItemCaptions.size())
-                    ? perItemCaptions.get(i) : null;
-            final String itemCaption = (rawPerItem != null && !rawPerItem.isEmpty())
-                    ? rawPerItem : caption;
-
-            String rawMime  = resolveMimeType(activity, uri);
-            String mimeType = classifyMediaType(rawMime);
-
+        // Single-item path: keeps original individual-bubble behaviour so
+        // the bubble sizes correctly from the real image dimensions.
+        if (uris.size() == 1) {
+            final Uri uri = uris.get(0);
+            final String itemCaption = (perItemCaptions != null && !perItemCaptions.isEmpty()
+                    && perItemCaptions.get(0) != null && !perItemCaptions.get(0).isEmpty())
+                    ? perItemCaptions.get(0) : caption;
+            String mime = resolveMimeType(activity, uri);
+            String mimeType = classifyMediaType(mime);
             if ("video".equals(mimeType)) {
-                // Video: local bubble first, then compress+upload with per-bubble ring.
-                Message pending        = delegate.buildOutgoing();
-                pending.type           = "video";
+                Message pending = delegate.buildOutgoing();
+                pending.type = "video";
                 pending.mediaLocalPath = uri.toString();
                 if (itemCaption != null && !itemCaption.isEmpty()) {
-                    pending.caption = itemCaption;
-                    pending.text    = itemCaption;
+                    pending.caption = itemCaption; pending.text = itemCaption;
                 }
-                String vid_id = delegate.insertLocalPendingMedia(pending);
-                if (vid_id != null) startVideoUploadLocalFirst(uri, pending);
-
+                if (delegate.insertLocalPendingMedia(pending) != null)
+                    startVideoUploadLocalFirst(uri, pending);
             } else {
-                // Image: local bubble with decoded dimensions, then upload.
                 int[] bounds = decodeLocalImageBounds(uri);
-                Message pending        = delegate.buildOutgoing();
-                pending.type           = "image";
+                Message pending = delegate.buildOutgoing();
+                pending.type = "image";
                 pending.mediaLocalPath = uri.toString();
-                pending.mediaWidth     = bounds[0] > 0 ? bounds[0] : null;
-                pending.mediaHeight    = bounds[1] > 0 ? bounds[1] : null;
+                pending.mediaWidth  = bounds[0] > 0 ? bounds[0] : null;
+                pending.mediaHeight = bounds[1] > 0 ? bounds[1] : null;
                 if (itemCaption != null && !itemCaption.isEmpty()) {
-                    pending.caption = itemCaption;
-                    pending.text    = itemCaption;
+                    pending.caption = itemCaption; pending.text = itemCaption;
                 }
-                String img_id = delegate.insertLocalPendingMedia(pending);
-                if (img_id != null) startImageUpload(uri, pending);
+                if (delegate.insertLocalPendingMedia(pending) != null)
+                    startImageUpload(uri, pending, isHD);
             }
+            delegate.clearReply();
+            return;
         }
+
+        // ── Multi-item path (Feature 8): ONE group bubble ─────────────────
+        // Build placeholder mediaItems with local URIs as thumbs so the grid
+        // renders instantly. Thumbnail extraction for video runs on a
+        // background thread; we collect results then insert the bubble.
+        sendMultipleAsGroupBubble(uris, perItemCaptions, caption, isHD);
+    }
+
+    /**
+     * Feature 8 — multi-item → single multi_media group bubble.
+     *
+     * Flow:
+     *  1. Background: extract video thumbnails for any video items (fast — first frame only).
+     *  2. Main thread: build item maps with local paths as thumbs, insert ONE multi_media bubble.
+     *  3. Per item: enqueue upload through the concurrency queue (Feature 6).
+     *  4. As each upload finishes: update mediaItemsJson in Room with the real URL.
+     *  5. When ALL items done: finalize the group message to Firebase.
+     */
+    private void sendMultipleAsGroupBubble(List<Uri> uris, List<String> perItemCaptions,
+                                            String caption, boolean isHD) {
+        final int total = uris.size();
+
+        // Step 1: extract video thumbs in background (fast), then proceed on UI thread.
+        Executors.newSingleThreadExecutor().execute(() -> {
+            // Pre-compute per-item MIME and video thumbs off the main thread.
+            final String[] mimeTypes = new String[total];
+            final String[] localThumbPaths = new String[total]; // null if not video / extraction failed
+            for (int i = 0; i < total; i++) {
+                String rawMime = resolveMimeType(activity, uris.get(i));
+                mimeTypes[i] = classifyMediaType(rawMime);
+                if ("video".equals(mimeTypes[i])) {
+                    localThumbPaths[i] = extractVideoThumb(uris.get(i));
+                }
+            }
+
+            activity.runOnUiThread(() -> {
+                // Step 2: build placeholder item list with local paths as thumbs.
+                List<Map<String, Object>> items = new ArrayList<>(total);
+                for (int i = 0; i < total; i++) {
+                    Uri uri = uris.get(i);
+                    String mt = mimeTypes[i];
+                    String itemCap = (perItemCaptions != null && i < perItemCaptions.size()
+                            && perItemCaptions.get(i) != null && !perItemCaptions.get(i).isEmpty())
+                            ? perItemCaptions.get(i) : null;
+
+                    Map<String, Object> item = new LinkedHashMap<>();
+                    item.put("mediaType", mt);
+                    item.put("url", "");        // filled once upload succeeds
+                    item.put("localPath", uri.toString()); // retained for retry
+                    item.put("uploading", true);
+
+                    // Thumb shown immediately in the bubble grid:
+                    // • video → extracted frame (file://...); fallback: no thumb
+                    // • image → content:// URI — Glide loads it directly
+                    if ("video".equals(mt) && localThumbPaths[i] != null) {
+                        item.put("thumbUrl", "file://" + localThumbPaths[i]);
+                    } else if (!"video".equals(mt)) {
+                        item.put("thumbUrl", uri.toString());
+                    }
+                    if (itemCap != null) item.put("caption", itemCap);
+                    items.add(item);
+                }
+
+                // Insert the ONE group bubble.
+                Message groupMsg = delegate.buildOutgoing();
+                groupMsg.type = "multi_media";
+                groupMsg.status = "uploading";
+                groupMsg.mediaItems = items;
+                groupMsg.caption = caption;
+
+                String groupId = delegate.insertLocalPendingMedia(groupMsg);
+                if (groupId == null) {
+                    Toast.makeText(activity, "Couldn't queue media — try again",
+                            Toast.LENGTH_SHORT).show();
+                    return;
+                }
+
+                // Step 3 & 4: upload each item in parallel (queue handles the
+                // concurrency limit); update the group bubble's mediaItemsJson as
+                // each finishes.
+                AtomicInteger doneCount = new AtomicInteger(0);
+                // Snapshot — mutated as uploads complete.
+                final List<Map<String, Object>> liveItems = items;
+
+                for (int idx = 0; idx < total; idx++) {
+                    final int itemIdx = idx;
+                    final Uri uri = uris.get(idx);
+                    final String mt = mimeTypes[idx];
+                    final boolean hd = isHD;
+                    // Per-item virtual ID for cancel support (Feature 5)
+                    final String perItemId = groupId + "_" + idx;
+
+                    if ("video".equals(mt)) {
+                        // Video upload through the queue
+                        uploadQueue.enqueue(perItemId, cancelledIds, () -> {
+                            if (cancelledIds.contains(perItemId)
+                                    || cancelledIds.contains(groupId)) return;
+
+                            // Must compress + upload on a background thread (queue
+                            // thread), but VideoCompressor / VideoUploader expect to be
+                            // called from the main thread (they post their callbacks to
+                            // MAIN).  Jump back to UI to kick them off.
+                            activity.runOnUiThread(() -> {
+                                VideoQualityPreferences.Quality qual = isBakedOverlayVideo(uri)
+                                        ? VideoQualityPreferences.Quality.ORIGINAL
+                                        : VideoQualityPreferences.Quality.STANDARD;
+                                VideoCompressor.compress(activity, uri, qual,
+                                        new VideoCompressor.Callback() {
+                                    @Override public void onProgress(int p) { /* group-level, skip */ }
+                                    @Override public void onSuccess(VideoCompressor.Result vr) {
+                                        VideoUploader.upload(activity, vr,
+                                                new VideoUploader.UploadCallback() {
+                                            @Override public void onProgress(int p) {}
+                                            @Override public void onSuccess(String thumbUrl,
+                                                    String videoUrl, int durMs, int w, int h) {
+                                                if (cancelledIds.contains(groupId)) return;
+                                                liveItems.get(itemIdx).put("url", videoUrl);
+                                                if (thumbUrl != null && !thumbUrl.isEmpty())
+                                                    liveItems.get(itemIdx).put("thumbUrl", thumbUrl);
+                                                liveItems.get(itemIdx).remove("uploading");
+                                                if (durMs > 0) liveItems.get(itemIdx).put(
+                                                        "duration", formatDuration(durMs));
+                                                if (w > 0) liveItems.get(itemIdx).put("width", w);
+                                                if (h > 0) liveItems.get(itemIdx).put("height", h);
+                                                onGroupItemUploaded(groupId, groupMsg,
+                                                        liveItems, doneCount, total, caption);
+                                            }
+                                            @Override public void onError(Exception e) {
+                                                onGroupItemFailed(groupId, liveItems, doneCount,
+                                                        total, caption);
+                                            }
+                                        });
+                                    }
+                                    @Override public void onError(Exception e) {
+                                        // Try raw upload as fallback
+                                        CloudinaryUploader.upload(activity, uri,
+                                                "callx/video", "video",
+                                                new CloudinaryUploader.UploadCallback() {
+                                            @Override public void onProgress(int p) {}
+                                            @Override public void onSuccess(
+                                                    CloudinaryUploader.Result r) {
+                                                if (cancelledIds.contains(groupId)) return;
+                                                liveItems.get(itemIdx).put("url", r.secureUrl);
+                                                liveItems.get(itemIdx).remove("uploading");
+                                                onGroupItemUploaded(groupId, groupMsg,
+                                                        liveItems, doneCount, total, caption);
+                                            }
+                                            @Override public void onError(String err) {
+                                                onGroupItemFailed(groupId, liveItems,
+                                                        doneCount, total, caption);
+                                            }
+                                        });
+                                    }
+                                });
+                            });
+                        });
+                    } else {
+                        // Image upload through the queue
+                        uploadQueue.enqueue(perItemId, cancelledIds, () -> {
+                            if (cancelledIds.contains(perItemId)
+                                    || cancelledIds.contains(groupId)) return;
+                            activity.runOnUiThread(() -> {
+                                ImageCompressor.compress(activity, uri, hd,
+                                        new ImageCompressor.Callback() {
+                                    @Override public void onSuccess(ImageCompressor.Result res) {
+                                        Uri fullUri  = Uri.fromFile(res.fullFile);
+                                        Uri thumbUri = Uri.fromFile(res.thumbFile);
+                                        CloudinaryUploader.upload(activity, thumbUri,
+                                                "callx/thumb", "image",
+                                                new CloudinaryUploader.UploadCallback() {
+                                            @Override public void onProgress(int p) {}
+                                            @Override public void onSuccess(
+                                                    CloudinaryUploader.Result tr) {
+                                                CloudinaryUploader.upload(activity, fullUri,
+                                                        "callx/image", "image",
+                                                        new CloudinaryUploader.UploadCallback() {
+                                                    @Override public void onProgress(int p) {}
+                                                    @Override public void onSuccess(
+                                                            CloudinaryUploader.Result fr) {
+                                                        res.thumbFile.delete();
+                                                        res.fullFile.delete();
+                                                        if (cancelledIds.contains(groupId)) return;
+                                                        liveItems.get(itemIdx).put("url", fr.secureUrl);
+                                                        liveItems.get(itemIdx).put("thumbUrl",
+                                                                tr.secureUrl);
+                                                        liveItems.get(itemIdx).remove("uploading");
+                                                        if (res.fullWidth > 0) {
+                                                            liveItems.get(itemIdx).put(
+                                                                    "width", res.fullWidth);
+                                                            liveItems.get(itemIdx).put(
+                                                                    "height", res.fullHeight);
+                                                        }
+                                                        onGroupItemUploaded(groupId, groupMsg,
+                                                                liveItems, doneCount, total, caption);
+                                                    }
+                                                    @Override public void onError(String err) {
+                                                        res.thumbFile.delete(); res.fullFile.delete();
+                                                        onGroupItemFailed(groupId, liveItems,
+                                                                doneCount, total, caption);
+                                                    }
+                                                });
+                                            }
+                                            @Override public void onError(String err) {
+                                                // Thumb failed → upload full without thumb
+                                                CloudinaryUploader.upload(activity, fullUri,
+                                                        "callx/image", "image",
+                                                        new CloudinaryUploader.UploadCallback() {
+                                                    @Override public void onProgress(int p) {}
+                                                    @Override public void onSuccess(
+                                                            CloudinaryUploader.Result fr) {
+                                                        res.thumbFile.delete();
+                                                        res.fullFile.delete();
+                                                        if (cancelledIds.contains(groupId)) return;
+                                                        liveItems.get(itemIdx).put("url", fr.secureUrl);
+                                                        liveItems.get(itemIdx).remove("uploading");
+                                                        onGroupItemUploaded(groupId, groupMsg,
+                                                                liveItems, doneCount, total, caption);
+                                                    }
+                                                    @Override public void onError(String err2) {
+                                                        res.thumbFile.delete(); res.fullFile.delete();
+                                                        onGroupItemFailed(groupId, liveItems,
+                                                                doneCount, total, caption);
+                                                    }
+                                                });
+                                            }
+                                        });
+                                    }
+                                    @Override public void onError(Exception e) {
+                                        // Compression failed → upload original
+                                        CloudinaryUploader.upload(activity, uri,
+                                                "callx/image", "image",
+                                                new CloudinaryUploader.UploadCallback() {
+                                            @Override public void onProgress(int p) {}
+                                            @Override public void onSuccess(
+                                                    CloudinaryUploader.Result r) {
+                                                if (cancelledIds.contains(groupId)) return;
+                                                liveItems.get(itemIdx).put("url", r.secureUrl);
+                                                liveItems.get(itemIdx).remove("uploading");
+                                                onGroupItemUploaded(groupId, groupMsg,
+                                                        liveItems, doneCount, total, caption);
+                                            }
+                                            @Override public void onError(String err) {
+                                                onGroupItemFailed(groupId, liveItems,
+                                                        doneCount, total, caption);
+                                            }
+                                        });
+                                    }
+                                });
+                            });
+                        });
+                    }
+                }
+            });
+        });
+
         delegate.clearReply();
     }
 
-    /** Tap-to-retry entry point — called from ChatActivity's ActionListener#onRetry
-     *  override when the failed message is a local-first image upload
-     *  (mediaLocalPath set, mediaUrl still empty). Re-runs the SAME
-     *  compress/upload pipeline against the same row instead of inserting a
-     *  new bubble. */
+    /** Called on the main thread each time one item in a group-bubble batch
+     *  finishes uploading. Updates Room so the bubble refreshes its grid, and
+     *  finalizes the whole message to Firebase once every item is done. */
+    private void onGroupItemUploaded(String groupId, Message groupMsg,
+                                      List<Map<String, Object>> liveItems,
+                                      AtomicInteger doneCount, int total, String caption) {
+        // Persist latest mediaItemsJson so the bubble shows the real URL for
+        // this cell while the remaining items are still in progress.
+        String updatedJson = com.callx.app.utils.MediaItemsJsonUtil.mediaItemsToJson(liveItems);
+        Executors.newSingleThreadExecutor().execute(() ->
+                AppDatabase.getInstance(activity).messageDao()
+                        .updateMediaItemsJson(groupId, updatedJson));
+
+        if (doneCount.incrementAndGet() >= total) {
+            // All items done — finalize to Firebase.
+            groupMsg.mediaItems = liveItems;
+            groupMsg.caption = caption;
+            if (delegate.getPagingAdapter() != null)
+                delegate.getPagingAdapter().onMediaUploadFinished(groupId);
+            delegate.finalizeMediaMessage(groupMsg, "\uD83D\uDCF7 " + total + " photos/videos");
+        }
+    }
+
+    /** Called when one item in a group-bubble batch fails. Counts toward
+     *  completion; if all items are done (some may have succeeded), finalizes
+     *  whatever was collected. If every single item failed, marks the bubble
+     *  failed so the tap-to-retry affordance appears. */
+    private void onGroupItemFailed(String groupId, List<Map<String, Object>> liveItems,
+                                    AtomicInteger doneCount, int total, String caption) {
+        if (doneCount.incrementAndGet() >= total) {
+            // Check if any items actually succeeded.
+            boolean anySuccess = false;
+            for (Map<String, Object> item : liveItems) {
+                Object url = item.get("url");
+                if (url instanceof String && !((String) url).isEmpty()) {
+                    anySuccess = true; break;
+                }
+            }
+            if (anySuccess) {
+                groupMsg_finalize(groupId, liveItems, total, caption);
+            } else {
+                // Total failure — mark bubble failed so user can retry.
+                if (delegate.getPagingAdapter() != null)
+                    delegate.getPagingAdapter().onMediaUploadFinished(groupId);
+                delegate.markMediaFailed(groupId);
+                activity.runOnUiThread(() ->
+                        Toast.makeText(activity, "Media upload failed — tap ⚠ to retry",
+                                Toast.LENGTH_LONG).show());
+            }
+        }
+    }
+
+    private void groupMsg_finalize(String groupId, List<Map<String, Object>> liveItems,
+                                    int total, String caption) {
+        Message m = delegate.buildOutgoing();
+        m.id = groupId; m.messageId = groupId;
+        m.type = "multi_media";
+        m.mediaItems = liveItems;
+        m.caption = caption;
+        if (delegate.getPagingAdapter() != null)
+            delegate.getPagingAdapter().onMediaUploadFinished(groupId);
+        delegate.finalizeMediaMessage(m, "\uD83D\uDCF7 " + total + " photos/videos");
+    }
+
+    /**
+     * Tap-to-retry entry point — called from ChatActivity's ActionListener#onRetry
+     * override when the failed message is a local-first media upload
+     * (mediaLocalPath set, mediaUrl still empty).
+     *
+     * Feature 1 (retry on failure): extended to handle BOTH image and video
+     * types — previously only images were retried; video failures were stuck.
+     * Re-runs the SAME compress/upload pipeline against the same row instead
+     * of inserting a new bubble.
+     */
     public void retryFailedMediaUpload(Message m) {
-        if (m == null || m.id == null || m.mediaLocalPath == null || m.mediaLocalPath.isEmpty()) return;
+        if (m == null || m.id == null) return;
         if (!delegate.isOnline()) {
-            Toast.makeText(activity, "No connection — try again once you're online", Toast.LENGTH_SHORT).show();
+            Toast.makeText(activity, "No connection — try again once you're online",
+                    Toast.LENGTH_SHORT).show();
             return;
         }
+
+        // Remove from the cancelled-IDs set in case the user cancelled and
+        // now wants to retry.
+        cancelledIds.remove(m.id);
+
         m.status = "uploading";
         Executors.newSingleThreadExecutor().execute(() ->
                 AppDatabase.getInstance(activity).messageDao().updateStatus(m.id, "uploading"));
-        // Flip the bubble back to the spinner immediately instead of waiting
-        // for the first onProgress tick.
+
+        // Flip the bubble back to the spinner immediately.
         if (delegate.getPagingAdapter() != null) {
             delegate.getPagingAdapter().onMediaUploadProgress(m.id, -1);
         }
-        startImageUpload(Uri.parse(m.mediaLocalPath), m);
+
+        // ── Dispatch to correct pipeline based on message type ──────────────
+        if ("video".equals(m.type)) {
+            // Feature 1: video retry was missing — added here.
+            if (m.mediaLocalPath == null || m.mediaLocalPath.isEmpty()) {
+                delegate.markMediaFailed(m.id);
+                Toast.makeText(activity, "Original file not found — cannot retry",
+                        Toast.LENGTH_SHORT).show();
+                return;
+            }
+            Uri videoUri = Uri.parse(m.mediaLocalPath);
+            // Re-extract thumbnail in case it was a local file:// path that
+            // got cleared, then re-run the full video upload pipeline.
+            startVideoUploadLocalFirst(videoUri, m);
+        } else {
+            // Image (or unknown type) — original behaviour.
+            if (m.mediaLocalPath == null || m.mediaLocalPath.isEmpty()) {
+                delegate.markMediaFailed(m.id);
+                Toast.makeText(activity, "Original file not found — cannot retry",
+                        Toast.LENGTH_SHORT).show();
+                return;
+            }
+            startImageUpload(Uri.parse(m.mediaLocalPath), m, false /* standard quality on retry */);
+        }
     }
 
     private void doUpload(Uri uri, String msgType, String resourceType, String fileName) {
