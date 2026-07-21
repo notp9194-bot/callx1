@@ -95,6 +95,16 @@ public class CallxApp extends Application {
             }
         });
 
+        // ── SILENT FINISH WATCHER: app-wide, no per-activity opt-in needed ──
+        // Same coverage model as the uncaught-exception handler above, but
+        // for the OTHER kind of invisible bug: an activity that flashes open
+        // and closes itself via finish() in a guard clause, with no
+        // exception thrown and therefore nothing for the handler above to
+        // catch. Any activity, anywhere in the app, that finishes abnormally
+        // fast without the user ever seeing it resume gets routed into the
+        // same on-device crash dialog.
+        registerActivityLifecycleCallbacks(new com.callx.app.utils.SilentFinishWatcher());
+
         // ── PERF: StrictMode (DEBUG builds only) ──────────────────────────
         // Catches exactly the class of bug the user asked to check for:
         // accidental disk/DB/network calls hiding inside RecyclerView
