@@ -55,7 +55,7 @@ import com.callx.app.db.entity.*;
         ChatFolderEntity.class,
         SavedMessageEntity.class
     },
-    version = 43,
+    version = 44,
     exportSchema = false
 )
 public abstract class AppDatabase extends RoomDatabase {
@@ -536,6 +536,27 @@ public abstract class AppDatabase extends RoomDatabase {
         }
     };
 
+    // ─── Migration 43 → 44 ────────────────────────────────────────────────────
+    //
+    // BUG FIX: MessageEntity.blurHash was present on the Message model and
+    // populated at send time by ChatMediaController (right after the thumbnail
+    // upload succeeds), but had no matching Room column, so it was silently
+    // dropped on every Firebase → Room round-trip.  Receivers never saw the
+    // BlurHash placeholder for either images or videos — they got a grey
+    // skeleton instead of the instant blurred-color preview.
+    //
+    // Also adds the @PropertyName("thumbUrl") annotation to
+    // MessageEntity.thumbnailUrl so Firebase RTDB deserialises the "thumbUrl"
+    // key (written by the sender) into the correct Java field instead of
+    // dropping it silently (no DB column change needed for thumbnailUrl itself).
+    //
+    static final Migration MIGRATION_43_44 = new Migration(43, 44) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase db) {
+            db.execSQL("ALTER TABLE messages ADD COLUMN blurHash TEXT");
+        }
+    };
+
     // ─── Singleton ────────────────────────────────────────────────────────────
 
     public static boolean isWarm() { return sInstance != null; }
@@ -555,7 +576,7 @@ public abstract class AppDatabase extends RoomDatabase {
                                     MIGRATION_36_37, MIGRATION_37_38,
                                     MIGRATION_38_39, MIGRATION_39_40,
                                     MIGRATION_40_41, MIGRATION_41_42,
-                                    MIGRATION_42_43)
+                                    MIGRATION_42_43, MIGRATION_43_44)
                             .fallbackToDestructiveMigrationFrom(1, 2, 3, 4, 5, 6, 7, 8,
                                     9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
                                     21, 22, 23, 24, 25, 26, 27, 28, 29)

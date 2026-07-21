@@ -276,6 +276,8 @@ public class ChatMessageSender {
         e.reelShareOwnerPhoto = m.reelShareOwnerPhoto;
         e.mediaItemsJson      = com.callx.app.utils.MediaItemsJsonUtil.mediaItemsToJson(m.mediaItems);
         e.caption             = m.caption;
+        // BUG FIX (v44): blurHash — see AppDatabase.MIGRATION_43_44.
+        e.blurHash            = m.blurHash;
         e.contactName         = m.contactName;
         e.contactPhone        = m.contactPhone;
         e.contactPhone2       = m.contactPhone2;

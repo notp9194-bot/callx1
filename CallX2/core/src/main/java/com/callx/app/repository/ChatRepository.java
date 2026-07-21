@@ -359,6 +359,8 @@ public class ChatRepository {
         e.locationLat     = m.locationLat;
         e.locationLng     = m.locationLng;
         e.locationAddress = m.locationAddress;
+        // BUG FIX (v44): blurHash — see AppDatabase.MIGRATION_43_44.
+        e.blurHash        = m.blurHash;
         e.syncedAt        = System.currentTimeMillis();
         return e;
     }

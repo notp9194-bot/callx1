@@ -36,7 +36,27 @@ public class MessageEntity {
     public String text;
     public String type;           // text | image | video | audio | file | status_seen
     public String mediaUrl;
+
+    // BUG FIX (v44): Firebase stores the thumbnail as "thumbUrl" but this
+    // field was named "thumbnailUrl" — the Firebase RTDB deserializer maps
+    // keys to Java field names verbatim, so the value was silently dropped
+    // on every Firebase → Room round-trip. Receivers never saw a thumbnail
+    // for images; video bubbles fell back to loading the raw video URL via
+    // Glide (which triggered a full video download as a side-effect).
+    // @PropertyName("thumbUrl") tells the Firebase SDK to map the "thumbUrl"
+    // key from Firebase into this Java field; Room still uses the column
+    // name "thumbnailUrl" (via @ColumnInfo), so no DB migration is needed
+    // for the thumbnailUrl column itself.
+    @com.google.firebase.database.PropertyName("thumbUrl")
+    @androidx.room.ColumnInfo(name = "thumbnailUrl")
     public String thumbnailUrl;
+
+    // BUG FIX (v44): blurHash field was present on Message model and
+    // populated at send time (ChatMediaController), but had no matching
+    // field in MessageEntity — so it was silently dropped on every
+    // Firebase → Room round-trip. Receivers never saw BlurHash placeholders.
+    // See AppDatabase.MIGRATION_43_44 for the matching column migration.
+    public String blurHash;
     public String fileName;
     public Long   fileSize;
     public Long   duration;

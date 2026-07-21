@@ -1435,6 +1435,8 @@ public class GroupChatActivity extends AppCompatActivity
         e.syncedAt              = System.currentTimeMillis();
         e.fontStyle             = m.fontStyle;
         e.expiresAt             = m.expiresAt;  // Disappearing messages
+        // BUG FIX (v44): blurHash — see AppDatabase.MIGRATION_43_44.
+        e.blurHash              = m.blurHash;
         e.pollQuestion          = m.pollQuestion;
         e.pollOptionsJson       = com.callx.app.utils.PollJsonUtil.optionsToJson(m.pollOptions);
         e.pollVotesJson         = com.callx.app.utils.PollJsonUtil.votesToJson(m.pollVotes);

@@ -2747,6 +2747,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // BUG FIX (v43): see AppDatabase.MIGRATION_42_43 — these previously
         // had no Room column and were silently dropped on every round-trip.
         e.mediaWidth = m.mediaWidth; e.mediaHeight = m.mediaHeight;
+        // BUG FIX (v44): blurHash — see AppDatabase.MIGRATION_43_44.
+        e.blurHash = m.blurHash;
         e.syncedAt = System.currentTimeMillis();
         return e;
     }

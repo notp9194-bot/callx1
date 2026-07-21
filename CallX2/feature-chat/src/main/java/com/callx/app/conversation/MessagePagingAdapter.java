@@ -2574,7 +2574,15 @@ public class MessagePagingAdapter
             // for the preview frame, same fallback order, and format the
             // duration badge the same "m:ss" way.
             final String vUrl = m.mediaUrl != null ? m.mediaUrl : m.text;
-            final String vThumbUrl = (m.thumbnailUrl != null && !m.thumbnailUrl.isEmpty()) ? m.thumbnailUrl : vUrl;
+            // BUG FIX (v44): Never fall back to the raw video URL for the
+            // thumbnail.  If thumbnailUrl is null (e.g. because the Firebase
+            // → Room mapping was broken before v44), Glide would try to decode
+            // the full mp4 URL as a Bitmap — this triggered a complete video
+            // download as a side-effect, causing "pura video download hota
+            // chat kholte hi". Now we fall back to null so the canvas shows
+            // the BlurHash (or a plain dark background) until the thumbnail
+            // URL arrives via the fixed mapping.
+            final String vThumbUrl = (m.thumbnailUrl != null && !m.thumbnailUrl.isEmpty()) ? m.thumbnailUrl : null;
             String durText = null;
             if (m.duration != null && m.duration > 0) {
                 long secs = m.duration / 1000;
@@ -2635,6 +2643,47 @@ public class MessagePagingAdapter
                                 cv.setMediaBitmap(null);
                             }
                         });
+                }
+            }
+
+            // ── WhatsApp-style video download gate (receiver side only) ──────
+            // Sender already has the file locally (mediaLocalPath) so no gate.
+            // Receiver must tap the download pill → video downloads to local
+            // cache → tap play to open the player.  This is the same pattern
+            // as the image download gate above, just gated on "video" type.
+            if (!sent && vUrl != null && !vUrl.isEmpty()) {
+                boolean vLocalAvail = m.mediaLocalPath != null && !m.mediaLocalPath.isEmpty()
+                        && Boolean.TRUE.equals(checkLocalAvailabilityAsync(ctx, m.mediaLocalPath,
+                                m.messageId != null ? m.messageId : m.id));
+                java.io.File vCached = vLocalAvail ? null
+                        : com.callx.app.utils.MediaCache.getCached(ctx, vUrl);
+                if (vLocalAvail || vCached != null) {
+                    // Already on device — no gate needed.
+                    cv.clearMediaDownloadGate();
+                } else {
+                    boolean vIsDownloading = downloadingMediaUrls.contains(vUrl);
+                    if (vIsDownloading) {
+                        cv.setMediaDownloadGate(true, -1, null);
+                    } else {
+                        // Show idle pill: file size if already known, "Video" otherwise.
+                        if (m.fileSize != null && m.fileSize > 0) {
+                            cv.setMediaDownloadGate(false, Integer.MIN_VALUE,
+                                    formatFileSize(m.fileSize));
+                        } else {
+                            cv.setMediaDownloadGate(false, Integer.MIN_VALUE, "Video");
+                            final String capturedVUrlSize = vUrl;
+                            com.callx.app.utils.MediaCache.getRemoteSize(ctx, capturedVUrlSize,
+                                    new com.callx.app.utils.MediaCache.SizeCallback() {
+                                @Override public void onSize(long bytes) {
+                                    if (h.canvasBindToken != myToken) return;
+                                    if (!downloadingMediaUrls.contains(capturedVUrlSize))
+                                        cv.setMediaDownloadGate(false, Integer.MIN_VALUE,
+                                                formatFileSize(bytes));
+                                }
+                                @Override public void onError(String reason) {}
+                            });
+                        }
+                    }
                 }
             }
         } else if (isContact) {
@@ -3168,20 +3217,77 @@ public class MessagePagingAdapter
                     String fullUrl = m.mediaUrl != null ? m.mediaUrl : m.text;
                     showImageActionSheet(ctx, m, fullUrl, fullUrl);
                 } else if (isVideo) {
-                    // Mirrors the legacy fl_video/ivImage-fallback click
-                    // listeners — open MediaViewerActivity with the raw
-                    // video URL (not the thumbnail).
-                    String vUrl = m.mediaUrl != null ? m.mediaUrl : m.text;
-                    android.content.Intent i = new android.content.Intent().setClassName(
-                            ctx.getPackageName(), "com.callx.app.activities.MediaViewerActivity");
-                    i.putExtra("url", vUrl);
-                    i.putExtra("type", "video");
-                    if (m.mediaLocalPath != null && !m.mediaLocalPath.isEmpty()) {
-                        i.putExtra("localPath", m.mediaLocalPath);
+                    // WhatsApp-style video tap:
+                    //   Sender / already-cached → open player immediately.
+                    //   Receiver + not yet cached → start download via
+                    //   MediaDownloadQueue, show progress on the gate, then
+                    //   open the player from the local file when done.
+                    final String vUrl2 = m.mediaUrl != null ? m.mediaUrl : m.text;
+                    if (vUrl2 == null || vUrl2.isEmpty()) return;
+
+                    // Check local availability: sender's original file or
+                    // a previously downloaded cached copy.
+                    boolean vHasLocal = m.mediaLocalPath != null && !m.mediaLocalPath.isEmpty()
+                            && Boolean.TRUE.equals(checkLocalAvailabilityAsync(ctx,
+                                    m.mediaLocalPath, m.messageId != null ? m.messageId : m.id));
+                    java.io.File vCachedFile = vHasLocal ? null
+                            : com.callx.app.utils.MediaCache.getCached(ctx, vUrl2);
+
+                    if (sent || vHasLocal || vCachedFile != null) {
+                        // Already on device — open player directly.
+                        android.content.Intent i = new android.content.Intent().setClassName(
+                                ctx.getPackageName(), "com.callx.app.activities.MediaViewerActivity");
+                        i.putExtra("url", vUrl2);
+                        i.putExtra("type", "video");
+                        if (vHasLocal) {
+                            i.putExtra("localPath", m.mediaLocalPath);
+                        } else if (vCachedFile != null) {
+                            i.putExtra("localPath", vCachedFile.getAbsolutePath());
+                        }
+                        i.putExtra("chatId", chatId);
+                        i.putExtra("messageId", m.messageId != null ? m.messageId : m.id);
+                        ctx.startActivity(i);
+                    } else if (downloadingMediaUrls.contains(vUrl2)) {
+                        // Already downloading — the gate shows progress; nothing to do.
+                    } else {
+                        // Not cached → download first, then play.
+                        // (Same as tapping the download pill but initiated via the
+                        // play-button tap so the UX feels seamless.)
+                        downloadingMediaUrls.add(vUrl2);
+                        cv.setMediaDownloadGate(true, 0, null);
+                        MediaDownloadQueue.getInstance(ctx).enqueue(vUrl2, null, () -> {
+                            com.callx.app.utils.MediaCache.getWithProgress(ctx, vUrl2,
+                                    new com.callx.app.utils.MediaCache.ProgressCallback() {
+                                @Override public void onProgress(int percent) {
+                                    if (h.canvasBindToken != myToken) return;
+                                    cv.setMediaDownloadGate(true, percent, null);
+                                }
+                                @Override public void onReady(java.io.File file) {
+                                    downloadingMediaUrls.remove(vUrl2);
+                                    if (h.canvasBindToken != myToken) return;
+                                    cv.clearMediaDownloadGate();
+                                    ((android.app.Activity) ctx).runOnUiThread(() -> {
+                                        android.content.Intent i2 = new android.content.Intent()
+                                                .setClassName(ctx.getPackageName(),
+                                                        "com.callx.app.activities.MediaViewerActivity");
+                                        i2.putExtra("url", vUrl2);
+                                        i2.putExtra("type", "video");
+                                        i2.putExtra("localPath", file.getAbsolutePath());
+                                        i2.putExtra("chatId", chatId);
+                                        i2.putExtra("messageId",
+                                                m.messageId != null ? m.messageId : m.id);
+                                        ctx.startActivity(i2);
+                                    });
+                                }
+                                @Override public void onError(String reason) {
+                                    downloadingMediaUrls.remove(vUrl2);
+                                    if (h.canvasBindToken != myToken) return;
+                                    cv.setMediaDownloadGate(false, Integer.MIN_VALUE,
+                                            "Tap to retry");
+                                }
+                            });
+                        });
                     }
-                    i.putExtra("chatId", chatId);
-                    i.putExtra("messageId", m.messageId != null ? m.messageId : m.id);
-                    ctx.startActivity(i);
                 } else if (isReelShare) {
                     // Mirrors the legacy ll_reel_share.setOnClickListener —
                     // deep-link into the reel by ID, falling back to the
@@ -3252,6 +3358,49 @@ public class MessagePagingAdapter
                     });
                     return;
                 }
+                // ── Video download gate tap ──────────────────────────────────
+                // Receiver taps the "Video / file-size" pill → download the
+                // full video via MediaDownloadQueue, show progress, then open
+                // the player from the cached local file.
+                if (isVideo) {
+                    final String vDlUrl = m.mediaUrl != null ? m.mediaUrl : m.text;
+                    if (vDlUrl == null || vDlUrl.isEmpty() || downloadingMediaUrls.contains(vDlUrl)) return;
+                    downloadingMediaUrls.add(vDlUrl);
+                    cv.setMediaDownloadGate(true, 0, null);
+                    MediaDownloadQueue.getInstance(ctx).enqueue(vDlUrl, null, () -> {
+                        com.callx.app.utils.MediaCache.getWithProgress(ctx, vDlUrl,
+                                new com.callx.app.utils.MediaCache.ProgressCallback() {
+                            @Override public void onProgress(int percent) {
+                                if (h.canvasBindToken != myToken) return;
+                                cv.setMediaDownloadGate(true, percent, null);
+                            }
+                            @Override public void onReady(java.io.File file) {
+                                downloadingMediaUrls.remove(vDlUrl);
+                                if (h.canvasBindToken != myToken) return;
+                                cv.clearMediaDownloadGate();
+                                ((android.app.Activity) ctx).runOnUiThread(() -> {
+                                    android.content.Intent i3 = new android.content.Intent()
+                                            .setClassName(ctx.getPackageName(),
+                                                    "com.callx.app.activities.MediaViewerActivity");
+                                    i3.putExtra("url", vDlUrl);
+                                    i3.putExtra("type", "video");
+                                    i3.putExtra("localPath", file.getAbsolutePath());
+                                    i3.putExtra("chatId", chatId);
+                                    i3.putExtra("messageId",
+                                            m.messageId != null ? m.messageId : m.id);
+                                    ctx.startActivity(i3);
+                                });
+                            }
+                            @Override public void onError(String reason) {
+                                downloadingMediaUrls.remove(vDlUrl);
+                                if (h.canvasBindToken != myToken) return;
+                                cv.setMediaDownloadGate(false, Integer.MIN_VALUE, "Tap to retry");
+                            }
+                        });
+                    });
+                    return;
+                }
+
                 if (!isImage) return;
                 final String fullUrl = m.mediaUrl != null ? m.mediaUrl : m.text;
                 if (fullUrl == null || fullUrl.isEmpty() || downloadingMediaUrls.contains(fullUrl)) return;
@@ -3992,9 +4141,14 @@ public class MessagePagingAdapter
                     h.flVideo.setVisibility(View.VISIBLE);
                     if (h.ivImage != null) h.ivImage.setVisibility(View.GONE);
                     String vUrl   = m.mediaUrl != null ? m.mediaUrl : m.text;
-                    // POLISH FIX: use Cloudinary thumbnail for preview image, not the raw video URL
+                    // BUG FIX (v44): Never fall back to the raw video URL —
+                    // Glide.asBitmap() on an mp4 URL silently downloads the
+                    // whole file trying to decode a frame.  Use null so the
+                    // skeleton placeholder shows until thumbnailUrl is fixed
+                    // by the @PropertyName mapping.
                     String thumbUrl = (m.thumbnailUrl != null && !m.thumbnailUrl.isEmpty())
-                            ? m.thumbnailUrl : vUrl;
+                            ? m.thumbnailUrl : null;
+                    if (thumbUrl != null) {
                     glide(ctx)
                         .load(thumbUrl)
                         .apply(THUMB_RGB565)
@@ -4003,6 +4157,7 @@ public class MessagePagingAdapter
                         .placeholder(R.drawable.bg_skeleton_rect)
                         .centerCrop()
                         .into(h.ivVideoThumb);
+                    } // else: BlurHash / skeleton stays until thumb URL arrives
                     // Duration overlay
                     if (h.tvDuration != null && m.duration != null && m.duration > 0) {
                         long secs = m.duration / 1000;
