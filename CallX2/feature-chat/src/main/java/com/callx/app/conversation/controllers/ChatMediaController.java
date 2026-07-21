@@ -964,7 +964,6 @@ public class ChatMediaController {
             return;
         }
 
-        ActivityChatBinding binding = delegate.getBinding();
         binding.uploadProgress.setVisibility(View.VISIBLE);
 
         // Audio / file: direct upload
