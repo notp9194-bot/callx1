@@ -240,7 +240,18 @@ public class MessageBubbleCanvasView extends View {
     // "glass" look (bigger radius, subtle border, slightly deeper scrim)
     // instead of the flat hard-edged translucent rectangle.
     static final float MEDIA_CORNER_RADIUS_DP  = 18f;
-    static final float MEDIA_MARGIN_DP         = 2f;   // gap between media edge and bubble edge
+    static final float MEDIA_MARGIN_DP         = 2f;   // unused (kept for reference) — the real media/bubble-edge gap is H_PADDING_DP/V_PADDING_DP, applied where mediaRect is set
+    // v33: single image/video bubbles get a near-square tail corner (vs.
+    // the 4dp TAIL_RADIUS_DP every other bubble type uses) so that corner
+    // visibly "pokes out" past the media's own rounded corner — the
+    // premium chat-bubble-pointer look requested alongside the wall gap
+    // below. Only used for isMedia (bindMedia/bindVideo); every other
+    // bubble type keeps the normal TAIL_RADIUS_DP.
+    static final float MEDIA_TAIL_RADIUS_DP    = 1f;
+    // v33: single image/video bubbles no longer sit flush against the
+    // screen edge — matches the small wall gap every other messaging app
+    // uses for media bubbles. Only applied when isMedia is true.
+    static final float MEDIA_ROW_EDGE_MARGIN_DP = 8f;
     static final float MEDIA_CAPTION_GAP_DP    = 6f;   // gap between image and caption text
     static final float MEDIA_PILL_PADDING_H_DP = 7f;
     static final float MEDIA_PILL_PADDING_V_DP = 4f;
@@ -2167,9 +2178,15 @@ public class MessageBubbleCanvasView extends View {
         footerPaint.setColor(textPaint.getColor());
         tickPaint.setColor(ChatThemeManager.getTickColor(read));
 
-        int cacheKey = (sent ? 1 : 0) << 1 | (hasReply ? 1 : 0);
+        // v33: bit 2 marks "media tail radius" so a recycled holder that
+        // last drew a plain-text bubble (same sent/hasReply, bit 2 = 0)
+        // doesn't wrongly reuse that bubbleDrawable's normal TAIL_RADIUS_DP
+        // corner here — the two modes now have different corner geometry.
+        int cacheKey = 1 << 2 | (sent ? 1 : 0) << 1 | (hasReply ? 1 : 0);
         if (cacheKey != lastCacheKey || bubbleDrawable == null) {
-            bubbleDrawable = buildBubbleDrawable(ctx, sent);
+            // Sharper MEDIA_TAIL_RADIUS_DP corner for single image/video
+            // bubbles — see that constant's doc.
+            bubbleDrawable = buildBubbleDrawable(ctx, sent, MEDIA_TAIL_RADIUS_DP);
             lastCacheKey = cacheKey;
         }
         resolveReplyColors(ctx);
@@ -3547,12 +3564,20 @@ public class MessageBubbleCanvasView extends View {
     }
 
     private GradientDrawable buildBubbleDrawable(Context ctx, boolean sent) {
+        return buildBubbleDrawable(ctx, sent, TAIL_RADIUS_DP);
+    }
+
+    // v33: overload used by bindMedia()/bindVideo() to pass
+    // MEDIA_TAIL_RADIUS_DP instead of the normal TAIL_RADIUS_DP — see that
+    // constant's doc for why single image/video bubbles want a sharper,
+    // more visible corner poking out from behind the media rect.
+    private GradientDrawable buildBubbleDrawable(Context ctx, boolean sent, float tailRadiusDp) {
         GradientDrawable gd = new GradientDrawable();
         gd.setColor(androidx.core.content.ContextCompat.getColor(ctx, sent
                 ? com.callx.app.core.R.color.bubble_sent
                 : com.callx.app.core.R.color.bubble_received));
         float r = CORNER_RADIUS_DP * density;
-        float tail = TAIL_RADIUS_DP * density;
+        float tail = tailRadiusDp * density;
         if (sent) {
             gd.setCornerRadii(new float[]{r, r, r, r, tail, tail, r, r});
         } else {
@@ -4294,7 +4319,13 @@ public class MessageBubbleCanvasView extends View {
 
         int bubbleWidth = bubbleContentWidth + hPad * 2;
 
-        bubbleLeft = sent ? (parentWidth - bubbleWidth) : 0;
+        // v33: single image/video bubbles get a small gap off the screen
+        // wall (MEDIA_ROW_EDGE_MARGIN_DP) instead of sitting flush against
+        // it — every other bubble type (text, reel, contact, etc.) keeps
+        // the original flush-to-edge behaviour, so this only applies when
+        // isMedia is true.
+        int edgeMargin = isMedia ? Math.round(MEDIA_ROW_EDGE_MARGIN_DP * density) : 0;
+        bubbleLeft = sent ? (parentWidth - bubbleWidth - edgeMargin) : edgeMargin;
         bubbleTop = pinnedTopExtra;
         bubbleRect.set(bubbleLeft, bubbleTop, bubbleLeft + bubbleWidth, bubbleTop + bubbleHeight);
 
