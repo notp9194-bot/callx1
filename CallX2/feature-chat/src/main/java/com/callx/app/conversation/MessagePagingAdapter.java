@@ -2278,6 +2278,67 @@ public class MessagePagingAdapter
                     if (placeholder != null) cv.setMediaBitmap(placeholder);
                 }
 
+                // ── WhatsApp-style low-quality thumbnail (receiver side) ───────────
+                // Load thumbnailUrl from Cloudinary immediately so the receiver sees a
+                // real (compressed) preview the instant the bubble appears — before the
+                // full-res download auto-starts or the user taps to download.
+                // Mirrors the isVideo block exactly: BlurHash shows first (~1 ms,
+                // synchronous), then this Glide load upgrades it to the real low-res
+                // frame as soon as the network responds. When the full download
+                // completes, onReady() calls setMediaBitmap() again with the hi-res
+                // bitmap, so the user always gets the best available quality.
+                final String iThumbUrl = (m.thumbnailUrl != null && !m.thumbnailUrl.isEmpty())
+                        ? m.thumbnailUrl : null;
+                if (iThumbUrl != null) {
+                    final String iThumbPoolKey = iThumbUrl;
+                    android.graphics.Bitmap iThumbPoolHit = DECODED_BITMAP_CACHE.get(iThumbPoolKey);
+                    if (iThumbPoolHit != null && !iThumbPoolHit.isRecycled()) {
+                        // Cache hit — show instantly with no Glide overhead.
+                        if (iThumbPoolHit.getHeight() > 0) {
+                            com.callx.app.conversation.canvas.MessageBubbleCanvasView
+                                    .cacheAspectRatio(iThumbUrl, (float) iThumbPoolHit.getWidth() / iThumbPoolHit.getHeight());
+                        }
+                        cv.setMediaBitmap(iThumbPoolHit);
+                    } else {
+                        // Cache miss — fire a lightweight Glide decode of the Cloudinary
+                        // thumbnail URL. thumbnail(0.1f) lets Glide show a placeholder at
+                        // 10 % of the requested size almost instantly while the full thumb
+                        // loads, so there’s zero blank-frame window.
+                        glide(ctx).asBitmap()
+                                .load(iThumbUrl)
+                                .apply(THUMB_RGB565)
+                                .thumbnail(0.1f)
+                                .override(thumbPx(ctx), thumbPx(ctx))
+                                .into(new com.bumptech.glide.request.target.CustomTarget<android.graphics.Bitmap>() {
+                                    @Override
+                                    public void onResourceReady(@NonNull android.graphics.Bitmap resource,
+                                            @Nullable com.bumptech.glide.request.transition.Transition<? super android.graphics.Bitmap> transition) {
+                                        if (resource.getHeight() > 0) {
+                                            com.callx.app.conversation.canvas.MessageBubbleCanvasView
+                                                    .cacheAspectRatio(iThumbUrl, (float) resource.getWidth() / resource.getHeight());
+                                        }
+                                        // Cache so scroll-back is instant.
+                                        DECODED_BITMAP_CACHE.put(iThumbPoolKey, resource);
+                                        if (h.canvasBindToken != myToken) return;
+                                        // Only replace the bitmap if the full-res hasn’t
+                                        // already loaded (full download calls setMediaBitmap
+                                        // and clearMediaDownloadGate; checking the gate state
+                                        // would race, so we unconditionally set here — the
+                                        // full-res load always fires after this callback and
+                                        // will overwrite with higher quality).
+                                        cv.setMediaBitmap(resource);
+                                    }
+                                    @Override
+                                    public void onLoadCleared(@Nullable android.graphics.drawable.Drawable p) {
+                                        // Intentional no-op: clearing here would cause a flash
+                                        // back to the BlurHash while the full download is still
+                                        // in progress. The full-res onReady() handles the final
+                                        // bitmap transition.
+                                    }
+                                });
+                    }
+                }
+
                 boolean isDownloading = downloadingMediaUrls.contains(fullUrl);
                 if (isDownloading) {
                     cv.setMediaDownloadGate(true, -1, null);
