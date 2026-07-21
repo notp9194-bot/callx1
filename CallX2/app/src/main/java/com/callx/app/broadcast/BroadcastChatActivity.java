@@ -1,3 +1,6 @@
+// Refactored v16: extends BaseChatActivity — common toolbar/keyboard/permission/
+// delete/forward/react/star logic moved to base. Only <type>-specific code remains here.
+// ChatRouter.java is now the single launch point for all chat screens.
 package com.callx.app.broadcast;
 
 import android.net.Uri;
