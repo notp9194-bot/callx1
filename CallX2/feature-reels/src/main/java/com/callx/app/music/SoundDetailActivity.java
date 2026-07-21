@@ -104,26 +104,40 @@ public class SoundDetailActivity extends AppCompatActivity {
         @androidx.annotation.NonNull
         @Override
         public VH onCreateViewHolder(@androidx.annotation.NonNull android.view.ViewGroup parent, int viewType) {
-            android.widget.ImageView iv = new android.widget.ImageView(parent.getContext());
-            int size = (int) (96 * parent.getContext().getResources().getDisplayMetrics().density);
-            iv.setLayoutParams(new androidx.recyclerview.widget.RecyclerView.LayoutParams(size, size));
-            iv.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
-            return new VH(iv);
+            // Same square, edge-to-edge grid cell used by UserReelsActivity's
+            // reels grid (item_saved_reel) — combined with WhiteGridDecoration
+            // on the RecyclerView this produces the same bordered-grid look.
+            android.view.View v = android.view.LayoutInflater.from(parent.getContext())
+                .inflate(com.callx.app.reels.R.layout.item_saved_reel, parent, false);
+            return new VH(v);
         }
 
         @Override
         public void onBindViewHolder(@androidx.annotation.NonNull VH h, int pos) {
             ReelThumbItem item = items.get(pos);
             if (item.thumbnailUrl != null && !item.thumbnailUrl.isEmpty())
-                com.bumptech.glide.Glide.with(h.iv.getContext()).load(item.thumbnailUrl).into(h.iv);
-            if (listener != null) { int fp = pos; h.iv.setOnClickListener(v -> { int p = h.getAdapterPosition(); if (p >= 0) listener.onClick(p); }); }
+                com.bumptech.glide.Glide.with(h.iv.getContext()).load(item.thumbnailUrl)
+                    .centerCrop().into(h.iv);
+            if (h.tvViews != null) h.tvViews.setText(formatViews(item.viewsCount));
+            h.itemView.setOnClickListener(v -> { int p = h.getAdapterPosition(); if (p >= 0 && listener != null) listener.onClick(p); });
+        }
+
+        private static String formatViews(long n) {
+            if (n >= 1_000_000) return String.format(java.util.Locale.US, "%.1fM", n / 1_000_000.0);
+            if (n >= 1_000) return String.format(java.util.Locale.US, "%.1fK", n / 1_000.0);
+            return String.valueOf(n);
         }
 
         @Override public int getItemCount() { return items.size(); }
 
         public static class VH extends androidx.recyclerview.widget.RecyclerView.ViewHolder {
             final android.widget.ImageView iv;
-            VH(android.widget.ImageView v) { super(v); iv = v; }
+            final android.widget.TextView tvViews;
+            VH(android.view.View v) {
+                super(v);
+                iv = v.findViewById(com.callx.app.reels.R.id.iv_thumb);
+                tvViews = v.findViewById(com.callx.app.reels.R.id.tv_views_overlay);
+            }
         }
     }
 

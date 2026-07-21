@@ -1,6 +1,7 @@
 package com.callx.app.music;
 
 import android.content.Context;
+import android.content.Intent;
 import android.graphics.*;
 import android.os.Bundle;
 import android.util.AttributeSet;
@@ -8,6 +9,9 @@ import android.view.View;
 import android.widget.*;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.recyclerview.widget.GridLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
+import com.callx.app.player.SingleReelPlayerActivity;
 import com.callx.app.reels.R;
 import com.callx.app.utils.FirebaseUtils;
 import com.google.firebase.database.*;
@@ -45,6 +49,12 @@ public class SoundAnalyticsActivity extends AppCompatActivity {
                          tvShareRate, tvTrendingBadge, tvTopCreators;
     private BarChartView barChart;
 
+    // Reels-using-this-sound grid
+    private RecyclerView rvReels;
+    private TextView      tvReelsEmpty;
+    private SoundReelsAdapter reelsAdapter;
+    private final List<SoundDetailActivity.ReelThumbItem> reelGridItems = new ArrayList<>();
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -66,11 +76,54 @@ public class SoundAnalyticsActivity extends AppCompatActivity {
         tvTrendingBadge     = findViewById(R.id.tv_trending_badge);
         tvTopCreators       = findViewById(R.id.tv_top_creators);
         barChart            = findViewById(R.id.bar_chart_plays);
+        rvReels             = findViewById(R.id.rv_sound_analytics_reels);
+        tvReelsEmpty        = findViewById(R.id.tv_reels_grid_empty);
+
+        if (rvReels != null) {
+            rvReels.setLayoutManager(new GridLayoutManager(this, 3));
+            reelsAdapter = new SoundReelsAdapter(reelGridItems, pos -> {
+                Intent i = new Intent(this, SingleReelPlayerActivity.class);
+                ArrayList<String> ids = new ArrayList<>();
+                for (SoundDetailActivity.ReelThumbItem item : reelGridItems) ids.add(item.reelId);
+                i.putStringArrayListExtra(SingleReelPlayerActivity.EXTRA_REEL_IDS, ids);
+                i.putExtra(SingleReelPlayerActivity.EXTRA_START_POSITION, pos);
+                startActivity(i);
+            });
+            rvReels.setAdapter(reelsAdapter);
+        }
 
         if (btnBack != null) btnBack.setOnClickListener(v -> finish());
         if (tvTitle != null) tvTitle.setText(title != null && !title.isEmpty() ? title : "Analytics");
 
         loadStats();
+        loadReelsGrid();
+    }
+
+    private void loadReelsGrid() {
+        if (soundId == null || soundId.isEmpty() || reelsAdapter == null) return;
+        FirebaseUtils.db().getReference("reelsBySound").child(soundId)
+            .limitToFirst(30)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    reelGridItems.clear();
+                    for (DataSnapshot s : snap.getChildren()) {
+                        SoundDetailActivity.ReelThumbItem item =
+                            s.getValue(SoundDetailActivity.ReelThumbItem.class);
+                        if (item != null) {
+                            item.reelId = s.getKey();
+                            reelGridItems.add(item);
+                        }
+                    }
+                    reelsAdapter.notifyDataSetChanged();
+                    if (tvReelsEmpty != null)
+                        tvReelsEmpty.setVisibility(reelGridItems.isEmpty() ? View.VISIBLE : View.GONE);
+                    if (rvReels != null)
+                        rvReels.setVisibility(reelGridItems.isEmpty() ? View.GONE : View.VISIBLE);
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) {
+                    if (tvReelsEmpty != null) tvReelsEmpty.setVisibility(View.VISIBLE);
+                }
+            });
     }
 
     private void loadStats() {

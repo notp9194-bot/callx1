@@ -204,5 +204,18 @@ public class MessageEntity {
      *  GroupReceiptJsonUtil. Null outside group chats / before any member acks. */
     public String groupReadByJson;
 
+    // ── Media dimensions (v43) ──────────────────────────────────────────────
+    /**
+     * Pixel dimensions of the original image / video-thumbnail — mirrors
+     * Message#mediaWidth/mediaHeight. BUG FIX: these existed on the Message
+     * model and were populated at send time (see ChatMediaController), but
+     * had no matching Room column, so they were silently dropped on every
+     * Firebase → Room round-trip. Paged/reloaded history fell back to the
+     * old decode-then-relayout square-placeholder flash. Added in Room
+     * migration v42 → v43 — see AppDatabase.MIGRATION_42_43.
+     */
+    public Integer mediaWidth;
+    public Integer mediaHeight;
+
     public MessageEntity() {}
 }

@@ -55,7 +55,7 @@ import com.callx.app.db.entity.*;
         ChatFolderEntity.class,
         SavedMessageEntity.class
     },
-    version = 42,
+    version = 43,
     exportSchema = false
 )
 public abstract class AppDatabase extends RoomDatabase {
@@ -511,6 +511,28 @@ public abstract class AppDatabase extends RoomDatabase {
             db.execSQL("ALTER TABLE channel_posts ADD COLUMN pollAnonymous INTEGER NOT NULL DEFAULT 0");
             db.execSQL("ALTER TABLE channel_posts ADD COLUMN topicTagsJson TEXT");
             db.execSQL("ALTER TABLE channel_posts ADD COLUMN mentionedUidsJson TEXT");
+        }
+    };
+
+    // ─── Migration 42 → 43 ────────────────────────────────────────────────────
+    //
+    // BUG FIX: MessageEntity.mediaWidth/mediaHeight (the pixel dimensions
+    // captured once at send time — see Message#mediaWidth/mediaHeight) were
+    // added to the Message model and to ChatMediaController's send path
+    // ages ago, but never had a matching Room column. Net effect: the value
+    // survived exactly one Firebase round-trip (the freshly-sent bubble
+    // still had it in memory) and was then silently dropped the moment the
+    // message got cached to Room — any paged/reloaded history fell back to
+    // the old decode-then-relayout square-placeholder flash for every image
+    // and video bubble. This migration adds the two missing columns so the
+    // dimensions now persist across the Room round-trip like every other
+    // field.
+    //
+    static final Migration MIGRATION_42_43 = new Migration(42, 43) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase db) {
+            db.execSQL("ALTER TABLE messages ADD COLUMN mediaWidth INTEGER");
+            db.execSQL("ALTER TABLE messages ADD COLUMN mediaHeight INTEGER");
         }
     };
 

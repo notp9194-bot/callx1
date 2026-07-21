@@ -1,5 +1,6 @@
 package com.callx.app.models;
 
+import com.google.firebase.database.Exclude;
 import com.google.firebase.database.IgnoreExtraProperties;
 
 import java.util.Map;
@@ -56,6 +57,19 @@ public class Message {
     // MEDIA_ASPECT_CACHE path) for backward compatibility.
     public Integer mediaWidth;
     public Integer mediaHeight;
+
+    // ── Local-first media send (WhatsApp-style) ───────────────────────────
+    /**
+     * Local file URI/path of a picked-but-not-yet-uploaded image, set by
+     * ChatMediaController.uploadAndSend() the instant the user picks media —
+     * lets the bubble render immediately from the local file while the
+     * compress/upload pipeline runs in the background (see
+     * ChatMessageSender#insertLocalPendingMedia). Cleared once the real
+     * mediaUrl is known (see #finalizeMediaMessage). @Exclude so this
+     * on-device-only path is never written to Firebase.
+     */
+    @Exclude
+    public transient String mediaLocalPath;
 
     // ── Feature 1: Read Receipts ──────────────────────────
     /** sent | delivered | read */
@@ -262,6 +276,7 @@ public class Message {
         Message o = (Message) obj;
         // Fast-exit on the most commonly-changing field first
         if (!java.util.Objects.equals(status, o.status))       return false;
+        if (!java.util.Objects.equals(mediaUrl, o.mediaUrl))   return false;
         if (!java.util.Objects.equals(text, o.text))           return false;
         if (!java.util.Objects.equals(type, o.type))           return false;
         if (!java.util.Objects.equals(messageId, o.messageId)) return false;

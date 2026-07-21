@@ -213,6 +213,22 @@
                 <category android:name="android.intent.category.DEFAULT"/>
             </intent-filter>
         </activity>
+
+        <!-- BUG FIX: StatusArchiveActivity existed in code (archive package)
+             but was never declared here, so StatusFragment's explicit Intent
+             to it threw ActivityNotFoundException when tapping the archive
+             button. -->
+        <activity
+            android:name="com.callx.app.archive.StatusArchiveActivity"
+            android:theme="@style/Theme.CallX"
+            android:exported="false"/>
+
+        <!-- BUG FIX: was missing from manifest — StatusFragment's launch of
+             StatusHighlightsActivity threw ActivityNotFoundException. -->
+        <activity
+            android:name="com.callx.app.highlights.StatusHighlightsActivity"
+            android:theme="@style/Theme.CallX"
+            android:exported="false"/>
     </application>
 
 </manifest>

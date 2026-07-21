@@ -1130,6 +1130,11 @@ public class GroupChatActivity extends AppCompatActivity
                     @Override public void launchContactSharePicker() {}
                     @Override public void launchLocationSharePicker() {}
                     @Override public void firebasePushMessage(com.callx.app.models.Message m, String key, String preview) {}
+                    // Local-first media send — group chats don't use this path
+                    // (scope: 1:1 image sends only, see ChatMediaController).
+                    @Override public String insertLocalPendingMedia(com.callx.app.models.Message m) { return null; }
+                    @Override public void finalizeMediaMessage(com.callx.app.models.Message m, String preview) {}
+                    @Override public void markMediaFailed(String messageId) {}
                 });
 
         // ── Group Scheduled Send Controller ────────────────────────────────

@@ -32,6 +32,7 @@ import androidx.core.content.ContextCompat;
 
 import com.callx.app.chat.R;
 import com.callx.app.chat.databinding.ActivityChatBinding;
+import com.callx.app.db.AppDatabase;
 import com.callx.app.models.Message;
 import com.callx.app.utils.CloudinaryUploader;
 import com.callx.app.utils.FileUtils;
@@ -911,80 +912,33 @@ public class ChatMediaController {
         }
 
         ActivityChatBinding binding = delegate.getBinding();
-        binding.uploadProgress.setVisibility(View.VISIBLE);
 
-        // IMAGE: compress first, then dual upload (thumb + full)
+        // IMAGE: WhatsApp-style local-first bubble — insert the bubble from
+        // the local file IMMEDIATELY (correct aspect ratio, right away, no
+        // global uploadProgress bar), then compress/upload in the
+        // background and finalize the SAME row in place. See
+        // ChatMessageSender#insertLocalPendingMedia/finalizeMediaMessage
+        // and MessagePagingAdapter's local-pending render branch.
         if ("image".equals(msgType)) {
-            ImageCompressor.compress(activity, uri, new ImageCompressor.Callback() {
-                @Override public void onSuccess(ImageCompressor.Result result) {
-                    Uri fullUri  = Uri.fromFile(result.fullFile);
-                    Uri thumbUri = Uri.fromFile(result.thumbFile);
+            int[] bounds = decodeLocalImageBounds(uri);
 
-                    CloudinaryUploader.upload(activity, thumbUri, "callx/thumb", "image",
-                            new CloudinaryUploader.UploadCallback() {
-                                @Override public void onSuccess(CloudinaryUploader.Result thumbResult) {
-                                    String thumbUrl = thumbResult.secureUrl;
-                                    CloudinaryUploader.upload(activity, fullUri, "callx/image", "image",
-                                            new CloudinaryUploader.UploadCallback() {
-                                                @Override public void onSuccess(CloudinaryUploader.Result fullResult) {
-                                                    binding.uploadProgress.setVisibility(View.GONE);
-                                                    result.thumbFile.delete();
-                                                    result.fullFile.delete();
-                                                    Message m      = delegate.buildOutgoing();
-                                                    m.type         = "image";
-                                                    m.mediaUrl     = fullResult.secureUrl;
-                                                    m.imageUrl     = fullResult.secureUrl;
-                                                    m.thumbnailUrl = thumbUrl;
-                                                    m.fileSize     = fullResult.bytes;
-                                                    m.mediaWidth   = result.fullWidth;
-                                                    m.mediaHeight  = result.fullHeight;
-                                                    delegate.pushMessage(m, "\uD83D\uDCF7 Photo");
-                                                    delegate.clearReply();
-                                                }
-                                                @Override public void onError(String err) {
-                                                    binding.uploadProgress.setVisibility(View.GONE);
-                                                    result.thumbFile.delete();
-                                                    result.fullFile.delete();
-                                                    Toast.makeText(activity,
-                                                            err != null ? err : "Upload failed",
-                                                            Toast.LENGTH_LONG).show();
-                                                }
-                                            });
-                                }
-                                @Override public void onError(String err) {
-                                    // Thumb upload failed — upload full image without thumb
-                                    CloudinaryUploader.upload(activity, fullUri, "callx/image", "image",
-                                            new CloudinaryUploader.UploadCallback() {
-                                                @Override public void onSuccess(CloudinaryUploader.Result r) {
-                                                    binding.uploadProgress.setVisibility(View.GONE);
-                                                    result.thumbFile.delete();
-                                                    result.fullFile.delete();
-                                                    Message m  = delegate.buildOutgoing();
-                                                    m.type     = "image";
-                                                    m.mediaUrl = r.secureUrl;
-                                                    m.imageUrl = r.secureUrl;
-                                                    m.mediaWidth  = result.fullWidth;
-                                                    m.mediaHeight = result.fullHeight;
-                                                    delegate.pushMessage(m, "\uD83D\uDCF7 Photo");
-                                                    delegate.clearReply();
-                                                }
-                                                @Override public void onError(String e) {
-                                                    binding.uploadProgress.setVisibility(View.GONE);
-                                                    result.thumbFile.delete();
-                                                    result.fullFile.delete();
-                                                    Toast.makeText(activity, "Upload failed", Toast.LENGTH_LONG).show();
-                                                }
-                                            });
-                                }
-                            });
-                }
-                @Override public void onError(Exception e) {
-                    android.util.Log.w("ChatMediaController", "Compression failed, uploading original", e);
-                    doUpload(uri, msgType, resourceType, fileName);
-                }
-            });
+            Message pending = delegate.buildOutgoing();
+            pending.type          = "image";
+            pending.mediaLocalPath = uri.toString();
+            pending.mediaWidth    = bounds[0] > 0 ? bounds[0] : null;
+            pending.mediaHeight   = bounds[1] > 0 ? bounds[1] : null;
+
+            String id = delegate.insertLocalPendingMedia(pending);
+            if (id == null) {
+                Toast.makeText(activity, "Couldn't queue photo — try again", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            delegate.clearReply();
+            startImageUpload(uri, pending);
             return;
         }
+
+        binding.uploadProgress.setVisibility(View.VISIBLE);
 
         // VIDEO: compress → dual upload (thumb + video)
         if ("video".equals(msgType)) {
@@ -1035,6 +989,132 @@ public class ChatMediaController {
 
         // Audio / file: direct upload
         doUpload(uri, msgType, resourceType, fileName);
+    }
+
+    // ── WhatsApp-style local-first image upload pipeline ────────────────────
+    //
+    // Split out of the old inline uploadAndSend() callback pyramid so the
+    // same compress → dual-upload (thumb + full) sequence can be triggered
+    // both right after the initial pick (uploadAndSend) and again from
+    // retryFailedMediaUpload() without duplicating the callback chain.
+
+    /** Cheap, synchronous bounds-only decode — just reads the image header,
+     *  never allocates the actual bitmap. Lets the local-pending bubble size
+     *  itself correctly on its very first layout pass. Returns {0,0} if the
+     *  file can't be read (bubble falls back to a default ratio, same as any
+     *  message sent before mediaWidth/mediaHeight existed). */
+    private int[] decodeLocalImageBounds(Uri uri) {
+        try (java.io.InputStream in = activity.getContentResolver().openInputStream(uri)) {
+            android.graphics.BitmapFactory.Options opts = new android.graphics.BitmapFactory.Options();
+            opts.inJustDecodeBounds = true;
+            android.graphics.BitmapFactory.decodeStream(in, null, opts);
+            return new int[]{Math.max(0, opts.outWidth), Math.max(0, opts.outHeight)};
+        } catch (Exception e) {
+            return new int[]{0, 0};
+        }
+    }
+
+    /** Compress → upload thumb → upload full. `pending` is the SAME Message
+     *  object already inserted as a local-pending bubble (has its Firebase
+     *  key assigned) — this only ever updates it in place, never builds a
+     *  new one. */
+    private void startImageUpload(Uri uri, Message pending) {
+        ImageCompressor.compress(activity, uri, new ImageCompressor.Callback() {
+            @Override public void onSuccess(ImageCompressor.Result result) {
+                Uri fullUri  = Uri.fromFile(result.fullFile);
+                Uri thumbUri = Uri.fromFile(result.thumbFile);
+                // Compressed dimensions are the ones actually uploaded —
+                // prefer them over the raw local decode from uploadAndSend.
+                pending.mediaWidth  = result.fullWidth;
+                pending.mediaHeight = result.fullHeight;
+
+                CloudinaryUploader.upload(activity, thumbUri, "callx/thumb", "image",
+                        new CloudinaryUploader.UploadCallback() {
+                            @Override public void onProgress(int percent) {
+                                reportUploadProgress(pending, percent / 5); // thumb = first 20%
+                            }
+                            @Override public void onSuccess(CloudinaryUploader.Result thumbResult) {
+                                uploadFullImage(fullUri, thumbResult.secureUrl, result, pending);
+                            }
+                            @Override public void onError(String err) {
+                                // Thumb upload failed — upload full image without a thumb
+                                uploadFullImage(fullUri, null, result, pending);
+                            }
+                        });
+            }
+            @Override public void onError(Exception e) {
+                android.util.Log.w("ChatMediaController", "Compression failed, uploading original", e);
+                uploadFullImage(uri, null, null, pending);
+            }
+        });
+    }
+
+    private void uploadFullImage(Uri fullUri, String thumbUrl, ImageCompressor.Result compressResult, Message pending) {
+        CloudinaryUploader.upload(activity, fullUri, "callx/image", "image",
+                new CloudinaryUploader.UploadCallback() {
+                    @Override public void onProgress(int percent) {
+                        reportUploadProgress(pending, 20 + percent * 4 / 5); // full = remaining 80%
+                    }
+                    @Override public void onSuccess(CloudinaryUploader.Result fullResult) {
+                        if (compressResult != null) {
+                            compressResult.thumbFile.delete();
+                            compressResult.fullFile.delete();
+                        }
+                        pending.mediaUrl     = fullResult.secureUrl;
+                        pending.imageUrl     = fullResult.secureUrl;
+                        pending.thumbnailUrl = thumbUrl;
+                        pending.fileSize     = fullResult.bytes;
+                        finishImageUploadSuccess(pending);
+                    }
+                    @Override public void onError(String err) {
+                        if (compressResult != null) {
+                            compressResult.thumbFile.delete();
+                            compressResult.fullFile.delete();
+                        }
+                        finishImageUploadFailure(pending, err);
+                    }
+                });
+    }
+
+    private void reportUploadProgress(Message pending, int percent) {
+        if (delegate.getPagingAdapter() == null) return;
+        String id = pending.messageId != null ? pending.messageId : pending.id;
+        delegate.getPagingAdapter().onMediaUploadProgress(id, Math.max(0, Math.min(100, percent)));
+    }
+
+    private void finishImageUploadSuccess(Message pending) {
+        String id = pending.messageId != null ? pending.messageId : pending.id;
+        if (delegate.getPagingAdapter() != null) delegate.getPagingAdapter().onMediaUploadFinished(id);
+        delegate.finalizeMediaMessage(pending, "\uD83D\uDCF7 Photo");
+    }
+
+    private void finishImageUploadFailure(Message pending, String err) {
+        String id = pending.messageId != null ? pending.messageId : pending.id;
+        if (delegate.getPagingAdapter() != null) delegate.getPagingAdapter().onMediaUploadFinished(id);
+        delegate.markMediaFailed(id);
+        Toast.makeText(activity, err != null ? err : "Upload failed", Toast.LENGTH_LONG).show();
+    }
+
+    /** Tap-to-retry entry point — called from ChatActivity's ActionListener#onRetry
+     *  override when the failed message is a local-first image upload
+     *  (mediaLocalPath set, mediaUrl still empty). Re-runs the SAME
+     *  compress/upload pipeline against the same row instead of inserting a
+     *  new bubble. */
+    public void retryFailedMediaUpload(Message m) {
+        if (m == null || m.id == null || m.mediaLocalPath == null || m.mediaLocalPath.isEmpty()) return;
+        if (!delegate.isOnline()) {
+            Toast.makeText(activity, "No connection — try again once you're online", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        m.status = "uploading";
+        Executors.newSingleThreadExecutor().execute(() ->
+                AppDatabase.getInstance(activity).messageDao().updateStatus(m.id, "uploading"));
+        // Flip the bubble back to the spinner immediately instead of waiting
+        // for the first onProgress tick.
+        if (delegate.getPagingAdapter() != null) {
+            delegate.getPagingAdapter().onMediaUploadProgress(m.id, -1);
+        }
+        startImageUpload(Uri.parse(m.mediaLocalPath), m);
     }
 
     private void doUpload(Uri uri, String msgType, String resourceType, String fileName) {

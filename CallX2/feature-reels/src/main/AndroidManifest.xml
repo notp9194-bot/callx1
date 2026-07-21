@@ -499,5 +499,11 @@
           <activity android:name="com.callx.app.profile.AllReelsFullActivity"
               android:exported="false"
               android:windowSoftInputMode="adjustResize"/>
+
+          <!-- BUG FIX: was missing from manifest — any caller of
+               ReelABRSettingsActivity threw ActivityNotFoundException. -->
+          <activity android:name="com.callx.app.player.ReelABRSettingsActivity"
+              android:exported="false"
+              android:windowSoftInputMode="adjustResize"/>
       </application>
 </manifest>

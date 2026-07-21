@@ -100,6 +100,12 @@
             android:exported="false"
             android:windowSoftInputMode="adjustResize"/>
 
+        <!-- BUG FIX: was missing from manifest — CommunityActivity's
+             "menu_analytics" option threw ActivityNotFoundException. -->
+        <activity android:name="com.callx.app.community.CommunityAnalyticsActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
+
         <!-- Feature 1: Chat Folders — create/edit folder activity -->
         <activity android:name="com.callx.app.chatlist.FolderEditActivity"
             android:exported="false"

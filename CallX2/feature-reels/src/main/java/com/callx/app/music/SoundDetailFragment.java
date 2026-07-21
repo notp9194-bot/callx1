@@ -327,7 +327,16 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         btnFloatingSave       = v.findViewById(R.id.btn_floating_save);
         scrollSoundDetail     = v.findViewById(R.id.scroll_sound_detail);
 
-        if (rvReels   != null) rvReels.setLayoutManager(new GridLayoutManager(requireContext(), 3));
+        if (rvReels   != null) {
+            rvReels.setLayoutManager(new GridLayoutManager(requireContext(), 3));
+            // Match UserReelsActivity's bordered grid: white RV background + 1dp
+            // padding/gap decoration so each square thumbnail shows a thin
+            // white border, same as the profile reels grid.
+            if (rvReels.getItemDecorationCount() == 0) {
+                rvReels.addItemDecoration(
+                    new com.callx.app.profile.ReelGridAdapter.WhiteGridDecoration(requireContext()));
+            }
+        }
         if (rvRelated != null) rvRelated.setLayoutManager(
             new LinearLayoutManager(requireContext(), LinearLayoutManager.HORIZONTAL, false));
 

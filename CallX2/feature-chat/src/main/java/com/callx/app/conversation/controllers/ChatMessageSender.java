@@ -200,6 +200,10 @@ public class ChatMessageSender {
                 m.duration        = pe.duration;
                 m.timestamp       = pe.timestamp;
                 m.status          = "sent";
+                // BUG FIX (v43): carry these through retry too — see
+                // AppDatabase.MIGRATION_42_43 / MessageEntity#mediaWidth.
+                m.mediaWidth      = pe.mediaWidth;
+                m.mediaHeight     = pe.mediaHeight;
                 m.replyToId       = pe.replyToId;
                 m.replyToText     = pe.replyToText;
                 m.replyToSenderName = pe.replyToSenderName;
@@ -279,6 +283,105 @@ public class ChatMessageSender {
         e.locationLat         = m.locationLat;
         e.locationLng         = m.locationLng;
         e.locationAddress     = m.locationAddress;
+        // BUG FIX (v43): see AppDatabase.MIGRATION_42_43 — these previously
+        // had no Room column and were silently dropped on every round-trip.
+        e.mediaWidth          = m.mediaWidth;
+        e.mediaHeight         = m.mediaHeight;
         return e;
+    }
+
+    // ── Local-first media send (WhatsApp-style) ─────────────────────────────
+    //
+    // Mirrors WhatsApp's own flow: pick media → local bubble appears
+    // instantly (correct aspect ratio, from the local file) → upload runs
+    // in the background with a spinner/percentage inside the bubble → the
+    // SAME row is finalized in place once the real URL is known, or flipped
+    // to a tap-to-retry state on failure. Never a second bubble, never the
+    // old single global uploadProgress bar.
+    //
+    // Three steps, one Firebase key reused throughout:
+    //   1. insertLocalPendingMedia() — status "uploading", mediaLocalPath set,
+    //      no mediaUrl yet. Row inserted immediately, before any network call.
+    //   2. finalizeMediaMessage()    — called once Cloudinary upload succeeds;
+    //      updates the SAME row (REPLACE by primary key id) with the real
+    //      mediaUrl/thumbnailUrl/dimensions, flips status to "pending", then
+    //      pushes to Firebase exactly like a normal send (status → "sent" on
+    //      ack, same as pushMessage()).
+    //   3. markMediaFailed()         — called if compression/upload errors out;
+    //      flips status to "failed" so the bubble shows the existing ⚠
+    //      tap-to-retry affordance (same tick renderer as failed text sends).
+
+    /**
+     * Inserts a local-only "uploading" bubble the instant media is picked —
+     * before compression or any network call. Assigns the real Firebase key
+     * up front so the SAME row can be finalized later without a second insert.
+     *
+     * @param m must have type/mediaLocalPath (and ideally mediaWidth/mediaHeight
+     *          from a cheap local bounds-only decode) already set by the caller.
+     * @return the assigned message id, or null if a Firebase key couldn't be
+     *         allocated (e.g. Firebase SDK not ready) — caller should abort.
+     */
+    public String insertLocalPendingMedia(Message m) {
+        String key = delegate.getMessagesRef().push().getKey();
+        if (key == null) return null;
+        m.id = key;
+        m.messageId = key;
+        m.status = "uploading";
+
+        MessageEntity entity = messageToEntity(m, "uploading");
+        entity.mediaLocalPath = m.mediaLocalPath;
+
+        // Same sever-before-write / reanchor-after-write protection as
+        // pushMessage() — this is a direct Room write outside the buffered
+        // flushPendingRoomWrites() path. See ChatActivity#severPagingIfAtBottom().
+        boolean willReanchor = delegate.severPagingIfAtBottom();
+        Executors.newSingleThreadExecutor().execute(() -> {
+            AppDatabase.getInstance(delegate.getActivity()).messageDao().insertMessage(entity);
+            if (willReanchor) delegate.reanchorPagingToBottom();
+        });
+
+        return key;
+    }
+
+    /**
+     * Called once the background compress/upload pipeline succeeds. `m` must
+     * be the SAME Message object returned from insertLocalPendingMedia (same
+     * id), now carrying the real mediaUrl/thumbnailUrl/mediaWidth/mediaHeight/
+     * fileSize. Replaces the local-pending row in place (REPLACE-by-id, no
+     * second bubble), clears mediaLocalPath, then pushes to Firebase exactly
+     * like a normal send.
+     */
+    public void finalizeMediaMessage(Message m, String previewText) {
+        if (m == null || m.id == null) return;
+        m.status = "pending"; // → "sent" once firebasePushMessage's ack lands
+
+        MessageEntity entity = messageToEntity(m, "pending");
+        entity.mediaLocalPath = null; // upload done — drop the local-only pointer
+
+        boolean willReanchor = delegate.severPagingIfAtBottom();
+        Executors.newSingleThreadExecutor().execute(() -> {
+            AppDatabase.getInstance(delegate.getActivity()).messageDao().insertMessage(entity);
+            if (willReanchor) delegate.reanchorPagingToBottom();
+        });
+
+        if (delegate.isOnline()) {
+            firebasePushMessage(m, m.id, previewText);
+        } else {
+            Toast.makeText(delegate.getActivity(),
+                    "No connection — message queued", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    /**
+     * Called if compression or upload fails. Flips the local-pending row to
+     * "failed" — reuses the existing ⚠ tap-to-retry tick affordance
+     * (MessagePagingAdapter's bindStatusTick / ActionListener#onRetry).
+     * mediaLocalPath is left untouched on the row so retry can re-read it.
+     */
+    public void markMediaFailed(String messageId) {
+        if (messageId == null) return;
+        Executors.newSingleThreadExecutor().execute(() ->
+                AppDatabase.getInstance(delegate.getActivity())
+                        .messageDao().updateStatus(messageId, "failed"));
     }
 }

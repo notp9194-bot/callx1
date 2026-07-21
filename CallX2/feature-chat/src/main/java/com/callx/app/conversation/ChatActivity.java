@@ -1106,6 +1106,21 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // ─────────────────────────────────────────────────────────────────────
 
     @Override
+    public String insertLocalPendingMedia(Message m) {
+        return messageSender.insertLocalPendingMedia(m);
+    }
+
+    @Override
+    public void finalizeMediaMessage(Message m, String previewText) {
+        messageSender.finalizeMediaMessage(m, previewText);
+    }
+
+    @Override
+    public void markMediaFailed(String messageId) {
+        messageSender.markMediaFailed(messageId);
+    }
+
+    @Override
     public void firebasePushMessage(Message m, String key, String previewText) {
         messageSender.firebasePushMessage(m, key, previewText);
     }
@@ -1755,6 +1770,15 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             @Override public void onNavigateToOriginal(String mid, String senderId) { navigateToOriginalMsg(mid, senderId); }
             @Override public void onRetry(Message m) {
                 if (m.id == null) return;
+                // Failed local-first media upload (mediaLocalPath still set,
+                // never got a real mediaUrl) — retry the compress/upload
+                // pipeline instead of re-pushing straight to Firebase.
+                boolean isFailedMediaUpload = m.mediaLocalPath != null && !m.mediaLocalPath.isEmpty()
+                        && (m.mediaUrl == null || m.mediaUrl.isEmpty());
+                if (isFailedMediaUpload) {
+                    mediaController.retryFailedMediaUpload(m);
+                    return;
+                }
                 String preview = m.text != null ? m.text : (m.type != null ? "[" + m.type + "]" : "[message]");
                 messageSender.firebasePushMessage(m, m.id, preview);
             }
@@ -2720,6 +2744,9 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         e.contactPhone2 = m.contactPhone2; e.contactPhotoUrl = m.contactPhotoUrl;
         e.locationLat = m.locationLat; e.locationLng = m.locationLng; e.locationAddress = m.locationAddress;
         e.broadcast = m.broadcast;
+        // BUG FIX (v43): see AppDatabase.MIGRATION_42_43 — these previously
+        // had no Room column and were silently dropped on every round-trip.
+        e.mediaWidth = m.mediaWidth; e.mediaHeight = m.mediaHeight;
         e.syncedAt = System.currentTimeMillis();
         return e;
     }

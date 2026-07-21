@@ -342,6 +342,37 @@ public class MessagePagingAdapter
     //    restart...) every time a presence broadcast comes in. See
     //    bindPresenceOnly() and the payload check in onBindViewHolder().
     static final String PAYLOAD_PRESENCE = "presence";
+    /** Payload for a live upload-percentage tick — see onMediaUploadProgress(). */
+    static final String PAYLOAD_MEDIA_PROGRESS = "media_progress";
+    /** Live upload % per message id, for WhatsApp-style local-first media
+     *  bubbles — see ChatMediaController#uploadAndSend()/MediaUploadProgressTracker. */
+    private final MediaUploadProgressTracker uploadProgressTracker = new MediaUploadProgressTracker();
+
+    /**
+     * Called by ChatMediaController on every upload progress tick for a
+     * local-pending media bubble. Updates the tracker and, if that row is
+     * currently bound, refreshes ONLY its spinner ring — no full rebind,
+     * same PAYLOAD_PRESENCE-style fast path used elsewhere in this adapter.
+     * @param percent 0-100, or -1 for indeterminate.
+     */
+    public void onMediaUploadProgress(String messageId, int percent) {
+        if (messageId == null) return;
+        uploadProgressTracker.setProgress(messageId, percent);
+        for (int i = 0; i < getItemCount(); i++) {
+            Message m = getItem(i);
+            if (m == null) continue;
+            String id = m.messageId != null ? m.messageId : m.id;
+            if (messageId.equals(id)) {
+                notifyItemChanged(i, PAYLOAD_MEDIA_PROGRESS);
+                break;
+            }
+        }
+    }
+
+    /** Call once an upload finishes (success or failure) to stop tracking its progress. */
+    public void onMediaUploadFinished(String messageId) {
+        uploadProgressTracker.clear(messageId);
+    }
 
     // ── Mention pattern — used for @Name blue highlight rendering ────────────
     private static final java.util.regex.Pattern MENTION_PATTERN =
@@ -1293,6 +1324,17 @@ public class MessagePagingAdapter
             }
             return;
         }
+        if (!payloads.isEmpty() && PAYLOAD_MEDIA_PROGRESS.equals(payloads.get(0))) {
+            // Fast path: an in-flight upload's percentage ticked — update
+            // only the spinner ring, skip Glide reloads / full bind entirely.
+            Message m = getItem(position);
+            if (m != null && h.canvasView != null) {
+                String id = m.messageId != null ? m.messageId : m.id;
+                int percent = uploadProgressTracker.getProgress(id);
+                if (percent >= 0) h.canvasView.setMediaDownloadProgress(percent);
+            }
+            return;
+        }
         if (!payloads.isEmpty() && PAYLOAD_REACTIONS.equals(payloads.get(0))) {
             // Fast path: only the reactions map changed — update just
             // ll_reactions/tv_reactions, skip full bind entirely.
@@ -2065,6 +2107,46 @@ public class MessagePagingAdapter
             cv.bindMedia(null, m.caption, timeStr, sent, isRead, isDelivered, fullUrl, knownRatio);
             cv.setDeletedStyle(false); // clears any italic/dim state a recycled view carried from a deleted message
 
+            // WhatsApp-style local-first media bubble: this SENT image was
+            // just picked and is still uploading (or its upload failed) —
+            // see ChatMediaController#uploadAndSend()'s insertLocalPendingMedia()
+            // call. Neither case has a real mediaUrl yet, so render straight
+            // from the local file the user picked, with an upload spinner /
+            // tap-to-retry gate, instead of falling through to the normal
+            // Glide-from-remote-URL path below.
+            boolean localPendingMedia = sent && m.mediaLocalPath != null && !m.mediaLocalPath.isEmpty()
+                    && (fullUrl == null || fullUrl.isEmpty());
+            if (localPendingMedia) {
+                cv.clearMediaDownloadGate();
+                glide(ctx).asBitmap()
+                        .load(android.net.Uri.parse(m.mediaLocalPath))
+                        .apply(THUMB_RGB565)
+                        .override(thumbPx(ctx), thumbPx(ctx))
+                        .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
+                            @Override public void onResourceReady(@NonNull Bitmap resource,
+                                    @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
+                                if (h.canvasBindToken != myToken) return;
+                                cv.setMediaBitmap(resource);
+                            }
+                            @Override public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {
+                                if (h.canvasBindToken != myToken) return;
+                                cv.setMediaBitmap(null);
+                            }
+                        });
+
+                String mid = m.messageId != null ? m.messageId : m.id;
+                if ("failed".equals(m.status)) {
+                    uploadProgressTracker.clear(mid);
+                    cv.setMediaDownloadGate(false, Integer.MIN_VALUE, "Tap to retry");
+                } else {
+                    // Reuses the RECEIVED-side download spinner ring for the
+                    // SENT-side upload — same visual language, opposite
+                    // direction. Restores the last known % if this row was
+                    // scrolled off-screen and back mid-upload.
+                    int trackedPercent = uploadProgressTracker.getProgress(mid);
+                    cv.setMediaDownloadGate(true, trackedPercent, null);
+                }
+            } else {
             // Mirrors bindDownloadOverlay(): sent images (and any received
             // image already local) load straight away; a not-yet-cached
             // RECEIVED image shows the manual download gate instead (idle
@@ -2139,6 +2221,7 @@ public class MessagePagingAdapter
                 }
             } else {
                 cv.clearMediaDownloadGate();
+            }
             }
         } else if (isReelShare) {
             // Mirrors the legacy ViewHolder's "reel_share"/"reel_link"
@@ -2880,6 +2963,13 @@ public class MessagePagingAdapter
             @Override
             public void onImageClick() {
                 if (isImage) {
+                    // Still uploading / failed local-first bubble — no
+                    // remote URL to open yet; the gate tap (onMediaDownloadClick)
+                    // handles the failed-retry case instead.
+                    if (sent && m.mediaLocalPath != null && !m.mediaLocalPath.isEmpty()
+                            && (m.mediaUrl == null || m.mediaUrl.isEmpty())) {
+                        return;
+                    }
                     String fullUrl = m.mediaUrl != null ? m.mediaUrl : m.text;
                     showImageActionSheet(ctx, m, fullUrl, fullUrl);
                 } else if (isVideo) {
@@ -2917,6 +3007,15 @@ public class MessagePagingAdapter
 
             @Override
             public void onMediaDownloadClick() {
+                // WhatsApp-style local-first media bubble: this is a SENT
+                // image whose gate is showing "Tap to retry" (upload failed)
+                // rather than a RECEIVED download pill — route to the retry
+                // flow instead of treating it as a download tap.
+                if (isImage && sent && m.mediaLocalPath != null && !m.mediaLocalPath.isEmpty()
+                        && (m.mediaUrl == null || m.mediaUrl.isEmpty())) {
+                    if (actionListener != null) actionListener.onRetry(m);
+                    return;
+                }
                 if (isGif) {
                     // FIX: previously wired via a separate setOnBubbleClickListener()
                     // set inside the isGif branch — always clobbered by this
@@ -4434,6 +4533,14 @@ public class MessagePagingAdapter
                     h.tvStatus.setText("🕐");
                     h.tvStatus.setTextColor(0xFFAAAAAA);
                     break;
+                case "uploading":
+                    // WhatsApp-style local-first media bubble — clock icon,
+                    // same treatment as "pending" (the bubble's own spinner
+                    // ring is what actually shows upload progress).
+                    h.tvStatus.setText("🕐");
+                    h.tvStatus.setTextColor(0xFFAAAAAA);
+                    h.tvStatus.setOnClickListener(null);
+                    break;
                 case "failed":
                     // Error icon — Firebase push rejected; tap to retry
                     h.tvStatus.setText("⚠");
@@ -5546,6 +5653,11 @@ public class MessagePagingAdapter
                 h.tvStatus.setOnClickListener(null);
                 break;
             case "sending":
+            case "uploading":
+                // "uploading" = WhatsApp-style local-first media bubble
+                // (see ChatMessageSender#insertLocalPendingMedia) — same
+                // clock-icon treatment as "sending"; the bubble's own
+                // spinner ring shows the real upload progress.
                 h.tvStatus.setText("🕐");
                 h.tvStatus.setTextColor(0xFFAAAAAA);
                 h.tvStatus.setOnClickListener(null);

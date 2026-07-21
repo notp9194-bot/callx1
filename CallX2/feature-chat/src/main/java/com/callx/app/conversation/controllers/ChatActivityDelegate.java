@@ -66,6 +66,14 @@ public interface ChatActivityDelegate extends ChatSearchController.SearchDelegat
     Message buildOutgoing();
     void pushMessage(Message m, String previewText);
     void firebasePushMessage(Message m, String key, String previewText);
+
+    /**
+     * WhatsApp-style local-first media send — see ChatMessageSender's
+     * corresponding methods for the full 3-step flow explanation.
+     */
+    String insertLocalPendingMedia(Message m);
+    void finalizeMediaMessage(Message m, String previewText);
+    void markMediaFailed(String messageId);
     void clearReply();
     void startReply(Message m);
     void activateReplyDirect(Message m);

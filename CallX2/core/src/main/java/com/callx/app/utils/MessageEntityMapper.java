@@ -53,6 +53,9 @@ public final class MessageEntityMapper {
         m.contactPhone2 = e.contactPhone2; m.contactPhotoUrl = e.contactPhotoUrl;
         m.locationLat = e.locationLat; m.locationLng = e.locationLng; m.locationAddress = e.locationAddress;
         m.broadcast = e.broadcast;
+        // BUG FIX (v43): these were being dropped on every Room round-trip —
+        // see AppDatabase.MIGRATION_42_43 / MessageEntity#mediaWidth.
+        m.mediaWidth = e.mediaWidth; m.mediaHeight = e.mediaHeight;
         return m;
     }
 }
