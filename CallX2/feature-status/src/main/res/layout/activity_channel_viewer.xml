@@ -187,7 +187,7 @@
             android:clipToPadding="false"
             android:paddingBottom="80dp"/>
 
-        <!-- Empty state -->
+        <!-- Empty state (non-owner / follower view) -->
         <LinearLayout
             android:id="@+id/layout_channel_empty"
             android:layout_width="wrap_content"
@@ -224,7 +224,119 @@
                 android:gravity="center"/>
         </LinearLayout>
 
-        <!-- New post FAB (owner/admin only) -->
+        <!-- ══════════════════════════════════════════════════
+             OWNER ONBOARDING CARD — shown to the owner/admin
+             right after creating a channel (0 posts state)
+             ══════════════════════════════════════════════════ -->
+        <ScrollView
+            android:id="@+id/scroll_channel_onboarding"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:visibility="gone"
+            android:fillViewport="true">
+
+        <LinearLayout
+            android:id="@+id/layout_channel_onboarding"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:padding="24dp">
+
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                app:cardCornerRadius="16dp"
+                app:cardElevation="0dp"
+                app:strokeColor="#EEEEEE"
+                app:strokeWidth="1dp"
+                app:cardBackgroundColor="#FAFAFA">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:gravity="center"
+                    android:padding="28dp">
+
+                    <FrameLayout
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="16dp">
+
+                        <de.hdodenhof.circleimageview.CircleImageView
+                            android:id="@+id/iv_onboarding_icon"
+                            android:layout_width="76dp"
+                            android:layout_height="76dp"
+                            android:src="@drawable/bg_channel_avatar_default"/>
+
+                        <ImageView
+                            android:layout_width="26dp"
+                            android:layout_height="26dp"
+                            android:layout_gravity="bottom|end"
+                            android:padding="5dp"
+                            android:background="@drawable/bg_channel_avatar_default"
+                            android:backgroundTint="#25D366"
+                            android:src="@android:drawable/ic_menu_camera"
+                            android:tint="#FFFFFF"
+                            android:contentDescription="Change channel icon"/>
+                    </FrameLayout>
+
+                    <TextView
+                        android:id="@+id/tv_onboarding_title"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textSize="18sp"
+                        android:textStyle="bold"
+                        android:textColor="#111111"
+                        android:gravity="center"
+                        android:text="Start growing"/>
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_onboarding_add_desc"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="14dp"
+                        android:text="Add description"
+                        android:textAllCaps="false"
+                        android:textColor="#1A773A"
+                        app:icon="@android:drawable/ic_menu_edit"
+                        app:iconTint="#1A773A"
+                        app:iconGravity="textStart"
+                        style="@style/Widget.MaterialComponents.Button.TextButton"/>
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_onboarding_share_status"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:text="Share to my status"
+                        android:textAllCaps="false"
+                        android:textColor="#1A773A"
+                        android:backgroundTint="#DCF5E7"
+                        app:icon="@drawable/ic_channel_broadcast"
+                        app:iconTint="#1A773A"
+                        style="@style/Widget.MaterialComponents.Button.UnelevatedButton"/>
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_onboarding_invite_admins"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:text="Invite admins"
+                        android:textAllCaps="false"
+                        android:textColor="#333333"
+                        android:backgroundTint="#F0F0F0"
+                        app:icon="@android:drawable/ic_menu_add"
+                        app:iconTint="#333333"
+                        style="@style/Widget.MaterialComponents.Button.UnelevatedButton"/>
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+        </LinearLayout>
+        </ScrollView>
+
+        <!-- New post FAB (owner/admin only, hidden once the inline composer bar is shown) -->
         <com.google.android.material.floatingactionbutton.FloatingActionButton
             android:id="@+id/fab_new_post"
             android:layout_width="wrap_content"
@@ -242,4 +354,72 @@
     <com.google.android.material.chip.ChipGroup android:id="@+id/chip_group_topic_filter"
         android:layout_width="match_parent" android:layout_height="wrap_content"
         android:visibility="gone"/>
+
+    <!-- ══════════════════════════════════════════════════
+         INLINE "WRITE AN UPDATE" COMPOSER BAR — owner/admin only
+         ══════════════════════════════════════════════════ -->
+    <LinearLayout
+        android:id="@+id/layout_channel_composer_bar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="@android:color/white"
+        android:paddingHorizontal="10dp"
+        android:paddingVertical="8dp"
+        android:visibility="gone"
+        android:elevation="4dp">
+
+        <ImageButton
+            android:id="@+id/btn_composer_emoji"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:src="@android:drawable/ic_menu_edit"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:tint="#777777"
+            android:contentDescription="Emoji"/>
+
+        <TextView
+            android:id="@+id/tv_composer_write_update"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginHorizontal="4dp"
+            android:paddingHorizontal="14dp"
+            android:paddingVertical="10dp"
+            android:background="@drawable/bg_channel_post_card"
+            android:text="Write an update"
+            android:textColor="#888888"
+            android:textSize="15sp"/>
+
+        <ImageButton
+            android:id="@+id/btn_composer_attach"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:src="@android:drawable/ic_menu_attachment"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:tint="#777777"
+            android:contentDescription="Attach"/>
+
+        <ImageButton
+            android:id="@+id/btn_composer_camera"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:src="@android:drawable/ic_menu_camera"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:tint="#777777"
+            android:contentDescription="Camera"/>
+
+        <ImageButton
+            android:id="@+id/btn_composer_mic"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_marginStart="4dp"
+            android:src="@android:drawable/ic_btn_speak_now"
+            android:background="@drawable/bg_channel_avatar_default"
+            android:backgroundTint="#25D366"
+            android:tint="#FFFFFF"
+            android:padding="8dp"
+            android:contentDescription="Record voice update"/>
+    </LinearLayout>
 </LinearLayout>

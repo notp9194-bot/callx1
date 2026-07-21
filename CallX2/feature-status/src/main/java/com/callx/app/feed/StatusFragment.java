@@ -351,7 +351,7 @@ public class StatusFragment extends BaseFragment {
                     List<StatusItem> items2 = new ArrayList<>();
                     for (DataSnapshot stSnap : userSnap.getChildren()) {
                         StatusItem item = stSnap.getValue(StatusItem.class);
-                        if (item == null || item.deleted) continue;
+                        if (item == null || (item.deleted != null && item.deleted)) continue;
                         if (item.expiresAt != null && item.expiresAt < now) continue;
                         items2.add(item);
                     }

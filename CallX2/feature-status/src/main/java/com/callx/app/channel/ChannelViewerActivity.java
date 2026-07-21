@@ -26,6 +26,8 @@ import com.google.android.material.button.MaterialButton;
 import com.google.android.material.card.MaterialCardView;
 import com.google.android.material.floatingactionbutton.FloatingActionButton;
 import de.hdodenhof.circleimageview.CircleImageView;
+import com.callx.app.models.StatusItem;
+import com.callx.app.utils.FirebaseUtils;
 import java.util.*;
 
 /**
@@ -93,6 +95,7 @@ public class ChannelViewerActivity extends AppCompatActivity
     private boolean       isOwner        = false;
     private long          latestPostTimestamp = 0;
     private boolean       isSearchMode   = false;
+    private boolean       hasPosts       = false;
 
     private ChannelViewModel           viewModel;
     private ChannelPostAdapter         postAdapter;
@@ -100,6 +103,11 @@ public class ChannelViewerActivity extends AppCompatActivity
     private ChannelPostLayoutPrewarmer layoutPrewarmer;  // background StaticLayout pre-builder
     private ChannelPostGlidePreloader  glidePreloader;   // Glide memory-cache primer
     private View               emptyState;
+    private View                scrollOnboarding;
+    private TextView             tvOnboardingTitle;
+    private MaterialButton       btnOnboardingAddDesc, btnOnboardingShareStatus, btnOnboardingInviteAdmins;
+    private View                 composerBar;
+    private TextView             tvComposerWriteUpdate;
     private FloatingActionButton fabNewPost;
     private MaterialButton     btnFollowToggle;
     private MaterialCardView   cardPinnedPost;
@@ -157,6 +165,29 @@ public class ChannelViewerActivity extends AppCompatActivity
         rvPosts    = findViewById(R.id.rv_channel_posts);
         emptyState = findViewById(R.id.layout_channel_empty);
 
+        // ── Owner onboarding card ("Start growing ...") ───────────────────────
+        scrollOnboarding          = findViewById(R.id.scroll_channel_onboarding);
+        tvOnboardingTitle         = findViewById(R.id.tv_onboarding_title);
+        btnOnboardingAddDesc      = findViewById(R.id.btn_onboarding_add_desc);
+        btnOnboardingShareStatus  = findViewById(R.id.btn_onboarding_share_status);
+        btnOnboardingInviteAdmins = findViewById(R.id.btn_onboarding_invite_admins);
+        if (btnOnboardingAddDesc      != null) btnOnboardingAddDesc.setOnClickListener(v -> openEditChannel());
+        if (btnOnboardingShareStatus  != null) btnOnboardingShareStatus.setOnClickListener(v -> shareChannelToStatus());
+        if (btnOnboardingInviteAdmins != null) btnOnboardingInviteAdmins.setOnClickListener(v -> openAdminPanel());
+
+        // ── Inline "Write an update" composer bar (owner/admin only) ─────────
+        composerBar            = findViewById(R.id.layout_channel_composer_bar);
+        tvComposerWriteUpdate  = findViewById(R.id.tv_composer_write_update);
+        View btnComposerAttach = findViewById(R.id.btn_composer_attach);
+        View btnComposerCamera = findViewById(R.id.btn_composer_camera);
+        View btnComposerMic    = findViewById(R.id.btn_composer_mic);
+        View btnComposerEmoji  = findViewById(R.id.btn_composer_emoji);
+        if (tvComposerWriteUpdate != null) tvComposerWriteUpdate.setOnClickListener(v -> openPostComposer());
+        if (btnComposerAttach     != null) btnComposerAttach.setOnClickListener(v -> openPostComposer());
+        if (btnComposerCamera     != null) btnComposerCamera.setOnClickListener(v -> openPostComposer());
+        if (btnComposerMic        != null) btnComposerMic.setOnClickListener(v -> openPostComposer());
+        if (btnComposerEmoji      != null) btnComposerEmoji.setOnClickListener(v -> openPostComposer());
+
         String ownerUid = getIntent().getStringExtra(EXTRA_OWNER_UID);
         postAdapter = new ChannelPostAdapter(this, viewModel.getMyUid(), this);
         if (ownerUid != null) postAdapter.setOwnerUid(ownerUid);
@@ -195,9 +226,12 @@ public class ChannelViewerActivity extends AppCompatActivity
             // Follow button
             updateFollowButton();
 
-            // FAB visibility: admin/owner only
-            if (fabNewPost != null)
-                fabNewPost.setVisibility(isAdminOrOwner ? View.VISIBLE : View.GONE);
+            // Inline composer bar replaces the FAB for owner/admin ("Write an update")
+            if (composerBar != null) composerBar.setVisibility(isAdminOrOwner ? View.VISIBLE : View.GONE);
+            if (fabNewPost  != null) fabNewPost.setVisibility(View.GONE);
+
+            if (tvOnboardingTitle != null)
+                tvOnboardingTitle.setText("Start growing \"" + (ch.name != null ? ch.name : channelName) + "\"");
 
             // Unpin button visibility
             if (btnUnpin != null) btnUnpin.setVisibility(isAdminOrOwner ? View.VISIBLE : View.GONE);
@@ -207,16 +241,18 @@ public class ChannelViewerActivity extends AppCompatActivity
 
             // Wire topic chips now that the channel entity is ready
             bindTopicChips(ch);
+
+            updateEmptyStateViews(!hasPosts);
         });
 
         // ── Observe posts ────────────────────────────────────────────────────
         viewModel.getChannelPosts(channelId).observe(this, posts -> {
             if (posts == null || posts.isEmpty()) {
-                emptyState.setVisibility(View.VISIBLE);
+                hasPosts = false;
                 postAdapter.setPosts(new ArrayList<>());
+                updateEmptyStateViews(true);
                 return;
             }
-            emptyState.setVisibility(View.GONE);
             List<ChannelPost> cpList = new ArrayList<>();
             for (ChannelPostEntity e : posts) {
                 if (e.scheduledAt > 0 || e.isDraft) continue; // skip scheduled/drafts
@@ -224,7 +260,9 @@ public class ChannelViewerActivity extends AppCompatActivity
                 cpList.add(cp);
                 if (cp.timestamp > latestPostTimestamp) latestPostTimestamp = cp.timestamp;
             }
+            hasPosts = !cpList.isEmpty();
             postAdapter.setPosts(cpList);
+            updateEmptyStateViews(!hasPosts);
         });
 
         // ── Observe pinned post ───────────────────────────────────────────────
@@ -517,6 +555,58 @@ public class ChannelViewerActivity extends AppCompatActivity
     }
 
     // ── Navigation helpers ────────────────────────────────────────────────────
+
+    /**
+     * Decides which empty view to show when the channel has no posts:
+     *  - Owner/admin (typically right after creating the channel) → the
+     *    "Start growing" onboarding card (Add description / Share to my
+     *    status / Invite admins).
+     *  - Everyone else → the plain "No updates yet" placeholder.
+     */
+    private void updateEmptyStateViews(boolean noPosts) {
+        boolean showOnboarding = noPosts && isAdminOrOwner;
+        boolean showEmpty      = noPosts && !isAdminOrOwner;
+        if (scrollOnboarding != null) scrollOnboarding.setVisibility(showOnboarding ? View.VISIBLE : View.GONE);
+        if (emptyState       != null) emptyState.setVisibility(showEmpty ? View.VISIBLE : View.GONE);
+    }
+
+    /** "Share to my status" — posts a link-style status pointing back at this channel. */
+    private void shareChannelToStatus() {
+        String myUid = viewModel.getMyUid();
+        if (myUid == null || channelId == null) return;
+
+        String link = (channelEntity != null && channelEntity.inviteLink != null
+                && !channelEntity.inviteLink.isEmpty())
+                ? channelEntity.inviteLink : ("https://callx.app/channel/" + channelId);
+        String name = channelEntity != null && channelEntity.name != null ? channelEntity.name : channelName;
+
+        StatusItem item = new StatusItem();
+        String id = FirebaseUtils.getStatusRef().child(myUid).push().getKey();
+        item.id          = id;
+        item.ownerUid     = myUid;
+        item.type         = "link";
+        item.text         = "Check out \"" + name + "\" on CallX";
+        item.linkUrl      = link;
+        item.linkTitle    = name;
+        item.linkDescription = channelEntity != null ? channelEntity.description : null;
+        item.linkImageUrl = channelEntity != null ? channelEntity.iconUrl : null;
+        item.bgColor      = "#25D366";
+        item.timestamp    = System.currentTimeMillis();
+        item.expiryHours  = 24;
+        item.expiresAt    = item.timestamp + 24L * 60 * 60 * 1000;
+        item.deleted      = false;
+        item.privacy      = "contacts";
+
+        if (id == null) {
+            Toast.makeText(this, "Couldn't share to status. Try again.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        FirebaseUtils.getStatusRef().child(myUid).child(id).setValue(item)
+            .addOnSuccessListener(unused ->
+                Toast.makeText(this, "Shared to your status!", Toast.LENGTH_SHORT).show())
+            .addOnFailureListener(e ->
+                Toast.makeText(this, "Couldn't share to status. Try again.", Toast.LENGTH_SHORT).show());
+    }
 
     private void openChannelInfo() {
         if (channelEntity == null) return;
