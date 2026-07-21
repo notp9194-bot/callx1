@@ -260,15 +260,11 @@ public class ChatMediaController {
                         Uri only = uris.get(0);
                         String m = activity.getContentResolver().getType(only);
                         boolean vid = m != null && m.startsWith("video");
-                        // Both image and video go through uploadAndSend, which now
-                        // uses the local-first bubble pipeline for both types.
                         uploadAndSend(only, vid ? "video" : "image", vid ? "video" : "image", null);
                     } else {
-                        // Multiple items: each gets its own local bubble instantly —
-                        // Pick→bubble→progress ring→real URL, same as single send.
                         MultiMediaPreviewDialog.show(activity, uris,
                             (selectedUris, perItemCaptions, caption) ->
-                                sendEachWithLocalBubble(selectedUris, perItemCaptions, caption, false));
+                                uploadSequentially(selectedUris, perItemCaptions, caption, 0));
                     }
                 });
     }
@@ -372,21 +368,18 @@ public class ChatMediaController {
                         if (items.isEmpty()) return;
                         List<Uri> uris = new ArrayList<>();
                         for (RecentMediaLoader.Item item : items) uris.add(item.uri);
-                        // Local-first bubble flow: each item gets its own bubble instantly
-                        // from the local file, then compress+upload runs in the background
-                        // with a per-bubble progress ring — same Pick→bubble→%→real URL
-                        // experience as single-image send. isHD threads through to
-                        // ImageCompressor for HD-tier caps.
-                        // View-once still routes through the grouped pipeline because
-                        // ChatViewOnceController's wipe logic is built around multi_media.
-                        if (isViewOnce) {
-                            pendingMultiSendViewOnce = true;
-                            uploadSequentially(uris, null,
-                                    caption == null || caption.isEmpty() ? null : caption, 0, isHD);
-                        } else {
-                            sendEachWithLocalBubble(uris, null,
-                                    caption == null || caption.isEmpty() ? null : caption, isHD);
-                        }
+                        // Same grouped upload pipeline the system Gallery multi-picker
+                        // uses (uploadSequentially → finishMultiUpload) — handles both
+                        // a single item and a batch, with the shared caption attached
+                        // to the resulting message. isHD threads through to the image
+                        // branch of rawUploadGroupItem so ImageCompressor picks its
+                        // HD-tier caps instead of the Standard default. isViewOnce is
+                        // stashed on the instance (see pendingMultiSendViewOnce) rather
+                        // than threaded through every uploadSequentially overload,
+                        // since it's only needed once — at finishMultiUpload, where the
+                        // outgoing Message is actually built.
+                        pendingMultiSendViewOnce = isViewOnce;
+                        uploadSequentially(uris, null, caption == null || caption.isEmpty() ? null : caption, 0, isHD);
                     }
                     @Override public void onMediaEdit(List<RecentMediaLoader.Item> items, String caption, boolean isHD) {
                         launchMediaEditor(items, caption, isHD);
@@ -945,27 +938,54 @@ public class ChatMediaController {
             return;
         }
 
-        // VIDEO: WhatsApp-style local-first bubble — same as image path above.
-        // Insert bubble immediately from the local file so the sender sees it
-        // right away, then compress+upload in background with per-bubble
-        // progress ring, finalize the SAME row with the real URL on success.
-        if ("video".equals(msgType)) {
-            Message pending        = delegate.buildOutgoing();
-            pending.type           = "video";
-            pending.mediaLocalPath = uri.toString();
+        binding.uploadProgress.setVisibility(View.VISIBLE);
 
-            String id = delegate.insertLocalPendingMedia(pending);
-            if (id == null) {
-                Toast.makeText(activity, "Couldn't queue video — try again", Toast.LENGTH_SHORT).show();
-                return;
-            }
-            delegate.clearReply();
-            startVideoUploadLocalFirst(uri, pending);
+        // VIDEO: compress → dual upload (thumb + video)
+        if ("video".equals(msgType)) {
+            binding.uploadProgress.setIndeterminate(false);
+            binding.uploadProgress.setMax(100);
+            binding.uploadProgress.setProgress(0);
+
+            VideoQualityPreferences.Quality qual = isBakedOverlayVideo(uri)
+                    ? VideoQualityPreferences.Quality.ORIGINAL
+                    : VideoQualityPreferences.Quality.STANDARD;
+            VideoCompressor.compress(activity, uri, qual, new VideoCompressor.Callback() {
+                @Override public void onProgress(int percent) {
+                    binding.uploadProgress.setProgress(percent / 2);
+                }
+                @Override public void onSuccess(VideoCompressor.Result result) {
+                    VideoUploader.upload(activity, result, new VideoUploader.UploadCallback() {
+                        @Override public void onProgress(int percent) {
+                            binding.uploadProgress.setProgress(50 + percent / 2);
+                        }
+                        @Override public void onSuccess(String thumbUrl, String videoUrl,
+                                                        int durationMs, int width, int height) {
+                            binding.uploadProgress.setVisibility(View.GONE);
+                            Message m      = delegate.buildOutgoing();
+                            m.type         = "video";
+                            m.mediaUrl     = videoUrl;
+                            m.thumbnailUrl = thumbUrl;
+                            m.duration     = (long) durationMs;
+                            m.mediaWidth   = width;
+                            m.mediaHeight  = height;
+                            delegate.pushMessage(m, "\uD83C\uDFAC Video");
+                            delegate.clearReply();
+                        }
+                        @Override public void onError(Exception e) {
+                            binding.uploadProgress.setVisibility(View.GONE);
+                            Toast.makeText(activity,
+                                    e != null ? e.getMessage() : "Video upload failed",
+                                    Toast.LENGTH_LONG).show();
+                        }
+                    });
+                }
+                @Override public void onError(Exception e) {
+                    android.util.Log.w("ChatMediaController", "Video compress failed, fallback", e);
+                    doUpload(uri, msgType, resourceType, fileName);
+                }
+            });
             return;
         }
-
-        ActivityChatBinding binding = delegate.getBinding();
-        binding.uploadProgress.setVisibility(View.VISIBLE);
 
         // Audio / file: direct upload
         doUpload(uri, msgType, resourceType, fileName);
@@ -1073,145 +1093,6 @@ public class ChatMediaController {
         if (delegate.getPagingAdapter() != null) delegate.getPagingAdapter().onMediaUploadFinished(id);
         delegate.markMediaFailed(id);
         Toast.makeText(activity, err != null ? err : "Upload failed", Toast.LENGTH_LONG).show();
-    }
-
-    // ── WhatsApp-style local-first VIDEO upload pipeline ─────────────────────
-    //
-    // Mirror of startImageUpload / uploadFullImage for video. Compresses the
-    // video first (STANDARD quality unless it is an overlay-baked clip), then
-    // runs VideoUploader dual-upload (thumb + video). Progress is reported
-    // directly on the already-visible local bubble — same spinner-ring-%
-    // experience as the image local-first path.
-
-    private void startVideoUploadLocalFirst(Uri uri, Message pending) {
-        VideoQualityPreferences.Quality qual = isBakedOverlayVideo(uri)
-                ? VideoQualityPreferences.Quality.ORIGINAL
-                : VideoQualityPreferences.Quality.STANDARD;
-        VideoCompressor.compress(activity, uri, qual, new VideoCompressor.Callback() {
-            @Override public void onProgress(int percent) {
-                // Compression = first half of the progress arc (0–50 %)
-                reportUploadProgress(pending, percent / 2);
-            }
-            @Override public void onSuccess(VideoCompressor.Result vr) {
-                VideoUploader.upload(activity, vr, new VideoUploader.UploadCallback() {
-                    @Override public void onProgress(int percent) {
-                        // Upload = second half (50–100 %)
-                        reportUploadProgress(pending, 50 + percent / 2);
-                    }
-                    @Override public void onSuccess(String thumbUrl, String videoUrl,
-                                                    int durationMs, int width, int height) {
-                        pending.mediaUrl     = videoUrl;
-                        pending.thumbnailUrl = thumbUrl;
-                        pending.duration     = (long) durationMs;
-                        if (width  > 0) pending.mediaWidth  = width;
-                        if (height > 0) pending.mediaHeight = height;
-                        finishVideoUploadSuccess(pending);
-                    }
-                    @Override public void onError(Exception e) {
-                        finishVideoUploadFailure(pending,
-                                e != null ? e.getMessage() : "Video upload failed");
-                    }
-                });
-            }
-            @Override public void onError(Exception e) {
-                android.util.Log.w("ChatMediaController",
-                        "Video compress failed for local-first bubble — raw fallback", e);
-                // Compression failed: upload the raw file so the local bubble
-                // resolves rather than getting stuck on failed.
-                CloudinaryUploader.upload(activity, uri, "callx/video", "video",
-                        new CloudinaryUploader.UploadCallback() {
-                            @Override public void onProgress(int percent) {
-                                reportUploadProgress(pending, percent);
-                            }
-                            @Override public void onSuccess(CloudinaryUploader.Result r) {
-                                pending.mediaUrl = r.secureUrl;
-                                finishVideoUploadSuccess(pending);
-                            }
-                            @Override public void onError(String err) {
-                                finishVideoUploadFailure(pending, err);
-                            }
-                        });
-            }
-        });
-    }
-
-    private void finishVideoUploadSuccess(Message pending) {
-        String id = pending.messageId != null ? pending.messageId : pending.id;
-        if (delegate.getPagingAdapter() != null) delegate.getPagingAdapter().onMediaUploadFinished(id);
-        delegate.finalizeMediaMessage(pending, "\uD83C\uDFAC Video");
-    }
-
-    private void finishVideoUploadFailure(Message pending, String err) {
-        String id = pending.messageId != null ? pending.messageId : pending.id;
-        if (delegate.getPagingAdapter() != null) delegate.getPagingAdapter().onMediaUploadFinished(id);
-        delegate.markMediaFailed(id);
-        activity.runOnUiThread(() ->
-                Toast.makeText(activity, err != null ? err : "Video upload failed",
-                        Toast.LENGTH_LONG).show());
-    }
-
-    // ── Local-first multi-media send ──────────────────────────────────────────
-    //
-    // Each URI gets its OWN local bubble inserted immediately (all thumbnails
-    // appear right away), then compress+upload runs independently for each item
-    // with a per-bubble progress ring — the same WhatsApp-style
-    // Pick → bubble → spinner-% → real URL flow that single-image already had,
-    // now applied to every item in a multi-select batch.
-    //
-    // Items upload independently (not sequentially) so a large video does not
-    // block the image uploads queued after it.
-
-    private void sendEachWithLocalBubble(List<Uri> uris, List<String> perItemCaptions,
-                                         String caption, boolean isHD) {
-        if (uris == null || uris.isEmpty()) return;
-        if (!delegate.isOnline()) {
-            Toast.makeText(activity,
-                    "No connection — media send karne ke liye internet chahiye",
-                    Toast.LENGTH_LONG).show();
-            return;
-        }
-
-        for (int i = 0; i < uris.size(); i++) {
-            final Uri uri = uris.get(i);
-            // Per-item caption (set via MultiMediaPreviewDialog) falls back to the
-            // shared group caption when the item has none of its own.
-            final String rawPerItem = (perItemCaptions != null && i < perItemCaptions.size())
-                    ? perItemCaptions.get(i) : null;
-            final String itemCaption = (rawPerItem != null && !rawPerItem.isEmpty())
-                    ? rawPerItem : caption;
-
-            String rawMime  = resolveMimeType(activity, uri);
-            String mimeType = classifyMediaType(rawMime);
-
-            if ("video".equals(mimeType)) {
-                // Video: local bubble first, then compress+upload with per-bubble ring.
-                Message pending        = delegate.buildOutgoing();
-                pending.type           = "video";
-                pending.mediaLocalPath = uri.toString();
-                if (itemCaption != null && !itemCaption.isEmpty()) {
-                    pending.caption = itemCaption;
-                    pending.text    = itemCaption;
-                }
-                String vid_id = delegate.insertLocalPendingMedia(pending);
-                if (vid_id != null) startVideoUploadLocalFirst(uri, pending);
-
-            } else {
-                // Image: local bubble with decoded dimensions, then upload.
-                int[] bounds = decodeLocalImageBounds(uri);
-                Message pending        = delegate.buildOutgoing();
-                pending.type           = "image";
-                pending.mediaLocalPath = uri.toString();
-                pending.mediaWidth     = bounds[0] > 0 ? bounds[0] : null;
-                pending.mediaHeight    = bounds[1] > 0 ? bounds[1] : null;
-                if (itemCaption != null && !itemCaption.isEmpty()) {
-                    pending.caption = itemCaption;
-                    pending.text    = itemCaption;
-                }
-                String img_id = delegate.insertLocalPendingMedia(pending);
-                if (img_id != null) startImageUpload(uri, pending);
-            }
-        }
-        delegate.clearReply();
     }
 
     /** Tap-to-retry entry point — called from ChatActivity's ActionListener#onRetry
