@@ -33,7 +33,7 @@ import com.google.firebase.messaging.FirebaseMessaging;
 import java.util.HashMap;
 import java.util.Map;
 
-public class AuthActivity extends AppCompatActivity {
+public class AuthActivity extends AppCompatActivity implements com.callx.app.utils.ExpectedAutoFinish {
 
     private ActivityAuthBinding binding;
     private FirebaseAuth auth;

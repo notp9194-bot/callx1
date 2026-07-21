@@ -52,6 +52,8 @@ public class SilentFinishWatcher implements Application.ActivityLifecycleCallbac
         Boolean wasResumed = resumed.remove(k);
         boolean neverResumed = wasResumed == null || !wasResumed;
 
+        if (activity instanceof ExpectedAutoFinish) return;
+
         if (activity.isFinishing() && !activity.isChangingConfigurations() && neverResumed) {
             String reason = activity.getClass().getSimpleName()
                     + " closed itself before the user ever saw it (finished without"
