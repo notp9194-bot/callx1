@@ -58,6 +58,17 @@ public class Message {
     public Integer mediaWidth;
     public Integer mediaHeight;
 
+    // ── BlurHash placeholder ──────────────────────────────────────────────────
+    /**
+     * BlurHash string (~20-30 chars) encoding a tiny color-accurate blur of the
+     * image/video thumbnail. Set by the sender's ChatMediaController right after
+     * the thumb upload succeeds so the receiver sees a blurred color preview the
+     * instant the message bubble appears — with zero network round-trips — while
+     * the real image downloads in background. Null on messages sent before this
+     * field existed (those fall back to a grey placeholder). @see BlurHashPlaceholder
+     */
+    public String blurHash;
+
     // ── Local-first media send (WhatsApp-style) ───────────────────────────
     /**
      * Local file URI/path of a picked-but-not-yet-uploaded image, set by

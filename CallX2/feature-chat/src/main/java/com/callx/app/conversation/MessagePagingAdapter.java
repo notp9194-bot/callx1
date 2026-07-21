@@ -21,6 +21,10 @@ import com.callx.app.chat.R;
 import com.callx.app.models.Message;
 import com.callx.app.utils.FileUtils;
 import com.callx.app.utils.MediaCache;
+import com.callx.app.utils.MediaAutoDownloadPolicy;
+import com.callx.app.utils.MediaSaveHelper;
+import com.callx.app.utils.BlurHashPlaceholder;
+import com.callx.app.conversation.controllers.MediaDownloadQueue;
 
 import java.text.SimpleDateFormat;
 import java.util.Locale;
@@ -2266,16 +2270,75 @@ public class MessagePagingAdapter
                     }
                 }
             } else if (fullUrl != null && !fullUrl.isEmpty()) {
+                // ── BlurHash placeholder: show a blurred color preview the instant
+                // the bubble appears, before any network download starts. ─────────
+                final String blurHash = m.blurHash;
+                if (blurHash != null && !blurHash.isEmpty()) {
+                    android.graphics.Bitmap placeholder = BlurHashPlaceholder.get(blurHash, 32, 32);
+                    if (placeholder != null) cv.setMediaBitmap(placeholder);
+                }
+
                 boolean isDownloading = downloadingMediaUrls.contains(fullUrl);
-                cv.setMediaDownloadGate(isDownloading, isDownloading ? -1 : Integer.MIN_VALUE, "Photo");
-                if (!isDownloading) {
-                    // Fetch just the size for the idle label — doesn't download the file.
+                if (isDownloading) {
+                    cv.setMediaDownloadGate(true, -1, null);
+                } else if (MediaAutoDownloadPolicy.shouldAutoDownload(ctx, "image")) {
+                    // ── Auto-download on WiFi (or per user policy) ─────────────
+                    // Enqueue through the network-aware receiver download queue so
+                    // we cap at 3 concurrent downloads even when many images are
+                    // visible at once.
+                    downloadingMediaUrls.add(fullUrl);
+                    cv.setMediaDownloadGate(true, 0, null);
+                    final String capturedUrl = fullUrl;
+                    MediaDownloadQueue.getInstance(ctx).enqueue(capturedUrl, null, () -> {
+                        com.callx.app.utils.MediaCache.getWithProgress(ctx, capturedUrl,
+                                new com.callx.app.utils.MediaCache.ProgressCallback() {
+                            @Override public void onProgress(int percent) {
+                                if (h.canvasBindToken != myToken) return;
+                                cv.setMediaDownloadGate(true, percent, null);
+                            }
+                            @Override public void onReady(java.io.File file) {
+                                downloadingMediaUrls.remove(capturedUrl);
+                                if (h.canvasBindToken != myToken) return;
+                                cv.clearMediaDownloadGate();
+                                android.graphics.Bitmap poolHit =
+                                        DECODED_BITMAP_CACHE.get(capturedUrl);
+                                if (poolHit != null && !poolHit.isRecycled()) {
+                                    cv.setMediaBitmap(poolHit);
+                                } else {
+                                    glide(ctx).asBitmap().load(file).apply(THUMB_RGB565)
+                                            .override(thumbPx(ctx), thumbPx(ctx))
+                                            .into(new com.bumptech.glide.request.target.CustomTarget<android.graphics.Bitmap>() {
+                                        @Override public void onResourceReady(@NonNull android.graphics.Bitmap resource,
+                                                @Nullable com.bumptech.glide.request.transition.Transition<? super android.graphics.Bitmap> t) {
+                                            DECODED_BITMAP_CACHE.put(capturedUrl, resource);
+                                            if (h.canvasBindToken != myToken) return;
+                                            cv.setMediaBitmap(resource);
+                                        }
+                                        @Override public void onLoadCleared(@Nullable android.graphics.drawable.Drawable p) {
+                                            if (h.canvasBindToken != myToken) return;
+                                            cv.setMediaBitmap(null);
+                                        }
+                                    });
+                                }
+                            }
+                            @Override public void onError(String err) {
+                                downloadingMediaUrls.remove(capturedUrl);
+                                if (h.canvasBindToken != myToken) return;
+                                cv.setMediaDownloadGate(false, Integer.MIN_VALUE,
+                                        "Tap to download");
+                            }
+                        });
+                    });
+                } else {
+                    // Manual download: show size label on the idle pill.
+                    cv.setMediaDownloadGate(false, Integer.MIN_VALUE, "Photo");
                     com.callx.app.utils.MediaCache.getRemoteSize(ctx, fullUrl,
                             new com.callx.app.utils.MediaCache.SizeCallback() {
                         @Override public void onSize(long bytes) {
-                            if (h.canvasBindToken != myToken) return; // recycled/rebound
+                            if (h.canvasBindToken != myToken) return;
                             if (!downloadingMediaUrls.contains(fullUrl)) {
-                                cv.setMediaDownloadGate(false, Integer.MIN_VALUE, formatFileSize(bytes));
+                                cv.setMediaDownloadGate(false, Integer.MIN_VALUE,
+                                        formatFileSize(bytes));
                             }
                         }
                         @Override public void onError(String reason) { /* keep "Photo" label */ }
@@ -2461,6 +2524,15 @@ public class MessagePagingAdapter
                     ? (float) m.mediaWidth / m.mediaHeight : 0f;
             cv.bindVideo(null, m.caption, durText, timeStr, sent, isRead, isDelivered, vThumbUrl, vKnownRatio);
             cv.setDeletedStyle(false);
+
+            // BlurHash placeholder: show blurred color preview before the video thumb loads.
+            // If thumbnailUrl is present we load from server (no full download needed for preview).
+            final String vBlurHash = m.blurHash;
+            if (vBlurHash != null && !vBlurHash.isEmpty()) {
+                android.graphics.Bitmap vBlurhashBmp = BlurHashPlaceholder.get(vBlurHash, 32, 32);
+                if (vBlurhashBmp != null) cv.setMediaBitmap(vBlurhashBmp);
+            }
+
             if (vThumbUrl != null && !vThumbUrl.isEmpty()) {
                 // PERF #1: check decoded-Bitmap pool before Glide decode
                 final String vPoolKey = vThumbUrl;
@@ -3450,36 +3522,41 @@ public class MessagePagingAdapter
         downloadingMediaUrls.add(url);
         cv.setGroupCellDownloading(index, true);
 
-        com.callx.app.utils.MediaCache.getWithProgress(ctx, url,
-                new com.callx.app.utils.MediaCache.ProgressCallback() {
-            @Override public void onProgress(int percent) {
-                // Grid cells are too small for a "%" label, but the badge's
-                // ring itself now sweeps live with real progress instead of
-                // a static partial-arc (see MessageBubbleCanvasView.drawProgressRing).
-                if (h.canvasBindToken == myToken) cv.setGroupCellProgress(index, percent);
-            }
-            @Override public void onReady(java.io.File file) {
-                downloadingMediaUrls.remove(url);
-                CACHED_FILE_CHECK.put(url, file);
-                if (h.canvasBindToken != myToken) return; // holder recycled/rebound since this started
-                glide(ctx).asBitmap().load(file).apply(THUMB_RGB565).override(240, 240)
-                        .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
-                            @Override
-                            public void onResourceReady(@NonNull Bitmap resource,
-                                    @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
-                                if (h.canvasBindToken != myToken) return;
-                                cv.setMediaGroupBitmap(index, resource);
-                                cv.markGroupCellDownloaded(index);
-                            }
-                            @Override
-                            public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {}
-                        });
-            }
-            @Override public void onError(String reason) {
-                downloadingMediaUrls.remove(url);
-                if (h.canvasBindToken != myToken) return;
-                cv.setGroupCellDownloading(index, false); // stays pending — tap the cell again to retry
-            }
+        // Enqueue through the receiver-side download queue (max-3-concurrent,
+        // network-aware) so group-grid downloads don't flood bandwidth alongside
+        // single-image downloads happening in the same scroll viewport.
+        MediaDownloadQueue.getInstance(ctx).enqueue(url, null, () -> {
+            com.callx.app.utils.MediaCache.getWithProgress(ctx, url,
+                    new com.callx.app.utils.MediaCache.ProgressCallback() {
+                @Override public void onProgress(int percent) {
+                    // Grid cells are too small for a "%" label, but the badge's
+                    // ring itself now sweeps live with real progress instead of
+                    // a static partial-arc (see MessageBubbleCanvasView.drawProgressRing).
+                    if (h.canvasBindToken == myToken) cv.setGroupCellProgress(index, percent);
+                }
+                @Override public void onReady(java.io.File file) {
+                    downloadingMediaUrls.remove(url);
+                    CACHED_FILE_CHECK.put(url, file);
+                    if (h.canvasBindToken != myToken) return; // holder recycled/rebound since this started
+                    glide(ctx).asBitmap().load(file).apply(THUMB_RGB565).override(240, 240)
+                            .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
+                                @Override
+                                public void onResourceReady(@NonNull Bitmap resource,
+                                        @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
+                                    if (h.canvasBindToken != myToken) return;
+                                    cv.setMediaGroupBitmap(index, resource);
+                                    cv.markGroupCellDownloaded(index);
+                                }
+                                @Override
+                                public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {}
+                            });
+                }
+                @Override public void onError(String reason) {
+                    downloadingMediaUrls.remove(url);
+                    if (h.canvasBindToken != myToken) return;
+                    cv.setGroupCellDownloading(index, false); // stays pending — tap the cell again to retry
+                }
+            });
         });
     }
 
@@ -5186,7 +5263,9 @@ public class MessagePagingAdapter
         handleWrap.addView(handle);
         root.addView(handleWrap);
 
-        // Options: View, Edit, Share, Forward, Star, Delete
+        // Options: View, Edit, Save to Gallery, Share, Forward, Star, Delete
+        // "Save to Gallery" appears for RECEIVED images that are already downloaded;
+        // if not yet cached, it downloads first then saves — WhatsApp style.
         // BUG FIX: "Edit" was missing here entirely, and "View" never passed
         // chatId/messageId — so even opening the viewer and tapping ITS edit
         // pencil always hit MediaViewerActivity's "Can't edit — not opened
@@ -5195,15 +5274,16 @@ public class MessagePagingAdapter
         // entry point into MediaViewerActivity for them). Grouped-media taps
         // already passed chatId/messageId correctly — only this single-media
         // sheet was missing it.
-        String[] labels  = {"🖼  View", "✏️  Edit", "↗  Share", "↪  Forward", "⭐  Star", "🗑  Delete"};
-        int[]    colors  = {0xFFFFFFFF,  0xFFFFFFFF,  0xFFFFFFFF,  0xFFFFFFFF,  0xFFFFFFFF,  0xFFFF5252 };
+        String[] labels  = {"🖼  View", "✏️  Edit", "💾  Save", "↗  Share", "↪  Forward", "⭐  Star", "🗑  Delete"};
+        int[]    colors  = {0xFFFFFFFF,  0xFFFFFFFF,  0xFFFFFFFF,  0xFFFFFFFF,  0xFFFFFFFF,  0xFFFFFFFF,  0xFFFF5252 };
 
         boolean isOwnMsg = currentUid != null && currentUid.equals(m.senderId);
         final String sheetMessageId = (m.messageId != null && !m.messageId.isEmpty()) ? m.messageId : m.id;
 
         for (int idx = 0; idx < labels.length; idx++) {
-            // Skip Delete if not own message
+            // Skip Delete if not own message; skip Edit if not own message
             if (labels[idx].contains("Delete") && !isOwnMsg) continue;
+            if (labels[idx].contains("Edit") && !isOwnMsg) continue;
 
             android.widget.TextView tv = new android.widget.TextView(ctx);
             tv.setText(labels[idx]);
@@ -5259,6 +5339,53 @@ public class MessagePagingAdapter
                             break;
                         }
                         ctx.startActivity(ei);
+                        break;
+                    }
+                    case "💾  Save": {
+                        // WhatsApp-style: save to gallery.
+                        // If already cached → save immediately.
+                        // If not cached → download first, then save.
+                        final android.content.Context appCtx = ctx.getApplicationContext();
+                        java.io.File alreadyCached = com.callx.app.utils.MediaCache.getCached(appCtx, fullUrl);
+                        if (alreadyCached != null) {
+                            com.callx.app.utils.MediaSaveHelper.save(
+                                    appCtx, alreadyCached, "image", fullUrl,
+                                    new com.callx.app.utils.MediaSaveHelper.Callback() {
+                                @Override public void onSaved(android.net.Uri uri) {
+                                    android.widget.Toast.makeText(appCtx,
+                                            "Saved to gallery", android.widget.Toast.LENGTH_SHORT).show();
+                                }
+                                @Override public void onError(String reason) {
+                                    android.widget.Toast.makeText(appCtx,
+                                            "Save failed: " + reason, android.widget.Toast.LENGTH_SHORT).show();
+                                }
+                            });
+                        } else {
+                            android.widget.Toast.makeText(appCtx,
+                                    "Downloading…", android.widget.Toast.LENGTH_SHORT).show();
+                            com.callx.app.utils.MediaCache.getWithProgress(appCtx, fullUrl,
+                                    new com.callx.app.utils.MediaCache.ProgressCallback() {
+                                @Override public void onProgress(int percent) {}
+                                @Override public void onReady(java.io.File file) {
+                                    com.callx.app.utils.MediaSaveHelper.save(
+                                            appCtx, file, "image", fullUrl,
+                                            new com.callx.app.utils.MediaSaveHelper.Callback() {
+                                        @Override public void onSaved(android.net.Uri uri) {
+                                            android.widget.Toast.makeText(appCtx,
+                                                    "Saved to gallery", android.widget.Toast.LENGTH_SHORT).show();
+                                        }
+                                        @Override public void onError(String reason) {
+                                            android.widget.Toast.makeText(appCtx,
+                                                    "Save failed: " + reason, android.widget.Toast.LENGTH_SHORT).show();
+                                        }
+                                    });
+                                }
+                                @Override public void onError(String reason) {
+                                    android.widget.Toast.makeText(appCtx,
+                                            "Download failed", android.widget.Toast.LENGTH_SHORT).show();
+                                }
+                            });
+                        }
                         break;
                     }
                     case "↗  Share":

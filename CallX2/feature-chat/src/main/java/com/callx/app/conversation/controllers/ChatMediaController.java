@@ -1099,6 +1099,21 @@ public class ChatMediaController {
                                 reportUploadProgress(pending, percent / 5); // thumb = first 20%
                             }
                             @Override public void onSuccess(CloudinaryUploader.Result thumbResult) {
+                                // Generate BlurHash from the already-decoded thumbnail bitmap so
+                                // the receiver can show a blurred color placeholder while the
+                                // real image downloads — no extra network round-trip needed.
+                                try {
+                                    android.graphics.BitmapFactory.Options opts =
+                                            new android.graphics.BitmapFactory.Options();
+                                    opts.inSampleSize = 4; // decode at 1/4 res — enough for a blurHash
+                                    android.graphics.Bitmap thumb = android.graphics.BitmapFactory
+                                            .decodeFile(result.thumbFile.getAbsolutePath(), opts);
+                                    if (thumb != null) {
+                                        pending.blurHash = com.callx.app.utils.BlurHash
+                                                .encode(thumb, 4, 3);
+                                        thumb.recycle();
+                                    }
+                                } catch (Exception ignored) {}
                                 uploadFullImage(fullUri, thumbResult.secureUrl, result, pending);
                             }
                             @Override public void onError(String err) {
