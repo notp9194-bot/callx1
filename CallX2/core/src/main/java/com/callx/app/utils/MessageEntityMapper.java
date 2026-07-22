@@ -65,6 +65,10 @@ public final class MessageEntityMapper {
         // always evaluated false, so the canvas upload-progress gate (spinner /
         // tap-to-retry) was never armed — only a gray placeholder was drawn.
         m.mediaLocalPath = e.mediaLocalPath;
+        // BUG FIX (v169): presentationData existed on MessageEntity/Room but was
+        // never copied to Message here, so presentation bubbles rendered blank
+        // (fallback placeholder) after any Room round-trip.
+        m.presentationData = e.presentationData;
         return m;
     }
 }

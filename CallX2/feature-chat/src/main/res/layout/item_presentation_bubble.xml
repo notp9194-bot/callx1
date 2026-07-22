@@ -62,7 +62,7 @@
             android:layout_width="16dp"
             android:layout_height="16dp"
             android:layout_marginStart="2dp"
-            android:src="@drawable/ic_tick_single"
+            android:src="@drawable/ic_single_tick"
             android:scaleType="centerInside"/>
 
     </LinearLayout>

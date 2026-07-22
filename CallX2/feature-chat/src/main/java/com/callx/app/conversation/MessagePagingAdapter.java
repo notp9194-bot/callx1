@@ -6757,13 +6757,13 @@ public class MessagePagingAdapter
                 h.ivPresentationTick.setVisibility(android.view.View.GONE);
             } else if (isRead) {
                 h.ivPresentationTick.setVisibility(android.view.View.VISIBLE);
-                h.ivPresentationTick.setImageResource(com.callx.app.chat.R.drawable.ic_tick_double_blue);
+                h.ivPresentationTick.setImageResource(com.callx.app.chat.R.drawable.ic_double_tick_blue);
             } else if (isDelivered) {
                 h.ivPresentationTick.setVisibility(android.view.View.VISIBLE);
-                h.ivPresentationTick.setImageResource(com.callx.app.chat.R.drawable.ic_tick_double);
+                h.ivPresentationTick.setImageResource(com.callx.app.chat.R.drawable.ic_double_tick);
             } else {
                 h.ivPresentationTick.setVisibility(android.view.View.VISIBLE);
-                h.ivPresentationTick.setImageResource(com.callx.app.chat.R.drawable.ic_tick_single);
+                h.ivPresentationTick.setImageResource(com.callx.app.chat.R.drawable.ic_single_tick);
             }
         }
 
