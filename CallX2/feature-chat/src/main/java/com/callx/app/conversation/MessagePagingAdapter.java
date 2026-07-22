@@ -2986,10 +2986,33 @@ public class MessagePagingAdapter
             cv.setReadMoreListener(nowExpanded -> {
                 if (nowExpanded) expandedMessageIds.add(msgIdForExpand);
                 else             expandedMessageIds.remove(msgIdForExpand);
-                // Notify the adapter to rebind just this item so the bubble
-                // reflows at the correct height before RecyclerView animates.
+
                 int pos = h.getBindingAdapterPosition();
-                if (pos != RecyclerView.NO_POSITION) notifyItemChanged(pos);
+                if (pos == RecyclerView.NO_POSITION) return;
+
+                // ── WhatsApp-style scroll anchor ─────────────────────────
+                // Capture the item's current top edge (relative to the
+                // RecyclerView's visible area) BEFORE notifyItemChanged()
+                // changes the bubble height.  After the rebind we restore
+                // that offset with scrollToPositionWithOffset() so the item
+                // stays visually pinned at the same Y position — expanded
+                // text grows downward and the user scrolls to read it,
+                // exactly like WhatsApp.
+                final RecyclerView rv = (h.itemView.getParent() instanceof RecyclerView)
+                        ? (RecyclerView) h.itemView.getParent() : null;
+                final int savedTop = (rv != null) ? h.itemView.getTop() : 0;
+
+                notifyItemChanged(pos);
+
+                if (rv != null) {
+                    rv.post(() -> {
+                        RecyclerView.LayoutManager lm = rv.getLayoutManager();
+                        if (lm instanceof androidx.recyclerview.widget.LinearLayoutManager) {
+                            ((androidx.recyclerview.widget.LinearLayoutManager) lm)
+                                    .scrollToPositionWithOffset(pos, savedTop);
+                        }
+                    });
+                }
             });
 
             // ── Link-preview card ─────────────────────────────────────
