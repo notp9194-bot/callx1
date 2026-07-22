@@ -47,8 +47,18 @@ public class GifAwareEditText extends AppCompatEditText
         void onLargePaste(String pastedText, Runnable insertAsText);
     }
 
+    /**
+     * v169: Notified whenever the cursor position or selection changes.
+     * ChatActivity wires this to AdvancedRichTextController.onSelectionChanged()
+     * so formatting indicators (color strip, alignment icon, etc.) stay live.
+     */
+    public interface OnSelectionChangedListener {
+        void onSelectionChanged(int selStart, int selEnd);
+    }
+
     private GifReceivedListener gifListener;
     private PasteAsFileListener pasteAsFileListener;
+    private OnSelectionChangedListener selectionChangedListener;
 
     // WhatsApp/Telegram send this kind of paste as a document instead of a
     // wall of text in the bubble — this is the length past which we ask.
@@ -91,6 +101,19 @@ public class GifAwareEditText extends AppCompatEditText
 
     public void setPasteAsFileListener(PasteAsFileListener listener) {
         this.pasteAsFileListener = listener;
+    }
+
+    /** v169: Set a listener to be notified when cursor position or selection changes. */
+    public void setOnSelectionChangedListener(OnSelectionChangedListener listener) {
+        this.selectionChangedListener = listener;
+    }
+
+    @Override
+    protected void onSelectionChanged(int selStart, int selEnd) {
+        super.onSelectionChanged(selStart, selEnd);
+        if (selectionChangedListener != null) {
+            selectionChangedListener.onSelectionChanged(selStart, selEnd);
+        }
     }
 
     /**

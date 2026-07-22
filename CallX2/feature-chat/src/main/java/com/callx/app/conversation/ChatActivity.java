@@ -92,6 +92,8 @@ import com.callx.app.conversation.controllers.ChatThemeController;
 import com.callx.app.conversation.controllers.ChatExportController;
 import com.callx.app.group.ChatBackupActivity;
 import com.callx.app.conversation.controllers.ChatContactShareController;
+import com.callx.app.conversation.AdvancedRichTextController;
+import com.callx.app.conversation.presentation.PresentationMessageEditor;
 import com.callx.app.conversation.controllers.ChatLocationShareController;
 import com.callx.app.db.AppDatabase;
 import com.callx.app.db.entity.MessageEntity;
@@ -195,7 +197,9 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     private final Executor       ioExecutor = Executors.newFixedThreadPool(4);
 
     // v169: Presentation message editor (slide composer).
-    private com.callx.app.conversation.presentation.PresentationMessageEditor presentationEditor;
+    private PresentationMessageEditor presentationEditor;
+    // v169: Advanced rich-text controller (color, size, align, font, spacing, line-height).
+    private AdvancedRichTextController advancedRichTextController;
 
     // ── Firebase ───────────────────────────────────────────────────────────
     private DatabaseReference  messagesRef;
@@ -2795,6 +2799,44 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     private void setupInputBar() {
         setupInputCapsuleAnimations();
 
+        // ── v169: AdvancedRichTextController init ──────────────────────────────
+        // Initialize controller first so the TextWatcher below can reference it.
+        advancedRichTextController = new AdvancedRichTextController(
+                this, binding.etMessage, getSupportFragmentManager());
+
+        // Bind the seven advanced-format buttons from layout_advanced_format_toolbar.
+        View advToolbarRoot = binding.getRoot().findViewById(R.id.ll_advanced_format_toolbar);
+        if (advToolbarRoot != null) {
+            View btnFmtTextColor     = advToolbarRoot.findViewById(R.id.btnFmtTextColor);
+            View btnFmtHighlight     = advToolbarRoot.findViewById(R.id.btnFmtHighlight);
+            View btnFmtSize          = advToolbarRoot.findViewById(R.id.btnFmtSize);
+            View btnFmtAlign         = advToolbarRoot.findViewById(R.id.btnFmtAlign);
+            View btnFmtFont          = advToolbarRoot.findViewById(R.id.btnFmtFont);
+            View btnFmtLetterSpacing = advToolbarRoot.findViewById(R.id.btnFmtLetterSpacing);
+            View btnFmtLineHeight    = advToolbarRoot.findViewById(R.id.btnFmtLineHeight);
+            if (btnFmtTextColor != null && btnFmtHighlight != null && btnFmtSize != null
+                    && btnFmtAlign != null && btnFmtFont != null
+                    && btnFmtLetterSpacing != null && btnFmtLineHeight != null) {
+                advancedRichTextController.bindAdvancedToolbar(
+                        btnFmtTextColor, btnFmtHighlight, btnFmtSize,
+                        btnFmtAlign, btnFmtFont, btnFmtLetterSpacing, btnFmtLineHeight);
+            }
+
+            // Wire Presentation (Slide) button → open full-screen slide editor.
+            View btnFmtPresentation = advToolbarRoot.findViewById(R.id.btnFmtPresentation);
+            if (btnFmtPresentation != null) {
+                presentationEditor = new PresentationMessageEditor(
+                        this,
+                        (android.view.ViewGroup) getWindow().getDecorView(),
+                        getSupportFragmentManager(),
+                        presentation -> sendPresentationMessage(presentation));
+                btnFmtPresentation.setOnClickListener(v -> {
+                    if (presentationEditor != null) presentationEditor.show();
+                });
+            }
+        }
+        // ── end v169 init ──────────────────────────────────────────────────────
+
         if (binding.llLinkPreviewBar != null) {
             composeLinkPreview = new com.callx.app.chat.ui.ComposeLinkPreviewController(
                     binding.etMessage,
@@ -2816,6 +2858,16 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 boolean hasText = !text.trim().isEmpty();
                 animateSendMicSwap(hasText);
                 animateAttachCameraIcons(!hasText);
+
+                // v169: Show/hide advanced format toolbar when message is long enough.
+                View advToolbar = binding.getRoot().findViewById(R.id.ll_advanced_format_toolbar);
+                if (advToolbar != null) {
+                    boolean showAdv = s.length() >= 30;
+                    int newVis = showAdv ? View.VISIBLE : View.GONE;
+                    if (advToolbar.getVisibility() != newVis) {
+                        advToolbar.setVisibility(newVis);
+                    }
+                }
 
                 int remaining = MAX_MESSAGE_LENGTH - s.length();
                 if (binding.tvCharCount != null) {
@@ -2882,7 +2934,38 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                         .setNeutralButton("Cancel", null)
                         .show();
             });
+            // v169: Forward selection changes to AdvancedRichTextController so
+            // per-selection indicators (active color strip, alignment icon, etc.)
+            // stay in sync as the user moves the cursor or drag-selects text.
+            ((GifAwareEditText) binding.etMessage).setOnSelectionChangedListener(
+                    (selStart, selEnd) -> {
+                        if (advancedRichTextController != null) {
+                            advancedRichTextController.onSelectionChanged(selStart, selEnd);
+                        }
+                        // Also show the toolbar on any selection so the user can
+                        // immediately apply formatting to highlighted text.
+                        View advToolbar = binding.getRoot().findViewById(R.id.ll_advanced_format_toolbar);
+                        if (advToolbar != null && selStart != selEnd) {
+                            advToolbar.setVisibility(View.VISIBLE);
+                        }
+                    });
         }
+    }
+
+    /**
+     * v169: Sends a PresentationMessage (slide) built by PresentationMessageEditor.
+     * Serialises the presentation to JSON, stores it as {@code m.text}, and
+     * pushes it with {@code m.type = "presentation"}.
+     */
+    private void sendPresentationMessage(
+            @NonNull com.callx.app.conversation.models.PresentationMessage presentation) {
+        Message m = buildOutgoing();
+        m.type = "presentation";
+        // Serialise slides to JSON so existing Firebase/Message model requires
+        // no structural changes; the bubble adapter deserialises it back.
+        m.text = presentation.toJson();
+        pushMessage(m, "[Slide]");
+        clearReply();
     }
 
     /**
