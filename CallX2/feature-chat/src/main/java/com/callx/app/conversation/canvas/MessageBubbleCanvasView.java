@@ -268,8 +268,16 @@ public class MessageBubbleCanvasView extends View {
     static final int   MEDIA_PILL_BORDER_COLOR = 0x33FFFFFF; // hairline glass edge on the pill
     static final float MEDIA_PILL_BORDER_DP    = 0.75f;
     static final int   MEDIA_PILL_TEXT         = 0xFFFFFFFF;
-    static final int   MEDIA_PLACEHOLDER_COLOR = 0xFFE1E4E8; // cooler, softer skeleton tone than the old flat 0xD9D9D9 grey
-    static final int   MEDIA_BORDER_COLOR      = 0x24FFFFFF; // subtle glass edge stroked around every media rect (image/video/placeholder)
+    static final int   MEDIA_PLACEHOLDER_COLOR_LIGHT = 0xFFE1E4E8; // cooler, softer skeleton tone for light mode
+    static final int   MEDIA_PLACEHOLDER_COLOR_DARK  = 0xFF2A2C2E; // dark-mode placeholder — the old fixed light-grey box was glaring on a dark chat background
+    // v35: the old fixed 0x24FFFFFF (white-based) border was invisible
+    // against a light/white bubble in light mode and barely visible in
+    // dark mode. Now resolved once per bind (isDarkMode check, same cost
+    // as the existing text/tick color resolution already done in
+    // bindMedia — no added per-frame cost) instead of a single hardcoded
+    // hex, so the hairline "glass" edge actually reads in both themes.
+    static final int   MEDIA_BORDER_COLOR_LIGHT = 0x33000000; // dark hairline — reads against light bubbles/bright photos
+    static final int   MEDIA_BORDER_COLOR_DARK  = 0x40FFFFFF; // light hairline — reads against dark bubbles/dark photos
     static final float MEDIA_BORDER_WIDTH_DP   = 1f;
 
     // ── Audio (voice message) bubble — mirrors layout_msg_audio.xml
@@ -1620,6 +1628,18 @@ public class MessageBubbleCanvasView extends View {
     private android.graphics.Picture cachedMediaPicture;
     private boolean staticPictureDirty = true;
     private int cachedMediaPictureWidth = -1, cachedMediaPictureHeight = -1;
+    // v37 PERF: RenderNode upgrade for this same inner cache — mirrors
+    // PERF #5b below exactly, but matters more here: this is the ONE
+    // cache in the whole file that's actively replayed every single frame
+    // (the outer fullBubblePicture/fullBubbleRenderNode cache is bypassed
+    // for the entire duration of the indeterminate spinner — see
+    // onDraw's skipFullCache). A Picture replay walks its whole recorded
+    // op-list on the CPU every frame for as long as the spinner runs;
+    // RenderNode replays a GPU-side display list instead, so this is the
+    // highest-value place in the file to make that swap. Falls back to
+    // cachedMediaPicture on API 23-28 or a software canvas, same as the
+    // outer cache does.
+    private android.graphics.RenderNode cachedMediaRenderNode;
 
     // ── PERF #5: Full-bubble Picture cache ────────────────────────────────
     // Extends the narrow cachedMediaPicture above to cover the ENTIRE bubble
@@ -1692,6 +1712,26 @@ public class MessageBubbleCanvasView extends View {
         // to rebuild — a Picture recorded at the old size would either
         // clip or leave a stale border at the new size.
         boolean sizeChanged = w != cachedMediaPictureWidth || h != cachedMediaPictureHeight;
+
+        if (SUPPORTS_RENDER_NODE && canvas.isHardwareAccelerated()) {
+            if (cachedMediaRenderNode == null) {
+                cachedMediaRenderNode = new android.graphics.RenderNode("media");
+            }
+            boolean hit = !staticPictureDirty && !sizeChanged && cachedMediaRenderNode.hasDisplayList();
+            if (!hit) {
+                cachedMediaRenderNode.setPosition(0, 0, w, h);
+                android.graphics.RecordingCanvas rc = cachedMediaRenderNode.beginRecording();
+                mediaRenderer.draw(rc, hPad, vPad, true /* spinnerHandledSeparately */);
+                cachedMediaRenderNode.endRecording();
+                staticPictureDirty = false;
+                cachedMediaPictureWidth = w;
+                cachedMediaPictureHeight = h;
+            }
+            canvas.drawRenderNode(cachedMediaRenderNode);
+            mediaRenderer.drawIndeterminateSpinnerOnly(canvas);
+            return;
+        }
+
         if (staticPictureDirty || cachedMediaPicture == null || sizeChanged) {
             if (cachedMediaPicture == null) cachedMediaPicture = new android.graphics.Picture();
             Canvas pictureCanvas = cachedMediaPicture.beginRecording(w, h);
@@ -1703,6 +1743,29 @@ public class MessageBubbleCanvasView extends View {
         }
         canvas.drawPicture(cachedMediaPicture);
         mediaRenderer.drawIndeterminateSpinnerOnly(canvas);
+    }
+
+    // v38 PERF: RenderNode display lists live on the GPU side, not the
+    // Java heap — the JVM heap dump/GC never sees or reclaims that
+    // memory. A view sitting unused in RecyclerView's RecycledViewPool
+    // (or simply scrolled far off-screen for a while) still holds its
+    // recorded display list until it's rebound, which is fine while
+    // scrolling but wasteful GPU memory to hold onto indefinitely for
+    // every pooled holder at once (this pool can be pre-warmed dozens of
+    // instances deep — see MessagePagingAdapter#warmUpRecycledViewPool).
+    // discardDisplayList() frees that GPU-side memory immediately while
+    // keeping the lightweight RenderNode object itself, so the very next
+    // bind just re-records into it — no extra allocation, just a fresh
+    // recording. staticPictureDirty/fullBubbleDirty are also forced true
+    // so a stale cache is never replayed if the view somehow draws again
+    // before its next real bind.
+    @Override
+    protected void onDetachedFromWindow() {
+        super.onDetachedFromWindow();
+        if (cachedMediaRenderNode != null) cachedMediaRenderNode.discardDisplayList();
+        if (fullBubbleRenderNode != null) fullBubbleRenderNode.discardDisplayList();
+        staticPictureDirty = true;
+        fullBubbleDirty = true;
     }
 
     public MessageBubbleCanvasView(Context ctx) {
@@ -1723,15 +1786,19 @@ public class MessageBubbleCanvasView extends View {
         replySenderPaint.setTextSize(spToPx(REPLY_SENDER_SIZE_SP));
         replySenderPaint.setFakeBoldText(true);
         replyTextPaint.setTextSize(spToPx(REPLY_TEXT_SIZE_SP));
-        mediaPlaceholderPaint.setColor(MEDIA_PLACEHOLDER_COLOR);
         mediaPillBgPaint.setColor(MEDIA_PILL_BG);
         mediaPillTextPaint.setColor(MEDIA_PILL_TEXT);
         mediaPillTextPaint.setTextSize(spToPx(FOOTER_TEXT_SP));
         mediaPillTextPaint.setFakeBoldText(true);
         // PREMIUM REDESIGN (v32): hairline glass borders, see field javadocs above.
+        // v35: colors themselves are no longer set here — the constructor
+        // only runs once per view's lifetime, but a recycled view can
+        // live across a light/dark theme switch, so mediaPlaceholderPaint/
+        // mediaBorderPaint's actual color is now resolved fresh in
+        // bindMedia() (cheap: one isDarkMode() check per bind, same cost
+        // already paid for textPaint's color there).
         mediaBorderPaint.setStyle(Paint.Style.STROKE);
         mediaBorderPaint.setStrokeWidth(MEDIA_BORDER_WIDTH_DP * density);
-        mediaBorderPaint.setColor(MEDIA_BORDER_COLOR);
         mediaPillBorderPaint.setStyle(Paint.Style.STROKE);
         mediaPillBorderPaint.setStrokeWidth(MEDIA_PILL_BORDER_DP * density);
         mediaPillBorderPaint.setColor(MEDIA_PILL_BORDER_COLOR);
@@ -2184,6 +2251,13 @@ public class MessageBubbleCanvasView extends View {
         textPaint.setColor(ChatThemeManager.get(ctx).getTextColor(ctx, sent));
         footerPaint.setColor(textPaint.getColor());
         tickPaint.setColor(ChatThemeManager.getTickColor(read));
+        // v35: dark/light-aware placeholder + hairline border — see
+        // MEDIA_PLACEHOLDER_COLOR_LIGHT/DARK and MEDIA_BORDER_COLOR_LIGHT/
+        // DARK's docs. One cheap isDarkMode() check per bind, no per-frame
+        // cost — same pattern as the text/tick colors just above.
+        boolean darkMode = ChatThemeManager.isDarkMode(ctx);
+        mediaPlaceholderPaint.setColor(darkMode ? MEDIA_PLACEHOLDER_COLOR_DARK : MEDIA_PLACEHOLDER_COLOR_LIGHT);
+        mediaBorderPaint.setColor(darkMode ? MEDIA_BORDER_COLOR_DARK : MEDIA_BORDER_COLOR_LIGHT);
 
         // v33: bit 2 marks "media tail radius" so a recycled holder that
         // last drew a plain-text bubble (same sent/hasReply, bit 2 = 0)
@@ -2196,7 +2270,17 @@ public class MessageBubbleCanvasView extends View {
             bubbleDrawable = buildBubbleDrawable(ctx, sent, MEDIA_TAIL_RADIUS_DP);
             lastCacheKey = cacheKey;
         }
-        resolveReplyColors(ctx);
+        // v39 PERF: resolveReplyColors() was running unconditionally on
+        // every single bindMedia() call — including the common case of a
+        // plain image/video with no reply preview at all, where none of
+        // those colors are ever drawn. For a RECEIVED bubble specifically
+        // it also does two ContextCompat.getColor() resource resolutions
+        // (brand_primary, bubble_received_text) — real resolver work,
+        // not just a field write. Only worth paying when hasReply is
+        // actually true.
+        if (hasReply) {
+            resolveReplyColors(ctx);
+        }
 
         if (requestLayoutIfSizeChanged()) {
             textLayout = null; // recomputed in onMeasure (only used if mediaHasCaption)

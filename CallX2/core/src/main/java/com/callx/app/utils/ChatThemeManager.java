@@ -212,7 +212,7 @@ public class ChatThemeManager {
         return isRead ? 0xFFD4AF37 : 0xFF8FAF9F;
     }
 
-    private boolean isDarkMode(Context ctx) {
+    public static boolean isDarkMode(Context ctx) {
         int flags = ctx.getResources().getConfiguration().uiMode
                     & android.content.res.Configuration.UI_MODE_NIGHT_MASK;
         return flags == android.content.res.Configuration.UI_MODE_NIGHT_YES;

@@ -56,6 +56,17 @@ final class MediaRenderer {
     // changes, and it never actually changes at that — always 0xCC000000).
     private final Paint gifBadgeBgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
 
+    // v36 PERF: these two used to be `new RectF(...)` allocated fresh on
+    // every single draw() call — for a video bubble (which always shows
+    // the duration badge) that's a GC-churning allocation on every frame
+    // while the indeterminate download spinner is animating (~30fps, see
+    // MessageBubbleCanvasView#drawMediaWithOptionalCache's javadoc), same
+    // exact class of bug already fixed for the renderer classes elsewhere
+    // in this codebase (pre-allocated Paint/Path/RectF out of draw()).
+    // Reused via .set() instead — zero allocation on the hot path.
+    private final RectF gifBadgeRectF = new RectF();
+    private final RectF durationBadgeRectF = new RectF();
+
     void draw(Canvas canvas, int hPad, int vPad) {
         draw(canvas, hPad, vPad, false);
     }
@@ -138,8 +149,8 @@ final class MediaRenderer {
             float bh = badgeTsz + badgePad * 2f;
             float bx = host.mediaRect.left + 6f * host.density;
             float by = host.mediaRect.top  + 6f * host.density;
-            RectF gifBadgeRF = new RectF(bx, by, bx + bw, by + bh);
-            canvas.drawRoundRect(gifBadgeRF, badgeR, badgeR, gifBadgeBgPaint);
+            gifBadgeRectF.set(bx, by, bx + bw, by + bh);
+            canvas.drawRoundRect(gifBadgeRectF, badgeR, badgeR, gifBadgeBgPaint);
             host.textPaint.setColor(0xFFFFFFFF);
             canvas.drawText(MessageBubbleCanvasView.GIF_BADGE_TEXT, bx + badgePad, by + badgePad + badgeTsz * 0.85f, host.textPaint);
             host.textPaint.setTypeface(Typeface.DEFAULT); // restore
@@ -208,6 +219,24 @@ final class MediaRenderer {
      * from the media-GROUP video-cell overlay — identical visual, no
      * separate constants needed for the single-video case.
      */
+    // v36 PERF: measureText() re-walks every glyph in the string — cheap
+    // once, but wasteful if paid again on every single frame while the
+    // cached-Picture path is bypassed (indeterminate download spinner,
+    // see drawMediaWithOptionalCache). videoDuration is static for the
+    // lifetime of a bind (a video's length doesn't change), so cache the
+    // last-measured value and only re-measure when the string itself
+    // actually changes (new bind/recycle, or a caption/duration update).
+    private String cachedDurationText;
+    private float cachedDurationTextWidth;
+
+    private float measureDurationText(String duration, Paint paint) {
+        if (!duration.equals(cachedDurationText)) {
+            cachedDurationText = duration;
+            cachedDurationTextWidth = paint.measureText(duration);
+        }
+        return cachedDurationTextWidth;
+    }
+
     private void drawVideoPlayOverlay(Canvas canvas) {
         float cx = host.mediaRect.centerX(), cy = host.mediaRect.centerY();
         float circleR = (MessageBubbleCanvasView.SINGLE_VIDEO_PLAY_CIRCLE_DP * host.density) / 2f;
@@ -227,16 +256,16 @@ final class MediaRenderer {
 
         if (host.videoDuration != null && !host.videoDuration.isEmpty()) {
             float durPadH = 6 * host.density, durPadV = 3 * host.density;
-            float textW = host.groupDurationTextPaint.measureText(host.videoDuration);
+            float textW = measureDurationText(host.videoDuration, host.groupDurationTextPaint);
             float textH = host.groupDurationTextPaint.descent() - host.groupDurationTextPaint.ascent();
             float left = host.mediaRect.left + 6 * host.density;
             float bottom = host.mediaRect.bottom - 6 * host.density;
-            RectF durBg = new RectF(left, bottom - textH - durPadV * 2, left + textW + durPadH * 2, bottom);
+            durationBadgeRectF.set(left, bottom - textH - durPadV * 2, left + textW + durPadH * 2, bottom);
             float durR = MessageBubbleCanvasView.GROUP_DURATION_CORNER_DP * host.density;
-            canvas.drawRoundRect(durBg, durR, durR, host.groupDurationBgPaint);
-            canvas.drawRoundRect(durBg, durR, durR, host.groupDurationBorderPaint);
-            float textBaseline = durBg.bottom - durPadV - host.groupDurationTextPaint.descent();
-            canvas.drawText(host.videoDuration, durBg.left + durPadH, textBaseline, host.groupDurationTextPaint);
+            canvas.drawRoundRect(durationBadgeRectF, durR, durR, host.groupDurationBgPaint);
+            canvas.drawRoundRect(durationBadgeRectF, durR, durR, host.groupDurationBorderPaint);
+            float textBaseline = durationBadgeRectF.bottom - durPadV - host.groupDurationTextPaint.descent();
+            canvas.drawText(host.videoDuration, durationBadgeRectF.left + durPadH, textBaseline, host.groupDurationTextPaint);
         }
     }
 
