@@ -9,7 +9,6 @@ import android.text.style.AbsoluteSizeSpan;
 import android.text.style.AlignmentSpan;
 import android.text.style.BackgroundColorSpan;
 import android.text.style.ForegroundColorSpan;
-import android.text.style.LetterSpacingSpan;
 import android.text.style.LineHeightSpan;
 import android.text.style.RelativeSizeSpan;
 import android.text.style.StrikethroughSpan;
@@ -506,7 +505,43 @@ public class AdvancedRichTextController {
         });
     }
 
-    // ── Custom LineHeightSpan (pre-API-29 fallback) ────────────────────────────
+    // ── Custom LetterSpacingSpan (android.text.style.LetterSpacingSpan is not public API) ──
+    /**
+     * Applies per-character letter spacing via TextPaint.setLetterSpacing().
+     * Functionally equivalent to android.text.style.LetterSpacingSpan (API 21+) which is
+     * not part of the public Android SDK — we replicate it here instead.
+     *
+     * @param em spacing in em units, e.g. 0.05f = 5% of font size between characters.
+     */
+    public static class LetterSpacingSpan extends android.text.style.MetricAffectingSpan
+            implements android.text.ParcelableSpan {
+
+        private final float mLetterSpacing;
+
+        public LetterSpacingSpan(float letterSpacing) {
+            mLetterSpacing = letterSpacing;
+        }
+
+        public float getLetterSpacing() { return mLetterSpacing; }
+
+        @Override
+        public void updateMeasureState(@androidx.annotation.NonNull android.text.TextPaint tp) {
+            tp.setLetterSpacing(mLetterSpacing);
+        }
+
+        @Override
+        public void updateDrawState(android.text.TextPaint tp) {
+            tp.setLetterSpacing(mLetterSpacing);
+        }
+
+        @Override public int getSpanTypeId() { return 0; }
+        @Override public int describeContents() { return 0; }
+        @Override public void writeToParcel(android.os.Parcel dest, int flags) {
+            dest.writeFloat(mLetterSpacing);
+        }
+    }
+
+        // ── Custom LineHeightSpan (pre-API-29 fallback) ────────────────────────────
 
     public static class CustomLineHeightSpan implements LineHeightSpan {
         private final float multiplier;
