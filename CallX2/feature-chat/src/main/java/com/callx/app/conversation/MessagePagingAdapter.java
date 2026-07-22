@@ -6747,7 +6747,7 @@ public class MessagePagingAdapter
 
         // Timestamp row
         if (h.tvPresentationTime != null) {
-            String timeStr = (m.timestamp != null && m.timestamp > 0) ? formatTime(m.timestamp) : ;
+            String timeStr = (m.timestamp != null && m.timestamp > 0) ? formatTime(m.timestamp) : "";
             h.tvPresentationTime.setText(timeStr);
         }
         if (h.ivPresentationTick != null) {
