@@ -240,7 +240,14 @@ public class MessageBubbleCanvasView extends View {
     // "glass" look (bigger radius, subtle border, slightly deeper scrim)
     // instead of the flat hard-edged translucent rectangle.
     static final float MEDIA_CORNER_RADIUS_DP  = 18f;
-    static final float MEDIA_MARGIN_DP         = 2f;   // unused (kept for reference) — the real media/bubble-edge gap is H_PADDING_DP/V_PADDING_DP, applied where mediaRect is set
+    static final float MEDIA_MARGIN_DP         = 2f;   // unused (kept for reference) — the real media/bubble-edge gap is MEDIA_TIGHT_INSET_DP, applied where mediaRect is set
+    // v34: WhatsApp-level approach — the image/video itself now sits
+    // almost flush against the bubble edge (2dp, just enough for the
+    // rounded-corner clip to read cleanly) instead of the old 12dp/8dp
+    // H_PADDING_DP/V_PADDING_DP text-style gap. Only applied to the media
+    // rect itself; a caption's text (if any) still uses the normal
+    // hPad/vPad padding, same as a text bubble.
+    static final float MEDIA_TIGHT_INSET_DP    = 2f;
     // v33: single image/video bubbles get a near-square tail corner (vs.
     // the 4dp TAIL_RADIUS_DP every other bubble type uses) so that corner
     // visibly "pokes out" past the media's own rounded corner — the
@@ -3771,6 +3778,12 @@ public class MessageBubbleCanvasView extends View {
 
         int bubbleContentWidth;
         int bubbleHeight;
+        // Set (>=0) only inside the isMedia branch below — overrides the
+        // hPad used in the shared "bubbleWidth = bubbleContentWidth +
+        // pad*2" line further down, and is reused again at the mediaRect
+        // layout step near the bottom of this method. See
+        // MEDIA_TIGHT_INSET_DP's doc.
+        int mediaWidthPad = -1;
 
         if (isMedia) {
             // ── Image bubble — WhatsApp/Telegram-style dynamic size: the
@@ -3827,14 +3840,28 @@ public class MessageBubbleCanvasView extends View {
                 textLayout = null;
             }
 
-            bubbleContentWidth = Math.min(
-                    Math.max(mediaW, Math.max(replyBoxContentWidth, captionWidth)), maxTextWidth);
+            // WhatsApp-level approach: when the media itself is the widest
+            // piece of content (the normal case — captions/replies rarely
+            // exceed MEDIA_MAX_WIDTH_DP), the bubble hugs the image/video
+            // almost edge-to-edge via MEDIA_TIGHT_INSET_DP instead of the
+            // usual hPad text padding. If a caption or reply preview is
+            // actually wider than the media, the bubble falls back to the
+            // normal hPad-padded width for that content (the media rect
+            // then simply stretches to match at the layout step below).
+            int textDrivenContentWidth = Math.max(replyBoxContentWidth, captionWidth);
+            boolean mediaDrivesWidth = mediaW >= textDrivenContentWidth;
+            bubbleContentWidth = Math.min(mediaDrivesWidth ? mediaW : textDrivenContentWidth, maxTextWidth);
+            mediaWidthPad = mediaDrivesWidth
+                    ? Math.round(MEDIA_TIGHT_INSET_DP * density)
+                    : hPad;
 
-            // Captionless images get a tight vPad margin around the image;
-            // captioned images get the same margin plus the caption+footer
-            // block below (footer overlay is skipped when there's a caption
-            // — see onDraw — matching the text-bubble footer placement).
-            bubbleHeight = replyBoxHeight + replyGap + vPad + mediaH + vPad + captionBlockHeight;
+            // Captionless images get a tight WhatsApp-style margin around
+            // the image; captioned images get the same tight top/bottom
+            // media margin plus the caption+footer block below (footer
+            // overlay is skipped when there's a caption — see onDraw —
+            // matching the text-bubble footer placement).
+            int mediaTightVPad = Math.round(MEDIA_TIGHT_INSET_DP * density);
+            bubbleHeight = replyBoxHeight + replyGap + mediaTightVPad + mediaH + mediaTightVPad + captionBlockHeight;
 
         } else if (isReelShare) {
             // ── Reel-share card, now inside a normal chat bubble ──
@@ -4317,7 +4344,7 @@ public class MessageBubbleCanvasView extends View {
                     + (footerInlineWithText ? 0 : footerHeight);
         }
 
-        int bubbleWidth = bubbleContentWidth + hPad * 2;
+        int bubbleWidth = bubbleContentWidth + (mediaWidthPad >= 0 ? mediaWidthPad : hPad) * 2;
 
         // v33: single image/video bubbles get a small gap off the screen
         // wall (MEDIA_ROW_EDGE_MARGIN_DP) instead of sitting flush against
@@ -4363,8 +4390,19 @@ public class MessageBubbleCanvasView extends View {
             computeMediaSize(bubbleContentWidth, mediaSizeOut);
             int mediaW = mediaSizeOut[0];
             int mediaH = mediaSizeOut[1];
-            float mediaTop = bubbleTop + replyBoxHeight + replyGap + vPad;
-            mediaRect.set(bubbleLeft + hPad, mediaTop, bubbleLeft + hPad + mediaW, mediaTop + mediaH);
+            // Same pad the width/height calc above used — mediaWidthPad
+            // when media drove the bubble's width (the WhatsApp-tight
+            // case), or the normal hPad when a wider caption/reply forced
+            // the bubble wider than the media (media then stretches to
+            // fill that extra width so it doesn't look randomly narrow
+            // inside its own bubble).
+            int mediaPadH = mediaWidthPad >= 0 ? mediaWidthPad : hPad;
+            int mediaPadV = Math.round(MEDIA_TIGHT_INSET_DP * density);
+            int mediaLeft = bubbleLeft + mediaPadH;
+            int mediaWidthAvailable = bubbleWidth - mediaPadH * 2;
+            int mediaWActual = Math.max(mediaW, mediaWidthAvailable);
+            float mediaTop = bubbleTop + replyBoxHeight + replyGap + mediaPadV;
+            mediaRect.set(mediaLeft, mediaTop, mediaLeft + mediaWActual, mediaTop + mediaH);
 
             if (!mediaHasCaption) {
                 float pillPadH = MEDIA_PILL_PADDING_H_DP * density;
