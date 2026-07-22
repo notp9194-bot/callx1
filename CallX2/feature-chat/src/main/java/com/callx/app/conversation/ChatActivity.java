@@ -194,6 +194,9 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // to serialize them on low-end devices and add visible delay.
     private final Executor       ioExecutor = Executors.newFixedThreadPool(4);
 
+    // v169: Presentation message editor (slide composer).
+    private com.callx.app.conversation.presentation.PresentationMessageEditor presentationEditor;
+
     // ── Firebase ───────────────────────────────────────────────────────────
     private DatabaseReference  messagesRef;
     private ChildEventListener messageListener;
@@ -4423,6 +4426,11 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         super.onActivityResult(requestCode, resultCode, data);
         if (contactShareController.handleResult(requestCode, resultCode, data)) return;
         if (locationShareController.handleResult(requestCode, resultCode, data)) return;
+        // v169: Background image picker for PresentationMessageEditor
+        if (requestCode == com.callx.app.conversation.presentation.PresentationMessageEditor.REQ_PICK_BG_IMAGE
+                && resultCode == RESULT_OK && data != null && presentationEditor != null) {
+            presentationEditor.onBgImagePicked(data.getData());
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────

@@ -237,5 +237,14 @@ public class MessageEntity {
     public Integer mediaWidth;
     public Integer mediaHeight;
 
+
+    // ── Feature: Presentation Message (v169) ─────────────────────────────────
+    /**
+     * JSON-serialised PresentationMessage. Non-null only when type="presentation".
+     * Stored as TEXT in Room; see PresentationMessage.toJson() / fromJson().
+     * Added in Room migration v44 → v45 — see AppDatabase.MIGRATION_44_45.
+     */
+    public String presentationData;
+
     public MessageEntity() {}
 }

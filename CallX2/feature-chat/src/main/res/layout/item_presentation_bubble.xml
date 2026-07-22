@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    v169 — item_presentation_bubble.xml
+    RecyclerView item layout for a "presentation" type chat message.
+
+    The actual slide is rendered by PresentationCanvasView (full Canvas — no
+    child View inflation inside the card). This XML is only the bubble wrapper:
+    send-side / receive-side margin, timestamp, and tick row.
+
+    Wraps PresentationCanvasView exactly as other canvas bubble items wrap
+    MessageBubbleCanvasView, so the adapter doesn't need a separate ViewHolder
+    base class.
+-->
+<androidx.constraintlayout.widget.ConstraintLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:paddingTop="2dp"
+    android:paddingBottom="2dp">
+
+    <!--
+        The PresentationCanvasView — self-sizing via onMeasure().
+        Width is capped internally at 85% of parent; height from aspect ratio.
+        Adapter sets layout_marginStart / marginEnd to achieve sent/received side.
+    -->
+    <com.callx.app.conversation.canvas.PresentationCanvasView
+        android:id="@+id/cvPresentation"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="48dp"
+        android:layout_marginEnd="8dp"
+        android:layout_marginTop="2dp"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"/>
+
+    <!-- Timestamp + tick row (sits below the card, right-aligned) -->
+    <LinearLayout
+        android:id="@+id/llPresentationMeta"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginTop="3dp"
+        android:layout_marginEnd="12dp"
+        android:layout_marginBottom="4dp"
+        app:layout_constraintTop_toBottomOf="@id/cvPresentation"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent">
+
+        <TextView
+            android:id="@+id/tvPresentationTime"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="11sp"
+            android:textColor="#AA888888"
+            android:text="12:00"/>
+
+        <ImageView
+            android:id="@+id/ivPresentationTick"
+            android:layout_width="16dp"
+            android:layout_height="16dp"
+            android:layout_marginStart="2dp"
+            android:src="@drawable/ic_tick_single"
+            android:scaleType="centerInside"/>
+
+    </LinearLayout>
+
+</androidx.constraintlayout.widget.ConstraintLayout>

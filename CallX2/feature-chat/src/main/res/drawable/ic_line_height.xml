@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v169 — Line height icon (three lines with vertical arrows) -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+  <!-- Top arrow up -->
+  <path android:fillColor="#FF444444" android:pathData="M4,5H6V3L3,6L6,9V7H4V5Z" android:strokeWidth="0"/>
+  <path android:fillColor="#FF444444" android:pathData="M3,6H6" android:strokeColor="#FF444444" android:strokeWidth="1.5"/>
+  <!-- Lines representing text -->
+  <rect android:fillColor="#FF444444" android:left="8" android:top="5.25" android:right="21" android:bottom="6.75"/>
+  <rect android:fillColor="#FF444444" android:left="8" android:top="9.25" android:right="19" android:bottom="10.75"/>
+  <rect android:fillColor="#FF444444" android:left="8" android:top="13.25" android:right="21" android:bottom="14.75"/>
+  <rect android:fillColor="#FF444444" android:left="8" android:top="17.25" android:right="17" android:bottom="18.75"/>
+  <!-- Bottom arrow down -->
+  <path android:fillColor="#FF444444" android:pathData="M4,19H6V21L3,18L6,15V17H4V19Z" android:strokeWidth="0"/>
+  <path android:fillColor="#FF444444" android:pathData="M3,18H6" android:strokeColor="#FF444444" android:strokeWidth="1.5"/>
+</vector>
