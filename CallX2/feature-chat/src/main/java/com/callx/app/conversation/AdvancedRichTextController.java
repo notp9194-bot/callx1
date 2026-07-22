@@ -513,8 +513,17 @@ public class AdvancedRichTextController {
      *
      * @param em spacing in em units, e.g. 0.05f = 5% of font size between characters.
      */
-    public static class LetterSpacingSpan extends android.text.style.MetricAffectingSpan
-            implements android.text.ParcelableSpan {
+    public static class LetterSpacingSpan extends android.text.style.MetricAffectingSpan {
+        // NOTE: Deliberately does NOT implement android.text.ParcelableSpan.
+        // On API 34+, the framework calls a hidden getSpanTypeIdInternal()
+        // when parceling spans for SurroundingText/EditorInfo (e.g. on IME
+        // focus gain). Third-party classes can never correctly implement
+        // that hidden method, which is what threw:
+        //   AbstractMethodError: abstract method
+        //   "int android.text.ParcelableSpan.getSpanTypeIdInternal()"
+        // This span is only used locally inside the EditText's Editable and
+        // never needs to cross a process boundary, so dropping
+        // ParcelableSpan entirely is the correct fix (not a workaround).
 
         private final float mLetterSpacing;
 
@@ -532,12 +541,6 @@ public class AdvancedRichTextController {
         @Override
         public void updateDrawState(android.text.TextPaint tp) {
             tp.setLetterSpacing(mLetterSpacing);
-        }
-
-        @Override public int getSpanTypeId() { return 0; }
-        @Override public int describeContents() { return 0; }
-        @Override public void writeToParcel(android.os.Parcel dest, int flags) {
-            dest.writeFloat(mLetterSpacing);
         }
     }
 
