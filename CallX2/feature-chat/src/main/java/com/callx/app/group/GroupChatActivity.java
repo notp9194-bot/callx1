@@ -1540,7 +1540,9 @@ public class GroupChatActivity extends AppCompatActivity
         binding.btnSend.setOnClickListener(v -> sendText());
         binding.btnSend.setOnLongClickListener(v -> {
             if (groupScheduledController == null) return false;
-            String text = binding.etMessage.getText().toString().trim();
+            // v171: Preserve formatting spans when scheduling send
+            CharSequence editedText = binding.etMessage.getText();
+            String text = com.callx.app.utils.TextSpanSerializer.prepareForSend(editedText).trim();
             groupScheduledController.showSchedulePicker(text, () -> {
                 binding.etMessage.setText("");
                 clearReply();
@@ -1682,7 +1684,10 @@ public class GroupChatActivity extends AppCompatActivity
     }
 
     private void sendText() {
-        String text = binding.etMessage.getText().toString().trim();
+        // v171: Preserve advanced formatting (color, size, bold, italic, etc.) by serializing spans to HTML
+        CharSequence editedText = binding.etMessage.getText();
+        String text = com.callx.app.utils.TextSpanSerializer.prepareForSend(editedText).trim();
+        
         if (text.isEmpty()) return;
 
         // ── Bot command intercept ──────────────────────────────────────────────
@@ -1730,7 +1735,7 @@ public class GroupChatActivity extends AppCompatActivity
         Message m = buildOutgoing();
         m.type = "text";
         m.fontStyle = 0;
-        m.text = text;
+        m.text = text;  // Now contains HTML-serialized formatting
         // Anonymous posting: replace name+photo before push
         if (postAnonymously && anonymousPostingEnabled) {
             m.senderName  = "Anonymous";

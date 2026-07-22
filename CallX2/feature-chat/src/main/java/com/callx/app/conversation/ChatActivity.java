@@ -2901,7 +2901,9 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         binding.btnSend.setOnClickListener(v -> sendTextMessage());
         binding.btnSend.setOnLongClickListener(v -> {
             v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
-            String text = binding.etMessage.getText().toString().trim();
+            // v171: Preserve formatting spans when scheduling send
+            CharSequence editedText = binding.etMessage.getText();
+            String text = com.callx.app.utils.TextSpanSerializer.prepareForSend(editedText).trim();
             scheduledSendController.showSchedulePicker(text, () -> {
                 binding.etMessage.setText("");
                 if (presenceController != null) presenceController.clearOurTypingStatus();
@@ -3233,8 +3235,10 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
      * before calling markExpiredByTimer(), so already-opened messages are safe.
      */
     private void sendTextMessage() {
-        String text = binding.etMessage.getText() != null
-                ? binding.etMessage.getText().toString().trim() : "";
+        // v171: Preserve advanced formatting (color, size, bold, italic, etc.) by serializing spans to HTML
+        CharSequence editedText = binding.etMessage.getText();
+        String text = com.callx.app.utils.TextSpanSerializer.prepareForSend(editedText).trim();
+        
         if (text.isEmpty()) return;
         if (text.length() > MAX_MESSAGE_LENGTH) {
             binding.etMessage.setError("Message too long! Max " + MAX_MESSAGE_LENGTH + " characters allowed.");

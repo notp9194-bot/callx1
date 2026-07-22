@@ -2999,12 +2999,25 @@ public class MessagePagingAdapter
             // exactly why voting silently did nothing. See that override's
             // comment for details.
         } else {
-            // Feature 3: strip ||spoiler|| markers for canvas path (canvas can't render custom spans)
+            // v171 — Text message with advanced formatting support
             String canvasText = m.text != null ? m.text : "";
             if (com.callx.app.utils.SpoilerTextHelper.hasSpoiler(canvasText)) {
                 canvasText = com.callx.app.utils.SpoilerTextHelper.stripMarkers(canvasText);
             }
-            cv.bind(canvasText, timeStr, sent, isRead, isDelivered);
+            
+            // v171: Deserialize HTML-formatted text to preserve advanced formatting
+            // (color, size, bold, italic, font, etc. from AdvancedRichTextController)
+            android.text.CharSequence textToRender = canvasText;
+            if (canvasText.contains("<") && canvasText.contains(">")) {
+                try {
+                    textToRender = com.callx.app.utils.TextSpanSerializer.fromHtml(canvasText);
+                } catch (Exception e) {
+                    // If HTML deserialization fails, use plain text (canvas will apply MarkdownFormatter)
+                    textToRender = canvasText;
+                }
+            }
+            
+            cv.bind(textToRender, timeStr, sent, isRead, isDelivered);
             cv.setDeletedStyle(false); // clears any italic/dim state a recycled view carried from a deleted message
             cv.setSearchHighlight(activeSearchQuery);
 
