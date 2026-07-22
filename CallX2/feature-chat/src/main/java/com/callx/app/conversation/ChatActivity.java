@@ -2901,9 +2901,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         binding.btnSend.setOnClickListener(v -> sendTextMessage());
         binding.btnSend.setOnLongClickListener(v -> {
             v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
-            // v171: Preserve formatting spans when scheduling send
-            CharSequence editedText = binding.etMessage.getText();
-            String text = com.callx.app.utils.TextSpanSerializer.prepareForSend(editedText).trim();
+            String text = binding.etMessage.getText().toString().trim();
             scheduledSendController.showSchedulePicker(text, () -> {
                 binding.etMessage.setText("");
                 if (presenceController != null) presenceController.clearOurTypingStatus();
@@ -2963,9 +2961,14 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             @NonNull com.callx.app.conversation.models.PresentationMessage presentation) {
         Message m = buildOutgoing();
         m.type = "presentation";
-        // Serialise slides to JSON so existing Firebase/Message model requires
-        // no structural changes; the bubble adapter deserialises it back.
-        m.text = presentation.toJson();
+        // BUG FIX (v171): was writing to m.text, but bindPresentationMessage()
+        // in MessagePagingAdapter reads m.presentationData (dedicated Room/
+        // Message column added for this feature). Writing to the wrong field
+        // meant m.presentationData stayed null on bind, so it fell into the
+        // null-json branch and rendered an empty default PresentationMessage
+        // — just its 0xFF1A1A2E navy background, no slide content. That's
+        // the "blank blue box" bubble.
+        m.presentationData = presentation.toJson();
         pushMessage(m, "[Slide]");
         clearReply();
     }
@@ -3235,10 +3238,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
      * before calling markExpiredByTimer(), so already-opened messages are safe.
      */
     private void sendTextMessage() {
-        // v171: Preserve advanced formatting (color, size, bold, italic, etc.) by serializing spans to HTML
-        CharSequence editedText = binding.etMessage.getText();
-        String text = com.callx.app.utils.TextSpanSerializer.prepareForSend(editedText).trim();
-        
+        String text = binding.etMessage.getText() != null
+                ? binding.etMessage.getText().toString().trim() : "";
         if (text.isEmpty()) return;
         if (text.length() > MAX_MESSAGE_LENGTH) {
             binding.etMessage.setError("Message too long! Max " + MAX_MESSAGE_LENGTH + " characters allowed.");

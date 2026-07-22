@@ -2164,24 +2164,6 @@ public class MessageBubbleCanvasView extends View {
      * in place of the old setText()/Glide/etc. calls for the plain-text case.
      */
     public void bind(String text, String timeText, boolean isSent, boolean isRead, boolean isDelivered) {
-        bind((CharSequence) text, timeText, isSent, isRead, isDelivered);
-    }
-
-    /**
-     * v171 — Bind this view to a text message, preserving advanced formatting spans.
-     *
-     * Accepts either plain String text OR CharSequence with formatting (Spanned).
-     * If text contains HTML tags or has spans, they are preserved through rendering.
-     * Plain text is processed through MarkdownFormatter for *bold*/_italic_/~strike~.
-     *
-     * @param text The message text; may contain format spans from AdvancedRichTextController
-     *             or HTML-serialized formatting from previous sends
-     * @param timeText Timestamp string (with "✏️ edited" suffix if applicable)
-     * @param isSent true if message was sent by current user
-     * @param isRead true if message has been read
-     * @param isDelivered true if message has been delivered
-     */
-    public void bind(CharSequence text, String timeText, boolean isSent, boolean isRead, boolean isDelivered) {
         this.isMedia = false;
         this.isMediaGroup = false;
         this.isReelShare = false;
@@ -2193,32 +2175,8 @@ public class MessageBubbleCanvasView extends View {
         this.isViewOnce = false;
         this.isSeenBubble = false;
         this.mediaBitmap = null;
-
-        // v171: Handle both plain text and Spanned text
-        // If text is Spanned (from AdvancedRichTextController or HTML), preserve spans
-        // Otherwise apply MarkdownFormatter for markdown-style formatting
-        if (text instanceof android.text.Spanned) {
-            this.messageText = text.toString();
-            this.messageTextSpanned = (android.text.Spanned) text;
-        } else {
-            String plainText = text != null ? text.toString() : "";
-            this.messageText = plainText;
-            
-            // v171: Deserialize HTML-formatted text back to Spanned
-            // This handles text that was sent with advanced formatting and serialized to HTML
-            if (plainText.contains("<") && plainText.contains(">")) {
-                try {
-                    this.messageTextSpanned = com.callx.app.utils.TextSpanSerializer.fromHtml(plainText);
-                } catch (Exception e) {
-                    // Fallback: apply MarkdownFormatter if HTML deserialization fails
-                    this.messageTextSpanned = MarkdownFormatter.format(plainText);
-                }
-            } else {
-                // Plain text: apply MarkdownFormatter for *bold*/_italic_/~strike~
-                this.messageTextSpanned = MarkdownFormatter.format(plainText);
-            }
-        }
-
+        this.messageText = text != null ? text : "";
+        this.messageTextSpanned = MarkdownFormatter.format(this.messageText);
         this.footerTimeText = timeText != null ? timeText : "";
         this.sent = isSent;
         this.read = isRead;

@@ -196,10 +196,7 @@ public class GroupTopicChatActivity extends AppCompatActivity {
     }
 
     private void sendMessage() {
-        // v171: Preserve advanced formatting (color, size, bold, etc.) by serializing spans to HTML
-        CharSequence editedText = etMessage.getText();
-        String text = com.callx.app.utils.TextSpanSerializer.prepareForSend(editedText).trim();
-        
+        String text = etMessage.getText().toString().trim();
         if (TextUtils.isEmpty(text)) return;
         if (topicClosed && !isAdmin) {
             Toast.makeText(this, "This topic is closed", Toast.LENGTH_SHORT).show();
@@ -213,7 +210,7 @@ public class GroupTopicChatActivity extends AppCompatActivity {
         m.senderPhoto = postAnonymously ? null : (FirebaseAuth.getInstance().getCurrentUser().getPhotoUrl() != null
                 ? FirebaseAuth.getInstance().getCurrentUser().getPhotoUrl().toString() : null);
         m.isAnonymous = postAnonymously;
-        m.text        = text;  // Now contains HTML-serialized formatting
+        m.text        = text;
         m.type        = "text";
         m.topicId     = topicId;
         m.topicName   = topicName;

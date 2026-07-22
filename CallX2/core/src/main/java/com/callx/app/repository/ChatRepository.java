@@ -361,6 +361,12 @@ public class ChatRepository {
         e.locationAddress = m.locationAddress;
         // BUG FIX (v44): blurHash — see AppDatabase.MIGRATION_43_44.
         e.blurHash        = m.blurHash;
+        // BUG FIX (v171): toEntity() never copied presentationData across,
+        // so a RECEIVED "presentation" message synced through delta sync /
+        // remote mediator also lost its slide JSON and rendered as the
+        // blank default navy bubble on the receiving side too — same root
+        // cause as ChatMessageSender#messageToEntity() on the sending side.
+        e.presentationData = m.presentationData;
         e.syncedAt        = System.currentTimeMillis();
         return e;
     }
