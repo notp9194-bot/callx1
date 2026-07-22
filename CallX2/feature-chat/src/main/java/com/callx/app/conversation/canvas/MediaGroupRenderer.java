@@ -134,6 +134,13 @@ final class MediaGroupRenderer {
                 cellShaderBitmaps[i] = null;
             }
 
+            // v39: same hairline "glass card" edge single-media bubbles get
+            // (MediaRenderer's mediaBorderPaint pass) — traced on top of the
+            // bitmap/placeholder/file-cell fill for every grid cell, using
+            // the light/dark-aware groupCellBorderPaint resolved per-bind
+            // in bindMediaGroup().
+            canvas.drawRoundRect(rect, cellR, cellR, host.groupCellBorderPaint);
+
             if (item != null && item.isVideo && !isLastOverlay) {
                 float cx = rect.centerX(), cy = rect.centerY();
                 float circleR = (MessageBubbleCanvasView.GROUP_PLAY_CIRCLE_DP * host.density) / 2f;

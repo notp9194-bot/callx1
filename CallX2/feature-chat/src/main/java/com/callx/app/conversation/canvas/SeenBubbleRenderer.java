@@ -20,6 +20,18 @@ final class SeenBubbleRenderer {
 
     private final MessageBubbleCanvasView host;
 
+    // PERF (ultra-opt pass): label/name only change on rebind, but
+    // TextUtils.ellipsize() was re-running on every single draw() during
+    // scroll — same pattern already fixed in ContactRenderer/
+    // FileBubbleRenderer. Cache and only recompute when the raw text or
+    // available width actually changes.
+    private String lastLabelRaw;
+    private float lastLabelMaxW = -1f;
+    private String cachedLabelDisplay;
+    private String lastSeenNameRaw;
+    private float lastSeenNameMaxW = -1f;
+    private String cachedSeenNameDisplay;
+
     SeenBubbleRenderer(MessageBubbleCanvasView host) {
         this.host = host;
     }
@@ -105,8 +117,16 @@ final class SeenBubbleRenderer {
         canvas.drawText(iconGlyph, left, rowCenterY - (ifm.ascent + ifm.descent) / 2f, host.seenIconPaint);
         float labelX = left + host.seenIconPaint.measureText(iconGlyph) + MessageBubbleCanvasView.SEEN_ICON_LABEL_GAP_DP * host.density;
         String labelText = host.seenIsReel ? MessageBubbleCanvasView.SEEN_REEL_LABEL_TEXT : MessageBubbleCanvasView.SEEN_STATUS_LABEL_TEXT;
-        String labelToDraw = TextUtils.ellipsize(labelText, host.seenLabelPaint,
-                Math.max(1, right - labelX), TextUtils.TruncateAt.END).toString();
+        float labelMaxW = Math.max(1, right - labelX);
+        String labelToDraw;
+        if (cachedLabelDisplay != null && labelText.equals(lastLabelRaw) && labelMaxW == lastLabelMaxW) {
+            labelToDraw = cachedLabelDisplay;
+        } else {
+            labelToDraw = TextUtils.ellipsize(labelText, host.seenLabelPaint, labelMaxW, TextUtils.TruncateAt.END).toString();
+            lastLabelRaw = labelText;
+            lastLabelMaxW = labelMaxW;
+            cachedLabelDisplay = labelToDraw;
+        }
         canvas.drawText(labelToDraw, labelX, rowCenterY - (lfm.ascent + lfm.descent) / 2f, host.seenLabelPaint);
         cursorY += rowH;
 
@@ -114,8 +134,16 @@ final class SeenBubbleRenderer {
         if (host.seenHasName) {
             Paint.FontMetrics nfm = host.seenNamePaint.getFontMetrics();
             cursorY += MessageBubbleCanvasView.SEEN_NAME_GAP_TOP_DP * host.density;
-            String nameToDraw = TextUtils.ellipsize(host.seenName, host.seenNamePaint,
-                    Math.max(1, right - left), TextUtils.TruncateAt.END).toString();
+            float nameMaxW = Math.max(1, right - left);
+            String nameToDraw;
+            if (cachedSeenNameDisplay != null && host.seenName.equals(lastSeenNameRaw) && nameMaxW == lastSeenNameMaxW) {
+                nameToDraw = cachedSeenNameDisplay;
+            } else {
+                nameToDraw = TextUtils.ellipsize(host.seenName, host.seenNamePaint, nameMaxW, TextUtils.TruncateAt.END).toString();
+                lastSeenNameRaw = host.seenName;
+                lastSeenNameMaxW = nameMaxW;
+                cachedSeenNameDisplay = nameToDraw;
+            }
             canvas.drawText(nameToDraw, left, cursorY - nfm.ascent, host.seenNamePaint);
             cursorY += (nfm.descent - nfm.ascent);
         }

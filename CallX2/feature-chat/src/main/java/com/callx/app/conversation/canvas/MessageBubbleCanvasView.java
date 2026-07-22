@@ -1343,6 +1343,10 @@ public class MessageBubbleCanvasView extends View {
     StaticLayout groupCaptionLayout;
     final RectF groupContentRect = new RectF(); // grid-only area (no reply, no caption row — caption is a separate row below this rect)
     final Paint groupCellBgPaint = new Paint();
+    // v39: hairline border for each grid cell — mirrors mediaBorderPaint's
+    // v35 fix (single image/video bubble), color resolved per-bind in
+    // bindMediaGroup() via MEDIA_BORDER_COLOR_LIGHT/DARK, not here.
+    final Paint groupCellBorderPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     final Paint groupBitmapPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
     final Paint groupScrimPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     final Paint groupMoreOverlayPaint = new Paint();
@@ -1839,7 +1843,9 @@ public class MessageBubbleCanvasView extends View {
         expiryPaint.setTextSize(spToPx(EXPIRY_TEXT_SP));
         expiryPaint.setColor(EXPIRY_COLOR);
 
-        groupCellBgPaint.setColor(Color.DKGRAY);
+        groupCellBgPaint.setColor(Color.DKGRAY); // overwritten per-bind in bindMediaGroup() — see v39 note there
+        groupCellBorderPaint.setStyle(Paint.Style.STROKE);
+        groupCellBorderPaint.setStrokeWidth(MEDIA_BORDER_WIDTH_DP * density);
         groupMoreOverlayPaint.setColor(0xBB000000);
         groupMoreTextPaint.setColor(Color.WHITE);
         groupMoreTextPaint.setFakeBoldText(true);
@@ -2601,6 +2607,15 @@ public class MessageBubbleCanvasView extends View {
         textPaint.setColor(ChatThemeManager.get(ctx).getTextColor(ctx, sent));
         footerPaint.setColor(textPaint.getColor());
         tickPaint.setColor(ChatThemeManager.getTickColor(read));
+
+        // v39: same fix as bindMedia() — group-grid cells used to get a
+        // hardcoded Color.DKGRAY placeholder set once in the constructor
+        // (never theme-aware) and had NO border paint at all, so the grid
+        // never picked up the v35 light/dark hairline+placeholder fix.
+        // Resolved fresh per bind (one isDarkMode() check), no per-frame cost.
+        boolean darkMode = ChatThemeManager.isDarkMode(ctx);
+        groupCellBgPaint.setColor(darkMode ? MEDIA_PLACEHOLDER_COLOR_DARK : MEDIA_PLACEHOLDER_COLOR_LIGHT);
+        groupCellBorderPaint.setColor(darkMode ? MEDIA_BORDER_COLOR_DARK : MEDIA_BORDER_COLOR_LIGHT);
 
         int cacheKey = (sent ? 1 : 0) << 1 | (hasReply ? 1 : 0);
         if (cacheKey != lastCacheKey || bubbleDrawable == null) {

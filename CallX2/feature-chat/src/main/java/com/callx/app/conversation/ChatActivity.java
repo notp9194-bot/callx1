@@ -4052,11 +4052,21 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         float distance = binding.cvHeaderCapsule.getHeight()
                 + binding.cvHeaderCapsule.getTop()
                 + (16f * getResources().getDisplayMetrics().density);
+        // PERF (ultra-opt pass): withLayer() caches the capsule's whole
+        // subtree (avatar, ripple buttons, card corner clip + elevation
+        // shadow) into a single hardware layer for the animation's
+        // duration, so each of these frames only needs to re-composite one
+        // cached texture instead of re-issuing every child's draw calls —
+        // this animation always fires while rv_messages is actively
+        // flinging, so it's directly competing for the same 16ms frame
+        // budget. ViewPropertyAnimator auto-restores LAYER_TYPE_NONE when
+        // the animation ends, so no manual cleanup needed.
         binding.cvHeaderCapsule.animate()
                 .translationY(-distance)
                 .alpha(0f)
                 .setDuration(220)
                 .setInterpolator(new android.view.animation.AccelerateInterpolator())
+                .withLayer()
                 .start();
     }
 
@@ -4068,6 +4078,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 .alpha(1f)
                 .setDuration(220)
                 .setInterpolator(new android.view.animation.DecelerateInterpolator())
+                .withLayer()
                 .start();
     }
 

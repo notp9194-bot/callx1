@@ -19,6 +19,16 @@ final class ReelShareRenderer {
 
     private final MessageBubbleCanvasView host;
 
+    // PERF (ultra-opt pass): username only actually changes on rebind
+    // (bindReelShare()/setReelShareUsername()), but TextUtils.ellipsize()
+    // was re-running (and re-allocating its result) on every single draw()
+    // during scroll — same pattern already fixed in ContactRenderer/
+    // FileBubbleRenderer. Cache and only recompute when the raw text or
+    // available width actually changes.
+    private String lastUsernameRaw;
+    private float lastUsernameMaxW = -1f;
+    private String cachedUsernameDisplay;
+
     ReelShareRenderer(MessageBubbleCanvasView host) {
         this.host = host;
     }
@@ -80,8 +90,17 @@ final class ReelShareRenderer {
         Paint.FontMetrics ufm = host.reelUsernamePaint.getFontMetrics();
         float usernameBaselineY = host.reelAvatarRect.centerY() - (ufm.ascent + ufm.descent) / 2f;
         float usernameMaxW = host.reelCardRect.right - MessageBubbleCanvasView.REEL_HEADER_PAD_H_DP * host.density - usernameX;
-        String usernameToDraw = TextUtils.ellipsize(host.reelUsername, host.reelUsernamePaint,
-                Math.max(1, usernameMaxW), TextUtils.TruncateAt.END).toString();
+        float safeUsernameMaxW = Math.max(1, usernameMaxW);
+        String usernameToDraw;
+        if (cachedUsernameDisplay != null && host.reelUsername.equals(lastUsernameRaw) && safeUsernameMaxW == lastUsernameMaxW) {
+            usernameToDraw = cachedUsernameDisplay;
+        } else {
+            usernameToDraw = TextUtils.ellipsize(host.reelUsername, host.reelUsernamePaint,
+                    safeUsernameMaxW, TextUtils.TruncateAt.END).toString();
+            lastUsernameRaw = host.reelUsername;
+            lastUsernameMaxW = safeUsernameMaxW;
+            cachedUsernameDisplay = usernameToDraw;
+        }
         canvas.drawText(usernameToDraw, usernameX, usernameBaselineY, host.reelUsernamePaint);
 
         // ── Centered play glyph ──
@@ -118,10 +137,15 @@ final class ReelShareRenderer {
             canvas.drawText(host.expiryText, timeX - host.expiryReserveWidth(), textBaselineY, host.expiryPaint);
         }
         if (host.sent) {
-            Paint saved = new Paint(host.tickPaint);
+            // PERF (ultra-opt pass): was `new Paint(host.tickPaint)` — a full
+            // Paint object allocation on every single draw() for every sent
+            // reel-share bubble on screen, every frame of a fling. Only the
+            // color actually needs saving/restoring here, so swap to a plain
+            // int — zero allocation, same visual result.
+            int savedTickColor = host.tickPaint.getColor();
             host.tickPaint.setColor(MessageBubbleCanvasView.MEDIA_PILL_TEXT);
             host.drawTick(canvas, host.mediaPillRect.right - pillPadH - MessageBubbleCanvasView.TICK_SIZE_DP * host.density, textBaselineY);
-            host.tickPaint.set(saved);
+            host.tickPaint.setColor(savedTickColor);
         }
     }
 }

@@ -594,202 +594,233 @@
 
             </com.google.android.material.card.MaterialCardView>
 
-            <com.google.android.material.card.MaterialCardView
-                android:id="@+id/cv_input_capsule"
+            <!-- ═══════════════════════════════════════════════════════════
+                 WhatsApp-style input row: the pill (cv_input_capsule) holds
+                 only view-once + text field + attach/camera now — mic/send
+                 sit OUTSIDE the pill as their own floating round button,
+                 matching the reference screenshot. Pill background/color
+                 untouched (still @color/surface_input, same corner radius,
+                 stroke, elevation as before).
+                 ═══════════════════════════════════════════════════════════ -->
+            <LinearLayout
+                android:id="@+id/ll_input_bar_row"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="10dp"
-                android:layout_marginEnd="10dp"
                 android:layout_marginTop="6dp"
                 android:layout_marginBottom="10dp"
-                app:cardCornerRadius="28dp"
-                app:cardElevation="6dp"
-                app:cardBackgroundColor="@color/surface_input"
-                app:strokeColor="@color/divider"
-                app:strokeWidth="0.5dp"
-                app:cardPreventCornerOverlap="false"
-                app:cardUseCompatPadding="true">
+                android:orientation="horizontal"
+                android:gravity="bottom"
+                android:clipChildren="false"
+                android:clipToPadding="false">
 
-                <!-- Input row -->
-                <LinearLayout
-                    android:id="@+id/ll_input_row"
-                    android:layout_width="match_parent"
+                <com.google.android.material.card.MaterialCardView
+                    android:id="@+id/cv_input_capsule"
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:paddingStart="4dp"
-                    android:paddingEnd="4dp"
-                    android:paddingTop="4dp"
-                    android:paddingBottom="4dp"
-                    android:background="@android:color/transparent"
-                    android:gravity="center_vertical">
-                    <ImageButton
-                        android:id="@+id/btn_attach"
-                        android:layout_width="34dp"
-                        android:layout_height="34dp"
-                        android:padding="6dp"
-                        android:src="@drawable/ic_attach"
-                        android:tint="@color/white"
-                        android:background="?attr/selectableItemBackgroundBorderless"
-                        android:contentDescription="Attach"/>
-                    <ImageButton
-                        android:id="@+id/btn_camera"
-                        android:layout_width="34dp"
-                        android:layout_height="34dp"
-                        android:padding="6dp"
-                        android:src="@drawable/ic_camera"
-                        android:tint="@color/white"
-                        android:background="?attr/selectableItemBackgroundBorderless"
-                        android:contentDescription="Camera"/>
-                    <ImageButton
-                        android:id="@+id/btn_view_once"
-                        android:layout_width="34dp"
-                        android:layout_height="34dp"
-                        android:padding="6dp"
-                        android:src="@drawable/ic_view_once"
-                        android:tint="@color/white"
-                        android:background="?attr/selectableItemBackgroundBorderless"
-                        android:contentDescription="View Once"/>
-                    <FrameLayout
-                        android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_marginStart="10dp"
+                    android:layout_marginEnd="8dp"
+                    app:cardCornerRadius="28dp"
+                    app:cardElevation="6dp"
+                    app:cardBackgroundColor="@color/surface_input"
+                    app:strokeColor="@color/divider"
+                    app:strokeWidth="0.5dp"
+                    app:cardPreventCornerOverlap="false"
+                    app:cardUseCompatPadding="true">
+
+                    <!-- Input row — view-once toggle on the left, message
+                         field in the middle, attach+camera grouped on the
+                         right, all inside the pill (WhatsApp layout). -->
+                    <LinearLayout
+                        android:id="@+id/ll_input_row"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_weight="1"
+                        android:orientation="horizontal"
+                        android:paddingStart="4dp"
+                        android:paddingEnd="4dp"
+                        android:paddingTop="4dp"
+                        android:paddingBottom="4dp"
                         android:background="@android:color/transparent"
-                        android:layout_marginStart="4dp"
-                        android:layout_marginEnd="6dp"
-                        android:paddingStart="8dp"
-                        android:paddingEnd="8dp">
+                        android:gravity="center_vertical">
+                        <ImageButton
+                            android:id="@+id/btn_view_once"
+                            android:layout_width="34dp"
+                            android:layout_height="34dp"
+                            android:padding="6dp"
+                            android:src="@drawable/ic_view_once"
+                            android:tint="@color/white"
+                            android:background="?attr/selectableItemBackgroundBorderless"
+                            android:contentDescription="View Once"/>
+                        <!-- PERF (ultra-opt pass): et_message used to sit inside a
+                             FrameLayout that existed only to hold its weight/
+                             margins/padding — one extra ViewGroup measured and
+                             laid out on every relayout of this row (i.e. on
+                             every text change that grows/shrinks the pill).
+                             Removed; the same weight/margin/padding now live
+                             directly on the EditText, same visual result. -->
                         <com.callx.app.chat.ui.GifAwareEditText
                             android:id="@+id/et_message"
-                            android:layout_width="match_parent"
+                            android:layout_width="0dp"
                             android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:layout_marginStart="4dp"
+                            android:layout_marginEnd="4dp"
                             android:hint="@string/hint_message"
                             android:textColorHint="@color/text_muted"
                             android:textColor="@color/chat_input_text"
                             android:background="@color/transparent"
                             android:paddingTop="5dp"
                             android:paddingBottom="5dp"
-                            android:paddingStart="2dp"
-                            android:paddingEnd="2dp"
+                            android:paddingStart="10dp"
+                            android:paddingEnd="10dp"
                             android:textSize="14sp"
                             android:maxLines="4"
                             android:maxLength="4000"/>
-                    </FrameLayout>
-                    <ImageButton
-                        android:id="@+id/btn_mic"
-                        android:layout_width="36dp"
-                        android:layout_height="36dp"
-                        android:padding="8dp"
-                        android:src="@drawable/ic_mic"
-                        android:tint="@color/white"
-                        android:background="@drawable/circle_primary"
-                        android:contentDescription="Voice message"/>
-                    <ImageButton
-                        android:id="@+id/btn_send"
-                        android:layout_width="36dp"
-                        android:layout_height="36dp"
-                        android:padding="8dp"
-                        android:src="@drawable/ic_send"
-                        android:tint="@color/white"
-                        android:background="@drawable/circle_primary"
-                        android:layout_marginStart="6dp"
-                        android:visibility="gone"
-                        android:contentDescription="Send"/>
-                </LinearLayout>
-
-                <!-- ═══════════════════════════════════════════════════════
-                     RECORDING BAR — replaces ll_input_row while a voice
-                     message is being held/locked. WhatsApp-style: red dot +
-                     timer + live waveform on the left, "‹ Slide to cancel"
-                     on the right that tracks the finger while dragging.
-                     Delete/Send buttons appear only once locked (Feature:
-                     voice waveform + swipe-to-cancel/lock).
-                     ═══════════════════════════════════════════════════════ -->
-                <LinearLayout
-                    android:id="@+id/ll_recording_bar"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:paddingStart="14dp"
-                    android:paddingEnd="10dp"
-                    android:paddingTop="4dp"
-                    android:paddingBottom="4dp"
-                    android:gravity="center_vertical"
-                    android:visibility="gone">
-
-                    <ImageView
-                        android:id="@+id/iv_record_dot"
-                        android:layout_width="10dp"
-                        android:layout_height="10dp"
-                        android:background="@drawable/circle_reject"
-                        android:contentDescription="Recording"/>
-
-                    <TextView
-                        android:id="@+id/tv_record_timer"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginStart="8dp"
-                        android:text="00:00"
-                        android:textColor="@color/chat_input_text"
-                        android:textSize="13sp"
-                        android:fontFamily="monospace"/>
-
-                    <com.callx.app.chat.ui.RecordingWaveformView
-                        android:id="@+id/waveform_recording"
-                        android:layout_width="0dp"
-                        android:layout_height="28dp"
-                        android:layout_weight="1"
-                        android:layout_marginStart="10dp"
-                        android:layout_marginEnd="6dp"/>
-
-                    <LinearLayout
-                        android:id="@+id/ll_slide_cancel"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:gravity="center_vertical">
-
-                        <ImageView
-                            android:id="@+id/iv_slide_chevron"
-                            android:layout_width="14dp"
-                            android:layout_height="14dp"
-                            android:src="@drawable/ic_chevron_left"
-                            app:tint="@color/text_muted"
-                            android:contentDescription="Slide to cancel"/>
-
-                        <TextView
-                            android:id="@+id/tv_slide_cancel"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:layout_marginStart="4dp"
-                            android:text="@string/slide_to_cancel"
-                            android:textColor="@color/text_muted"
-                            android:textSize="12sp"/>
+                        <ImageButton
+                            android:id="@+id/btn_attach"
+                            android:layout_width="34dp"
+                            android:layout_height="34dp"
+                            android:padding="6dp"
+                            android:src="@drawable/ic_attach"
+                            android:tint="@color/white"
+                            android:background="?attr/selectableItemBackgroundBorderless"
+                            android:contentDescription="Attach"/>
+                        <ImageButton
+                            android:id="@+id/btn_camera"
+                            android:layout_width="34dp"
+                            android:layout_height="34dp"
+                            android:padding="6dp"
+                            android:src="@drawable/ic_camera"
+                            android:tint="@color/white"
+                            android:background="?attr/selectableItemBackgroundBorderless"
+                            android:layout_marginStart="2dp"
+                            android:contentDescription="Camera"/>
                     </LinearLayout>
 
-                    <ImageButton
-                        android:id="@+id/btn_record_delete"
-                        android:layout_width="34dp"
-                        android:layout_height="34dp"
-                        android:padding="7dp"
-                        android:src="@drawable/ic_record_delete"
-                        android:tint="@color/text_secondary"
-                        android:background="?attr/selectableItemBackgroundBorderless"
-                        android:visibility="gone"
-                        android:contentDescription="Delete recording"/>
+                    <!-- ═══════════════════════════════════════════════════════
+                         RECORDING BAR — replaces ll_input_row while a voice
+                         message is being held/locked. WhatsApp-style: red dot +
+                         timer + live waveform on the left, "‹ Slide to cancel"
+                         on the right that tracks the finger while dragging.
+                         Delete/Send buttons appear only once locked (Feature:
+                         voice waveform + swipe-to-cancel/lock).
+                         ═══════════════════════════════════════════════════════ -->
+                    <LinearLayout
+                        android:id="@+id/ll_recording_bar"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:paddingStart="14dp"
+                        android:paddingEnd="10dp"
+                        android:paddingTop="4dp"
+                        android:paddingBottom="4dp"
+                        android:gravity="center_vertical"
+                        android:visibility="gone">
 
-                    <ImageButton
-                        android:id="@+id/btn_record_send"
-                        android:layout_width="36dp"
-                        android:layout_height="36dp"
-                        android:padding="8dp"
-                        android:src="@drawable/ic_send"
-                        android:tint="@color/white"
-                        android:background="@drawable/circle_primary"
-                        android:layout_marginStart="6dp"
-                        android:visibility="gone"
-                        android:contentDescription="Send recording"/>
-                </LinearLayout>
-            </com.google.android.material.card.MaterialCardView>
+                        <ImageView
+                            android:id="@+id/iv_record_dot"
+                            android:layout_width="10dp"
+                            android:layout_height="10dp"
+                            android:background="@drawable/circle_reject"
+                            android:contentDescription="Recording"/>
+
+                        <TextView
+                            android:id="@+id/tv_record_timer"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="8dp"
+                            android:text="00:00"
+                            android:textColor="@color/chat_input_text"
+                            android:textSize="13sp"
+                            android:fontFamily="monospace"/>
+
+                        <com.callx.app.chat.ui.RecordingWaveformView
+                            android:id="@+id/waveform_recording"
+                            android:layout_width="0dp"
+                            android:layout_height="28dp"
+                            android:layout_weight="1"
+                            android:layout_marginStart="10dp"
+                            android:layout_marginEnd="6dp"/>
+
+                        <LinearLayout
+                            android:id="@+id/ll_slide_cancel"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal"
+                            android:gravity="center_vertical">
+
+                            <ImageView
+                                android:id="@+id/iv_slide_chevron"
+                                android:layout_width="14dp"
+                                android:layout_height="14dp"
+                                android:src="@drawable/ic_chevron_left"
+                                app:tint="@color/text_muted"
+                                android:contentDescription="Slide to cancel"/>
+
+                            <TextView
+                                android:id="@+id/tv_slide_cancel"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginStart="4dp"
+                                android:text="@string/slide_to_cancel"
+                                android:textColor="@color/text_muted"
+                                android:textSize="12sp"/>
+                        </LinearLayout>
+
+                        <ImageButton
+                            android:id="@+id/btn_record_delete"
+                            android:layout_width="34dp"
+                            android:layout_height="34dp"
+                            android:padding="7dp"
+                            android:src="@drawable/ic_record_delete"
+                            android:tint="@color/text_secondary"
+                            android:background="?attr/selectableItemBackgroundBorderless"
+                            android:visibility="gone"
+                            android:contentDescription="Delete recording"/>
+
+                        <ImageButton
+                            android:id="@+id/btn_record_send"
+                            android:layout_width="36dp"
+                            android:layout_height="36dp"
+                            android:padding="8dp"
+                            android:src="@drawable/ic_send"
+                            android:tint="@color/white"
+                            android:background="@drawable/circle_primary"
+                            android:layout_marginStart="6dp"
+                            android:visibility="gone"
+                            android:contentDescription="Send recording"/>
+                    </LinearLayout>
+                </com.google.android.material.card.MaterialCardView>
+
+                <!-- Mic / Send — separate floating round button OUTSIDE the
+                     pill, WhatsApp-style. Only one is visible at a time
+                     (existing controller logic just toggles mic↔send
+                     visibility as the user types — unchanged, just relocated
+                     from inside the pill to beside it). -->
+                <ImageButton
+                    android:id="@+id/btn_mic"
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:layout_marginEnd="10dp"
+                    android:padding="10dp"
+                    android:src="@drawable/ic_mic"
+                    android:tint="@color/white"
+                    android:background="@drawable/circle_primary"
+                    android:elevation="4dp"
+                    android:contentDescription="Voice message"/>
+                <ImageButton
+                    android:id="@+id/btn_send"
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:layout_marginEnd="10dp"
+                    android:padding="10dp"
+                    android:src="@drawable/ic_send"
+                    android:tint="@color/white"
+                    android:background="@drawable/circle_primary"
+                    android:elevation="4dp"
+                    android:visibility="gone"
+                    android:contentDescription="Send"/>
+            </LinearLayout>
 
         </LinearLayout>
 

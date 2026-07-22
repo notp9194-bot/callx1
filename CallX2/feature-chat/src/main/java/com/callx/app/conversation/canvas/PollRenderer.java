@@ -23,6 +23,10 @@ final class PollRenderer {
 
     private final MessageBubbleCanvasView host;
 
+    // PERF (ultra-opt pass): reused every draw() instead of `new RectF()` —
+    // was one allocation per poll bubble, every single frame during scroll.
+    private final RectF chipRect = new RectF();
+
     PollRenderer(MessageBubbleCanvasView host) {
         this.host = host;
     }
@@ -60,7 +64,8 @@ final class PollRenderer {
         float chipLeft  = right - chipW;
         float chipTop   = top + (host.pollHeaderRowH - chipH) / 2f;
         host.pollOptionBgPaint.setColor(host.pollClosed ? MessageBubbleCanvasView.POLL_CHIP_CLOSED_BG : MessageBubbleCanvasView.POLL_CHIP_NEUTRAL_BG);
-        RectF chipRect = new RectF(chipLeft, chipTop, right, chipTop + chipH);
+        RectF chipRect = this.chipRect;
+        chipRect.set(chipLeft, chipTop, right, chipTop + chipH);
         float chipR = MessageBubbleCanvasView.POLL_CHIP_CORNER_DP * host.density;
         canvas.drawRoundRect(chipRect, chipR, chipR, host.pollOptionBgPaint);
         Paint.FontMetrics cfm = host.pollChipPaint.getFontMetrics();
