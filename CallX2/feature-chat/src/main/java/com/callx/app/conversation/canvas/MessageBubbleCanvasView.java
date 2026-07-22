@@ -19,6 +19,7 @@ import android.view.View;
 
 import androidx.annotation.Nullable;
 
+import com.callx.app.chat.util.MarkdownFormatter;
 import com.callx.app.utils.ChatThemeManager;
 
 /**
@@ -1053,6 +1054,12 @@ public class MessageBubbleCanvasView extends View {
     }
 
     String messageText = "";
+    // Bold/italic/strikethrough-parsed version of messageText (see
+    // MarkdownFormatter) — this, not messageText, is what actually gets
+    // handed to StaticLayout.Builder.obtain() so *bold*/_italic_/~strike~
+    // markers render as real styling instead of literal punctuation.
+    // Recomputed alongside messageText every time it's assigned below.
+    CharSequence messageTextSpanned = "";
     String footerTimeText = "";
     // PERF: footerTimeText gets measured with footerPaint up to 3-4 times
     // in a single bind/measure/draw cycle (computeSizeSignature's footer
@@ -2128,6 +2135,7 @@ public class MessageBubbleCanvasView extends View {
         this.isSeenBubble = false;
         this.mediaBitmap = null;
         this.messageText = text != null ? text : "";
+        this.messageTextSpanned = MarkdownFormatter.format(this.messageText);
         this.footerTimeText = timeText != null ? timeText : "";
         this.sent = isSent;
         this.read = isRead;
@@ -2247,6 +2255,7 @@ public class MessageBubbleCanvasView extends View {
         this.mediaDownloading = false;
         this.mediaDownloadProgress = -1;
         this.messageText = caption != null ? caption : "";
+        this.messageTextSpanned = MarkdownFormatter.format(this.messageText);
         this.mediaHasCaption = !this.messageText.isEmpty();
         this.footerTimeText = timeText != null ? timeText : "";
         this.sent = isSent;
@@ -2378,6 +2387,7 @@ public class MessageBubbleCanvasView extends View {
         this.mediaBitmap = null;
         this.hasLinkPreview = false; // link-preview card is text-mode-only; a stale flag from a recycled view must not leak in here
         this.messageText = "";
+        this.messageTextSpanned = "";
         this.footerTimeText = timeText != null ? timeText : "";
         this.sent = isSent;
         this.read = isRead;
@@ -2598,6 +2608,7 @@ public class MessageBubbleCanvasView extends View {
         java.util.Arrays.fill(this.groupCellProgress, -1);
         this.groupHasCaption = caption != null && !caption.isEmpty();
         this.messageText = groupHasCaption ? caption : "";
+        this.messageTextSpanned = MarkdownFormatter.format(this.messageText);
         this.footerTimeText = timeText != null ? timeText : "";
         this.sent = isSent;
         this.read = isRead;
@@ -3207,6 +3218,7 @@ public class MessageBubbleCanvasView extends View {
         this.hasLinkPreview = false;
         this.mediaBitmap   = null;
         this.messageText   = "";
+        this.messageTextSpanned = "";
         this.footerTimeText = timeText != null ? timeText : "";
         this.sent          = isSent;
         this.read          = isRead;
@@ -3923,7 +3935,7 @@ public class MessageBubbleCanvasView extends View {
                     textLayout.getPaint().setColor(textPaint.getColor());
                 } else {
                     textLayout = StaticLayout.Builder
-                            .obtain(messageText, 0, messageText.length(), textPaint, maxTextWidth)
+                            .obtain(messageTextSpanned, 0, messageTextSpanned.length(), textPaint, maxTextWidth)
                             .setAlignment(Layout.Alignment.ALIGN_NORMAL)
                             .setLineSpacing(0f, 1f)
                             .setIncludePad(false)
@@ -4285,7 +4297,7 @@ public class MessageBubbleCanvasView extends View {
                     groupCaptionLayout.getPaint().setColor(textPaint.getColor());
                 } else {
                     groupCaptionLayout = StaticLayout.Builder
-                            .obtain(messageText, 0, messageText.length(), textPaint, maxTextWidth)
+                            .obtain(messageTextSpanned, 0, messageTextSpanned.length(), textPaint, maxTextWidth)
                             .setAlignment(Layout.Alignment.ALIGN_NORMAL)
                             .setLineSpacing(0f, 1f)
                             .setIncludePad(false)
@@ -4377,7 +4389,7 @@ public class MessageBubbleCanvasView extends View {
                 textLayout.getPaint().setColor(textPaint.getColor());
             } else {
                 textLayout = StaticLayout.Builder
-                        .obtain(messageText, 0, messageText.length(), textPaint, maxTextWidth)
+                        .obtain(messageTextSpanned, 0, messageTextSpanned.length(), textPaint, maxTextWidth)
                         .setAlignment(Layout.Alignment.ALIGN_NORMAL)
                         .setLineSpacing(0f, 1f)
                         .setIncludePad(false)

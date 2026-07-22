@@ -490,6 +490,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:textColor="@color/text_secondary"
+                        android:textStyle="italic"
                         android:textSize="12sp"
                         android:maxLines="2"
                         android:ellipsize="end"/>
@@ -503,6 +504,68 @@
                     android:src="@drawable/ic_back"
                     android:background="?attr/selectableItemBackgroundBorderless"
                     android:contentDescription="Cancel reply"/>
+            </LinearLayout>
+
+            <!-- Smart link preview — WhatsApp/Telegram-style: user URL type
+                 karte hi (debounced) OG title/thumbnail card yahan dikhta
+                 hai, send se pehle hi. Same LinkPreviewFetcher jo already
+                 sent-message bubbles ke liye use hota hai. -->
+            <LinearLayout
+                android:id="@+id/ll_link_preview_bar"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:background="@drawable/bg_reply_bar"
+                android:paddingStart="12dp"
+                android:paddingEnd="8dp"
+                android:paddingTop="6dp"
+                android:paddingBottom="6dp"
+                android:layout_marginStart="10dp"
+                android:layout_marginEnd="10dp"
+                android:layout_marginTop="6dp"
+                android:gravity="center_vertical"
+                android:visibility="gone">
+
+                <ImageView
+                    android:id="@+id/iv_link_preview_thumb"
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:scaleType="centerCrop"
+                    android:layout_marginEnd="8dp"
+                    android:background="@color/divider"
+                    android:visibility="gone"/>
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+                    <TextView
+                        android:id="@+id/tv_link_preview_domain"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textColor="@color/brand_primary"
+                        android:textSize="11sp"
+                        android:textStyle="bold"
+                        android:maxLines="1"
+                        android:ellipsize="end"/>
+                    <TextView
+                        android:id="@+id/tv_link_preview_title"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="12sp"
+                        android:maxLines="2"
+                        android:ellipsize="end"/>
+                </LinearLayout>
+
+                <ImageButton
+                    android:id="@+id/btn_cancel_link_preview"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:src="@drawable/ic_back"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="Dismiss link preview"/>
             </LinearLayout>
 
             <!-- Block banner — shown when YOU have blocked this person -->
@@ -602,6 +665,20 @@
                  untouched (still @color/surface_input, same corner radius,
                  stroke, elevation as before).
                  ═══════════════════════════════════════════════════════════ -->
+            <!-- Character count indicator — sirf tab dikhta hai jab
+                 maxLength ke paas (200 chars ya kam bache) ho, WhatsApp/
+                 Twitter-style counter. Limit paar hone par red ho jata hai. -->
+            <TextView
+                android:id="@+id/tv_char_count"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="end"
+                android:layout_marginEnd="14dp"
+                android:layout_marginTop="2dp"
+                android:textSize="11sp"
+                android:textColor="@color/text_muted"
+                android:visibility="gone"/>
+
             <LinearLayout
                 android:id="@+id/ll_input_bar_row"
                 android:layout_width="match_parent"
@@ -609,7 +686,7 @@
                 android:layout_marginTop="6dp"
                 android:layout_marginBottom="10dp"
                 android:orientation="horizontal"
-                android:gravity="top"
+                android:gravity="bottom"
                 android:clipChildren="false"
                 android:clipToPadding="false">
 

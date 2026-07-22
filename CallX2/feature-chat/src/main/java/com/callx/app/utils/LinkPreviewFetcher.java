@@ -120,8 +120,29 @@ public class LinkPreviewFetcher {
     /** Returns first HTTP/HTTPS URL in text, or null. */
     public static String extractFirstUrl(String text) {
         if (text == null || text.isEmpty()) return null;
+        // PERF: this runs on every keystroke of the compose box (via
+        // ComposeLinkPreviewController.onTextChanged) and on every bind of a
+        // sent text bubble. The overwhelming majority of both calls have no
+        // "http" anywhere in them, so a plain substring scan — no regex
+        // engine, no Matcher allocation — skips the expensive part entirely
+        // for the common case. Case-insensitive check since the pattern is too.
+        if (!containsIgnoreCaseHttp(text)) return null;
         Matcher m = URL_PATTERN.matcher(text);
         return m.find() ? m.group() : null;
+    }
+
+    private static boolean containsIgnoreCaseHttp(String text) {
+        int len = text.length();
+        for (int i = 0; i <= len - 4; i++) {
+            char c0 = text.charAt(i);
+            if (c0 != 'h' && c0 != 'H') continue;
+            if ((text.charAt(i + 1) | 0x20) == 't'
+                    && (text.charAt(i + 2) | 0x20) == 't'
+                    && (text.charAt(i + 3) | 0x20) == 'p') {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Fetch preview async. Callback always fires on main thread.

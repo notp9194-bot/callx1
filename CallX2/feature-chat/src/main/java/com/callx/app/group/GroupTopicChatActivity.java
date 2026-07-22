@@ -104,6 +104,7 @@ public class GroupTopicChatActivity extends AppCompatActivity {
         checkAdminStatus();
         loadAnonymousSetting();
         setupSendButton();
+        restoreTopicDraft();
         listenMessages();
         updateClosedBanner();
     }
@@ -202,6 +203,7 @@ public class GroupTopicChatActivity extends AppCompatActivity {
             return;
         }
         etMessage.setText("");
+        com.callx.app.utils.DraftStore.clear(this, topicDraftKey());
         Message m     = new Message();
         m.senderId    = currentUid;
         m.senderName  = postAnonymously ? "Anonymous" : currentName;
@@ -239,9 +241,34 @@ public class GroupTopicChatActivity extends AppCompatActivity {
     }
 
     @Override
+    protected void onPause() {
+        super.onPause();
+        saveTopicDraft();
+    }
+
+    @Override
     protected void onDestroy() {
         super.onDestroy();
+        saveTopicDraft();
         if (msgListener != null) groupMsgRef.removeEventListener(msgListener);
+    }
+
+    // ── Draft persistence (SharedPreferences-backed — see DraftStore) ──────
+    private String topicDraftKey() {
+        return "topic_" + groupId + "_" + topicId;
+    }
+
+    private void saveTopicDraft() {
+        if (etMessage == null) return;
+        com.callx.app.utils.DraftStore.save(this, topicDraftKey(), etMessage.getText().toString());
+    }
+
+    private void restoreTopicDraft() {
+        String draft = com.callx.app.utils.DraftStore.get(this, topicDraftKey());
+        if (draft != null && !draft.isEmpty()) {
+            etMessage.setText(draft);
+            etMessage.setSelection(draft.length());
+        }
     }
 
     @Override

@@ -321,6 +321,7 @@ public class GroupChatActivity extends AppCompatActivity
                 this, this::buildOutgoing, this::pushMessage);
         setupPagingRecyclerView();   // RecyclerView + adapter ready (Room query baad mein)
         setupInputBar();
+        restoreGroupDraft();
         setupPinnedBanner();
         setupReplyCancel();
         setupRealtimeHeader();
@@ -575,6 +576,7 @@ public class GroupChatActivity extends AppCompatActivity
 
     @Override
     protected void onDestroy() {
+        saveGroupDraft();
         if (activeReadByObserver != null) { activeReadByObserver.detach(); activeReadByObserver = null; }
         subtitleHandler.removeCallbacks(subtitleTick);
         typingHandler.removeCallbacks(stopTyping);
@@ -621,7 +623,31 @@ public class GroupChatActivity extends AppCompatActivity
             watchingController.clearViewingMessage();
         }
         onTypingStripScreenPaused();
+        saveGroupDraft();
         super.onPause();
+    }
+
+    // ── Draft persistence (SharedPreferences-backed — see DraftStore) ──────
+    private String draftKey() {
+        return groupId != null ? "group_" + groupId : null;
+    }
+
+    private void saveGroupDraft() {
+        String key = draftKey();
+        if (key == null || binding.etMessage == null) return;
+        String text = binding.etMessage.getText() != null
+                ? binding.etMessage.getText().toString() : "";
+        com.callx.app.utils.DraftStore.save(this, key, text);
+    }
+
+    private void restoreGroupDraft() {
+        String key = draftKey();
+        if (key == null || binding.etMessage == null) return;
+        String draft = com.callx.app.utils.DraftStore.get(this, key);
+        if (draft != null && !draft.isEmpty()) {
+            binding.etMessage.setText(draft);
+            binding.etMessage.setSelection(draft.length());
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -1460,7 +1486,19 @@ public class GroupChatActivity extends AppCompatActivity
     // INPUT BAR
     // ─────────────────────────────────────────────────────────────────────
 
+    private com.callx.app.chat.ui.ComposeLinkPreviewController composeLinkPreview;
+
     private void setupInputBar() {
+        if (binding.llLinkPreviewBar != null) {
+            composeLinkPreview = new com.callx.app.chat.ui.ComposeLinkPreviewController(
+                    binding.etMessage,
+                    binding.llLinkPreviewBar,
+                    binding.ivLinkPreviewThumb,
+                    binding.tvLinkPreviewDomain,
+                    binding.tvLinkPreviewTitle,
+                    binding.btnCancelLinkPreview);
+        }
+
         binding.etMessage.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
             @Override public void afterTextChanged(Editable s) {}
@@ -1468,16 +1506,24 @@ public class GroupChatActivity extends AppCompatActivity
                 boolean has = s.toString().trim().length() > 0;
                 binding.btnSend.setVisibility(has ? View.VISIBLE : View.GONE);
                 binding.btnMic.setVisibility(has ? View.GONE : View.VISIBLE);
+                if (composeLinkPreview != null) composeLinkPreview.onTextChanged(s.toString());
 
                 // Character counter: 200 se kam bacha ho toh dikhao
                 int remaining = MAX_MESSAGE_LENGTH - s.length();
-                if (remaining <= 200) {
-                    binding.etMessage.setError(remaining < 0
-                        ? "Limit exceeded! (" + Math.abs(remaining) + " extra)"
-                        : remaining + " characters remaining");
-                } else {
-                    binding.etMessage.setError(null);
+                if (binding.tvCharCount != null) {
+                    if (remaining <= 200) {
+                        binding.tvCharCount.setVisibility(View.VISIBLE);
+                        binding.tvCharCount.setText(s.length() + "/" + MAX_MESSAGE_LENGTH);
+                        binding.tvCharCount.setTextColor(androidx.core.content.ContextCompat.getColor(
+                                GroupChatActivity.this,
+                                remaining < 0 ? R.color.error_red : R.color.text_muted));
+                    } else {
+                        binding.tvCharCount.setVisibility(View.GONE);
+                    }
                 }
+                binding.etMessage.setError(remaining < 0
+                        ? "Limit exceeded! (" + Math.abs(remaining) + " extra)"
+                        : null);
 
                 if (has) {
                     setMyTyping(true);
@@ -1694,6 +1740,9 @@ public class GroupChatActivity extends AppCompatActivity
         pushMessage(m, text);
         lastSentMs = System.currentTimeMillis();
         clearReply();
+        if (composeLinkPreview != null) composeLinkPreview.reset();
+        String draftKey = draftKey();
+        if (draftKey != null) com.callx.app.utils.DraftStore.clear(this, draftKey);
     }
 
     private Message buildOutgoing() {

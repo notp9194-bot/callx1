@@ -1212,6 +1212,20 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         binding.llReplyBar.setTranslationY(0f);
         binding.llReplyBar.setVisibility(View.VISIBLE);
         binding.etMessage.requestFocus();
+        // WhatsApp-style: swiping to reply should pop the keyboard back up
+        // immediately, exactly like tapping the input field would — plain
+        // requestFocus() only sets focus and does nothing if the keyboard
+        // was already dismissed (e.g. user was scrolling with keyboard
+        // closed when they swiped). Force it open on the next frame so the
+        // reply bar's requestFocus() has actually taken effect first.
+        binding.etMessage.post(() -> {
+            android.view.inputmethod.InputMethodManager imm =
+                    (android.view.inputmethod.InputMethodManager)
+                            getSystemService(Context.INPUT_METHOD_SERVICE);
+            if (imm != null) {
+                imm.showSoftInput(binding.etMessage, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);
+            }
+        });
         ReplyAnalyticsTracker.get().onSwipeTriggered(this);
     }
 
@@ -2767,25 +2781,49 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     private SpringAnimation capsuleHeightSpring;
     private boolean isCapsuleHeightAnimating = false;
 
+    // Smart link detection — compose-time preview card above input bar.
+    private com.callx.app.chat.ui.ComposeLinkPreviewController composeLinkPreview;
+
     private void setupInputBar() {
         setupInputCapsuleAnimations();
+
+        if (binding.llLinkPreviewBar != null) {
+            composeLinkPreview = new com.callx.app.chat.ui.ComposeLinkPreviewController(
+                    binding.etMessage,
+                    binding.llLinkPreviewBar,
+                    binding.ivLinkPreviewThumb,
+                    binding.tvLinkPreviewDomain,
+                    binding.tvLinkPreviewTitle,
+                    binding.btnCancelLinkPreview);
+        }
 
         binding.etMessage.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int st, int c, int a) {}
             @Override public void afterTextChanged(Editable s) {}
             @Override public void onTextChanged(CharSequence s, int st, int b, int c) {
-                boolean hasText = s.toString().trim().length() > 0;
+                // PERF: this fires on every keystroke. s.toString() copies the
+                // whole buffer (up to MAX_MESSAGE_LENGTH chars) — compute it
+                // once and reuse everywhere below instead of calling it 3x.
+                String text = s.toString();
+                boolean hasText = !text.trim().isEmpty();
                 animateSendMicSwap(hasText);
                 animateAttachCameraIcons(!hasText);
 
                 int remaining = MAX_MESSAGE_LENGTH - s.length();
-                if (remaining <= 200) {
-                    binding.etMessage.setError(remaining < 0
-                            ? "Limit exceeded! (" + Math.abs(remaining) + " extra)"
-                            : remaining + " characters remaining");
-                } else {
-                    binding.etMessage.setError(null);
+                if (binding.tvCharCount != null) {
+                    if (remaining <= 200) {
+                        binding.tvCharCount.setVisibility(View.VISIBLE);
+                        binding.tvCharCount.setText(s.length() + "/" + MAX_MESSAGE_LENGTH);
+                        binding.tvCharCount.setTextColor(ContextCompat.getColor(
+                                ChatActivity.this,
+                                remaining < 0 ? R.color.error_red : R.color.text_muted));
+                    } else {
+                        binding.tvCharCount.setVisibility(View.GONE);
+                    }
                 }
+                binding.etMessage.setError(remaining < 0
+                        ? "Limit exceeded! (" + Math.abs(remaining) + " extra)"
+                        : null);
 
                 if (hasText) {
                     if (presenceController != null) presenceController.setOurTypingStatus(true);
@@ -2795,7 +2833,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                     typingHandler.removeCallbacks(stopTypingRunnable);
                     if (presenceController != null) presenceController.setOurTypingStatus(false);
                 }
-                if (liveTypingController != null) liveTypingController.onOurTextChanged(s.toString());
+                if (liveTypingController != null) liveTypingController.onOurTextChanged(text);
+                if (composeLinkPreview != null) composeLinkPreview.onTextChanged(text);
             }
         });
 
@@ -2807,6 +2846,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 binding.etMessage.setText("");
                 if (presenceController != null) presenceController.clearOurTypingStatus();
                 if (liveTypingController != null) liveTypingController.clearOurPreview();
+                if (composeLinkPreview != null) composeLinkPreview.reset();
                 ioExecutor.execute(() -> {
                     if (db != null && chatId != null) db.chatDao().saveDraft(chatId, "");
                 });
@@ -2825,6 +2865,38 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 contentInfo.requestPermission();
                 mediaController.sendGifMessage(contentInfo.getContentUri(), contentInfo);
             });
+            ((GifAwareEditText) binding.etMessage).setPasteAsFileListener((pastedText, insertAsText) -> {
+                new AlertDialog.Builder(this)
+                        .setTitle("Large paste detected")
+                        .setMessage("You pasted " + pastedText.length() + " characters. Send as text or as a .txt file?")
+                        .setPositiveButton("Send as Text", (d, w) -> insertAsText.run())
+                        .setNegativeButton("Send as .txt file", (d, w) -> sendPastedTextAsFile(pastedText))
+                        .setNeutralButton("Cancel", null)
+                        .show();
+            });
+        }
+    }
+
+    /**
+     * Writes a large pasted string out to a temp .txt file and sends it
+     * through the same attachment pipeline a picked document uses — the
+     * "Send as .txt file" choice from the paste-detection prompt above.
+     */
+    private void sendPastedTextAsFile(String text) {
+        try {
+            java.io.File dir = new java.io.File(getCacheDir(), "pasted_text");
+            if (!dir.exists()) dir.mkdirs();
+            String fileName = "Pasted text " + new java.text.SimpleDateFormat(
+                    "yyyy-MM-dd HH-mm-ss", java.util.Locale.getDefault()).format(new java.util.Date()) + ".txt";
+            java.io.File file = new java.io.File(dir, fileName);
+            try (java.io.FileOutputStream fos = new java.io.FileOutputStream(file)) {
+                fos.write(text.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            }
+            Uri uri = androidx.core.content.FileProvider.getUriForFile(
+                    this, getPackageName() + ".fileprovider", file);
+            mediaController.uploadAndSend(uri, "file", "raw", fileName);
+        } catch (Exception e) {
+            Toast.makeText(this, "Couldn't send as file", Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -3091,6 +3163,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         m.text = text;
         pushMessage(m, text);
         clearReply();
+        if (composeLinkPreview != null) composeLinkPreview.reset();
     }
 
     // ─────────────────────────────────────────────────────────────────────
