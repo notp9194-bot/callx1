@@ -187,6 +187,14 @@ public class MessageBubbleCanvasView extends View {
     static final float H_PADDING_DP      = 12f;
     static final float V_PADDING_DP      = 8f;
     static final float TEXT_SIZE_SP      = 15f;
+
+    // ── Read-more / Read-less collapse feature ───────────────────────────
+    // Messages longer than MAX_COLLAPSED_LINES are truncated with an
+    // ellipsis and a tappable "Read more ▼" link at the bottom of the
+    // bubble — mirrors WhatsApp's long-message collapse behaviour.
+    static final int   MAX_COLLAPSED_LINES      = 10;
+    static final float READ_MORE_ROW_HEIGHT_DP  = 22f;
+    static final float READ_MORE_TEXT_SP        = 12.5f;
     static final float FOOTER_GAP_DP     = 4f;
     static final float FOOTER_TEXT_SP    = 11f;
     static final float TICK_GAP_DP       = 3f;
@@ -1098,6 +1106,39 @@ public class MessageBubbleCanvasView extends View {
     // (used when the last line is too full, or when a link preview card
     // sits between text and footer).
     boolean footerInlineWithText;
+
+    // ── Read-more / Read-less state ──────────────────────────────────────
+    // hasLongText: set in onMeasure() when the full text exceeds
+    // MAX_COLLAPSED_LINES — causes a collapsed StaticLayout (max-lines
+    // truncated) to be used instead of the full one, and adds a tappable
+    // "Read more ▼" / "Read less ▲" link below the text block.
+    boolean hasLongText = false;
+    boolean isTextExpanded = false;
+    final RectF readMoreRect = new RectF();
+    final TextPaint readMorePaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+
+    /** Callback fired when the user taps the "Read more" / "Read less" link. */
+    public interface ReadMoreListener {
+        void onReadMoreClick(boolean nowExpanded);
+    }
+    private ReadMoreListener readMoreListener;
+
+    public void setReadMoreListener(ReadMoreListener l) {
+        this.readMoreListener = l;
+    }
+
+    /**
+     * Sets the expanded state for this bubble.  Called by the adapter when
+     * a recycled holder is bound to a message — keeps expand state in the
+     * adapter (not in the view) so scroll recycling never loses it.
+     */
+    public void setTextExpanded(boolean expanded) {
+        if (this.isTextExpanded == expanded) return;
+        this.isTextExpanded = expanded;
+        if (requestLayoutIfSizeChanged()) textLayout = null;
+        fullBubbleDirty = true;
+        invalidate();
+    }
     GradientDrawable bubbleDrawable;
     int lastCacheKey = -1;
 
@@ -4396,6 +4437,24 @@ public class MessageBubbleCanvasView extends View {
                         .build();
             }
 
+            // ── Read-more / Read-less collapse ────────────────────────────
+            // After obtaining the full layout (from cache or fresh build),
+            // check whether it exceeds MAX_COLLAPSED_LINES.  If yes and the
+            // bubble is NOT in expanded state, swap in a truncated layout so
+            // only the first MAX_COLLAPSED_LINES lines are drawn.  The full
+            // layout stays in the cache unchanged.
+            hasLongText = !isDeletedStyle && textLayout.getLineCount() > MAX_COLLAPSED_LINES;
+            if (hasLongText && !isTextExpanded) {
+                textLayout = StaticLayout.Builder
+                        .obtain(messageTextSpanned, 0, messageTextSpanned.length(), textPaint, maxTextWidth)
+                        .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                        .setLineSpacing(0f, 1f)
+                        .setIncludePad(false)
+                        .setMaxLines(MAX_COLLAPSED_LINES)
+                        .setEllipsize(TextUtils.TruncateAt.END)
+                        .build();
+            }
+
             int textWidth = maxLineWidth(textLayout);
             int lastLineWidth = (int) Math.ceil(textLayout.getLineWidth(textLayout.getLineCount() - 1));
 
@@ -4405,7 +4464,10 @@ public class MessageBubbleCanvasView extends View {
             // going to sit between text and footer anyway. Otherwise the
             // time/tick ride on the same row as the last line, just like
             // WhatsApp's single-line bubbles.
-            footerInlineWithText = !hasLinkPreview
+            // ALSO force the footer onto its own row when hasLongText, because
+            // the "Read more / Read less" strip sits between the text and the
+            // footer, so there's no room for an inline footer there.
+            footerInlineWithText = !hasLinkPreview && !hasLongText
                     && (lastLineWidth + FOOTER_GAP_DP * density + footerReserveWidth) <= maxTextWidth;
 
             int neededWidth = footerInlineWithText
@@ -4450,9 +4512,13 @@ public class MessageBubbleCanvasView extends View {
 
             bubbleContentWidth = Math.min(
                     Math.max(Math.max(neededWidth, replyBoxContentWidth), linkCardContentWidth), maxTextWidth);
+            // When hasLongText add an extra strip for the "Read more ▼" /
+            // "Read less ▲" link — placed between the text block and the footer.
+            int readMoreRowH = hasLongText ? Math.round(READ_MORE_ROW_HEIGHT_DP * density) : 0;
             bubbleHeight = replyBoxHeight + replyGap + textLayout.getHeight()
                     + linkGapTop + linkCardHeight + vPad * 2
-                    + (footerInlineWithText ? 0 : footerHeight);
+                    + (footerInlineWithText ? 0 : footerHeight)
+                    + readMoreRowH;
         }
 
         int bubbleWidth = bubbleContentWidth + (mediaWidthPad >= 0 ? mediaWidthPad : hPad) * 2;
@@ -4919,11 +4985,36 @@ public class MessageBubbleCanvasView extends View {
             fileBubbleRenderer.draw(canvas);
         } else {
             int replyGap = hasReply ? Math.round(REPLY_GAP_TO_MESSAGE_DP * density) : 0;
+            float textBlockTop = bubbleTop + replyBoxHeight + replyGap + vPad;
             canvas.save();
-            canvas.translate(bubbleLeft + hPad, bubbleTop + replyBoxHeight + replyGap + vPad);
+            canvas.translate(bubbleLeft + hPad, textBlockTop);
             drawSearchHighlight(canvas);
             textLayout.draw(canvas);
             canvas.restore();
+
+            // ── Read-more / Read-less strip ──────────────────────────────
+            // Draw the tappable link and record its hit rect.  The strip
+            // lives in the readMoreRowH gap we added to bubbleHeight in
+            // onMeasure(), between the text block and the footer.
+            if (hasLongText) {
+                readMorePaint.setTextSize(spToPx(READ_MORE_TEXT_SP));
+                // Gold for sent bubbles (matches tick/waveform accent),
+                // WhatsApp-blue for received bubbles.
+                readMorePaint.setColor(sent ? 0xFFFFD54F : 0xFF64B5F6);
+                readMorePaint.setFakeBoldText(false);
+                String rmLabel = isTextExpanded ? "Read less ▲" : "Read more ▼";
+                Paint.FontMetrics rfm = readMorePaint.getFontMetrics();
+                // Centre the text vertically within the READ_MORE_ROW_HEIGHT_DP strip
+                float rowTop = textBlockTop + textLayout.getHeight();
+                float rowH   = READ_MORE_ROW_HEIGHT_DP * density;
+                float rmBaseline = rowTop + (rowH - (rfm.descent - rfm.ascent)) * 0.5f - rfm.ascent;
+                float rmX = bubbleLeft + hPad;
+                canvas.drawText(rmLabel, rmX, rmBaseline, readMorePaint);
+                float rmW = readMorePaint.measureText(rmLabel);
+                readMoreRect.set(rmX, rowTop, rmX + rmW, rowTop + rowH);
+            } else {
+                readMoreRect.setEmpty();
+            }
 
             if (hasLinkPreview) {
                 linkPreviewRenderer.draw(canvas);
@@ -4932,7 +5023,7 @@ public class MessageBubbleCanvasView extends View {
             if (footerInlineWithText) {
                 // Same row as the last text line — no separate footer strip,
                 // so the bubble stays as tight as the text itself.
-                float lastLineBaselineY = bubbleTop + replyBoxHeight + replyGap + vPad
+                float lastLineBaselineY = textBlockTop
                         + textLayout.getLineBaseline(textLayout.getLineCount() - 1);
                 drawFooter(canvas, lastLineBaselineY, bubbleRect.right - hPad);
             } else {
@@ -5118,6 +5209,8 @@ public class MessageBubbleCanvasView extends View {
             // to a slightly different width, so it has to be part of the
             // key even though the string itself didn't change.
             sb.append("|T").append(isDeletedStyle ? '1' : '0').append(messageText);
+            // Include expand state so toggling "Read more" triggers a re-measure.
+            sb.append('|').append(isTextExpanded ? 'X' : 'x');
             if (hasLinkPreview) {
                 sb.append("|LP").append(linkTitle).append('\u0001')
                         .append(linkPreviewUrl).append('\u0001')
@@ -5585,6 +5678,20 @@ public class MessageBubbleCanvasView extends View {
                 }
             }
         }
+        // ── "Read more / Read less" tap ──────────────────────────────────
+        if (hasLongText && !readMoreRect.isEmpty()
+                && event.getActionMasked() == MotionEvent.ACTION_UP
+                && readMoreRect.contains(event.getX(), event.getY())) {
+            cancelPendingLongPress(event);
+            isTextExpanded = !isTextExpanded;
+            if (readMoreListener != null) readMoreListener.onReadMoreClick(isTextExpanded);
+            // Trigger a re-measure so the bubble resizes for the full/collapsed text.
+            if (requestLayoutIfSizeChanged()) textLayout = null;
+            fullBubbleDirty = true;
+            invalidate();
+            return true;
+        }
+
         return gestureDetector.onTouchEvent(event) || super.onTouchEvent(event);
     }
 

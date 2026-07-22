@@ -156,6 +156,11 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     private static final int    PREFETCH_DIST = 20;
     private static final int    INITIAL_LOAD  = 30;
     private static final int    MAX_MESSAGE_LENGTH = 4000;
+    // Threshold above which the send button shows a "Send as Text / Send as
+    // .txt file" choice instead of immediately pushing the message — mirrors
+    // the same GifAwareEditText.PASTE_AS_FILE_THRESHOLD_CHARS prompt that
+    // fires on large pastes, but now also triggered for typed long messages.
+    private static final int    LARGE_MSG_SEND_THRESHOLD = 500;
 
     // ── View binding ───────────────────────────────────────────────────────
     private ActivityChatBinding binding;
@@ -3142,13 +3147,47 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
      * before calling markExpiredByTimer(), so already-opened messages are safe.
      */
     private void sendTextMessage() {
-        String text = binding.etMessage.getText().toString().trim();
+        String text = binding.etMessage.getText() != null
+                ? binding.etMessage.getText().toString().trim() : "";
         if (text.isEmpty()) return;
         if (text.length() > MAX_MESSAGE_LENGTH) {
             binding.etMessage.setError("Message too long! Max " + MAX_MESSAGE_LENGTH + " characters allowed.");
             Toast.makeText(this, "Message too long!", Toast.LENGTH_SHORT).show();
             return;
         }
+
+        // ── Large typed message: offer "Send as Text" or "Send as .txt file" ──
+        // Mirrors the same prompt that fires on large pastes in GifAwareEditText,
+        // so the UX is consistent whether content was typed or pasted.
+        if (text.length() > LARGE_MSG_SEND_THRESHOLD) {
+            final String captured = text;
+            new android.app.AlertDialog.Builder(this)
+                    .setTitle("Large message")
+                    .setMessage("This message is " + text.length()
+                            + " characters long. How do you want to send it?")
+                    .setPositiveButton("Send as Text", (d, w) -> doSendTextMessage(captured))
+                    .setNegativeButton("Send as .txt file", (d, w) -> {
+                        // Clear the compose field first, then hand off to the
+                        // same pipeline used for pasted-text-as-file.
+                        binding.etMessage.setText("");
+                        sendPastedTextAsFile(captured);
+                    })
+                    .setNeutralButton("Cancel", null)
+                    .show();
+            return;
+        }
+
+        doSendTextMessage(text);
+    }
+
+    /**
+     * Core send path for a plain-text message — clears the compose field,
+     * builds the outgoing Message, and pushes it.  Extracted from
+     * sendTextMessage() so both the normal (short-text) path and the
+     * "Send as Text" choice in the large-message dialog share one
+     * implementation.
+     */
+    private void doSendTextMessage(String text) {
         // Dismiss @mention suggestions before clearing the field
         if (mentionController != null) mentionController.dismissSuggestions();
         binding.etMessage.setText("");

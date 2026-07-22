@@ -47,6 +47,12 @@ public class MessagePagingAdapter
     private java.util.function.Consumer<com.callx.app.models.Message> seenByClickListener;
     private java.util.Map<String, String> memberPhotos;
 
+    // ── Read-more / Read-less expanded-state tracker ─────────────────────
+    // Keeps expand state here (in the adapter) rather than in the canvas
+    // view, so RecyclerView recycling never loses a user's "Read more" tap.
+    private final java.util.Set<String> expandedMessageIds =
+            java.util.Collections.synchronizedSet(new java.util.HashSet<>());
+
 
     // CONFIRMED (user asked to verify): PagingDataAdapter(DiffUtil.ItemCallback)
     // below is called with no explicit dispatcher args, which means it uses
@@ -1870,6 +1876,10 @@ public class MessagePagingAdapter
             String placeholder = sent ? "You deleted this message" : "This message was deleted";
             cv.bind(placeholder, timeStr, sent, isRead, isDelivered);
             cv.setDeletedStyle(true);
+            // Deleted placeholders are always short — clear any leftover
+            // read-more state from a recycled holder.
+            cv.setTextExpanded(false);
+            cv.setReadMoreListener(null);
         } else if (isViewOnceMsg) {
             // Mirrors the legacy bindViewOnceSentWaiting/bindViewOnceSent/
             // bindViewOnceExpired trio (Feature 13) — same 3 states, just
@@ -2969,6 +2979,18 @@ public class MessagePagingAdapter
             cv.bind(canvasText, timeStr, sent, isRead, isDelivered);
             cv.setDeletedStyle(false); // clears any italic/dim state a recycled view carried from a deleted message
             cv.setSearchHighlight(activeSearchQuery);
+
+            // ── Read-more / Read-less wiring ─────────────────────────────
+            final String msgIdForExpand = m.messageId;
+            cv.setTextExpanded(expandedMessageIds.contains(msgIdForExpand));
+            cv.setReadMoreListener(nowExpanded -> {
+                if (nowExpanded) expandedMessageIds.add(msgIdForExpand);
+                else             expandedMessageIds.remove(msgIdForExpand);
+                // Notify the adapter to rebind just this item so the bubble
+                // reflows at the correct height before RecyclerView animates.
+                int pos = h.getBindingAdapterPosition();
+                if (pos != RecyclerView.NO_POSITION) notifyItemChanged(pos);
+            });
 
             // ── Link-preview card ─────────────────────────────────────
             // Mirrors the legacy ll_link_preview ViewStub path (same
