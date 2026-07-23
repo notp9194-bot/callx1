@@ -217,7 +217,7 @@ public class ReelCommentsBottomSheet extends BottomSheetDialogFragment {
         super.onDismiss(dialog);
     }
 
-    private Host getHost() {
+    private Host getCommentsHost() {
         if (getParentFragment() instanceof Host) {
             return (Host) getParentFragment();
         }
@@ -225,12 +225,12 @@ public class ReelCommentsBottomSheet extends BottomSheetDialogFragment {
     }
 
     private void dispatchHostProgress(float progress) {
-        Host host = getHost();
+        Host host = getCommentsHost();
         if (host != null) host.onCommentsSheetProgress(progress);
     }
 
     private void dispatchHostDismissed() {
-        Host host = getHost();
+        Host host = getCommentsHost();
         if (host != null) host.onCommentsSheetDismissed();
     }
 
