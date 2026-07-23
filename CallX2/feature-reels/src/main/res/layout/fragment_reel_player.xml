@@ -5,59 +5,34 @@
     android:layout_height="match_parent"
     android:background="#000000">
 
-    <!--
-         Live media stage. The stage is transformed as the comments sheet
-         expands, instead of transforming only the Media3 surface. This is
-         what gives the final Instagram-style card real rounded clipping.
-    -->
-    <FrameLayout
-        android:id="@+id/player_stage"
+    <!-- Full-screen video surface -->
+    <androidx.media3.ui.PlayerView
+        android:id="@+id/player_view"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:background="#000000"
-        android:clipChildren="true"
-        android:clipToPadding="true">
+        android:focusable="false"
+        app:use_controller="false"
+        app:resize_mode="zoom"
+         app:surface_type="texture_view"/>
 
-        <!-- Full-screen video surface -->
-        <androidx.media3.ui.PlayerView
-            android:id="@+id/player_view"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:focusable="false"
-            app:use_controller="false"
-            app:resize_mode="zoom"
-            app:surface_type="texture_view"/>
+    <!-- ── Photo Slideshow ViewPager2 ───────────────────────────────────────
+         Shown instead of PlayerView for photo_slideshow reels.
+         Hidden (GONE) by default; shown only when mediaType == "photo_slideshow".
+         User can also manually swipe between photos.
+    -->
+    <androidx.viewpager2.widget.ViewPager2
+        android:id="@+id/vp_photos"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone"/>
 
-        <!-- Photo slideshow surface -->
-        <androidx.viewpager2.widget.ViewPager2
-            android:id="@+id/vp_photos"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:visibility="gone"/>
-
-        <!-- Thumbnail placeholder (shown before video loads) -->
-        <ImageView
-            android:id="@+id/iv_thumb"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:scaleType="centerCrop"
-            android:contentDescription="Reel thumbnail"/>
-    </FrameLayout>
-
-    <!-- Instagram-style audio control shown beside the docked video only. -->
-    <ImageButton
-        android:id="@+id/btn_comments_mute"
-        android:layout_width="40dp"
-        android:layout_height="40dp"
-        android:layout_gravity="center_vertical|end"
-        android:layout_marginEnd="10dp"
-        android:alpha="0"
-        android:elevation="8dp"
-        android:padding="9dp"
-        android:src="@drawable/ic_volume_on"
-        android:tint="#FFFFFFFF"
-        android:background="@drawable/bg_circle_action"
-        android:contentDescription="Mute video"/>
+    <!-- Thumbnail placeholder (shown before video loads) -->
+    <ImageView
+        android:id="@+id/iv_thumb"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="centerCrop"
+        android:contentDescription="Reel thumbnail"/>
 
     <!-- ── Story-style photo progress bar ───────────────────────────────────
          N thin animated segments at the very top, one per photo.

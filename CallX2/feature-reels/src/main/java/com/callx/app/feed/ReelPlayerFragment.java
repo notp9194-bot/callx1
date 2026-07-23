@@ -458,11 +458,13 @@ public class ReelPlayerFragment extends Fragment
         View photoPager = root.findViewById(R.id.vp_photos);
         if (photoPager != null && photoPager.getWidth() > 0 && photoPager.getHeight() > 0) {
             float p = Math.max(0f, Math.min(1f, progress));
-            // ViewPager2 lives inside player_stage and is transformed with
-            // the live PlayerView by ReelPlayerController.
-            photoPager.setScaleX(1f);
-            photoPager.setScaleY(1f);
-            photoPager.setTranslationY(0f);
+            float scale = 1f - (0.58f * p);
+            float translationY = -photoPager.getHeight() * 0.25f * p;
+            photoPager.setPivotX(photoPager.getWidth() / 2f);
+            photoPager.setPivotY(photoPager.getHeight() / 2f);
+            photoPager.setScaleX(scale);
+            photoPager.setScaleY(scale);
+            photoPager.setTranslationY(translationY);
         }
 
         // Keep the live video clean while comments take over the lower half.
@@ -470,7 +472,7 @@ public class ReelPlayerFragment extends Fragment
         View rightActions = root.findViewById(R.id.right_actions);
         View bottomInfo = root.findViewById(R.id.bottom_info);
         View topControls = root.findViewById(R.id.top_controls);
-        float controlsAlpha = 1f - Math.max(0f, Math.min(1f, progress));
+        float controlsAlpha = 1f - (0.72f * Math.max(0f, Math.min(1f, progress)));
         if (rightActions != null) rightActions.setAlpha(controlsAlpha);
         if (bottomInfo != null) bottomInfo.setAlpha(controlsAlpha);
         if (topControls != null) topControls.setAlpha(controlsAlpha);
@@ -479,5 +481,40 @@ public class ReelPlayerFragment extends Fragment
     @Override
     public void onCommentsSheetDismissed() {
         onCommentsSheetProgress(0f);
+    }
+
+    /**
+     * Fired once the sheet's drag gesture ends and it settles into a stable
+     * state (collapsed / half-expanded / expanded / hidden). Lets the docked
+     * video "bounce" into its final spot with a bit of spring overshoot,
+     * instead of the flat 1:1 finger tracking used mid-drag.
+     */
+    @Override
+    public void onCommentsSheetSettled(float settledProgress) {
+        if (!isAdded() || getView() == null) return;
+
+        playerController.springSettleCommentsSheet(settledProgress);
+
+        View root = getView();
+        View photoPager = root.findViewById(R.id.vp_photos);
+        if (photoPager != null && photoPager.getWidth() > 0 && photoPager.getHeight() > 0) {
+            float p = Math.max(0f, Math.min(1f, settledProgress));
+            float targetScale = 1f - (0.58f * p);
+            float targetTranslationY = -photoPager.getHeight() * 0.25f * p;
+            photoPager.setPivotX(photoPager.getWidth() / 2f);
+            photoPager.setPivotY(photoPager.getHeight() / 2f);
+            photoPager.animate().cancel();
+            photoPager.animate()
+                .scaleX(targetScale).scaleY(targetScale).translationY(targetTranslationY)
+                .setDuration(280)
+                .setInterpolator(new android.view.animation.OvershootInterpolator(1.1f))
+                .start();
+        }
+    }
+
+    /** Tap on the shrunk, docked video while the comments sheet is open. */
+    @Override
+    public void onCommentsSheetVideoTap() {
+        togglePlayPause();
     }
 }

@@ -4,15 +4,12 @@ import android.content.Context;
 import com.bumptech.glide.Glide;
 import android.net.ConnectivityManager;
 import android.net.NetworkCapabilities;
+import android.graphics.Outline;
 import android.os.Handler;
 import android.os.Looper;
-import android.graphics.Outline;
 import android.util.Log;
 import android.view.View;
-import android.view.Gravity;
-import android.view.ViewGroup;
 import android.view.ViewOutlineProvider;
-import android.widget.FrameLayout;
 import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.ProgressBar;
@@ -20,6 +17,9 @@ import android.widget.TextView;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.OptIn;
+import androidx.dynamicanimation.animation.DynamicAnimation;
+import androidx.dynamicanimation.animation.SpringAnimation;
+import androidx.dynamicanimation.animation.SpringForce;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.PlaybackParameters;
@@ -71,15 +71,12 @@ public class ReelPlayerController {
     private final ReelPlayerDelegate delegate;
 
     // ── Views ────────────────────────────────────────────────────────────────
-    private View         playerRoot;
     private PlayerView  playerView;
-    private View         playerStage;
     private ImageView   ivThumb;
     private ImageView   ivPlayPauseIndicator;
     private ProgressBar progressVideo;
     private ProgressBar progressBuffering;
     private ImageButton btnMute;
-    private ImageButton btnCommentsMute;
     private TextView    btnSpeed;
     private TextView    tvQualityBadge;   // nullable — add id/quality_badge to fragment_reel_player.xml
 
@@ -87,7 +84,6 @@ public class ReelPlayerController {
     private ExoPlayer  player;
     private boolean    isMuted    = false;
     private int        speedIndex = 1;
-    private float      commentsCornerRadiusPx = 0f;
 
     // ── ABR state ─────────────────────────────────────────────────────────────
     private AdaptiveStreamingManager.QualityCap currentCap    = AdaptiveStreamingManager.QualityCap.AUTO;
@@ -133,6 +129,11 @@ public class ReelPlayerController {
     private final Handler  progressHandler = new Handler(Looper.getMainLooper());
     private       Runnable progressRunnable;
 
+    // ── Comments-sheet dock: corner radius + spring settle ─────────────────────
+    private static final float MAX_DOCK_CORNER_RADIUS_DP = 16f;
+    private float dockCornerRadiusPx = 0f;
+    private final SpringAnimation[] activeSprings = new SpringAnimation[6]; // scaleX/Y/transY for playerView + ivThumb
+
     public ReelPlayerController(ReelPlayerDelegate delegate) {
         this.delegate = delegate;
     }
@@ -140,34 +141,37 @@ public class ReelPlayerController {
     // ── View binding ──────────────────────────────────────────────────────────
 
     public void bindViews(View root) {
-        playerRoot            = root;
-        playerStage          = root.findViewById(R.id.player_stage);
         playerView           = root.findViewById(R.id.player_view);
         ivThumb              = root.findViewById(R.id.iv_thumb);
         ivPlayPauseIndicator = root.findViewById(R.id.iv_play_pause_indicator);
         progressVideo        = root.findViewById(R.id.progress_video);
         progressBuffering    = root.findViewById(R.id.progress_buffering);
         btnMute              = root.findViewById(R.id.btn_mute);
-        btnCommentsMute      = root.findViewById(R.id.btn_comments_mute);
         btnSpeed             = root.findViewById(R.id.btn_speed);
         tvQualityBadge       = root.findViewById(R.id.tv_quality_badge); // optional view
 
-        if (playerStage != null) {
-            playerStage.setLayerType(View.LAYER_TYPE_HARDWARE, null);
-            playerStage.setClipToOutline(true);
-            playerStage.setOutlineProvider(new ViewOutlineProvider() {
-                @Override
-                public void getOutline(View view, Outline outline) {
-                    outline.setRoundRect(
-                        0, 0, view.getWidth(), view.getHeight(), commentsCornerRadiusPx);
-                }
-            });
+        // Outline clip so the video frame can round its corners as it docks
+        // above the comments sheet — radius is driven live from dockCornerRadiusPx.
+        ViewOutlineProvider dockOutline = new ViewOutlineProvider() {
+            @Override public void getOutline(View view, Outline outline) {
+                if (view.getWidth() <= 0 || view.getHeight() <= 0) return;
+                outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), dockCornerRadiusPx);
+            }
+        };
+        playerView.setOutlineProvider(dockOutline);
+        playerView.setClipToOutline(true);
+        if (ivThumb != null) {
+            ivThumb.setOutlineProvider(dockOutline);
+            ivThumb.setClipToOutline(true);
         }
 
-        View.OnClickListener muteClick = v -> toggleMute();
-        if (btnMute != null) btnMute.setOnClickListener(muteClick);
-        if (btnCommentsMute != null) btnCommentsMute.setOnClickListener(muteClick);
-        updateMuteIcons();
+        // Tap the docked (shrunk) video while the comments sheet is open to
+        // resume/pause playback — same gesture Instagram keeps live above comments.
+        playerView.setOnClickListener(v -> {
+            if (dockCornerRadiusPx > 0.5f) { // only meaningfully "docked" once shrunk
+                delegate.togglePlayPause();
+            }
+        });
     }
 
     // ── Accessors ─────────────────────────────────────────────────────────────
@@ -186,79 +190,102 @@ public class ReelPlayerController {
      * open, just like Instagram.
      */
     public void setCommentsSheetProgress(float progress) {
-        if (playerStage == null || !delegate.isAdded()) return;
+        if (playerView == null || !delegate.isAdded()) return;
 
         float p = Math.max(0f, Math.min(1f, progress));
-        int rootWidth = playerRoot != null ? playerRoot.getWidth() : 0;
-        int rootHeight = playerRoot != null ? playerRoot.getHeight() : 0;
-        int width = playerStage.getWidth();
-        int height = playerStage.getHeight();
-        if (rootWidth <= 0 || rootHeight <= 0) return;
+        int width = playerView.getWidth();
+        int height = playerView.getHeight();
         if (width <= 0 || height <= 0) return;
 
         if (p > 0.001f) {
-            if (playerView != null) {
-                playerView.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_FIT);
-            }
+            playerView.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_FIT);
         } else {
-            if (playerView != null) {
-                playerView.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_ZOOM);
-            }
+            playerView.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_ZOOM);
         }
 
-        // Smoothstep removes the mechanical feeling from raw BottomSheet
-        // offsets while preserving direct drag tracking.
-        float eased = p * p * (3f - 2f * p);
-        FrameLayout.LayoutParams stageLp =
-            (FrameLayout.LayoutParams) playerStage.getLayoutParams();
+        // At the final sheet stage the reference keeps a compact, complete
+        // vertical frame above the comments. FIT prevents crop; this transform
+        // reserves the upper ~44% of the screen for that complete frame.
+        cancelActiveSprings(); // a live finger-drag always wins over a settling spring
 
-        // Resize the clipping stage itself, rather than scaling a full-screen
-        // surface. The final 60% x 39% card matches the reference: the media
-        // remains complete inside the card while the comments sheet owns the
-        // lower portion of the screen.
-        if (eased < 0.001f) {
-            stageLp.width = ViewGroup.LayoutParams.MATCH_PARENT;
-            stageLp.height = ViewGroup.LayoutParams.MATCH_PARENT;
-            stageLp.gravity = Gravity.NO_GRAVITY;
-            stageLp.topMargin = 0;
-            stageLp.leftMargin = 0;
-            stageLp.rightMargin = 0;
-        } else {
-            stageLp.width = Math.round(rootWidth * (1f - (0.40f * eased)));
-            stageLp.height = Math.round(rootHeight * (1f - (0.61f * eased)));
-            stageLp.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
-            stageLp.topMargin = Math.round(rootHeight * 0.035f * eased);
-            stageLp.leftMargin = 0;
-            stageLp.rightMargin = 0;
+        float scale = 1f - (0.58f * p);
+        float translationY = -height * 0.25f * p;
+        playerView.setPivotX(width / 2f);
+        playerView.setPivotY(height / 2f);
+        playerView.setScaleX(scale);
+        playerView.setScaleY(scale);
+        playerView.setTranslationY(translationY);
+
+        if (ivThumb != null) {
+            ivThumb.setPivotX(ivThumb.getWidth() / 2f);
+            ivThumb.setPivotY(ivThumb.getHeight() / 2f);
+            ivThumb.setScaleX(scale);
+            ivThumb.setScaleY(scale);
+            ivThumb.setTranslationY(translationY);
         }
-        playerStage.setLayoutParams(stageLp);
-        playerStage.setTranslationX(0f);
-        playerStage.setTranslationY(0f);
-        playerStage.setElevation(10f * eased);
 
-        commentsCornerRadiusPx = playerStage.getResources().getDisplayMetrics().density
-            * (22f * eased);
-        playerStage.invalidateOutline();
+        setDockCornerRadius(dpToPxLocal(MAX_DOCK_CORNER_RADIUS_DP) * p);
+    }
 
-        if (btnCommentsMute != null) {
-            btnCommentsMute.setImageResource(
-                isMuted ? R.drawable.ic_volume_off : R.drawable.ic_volume_on);
-            btnCommentsMute.setAlpha(eased);
-            btnCommentsMute.setScaleX(0.86f + (0.14f * eased));
-            btnCommentsMute.setScaleY(0.86f + (0.14f * eased));
-            // Dock the mute control beside the card's lower-right edge.
-            float cardBottom = rootHeight * (0.035f * eased
-                + (1f - (0.61f * eased)));
-            float density = playerRoot.getResources().getDisplayMetrics().density;
-            // Direct child default position is end|center_vertical. Its
-            // default X is already just outside the final card's right edge.
-            // Vertically center it a little above the card bottom, as in the
-            // Instagram reference.
-            btnCommentsMute.setTranslationX(0f);
-            float targetCenterY = cardBottom - (18f * density);
-            btnCommentsMute.setTranslationY(targetCenterY
-                - (rootHeight * 0.5f));
+    /**
+     * Called when the comments sheet finishes settling into a stable state
+     * (collapsed / half-expanded / expanded, i.e. the finger has been lifted).
+     * Adds a small Instagram-style overshoot bounce on top of the already
+     * docked position instead of snapping there instantly.
+     */
+    public void springSettleCommentsSheet(float settledProgress) {
+        if (playerView == null || !delegate.isAdded()) return;
+        int width  = playerView.getWidth();
+        int height = playerView.getHeight();
+        if (width <= 0 || height <= 0) return;
+
+        float p = Math.max(0f, Math.min(1f, settledProgress));
+        float targetScale = 1f - (0.58f * p);
+        float targetTranslationY = -height * 0.25f * p;
+
+        playerView.setPivotX(width / 2f);
+        playerView.setPivotY(height / 2f);
+        activeSprings[0] = springTo(playerView, SpringAnimation.SCALE_X, targetScale);
+        activeSprings[1] = springTo(playerView, SpringAnimation.SCALE_Y, targetScale);
+        activeSprings[2] = springTo(playerView, SpringAnimation.TRANSLATION_Y, targetTranslationY);
+
+        if (ivThumb != null) {
+            ivThumb.setPivotX(ivThumb.getWidth() / 2f);
+            ivThumb.setPivotY(ivThumb.getHeight() / 2f);
+            activeSprings[3] = springTo(ivThumb, SpringAnimation.SCALE_X, targetScale);
+            activeSprings[4] = springTo(ivThumb, SpringAnimation.SCALE_Y, targetScale);
+            activeSprings[5] = springTo(ivThumb, SpringAnimation.TRANSLATION_Y, targetTranslationY);
         }
+
+        setDockCornerRadius(dpToPxLocal(MAX_DOCK_CORNER_RADIUS_DP) * p);
+    }
+
+    private SpringAnimation springTo(View view, DynamicAnimation.ViewProperty property, float target) {
+        SpringAnimation anim = new SpringAnimation(view, property, target);
+        anim.setSpring(new SpringForce(target)
+                .setDampingRatio(SpringForce.DAMPING_RATIO_MEDIUM_BOUNCY)
+                .setStiffness(SpringForce.STIFFNESS_LOW));
+        anim.start();
+        return anim;
+    }
+
+    private void cancelActiveSprings() {
+        for (int i = 0; i < activeSprings.length; i++) {
+            if (activeSprings[i] != null && activeSprings[i].isRunning()) activeSprings[i].cancel();
+            activeSprings[i] = null;
+        }
+    }
+
+    private void setDockCornerRadius(float radiusPx) {
+        dockCornerRadiusPx = Math.max(0f, radiusPx);
+        if (playerView != null) playerView.invalidateOutline();
+        if (ivThumb != null) ivThumb.invalidateOutline();
+    }
+
+    private float dpToPxLocal(float dp) {
+        return dp * (playerView != null
+                ? playerView.getResources().getDisplayMetrics().density
+                : 1f);
     }
 
     // ── ABR: silent pre-prepare with HLS/DASH/Progressive auto-detect ─────────
@@ -524,13 +551,8 @@ public class ReelPlayerController {
     public void toggleMute() {
         isMuted = !isMuted;
         if (player != null) player.setVolume(isMuted ? 0f : 1f);
-        updateMuteIcons();
-    }
-
-    private void updateMuteIcons() {
-        int icon = isMuted ? R.drawable.ic_volume_off : R.drawable.ic_volume_on;
-        if (btnMute != null) btnMute.setImageResource(icon);
-        if (btnCommentsMute != null) btnCommentsMute.setImageResource(icon);
+        if (btnMute != null) btnMute.setImageResource(
+            isMuted ? R.drawable.ic_volume_off : R.drawable.ic_volume_on);
     }
 
     public void cycleSpeed() {

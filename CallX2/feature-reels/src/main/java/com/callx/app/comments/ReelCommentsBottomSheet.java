@@ -1,7 +1,6 @@
 package com.callx.app.comments;
 
 import android.content.Intent;
-import android.graphics.Color;
 import android.os.Bundle;
 import android.text.Editable;
 import android.text.TextWatcher;
@@ -48,6 +47,10 @@ public class ReelCommentsBottomSheet extends BottomSheetDialogFragment {
     public interface Host {
         void onCommentsSheetProgress(float progress);
         void onCommentsSheetDismissed();
+        /** Sheet finished settling into a stable state after a drag/fling. */
+        void onCommentsSheetSettled(float settledProgress);
+        /** User tapped the docked video preview above the sheet. */
+        void onCommentsSheetVideoTap();
     }
 
     public static final String TAG          = "ReelCommentsBottomSheet";
@@ -179,51 +182,144 @@ public class ReelCommentsBottomSheet extends BottomSheetDialogFragment {
                 com.google.android.material.R.id.design_bottom_sheet);
         if (sheet == null) return;
 
-        // Keep the reel at its real brightness while the final comments stage
-        // slides in. The comments surface itself is opaque, so a system dim
-        // scrim only makes the live video look black.
+        // Instagram never darkens the docked video above the sheet — only the
+        // sheet's own opaque background separates it visually. The default
+        // BottomSheetDialog scrim dims the *whole* window (video included),
+        // which is what was making the video look dark/washed out. Kill it.
         if (dialog.getWindow() != null) {
             dialog.getWindow().setDimAmount(0f);
-            dialog.getWindow().clearFlags(
-                    android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND);
         }
 
-        // Let the rounded layout surface, rather than the Material container,
-        // define the visible top edge.
-        sheet.setBackgroundColor(Color.TRANSPARENT);
         sheetBehavior = BottomSheetBehavior.from(sheet);
         sheetBehavior.setFitToContents(false);
         sheetBehavior.setExpandedOffset((int) (getResources()
                 .getDisplayMetrics().heightPixels * 0.44f));
-        // There is intentionally no half/middle stage. Opening comments goes
-        // directly to the final expanded layout; BottomSheet's entrance
-        // animation still provides the smooth interpolation.
-        sheetBehavior.setSkipCollapsed(true);
+        sheetBehavior.setHalfExpandedRatio(0.45f);
+        sheetBehavior.setPeekHeight((int) (getResources()
+                .getDisplayMetrics().heightPixels * 0.24f));
         sheetBehavior.setDraggable(true);
         sheetBehavior.addBottomSheetCallback(new BottomSheetBehavior.BottomSheetCallback() {
             @Override
             public void onStateChanged(@NonNull View bottomSheet, int newState) {
                 if (newState == BottomSheetBehavior.STATE_HIDDEN) {
                     dispatchHostDismissed();
+                    return;
+                }
+                // Finger lifted / fling finished and the sheet is now resting in
+                // a stable state — let the docked video spring into place.
+                if (newState == BottomSheetBehavior.STATE_COLLAPSED
+                        || newState == BottomSheetBehavior.STATE_HALF_EXPANDED
+                        || newState == BottomSheetBehavior.STATE_EXPANDED) {
+                    // onSlide already tracked this state's target value as the
+                    // sheet settled; forward it so the video can spring to match.
+                    dispatchHostSettled(lastKnownProgress);
                 }
             }
 
             @Override
             public void onSlide(@NonNull View bottomSheet, float slideOffset) {
                 // collapsed ~= 0, expanded ~= 1; hidden/overscroll stays at 0.
-                dispatchHostProgress(Math.max(0f, Math.min(1f, slideOffset)));
+                lastKnownProgress = Math.max(0f, Math.min(1f, slideOffset));
+                dispatchHostProgress(lastKnownProgress);
             }
         });
 
         dispatchHostProgress(0f);
-        // Start at the expanded Instagram-like stage. BottomSheet's own
-        // entrance animation still drives onSlide, so the player docks
-        // continuously rather than jumping after the dialog appears.
+        // Start at the Instagram-like middle stage. The user can continue
+        // dragging to the final expanded stage shown in the reference images.
         sheet.post(() -> {
             if (sheetBehavior != null && isAdded()) {
-                sheetBehavior.setState(BottomSheetBehavior.STATE_EXPANDED);
+                sheetBehavior.setState(BottomSheetBehavior.STATE_HALF_EXPANDED);
             }
         });
+
+        // Tapping the dimmed area above the sheet normally just dismisses it.
+        // If the tap actually lands on the docked video preview, forward it as
+        // a play/pause toggle instead and keep the sheet open — matches IG.
+        View touchOutside = dialog.findViewById(com.google.android.material.R.id.touch_outside);
+        if (touchOutside != null) {
+            final int videoZoneBottomPx = (int) (getResources().getDisplayMetrics().heightPixels * 0.44f);
+            touchOutside.setOnTouchListener((v, event) -> {
+                if (event.getActionMasked() == MotionEvent.ACTION_UP) {
+                    if (event.getY() < videoZoneBottomPx) {
+                        Host host = getCommentsHost();
+                        if (host != null) host.onCommentsSheetVideoTap();
+                    } else if (getDialog() != null) {
+                        getDialog().cancel();
+                    }
+                }
+                return true;
+            });
+        }
+
+        setupListDragToDismiss();
+    }
+
+    private float lastKnownProgress = 0f;
+
+    /**
+     * Coordinates the comment list's own scrolling with the sheet's drag.
+     * RecyclerView's built-in nested-scrolling normally hands off unconsumed
+     * scroll to the BottomSheetBehavior automatically, but only once the list
+     * is already at its very top; this adds an explicit, reliable fallback so
+     * "pull down from the top of the list" always collapses/dismisses the
+     * sheet instead of the gesture getting swallowed by the list.
+     */
+    private void setupListDragToDismiss() {
+        if (rv == null) return;
+        final int touchSlop = android.view.ViewConfiguration.get(requireContext()).getScaledTouchSlop();
+        final int dismissThresholdPx = dpToPx(90);
+
+        rv.setNestedScrollingEnabled(true);
+        rv.addOnItemTouchListener(new RecyclerView.SimpleOnItemTouchListener() {
+            private float startY;
+            private boolean draggingSheet;
+
+            @Override
+            public boolean onInterceptTouchEvent(@NonNull RecyclerView recyclerView, @NonNull MotionEvent e) {
+                if (sheetBehavior == null) return false;
+                switch (e.getActionMasked()) {
+                    case MotionEvent.ACTION_DOWN:
+                        startY = e.getRawY();
+                        draggingSheet = false;
+                        break;
+                    case MotionEvent.ACTION_MOVE:
+                        float dy = e.getRawY() - startY;
+                        boolean atTop = !recyclerView.canScrollVertically(-1);
+                        if (!draggingSheet && atTop && dy > touchSlop
+                                && sheetBehavior.getState() == BottomSheetBehavior.STATE_EXPANDED) {
+                            draggingSheet = true;
+                        }
+                        break;
+                    default:
+                        break;
+                }
+                return draggingSheet;
+            }
+
+            @Override
+            public void onTouchEvent(@NonNull RecyclerView recyclerView, @NonNull MotionEvent e) {
+                if (!draggingSheet) return;
+                switch (e.getActionMasked()) {
+                    case MotionEvent.ACTION_UP:
+                    case MotionEvent.ACTION_CANCEL:
+                        float dy = e.getRawY() - startY;
+                        if (dy > dismissThresholdPx) {
+                            sheetBehavior.setState(BottomSheetBehavior.STATE_HIDDEN);
+                        } else {
+                            sheetBehavior.setState(BottomSheetBehavior.STATE_HALF_EXPANDED);
+                        }
+                        draggingSheet = false;
+                        break;
+                    default:
+                        break;
+                }
+            }
+        });
+    }
+
+    private int dpToPx(int dp) {
+        return (int) (dp * getResources().getDisplayMetrics().density);
     }
 
     @Override
@@ -247,6 +343,11 @@ public class ReelCommentsBottomSheet extends BottomSheetDialogFragment {
     private void dispatchHostDismissed() {
         Host host = getCommentsHost();
         if (host != null) host.onCommentsSheetDismissed();
+    }
+
+    private void dispatchHostSettled(float progress) {
+        Host host = getCommentsHost();
+        if (host != null) host.onCommentsSheetSettled(Math.max(0f, Math.min(1f, progress)));
     }
 
     @Override
