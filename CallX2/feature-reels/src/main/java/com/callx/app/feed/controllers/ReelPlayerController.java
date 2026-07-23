@@ -190,18 +190,21 @@ public class ReelPlayerController {
         }
 
         // Tap the video to toggle play/pause — normal Instagram-style behavior.
-        // EXCEPTION: while docked (comments sheet open, video shrunk above it),
-        // a tap must only mute/unmute — playback has to keep running
-        // uninterrupted. Calling togglePlayPause()/pause() there would flip
-        // isPlaying to false, which onReelPlaybackStateChanged() in
-        // ReelsFragment reads as "show the top bar + bottom nav again",
-        // popping those controls back over the docked video. So: docked →
-        // mute only; everything else (normal full-screen playback) → the
-        // regular tap-to-pause/tap-to-play toggle.
+        // While docked (comments sheet open, video shrunk above it), mute-only
+        // taps are owned EXCLUSIVELY by ReelPlayerFragment.onCommentsSheetVideoTap()
+        // (forwarded from the sheet's touchOutside overlay, which sits above
+        // this view in the dialog's window). So this listener must no-op
+        // while docked — it must NOT also call toggleMute() here, since on
+        // some sheet states (mid-drag / half-expanded, before the sheet fully
+        // overlays the video) both this listener and the sheet's forwarded
+        // tap can fire for the same touch, double-toggling mute back to
+        // where it started. It must never call togglePlayPause() while
+        // docked either — that flips isPlaying to false, which
+        // onReelPlaybackStateChanged() in ReelsFragment reads as "show the
+        // top bar + bottom nav again", popping those controls back over the
+        // docked video.
         playerView.setOnClickListener(v -> {
-            if (dockCornerRadiusPx > 0.5f) { // only meaningfully "docked" once shrunk
-                toggleMute();
-            } else {
+            if (dockCornerRadiusPx <= 0.5f) { // only when truly undocked
                 togglePlayPause();
             }
         });
