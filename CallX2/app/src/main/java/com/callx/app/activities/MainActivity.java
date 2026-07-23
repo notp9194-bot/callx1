@@ -418,6 +418,34 @@ public class MainActivity extends AppCompatActivity {
         bannerTickHandler.removeCallbacksAndMessages(null);
     }
 
+    // ── Feature 5: Picture-in-Picture support ─────────────────────────────
+    // When the user presses Home while the mini reel player is showing,
+    // Android enters PiP mode and expands the docked player to fill the window
+    // so only the reel video is visible in the compact PiP overlay.
+
+    @Override
+    public void onUserLeaveHint() {
+        super.onUserLeaveHint();
+        // Only trigger PiP if the mini player is currently showing
+        if (dockedPlayer != null && dockedPlayer.isShowing()) {
+            dockedPlayer.enterPipIfSupported();
+        }
+    }
+
+    @Override
+    public void onPictureInPictureModeChanged(boolean isInPipMode,
+                                              android.content.res.Configuration newConfig) {
+        super.onPictureInPictureModeChanged(isInPipMode, newConfig);
+        if (dockedPlayer == null || !dockedPlayer.isShowing()) return;
+        if (isInPipMode) {
+            // Maximize mini player → only the reel video visible in the PiP window
+            dockedPlayer.expandForPip();
+        } else {
+            // User returned from PiP → restore mini player to corner
+            dockedPlayer.restoreFromPip();
+        }
+    }
+
     @Override protected void onDestroy() {
         // Clean up any active docked reel player to release the ExoPlayer surface
         if (dockedPlayer != null) {
@@ -1168,19 +1196,33 @@ public class MainActivity extends AppCompatActivity {
                 dockedPlayer = new ReelChatDockedPlayer(this);
                 final ReelChatDockedPlayer dockedRef = dockedPlayer;
 
-                reelsFragment.onTabPausedForChat((player, fragmentPlayerView) -> {
+                reelsFragment.onTabPausedForChat((player, fragmentPlayerView, thumbUrl) -> {
                     // Safety: activity might have been destroyed by the time the
                     // callback fires (synchronous in practice, but guard anyway)
                     if (isDestroyed() || isFinishing()) return;
 
-                    dockedRef.show(player, fragmentPlayerView, new ReelChatDockedPlayer.Callback() {
+                    dockedRef.show(player, fragmentPlayerView, thumbUrl,
+                            new ReelChatDockedPlayer.Callback() {
+
                         @Override
                         public void onDockedPlayerDismissed() {
-                            // User closed the mini-player — clean up and release the
-                            // reel player properly. We call onTabPaused() so the fragment
-                            // knows it should release its player on the next lifecycle.
+                            // User closed the mini-player → release player properly.
                             if (dockedPlayer == dockedRef) dockedPlayer = null;
                             reelsFragment.onTabPaused();
+                        }
+
+                        @Override
+                        public void onDockedPlayerExpandRequested() {
+                            // Feature 2: Double-tap → collapse surface back + switch to Reels.
+                            dockedRef.collapseBack();
+                            if (dockedPlayer == dockedRef) dockedPlayer = null;
+                            binding.viewPager.setCurrentItem(TAB_REELS, false);
+                        }
+
+                        @Override
+                        public void onDockedPlayerNextReel() {
+                            // Feature 4: Swipe-up → advance to next reel in mini player.
+                            reelsFragment.advanceToNextForDockedPlayer(dockedRef);
                         }
                     });
                 });

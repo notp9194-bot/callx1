@@ -903,7 +903,10 @@ public class ReelsFragment extends Fragment {
                         }
                     } catch (Exception ignored) {}
                 }
-                onPlayerReady.onReady(player, pv);
+                // Pass thumbUrl for blurred thumbnail fallback (Feature 6)
+                String thumbUrl = (currentFragment.getReel() != null)
+                        ? currentFragment.getReel().thumbUrl : null;
+                onPlayerReady.onReady(player, pv, thumbUrl);
                 transferred = true;
             }
         }
@@ -914,11 +917,60 @@ public class ReelsFragment extends Fragment {
         }
     }
 
-    /** Callback for onTabPausedForChat — delivers player + view to MainActivity. */
+    /**
+     * Advance ViewPager2 to next reel while the mini docked player is showing.
+     * Transfers the new reel's ExoPlayer surface to the existing docked player
+     * so the user sees the next reel without leaving Chat tab.
+     *
+     * Called by MainActivity when the user swipes up on the mini player (Feature 4).
+     */
+    @OptIn(markerClass = UnstableApi.class)
+    public void advanceToNextForDockedPlayer(@androidx.annotation.NonNull ReelChatDockedPlayer docked) {
+        if (vpReels == null || adapter == null || adapter.getItemCount() == 0) return;
+
+        int current = vpReels.getCurrentItem();
+        int next    = current + 1;
+        if (next >= adapter.getItemCount()) return; // already at last reel
+
+        // Pause the current fragment (its surface was already taken by mini player)
+        try {
+            androidx.fragment.app.Fragment old = getChildFragmentManager()
+                .findFragmentByTag("f" + adapter.getItemId(current));
+            if (old instanceof ReelPlayerFragment) {
+                ((ReelPlayerFragment) old).setUserVisibleHint(false);
+            }
+        } catch (Exception ignored) {}
+
+        // Advance ViewPager2 to next position
+        vpReels.setCurrentItem(next, true);
+
+        // Wait briefly for the next fragment to initialise its ExoPlayer,
+        // then transfer its surface to the docked mini player.
+        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+            if (!isAdded() || !docked.isShowing()) return;
+            try {
+                androidx.fragment.app.Fragment f = getChildFragmentManager()
+                    .findFragmentByTag("f" + adapter.getItemId(next));
+                if (f instanceof ReelPlayerFragment) {
+                    ReelPlayerFragment nextFrag = (ReelPlayerFragment) f;
+                    androidx.media3.exoplayer.ExoPlayer nextPlayer = nextFrag.getActivePlayer();
+                    androidx.media3.ui.PlayerView nextView          = nextFrag.getPlayerViewForDock();
+                    String thumbUrl = (nextFrag.getReel() != null)
+                            ? nextFrag.getReel().thumbUrl : null;
+                    if (nextPlayer != null && nextView != null) {
+                        docked.updatePlayer(nextPlayer, nextView, thumbUrl);
+                    }
+                }
+            } catch (Exception ignored) {}
+        }, 500); // 500 ms: enough for ExoPlayer to prepare the next item
+    }
+
+    /** Callback for onTabPausedForChat — delivers player + view + thumbUrl to MainActivity. */
     @UnstableApi
     public interface PlayerReadyForDockCallback {
         void onReady(androidx.media3.exoplayer.ExoPlayer player,
-                     androidx.media3.ui.PlayerView fragmentPlayerView);
+                     androidx.media3.ui.PlayerView fragmentPlayerView,
+                     @androidx.annotation.Nullable String thumbUrl);
     }
 
     public void advanceToNext() {

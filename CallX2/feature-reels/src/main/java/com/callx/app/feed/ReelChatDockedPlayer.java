@@ -1,68 +1,80 @@
 package com.callx.app.feed;
 
 import android.app.Activity;
+import android.content.Context;
+import android.content.SharedPreferences;
 import android.graphics.Outline;
+import android.graphics.Rect;
+import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
+import android.util.Rational;
+import android.view.HapticFeedbackConstants;
 import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewOutlineProvider;
+import android.view.animation.OvershootInterpolator;
 import android.widget.FrameLayout;
 import android.widget.ImageButton;
 import android.widget.ImageView;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.annotation.OptIn;
+import androidx.media3.common.Player;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.ui.AspectRatioFrameLayout;
 import androidx.media3.ui.PlayerView;
 
+import com.bumptech.glide.Glide;
 import com.callx.app.reels.R;
 
 /**
  * ReelChatDockedPlayer — Activity-level mini floating reel player.
  *
- * When the user switches from Reels tab to Chat tab (or any tab), the currently
- * playing ExoPlayer's surface is transferred to a compact mini overlay pinned
- * to the bottom-right corner of the screen. Playback continues uninterrupted.
- *
- * Surface transfer works by calling {@code miniPlayerView.setPlayer(player)},
- * which internally detaches the renderer from the old PlayerView and reattaches
- * it to the new one — no new ExoPlayer is created.
- *
- * Behaviour:
- *  • Appears bottom-right corner, 9:16 aspect ratio (120 × 213 dp)
- *  • Same 16dp corner-radius as comments-sheet docked video
- *  • Tap          → toggle mute on the live ExoPlayer
- *  • Swipe down   → dismiss (player released via callback)
- *  • Close (×)    → dismiss
- *  • Returning to Reels → surface transferred back to fragment's PlayerView
- *
- * Lifecycle contract:
- *  - show()         called when Reels → Chat switch detected
- *  - collapseBack() called BEFORE ReelsFragment.onTabResumed() so the surface
- *                   is back on the fragment's PlayerView before startPlayback().
- *  - dismiss()      called by user closing the overlay; triggers callback so
- *                   the host can release the player properly.
+ * Advanced features (v2):
+ *  1. Drag to reposition      — drag to any screen corner (snap with spring)
+ *  2. Double-tap to expand    — double-tap → surface back + switch to Reels tab
+ *  3. Long-press preview      — hold → 200×350dp enlarged preview, release → restore
+ *  4. Swipe-up next reel      — swipe up ≥ 70dp → callback triggers next reel
+ *  5. Picture-in-Picture      — app goes background → Android native PiP wrapper
+ *  6. Animated thumbnail      — blurred thumb fades out on first video frame render
+ *  7. Mute state persistence  — SharedPreferences remembers mute across sessions
  */
 @OptIn(markerClass = UnstableApi.class)
 public class ReelChatDockedPlayer {
 
     // ── Constants ──────────────────────────────────────────────────────────
-    private static final float MINI_WIDTH_DP    = 120f;
-    private static final float ASPECT_RATIO     = 16f / 9f;   // portrait 9:16 → height/width
-    private static final float CORNER_RADIUS_DP = 16f;
-    private static final float SWIPE_DISMISS_DP = 80f;
-    private static final float TAP_SLOP_DP      = 8f;
-    private static final long  MAX_TAP_MS       = 250L;
+    private static final float MINI_WIDTH_DP      = 120f;
+    private static final float ASPECT_RATIO       = 16f / 9f;   // portrait → height = width * ratio
+    private static final float CORNER_RADIUS_DP   = 16f;
+    private static final float SWIPE_DOWN_DP      = 80f;
+    private static final float SWIPE_UP_DP        = 70f;
+    private static final float TAP_SLOP_DP        = 8f;
+    private static final float EDGE_MARGIN_DP     = 16f;
+    private static final long  MAX_TAP_MS         = 250L;
+    private static final long  DOUBLE_TAP_MS      = 350L;
+    private static final long  LONG_PRESS_MS      = 480L;
+    private static final float LARGE_PREVIEW_W_DP = 200f;
+    private static final float LARGE_PREVIEW_H_DP = 350f;
+
+    // SharedPrefs for mute state persistence (Feature 7)
+    private static final String PREF_NAME   = "callx_docked_prefs";
+    private static final String PREF_MUTED  = "mini_player_muted";
 
     // ── Callback ───────────────────────────────────────────────────────────
 
-    /** Events dispatched back to MainActivity. */
+    /** Events dispatched back to the host (MainActivity). */
     public interface Callback {
-        /** User dismissed the overlay (close button or swipe). Host should release player. */
+        /** User dismissed overlay (close / swipe-down). Host should release player. */
         void onDockedPlayerDismissed();
+        /** User double-tapped — host should collapse back and switch to Reels tab. */
+        void onDockedPlayerExpandRequested();
+        /** User swiped up — host should advance to next reel in mini player. */
+        void onDockedPlayerNextReel();
     }
 
     // ── State ──────────────────────────────────────────────────────────────
@@ -70,25 +82,31 @@ public class ReelChatDockedPlayer {
     private final Activity  activity;
     private       Callback  callback;
 
-    /** Root FrameLayout added to android.R.id.content. */
     private ViewGroup  container;
-    /** The small PlayerView inside the overlay. */
     private PlayerView miniPlayerView;
-
-    /**
-     * The ExoPlayer borrowed from ReelPlayerFragment.
-     * NOT released here unless the overlay is dismissed permanently.
-     * collapseBack() just moves the surface — release is done by the fragment.
-     */
     private ExoPlayer  livePlayer;
-
-    /**
-     * The fragment's original PlayerView — restored when collapsing back.
-     */
     private PlayerView originalFragmentPlayerView;
 
-    /** Whether we are in the middle of a swipe-to-dismiss gesture. */
-    private boolean    isDismissGesture;
+    private boolean isDismissGesture;
+    private boolean isLongPressed;
+
+    // Position tracking for drag-to-reposition (Feature 1)
+    private float snapX, snapY;             // last corner-snapped position
+    private float startContainerX;          // container.getX() at ACTION_DOWN
+    private float startContainerY;          // container.getY() at ACTION_DOWN
+    private float touchDownRawX;
+    private float touchDownRawY;
+
+    // Double-tap state (Feature 2)
+    private long lastTapMs = 0;
+    private final Handler doubleTapHandler  = new Handler(Looper.getMainLooper());
+    private Runnable singleTapRunnable;
+
+    // Long-press state (Feature 3)
+    private final Handler longPressHandler  = new Handler(Looper.getMainLooper());
+
+    // First-frame listener ref so we can remove it (Feature 6)
+    private Player.Listener firstFrameListener;
 
     // ── Constructor ────────────────────────────────────────────────────────
 
@@ -98,67 +116,67 @@ public class ReelChatDockedPlayer {
 
     // ── Public API ─────────────────────────────────────────────────────────
 
-    /** True when the overlay is attached to the window and visible. */
     public boolean isShowing() {
         return container != null && container.getParent() != null;
     }
 
     /**
-     * Show the mini-player overlay and transfer the ExoPlayer surface to it.
+     * Show the mini-player overlay and transfer ExoPlayer surface to it.
      *
-     * @param player         ExoPlayer currently playing in ReelPlayerFragment — NOT released here.
-     * @param fragmentPlayer The PlayerView in the fragment we'll restore the surface to.
+     * @param player         ExoPlayer currently playing in ReelPlayerFragment.
+     * @param fragmentPlayer The PlayerView in the fragment (surface restored here on collapseBack).
+     * @param thumbUrl       Thumbnail URL for blurred fallback animation (nullable).
      * @param cb             Event callback.
      */
     public void show(@NonNull ExoPlayer player,
                      @NonNull PlayerView fragmentPlayer,
+                     @Nullable String thumbUrl,
                      @NonNull Callback cb) {
         if (isShowing()) return;
 
-        this.livePlayer               = player;
+        this.livePlayer                = player;
         this.originalFragmentPlayerView = fragmentPlayer;
-        this.callback                 = cb;
+        this.callback                  = cb;
 
-        // ── Inflate overlay layout ───────────────────────────────────────
+        // ── Inflate layout ───────────────────────────────────────────────
         LayoutInflater inflater = LayoutInflater.from(activity);
         container = (ViewGroup) inflater.inflate(
                 R.layout.layout_reel_chat_docked, null, false);
         miniPlayerView = container.findViewById(R.id.mini_reel_player_view);
 
-        // ── Transfer ExoPlayer surface → mini view ────────────────────────
-        // ExoPlayer internally clears the old surface and renders to the new
-        // one. Playback continues at the exact same position without a hiccup.
+        // ── Feature 7: Restore mute state from SharedPrefs ─────────────
+        SharedPreferences prefs = activity.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
+        boolean savedMuted = prefs.getBoolean(PREF_MUTED, false);
+        player.setVolume(savedMuted ? 0f : 1f);
+
+        // ── Transfer ExoPlayer surface → mini view ───────────────────────
         miniPlayerView.setPlayer(player);
         miniPlayerView.setUseController(false);
         miniPlayerView.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_ZOOM);
 
-        // ── Corner radius ─────────────────────────────────────────────────
-        float cornerPx = dpToPx(CORNER_RADIUS_DP);
-        ViewOutlineProvider roundedOutline = new ViewOutlineProvider() {
-            @Override public void getOutline(View view, Outline outline) {
-                if (view.getWidth() > 0 && view.getHeight() > 0)
-                    outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), cornerPx);
-            }
-        };
-        miniPlayerView.setOutlineProvider(roundedOutline);
-        miniPlayerView.setClipToOutline(true);
-        container.setOutlineProvider(roundedOutline);
-        container.setClipToOutline(true);
+        // ── Corner radius ────────────────────────────────────────────────
+        applyCornerRadius(CORNER_RADIUS_DP);
 
-        // ── Add to activity content root ──────────────────────────────────
+        // ── Add to activity content root (bottom-right default) ──────────
         ViewGroup root = activity.findViewById(android.R.id.content);
         int widthPx   = (int) dpToPx(MINI_WIDTH_DP);
         int heightPx  = (int) (widthPx * ASPECT_RATIO);
-        int marginPx  = (int) dpToPx(16f);
+        int marginPx  = (int) dpToPx(EDGE_MARGIN_DP);
         int navPx     = getNavBarHeightPx();
 
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(widthPx, heightPx);
-        lp.gravity     = android.view.Gravity.BOTTOM | android.view.Gravity.END;
+        lp.gravity      = android.view.Gravity.BOTTOM | android.view.Gravity.END;
         lp.bottomMargin = marginPx + navPx;
         lp.rightMargin  = marginPx;
         root.addView(container, lp);
 
-        // ── Entrance: slide up + fade in ──────────────────────────────────
+        // After layout, capture initial position for drag tracking
+        container.post(() -> {
+            snapX = container.getX();
+            snapY = container.getY();
+        });
+
+        // ── Entrance animation: slide up + fade in ───────────────────────
         container.setTranslationY(heightPx + marginPx);
         container.setAlpha(0f);
         container.animate()
@@ -168,68 +186,120 @@ public class ReelChatDockedPlayer {
                 .setInterpolator(new android.view.animation.DecelerateInterpolator(1.5f))
                 .start();
 
-        // ── Close button ──────────────────────────────────────────────────
+        // ── Feature 6: Animated thumbnail fallback ───────────────────────
+        showThumbnailFallback(thumbUrl);
+        listenForFirstFrame();
+
+        // ── Close button ─────────────────────────────────────────────────
         ImageButton btnClose = container.findViewById(R.id.btn_mini_reel_close);
         if (btnClose != null) {
             btnClose.setOnClickListener(v -> dismiss(true));
         }
 
-        // ── Touch handler: tap = mute toggle, swipe-down = dismiss ────────
+        // ── Touch handler (all gesture features) ─────────────────────────
         container.setOnTouchListener(buildTouchListener());
     }
 
+    // ── Feature 6: Thumbnail fallback helpers ──────────────────────────────
+
+    private void showThumbnailFallback(@Nullable String thumbUrl) {
+        ImageView thumbView = container.findViewById(R.id.iv_mini_thumb);
+        if (thumbView == null || thumbUrl == null || thumbUrl.isEmpty()) {
+            if (thumbView != null) thumbView.setVisibility(View.GONE);
+            return;
+        }
+        thumbView.setAlpha(1f);
+        thumbView.setVisibility(View.VISIBLE);
+        // Load at tiny resolution → bilinear scale-up creates natural blur (Instagram trick)
+        Glide.with(activity)
+             .load(thumbUrl)
+             .override(12, 21)
+             .centerCrop()
+             .into(thumbView);
+    }
+
+    private void hideThumbnailFallback() {
+        if (container == null) return;
+        ImageView thumbView = container.findViewById(R.id.iv_mini_thumb);
+        if (thumbView == null || thumbView.getVisibility() != View.VISIBLE) return;
+        thumbView.animate()
+                .alpha(0f)
+                .setDuration(400)
+                .withEndAction(() -> {
+                    if (thumbView != null) thumbView.setVisibility(View.GONE);
+                })
+                .start();
+    }
+
+    private void listenForFirstFrame() {
+        if (livePlayer == null) return;
+        // Remove any stale listener first
+        if (firstFrameListener != null) {
+            livePlayer.removeListener(firstFrameListener);
+        }
+        firstFrameListener = new Player.Listener() {
+            @Override
+            public void onRenderedFirstFrame() {
+                hideThumbnailFallback();
+                if (livePlayer != null) livePlayer.removeListener(this);
+            }
+        };
+        livePlayer.addListener(firstFrameListener);
+    }
+
+    // ── collapseBack / dismiss ──────────────────────────────────────────────
+
     /**
-     * Transfer the ExoPlayer surface BACK to the fragment's original PlayerView.
-     * Call this BEFORE calling ReelsFragment.onTabResumed() so startPlayback()
-     * finds the player already attached to the correct view.
+     * Transfer ExoPlayer surface BACK to the fragment's PlayerView.
+     * Called BEFORE ReelsFragment.onTabResumed() so startPlayback() sees the view.
      */
     public void collapseBack() {
         if (!isShowing()) return;
+        cancelAllHandlers();
 
-        // Move surface back to original PlayerView — playback continues
         if (originalFragmentPlayerView != null && livePlayer != null) {
             originalFragmentPlayerView.setPlayer(livePlayer);
         }
         if (miniPlayerView != null) {
             miniPlayerView.setPlayer(null);
         }
+        if (firstFrameListener != null && livePlayer != null) {
+            livePlayer.removeListener(firstFrameListener);
+            firstFrameListener = null;
+        }
 
-        // Exit animation → remove overlay
         if (container != null) {
-            int h = container.getHeight();
+            float h = container.getHeight() > 0 ? container.getHeight() : dpToPx(220f);
             container.animate()
-                    .translationY(h > 0 ? h : (int) dpToPx(220f))
+                    .translationY(h)
                     .alpha(0f)
                     .setDuration(200)
                     .withEndAction(this::removeOverlay)
                     .start();
         }
-
-        // Clear refs — ownership returns to the fragment
-        livePlayer                = null;
+        livePlayer                 = null;
         originalFragmentPlayerView = null;
     }
 
-    /**
-     * Permanently dismiss the overlay. The ExoPlayer surface is detached; the
-     * host is responsible for releasing it via the callback.
-     *
-     * @param animated Whether to animate the exit.
-     */
+    /** Permanently dismiss the overlay. */
     public void dismiss(boolean animated) {
+        cancelAllHandlers();
+
+        if (firstFrameListener != null && livePlayer != null) {
+            livePlayer.removeListener(firstFrameListener);
+            firstFrameListener = null;
+        }
         if (miniPlayerView != null) {
             miniPlayerView.setPlayer(null);
         }
-
-        ExoPlayer playerRef = livePlayer;   // capture before clearing
-        livePlayer                = null;
+        livePlayer                 = null;
         originalFragmentPlayerView = null;
 
         if (container != null && container.getParent() != null) {
             if (animated) {
-                int h = container.getHeight();
+                float h = container.getHeight() > 0 ? container.getHeight() : dpToPx(220f);
                 container.animate()
-                        .translationY(h > 0 ? h : (int) dpToPx(220f))
+                        .translationY(h)
                         .alpha(0f)
                         .setDuration(220)
                         .withEndAction(() -> {
@@ -246,62 +316,292 @@ public class ReelChatDockedPlayer {
         }
     }
 
-    // ── Touch listener ─────────────────────────────────────────────────────
+    // ── Feature 4: Update player for next reel ─────────────────────────────
+
+    /**
+     * Swap the ExoPlayer surface when the user swipes to the next reel in mini player.
+     * Called by ReelsFragment after it advances the ViewPager2 and the new fragment is ready.
+     */
+    public void updatePlayer(@NonNull ExoPlayer newPlayer,
+                             @NonNull PlayerView newFragmentView,
+                             @Nullable String thumbUrl) {
+        if (!isShowing()) return;
+
+        // Remove old first-frame listener
+        if (firstFrameListener != null && livePlayer != null) {
+            livePlayer.removeListener(firstFrameListener);
+            firstFrameListener = null;
+        }
+
+        // Detach old surface
+        if (miniPlayerView != null) {
+            miniPlayerView.setPlayer(null);
+        }
+
+        // Feature 7: persist mute state to new player
+        SharedPreferences prefs = activity.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
+        boolean muted = prefs.getBoolean(PREF_MUTED, false);
+        newPlayer.setVolume(muted ? 0f : 1f);
+
+        livePlayer                 = newPlayer;
+        originalFragmentPlayerView = newFragmentView;
+
+        if (miniPlayerView != null) {
+            miniPlayerView.setPlayer(newPlayer);
+        }
+
+        // Thumbnail + first-frame for new reel
+        showThumbnailFallback(thumbUrl);
+        listenForFirstFrame();
+
+        // Brief pop animation to indicate reel change
+        container.animate()
+                .scaleX(0.92f).scaleY(0.92f)
+                .setDuration(100)
+                .withEndAction(() -> container.animate()
+                        .scaleX(1f).scaleY(1f)
+                        .setDuration(160)
+                        .setInterpolator(new OvershootInterpolator(2f))
+                        .start())
+                .start();
+    }
+
+    // ── Feature 5: Picture-in-Picture ─────────────────────────────────────
+
+    /**
+     * Enter Android native PiP. Call from Activity.onUserLeaveHint().
+     * Expands the mini player to fill the activity window for the best PiP experience.
+     */
+    public void enterPipIfSupported() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
+        if (container == null || livePlayer == null) return;
+        if (!(activity instanceof android.app.Activity)) return;
+
+        // Source rect for smooth PiP entrance animation
+        int[] loc = new int[2];
+        container.getLocationOnScreen(loc);
+        Rect sourceRect = new Rect(loc[0], loc[1],
+                loc[0] + container.getWidth(), loc[1] + container.getHeight());
+
+        android.app.PictureInPictureParams.Builder params =
+                new android.app.PictureInPictureParams.Builder()
+                        .setAspectRatio(new Rational(9, 16))
+                        .setSourceRectHint(sourceRect);
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            params.setSeamlessResizeEnabled(true);
+        }
+
+        try {
+            activity.enterPictureInPictureMode(params.build());
+        } catch (Exception ignored) {}
+    }
+
+    /**
+     * Maximize mini player to fill the Activity window — called when PiP mode starts
+     * so only the reel video is visible in the tiny PiP window.
+     */
+    public void expandForPip() {
+        if (container == null) return;
+        container.setLayoutParams(
+                new FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT));
+        container.setX(0); container.setY(0);
+        container.bringToFront();
+
+        View btnClose = container.findViewById(R.id.btn_mini_reel_close);
+        if (btnClose != null) btnClose.setVisibility(View.GONE);
+
+        // Remove corner radius for full-screen pip view
+        container.setClipToOutline(false);
+        if (miniPlayerView != null) miniPlayerView.setClipToOutline(false);
+    }
+
+    /**
+     * Restore mini player to corner position after exiting PiP.
+     */
+    public void restoreFromPip() {
+        if (container == null) return;
+
+        int widthPx  = (int) dpToPx(MINI_WIDTH_DP);
+        int heightPx = (int) (widthPx * ASPECT_RATIO);
+        int marginPx = (int) dpToPx(EDGE_MARGIN_DP);
+        int navPx    = getNavBarHeightPx();
+
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(widthPx, heightPx);
+        lp.gravity      = android.view.Gravity.BOTTOM | android.view.Gravity.END;
+        lp.bottomMargin = marginPx + navPx;
+        lp.rightMargin  = marginPx;
+        container.setLayoutParams(lp);
+        container.setX(0); container.setY(0);
+        container.setTranslationX(0); container.setTranslationY(0);
+
+        View btnClose = container.findViewById(R.id.btn_mini_reel_close);
+        if (btnClose != null) btnClose.setVisibility(View.VISIBLE);
+
+        applyCornerRadius(CORNER_RADIUS_DP);
+
+        // Re-capture snap position after next layout pass
+        container.post(() -> {
+            snapX = container.getX();
+            snapY = container.getY();
+        });
+    }
+
+    // ── Corner radius helper ───────────────────────────────────────────────
+
+    private void applyCornerRadius(float radiusDp) {
+        if (container == null) return;
+        float cornerPx = dpToPx(radiusDp);
+        ViewOutlineProvider outline = new ViewOutlineProvider() {
+            @Override public void getOutline(View view, Outline o) {
+                if (view.getWidth() > 0 && view.getHeight() > 0)
+                    o.setRoundRect(0, 0, view.getWidth(), view.getHeight(), cornerPx);
+            }
+        };
+        miniPlayerView.setOutlineProvider(outline);
+        miniPlayerView.setClipToOutline(true);
+        container.setOutlineProvider(outline);
+        container.setClipToOutline(true);
+    }
+
+    // ── Touch listener (Features 1, 2, 3, 4) ──────────────────────────────
 
     private View.OnTouchListener buildTouchListener() {
         return new View.OnTouchListener() {
-            private long  touchDownMs;
-            private float startRawY;
+
+            private long    touchDownMs;
             private boolean movedBeyondSlop;
+            private float   deltaX, deltaY;   // cumulative finger delta
 
             @Override
             public boolean onTouch(View v, MotionEvent event) {
                 switch (event.getActionMasked()) {
+
                     case MotionEvent.ACTION_DOWN:
-                        touchDownMs     = System.currentTimeMillis();
-                        startRawY       = event.getRawY();
-                        movedBeyondSlop = false;
+                        touchDownMs      = System.currentTimeMillis();
+                        touchDownRawX    = event.getRawX();
+                        touchDownRawY    = event.getRawY();
+                        startContainerX  = container.getX();
+                        startContainerY  = container.getY();
+                        movedBeyondSlop  = false;
                         isDismissGesture = false;
+                        isLongPressed    = false;
+                        deltaX           = 0;
+                        deltaY           = 0;
+
+                        // Feature 3: Schedule long-press expand
+                        longPressHandler.postDelayed(() -> {
+                            if (!movedBeyondSlop) {
+                                isLongPressed = true;
+                                expandToLargePreview();
+                            }
+                        }, LONG_PRESS_MS);
                         return true;
 
                     case MotionEvent.ACTION_MOVE:
-                        float dy = event.getRawY() - startRawY;
-                        if (!movedBeyondSlop && Math.abs(dy) > dpToPx(TAP_SLOP_DP)) {
+                        deltaX = event.getRawX() - touchDownRawX;
+                        deltaY = event.getRawY() - touchDownRawY;
+
+                        if (!movedBeyondSlop
+                                && (Math.abs(deltaX) > dpToPx(TAP_SLOP_DP)
+                                    || Math.abs(deltaY) > dpToPx(TAP_SLOP_DP))) {
                             movedBeyondSlop = true;
+                            // Cancel long-press if finger moved
+                            longPressHandler.removeCallbacksAndMessages(null);
                         }
-                        if (movedBeyondSlop && dy > 0) {
-                            isDismissGesture = true;
-                            // Follow finger (damped)
-                            container.setTranslationY(dy * 0.75f);
-                            float alpha = 1f - Math.min(dy / dpToPx(120f), 1f);
-                            container.setAlpha(Math.max(alpha, 0f));
+
+                        if (isLongPressed) {
+                            // Don't drag while in large-preview mode
+                            return true;
+                        }
+
+                        if (movedBeyondSlop) {
+                            // Feature 1: Drag to reposition — follow finger freely
+                            container.setX(startContainerX + deltaX);
+                            container.setY(startContainerY + deltaY);
+
+                            if (deltaY > 0) {
+                                // Downward drag → dismiss gesture
+                                isDismissGesture = true;
+                                float alpha = 1f - Math.min(deltaY / dpToPx(120f), 1f);
+                                container.setAlpha(Math.max(alpha, 0f));
+                            }
                         }
                         return true;
 
                     case MotionEvent.ACTION_UP:
                     case MotionEvent.ACTION_CANCEL: {
-                        float finalDy   = event.getRawY() - startRawY;
-                        long  elapsed   = System.currentTimeMillis() - touchDownMs;
-                        boolean wasTap  = !movedBeyondSlop && elapsed < MAX_TAP_MS;
+                        longPressHandler.removeCallbacksAndMessages(null);
+
+                        // Feature 3: Collapse long-press preview on release
+                        if (isLongPressed) {
+                            isLongPressed = false;
+                            collapseFromLargePreview();
+                            return true;
+                        }
+
+                        long elapsed = System.currentTimeMillis() - touchDownMs;
+                        boolean wasTap = !movedBeyondSlop && elapsed < MAX_TAP_MS;
 
                         if (wasTap) {
-                            // Short tap → toggle mute
-                            if (livePlayer != null) {
-                                boolean muted = livePlayer.getVolume() <= 0f;
-                                livePlayer.setVolume(muted ? 1f : 0f);
-                                // Brief visual feedback
-                                showMuteFeedback(muted);
+                            // Feature 2: Double-tap detection
+                            long now = System.currentTimeMillis();
+                            if (now - lastTapMs < DOUBLE_TAP_MS) {
+                                // Double-tap → expand/jump to Reels
+                                doubleTapHandler.removeCallbacksAndMessages(null);
+                                lastTapMs = 0;
+                                if (callback != null) callback.onDockedPlayerExpandRequested();
+                            } else {
+                                lastTapMs = now;
+                                // Delay single-tap action to wait for possible double-tap
+                                singleTapRunnable = () -> {
+                                    // Single tap → toggle mute
+                                    if (livePlayer != null) {
+                                        boolean muted = livePlayer.getVolume() <= 0f;
+                                        livePlayer.setVolume(muted ? 1f : 0f);
+                                        // Feature 7: Persist mute state
+                                        activity.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+                                                .edit()
+                                                .putBoolean(PREF_MUTED, !muted)
+                                                .apply();
+                                        showMuteFeedback(muted);
+                                    }
+                                };
+                                doubleTapHandler.postDelayed(singleTapRunnable, DOUBLE_TAP_MS);
                             }
-                        } else if (isDismissGesture && finalDy > dpToPx(SWIPE_DISMISS_DP)) {
-                            dismiss(true);
-                        } else {
-                            // Snap back
-                            container.animate()
-                                    .translationY(0f)
-                                    .alpha(1f)
-                                    .setDuration(200)
-                                    .start();
-                            isDismissGesture = false;
+
+                        } else if (movedBeyondSlop) {
+                            // Feature 4: Swipe-up → next reel
+                            if (deltaY < -dpToPx(SWIPE_UP_DP)
+                                    && Math.abs(deltaX) < dpToPx(50f)) {
+                                // Swipe up detected
+                                container.animate()
+                                        .translationY(container.getTranslationY() - dpToPx(22f))
+                                        .setDuration(80)
+                                        .withEndAction(() -> container.animate()
+                                                .translationY(0f)
+                                                .setDuration(180)
+                                                .start())
+                                        .start();
+                                container.setX(snapX);
+                                container.setY(snapY);
+                                container.setAlpha(1f);
+                                if (callback != null) callback.onDockedPlayerNextReel();
+
+                            } else if (isDismissGesture && deltaY > dpToPx(SWIPE_DOWN_DP)) {
+                                // Swipe down → dismiss
+                                dismiss(true);
+
+                            } else {
+                                // Feature 1: Released after drag — snap to nearest corner
+                                snapToNearestCorner();
+                                container.animate()
+                                        .alpha(1f)
+                                        .setDuration(150)
+                                        .start();
+                            }
                         }
                         return true;
                     }
@@ -311,27 +611,90 @@ public class ReelChatDockedPlayer {
         };
     }
 
-    // ── Mute icon feedback ─────────────────────────────────────────────────
+    // ── Feature 1: Corner snap ─────────────────────────────────────────────
 
-    private void showMuteFeedback(boolean wasMuted) {
-        // Show a brief mute/unmute icon overlay on the mini-player
-        View icon = container.findViewById(R.id.iv_mini_mute_indicator);
-        if (icon == null) return;
+    private void snapToNearestCorner() {
+        ViewGroup root = activity.findViewById(android.R.id.content);
+        int rootW = root.getWidth();
+        int rootH = root.getHeight();
+        int w  = container.getWidth();
+        int h  = container.getHeight();
+        float m   = dpToPx(EDGE_MARGIN_DP);
+        float nav = getNavBarHeightPx();
 
-        // Set icon based on NEW state (opposite of wasMuted):
-        //   wasMuted=true  → player was muted, now unmuted → show volume_on
-        //   wasMuted=false → player was playing, now muted  → show volume_off
-        if (icon instanceof ImageView) {
-            ((ImageView) icon).setImageResource(
-                    wasMuted
-                            ? R.drawable.ic_volume_on
-                            : R.drawable.ic_volume_off);
+        float cx = container.getX() + w / 2f;
+        float cy = container.getY() + h / 2f;
+
+        // 4 corners: TL, TR, BL, BR
+        float[][] corners = {
+            {m,              m},
+            {rootW - w - m,  m},
+            {m,              rootH - h - m - nav},
+            {rootW - w - m,  rootH - h - m - nav}
+        };
+
+        float minDist = Float.MAX_VALUE;
+        float[] best  = corners[3]; // default bottom-right
+        for (float[] c : corners) {
+            float dx = cx - (c[0] + w / 2f);
+            float dy = cy - (c[1] + h / 2f);
+            float d  = dx * dx + dy * dy;
+            if (d < minDist) { minDist = d; best = c; }
         }
 
+        snapX = best[0];
+        snapY = best[1];
+
+        container.animate()
+                .x(snapX).y(snapY)
+                .setDuration(300)
+                .setInterpolator(new OvershootInterpolator(1.3f))
+                .start();
+    }
+
+    // ── Feature 3: Long-press large preview ────────────────────────────────
+
+    private void expandToLargePreview() {
+        if (container == null) return;
+        container.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+
+        ViewGroup root = activity.findViewById(android.R.id.content);
+        int rootW = root.getWidth();
+        int rootH = root.getHeight();
+
+        // Scale up to ~200×350dp from current 120×213dp
+        float scaleFactor = dpToPx(LARGE_PREVIEW_W_DP) / container.getWidth();
+        float targetX = (rootW - container.getWidth()) / 2f;
+        float targetY = (rootH - container.getHeight()) / 2f;
+
+        container.animate()
+                .scaleX(scaleFactor).scaleY(scaleFactor)
+                .x(targetX).y(targetY)
+                .alpha(1f)
+                .setDuration(220)
+                .setInterpolator(new OvershootInterpolator(1.0f))
+                .start();
+    }
+
+    private void collapseFromLargePreview() {
+        if (container == null) return;
+        container.animate()
+                .scaleX(1f).scaleY(1f)
+                .x(snapX).y(snapY)
+                .setDuration(220)
+                .setInterpolator(new android.view.animation.DecelerateInterpolator())
+                .start();
+    }
+
+    // ── Mute feedback ──────────────────────────────────────────────────────
+
+    private void showMuteFeedback(boolean wasMuted) {
+        ImageView icon = container.findViewById(R.id.iv_mini_mute_indicator);
+        if (icon == null) return;
+        icon.setImageResource(wasMuted ? R.drawable.ic_volume_on : R.drawable.ic_volume_off);
         icon.animate().cancel();
         icon.setAlpha(0f);
-        icon.setScaleX(0.6f);
-        icon.setScaleY(0.6f);
+        icon.setScaleX(0.6f); icon.setScaleY(0.6f);
         icon.setVisibility(View.VISIBLE);
         icon.animate()
                 .alpha(0.9f).scaleX(1f).scaleY(1f)
@@ -346,6 +709,11 @@ public class ReelChatDockedPlayer {
 
     // ── Helpers ────────────────────────────────────────────────────────────
 
+    private void cancelAllHandlers() {
+        longPressHandler.removeCallbacksAndMessages(null);
+        doubleTapHandler.removeCallbacksAndMessages(null);
+    }
+
     private void removeOverlay() {
         if (container == null) return;
         ViewGroup root = activity.findViewById(android.R.id.content);
@@ -359,8 +727,8 @@ public class ReelChatDockedPlayer {
     }
 
     private int getNavBarHeightPx() {
-        android.view.View decorView = activity.getWindow().getDecorView();
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+        View decorView = activity.getWindow().getDecorView();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             android.view.WindowInsets insets = decorView.getRootWindowInsets();
             if (insets != null) {
                 android.graphics.Insets nav = insets.getInsets(
@@ -368,10 +736,10 @@ public class ReelChatDockedPlayer {
                 return nav.bottom;
             }
         }
-        // Fallback: read from resources
         int resId = activity.getResources().getIdentifier(
                 "navigation_bar_height", "dimen", "android");
-        return resId > 0 ? activity.getResources().getDimensionPixelSize(resId)
-                         : (int) dpToPx(48f);
+        return resId > 0
+                ? activity.getResources().getDimensionPixelSize(resId)
+                : (int) dpToPx(48f);
     }
 }

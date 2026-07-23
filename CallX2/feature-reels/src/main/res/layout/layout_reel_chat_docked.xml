@@ -1,16 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Mini floating reel player overlay — shown in bottom-right corner when user
-  switches from Reels tab to Chat tab. The PlayerView here receives the
-  ExoPlayer surface transfer from ReelPlayerFragment via PlayerView.setPlayer().
+  Mini floating reel player overlay — shown when user switches from Reels → Chat tab.
 
-  Container dimensions are controlled programmatically via LayoutParams:
-    width  = 120dp, height = 213dp (9:16 portrait aspect)
-
-  Touch events handled in ReelChatDockedPlayer:
-    • Tap        → toggle mute (brief icon feedback via iv_mini_mute_indicator)
-    • Swipe down → dismiss with spring animation
-    • Close btn  → dismiss
+  v2 advanced features:
+    • iv_mini_thumb       — blurred thumbnail fallback (Feature 6: animated out on first frame)
+    • iv_swipe_up_hint    — subtle upward arrow (swipe-up = next reel, Feature 4)
+    • All existing: mute indicator, close button, thin border
 -->
 <FrameLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
@@ -19,6 +14,17 @@
     android:layout_height="match_parent"
     android:background="#FF000000"
     android:elevation="12dp">
+
+    <!-- Feature 6: Blurred thumbnail fallback — visible while video surface loads.
+         Loaded at 12×21px via Glide → bilinear upscale creates natural blur.
+         Fades out on Player.EVENT_RENDERED_FIRST_FRAME. -->
+    <ImageView
+        android:id="@+id/iv_mini_thumb"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="centerCrop"
+        android:visibility="gone"
+        android:contentDescription="Thumbnail" />
 
     <!-- Live video surface — receives ExoPlayer via setPlayer() -->
     <androidx.media3.ui.PlayerView
@@ -29,7 +35,36 @@
         app:resize_mode="zoom"
         android:background="#000000" />
 
-    <!-- Mute/unmute feedback icon — shown briefly on tap -->
+    <!-- Feature 4: Swipe-up hint — subtle upward chevron at bottom center.
+         Visible only while player is playing. -->
+    <LinearLayout
+        android:id="@+id/ll_swipe_up_hint"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="6dp"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:alpha="0.55">
+
+        <View
+            android:layout_width="18dp"
+            android:layout_height="2dp"
+            android:rotation="-45"
+            android:layout_marginBottom="-2dp"
+            android:layout_marginStart="2dp"
+            android:background="#FFFFFFFF" />
+
+        <View
+            android:layout_width="18dp"
+            android:layout_height="2dp"
+            android:rotation="45"
+            android:layout_marginStart="-2dp"
+            android:background="#FFFFFFFF" />
+
+    </LinearLayout>
+
+    <!-- Mute/unmute feedback icon — shown briefly on single tap -->
     <ImageView
         android:id="@+id/iv_mini_mute_indicator"
         android:layout_width="32dp"
@@ -47,7 +82,6 @@
         android:layout_gravity="top|end"
         android:layout_margin="4dp">
 
-        <!-- Semi-transparent circle background -->
         <View
             android:layout_width="match_parent"
             android:layout_height="match_parent"
