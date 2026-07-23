@@ -165,6 +165,16 @@ public class ReelPlayerController {
             ivThumb.setClipToOutline(true);
         }
 
+        // PlayerView's own bounds are full-screen (match_parent); the actual
+        // visible video rect lives in its internal exo_content_frame child,
+        // which can be letterboxed/pillarboxed smaller depending on resize
+        // mode. Round that too so corners always line up with what's on screen.
+        View contentFrame = playerView.findViewById(androidx.media3.ui.R.id.exo_content_frame);
+        if (contentFrame != null) {
+            contentFrame.setOutlineProvider(dockOutline);
+            contentFrame.setClipToOutline(true);
+        }
+
         // Tap the docked (shrunk) video while the comments sheet is open to
         // resume/pause playback — same gesture Instagram keeps live above comments.
         playerView.setOnClickListener(v -> {
@@ -281,7 +291,11 @@ public class ReelPlayerController {
 
     private void setDockCornerRadius(float radiusPx) {
         dockCornerRadiusPx = Math.max(0f, radiusPx);
-        if (playerView != null) playerView.invalidateOutline();
+        if (playerView != null) {
+            playerView.invalidateOutline();
+            View contentFrame = playerView.findViewById(androidx.media3.ui.R.id.exo_content_frame);
+            if (contentFrame != null) contentFrame.invalidateOutline();
+        }
         if (ivThumb != null) ivThumb.invalidateOutline();
     }
 
