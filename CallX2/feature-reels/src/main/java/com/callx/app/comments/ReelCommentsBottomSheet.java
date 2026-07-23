@@ -179,6 +179,15 @@ public class ReelCommentsBottomSheet extends BottomSheetDialogFragment {
                 com.google.android.material.R.id.design_bottom_sheet);
         if (sheet == null) return;
 
+        // Keep the reel at its real brightness while the final comments stage
+        // slides in. The comments surface itself is opaque, so a system dim
+        // scrim only makes the live video look black.
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setDimAmount(0f);
+            dialog.getWindow().clearFlags(
+                    android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+        }
+
         // Let the rounded layout surface, rather than the Material container,
         // define the visible top edge.
         sheet.setBackgroundColor(Color.TRANSPARENT);
@@ -186,9 +195,10 @@ public class ReelCommentsBottomSheet extends BottomSheetDialogFragment {
         sheetBehavior.setFitToContents(false);
         sheetBehavior.setExpandedOffset((int) (getResources()
                 .getDisplayMetrics().heightPixels * 0.44f));
-        sheetBehavior.setHalfExpandedRatio(0.45f);
-        sheetBehavior.setPeekHeight((int) (getResources()
-                .getDisplayMetrics().heightPixels * 0.24f));
+        // There is intentionally no half/middle stage. Opening comments goes
+        // directly to the final expanded layout; BottomSheet's entrance
+        // animation still provides the smooth interpolation.
+        sheetBehavior.setSkipCollapsed(true);
         sheetBehavior.setDraggable(true);
         sheetBehavior.addBottomSheetCallback(new BottomSheetBehavior.BottomSheetCallback() {
             @Override
