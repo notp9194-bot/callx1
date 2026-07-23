@@ -165,14 +165,21 @@ public class AdaptiveStreamingManager {
                 bufferForPlaybackMs = 1_000; bufferForPlaybackAfterRebufferMs = 2_500;
                 break;
             case CELLULAR_3G:
-                minBufferMs = 2_000;  maxBufferMs = 5_000;
+                // minBufferMs must be >= BOTH bufferForPlaybackMs and
+                // bufferForPlaybackAfterRebufferMs, or DefaultLoadControl
+                // throws IllegalArgumentException at build time. 2_000 was
+                // less than the 3_000 rebuffer value below — bumped to 3_000.
+                minBufferMs = 3_000;  maxBufferMs = 5_000;
                 bufferForPlaybackMs = 1_500; bufferForPlaybackAfterRebufferMs = 3_000;
                 break;
             default: // 2G / offline
-                // NOTE: minBufferMs must always be >= bufferForPlaybackMs, or
-                // DefaultLoadControl.Builder#setBufferDurationsMs throws
-                // IllegalArgumentException at player build time.
-                minBufferMs = 2_500;  maxBufferMs = 4_000;
+                // Same constraint as above: minBufferMs must always be >=
+                // bufferForPlaybackMs AND >= bufferForPlaybackAfterRebufferMs,
+                // or DefaultLoadControl.Builder#setBufferDurationsMs throws
+                // IllegalArgumentException at player build time. 2_500 was
+                // less than the 4_000 rebuffer value below — bumped to 4_000
+                // (and maxBufferMs raised so min <= max still holds).
+                minBufferMs = 4_000;  maxBufferMs = 6_000;
                 bufferForPlaybackMs = 2_000; bufferForPlaybackAfterRebufferMs = 4_000;
                 break;
         }
