@@ -71,6 +71,11 @@ public class ReelChatDockedPlayer {
     private static final float LARGE_PREVIEW_W_DP = 200f;
     private static final float LARGE_PREVIEW_H_DP = 350f;
 
+    // v4: below this hold-duration, a movement is treated as a quick swipe
+    // (next-reel / dismiss only, container stays put). At or above it, the
+    // user deliberately pressed-and-held before moving → free-drag reposition.
+    private static final long  HOLD_BEFORE_DRAG_MS = 160L;
+
     // SharedPrefs for mute state persistence (Feature 7)
     private static final String PREF_NAME   = "callx_docked_prefs";
     private static final String PREF_MUTED  = "mini_player_muted";
@@ -98,7 +103,10 @@ public class ReelChatDockedPlayer {
     private PlayerView originalFragmentPlayerView;
 
     private boolean isDismissGesture;
-    private boolean isLongPressed;
+
+    // v4: persists ACROSS touches — long-press now TOGGLES the large preview
+    // instead of only showing it while held. true = currently enlarged.
+    private boolean isPreviewExpanded;
 
     // Position tracking for drag-to-reposition (Feature 1)
     private float snapX, snapY;             // last corner-snapped position
@@ -169,6 +177,15 @@ public class ReelChatDockedPlayer {
         player.setVolume(savedMuted ? 0f : 1f);
 
         // ── Transfer ExoPlayer surface → mini view ───────────────────────
+        // ROOT FIX (v4): androidx.media3.ui.PlayerView#setPlayer() early-returns
+        // as a no-op when the view's internal player field already equals the
+        // player being assigned. fragmentPlayer still holds `player` from the
+        // fragment's own preparePlayerSilently() binding, so we must release
+        // its claim FIRST. Without this, collapseBack() later calling
+        // fragmentPlayer.setPlayer(livePlayer) silently does nothing (field
+        // already matches) — the video surface never reattaches, ExoPlayer
+        // keeps playing (audio audible) but has nowhere to render the frame.
+        fragmentPlayer.setPlayer(null);
         miniPlayerView.setPlayer(player);
         miniPlayerView.setUseController(false);
         miniPlayerView.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_ZOOM);
@@ -364,6 +381,13 @@ public class ReelChatDockedPlayer {
 
         livePlayer                 = newPlayer;
         originalFragmentPlayerView = newFragmentView;
+
+        // ROOT FIX (v4): same PlayerView.setPlayer() early-return hazard as in
+        // show() — newFragmentView still thinks it owns newPlayer from its own
+        // fragment's preparePlayerSilently(). Release that claim before mini
+        // takes it, otherwise collapseBack() for THIS reel later becomes a
+        // silent no-op too.
+        newFragmentView.setPlayer(null);
 
         if (miniPlayerView != null) {
             miniPlayerView.setPlayer(newPlayer);
@@ -601,6 +625,19 @@ public class ReelChatDockedPlayer {
             private boolean movedBeyondSlop;
             private float   deltaX, deltaY;   // cumulative finger delta
 
+            // v4: which gesture this touch turned out to be, decided ONCE the
+            // instant it crosses slop — never re-evaluated mid-gesture so it
+            // can't flip-flop.
+            //   true  = quick swipe  → container stays put; only used to read
+            //           final deltaX/deltaY for next-reel / dismiss at ACTION_UP.
+            //   false = deliberate drag (held BEFORE moving) → free reposition.
+            private boolean isSwipeGesture;
+
+            // v4: true once the long-press handler has toggled the preview
+            // size during THIS touch stream, so the rest of this touch is
+            // ignored (no tap/drag/swipe double-processing).
+            private boolean longPressFiredThisTouch;
+
             @Override
             public boolean onTouch(View v, MotionEvent event) {
                 switch (event.getActionMasked()) {
@@ -612,27 +649,41 @@ public class ReelChatDockedPlayer {
                         if (springY != null) springY.cancel();
                         container.animate().cancel();
 
-                        touchDownMs      = System.currentTimeMillis();
-                        touchDownRawX    = event.getRawX();
-                        touchDownRawY    = event.getRawY();
-                        startContainerX  = container.getX();
-                        startContainerY  = container.getY();
-                        movedBeyondSlop  = false;
-                        isDismissGesture = false;
-                        isLongPressed    = false;
-                        deltaX           = 0;
-                        deltaY           = 0;
+                        touchDownMs             = System.currentTimeMillis();
+                        touchDownRawX           = event.getRawX();
+                        touchDownRawY           = event.getRawY();
+                        startContainerX         = container.getX();
+                        startContainerY         = container.getY();
+                        movedBeyondSlop         = false;
+                        isDismissGesture        = false;
+                        isSwipeGesture          = false;
+                        longPressFiredThisTouch = false;
+                        deltaX                  = 0;
+                        deltaY                  = 0;
 
-                        // Feature 3: Schedule long-press expand
+                        // Feature 3 v4: long-press now TOGGLES the large preview —
+                        // expand if currently small, shrink back if already large —
+                        // instead of only showing it while the finger stays down.
                         longPressHandler.postDelayed(() -> {
                             if (!movedBeyondSlop) {
-                                isLongPressed = true;
-                                expandToLargePreview();
+                                longPressFiredThisTouch = true;
+                                if (!isPreviewExpanded) {
+                                    isPreviewExpanded = true;
+                                    expandToLargePreview();
+                                } else {
+                                    isPreviewExpanded = false;
+                                    collapseFromLargePreview();
+                                }
                             }
                         }, LONG_PRESS_MS);
                         return true;
 
                     case MotionEvent.ACTION_MOVE:
+                        if (longPressFiredThisTouch) {
+                            // Already toggled expand/shrink this touch — ignore rest.
+                            return true;
+                        }
+
                         deltaX = event.getRawX() - touchDownRawX;
                         deltaY = event.getRawY() - touchDownRawY;
 
@@ -642,14 +693,25 @@ public class ReelChatDockedPlayer {
                             movedBeyondSlop = true;
                             // Cancel long-press if finger moved
                             longPressHandler.removeCallbacksAndMessages(null);
+
+                            // v4: decide drag vs. swipe exactly once, right as
+                            // slop is crossed — a quick flick crosses slop
+                            // almost immediately after ACTION_DOWN, while a
+                            // deliberate reposition drag is preceded by a
+                            // short hold. This is what stops a swipe-up/down
+                            // reel-change gesture from dragging the whole
+                            // mini player across the screen.
+                            long heldBeforeMoveMs = touchDownMs == 0 ? 0
+                                    : (System.currentTimeMillis() - touchDownMs);
+                            isSwipeGesture = heldBeforeMoveMs < HOLD_BEFORE_DRAG_MS;
                         }
 
-                        if (isLongPressed) {
-                            // Don't drag while in large-preview mode
+                        if (isPreviewExpanded) {
+                            // Don't drag/swipe-track while the enlarged preview is showing.
                             return true;
                         }
 
-                        if (movedBeyondSlop) {
+                        if (movedBeyondSlop && !isSwipeGesture) {
                             // Feature 1: Drag to reposition — follow finger, with
                             // rubber-band resistance once the container starts
                             // going past the screen edges (v3: feels physical
@@ -672,16 +734,21 @@ public class ReelChatDockedPlayer {
                                 container.setAlpha(Math.max(alpha, 0f));
                             }
                         }
+                        // v4: movedBeyondSlop && isSwipeGesture → intentionally a
+                        // no-op here. The container stays exactly where it is;
+                        // ACTION_UP below reads the final deltaX/deltaY to decide
+                        // next-reel / dismiss, so a swipe changes the REEL, never
+                        // the mini player's position on screen.
                         return true;
 
                     case MotionEvent.ACTION_UP:
                     case MotionEvent.ACTION_CANCEL: {
                         longPressHandler.removeCallbacksAndMessages(null);
 
-                        // Feature 3: Collapse long-press preview on release
-                        if (isLongPressed) {
-                            isLongPressed = false;
-                            collapseFromLargePreview();
+                        // Feature 3 v4: this touch already toggled the preview
+                        // size — nothing else to do on release.
+                        if (longPressFiredThisTouch) {
+                            longPressFiredThisTouch = false;
                             return true;
                         }
 
@@ -728,7 +795,11 @@ public class ReelChatDockedPlayer {
                                 doubleTapHandler.postDelayed(singleTapRunnable, DOUBLE_TAP_MS);
                             }
 
-                        } else if (movedBeyondSlop) {
+                        } else if (movedBeyondSlop && !isPreviewExpanded && isSwipeGesture) {
+                            // v4: quick swipe — container was never repositioned
+                            // during ACTION_MOVE, so there is nothing to snap
+                            // back; this purely decides next-reel / dismiss.
+
                             // Feature 4: Swipe-up → next reel
                             if (deltaY < -dpToPx(SWIPE_UP_DP)
                                     && Math.abs(deltaX) < dpToPx(50f)
@@ -747,9 +818,6 @@ public class ReelChatDockedPlayer {
                                                 .setDuration(180)
                                                 .start())
                                         .start();
-                                container.setX(snapX);
-                                container.setY(snapY);
-                                container.setAlpha(1f);
                                 if (callback != null) callback.onDockedPlayerNextReel();
 
                                 // Safety-net: if the host never reaches updatePlayer()
@@ -758,12 +826,23 @@ public class ReelChatDockedPlayer {
                                 doubleTapHandler.postDelayed(
                                         () -> isAdvancingReel = false, 900L);
 
-                            } else if (isDismissGesture && deltaY > dpToPx(SWIPE_DOWN_DP)) {
+                            } else if (deltaY > dpToPx(SWIPE_DOWN_DP)
+                                    && Math.abs(deltaX) < dpToPx(50f)) {
                                 // Swipe down → dismiss
                                 dismiss(true);
+                            }
+                            // else: swipe below threshold — container was
+                            // already stationary, nothing further to do.
 
+                        } else if (movedBeyondSlop && !isPreviewExpanded) {
+                            // Feature 1: Released after a deliberate press-and-hold
+                            // drag. Reel navigation only ever comes from the
+                            // swipe branch above, so a drag can never be
+                            // mistaken for one — it either dismisses (dragged
+                            // far enough down) or snaps to the nearest corner.
+                            if (isDismissGesture && deltaY > dpToPx(SWIPE_DOWN_DP)) {
+                                dismiss(true);
                             } else {
-                                // Feature 1: Released after drag — snap to nearest corner
                                 snapToNearestCorner();
                                 container.animate()
                                         .alpha(1f)

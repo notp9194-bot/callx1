@@ -583,6 +583,16 @@ public class ReelPlayerController {
 
         if (player == null) preparePlayerSilently();
 
+        // SAFETY NET (v4): the chat-docked mini player transfers this ExoPlayer's
+        // video surface away and back (ReelChatDockedPlayer.show()/collapseBack()).
+        // If a tab switch and an in-flight next-reel swap ever land in the same
+        // frame, playerView can end up unbound even though `player` itself is
+        // fine. Re-assert the binding every time this reel becomes active so it
+        // can never get stuck audio-only with no video surface.
+        if (playerView.getPlayer() != player) {
+            playerView.setPlayer(player);
+        }
+
         player.setVolume(isMuted ? 0f : 1f);
 
         if (player.getPlaybackState() == Player.STATE_READY) {
