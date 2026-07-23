@@ -23,6 +23,7 @@ import android.widget.ImageView;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.OptIn;
+import androidx.annotation.RequiresApi;
 import androidx.media3.common.Player;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.exoplayer.ExoPlayer;
@@ -368,61 +369,154 @@ public class ReelChatDockedPlayer {
 
     // ── Feature 5: Picture-in-Picture ─────────────────────────────────────
 
+    // ── PiP state ─────────────────────────────────────────────────────────
+    private boolean inPipMode = false;
+
     /**
-     * Enter Android native PiP. Call from Activity.onUserLeaveHint().
-     * Expands the mini player to fill the activity window for the best PiP experience.
+     * Build current PiP params — 9:16 ratio + source rect of the mini player view.
+     * Always returns a valid params object; the builder handles missing source rect
+     * gracefully on older APIs.
      */
-    public void enterPipIfSupported() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
-        if (container == null || livePlayer == null) return;
-        if (!(activity instanceof android.app.Activity)) return;
-
-        // Source rect for smooth PiP entrance animation
-        int[] loc = new int[2];
-        container.getLocationOnScreen(loc);
-        Rect sourceRect = new Rect(loc[0], loc[1],
-                loc[0] + container.getWidth(), loc[1] + container.getHeight());
-
-        android.app.PictureInPictureParams.Builder params =
+    @RequiresApi(Build.VERSION_CODES.O)
+    private android.app.PictureInPictureParams buildPipParams() {
+        android.app.PictureInPictureParams.Builder b =
                 new android.app.PictureInPictureParams.Builder()
-                        .setAspectRatio(new Rational(9, 16))
-                        .setSourceRectHint(sourceRect);
+                        .setAspectRatio(new Rational(9, 16));
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            params.setSeamlessResizeEnabled(true);
+        // Source rect hint — drives the entry/exit animation so PiP appears to
+        // "fly out of" the mini player widget, not the top-left corner.
+        if (container != null && container.getWidth() > 0) {
+            int[] loc = new int[2];
+            container.getLocationOnScreen(loc);
+            b.setSourceRectHint(new Rect(
+                    loc[0], loc[1],
+                    loc[0] + container.getWidth(),
+                    loc[1] + container.getHeight()));
         }
 
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            b.setSeamlessResizeEnabled(true);
+            // API 31+: system handles auto-enter PiP on gesture-home nav;
+            // setAutoEnterEnabled is set via a separate setPictureInPictureParams()
+            // call in enableAutoEnterPip() below.
+        }
+        return b.build();
+    }
+
+    /**
+     * Register auto-enter PiP params with the Activity as soon as the mini player
+     * is shown. This is the KEY fix for intermittent PiP:
+     *
+     *   • API 26-30 — params pre-registered so onUserLeaveHint() works reliably.
+     *   • API 31+   — setAutoEnterEnabled(true) lets the system enter PiP on
+     *                  gesture-home WITHOUT needing onUserLeaveHint() at all.
+     *
+     * Call this right after show() succeeds.
+     */
+    public void enableAutoEnterPip() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
+        if (container == null || livePlayer == null) return;
+
         try {
-            activity.enterPictureInPictureMode(params.build());
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                // Build auto-enter params (API 31+)
+                android.app.PictureInPictureParams.Builder b =
+                        new android.app.PictureInPictureParams.Builder()
+                                .setAspectRatio(new Rational(9, 16))
+                                .setAutoEnterEnabled(true)   // ← handles gesture-nav
+                                .setSeamlessResizeEnabled(true);
+
+                if (container.getWidth() > 0) {
+                    int[] loc = new int[2];
+                    container.getLocationOnScreen(loc);
+                    b.setSourceRectHint(new Rect(
+                            loc[0], loc[1],
+                            loc[0] + container.getWidth(),
+                            loc[1] + container.getHeight()));
+                }
+                activity.setPictureInPictureParams(b.build());
+            } else {
+                // API 26-30: pre-register params so onUserLeaveHint fires correctly
+                activity.setPictureInPictureParams(buildPipParams());
+            }
         } catch (Exception ignored) {}
     }
 
     /**
-     * Maximize mini player to fill the Activity window — called when PiP mode starts
-     * so only the reel video is visible in the tiny PiP window.
+     * Clear auto-enter PiP when the mini player is dismissed.
+     * Prevents PiP from activating after the user closes the mini player.
+     */
+    public void disableAutoEnterPip() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return;
+        try {
+            android.app.PictureInPictureParams params =
+                    new android.app.PictureInPictureParams.Builder()
+                            .setAutoEnterEnabled(false)
+                            .build();
+            activity.setPictureInPictureParams(params);
+        } catch (Exception ignored) {}
+    }
+
+    /**
+     * Imperatively enter PiP — called from onUserLeaveHint() (API 26-30 fallback)
+     * and from onStop() as a last-resort fallback on any API.
+     *
+     * IMPORTANT: expand the mini player BEFORE calling enterPictureInPictureMode()
+     * so the system already sees a full-window video surface. Calling expandForPip()
+     * AFTER (in onPictureInPictureModeChanged) is too late for a clean animation.
+     */
+    public void enterPipIfSupported() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
+        if (container == null || livePlayer == null) return;
+        if (inPipMode) return; // already in PiP — don't double-enter
+
+        // Expand first so the video surface fills the window before PiP clips it
+        expandForPip();
+
+        try {
+            activity.enterPictureInPictureMode(buildPipParams());
+        } catch (Exception e) {
+            // enterPictureInPictureMode failed (e.g. activity not in foreground)
+            // Roll back the expansion so mini player stays visible
+            restoreFromPip();
+        }
+    }
+
+    /**
+     * Maximize mini player to fill the Activity window.
+     * Called BEFORE enterPictureInPictureMode() and again from
+     * onPictureInPictureModeChanged(true) as a safety net.
      */
     public void expandForPip() {
         if (container == null) return;
+        inPipMode = true;
+
         container.setLayoutParams(
                 new FrameLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.MATCH_PARENT));
         container.setX(0); container.setY(0);
+        container.setTranslationX(0); container.setTranslationY(0);
         container.bringToFront();
+        container.setClipToOutline(false);
 
+        if (miniPlayerView != null) miniPlayerView.setClipToOutline(false);
+
+        // Hide UI chrome — only raw video visible in PiP overlay
         View btnClose = container.findViewById(R.id.btn_mini_reel_close);
         if (btnClose != null) btnClose.setVisibility(View.GONE);
 
-        // Remove corner radius for full-screen pip view
-        container.setClipToOutline(false);
-        if (miniPlayerView != null) miniPlayerView.setClipToOutline(false);
+        View swipeHint = container.findViewById(R.id.ll_swipe_up_hint);
+        if (swipeHint != null) swipeHint.setVisibility(View.GONE);
     }
 
     /**
-     * Restore mini player to corner position after exiting PiP.
+     * Restore mini player to its corner position after exiting PiP.
+     * Safe to call even if PiP was never fully entered.
      */
     public void restoreFromPip() {
         if (container == null) return;
+        inPipMode = false;
 
         int widthPx  = (int) dpToPx(MINI_WIDTH_DP);
         int heightPx = (int) (widthPx * ASPECT_RATIO);
@@ -440,14 +534,25 @@ public class ReelChatDockedPlayer {
         View btnClose = container.findViewById(R.id.btn_mini_reel_close);
         if (btnClose != null) btnClose.setVisibility(View.VISIBLE);
 
+        View swipeHint = container.findViewById(R.id.ll_swipe_up_hint);
+        if (swipeHint != null) swipeHint.setVisibility(View.VISIBLE);
+
         applyCornerRadius(CORNER_RADIUS_DP);
+
+        // Re-enable auto-enter for the restored mini player position
+        enableAutoEnterPip();
 
         // Re-capture snap position after next layout pass
         container.post(() -> {
-            snapX = container.getX();
-            snapY = container.getY();
+            if (container != null) {
+                snapX = container.getX();
+                snapY = container.getY();
+            }
         });
     }
+
+    /** Returns true while the activity is currently in PiP mode. */
+    public boolean isInPipMode() { return inPipMode; }
 
     // ── Corner radius helper ───────────────────────────────────────────────
 

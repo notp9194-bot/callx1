@@ -419,15 +419,39 @@ public class MainActivity extends AppCompatActivity {
     }
 
     // ── Feature 5: Picture-in-Picture support ─────────────────────────────
-    // When the user presses Home while the mini reel player is showing,
-    // Android enters PiP mode and expands the docked player to fill the window
-    // so only the reel video is visible in the compact PiP overlay.
+    //
+    // Three-layer PiP trigger strategy (most → least reliable):
+    //
+    //  Layer 1 — API 31+  setAutoEnterEnabled(true): system handles gesture-home
+    //             nav automatically; onUserLeaveHint is NOT needed on these devices.
+    //  Layer 2 — onUserLeaveHint(): fires on back-button / power-button home.
+    //             Covers API 26-30 and older gesture models.
+    //  Layer 3 — onStop(): last-resort fallback for ROM variants that skip both
+    //             of the above (observed on some Xiaomi / MIUI builds).
+    //
+    // expandForPip() is called INSIDE enterPipIfSupported() BEFORE the system call
+    // so the video surface is already full-window when PiP clips it — this prevents
+    // the jarring "mini player → PiP" size jump.
 
     @Override
     public void onUserLeaveHint() {
         super.onUserLeaveHint();
-        // Only trigger PiP if the mini player is currently showing
-        if (dockedPlayer != null && dockedPlayer.isShowing()) {
+        // Layer 2 fallback — covers hardware home button + API 26-30 gesture
+        if (dockedPlayer != null && dockedPlayer.isShowing()
+                && !dockedPlayer.isInPipMode()) {
+            dockedPlayer.enterPipIfSupported();
+        }
+    }
+
+    @Override
+    protected void onStop() {
+        super.onStop();
+        // Layer 3 fallback — some OEM ROMs (MIUI, ColorOS) skip onUserLeaveHint.
+        // If we reach onStop() with a visible mini player and NOT already in PiP,
+        // attempt to enter PiP now.
+        if (dockedPlayer != null && dockedPlayer.isShowing()
+                && !dockedPlayer.isInPipMode()
+                && !isFinishing()) {
             dockedPlayer.enterPipIfSupported();
         }
     }
@@ -436,13 +460,21 @@ public class MainActivity extends AppCompatActivity {
     public void onPictureInPictureModeChanged(boolean isInPipMode,
                                               android.content.res.Configuration newConfig) {
         super.onPictureInPictureModeChanged(isInPipMode, newConfig);
-        if (dockedPlayer == null || !dockedPlayer.isShowing()) return;
+
+        // NOTE: do NOT guard with dockedPlayer.isShowing() here.
+        // expandForPip() sets inPipMode=true, which means isShowing() may behave
+        // differently depending on implementation. Track PiP state via isInPipMode flag.
+        if (dockedPlayer == null) return;
+
         if (isInPipMode) {
-            // Maximize mini player → only the reel video visible in the PiP window
+            // Safety net: expand again in case the system triggered PiP via autoEnter
+            // before our enterPipIfSupported() could call expandForPip() first.
             dockedPlayer.expandForPip();
         } else {
-            // User returned from PiP → restore mini player to corner
-            dockedPlayer.restoreFromPip();
+            // User swiped PiP overlay away or returned to the app → restore corner
+            if (dockedPlayer.isInPipMode()) {
+                dockedPlayer.restoreFromPip();
+            }
         }
     }
 
@@ -1206,7 +1238,8 @@ public class MainActivity extends AppCompatActivity {
 
                         @Override
                         public void onDockedPlayerDismissed() {
-                            // User closed the mini-player → release player properly.
+                            // User closed the mini-player → disable PiP then release.
+                            dockedRef.disableAutoEnterPip();
                             if (dockedPlayer == dockedRef) dockedPlayer = null;
                             reelsFragment.onTabPaused();
                         }
@@ -1214,6 +1247,7 @@ public class MainActivity extends AppCompatActivity {
                         @Override
                         public void onDockedPlayerExpandRequested() {
                             // Feature 2: Double-tap → collapse surface back + switch to Reels.
+                            dockedRef.disableAutoEnterPip();
                             dockedRef.collapseBack();
                             if (dockedPlayer == dockedRef) dockedPlayer = null;
                             binding.viewPager.setCurrentItem(TAB_REELS, false);
@@ -1225,6 +1259,12 @@ public class MainActivity extends AppCompatActivity {
                             reelsFragment.advanceToNextForDockedPlayer(dockedRef);
                         }
                     });
+
+                    // Feature 5 — register PiP params immediately after show().
+                    // API 31+: setAutoEnterEnabled(true) handles gesture-home nav
+                    //          without needing onUserLeaveHint() at all.
+                    // API 26-30: params pre-registered for reliable onUserLeaveHint.
+                    dockedRef.enableAutoEnterPip();
                 });
 
             } else {
