@@ -192,16 +192,22 @@ public class ReelCommentsBottomSheet extends BottomSheetDialogFragment {
 
         sheetBehavior = BottomSheetBehavior.from(sheet);
         sheetBehavior.setFitToContents(false);
-        sheetBehavior.setExpandedOffset((int) (getResources()
-                .getDisplayMetrics().heightPixels * 0.44f));
+        final int expandedOffsetPx = (int) (getResources().getDisplayMetrics().heightPixels * 0.44f);
+        sheetBehavior.setExpandedOffset(expandedOffsetPx);
         sheetBehavior.setHalfExpandedRatio(0.45f);
-        sheetBehavior.setPeekHeight((int) (getResources()
-                .getDisplayMetrics().heightPixels * 0.24f));
         sheetBehavior.setDraggable(true);
         // Collapsed stage (peek-height-only, full undocked video) removed from
         // the flow entirely — dragging down from half-expanded now goes
         // straight to hidden/dismiss instead of resting at collapsed.
         sheetBehavior.setSkipCollapsed(true);
+
+        // Our own 0..1 dock-progress, measured directly off the sheet's top
+        // edge between "half-expanded" and "expanded" — independent of
+        // BottomSheetBehavior's slideOffset, which is anchored to the
+        // (now-unused) collapsed height and stayed stuck near 0 for
+        // half-expanded once collapsed was skipped, leaving the video undocked.
+        final int halfExpandedTopPx = (int) (getResources().getDisplayMetrics().heightPixels * 0.55f);
+
         sheetBehavior.addBottomSheetCallback(new BottomSheetBehavior.BottomSheetCallback() {
             @Override
             public void onStateChanged(@NonNull View bottomSheet, int newState) {
@@ -209,20 +215,16 @@ public class ReelCommentsBottomSheet extends BottomSheetDialogFragment {
                     dispatchHostDismissed();
                     return;
                 }
-                // Finger lifted / fling finished and the sheet is now resting in
-                // a stable state — let the docked video spring into place.
                 if (newState == BottomSheetBehavior.STATE_HALF_EXPANDED
                         || newState == BottomSheetBehavior.STATE_EXPANDED) {
-                    // onSlide already tracked this state's target value as the
-                    // sheet settled; forward it so the video can spring to match.
+                    lastKnownProgress = dockProgressFromTop(bottomSheet.getTop(), expandedOffsetPx, halfExpandedTopPx);
                     dispatchHostSettled(lastKnownProgress);
                 }
             }
 
             @Override
             public void onSlide(@NonNull View bottomSheet, float slideOffset) {
-                // collapsed ~= 0, expanded ~= 1; hidden/overscroll stays at 0.
-                lastKnownProgress = Math.max(0f, Math.min(1f, slideOffset));
+                lastKnownProgress = dockProgressFromTop(bottomSheet.getTop(), expandedOffsetPx, halfExpandedTopPx);
                 dispatchHostProgress(lastKnownProgress);
             }
         });
@@ -234,6 +236,16 @@ public class ReelCommentsBottomSheet extends BottomSheetDialogFragment {
         // to hidden → half-expanded in one motion, instead of collapsed first
         // and then jumping again a frame later.
         sheetBehavior.setState(BottomSheetBehavior.STATE_HALF_EXPANDED);
+
+        // The very first onSlide/onStateChanged calls above can land before
+        // the sheet has actually been laid out (top == 0), which silently
+        // computes a wrong progress and leaves the video looking full/undocked.
+        // Once layout is ready, force one correct pass explicitly.
+        sheet.post(() -> {
+            if (!isAdded() || sheetBehavior == null) return;
+            lastKnownProgress = dockProgressFromTop(sheet.getTop(), expandedOffsetPx, halfExpandedTopPx);
+            dispatchHostSettled(lastKnownProgress);
+        });
 
         // Tapping the dimmed area above the sheet normally just dismisses it.
         // If the tap actually lands on the docked video preview, forward it as
@@ -258,6 +270,18 @@ public class ReelCommentsBottomSheet extends BottomSheetDialogFragment {
     }
 
     private float lastKnownProgress = 0f;
+
+    /**
+     * 0 at the half-expanded top, 1 at the fully expanded top — used to drive
+     * the video dock transform. Deliberately independent of
+     * BottomSheetBehavior's own slideOffset, which stays anchored near 0 for
+     * half-expanded once the collapsed stage is skipped.
+     */
+    private float dockProgressFromTop(int sheetTopPx, int expandedTopPx, int halfExpandedTopPx) {
+        if (halfExpandedTopPx <= expandedTopPx) return 0f;
+        float raw = (halfExpandedTopPx - sheetTopPx) / (float) (halfExpandedTopPx - expandedTopPx);
+        return Math.max(0f, Math.min(1f, raw));
+    }
 
     /**
      * Coordinates the comment list's own scrolling with the sheet's drag.
