@@ -459,9 +459,9 @@ public class ReelPlayerFragment extends Fragment
         if (photoPager != null && photoPager.getWidth() > 0 && photoPager.getHeight() > 0) {
             float p = Math.max(0f, Math.min(1f, progress));
             float scale = 1f - (0.58f * p);
-            float translationY = -photoPager.getHeight() * 0.25f * p;
+            float translationY = playerController.getDockStatusBarHeightPx() * p;
             photoPager.setPivotX(photoPager.getWidth() / 2f);
-            photoPager.setPivotY(photoPager.getHeight() / 2f);
+            photoPager.setPivotY(0f);
             photoPager.setScaleX(scale);
             photoPager.setScaleY(scale);
             photoPager.setTranslationY(translationY);
@@ -500,9 +500,9 @@ public class ReelPlayerFragment extends Fragment
         if (photoPager != null && photoPager.getWidth() > 0 && photoPager.getHeight() > 0) {
             float p = Math.max(0f, Math.min(1f, settledProgress));
             float targetScale = 1f - (0.58f * p);
-            float targetTranslationY = -photoPager.getHeight() * 0.25f * p;
+            float targetTranslationY = playerController.getDockStatusBarHeightPx() * p;
             photoPager.setPivotX(photoPager.getWidth() / 2f);
-            photoPager.setPivotY(photoPager.getHeight() / 2f);
+            photoPager.setPivotY(0f);
             photoPager.animate().cancel();
             photoPager.animate()
                 .scaleX(targetScale).scaleY(targetScale).translationY(targetTranslationY)
@@ -512,9 +512,15 @@ public class ReelPlayerFragment extends Fragment
         }
     }
 
-    /** Tap on the shrunk, docked video while the comments sheet is open. */
+    /** Tap on the shrunk, docked video while the comments sheet is open.
+     *  Mute/unmute only — must NOT pause playback. Pausing flips isPlaying to
+     *  false, which ReelsFragment.onReelPlaybackStateChanged() reads as "show
+     *  the top bar + bottom nav again", popping that chrome back over the
+     *  docked video. (This is the tap handler that's actually invoked while
+     *  the sheet is open — the sheet's dialog window sits above the fragment,
+     *  so playerView's own click listener never receives the touch here.) */
     @Override
     public void onCommentsSheetVideoTap() {
-        togglePlayPause();
+        playerController.toggleMute();
     }
 }

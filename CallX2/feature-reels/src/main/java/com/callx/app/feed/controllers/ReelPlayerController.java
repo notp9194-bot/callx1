@@ -133,6 +133,10 @@ public class ReelPlayerController {
     private static final float MAX_DOCK_CORNER_RADIUS_DP = 28f;
     private float dockCornerRadiusPx = 0f;
     private final SpringAnimation[] activeSprings = new SpringAnimation[6]; // scaleX/Y/transY for playerView + ivThumb
+    /** Status bar height in px, captured once from window insets — used so the
+     *  docked (shrunk) video's top edge lands right BELOW the status bar
+     *  instead of bleeding behind it (full-bleed is only correct undocked). */
+    private int dockStatusBarHeightPx = 0;
 
     public ReelPlayerController(ReelPlayerDelegate delegate) {
         this.delegate = delegate;
@@ -148,6 +152,16 @@ public class ReelPlayerController {
         progressBuffering    = root.findViewById(R.id.progress_buffering);
         btnMute              = root.findViewById(R.id.btn_mute);
         btnSpeed             = root.findViewById(R.id.btn_speed);
+
+        // Capture the status bar inset once so the docked video (comments
+        // sheet open) can be pushed down by exactly this much — otherwise a
+        // top-pivot scale anchors to the absolute screen top and the video
+        // renders behind the (normally full-bleed) transparent status bar.
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(playerView, (view, insets) -> {
+            dockStatusBarHeightPx = insets.getInsets(
+                androidx.core.view.WindowInsetsCompat.Type.statusBars()).top;
+            return insets;
+        });
         tvQualityBadge       = root.findViewById(R.id.tv_quality_badge); // optional view
 
         // Outline clip so the video frame can round its corners as it docks
@@ -193,6 +207,7 @@ public class ReelPlayerController {
     // ── Accessors ─────────────────────────────────────────────────────────────
 
     public boolean   isMuted()       { return isMuted; }
+    public int       getDockStatusBarHeightPx() { return dockStatusBarHeightPx; }
     public int       getSpeedIndex() { return speedIndex; }
     public float[]   getSpeedSteps()  { return SPEED_STEPS; }
     public String[]  getSpeedLabels() { return SPEED_LABELS; }
@@ -225,23 +240,24 @@ public class ReelPlayerController {
         cancelActiveSprings(); // a live finger-drag always wins over a settling spring
 
         float scale = 1f - (0.58f * p);
-        // Pivot at the TOP edge (not center) so the video's top border is
-        // pinned at y=0 (right under the status bar) at every dock progress —
-        // shrinking eats into the bottom of the frame only. A center pivot
-        // plus a separate translationY (the old approach) left a visible gap
-        // between the status bar and the docked video's top edge.
+        // Pivot at the TOP edge (not center) so shrinking eats into the
+        // bottom of the frame only, then push down by the status bar height
+        // (scaled by p, so it's still full-bleed/undocked at p=0) — this pins
+        // the docked video's top edge right BELOW the status bar instead of
+        // at the absolute screen top (which would render behind it).
+        float dockTranslationY = dockStatusBarHeightPx * p;
         playerView.setPivotX(width / 2f);
         playerView.setPivotY(0f);
         playerView.setScaleX(scale);
         playerView.setScaleY(scale);
-        playerView.setTranslationY(0f);
+        playerView.setTranslationY(dockTranslationY);
 
         if (ivThumb != null) {
             ivThumb.setPivotX(ivThumb.getWidth() / 2f);
             ivThumb.setPivotY(0f);
             ivThumb.setScaleX(scale);
             ivThumb.setScaleY(scale);
-            ivThumb.setTranslationY(0f);
+            ivThumb.setTranslationY(dockTranslationY);
         }
 
         // Full radius the instant the video starts docking — no gradual
@@ -263,22 +279,23 @@ public class ReelPlayerController {
 
         float p = Math.max(0f, Math.min(1f, settledProgress));
         float targetScale = 1f - (0.58f * p);
+        float targetTranslationY = dockStatusBarHeightPx * p;
 
         // Top pivot, same as setCommentsSheetProgress() — keeps the docked
-        // video's top edge pinned at y=0 through the bounce instead of
-        // settling with a gap under the status bar.
+        // video's top edge pinned right below the status bar through the
+        // bounce instead of settling with a gap or bleeding behind it.
         playerView.setPivotX(width / 2f);
         playerView.setPivotY(0f);
-        playerView.setTranslationY(0f);
         activeSprings[0] = springTo(playerView, SpringAnimation.SCALE_X, targetScale);
         activeSprings[1] = springTo(playerView, SpringAnimation.SCALE_Y, targetScale);
+        activeSprings[2] = springTo(playerView, SpringAnimation.TRANSLATION_Y, targetTranslationY);
 
         if (ivThumb != null) {
             ivThumb.setPivotX(ivThumb.getWidth() / 2f);
             ivThumb.setPivotY(0f);
-            ivThumb.setTranslationY(0f);
-            activeSprings[2] = springTo(ivThumb, SpringAnimation.SCALE_X, targetScale);
-            activeSprings[3] = springTo(ivThumb, SpringAnimation.SCALE_Y, targetScale);
+            activeSprings[3] = springTo(ivThumb, SpringAnimation.SCALE_X, targetScale);
+            activeSprings[4] = springTo(ivThumb, SpringAnimation.SCALE_Y, targetScale);
+            activeSprings[5] = springTo(ivThumb, SpringAnimation.TRANSLATION_Y, targetTranslationY);
         }
 
         // Same instant rounding on settle — never lags behind the spring.
