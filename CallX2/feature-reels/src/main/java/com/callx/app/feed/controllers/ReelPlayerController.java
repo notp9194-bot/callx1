@@ -224,14 +224,16 @@ public class ReelPlayerController {
             ivThumb.setTranslationY(translationY);
         }
 
-        setDockCornerRadius(dpToPxLocal(MAX_DOCK_CORNER_RADIUS_DP) * p);
+        // Full radius the instant the video starts docking — no gradual
+        // fade-in lag behind the scale/translate transform.
+        setDockCornerRadius(p > 0.001f ? dpToPxLocal(MAX_DOCK_CORNER_RADIUS_DP) : 0f);
     }
 
     /**
      * Called when the comments sheet finishes settling into a stable state
-     * (collapsed / half-expanded / expanded, i.e. the finger has been lifted).
-     * Adds a small Instagram-style overshoot bounce on top of the already
-     * docked position instead of snapping there instantly.
+     * (half-expanded / expanded, i.e. the finger has been lifted). Adds a
+     * small Instagram-style overshoot bounce on top of the already docked
+     * position instead of snapping there instantly.
      */
     public void springSettleCommentsSheet(float settledProgress) {
         if (playerView == null || !delegate.isAdded()) return;
@@ -257,7 +259,8 @@ public class ReelPlayerController {
             activeSprings[5] = springTo(ivThumb, SpringAnimation.TRANSLATION_Y, targetTranslationY);
         }
 
-        setDockCornerRadius(dpToPxLocal(MAX_DOCK_CORNER_RADIUS_DP) * p);
+        // Same instant rounding on settle — never lags behind the spring.
+        setDockCornerRadius(p > 0.001f ? dpToPxLocal(MAX_DOCK_CORNER_RADIUS_DP) : 0f);
     }
 
     private SpringAnimation springTo(View view, DynamicAnimation.ViewProperty property, float target) {
