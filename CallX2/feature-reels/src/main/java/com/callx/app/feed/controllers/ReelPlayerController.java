@@ -189,17 +189,20 @@ public class ReelPlayerController {
             contentFrame.setClipToOutline(true);
         }
 
-        // Tap the docked (shrunk) video while the comments sheet is open to
-        // mute/unmute only — playback must keep running uninterrupted, exactly
-        // like Instagram. NOTE: this intentionally does NOT call
-        // togglePlayPause()/pause the player — pausing flips isPlaying to
-        // false, which onReelPlaybackStateChanged() in ReelsFragment reads as
-        // "show the top bar + bottom nav again", popping those controls back
-        // over the docked video. Muting alone never touches play state, so
-        // that callback never fires and the chrome stays hidden.
+        // Tap the video to toggle play/pause — normal Instagram-style behavior.
+        // EXCEPTION: while docked (comments sheet open, video shrunk above it),
+        // a tap must only mute/unmute — playback has to keep running
+        // uninterrupted. Calling togglePlayPause()/pause() there would flip
+        // isPlaying to false, which onReelPlaybackStateChanged() in
+        // ReelsFragment reads as "show the top bar + bottom nav again",
+        // popping those controls back over the docked video. So: docked →
+        // mute only; everything else (normal full-screen playback) → the
+        // regular tap-to-pause/tap-to-play toggle.
         playerView.setOnClickListener(v -> {
             if (dockCornerRadiusPx > 0.5f) { // only meaningfully "docked" once shrunk
                 toggleMute();
+            } else {
+                togglePlayPause();
             }
         });
     }
