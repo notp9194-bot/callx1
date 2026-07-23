@@ -130,7 +130,7 @@ public class ReelPlayerController {
     private       Runnable progressRunnable;
 
     // ── Comments-sheet dock: corner radius + spring settle ─────────────────────
-    private static final float MAX_DOCK_CORNER_RADIUS_DP = 16f;
+    private static final float MAX_DOCK_CORNER_RADIUS_DP = 28f;
     private float dockCornerRadiusPx = 0f;
     private final SpringAnimation[] activeSprings = new SpringAnimation[6]; // scaleX/Y/transY for playerView + ivThumb
 
