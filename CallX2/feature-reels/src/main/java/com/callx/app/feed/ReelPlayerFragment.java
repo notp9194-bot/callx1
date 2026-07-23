@@ -364,6 +364,26 @@ public class ReelPlayerFragment extends Fragment
 
     // ── Shared state reads ────────────────────────────────────────────────
 
+    // ── Chat-tab docked player support ───────────────────────────────────
+
+    /**
+     * Returns the live ExoPlayer for surface transfer to the chat docked overlay.
+     * Returns null if this is a photo-slideshow reel (no video player).
+     */
+    public androidx.media3.exoplayer.ExoPlayer getActivePlayer() {
+        if (playerController == null || isPhotoMode()) return null;
+        return playerController.getPlayer();
+    }
+
+    /**
+     * Returns the fragment's PlayerView so the docked overlay can restore
+     * the ExoPlayer surface back to it when the user returns to Reels tab.
+     */
+    public androidx.media3.ui.PlayerView getPlayerViewForDock() {
+        if (playerController == null) return null;
+        return playerController.getPlayerView();
+    }
+
     @Override public boolean isFollowing()         { return socialController.isFollowing(); }
     @Override public boolean isFollowCheckLoaded() { return socialController.isFollowCheckLoaded(); }
     @Override public boolean isPhotoMode()         { return photoController.isPhotoMode(); }

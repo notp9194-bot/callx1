@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Mini floating reel player overlay — shown in bottom-right corner when user
+  switches from Reels tab to Chat tab. The PlayerView here receives the
+  ExoPlayer surface transfer from ReelPlayerFragment via PlayerView.setPlayer().
+
+  Container dimensions are controlled programmatically via LayoutParams:
+    width  = 120dp, height = 213dp (9:16 portrait aspect)
+
+  Touch events handled in ReelChatDockedPlayer:
+    • Tap        → toggle mute (brief icon feedback via iv_mini_mute_indicator)
+    • Swipe down → dismiss with spring animation
+    • Close btn  → dismiss
+-->
+<FrameLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#FF000000"
+    android:elevation="12dp">
+
+    <!-- Live video surface — receives ExoPlayer via setPlayer() -->
+    <androidx.media3.ui.PlayerView
+        android:id="@+id/mini_reel_player_view"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        app:use_controller="false"
+        app:resize_mode="zoom"
+        android:background="#000000" />
+
+    <!-- Mute/unmute feedback icon — shown briefly on tap -->
+    <ImageView
+        android:id="@+id/iv_mini_mute_indicator"
+        android:layout_width="32dp"
+        android:layout_height="32dp"
+        android:layout_gravity="center"
+        android:src="@drawable/ic_volume_off"
+        android:tint="#FFFFFF"
+        android:visibility="gone"
+        android:contentDescription="Mute indicator" />
+
+    <!-- Close button — top-right corner -->
+    <FrameLayout
+        android:layout_width="28dp"
+        android:layout_height="28dp"
+        android:layout_gravity="top|end"
+        android:layout_margin="4dp">
+
+        <!-- Semi-transparent circle background -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="#AA000000"
+            android:importantForAccessibility="no" />
+
+        <ImageButton
+            android:id="@+id/btn_mini_reel_close"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:src="@drawable/ic_close"
+            android:tint="#FFFFFF"
+            android:background="@android:color/transparent"
+            android:padding="4dp"
+            android:contentDescription="Close mini player" />
+
+    </FrameLayout>
+
+    <!-- Thin border to visually separate from chat background -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@drawable/mini_player_border"
+        android:importantForAccessibility="no" />
+
+</FrameLayout>

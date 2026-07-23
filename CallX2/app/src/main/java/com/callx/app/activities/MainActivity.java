@@ -60,6 +60,9 @@ import com.callx.app.group.NewGroupActivity;
 import com.callx.app.services.CallForegroundService;
 import com.callx.app.compose.NewStatusActivity;
 import com.callx.app.hub.GamesHubActivity;
+import com.callx.app.feed.ReelChatDockedPlayer;
+import androidx.annotation.OptIn;
+import androidx.media3.common.util.UnstableApi;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -68,6 +71,12 @@ public class MainActivity extends AppCompatActivity {
     // My profile cache — for UserReelsActivity launch
     private String myName     = "";
     private String myPhotoUrl = "";
+
+    // ── Chat-tab docked reel player ──────────────────────────────────────────
+    /** Manages the mini floating reel overlay shown when user leaves Reels for Chat. */
+    private ReelChatDockedPlayer dockedPlayer;
+    /** Tracks the ViewPager2 page position BEFORE the current switch. */
+    private int prevTabPosition = TAB_CHATS;
 
 
       // ── X Module ────────────────────────────────────────────────────────────────
@@ -199,7 +208,9 @@ public class MainActivity extends AppCompatActivity {
                 // Hide main bottom nav + FAB when Reels tab is active
                 setMainNavVisible(position != TAB_REELS);
                 // ── Reel playback: pause when leaving, resume when entering ──
-                notifyReelsTabVisibility(position == TAB_REELS);
+                // Track previous tab so we know whether user is going TO or FROM Reels
+                notifyReelsTabVisibility(position == TAB_REELS, position);
+                prevTabPosition = position;
             }
         });
 
@@ -292,8 +303,11 @@ public class MainActivity extends AppCompatActivity {
         super.onResume();
         loadMyAvatar();
         loadReelsAvatarIntoNavTab();
-        boolean isReelsTab = binding.viewPager.getCurrentItem() == TAB_REELS;
-        notifyReelsTabVisibility(isReelsTab);
+        int currentTab = binding.viewPager.getCurrentItem();
+        boolean isReelsTab = currentTab == TAB_REELS;
+        // Pass current tab as destination — onResume doesn't represent a "switch",
+        // so we treat it as a no-op dock transition (normal resume path).
+        notifyReelsTabVisibility(isReelsTab, currentTab);
         setMainNavVisible(!isReelsTab);
         // Feature 1: Return to Call Banner
         updateReturnToCallBanner();
@@ -405,6 +419,11 @@ public class MainActivity extends AppCompatActivity {
     }
 
     @Override protected void onDestroy() {
+        // Clean up any active docked reel player to release the ExoPlayer surface
+        if (dockedPlayer != null) {
+            dockedPlayer.dismiss(false);
+            dockedPlayer = null;
+        }
         String uid = currentUid();
         if (uid != null) {
             if (unreadChatsListener    != null) FirebaseUtils.getContactsRef(uid).removeEventListener(unreadChatsListener);
@@ -1104,18 +1123,78 @@ public class MainActivity extends AppCompatActivity {
 
     /**
      * Notifies the ReelsFragment whether it is the currently visible tab.
-     * This ensures reels pause immediately when the user switches to another tab
-     * and resume only when the Reels tab is active — even while ViewPager2 keeps
-     * the fragment alive in the background.
+     *
+     * When the user navigates AWAY from Reels to the Chat tab specifically,
+     * the current reel's ExoPlayer surface is transferred to a small floating
+     * overlay (ReelChatDockedPlayer) so playback continues uninterrupted while
+     * the user reads/sends messages.
+     *
+     * When the user returns to Reels, the surface is transferred back and
+     * playback resumes seamlessly.
+     *
+     * For any other tab switch (Status, Groups, Calls), normal pause applies.
+     *
+     * @param isReelsTabActive true when the Reels tab is the newly selected tab.
+     * @param newTabPosition   the ViewPager2 position that was just selected.
      */
-    private void notifyReelsTabVisibility(boolean isReelsTabActive) {
+    @OptIn(markerClass = UnstableApi.class)
+    private void notifyReelsTabVisibility(boolean isReelsTabActive, int newTabPosition) {
         androidx.fragment.app.Fragment f = getSupportFragmentManager()
                 .findFragmentByTag("f" + binding.viewPager.getAdapter().getItemId(TAB_REELS));
-        if (f instanceof ReelsFragment) {
-            if (isReelsTabActive) {
-                ((ReelsFragment) f).onTabResumed();
+        if (!(f instanceof ReelsFragment)) return;
+        ReelsFragment reelsFragment = (ReelsFragment) f;
+
+        if (isReelsTabActive) {
+            // ── Returning to Reels ────────────────────────────────────────────
+            if (dockedPlayer != null && dockedPlayer.isShowing()) {
+                // Transfer ExoPlayer surface back to fragment BEFORE resuming playback.
+                // collapseBack() calls originalFragmentPlayerView.setPlayer(player),
+                // so when onTabResumed() → startPlayback() runs, the view is ready.
+                dockedPlayer.collapseBack();
+                dockedPlayer = null;
+            }
+            reelsFragment.onTabResumed();
+
+        } else {
+            // ── Leaving Reels ─────────────────────────────────────────────────
+            boolean isGoingToChat = (newTabPosition == TAB_CHATS);
+
+            if (isGoingToChat) {
+                // ── Chat-tab docking: keep reel playing in mini overlay ────────
+                // Dismiss any stale docked player first (e.g. from a previous switch)
+                if (dockedPlayer != null && dockedPlayer.isShowing()) {
+                    dockedPlayer.dismiss(false);
+                }
+                dockedPlayer = new ReelChatDockedPlayer(this);
+                final ReelChatDockedPlayer dockedRef = dockedPlayer;
+
+                reelsFragment.onTabPausedForChat((player, fragmentPlayerView) -> {
+                    // Safety: activity might have been destroyed by the time the
+                    // callback fires (synchronous in practice, but guard anyway)
+                    if (isDestroyed() || isFinishing()) return;
+
+                    dockedRef.show(player, fragmentPlayerView, new ReelChatDockedPlayer.Callback() {
+                        @Override
+                        public void onDockedPlayerDismissed() {
+                            // User closed the mini-player — clean up and release the
+                            // reel player properly. We call onTabPaused() so the fragment
+                            // knows it should release its player on the next lifecycle.
+                            if (dockedPlayer == dockedRef) dockedPlayer = null;
+                            reelsFragment.onTabPaused();
+                        }
+                    });
+                });
+
             } else {
-                ((ReelsFragment) f).onTabPaused();
+                // ── Other tab (Status, Groups, Calls): normal pause ───────────
+                // If a docked player is showing (user switches from Chat → Groups),
+                // dismiss it properly so we don't leak the player surface.
+                if (dockedPlayer != null && dockedPlayer.isShowing()) {
+                    dockedPlayer.dismiss(false);
+                    dockedPlayer = null;
+                    // Normal pause handles player release
+                }
+                reelsFragment.onTabPaused();
             }
         }
     }

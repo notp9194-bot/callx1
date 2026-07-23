@@ -50,6 +50,8 @@ import java.util.Set;
 import androidx.core.graphics.drawable.RoundedBitmapDrawable;
 import androidx.core.graphics.drawable.RoundedBitmapDrawableFactory;
 import androidx.core.content.ContextCompat;
+import androidx.annotation.OptIn;
+import androidx.media3.common.util.UnstableApi;
 
 /**
  * ReelsFragment — Full-screen vertical reel feed with its own bottom navigation.
@@ -848,6 +850,75 @@ public class ReelsFragment extends Fragment {
     public void onTabPaused() {
         isTabActive = false;
         pauseAllReels();
+    }
+
+    /**
+     * Chat-tab docking variant of {@link #onTabPaused()}.
+     *
+     * Instead of pausing all reels, this transfers the current reel's ExoPlayer
+     * surface to the Activity-level mini overlay so playback continues while the
+     * user browses chat. All OTHER (off-screen) reels are still paused normally.
+     *
+     * @param onPlayerReady Callback that receives the ExoPlayer + its original
+     *                      PlayerView once the surface handoff is ready.
+     *                      Called synchronously if a transferable player exists;
+     *                      falls back to a normal pause if not (photo reel, no player).
+     */
+    @OptIn(markerClass = UnstableApi.class)
+    public void onTabPausedForChat(PlayerReadyForDockCallback onPlayerReady) {
+        isTabActive = false;
+
+        if (vpReels == null || adapter == null || adapter.getItemCount() == 0) {
+            pauseAllReels();
+            return;
+        }
+
+        int currentPos = vpReels.getCurrentItem();
+        ReelPlayerFragment currentFragment = null;
+
+        // Find the currently visible ReelPlayerFragment
+        try {
+            androidx.fragment.app.Fragment f = getChildFragmentManager()
+                .findFragmentByTag("f" + adapter.getItemId(currentPos));
+            if (f instanceof ReelPlayerFragment) {
+                currentFragment = (ReelPlayerFragment) f;
+            }
+        } catch (Exception ignored) {}
+
+        // Attempt surface transfer for the current fragment
+        boolean transferred = false;
+        if (currentFragment != null) {
+            androidx.media3.exoplayer.ExoPlayer player = currentFragment.getActivePlayer();
+            androidx.media3.ui.PlayerView pv            = currentFragment.getPlayerViewForDock();
+            if (player != null && pv != null) {
+                // Surface will be moved to mini overlay — do NOT pause this fragment.
+                // Pause all others.
+                for (int i = 0; i < adapter.getItemCount(); i++) {
+                    if (i == currentPos) continue;
+                    try {
+                        androidx.fragment.app.Fragment other = getChildFragmentManager()
+                            .findFragmentByTag("f" + adapter.getItemId(i));
+                        if (other instanceof ReelPlayerFragment) {
+                            ((ReelPlayerFragment) other).setUserVisibleHint(false);
+                        }
+                    } catch (Exception ignored) {}
+                }
+                onPlayerReady.onReady(player, pv);
+                transferred = true;
+            }
+        }
+
+        if (!transferred) {
+            // Photo reel, no player, or fragment not found — normal pause
+            pauseAllReels();
+        }
+    }
+
+    /** Callback for onTabPausedForChat — delivers player + view to MainActivity. */
+    @UnstableApi
+    public interface PlayerReadyForDockCallback {
+        void onReady(androidx.media3.exoplayer.ExoPlayer player,
+                     androidx.media3.ui.PlayerView fragmentPlayerView);
     }
 
     public void advanceToNext() {

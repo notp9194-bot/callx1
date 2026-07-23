@@ -221,6 +221,15 @@ public class ReelPlayerController {
     public ImageView  getIvThumb()    { return ivThumb; }
 
     /**
+     * Returns the live ExoPlayer instance so the Chat docked overlay can
+     * transfer its rendering surface via {@code miniPlayerView.setPlayer(player)}.
+     *
+     * Callers must NOT release this player — it is still owned by this controller.
+     * The surface can be moved to a different PlayerView without affecting ownership.
+     */
+    public ExoPlayer getPlayer() { return player; }
+
+    /**
      * Visually docks the live player above the comments sheet. This only
      * transforms the already-running surfaces; playback state and position are
      * intentionally untouched so the reel continues playing while comments
