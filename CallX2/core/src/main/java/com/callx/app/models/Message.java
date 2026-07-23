@@ -253,12 +253,6 @@ public class Message {
     /** Optional caption attached to a multi_media message. */
     public String caption;
 
-    // ── Feature: Presentation Message (v169) ────────────────────────────────
-    /** Set when type = "presentation". JSON-serialised PresentationMessage data
-     *  (slide/background/text info) — see MessagePagingAdapter#bindPresentationMessage()
-     *  and PresentationMessage#fromJson(). */
-    public String presentationData;
-
     // ── Feature: Contact Card Share ───────────────────────────────────────
     /** Set when type = "contact". Display name of the shared contact. */
     public String contactName;

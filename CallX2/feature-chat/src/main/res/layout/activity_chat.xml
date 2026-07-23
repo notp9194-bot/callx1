@@ -679,22 +679,6 @@
                 android:textColor="@color/text_muted"
                 android:visibility="gone"/>
 
-            <!-- ═══════════════════════════════════════════════════════════
-                 v169 — ADVANCED FORMAT TOOLBAR ROW
-                 Shown above the input bar when the message is long enough
-                 (≥ 30 chars) or when a text selection is active.
-                 Managed by AdvancedRichTextController; hidden by default.
-                 ═══════════════════════════════════════════════════════════ -->
-            <include
-                android:id="@+id/ll_advanced_format_toolbar"
-                layout="@layout/layout_advanced_format_toolbar"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
-                android:layout_marginEnd="8dp"
-                android:layout_marginBottom="4dp"
-                android:visibility="gone"/>
-
             <LinearLayout
                 android:id="@+id/ll_input_bar_row"
                 android:layout_width="match_parent"

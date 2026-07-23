@@ -219,7 +219,6 @@ public class ChatMessageSender {
                 m.reelShareCaption    = pe.reelShareCaption;
                 m.reelShareUsername   = pe.reelShareUsername;
                 m.reelShareOwnerPhoto = pe.reelShareOwnerPhoto;
-                m.presentationData    = pe.presentationData;
                 String preview = "reel_share".equals(pe.type) ? "📹 Reel"
                                : pe.text != null ? pe.text : "[" + pe.type + "]";
                 delegate.runOnMain(() -> firebasePushMessage(m, pe.id, preview));
@@ -290,15 +289,6 @@ public class ChatMessageSender {
         // had no Room column and were silently dropped on every round-trip.
         e.mediaWidth          = m.mediaWidth;
         e.mediaHeight         = m.mediaHeight;
-        // BUG FIX (v171): messageToEntity() never copied presentationData
-        // across, so the local Room insert (which is what actually paints
-        // the sender's own bubble via MessageEntityMapper.toModel() on the
-        // next read) always had it null — even after the ChatActivity-side
-        // fix that now sets m.presentationData correctly. Local sent
-        // presentation bubbles, and any presentation message re-read from
-        // Room (app restart, pagination reload), rendered as the blank
-        // default navy box for exactly this reason.
-        e.presentationData    = m.presentationData;
         return e;
     }
 

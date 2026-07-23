@@ -220,9 +220,6 @@ public class MessagePagingAdapter
      */
     private static final int TYPE_CANVAS_SENT     = 11;
     private static final int TYPE_CANVAS_RECEIVED = 12;
-    // v169: Presentation message view types — use item_presentation_bubble.xml + PresentationCanvasView.
-    private static final int TYPE_PRESENTATION_SENT     = 13;
-    private static final int TYPE_PRESENTATION_RECEIVED = 14;
 
     // ── DiffUtil payload key — only tv_status needs rebind when status changes ──
     static final String PAYLOAD_STATUS     = "status";
@@ -1083,11 +1080,6 @@ public class MessagePagingAdapter
         // the call, same as the legacy row's dynamic gravity.
         // TYPE_CALL_ENTRY + bindCallEntryBubble() are kept only as an
         // unused fallback.
-        // v169: Presentation messages use PresentationCanvasView holder.
-        if ("presentation".equals(m.type)) {
-            return currentUid != null && currentUid.equals(m.senderId)
-                    ? TYPE_PRESENTATION_SENT : TYPE_PRESENTATION_RECEIVED;
-        }
         if ("call_entry".equals(m.type)) {
             return currentUid.equals(m.senderId) ? TYPE_CANVAS_SENT : TYPE_CANVAS_RECEIVED;
         }
@@ -1158,7 +1150,6 @@ public class MessagePagingAdapter
                 case "reel_share":
                 case "reel_link":
                 case "sticker":
-                case "presentation":
                     break; // eligible — footer/pill models expiry
                 default:
                     return false;
@@ -1248,8 +1239,6 @@ public class MessagePagingAdapter
         // Sticker — bubbleless-feeling single-image slot (MessageBubbleCanvasView.bindSticker),
         // reuses the GIF layout path minus the badge pill.
         if ("sticker".equals(type)) return true;
-        // v169: Presentation message — rendered by PresentationCanvasView.
-        if ("presentation".equals(type)) return true;
         return false;
     }
 
@@ -1297,18 +1286,6 @@ public class MessagePagingAdapter
             VH vh = new VH(dv);
             vh.dateSeparatorView = dv;
             return vh;
-        }
-        // v169: Presentation holder — PresentationCanvasView inflated from item_presentation_bubble.xml.
-        // Separate holder type keeps it out of the shared MessageBubbleCanvasView pool.
-        if (viewType == TYPE_PRESENTATION_SENT || viewType == TYPE_PRESENTATION_RECEIVED) {
-            android.view.View pv = android.view.LayoutInflater.from(parent.getContext())
-                    .inflate(com.callx.app.chat.R.layout.item_presentation_bubble, parent, false);
-            pv.setSaveEnabled(false);
-            VH ph = new VH(pv);
-            ph.presentationCanvasView = pv.findViewById(com.callx.app.chat.R.id.cvPresentation);
-            ph.tvPresentationTime = pv.findViewById(com.callx.app.chat.R.id.tvPresentationTime);
-            ph.ivPresentationTick = pv.findViewById(com.callx.app.chat.R.id.ivPresentationTick);
-            return ph;
         }
         if (viewType == TYPE_CANVAS_SENT || viewType == TYPE_CANVAS_RECEIVED) {
             com.callx.app.conversation.canvas.MessageBubbleCanvasView cv =
@@ -1463,11 +1440,6 @@ public class MessagePagingAdapter
             return;
         }
         // ── DATE SEPARATOR — standalone chip row ─────────────────────────
-        // v169: Presentation message bind
-        if ("presentation".equals(m.type)) {
-            bindPresentationMessage(h, m);
-            return;
-        }
         if ("date_separator".equals(m.type)) {
             if (h.dateSeparatorView != null) h.dateSeparatorView.setLabel(m.text);
             return;
@@ -6361,10 +6333,6 @@ public class MessagePagingAdapter
         // is unused dead-fallback state, same status as tvMessage/etc. are
         // for TYPE_CANVAS_SENT/RECEIVED holders.
         com.callx.app.conversation.canvas.DateSeparatorCanvasView dateSeparatorView;
-        // v169: Presentation message holder fields — non-null only for TYPE_PRESENTATION_SENT/RECEIVED.
-        com.callx.app.conversation.canvas.PresentationCanvasView presentationCanvasView;
-        android.widget.TextView tvPresentationTime;
-        android.widget.ImageView ivPresentationTick;
         TextView     tvDateHeader;   // date separator chip (Today / Yesterday / MMM d) — legacy fallback, unreachable
         ImageView    ivImage;
         TextView     tvStatus;   // tv_status in both item layouts
@@ -6726,79 +6694,4 @@ public class MessagePagingAdapter
         this.memberPhotos = photos;
         notifyDataSetChanged();
     }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // v169 — bindPresentationMessage
-    //
-    // Binds a 'presentation' type message to its PresentationCanvasView holder.
-    // The PresentationMessage data model is deserialised from m.presentationData
-    // (JSON). Background images are loaded async via Glide into the canvas.
-    //
-    // Integration note: MessagePagingAdapter routes any message with
-    //   type == "presentation" here via isCanvasEligible() → getItemViewType()
-    //   → onCreateViewHolder(TYPE_PRESENTATION_SENT/RECEIVED)
-    //   → onBindViewHolder() → bindPresentationMessage().
-    // ─────────────────────────────────────────────────────────────────────────
-    private void bindPresentationMessage(@NonNull VH h, @NonNull Message m) {
-        if (h.presentationCanvasView == null) return;
-
-        final com.callx.app.conversation.canvas.PresentationCanvasView pcv = h.presentationCanvasView;
-        final boolean sent = currentUid != null && currentUid.equals(m.senderId);
-
-        // Timestamp row
-        if (h.tvPresentationTime != null) {
-            String timeStr = (m.timestamp != null && m.timestamp > 0) ? formatTime(m.timestamp) : "";
-            h.tvPresentationTime.setText(timeStr);
-        }
-        if (h.ivPresentationTick != null) {
-            boolean isRead      = "read".equals(m.status);
-            boolean isDelivered = isRead || "delivered".equals(m.status);
-            if (!sent) {
-                h.ivPresentationTick.setVisibility(android.view.View.GONE);
-            } else if (isRead) {
-                h.ivPresentationTick.setVisibility(android.view.View.VISIBLE);
-                h.ivPresentationTick.setImageResource(com.callx.app.chat.R.drawable.ic_double_tick_blue);
-            } else if (isDelivered) {
-                h.ivPresentationTick.setVisibility(android.view.View.VISIBLE);
-                h.ivPresentationTick.setImageResource(com.callx.app.chat.R.drawable.ic_double_tick);
-            } else {
-                h.ivPresentationTick.setVisibility(android.view.View.VISIBLE);
-                h.ivPresentationTick.setImageResource(com.callx.app.chat.R.drawable.ic_single_tick);
-            }
-        }
-
-        // Deserialise the presentation model
-        String json = m.presentationData;
-        if (json == null || json.isEmpty()) {
-            // Fallback: empty slide placeholder
-            pcv.bindPresentation(new com.callx.app.conversation.models.PresentationMessage(), null);
-            return;
-        }
-
-        com.callx.app.conversation.models.PresentationMessage pm =
-                com.callx.app.conversation.models.PresentationMessage.fromJson(json);
-
-        // Load background image async via Glide, or bind immediately for colour backgrounds.
-        if (pm.bgImageUrl != null && !pm.bgImageUrl.isEmpty()) {
-            final String thumbUrl = pm.bgImageThumbUrl != null ? pm.bgImageThumbUrl : pm.bgImageUrl;
-            Glide.with(pcv.getContext())
-                    .asBitmap()
-                    .load(thumbUrl)
-                    .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
-                    .into(new com.bumptech.glide.request.target.CustomTarget<android.graphics.Bitmap>() {
-                        @Override
-                        public void onResourceReady(@NonNull android.graphics.Bitmap bmp,
-                                @Nullable com.bumptech.glide.request.transition.Transition<? super android.graphics.Bitmap> t) {
-                            pcv.bindPresentation(pm, bmp);
-                        }
-                        @Override
-                        public void onLoadCleared(@Nullable android.graphics.drawable.Drawable p) {
-                            pcv.bindPresentation(pm, null);
-                        }
-                    });
-        } else {
-            pcv.bindPresentation(pm, null);
-        }
-    }
-
 }

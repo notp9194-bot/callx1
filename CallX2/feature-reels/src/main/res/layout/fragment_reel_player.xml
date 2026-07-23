@@ -406,6 +406,16 @@
             android:gravity="center"
             android:layout_marginBottom="16dp"/>
 
+        <!-- Screenshot-style menu action: long line above, shorter line below. -->
+        <ImageButton
+            android:id="@+id/btn_more"
+            android:layout_width="42dp"
+            android:layout_height="30dp"
+            android:src="@drawable/ic_reel_more_lines"
+            android:tint="#FFFFFF"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="More reel options"/>
+
         <!-- Repost -->
         <ImageButton
             android:id="@+id/btn_repost"
@@ -425,15 +435,18 @@
             android:gravity="center"
             android:layout_marginBottom="16dp"/>
 
-        <!-- 3-dot More -->
+        <!-- Create audio: kept as the final action in the right rail. It replaces
+             the "Original Audio" ticker for reels without a named sound. -->
         <ImageButton
-            android:id="@+id/btn_more"
+            android:id="@+id/btn_create_audio"
             android:layout_width="42dp"
             android:layout_height="42dp"
-            android:src="@drawable/ic_more_vert"
+            android:src="@drawable/ic_audio"
             android:tint="#FFFFFF"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="More"/>
+            android:padding="9dp"
+            android:background="@drawable/bg_audio_create_tile"
+            android:contentDescription="Create audio"
+            android:visibility="gone"/>
     </LinearLayout>
 
     <!-- Bottom info strip
@@ -621,7 +634,12 @@
             android:textColor="#FFFFFF"
             android:textSize="13sp"
             android:maxLines="1"
-            android:ellipsize="end"/>
+            android:ellipsize="end"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:paddingTop="2dp"
+            android:paddingBottom="2dp"/>
 
         <!-- Hashtag chips -->
         <HorizontalScrollView

@@ -4,6 +4,8 @@ import android.animation.ObjectAnimator;
 import android.content.Intent;
 import android.os.Handler;
 import android.os.Looper;
+import android.app.AlertDialog;
+import android.text.TextUtils;
 import android.view.GestureDetector;
 import android.view.MotionEvent;
 import android.view.View;
@@ -27,6 +29,9 @@ import de.hdodenhof.circleimageview.CircleImageView;
 import java.util.List;
 import java.util.Set;
 import java.util.HashSet;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
 
 /**
  * Manages static UI population (owner info, captions, duet series chip, music ticker,
@@ -49,6 +54,7 @@ public class ReelUiController {
     private TextView        tvCaption;
     private TextView        tvMusicName;
     private ImageView       ivMusicDisc;
+    private android.widget.ImageButton btnCreateAudio;
     private LinearLayout    layoutMusicTicker;
     private LinearLayout    containerHashtags;
     private HorizontalScrollView scrollHashtags;
@@ -86,6 +92,7 @@ public class ReelUiController {
         tvCaption          = root.findViewById(R.id.tv_caption);
         tvMusicName        = root.findViewById(R.id.tv_music_name);
         ivMusicDisc        = root.findViewById(R.id.iv_music_disc);
+        btnCreateAudio     = root.findViewById(R.id.btn_create_audio);
         layoutMusicTicker  = root.findViewById(R.id.layout_music_ticker);
         containerHashtags  = root.findViewById(R.id.container_hashtags);
         scrollHashtags     = root.findViewById(R.id.scroll_hashtags);
@@ -225,6 +232,21 @@ public class ReelUiController {
             tvMusicName.setMarqueeRepeatLimit(-1);
             tvMusicName.setSelected(true);
             tvMusicName.setHorizontallyScrolling(true);
+        }
+
+        // For reels that use their own audio, move the audio-create artwork to
+        // the final slot in the right action rail instead of showing the
+        // generic "Original Audio" ticker at the bottom-left.
+        String rawMusicName = reel.musicName == null ? "" : reel.musicName.trim();
+        boolean isOriginalAudio = rawMusicName.isEmpty()
+            || "original audio".equalsIgnoreCase(rawMusicName)
+            || "original sound".equalsIgnoreCase(rawMusicName);
+        if (btnCreateAudio != null) {
+            btnCreateAudio.setVisibility(isOriginalAudio ? View.VISIBLE : View.GONE);
+            btnCreateAudio.setOnClickListener(v -> openAudioCreator());
+        }
+        if (layoutMusicTicker != null && isOriginalAudio) {
+            layoutMusicTicker.setVisibility(View.GONE);
         }
 
         // Music disc cover art
@@ -436,7 +458,62 @@ public class ReelUiController {
         if (ivMusicDisc != null) ivMusicDisc.setOnClickListener(v -> delegate.openSoundDetail());
         if (ivOwnerAvatar != null) ivOwnerAvatar.setOnClickListener(v -> delegate.openUserReels());
         if (tvOwnerName   != null) tvOwnerName.setOnClickListener(v -> delegate.openUserReels());
+        if (tvCaption     != null) tvCaption.setOnClickListener(v -> showReelDetailsCard());
         if (ivOwnerStoryRing != null) ivOwnerStoryRing.setOnClickListener(v -> delegate.openOwnerStatus());
+    }
+
+    private void openAudioCreator() {
+        if (!delegate.isAdded() || delegate.getContext() == null) return;
+        Intent intent = new Intent(delegate.requireContext(),
+            com.callx.app.camera.ReelSoundRecorderActivity.class);
+        delegate.getFragment().startActivity(intent);
+    }
+
+    /**
+     * Opens the compact reel-details card from the tappable reel name/caption.
+     * The values come from ReelModel so old and newly uploaded reels behave
+     * consistently without a second database request.
+     */
+    private void showReelDetailsCard() {
+        if (!delegate.isAdded() || delegate.getContext() == null) return;
+        ReelModel reel = delegate.getReel();
+        if (reel == null) return;
+
+        String title = !TextUtils.isEmpty(reel.caption)
+            ? reel.caption.split("\\R", 2)[0].trim()
+            : "Untitled reel";
+        String description = !TextUtils.isEmpty(reel.caption)
+            ? reel.caption : "No description";
+        String uploaded = reel.timestamp > 0
+            ? new SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault())
+                .format(new Date(reel.timestamp))
+            : "Not available";
+        String audio = !TextUtils.isEmpty(reel.musicName)
+            ? reel.musicName
+            : "Original audio";
+        String duration = reel.duration > 0
+            ? String.format(Locale.getDefault(), "%d:%02d",
+                reel.duration / 60, reel.duration % 60)
+            : "Not available";
+        String size = reel.width > 0 && reel.height > 0
+            ? reel.width + " × " + reel.height : "Not available";
+
+        String details = "Description\n" + description
+            + "\n\nUploaded\n" + uploaded
+            + "\n\nAudio\n" + audio
+            + "\n\nDuration\n" + duration
+            + "\n\nSize\n" + size
+            + "\n\nViews  " + delegate.formatCount(reel.viewsCount)
+            + "   Likes  " + delegate.formatCount(reel.likesCount)
+            + "\nComments  " + delegate.formatCount(reel.commentsCount)
+            + "   Shares  " + delegate.formatCount(reel.sharesCount);
+
+        new AlertDialog.Builder(delegate.requireContext())
+            .setTitle("@" + (TextUtils.isEmpty(reel.ownerName) ? "user" : reel.ownerName)
+                + " · " + title)
+            .setMessage(details)
+            .setPositiveButton("Close", null)
+            .show();
     }
 
     // ── Music disc animation ──────────────────────────────────────────────
