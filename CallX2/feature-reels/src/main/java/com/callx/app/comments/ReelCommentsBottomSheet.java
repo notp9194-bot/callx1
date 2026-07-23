@@ -198,6 +198,10 @@ public class ReelCommentsBottomSheet extends BottomSheetDialogFragment {
         sheetBehavior.setPeekHeight((int) (getResources()
                 .getDisplayMetrics().heightPixels * 0.24f));
         sheetBehavior.setDraggable(true);
+        // Collapsed stage (peek-height-only, full undocked video) removed from
+        // the flow entirely — dragging down from half-expanded now goes
+        // straight to hidden/dismiss instead of resting at collapsed.
+        sheetBehavior.setSkipCollapsed(true);
         sheetBehavior.addBottomSheetCallback(new BottomSheetBehavior.BottomSheetCallback() {
             @Override
             public void onStateChanged(@NonNull View bottomSheet, int newState) {
@@ -207,8 +211,7 @@ public class ReelCommentsBottomSheet extends BottomSheetDialogFragment {
                 }
                 // Finger lifted / fling finished and the sheet is now resting in
                 // a stable state — let the docked video spring into place.
-                if (newState == BottomSheetBehavior.STATE_COLLAPSED
-                        || newState == BottomSheetBehavior.STATE_HALF_EXPANDED
+                if (newState == BottomSheetBehavior.STATE_HALF_EXPANDED
                         || newState == BottomSheetBehavior.STATE_EXPANDED) {
                     // onSlide already tracked this state's target value as the
                     // sheet settled; forward it so the video can spring to match.
@@ -225,13 +228,12 @@ public class ReelCommentsBottomSheet extends BottomSheetDialogFragment {
         });
 
         dispatchHostProgress(0f);
-        // Start at the Instagram-like middle stage. The user can continue
-        // dragging to the final expanded stage shown in the reference images.
-        sheet.post(() -> {
-            if (sheetBehavior != null && isAdded()) {
-                sheetBehavior.setState(BottomSheetBehavior.STATE_HALF_EXPANDED);
-            }
-        });
+        // BottomSheetDialog defaults its opening animation to STATE_COLLAPSED.
+        // Setting HALF_EXPANDED synchronously here (before the dialog's own
+        // entrance animation has started) redirects that animation straight
+        // to hidden → half-expanded in one motion, instead of collapsed first
+        // and then jumping again a frame later.
+        sheetBehavior.setState(BottomSheetBehavior.STATE_HALF_EXPANDED);
 
         // Tapping the dimmed area above the sheet normally just dismisses it.
         // If the tap actually lands on the docked video preview, forward it as
