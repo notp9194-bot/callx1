@@ -461,49 +461,21 @@ public class MainActivity extends AppCompatActivity {
                                               android.content.res.Configuration newConfig) {
         super.onPictureInPictureModeChanged(isInPipMode, newConfig);
 
+        // NOTE: do NOT guard with dockedPlayer.isShowing() here.
+        // expandForPip() sets inPipMode=true, which means isShowing() may behave
+        // differently depending on implementation. Track PiP state via isInPipMode flag.
+        if (dockedPlayer == null) return;
+
         if (isInPipMode) {
-            // ── Entering PiP: Instagram-style full-app PiP ───────────────────
-            // The system scales the ENTIRE activity into the PiP overlay — so
-            // the user sees Chat + mini player overlay together, just like
-            // Instagram shows the full app inside PiP.
-            //
-            // Hide navigation chrome so the tiny PiP window is not wasted on
-            // toolbar / bottom-nav / FAB that cannot be interacted with in PiP.
-            enterPipUiMode();
-
-            // Mark docked player state + hide its interactive chrome
-            if (dockedPlayer != null) dockedPlayer.expandForPip();
-
+            // Safety net: expand again in case the system triggered PiP via autoEnter
+            // before our enterPipIfSupported() could call expandForPip() first.
+            dockedPlayer.expandForPip();
         } else {
-            // ── Exiting PiP: restore full UI ─────────────────────────────────
-            exitPipUiMode();
-
-            if (dockedPlayer != null && dockedPlayer.isInPipMode()) {
+            // User swiped PiP overlay away or returned to the app → restore corner
+            if (dockedPlayer.isInPipMode()) {
                 dockedPlayer.restoreFromPip();
             }
         }
-    }
-
-    /** Hide toolbar / bottom-nav / FAB so PiP window shows only content. */
-    private void enterPipUiMode() {
-        if (binding == null) return;
-        binding.toolbar.setVisibility(android.view.View.GONE);
-        binding.bottomNav.setVisibility(android.view.View.GONE);
-        binding.fabAction.setVisibility(android.view.View.GONE);
-
-        // Remove window insets padding so content fills the PiP window edge-to-edge
-        binding.getRoot().setPadding(0, 0, 0, 0);
-    }
-
-    /** Restore toolbar / bottom-nav / FAB after leaving PiP. */
-    private void exitPipUiMode() {
-        if (binding == null) return;
-        binding.toolbar.setVisibility(android.view.View.VISIBLE);
-        binding.bottomNav.setVisibility(android.view.View.VISIBLE);
-        binding.fabAction.setVisibility(android.view.View.VISIBLE);
-
-        // Re-apply window insets so status-bar / nav-bar padding is correct
-        binding.getRoot().requestApplyInsets();
     }
 
     @Override protected void onDestroy() {

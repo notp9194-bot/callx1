@@ -24,6 +24,9 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.OptIn;
 import androidx.annotation.RequiresApi;
+import androidx.dynamicanimation.animation.DynamicAnimation;
+import androidx.dynamicanimation.animation.SpringAnimation;
+import androidx.dynamicanimation.animation.SpringForce;
 import androidx.media3.common.Player;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.exoplayer.ExoPlayer;
@@ -36,11 +39,17 @@ import com.callx.app.reels.R;
 /**
  * ReelChatDockedPlayer — Activity-level mini floating reel player.
  *
- * Advanced features (v2):
- *  1. Drag to reposition      — drag to any screen corner (snap with spring)
- *  2. Double-tap to expand    — double-tap → surface back + switch to Reels tab
- *  3. Long-press preview      — hold → 200×350dp enlarged preview, release → restore
- *  4. Swipe-up next reel      — swipe up ≥ 70dp → callback triggers next reel
+ * Advanced features (v3):
+ *  1. Drag to reposition      — free-follow drag with rubber-band edge resistance,
+ *                                released → SpringAnimation-based bouncy corner snap
+ *                                (any of the 4 corners, not a fixed duration tween)
+ *  2. Double-tap to expand    — double-tap → scale-pulse + haptic, then surface back
+ *                                and switch to Reels tab
+ *  3. Long-press preview      — hold → dimmed scrim + 200×350dp enlarged preview,
+ *                                release → scrim fades and preview restores
+ *  4. Swipe-up next reel      — swipe up ≥ 70dp → haptic + callback triggers next
+ *                                reel; guarded against overlapping triggers while a
+ *                                switch is already in flight, with a safety-net timeout
  *  5. Picture-in-Picture      — app goes background → Android native PiP wrapper
  *  6. Animated thumbnail      — blurred thumb fades out on first video frame render
  *  7. Mute state persistence  — SharedPreferences remembers mute across sessions
@@ -108,6 +117,15 @@ public class ReelChatDockedPlayer {
 
     // First-frame listener ref so we can remove it (Feature 6)
     private Player.Listener firstFrameListener;
+
+    // Guard against overlapping swipe-up triggers while a reel switch is in flight (Feature 4 v3)
+    private boolean isAdvancingReel = false;
+
+    // Dim scrim shown behind the enlarged long-press preview (Feature 3 v3)
+    private View previewScrim;
+
+    // Active spring animations for corner snap, so a new drag can cancel them (Feature 1 v3)
+    private SpringAnimation springX, springY;
 
     // ── Constructor ────────────────────────────────────────────────────────
 
@@ -351,6 +369,9 @@ public class ReelChatDockedPlayer {
             miniPlayerView.setPlayer(newPlayer);
         }
 
+        // Feature 4 v3: reel switch has landed — allow the next swipe-up.
+        isAdvancingReel = false;
+
         // Thumbnail + first-frame for new reel
         showThumbnailFallback(thumbUrl);
         listenForFirstFrame();
@@ -379,14 +400,12 @@ public class ReelChatDockedPlayer {
      */
     @RequiresApi(Build.VERSION_CODES.O)
     private android.app.PictureInPictureParams buildPipParams() {
-        // Default ratio = full phone screen (Instagram-style: show entire app UI).
-        // 9:19.5 ≈ standard tall phone ratio — the PiP window looks like a phone.
         android.app.PictureInPictureParams.Builder b =
                 new android.app.PictureInPictureParams.Builder()
-                        .setAspectRatio(new Rational(9, 19));
+                        .setAspectRatio(new Rational(9, 16));
 
-        // Source rect hint — PiP entry/exit animation "flies" out of the mini player
-        // widget, not from the top-left corner of the screen.
+        // Source rect hint — drives the entry/exit animation so PiP appears to
+        // "fly out of" the mini player widget, not the top-left corner.
         if (container != null && container.getWidth() > 0) {
             int[] loc = new int[2];
             container.getLocationOnScreen(loc);
@@ -397,19 +416,11 @@ public class ReelChatDockedPlayer {
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            // ── Instagram-style resize (kinare se pakad ke chota-bada karna) ──
-            //
-            // setExpandedAspectRatio() defines the LARGER snap-size the PiP window
-            // jumps to when the user drags it bigger. Android 12+ also shows a
-            // resize handle on the PiP window edge automatically whenever both
-            // setAspectRatio AND setExpandedAspectRatio are set.
-            //
-            // default (small) = 9:19  ← portrait phone, compact
-            // expanded (large) = 9:16 ← wider / almost half-screen
-            b.setExpandedAspectRatio(new Rational(9, 16));
-            b.setSeamlessResizeEnabled(true); // smooth resize animation
+            b.setSeamlessResizeEnabled(true);
+            // API 31+: system handles auto-enter PiP on gesture-home nav;
+            // setAutoEnterEnabled is set via a separate setPictureInPictureParams()
+            // call in enableAutoEnterPip() below.
         }
-
         return b.build();
     }
 
@@ -429,12 +440,11 @@ public class ReelChatDockedPlayer {
 
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                // API 31+: full-app PiP params with auto-enter + resize support
+                // Build auto-enter params (API 31+)
                 android.app.PictureInPictureParams.Builder b =
                         new android.app.PictureInPictureParams.Builder()
-                                .setAspectRatio(new Rational(9, 19))     // compact default
-                                .setExpandedAspectRatio(new Rational(9, 16)) // drag-expand size
-                                .setAutoEnterEnabled(true)               // gesture-nav PiP
+                                .setAspectRatio(new Rational(9, 16))
+                                .setAutoEnterEnabled(true)   // ← handles gesture-nav
                                 .setSeamlessResizeEnabled(true);
 
                 if (container.getWidth() > 0) {
@@ -472,41 +482,48 @@ public class ReelChatDockedPlayer {
      * Imperatively enter PiP — called from onUserLeaveHint() (API 26-30 fallback)
      * and from onStop() as a last-resort fallback on any API.
      *
-     * Instagram-style: the FULL activity window enters PiP (not just the video).
-     * The mini player overlay stays visible inside the PiP window as a small
-     * floating widget, exactly as the user saw it in the app.
+     * IMPORTANT: expand the mini player BEFORE calling enterPictureInPictureMode()
+     * so the system already sees a full-window video surface. Calling expandForPip()
+     * AFTER (in onPictureInPictureModeChanged) is too late for a clean animation.
      */
     public void enterPipIfSupported() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
         if (container == null || livePlayer == null) return;
-        if (inPipMode) return; // already in PiP
+        if (inPipMode) return; // already in PiP — don't double-enter
+
+        // Expand first so the video surface fills the window before PiP clips it
+        expandForPip();
 
         try {
             activity.enterPictureInPictureMode(buildPipParams());
-        } catch (Exception ignored) {}
-        // expandForPip() (hide chrome, mark state) is called from
-        // onPictureInPictureModeChanged(true) in MainActivity — we do NOT
-        // need to expand the mini player layout before entering PiP anymore.
+        } catch (Exception e) {
+            // enterPictureInPictureMode failed (e.g. activity not in foreground)
+            // Roll back the expansion so mini player stays visible
+            restoreFromPip();
+        }
     }
 
     /**
-     * Called when PiP mode starts.
-     *
-     * Instagram-style full-app PiP: the mini player stays at its current corner
-     * position — we do NOT expand it to MATCH_PARENT. The system clips the entire
-     * activity into the PiP overlay, so the user sees Chat + mini player together.
-     *
-     * We only hide touch-target UI chrome (close button, swipe hint) that would
-     * be useless and distracting in the tiny PiP window.
+     * Maximize mini player to fill the Activity window.
+     * Called BEFORE enterPictureInPictureMode() and again from
+     * onPictureInPictureModeChanged(true) as a safety net.
      */
     public void expandForPip() {
         if (container == null) return;
         inPipMode = true;
 
-        // Keep the mini player at its current corner size — do NOT resize it.
-        // The system handles scaling the entire activity into the PiP window.
+        container.setLayoutParams(
+                new FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT));
+        container.setX(0); container.setY(0);
+        container.setTranslationX(0); container.setTranslationY(0);
+        container.bringToFront();
+        container.setClipToOutline(false);
 
-        // Hide interactive chrome — user can't tap these in PiP anyway
+        if (miniPlayerView != null) miniPlayerView.setClipToOutline(false);
+
+        // Hide UI chrome — only raw video visible in PiP overlay
         View btnClose = container.findViewById(R.id.btn_mini_reel_close);
         if (btnClose != null) btnClose.setVisibility(View.GONE);
 
@@ -515,22 +532,44 @@ public class ReelChatDockedPlayer {
     }
 
     /**
-     * Called when user returns from PiP (swipes the overlay up, or taps expand).
-     * Restore the mini player's interactive chrome.
+     * Restore mini player to its corner position after exiting PiP.
+     * Safe to call even if PiP was never fully entered.
      */
     public void restoreFromPip() {
         if (container == null) return;
         inPipMode = false;
 
-        // Restore interactive chrome
+        int widthPx  = (int) dpToPx(MINI_WIDTH_DP);
+        int heightPx = (int) (widthPx * ASPECT_RATIO);
+        int marginPx = (int) dpToPx(EDGE_MARGIN_DP);
+        int navPx    = getNavBarHeightPx();
+
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(widthPx, heightPx);
+        lp.gravity      = android.view.Gravity.BOTTOM | android.view.Gravity.END;
+        lp.bottomMargin = marginPx + navPx;
+        lp.rightMargin  = marginPx;
+        container.setLayoutParams(lp);
+        container.setX(0); container.setY(0);
+        container.setTranslationX(0); container.setTranslationY(0);
+
         View btnClose = container.findViewById(R.id.btn_mini_reel_close);
         if (btnClose != null) btnClose.setVisibility(View.VISIBLE);
 
         View swipeHint = container.findViewById(R.id.ll_swipe_up_hint);
         if (swipeHint != null) swipeHint.setVisibility(View.VISIBLE);
 
-        // Re-enable auto-enter PiP for the restored mini player
+        applyCornerRadius(CORNER_RADIUS_DP);
+
+        // Re-enable auto-enter for the restored mini player position
         enableAutoEnterPip();
+
+        // Re-capture snap position after next layout pass
+        container.post(() -> {
+            if (container != null) {
+                snapX = container.getX();
+                snapY = container.getY();
+            }
+        });
     }
 
     /** Returns true while the activity is currently in PiP mode. */
@@ -567,6 +606,12 @@ public class ReelChatDockedPlayer {
                 switch (event.getActionMasked()) {
 
                     case MotionEvent.ACTION_DOWN:
+                        // Feature 1 v3: cancel any in-flight spring snap so the new
+                        // drag isn't fought by the previous release animation.
+                        if (springX != null) springX.cancel();
+                        if (springY != null) springY.cancel();
+                        container.animate().cancel();
+
                         touchDownMs      = System.currentTimeMillis();
                         touchDownRawX    = event.getRawX();
                         touchDownRawY    = event.getRawY();
@@ -605,9 +650,20 @@ public class ReelChatDockedPlayer {
                         }
 
                         if (movedBeyondSlop) {
-                            // Feature 1: Drag to reposition — follow finger freely
-                            container.setX(startContainerX + deltaX);
-                            container.setY(startContainerY + deltaY);
+                            // Feature 1: Drag to reposition — follow finger, with
+                            // rubber-band resistance once the container starts
+                            // going past the screen edges (v3: feels physical
+                            // instead of allowing it to fly fully off-screen).
+                            ViewGroup dragRoot = activity.findViewById(android.R.id.content);
+                            float rawTargetX = startContainerX + deltaX;
+                            float rawTargetY = startContainerY + deltaY;
+                            float w = container.getWidth();
+                            float h = container.getHeight();
+                            float maxX = dragRoot.getWidth()  - w;
+                            float maxY = dragRoot.getHeight() - h;
+
+                            container.setX(applyEdgeResistance(rawTargetX, 0f, maxX));
+                            container.setY(applyEdgeResistance(rawTargetY, 0f, maxY));
 
                             if (deltaY > 0) {
                                 // Downward drag → dismiss gesture
@@ -639,6 +695,19 @@ public class ReelChatDockedPlayer {
                                 // Double-tap → expand/jump to Reels
                                 doubleTapHandler.removeCallbacksAndMessages(null);
                                 lastTapMs = 0;
+
+                                // Feature 2 v3: quick pulse so the tap registers
+                                // visually even though the tab switch is instant.
+                                container.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
+                                container.animate().cancel();
+                                container.setScaleX(0.9f);
+                                container.setScaleY(0.9f);
+                                container.animate()
+                                        .scaleX(1f).scaleY(1f)
+                                        .setDuration(140)
+                                        .setInterpolator(new OvershootInterpolator(2f))
+                                        .start();
+
                                 if (callback != null) callback.onDockedPlayerExpandRequested();
                             } else {
                                 lastTapMs = now;
@@ -662,8 +731,14 @@ public class ReelChatDockedPlayer {
                         } else if (movedBeyondSlop) {
                             // Feature 4: Swipe-up → next reel
                             if (deltaY < -dpToPx(SWIPE_UP_DP)
-                                    && Math.abs(deltaX) < dpToPx(50f)) {
-                                // Swipe up detected
+                                    && Math.abs(deltaX) < dpToPx(50f)
+                                    && !isAdvancingReel) {
+                                // Feature 4 v3: guard against a second swipe firing
+                                // before the in-flight reel switch finishes — the
+                                // guard is cleared in updatePlayer()/dismiss()/collapseBack().
+                                isAdvancingReel = true;
+                                container.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
+
                                 container.animate()
                                         .translationY(container.getTranslationY() - dpToPx(22f))
                                         .setDuration(80)
@@ -676,6 +751,12 @@ public class ReelChatDockedPlayer {
                                 container.setY(snapY);
                                 container.setAlpha(1f);
                                 if (callback != null) callback.onDockedPlayerNextReel();
+
+                                // Safety-net: if the host never reaches updatePlayer()
+                                // (e.g. this was already the last reel), don't leave
+                                // swipe-up permanently blocked.
+                                doubleTapHandler.postDelayed(
+                                        () -> isAdvancingReel = false, 900L);
 
                             } else if (isDismissGesture && deltaY > dpToPx(SWIPE_DOWN_DP)) {
                                 // Swipe down → dismiss
@@ -732,11 +813,25 @@ public class ReelChatDockedPlayer {
         snapX = best[0];
         snapY = best[1];
 
-        container.animate()
-                .x(snapX).y(snapY)
-                .setDuration(300)
-                .setInterpolator(new OvershootInterpolator(1.3f))
-                .start();
+        // Feature 1 v3: spring physics instead of a fixed-duration overshoot
+        // tween — the snap now reacts to how the view is currently moving and
+        // settles with a natural bounce regardless of drag speed.
+        container.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
+
+        if (springX != null) springX.cancel();
+        if (springY != null) springY.cancel();
+
+        springX = new SpringAnimation(container, DynamicAnimation.X, snapX);
+        springX.getSpring()
+                .setStiffness(SpringForce.STIFFNESS_MEDIUM)
+                .setDampingRatio(SpringForce.DAMPING_RATIO_MEDIUM_BOUNCY);
+        springX.start();
+
+        springY = new SpringAnimation(container, DynamicAnimation.Y, snapY);
+        springY.getSpring()
+                .setStiffness(SpringForce.STIFFNESS_MEDIUM)
+                .setDampingRatio(SpringForce.DAMPING_RATIO_MEDIUM_BOUNCY);
+        springY.start();
     }
 
     // ── Feature 3: Long-press large preview ────────────────────────────────
@@ -748,6 +843,23 @@ public class ReelChatDockedPlayer {
         ViewGroup root = activity.findViewById(android.R.id.content);
         int rootW = root.getWidth();
         int rootH = root.getHeight();
+
+        // Feature 3 v3: dim scrim behind the enlarged preview so it stands
+        // out clearly over whatever chat content is behind it. Inserted just
+        // below the container so it doesn't intercept the ongoing gesture.
+        if (previewScrim == null) {
+            previewScrim = new View(activity);
+            previewScrim.setBackgroundColor(0x99000000);
+            previewScrim.setAlpha(0f);
+        }
+        if (previewScrim.getParent() == null) {
+            int containerIndex = root.indexOfChild(container);
+            root.addView(previewScrim, Math.max(containerIndex, 0),
+                    new FrameLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT));
+        }
+        previewScrim.animate().alpha(1f).setDuration(180).start();
 
         // Scale up to ~200×350dp from current 120×213dp
         float scaleFactor = dpToPx(LARGE_PREVIEW_W_DP) / container.getWidth();
@@ -771,6 +883,17 @@ public class ReelChatDockedPlayer {
                 .setDuration(220)
                 .setInterpolator(new android.view.animation.DecelerateInterpolator())
                 .start();
+
+        if (previewScrim != null && previewScrim.getParent() != null) {
+            previewScrim.animate()
+                    .alpha(0f)
+                    .setDuration(220)
+                    .withEndAction(() -> {
+                        ViewGroup root = activity.findViewById(android.R.id.content);
+                        if (root != null && previewScrim != null) root.removeView(previewScrim);
+                    })
+                    .start();
+        }
     }
 
     // ── Mute feedback ──────────────────────────────────────────────────────
@@ -799,14 +922,39 @@ public class ReelChatDockedPlayer {
     private void cancelAllHandlers() {
         longPressHandler.removeCallbacksAndMessages(null);
         doubleTapHandler.removeCallbacksAndMessages(null);
+        if (springX != null) springX.cancel();
+        if (springY != null) springY.cancel();
+        isAdvancingReel = false;
     }
 
     private void removeOverlay() {
         if (container == null) return;
         ViewGroup root = activity.findViewById(android.R.id.content);
-        if (root != null) root.removeView(container);
+        if (root != null) {
+            root.removeView(container);
+            if (previewScrim != null && previewScrim.getParent() == root) {
+                root.removeView(previewScrim);
+            }
+        }
+        previewScrim   = null;
         container      = null;
         miniPlayerView = null;
+    }
+
+    /**
+     * Rubber-band resistance (v3): inside [min, max] the value passes through
+     * unchanged; beyond either bound it's damped by 1/3 so dragging the mini
+     * player toward/past a screen edge feels elastic instead of hard-clipped
+     * or freely flying off-screen.
+     */
+    private static float applyEdgeResistance(float target, float min, float max) {
+        if (target < min) {
+            return min - (min - target) * 0.33f;
+        }
+        if (target > max) {
+            return max + (target - max) * 0.33f;
+        }
+        return target;
     }
 
     private float dpToPx(float dp) {
