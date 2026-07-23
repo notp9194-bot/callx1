@@ -379,12 +379,14 @@ public class ReelChatDockedPlayer {
      */
     @RequiresApi(Build.VERSION_CODES.O)
     private android.app.PictureInPictureParams buildPipParams() {
+        // Default ratio = full phone screen (Instagram-style: show entire app UI).
+        // 9:19.5 ≈ standard tall phone ratio — the PiP window looks like a phone.
         android.app.PictureInPictureParams.Builder b =
                 new android.app.PictureInPictureParams.Builder()
-                        .setAspectRatio(new Rational(9, 16));
+                        .setAspectRatio(new Rational(9, 19));
 
-        // Source rect hint — drives the entry/exit animation so PiP appears to
-        // "fly out of" the mini player widget, not the top-left corner.
+        // Source rect hint — PiP entry/exit animation "flies" out of the mini player
+        // widget, not from the top-left corner of the screen.
         if (container != null && container.getWidth() > 0) {
             int[] loc = new int[2];
             container.getLocationOnScreen(loc);
@@ -395,11 +397,19 @@ public class ReelChatDockedPlayer {
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            b.setSeamlessResizeEnabled(true);
-            // API 31+: system handles auto-enter PiP on gesture-home nav;
-            // setAutoEnterEnabled is set via a separate setPictureInPictureParams()
-            // call in enableAutoEnterPip() below.
+            // ── Instagram-style resize (kinare se pakad ke chota-bada karna) ──
+            //
+            // setExpandedAspectRatio() defines the LARGER snap-size the PiP window
+            // jumps to when the user drags it bigger. Android 12+ also shows a
+            // resize handle on the PiP window edge automatically whenever both
+            // setAspectRatio AND setExpandedAspectRatio are set.
+            //
+            // default (small) = 9:19  ← portrait phone, compact
+            // expanded (large) = 9:16 ← wider / almost half-screen
+            b.setExpandedAspectRatio(new Rational(9, 16));
+            b.setSeamlessResizeEnabled(true); // smooth resize animation
         }
+
         return b.build();
     }
 
@@ -419,11 +429,12 @@ public class ReelChatDockedPlayer {
 
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                // Build auto-enter params (API 31+)
+                // API 31+: full-app PiP params with auto-enter + resize support
                 android.app.PictureInPictureParams.Builder b =
                         new android.app.PictureInPictureParams.Builder()
-                                .setAspectRatio(new Rational(9, 16))
-                                .setAutoEnterEnabled(true)   // ← handles gesture-nav
+                                .setAspectRatio(new Rational(9, 19))     // compact default
+                                .setExpandedAspectRatio(new Rational(9, 16)) // drag-expand size
+                                .setAutoEnterEnabled(true)               // gesture-nav PiP
                                 .setSeamlessResizeEnabled(true);
 
                 if (container.getWidth() > 0) {
@@ -461,48 +472,41 @@ public class ReelChatDockedPlayer {
      * Imperatively enter PiP — called from onUserLeaveHint() (API 26-30 fallback)
      * and from onStop() as a last-resort fallback on any API.
      *
-     * IMPORTANT: expand the mini player BEFORE calling enterPictureInPictureMode()
-     * so the system already sees a full-window video surface. Calling expandForPip()
-     * AFTER (in onPictureInPictureModeChanged) is too late for a clean animation.
+     * Instagram-style: the FULL activity window enters PiP (not just the video).
+     * The mini player overlay stays visible inside the PiP window as a small
+     * floating widget, exactly as the user saw it in the app.
      */
     public void enterPipIfSupported() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
         if (container == null || livePlayer == null) return;
-        if (inPipMode) return; // already in PiP — don't double-enter
-
-        // Expand first so the video surface fills the window before PiP clips it
-        expandForPip();
+        if (inPipMode) return; // already in PiP
 
         try {
             activity.enterPictureInPictureMode(buildPipParams());
-        } catch (Exception e) {
-            // enterPictureInPictureMode failed (e.g. activity not in foreground)
-            // Roll back the expansion so mini player stays visible
-            restoreFromPip();
-        }
+        } catch (Exception ignored) {}
+        // expandForPip() (hide chrome, mark state) is called from
+        // onPictureInPictureModeChanged(true) in MainActivity — we do NOT
+        // need to expand the mini player layout before entering PiP anymore.
     }
 
     /**
-     * Maximize mini player to fill the Activity window.
-     * Called BEFORE enterPictureInPictureMode() and again from
-     * onPictureInPictureModeChanged(true) as a safety net.
+     * Called when PiP mode starts.
+     *
+     * Instagram-style full-app PiP: the mini player stays at its current corner
+     * position — we do NOT expand it to MATCH_PARENT. The system clips the entire
+     * activity into the PiP overlay, so the user sees Chat + mini player together.
+     *
+     * We only hide touch-target UI chrome (close button, swipe hint) that would
+     * be useless and distracting in the tiny PiP window.
      */
     public void expandForPip() {
         if (container == null) return;
         inPipMode = true;
 
-        container.setLayoutParams(
-                new FrameLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        ViewGroup.LayoutParams.MATCH_PARENT));
-        container.setX(0); container.setY(0);
-        container.setTranslationX(0); container.setTranslationY(0);
-        container.bringToFront();
-        container.setClipToOutline(false);
+        // Keep the mini player at its current corner size — do NOT resize it.
+        // The system handles scaling the entire activity into the PiP window.
 
-        if (miniPlayerView != null) miniPlayerView.setClipToOutline(false);
-
-        // Hide UI chrome — only raw video visible in PiP overlay
+        // Hide interactive chrome — user can't tap these in PiP anyway
         View btnClose = container.findViewById(R.id.btn_mini_reel_close);
         if (btnClose != null) btnClose.setVisibility(View.GONE);
 
@@ -511,44 +515,22 @@ public class ReelChatDockedPlayer {
     }
 
     /**
-     * Restore mini player to its corner position after exiting PiP.
-     * Safe to call even if PiP was never fully entered.
+     * Called when user returns from PiP (swipes the overlay up, or taps expand).
+     * Restore the mini player's interactive chrome.
      */
     public void restoreFromPip() {
         if (container == null) return;
         inPipMode = false;
 
-        int widthPx  = (int) dpToPx(MINI_WIDTH_DP);
-        int heightPx = (int) (widthPx * ASPECT_RATIO);
-        int marginPx = (int) dpToPx(EDGE_MARGIN_DP);
-        int navPx    = getNavBarHeightPx();
-
-        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(widthPx, heightPx);
-        lp.gravity      = android.view.Gravity.BOTTOM | android.view.Gravity.END;
-        lp.bottomMargin = marginPx + navPx;
-        lp.rightMargin  = marginPx;
-        container.setLayoutParams(lp);
-        container.setX(0); container.setY(0);
-        container.setTranslationX(0); container.setTranslationY(0);
-
+        // Restore interactive chrome
         View btnClose = container.findViewById(R.id.btn_mini_reel_close);
         if (btnClose != null) btnClose.setVisibility(View.VISIBLE);
 
         View swipeHint = container.findViewById(R.id.ll_swipe_up_hint);
         if (swipeHint != null) swipeHint.setVisibility(View.VISIBLE);
 
-        applyCornerRadius(CORNER_RADIUS_DP);
-
-        // Re-enable auto-enter for the restored mini player position
+        // Re-enable auto-enter PiP for the restored mini player
         enableAutoEnterPip();
-
-        // Re-capture snap position after next layout pass
-        container.post(() -> {
-            if (container != null) {
-                snapX = container.getX();
-                snapY = container.getY();
-            }
-        });
     }
 
     /** Returns true while the activity is currently in PiP mode. */
