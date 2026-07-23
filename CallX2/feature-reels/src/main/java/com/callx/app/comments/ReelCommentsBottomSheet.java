@@ -17,6 +17,8 @@ import com.callx.app.models.ReelComment;
 import com.callx.app.reels.R;
 import com.callx.app.utils.FirebaseUtils;
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment;
+import com.google.android.material.bottomsheet.BottomSheetBehavior;
+import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.google.firebase.database.*;
 
 import java.util.*;
@@ -37,6 +39,15 @@ import de.hdodenhof.circleimageview.CircleImageView;
  *  7. Username + verified badge in each row.
  */
 public class ReelCommentsBottomSheet extends BottomSheetDialogFragment {
+
+    /**
+     * The reel player stays alive behind this sheet. The host only receives the
+     * sheet's visual progress; it must not pause or recreate its player.
+     */
+    public interface Host {
+        void onCommentsSheetProgress(float progress);
+        void onCommentsSheetDismissed();
+    }
 
     public static final String TAG          = "ReelCommentsBottomSheet";
     public static final String ARG_REEL_ID  = "reel_id";
@@ -82,6 +93,7 @@ public class ReelCommentsBottomSheet extends BottomSheetDialogFragment {
 
     private String reelId, reelUid, myUid, myName, myPhoto;
     private int    commentsCount;
+    private BottomSheetBehavior<FrameLayout> sheetBehavior;
 
     // ── Lifecycle ──────────────────────────────────────────────────────────
 
@@ -154,6 +166,72 @@ public class ReelCommentsBottomSheet extends BottomSheetDialogFragment {
         } else {
             showEmpty();
         }
+    }
+
+    @Override
+    public void onStart() {
+        super.onStart();
+        if (!(getDialog() instanceof BottomSheetDialog)) return;
+
+        BottomSheetDialog dialog = (BottomSheetDialog) getDialog();
+        FrameLayout sheet = dialog.findViewById(
+                com.google.android.material.R.id.design_bottom_sheet);
+        if (sheet == null) return;
+
+        sheetBehavior = BottomSheetBehavior.from(sheet);
+        sheetBehavior.setFitToContents(false);
+        sheetBehavior.setExpandedOffset((int) (getResources()
+                .getDisplayMetrics().heightPixels * 0.44f));
+        sheetBehavior.setHalfExpandedRatio(0.45f);
+        sheetBehavior.setPeekHeight((int) (getResources()
+                .getDisplayMetrics().heightPixels * 0.24f));
+        sheetBehavior.setDraggable(true);
+        sheetBehavior.addBottomSheetCallback(new BottomSheetBehavior.BottomSheetCallback() {
+            @Override
+            public void onStateChanged(@NonNull View bottomSheet, int newState) {
+                if (newState == BottomSheetBehavior.STATE_HIDDEN) {
+                    dispatchHostDismissed();
+                }
+            }
+
+            @Override
+            public void onSlide(@NonNull View bottomSheet, float slideOffset) {
+                // collapsed ~= 0, expanded ~= 1; hidden/overscroll stays at 0.
+                dispatchHostProgress(Math.max(0f, Math.min(1f, slideOffset)));
+            }
+        });
+
+        dispatchHostProgress(0f);
+        // Start at the Instagram-like middle stage. The user can continue
+        // dragging to the final expanded stage shown in the reference images.
+        sheet.post(() -> {
+            if (sheetBehavior != null && isAdded()) {
+                sheetBehavior.setState(BottomSheetBehavior.STATE_HALF_EXPANDED);
+            }
+        });
+    }
+
+    @Override
+    public void onDismiss(@NonNull android.content.DialogInterface dialog) {
+        dispatchHostDismissed();
+        super.onDismiss(dialog);
+    }
+
+    private Host getHost() {
+        if (getParentFragment() instanceof Host) {
+            return (Host) getParentFragment();
+        }
+        return null;
+    }
+
+    private void dispatchHostProgress(float progress) {
+        Host host = getHost();
+        if (host != null) host.onCommentsSheetProgress(progress);
+    }
+
+    private void dispatchHostDismissed() {
+        Host host = getHost();
+        if (host != null) host.onCommentsSheetDismissed();
     }
 
     @Override

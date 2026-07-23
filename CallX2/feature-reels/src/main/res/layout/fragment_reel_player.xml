@@ -13,7 +13,7 @@
         android:focusable="false"
         app:use_controller="false"
         app:resize_mode="zoom"
-        app:surface_type="surface_view"/>
+         app:surface_type="texture_view"/>
 
     <!-- ── Photo Slideshow ViewPager2 ───────────────────────────────────────
          Shown instead of PlayerView for photo_slideshow reels.

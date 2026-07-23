@@ -25,6 +25,7 @@ import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector;
 import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter;
 import androidx.media3.ui.PlayerView;
+import androidx.media3.ui.AspectRatioFrameLayout;
 import androidx.fragment.app.Fragment;
 
 import com.callx.app.analytics.ReelQoEAnalyticsActivity;
@@ -148,6 +149,46 @@ public class ReelPlayerController {
     public String[]  getSpeedLabels() { return SPEED_LABELS; }
     public PlayerView getPlayerView() { return playerView; }
     public ImageView  getIvThumb()    { return ivThumb; }
+
+    /**
+     * Visually docks the live player above the comments sheet. This only
+     * transforms the already-running surfaces; playback state and position are
+     * intentionally untouched so the reel continues playing while comments
+     * open, just like Instagram.
+     */
+    public void setCommentsSheetProgress(float progress) {
+        if (playerView == null || !delegate.isAdded()) return;
+
+        float p = Math.max(0f, Math.min(1f, progress));
+        int width = playerView.getWidth();
+        int height = playerView.getHeight();
+        if (width <= 0 || height <= 0) return;
+
+        if (p > 0.001f) {
+            playerView.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_FIT);
+        } else {
+            playerView.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_ZOOM);
+        }
+
+        // At the final sheet stage the reference keeps a compact, complete
+        // vertical frame above the comments. FIT prevents crop; this transform
+        // reserves the upper ~44% of the screen for that complete frame.
+        float scale = 1f - (0.58f * p);
+        float translationY = -height * 0.25f * p;
+        playerView.setPivotX(width / 2f);
+        playerView.setPivotY(height / 2f);
+        playerView.setScaleX(scale);
+        playerView.setScaleY(scale);
+        playerView.setTranslationY(translationY);
+
+        if (ivThumb != null) {
+            ivThumb.setPivotX(ivThumb.getWidth() / 2f);
+            ivThumb.setPivotY(ivThumb.getHeight() / 2f);
+            ivThumb.setScaleX(scale);
+            ivThumb.setScaleY(scale);
+            ivThumb.setTranslationY(translationY);
+        }
+    }
 
     // ── ABR: silent pre-prepare with HLS/DASH/Progressive auto-detect ─────────
 
