@@ -12,6 +12,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.HorizontalScrollView;
 import androidx.core.view.ViewCompat;
@@ -234,18 +235,31 @@ public class ReelUiController {
             tvMusicName.setHorizontallyScrolling(true);
         }
 
-        // For reels that use their own audio, move the audio-create artwork to
-        // the final slot in the right action rail instead of showing the
-        // generic "Original Audio" ticker at the bottom-left.
+        // The right-rail audio tile replaces the old bottom-left audio ticker.
+        // It always uses the existing sound-detail flow: for original audio,
+        // ReelDuetController resolves the deterministic orig_{reelId} sound.
         String rawMusicName = reel.musicName == null ? "" : reel.musicName.trim();
-        boolean isOriginalAudio = rawMusicName.isEmpty()
-            || "original audio".equalsIgnoreCase(rawMusicName)
-            || "original sound".equalsIgnoreCase(rawMusicName);
         if (btnCreateAudio != null) {
-            btnCreateAudio.setVisibility(isOriginalAudio ? View.VISIBLE : View.GONE);
-            btnCreateAudio.setOnClickListener(v -> openAudioCreator());
+            btnCreateAudio.setVisibility(View.VISIBLE);
+            btnCreateAudio.setOnClickListener(v -> delegate.openSoundDetail());
+            btnCreateAudio.setContentDescription(
+                rawMusicName.isEmpty() ? "Original audio" : rawMusicName);
+
+            String audioImageUrl = !TextUtils.isEmpty(reel.musicCoverUrl)
+                ? reel.musicCoverUrl
+                : reel.ownerPhoto;
+            if (delegate.isAdded() && delegate.getContext() != null
+                    && !TextUtils.isEmpty(audioImageUrl)) {
+                Glide.with(delegate.requireContext())
+                    .load(audioImageUrl)
+                    .apply(new RequestOptions().centerCrop()
+                        .placeholder(R.drawable.ic_audio))
+                    .into(btnCreateAudio);
+            } else {
+                btnCreateAudio.setImageResource(R.drawable.ic_audio);
+            }
         }
-        if (layoutMusicTicker != null && isOriginalAudio) {
+        if (layoutMusicTicker != null) {
             layoutMusicTicker.setVisibility(View.GONE);
         }
 
@@ -462,13 +476,6 @@ public class ReelUiController {
         if (ivOwnerStoryRing != null) ivOwnerStoryRing.setOnClickListener(v -> delegate.openOwnerStatus());
     }
 
-    private void openAudioCreator() {
-        if (!delegate.isAdded() || delegate.getContext() == null) return;
-        Intent intent = new Intent(delegate.requireContext(),
-            com.callx.app.camera.ReelSoundRecorderActivity.class);
-        delegate.getFragment().startActivity(intent);
-    }
-
     /**
      * Opens the compact reel-details card from the tappable reel name/caption.
      * The values come from ReelModel so old and newly uploaded reels behave
@@ -508,10 +515,27 @@ public class ReelUiController {
             + "\nComments  " + delegate.formatCount(reel.commentsCount)
             + "   Shares  " + delegate.formatCount(reel.sharesCount);
 
+        TextView detailsText = new TextView(delegate.requireContext());
+        detailsText.setText(details);
+        detailsText.setTextColor(0xFF222222);
+        detailsText.setTextSize(15);
+        detailsText.setLineSpacing(0f, 1.12f);
+        detailsText.setPadding(24, 8, 24, 8);
+
+        ScrollView detailsScroll = new ScrollView(delegate.requireContext());
+        detailsScroll.setFillViewport(true);
+        detailsScroll.addView(detailsText, new ScrollView.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT));
+        int maxDialogHeight = (int) (delegate.requireContext().getResources()
+            .getDisplayMetrics().heightPixels * 0.48f);
+        detailsScroll.setLayoutParams(new ViewGroup.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, maxDialogHeight));
+
         new AlertDialog.Builder(delegate.requireContext())
             .setTitle("@" + (TextUtils.isEmpty(reel.ownerName) ? "user" : reel.ownerName)
                 + " · " + title)
-            .setMessage(details)
+            .setView(detailsScroll)
             .setPositiveButton("Close", null)
             .show();
     }
