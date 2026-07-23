@@ -176,10 +176,16 @@ public class ReelPlayerController {
         }
 
         // Tap the docked (shrunk) video while the comments sheet is open to
-        // resume/pause playback — same gesture Instagram keeps live above comments.
+        // mute/unmute only — playback must keep running uninterrupted, exactly
+        // like Instagram. NOTE: this intentionally does NOT call
+        // togglePlayPause()/pause the player — pausing flips isPlaying to
+        // false, which onReelPlaybackStateChanged() in ReelsFragment reads as
+        // "show the top bar + bottom nav again", popping those controls back
+        // over the docked video. Muting alone never touches play state, so
+        // that callback never fires and the chrome stays hidden.
         playerView.setOnClickListener(v -> {
             if (dockCornerRadiusPx > 0.5f) { // only meaningfully "docked" once shrunk
-                delegate.togglePlayPause();
+                toggleMute();
             }
         });
     }
@@ -219,19 +225,23 @@ public class ReelPlayerController {
         cancelActiveSprings(); // a live finger-drag always wins over a settling spring
 
         float scale = 1f - (0.58f * p);
-        float translationY = -height * 0.25f * p;
+        // Pivot at the TOP edge (not center) so the video's top border is
+        // pinned at y=0 (right under the status bar) at every dock progress —
+        // shrinking eats into the bottom of the frame only. A center pivot
+        // plus a separate translationY (the old approach) left a visible gap
+        // between the status bar and the docked video's top edge.
         playerView.setPivotX(width / 2f);
-        playerView.setPivotY(height / 2f);
+        playerView.setPivotY(0f);
         playerView.setScaleX(scale);
         playerView.setScaleY(scale);
-        playerView.setTranslationY(translationY);
+        playerView.setTranslationY(0f);
 
         if (ivThumb != null) {
             ivThumb.setPivotX(ivThumb.getWidth() / 2f);
-            ivThumb.setPivotY(ivThumb.getHeight() / 2f);
+            ivThumb.setPivotY(0f);
             ivThumb.setScaleX(scale);
             ivThumb.setScaleY(scale);
-            ivThumb.setTranslationY(translationY);
+            ivThumb.setTranslationY(0f);
         }
 
         // Full radius the instant the video starts docking — no gradual
@@ -253,20 +263,22 @@ public class ReelPlayerController {
 
         float p = Math.max(0f, Math.min(1f, settledProgress));
         float targetScale = 1f - (0.58f * p);
-        float targetTranslationY = -height * 0.25f * p;
 
+        // Top pivot, same as setCommentsSheetProgress() — keeps the docked
+        // video's top edge pinned at y=0 through the bounce instead of
+        // settling with a gap under the status bar.
         playerView.setPivotX(width / 2f);
-        playerView.setPivotY(height / 2f);
+        playerView.setPivotY(0f);
+        playerView.setTranslationY(0f);
         activeSprings[0] = springTo(playerView, SpringAnimation.SCALE_X, targetScale);
         activeSprings[1] = springTo(playerView, SpringAnimation.SCALE_Y, targetScale);
-        activeSprings[2] = springTo(playerView, SpringAnimation.TRANSLATION_Y, targetTranslationY);
 
         if (ivThumb != null) {
             ivThumb.setPivotX(ivThumb.getWidth() / 2f);
-            ivThumb.setPivotY(ivThumb.getHeight() / 2f);
-            activeSprings[3] = springTo(ivThumb, SpringAnimation.SCALE_X, targetScale);
-            activeSprings[4] = springTo(ivThumb, SpringAnimation.SCALE_Y, targetScale);
-            activeSprings[5] = springTo(ivThumb, SpringAnimation.TRANSLATION_Y, targetTranslationY);
+            ivThumb.setPivotY(0f);
+            ivThumb.setTranslationY(0f);
+            activeSprings[2] = springTo(ivThumb, SpringAnimation.SCALE_X, targetScale);
+            activeSprings[3] = springTo(ivThumb, SpringAnimation.SCALE_Y, targetScale);
         }
 
         // Same instant rounding on settle — never lags behind the spring.
