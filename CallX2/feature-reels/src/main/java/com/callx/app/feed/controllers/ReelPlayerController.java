@@ -6,8 +6,13 @@ import android.net.ConnectivityManager;
 import android.net.NetworkCapabilities;
 import android.os.Handler;
 import android.os.Looper;
+import android.graphics.Outline;
 import android.util.Log;
 import android.view.View;
+import android.view.Gravity;
+import android.view.ViewGroup;
+import android.view.ViewOutlineProvider;
+import android.widget.FrameLayout;
 import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.ProgressBar;
@@ -66,12 +71,15 @@ public class ReelPlayerController {
     private final ReelPlayerDelegate delegate;
 
     // ── Views ────────────────────────────────────────────────────────────────
+    private View         playerRoot;
     private PlayerView  playerView;
+    private View         playerStage;
     private ImageView   ivThumb;
     private ImageView   ivPlayPauseIndicator;
     private ProgressBar progressVideo;
     private ProgressBar progressBuffering;
     private ImageButton btnMute;
+    private ImageButton btnCommentsMute;
     private TextView    btnSpeed;
     private TextView    tvQualityBadge;   // nullable — add id/quality_badge to fragment_reel_player.xml
 
@@ -79,6 +87,7 @@ public class ReelPlayerController {
     private ExoPlayer  player;
     private boolean    isMuted    = false;
     private int        speedIndex = 1;
+    private float      commentsCornerRadiusPx = 0f;
 
     // ── ABR state ─────────────────────────────────────────────────────────────
     private AdaptiveStreamingManager.QualityCap currentCap    = AdaptiveStreamingManager.QualityCap.AUTO;
@@ -131,14 +140,34 @@ public class ReelPlayerController {
     // ── View binding ──────────────────────────────────────────────────────────
 
     public void bindViews(View root) {
+        playerRoot            = root;
+        playerStage          = root.findViewById(R.id.player_stage);
         playerView           = root.findViewById(R.id.player_view);
         ivThumb              = root.findViewById(R.id.iv_thumb);
         ivPlayPauseIndicator = root.findViewById(R.id.iv_play_pause_indicator);
         progressVideo        = root.findViewById(R.id.progress_video);
         progressBuffering    = root.findViewById(R.id.progress_buffering);
         btnMute              = root.findViewById(R.id.btn_mute);
+        btnCommentsMute      = root.findViewById(R.id.btn_comments_mute);
         btnSpeed             = root.findViewById(R.id.btn_speed);
         tvQualityBadge       = root.findViewById(R.id.tv_quality_badge); // optional view
+
+        if (playerStage != null) {
+            playerStage.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+            playerStage.setClipToOutline(true);
+            playerStage.setOutlineProvider(new ViewOutlineProvider() {
+                @Override
+                public void getOutline(View view, Outline outline) {
+                    outline.setRoundRect(
+                        0, 0, view.getWidth(), view.getHeight(), commentsCornerRadiusPx);
+                }
+            });
+        }
+
+        View.OnClickListener muteClick = v -> toggleMute();
+        if (btnMute != null) btnMute.setOnClickListener(muteClick);
+        if (btnCommentsMute != null) btnCommentsMute.setOnClickListener(muteClick);
+        updateMuteIcons();
     }
 
     // ── Accessors ─────────────────────────────────────────────────────────────
@@ -157,36 +186,78 @@ public class ReelPlayerController {
      * open, just like Instagram.
      */
     public void setCommentsSheetProgress(float progress) {
-        if (playerView == null || !delegate.isAdded()) return;
+        if (playerStage == null || !delegate.isAdded()) return;
 
         float p = Math.max(0f, Math.min(1f, progress));
-        int width = playerView.getWidth();
-        int height = playerView.getHeight();
+        int rootWidth = playerRoot != null ? playerRoot.getWidth() : 0;
+        int rootHeight = playerRoot != null ? playerRoot.getHeight() : 0;
+        int width = playerStage.getWidth();
+        int height = playerStage.getHeight();
+        if (rootWidth <= 0 || rootHeight <= 0) return;
         if (width <= 0 || height <= 0) return;
 
         if (p > 0.001f) {
-            playerView.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_FIT);
+            if (playerView != null) {
+                playerView.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_FIT);
+            }
         } else {
-            playerView.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_ZOOM);
+            if (playerView != null) {
+                playerView.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_ZOOM);
+            }
         }
 
-        // At the final sheet stage the reference keeps a compact, complete
-        // vertical frame above the comments. FIT prevents crop; this transform
-        // reserves the upper ~44% of the screen for that complete frame.
-        float scale = 1f - (0.58f * p);
-        float translationY = -height * 0.25f * p;
-        playerView.setPivotX(width / 2f);
-        playerView.setPivotY(height / 2f);
-        playerView.setScaleX(scale);
-        playerView.setScaleY(scale);
-        playerView.setTranslationY(translationY);
+        // Smoothstep removes the mechanical feeling from raw BottomSheet
+        // offsets while preserving direct drag tracking.
+        float eased = p * p * (3f - 2f * p);
+        FrameLayout.LayoutParams stageLp =
+            (FrameLayout.LayoutParams) playerStage.getLayoutParams();
 
-        if (ivThumb != null) {
-            ivThumb.setPivotX(ivThumb.getWidth() / 2f);
-            ivThumb.setPivotY(ivThumb.getHeight() / 2f);
-            ivThumb.setScaleX(scale);
-            ivThumb.setScaleY(scale);
-            ivThumb.setTranslationY(translationY);
+        // Resize the clipping stage itself, rather than scaling a full-screen
+        // surface. The final 60% x 39% card matches the reference: the media
+        // remains complete inside the card while the comments sheet owns the
+        // lower portion of the screen.
+        if (eased < 0.001f) {
+            stageLp.width = ViewGroup.LayoutParams.MATCH_PARENT;
+            stageLp.height = ViewGroup.LayoutParams.MATCH_PARENT;
+            stageLp.gravity = Gravity.NO_GRAVITY;
+            stageLp.topMargin = 0;
+            stageLp.leftMargin = 0;
+            stageLp.rightMargin = 0;
+        } else {
+            stageLp.width = Math.round(rootWidth * (1f - (0.40f * eased)));
+            stageLp.height = Math.round(rootHeight * (1f - (0.61f * eased)));
+            stageLp.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
+            stageLp.topMargin = Math.round(rootHeight * 0.035f * eased);
+            stageLp.leftMargin = 0;
+            stageLp.rightMargin = 0;
+        }
+        playerStage.setLayoutParams(stageLp);
+        playerStage.setTranslationX(0f);
+        playerStage.setTranslationY(0f);
+        playerStage.setElevation(10f * eased);
+
+        commentsCornerRadiusPx = playerStage.getResources().getDisplayMetrics().density
+            * (22f * eased);
+        playerStage.invalidateOutline();
+
+        if (btnCommentsMute != null) {
+            btnCommentsMute.setImageResource(
+                isMuted ? R.drawable.ic_volume_off : R.drawable.ic_volume_on);
+            btnCommentsMute.setAlpha(eased);
+            btnCommentsMute.setScaleX(0.86f + (0.14f * eased));
+            btnCommentsMute.setScaleY(0.86f + (0.14f * eased));
+            // Dock the mute control beside the card's lower-right edge.
+            float cardBottom = rootHeight * (0.035f * eased
+                + (1f - (0.61f * eased)));
+            float density = playerRoot.getResources().getDisplayMetrics().density;
+            // Direct child default position is end|center_vertical. Its
+            // default X is already just outside the final card's right edge.
+            // Vertically center it a little above the card bottom, as in the
+            // Instagram reference.
+            btnCommentsMute.setTranslationX(0f);
+            float targetCenterY = cardBottom - (18f * density);
+            btnCommentsMute.setTranslationY(targetCenterY
+                - (rootHeight * 0.5f));
         }
     }
 
@@ -453,8 +524,13 @@ public class ReelPlayerController {
     public void toggleMute() {
         isMuted = !isMuted;
         if (player != null) player.setVolume(isMuted ? 0f : 1f);
-        if (btnMute != null) btnMute.setImageResource(
-            isMuted ? R.drawable.ic_volume_off : R.drawable.ic_volume_on);
+        updateMuteIcons();
+    }
+
+    private void updateMuteIcons() {
+        int icon = isMuted ? R.drawable.ic_volume_off : R.drawable.ic_volume_on;
+        if (btnMute != null) btnMute.setImageResource(icon);
+        if (btnCommentsMute != null) btnCommentsMute.setImageResource(icon);
     }
 
     public void cycleSpeed() {

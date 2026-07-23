@@ -4,7 +4,8 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:background="@drawable/bg_bottom_sheet_rounded">
+    android:background="@drawable/bg_comments_sheet_rounded"
+    android:paddingTop="1dp">
 
     <!-- Drag handle -->
     <View

@@ -1,6 +1,7 @@
 package com.callx.app.comments;
 
 import android.content.Intent;
+import android.graphics.Color;
 import android.os.Bundle;
 import android.text.Editable;
 import android.text.TextWatcher;
@@ -178,6 +179,9 @@ public class ReelCommentsBottomSheet extends BottomSheetDialogFragment {
                 com.google.android.material.R.id.design_bottom_sheet);
         if (sheet == null) return;
 
+        // Let the rounded layout surface, rather than the Material container,
+        // define the visible top edge.
+        sheet.setBackgroundColor(Color.TRANSPARENT);
         sheetBehavior = BottomSheetBehavior.from(sheet);
         sheetBehavior.setFitToContents(false);
         sheetBehavior.setExpandedOffset((int) (getResources()
@@ -202,11 +206,12 @@ public class ReelCommentsBottomSheet extends BottomSheetDialogFragment {
         });
 
         dispatchHostProgress(0f);
-        // Start at the Instagram-like middle stage. The user can continue
-        // dragging to the final expanded stage shown in the reference images.
+        // Start at the expanded Instagram-like stage. BottomSheet's own
+        // entrance animation still drives onSlide, so the player docks
+        // continuously rather than jumping after the dialog appears.
         sheet.post(() -> {
             if (sheetBehavior != null && isAdded()) {
-                sheetBehavior.setState(BottomSheetBehavior.STATE_HALF_EXPANDED);
+                sheetBehavior.setState(BottomSheetBehavior.STATE_EXPANDED);
             }
         });
     }

@@ -458,13 +458,11 @@ public class ReelPlayerFragment extends Fragment
         View photoPager = root.findViewById(R.id.vp_photos);
         if (photoPager != null && photoPager.getWidth() > 0 && photoPager.getHeight() > 0) {
             float p = Math.max(0f, Math.min(1f, progress));
-            float scale = 1f - (0.58f * p);
-            float translationY = -photoPager.getHeight() * 0.25f * p;
-            photoPager.setPivotX(photoPager.getWidth() / 2f);
-            photoPager.setPivotY(photoPager.getHeight() / 2f);
-            photoPager.setScaleX(scale);
-            photoPager.setScaleY(scale);
-            photoPager.setTranslationY(translationY);
+            // ViewPager2 lives inside player_stage and is transformed with
+            // the live PlayerView by ReelPlayerController.
+            photoPager.setScaleX(1f);
+            photoPager.setScaleY(1f);
+            photoPager.setTranslationY(0f);
         }
 
         // Keep the live video clean while comments take over the lower half.
@@ -472,7 +470,7 @@ public class ReelPlayerFragment extends Fragment
         View rightActions = root.findViewById(R.id.right_actions);
         View bottomInfo = root.findViewById(R.id.bottom_info);
         View topControls = root.findViewById(R.id.top_controls);
-        float controlsAlpha = 1f - (0.72f * Math.max(0f, Math.min(1f, progress)));
+        float controlsAlpha = 1f - Math.max(0f, Math.min(1f, progress));
         if (rightActions != null) rightActions.setAlpha(controlsAlpha);
         if (bottomInfo != null) bottomInfo.setAlpha(controlsAlpha);
         if (topControls != null) topControls.setAlpha(controlsAlpha);
