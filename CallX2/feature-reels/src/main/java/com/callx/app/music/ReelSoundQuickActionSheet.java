@@ -93,8 +93,46 @@ public class ReelSoundQuickActionSheet extends DialogFragment {
                               WindowManager.LayoutParams.MATCH_PARENT);
             window.setDimAmount(0f); // no dark scrim behind the card
             window.setGravity(android.view.Gravity.NO_GRAVITY);
+            // Draw behind the status bar / nav bar instead of letting this
+            // new window paint its own opaque system-bar background — the
+            // reel player behind it is already immersive/edge-to-edge, so
+            // this dialog must extend the same way or the bars flash solid.
+            window.addFlags(WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+                | WindowManager.LayoutParams.FLAG_LAYOUT_INSET_DECOR
+                | WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS
+                | WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATION);
+            window.setStatusBarColor(Color.TRANSPARENT);
+            window.setNavigationBarColor(Color.TRANSPARENT);
         }
         return dialog;
+    }
+
+    @Override
+    public void onStart() {
+        super.onStart();
+        // Mirror the host activity's current immersive system-UI flags onto
+        // this dialog's own decor view. A dialog window otherwise starts
+        // with default (non-immersive) decor, which is what repaints the
+        // status bar / nav bar backgrounds even though the activity behind
+        // it is fullscreen.
+        Dialog dialog = getDialog();
+        if (dialog == null || dialog.getWindow() == null || getActivity() == null) return;
+        View hostDecor = getActivity().getWindow().getDecorView();
+        View dialogDecor = dialog.getWindow().getDecorView();
+        dialogDecor.setSystemUiVisibility(hostDecor.getSystemUiVisibility());
+        hostDecor.setOnSystemUiVisibilityChangeListener(vis -> {
+            if (isAdded() && getDialog() != null && getDialog().getWindow() != null) {
+                getDialog().getWindow().getDecorView().setSystemUiVisibility(vis);
+            }
+        });
+    }
+
+    @Override
+    public void onDismiss(@NonNull android.content.DialogInterface dialogInterface) {
+        super.onDismiss(dialogInterface);
+        if (getActivity() != null) {
+            getActivity().getWindow().getDecorView().setOnSystemUiVisibilityChangeListener(null);
+        }
     }
 
     @Nullable
