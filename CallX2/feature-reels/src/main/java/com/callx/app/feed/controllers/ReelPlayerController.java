@@ -91,6 +91,10 @@ public class ReelPlayerController {
     private final DefaultBandwidthMeter         bwMeter        = new DefaultBandwidthMeter.Builder(null).build();
     /** True when user manually picked a quality — disable auto-switch until they reset */
     private boolean                             userManualCap  = false;
+    // v17: set by switchToQuality()'s docked-guard, consumed by
+    // startPlayback() once this reel is visible again — see both for the
+    // full explanation.
+    private boolean                             pendingQualitySwitchWhileDocked = false;
 
     // ── QoE (Quality of Experience) tracking ─────────────────────────────────
     private long    qoeStartupBeginMs  = 0;   // when player.prepare() was called
@@ -469,7 +473,24 @@ public class ReelPlayerController {
                     qoeStallFreeStartMs = 0;
                 } else {
                     progressBuffering.setVisibility(View.GONE);
-                    if (state == Player.STATE_READY && delegate.isCurrentlyVisible()) {
+
+                    // ROOT FIX (v14): was `delegate.isCurrentlyVisible()` only.
+                    // While chat-docked, isCurrentlyVisible() is ALWAYS false
+                    // (Reels tab genuinely isn't on screen) — including for a
+                    // reel reached via swipe-up inside the mini player, which
+                    // now (v12 fix) actually plays. Gating solely on visibility
+                    // meant startProgressTracking() never ran for that reel at
+                    // all: no watch-progress % milestones written to Firebase,
+                    // no watch-history recording, no ABR/QoE logging — for a
+                    // reel the user was genuinely watching. `playerView`'s own
+                    // surface being detached from `player` (surface hand-off to
+                    // the docked mini overlay) is the same "docked, not merely
+                    // off-screen-and-paused" signal already used in the
+                    // progress runnable's own cadence check below — reuse it
+                    // here so a docked-and-playing reel is tracked exactly like
+                    // a visible one, just at the runnable's own slower cadence.
+                    boolean dockedElsewhere = playerView != null && playerView.getPlayer() != player;
+                    if (state == Player.STATE_READY && (delegate.isCurrentlyVisible() || dockedElsewhere)) {
                         ivThumb.setVisibility(View.GONE);
                         startProgressTracking();
                         // v5: Query ABR engine for quality suggestion + log
@@ -493,8 +514,26 @@ public class ReelPlayerController {
                             qoeStallBeginMs = 0;
                             qoeStallFreeStartMs = System.currentTimeMillis();
                         }
-                        // Auto-upgrade after 20s stall-free window
-                        if (!userManualCap && qoeStallFreeStartMs > 0
+                        // Auto-upgrade after 20s stall-free window.
+                        // OPT/CORRECTNESS (v16): gated on isCurrentlyVisible()
+                        // specifically, NOT dockedElsewhere. The v14 fix above
+                        // intentionally widened watch-progress/analytics
+                        // tracking to include the docked case — but ABR
+                        // upgradeQuality() fetches a HIGHER-bitrate stream URL
+                        // (a real network+battery cost), and ReelChatDockedPlayer
+                        // already caps decode resolution to ~480px (240px on
+                        // low-RAM devices) for anything shown in the ~120dp
+                        // mini overlay. Upgrading the underlying stream tier
+                        // while docked would burn mobile data fetching detail
+                        // that gets thrown away at decode time anyway, for a
+                        // box nobody is looking at full-screen. Downgrades
+                        // (via onPersistentStall → downgradeQuality(), a
+                        // separate ABR callback below) stay UNGATED on
+                        // purpose — reducing bitrate is always safe/beneficial
+                        // regardless of visibility; only the "spend more data
+                        // for more fidelity" direction needs the visible-only
+                        // guard.
+                        if (!userManualCap && delegate.isCurrentlyVisible() && qoeStallFreeStartMs > 0
                                 && System.currentTimeMillis() - qoeStallFreeStartMs > STALL_FREE_UPGRADE_MS) {
                             upgradeQuality();
                         }
@@ -527,6 +566,21 @@ public class ReelPlayerController {
 
             @Override
             public void onVideoSizeChanged(@NonNull VideoSize videoSize) {
+                // OPT (v15): tvQualityBadge only exists in the full-screen
+                // fragment layout (fragment_reel_player.xml) — the mini
+                // docked overlay (layout_reel_chat_docked.xml) has no such
+                // view at all. Our own resolution-cap logic
+                // (capDecodeResolutionForDocking/restoreFullDecodeResolution
+                // in ReelChatDockedPlayer) forces a track/resolution change
+                // on every dock, undock, and swipe-up, which fires this
+                // callback each time — updateQualityBadge() itself no-ops on
+                // a null tvQualityBadge, but that doesn't save the
+                // currentBandwidthKbps() lookup before it. Skip both when
+                // this reel isn't the visible one; ABR/QoE decision logic
+                // elsewhere (onStall/onPersistentStall/upgradeQuality) is
+                // untouched and keeps running regardless of visibility,
+                // since that affects real playback quality, not just a badge.
+                if (!delegate.isCurrentlyVisible()) return;
                 long bwKbps = AdaptiveStreamingManager.get(delegate.requireContext())
                     .currentBandwidthKbps();
                 updateQualityBadge(videoSize.height, bwKbps);
@@ -601,6 +655,21 @@ public class ReelPlayerController {
                                 .setMaxVideoSize(Integer.MAX_VALUE, Integer.MAX_VALUE)
                                 .build());
             } catch (Exception ignored) {}
+        }
+
+        // ROOT FIX (v17): a stall-downgrade, network-change auto-switch, or
+        // manual quality pick that happened while this reel was chat-docked
+        // was deferred by switchToQuality() instead of rebuilding the live
+        // docked player out from under the mini overlay (see that method's
+        // guard for the full explanation). Now that this reel is genuinely
+        // visible again, apply it. switchToQuality() fully rebuilds `player`,
+        // rebinds playerView, restores seek position + play/pause state, and
+        // re-registers the network listener on its own — nothing below this
+        // is still needed for this call.
+        if (pendingQualitySwitchWhileDocked) {
+            pendingQualitySwitchWhileDocked = false;
+            switchToQuality(currentCap, "(resumed)");
+            return;
         }
 
         player.setVolume(isMuted ? 0f : 1f);
@@ -906,6 +975,34 @@ public class ReelPlayerController {
 
     /** Shared player-rebuild for both upgrade and downgrade — always uses pickQualityUrl */
     private void switchToQuality(AdaptiveStreamingManager.QualityCap cap, String badgeSuffix) {
+        // ROOT FIX (v17) — a stall downgrade (onPersistentStall), a network-
+        // change auto-switch (registerNetworkQualityListener), an ABR upgrade,
+        // or a manual user quality pick can all call this at ANY time,
+        // regardless of whether this reel happens to be chat-docked right
+        // now. Before this guard, switchToQuality() unconditionally released
+        // the live `player` object and built a brand new one bound to THIS
+        // fragment's own (possibly off-screen) playerView. If this reel's
+        // player was the exact instance currently playing inside
+        // ReelChatDockedPlayer's mini overlay, that release() call kills the
+        // live docked video out from under it — the mini overlay goes
+        // dead/black while an entirely new, invisible player spins up in the
+        // background, fully orphaned from what the user is actually
+        // watching (with no way back short of dismissing and re-docking).
+        // Detect "currently docked" the same way the rest of this file
+        // already does — playerView's own binding no longer points at
+        // `player` because ReelChatDockedPlayer explicitly released that
+        // claim when it took the surface — and defer instead: the preloader
+        // still gets the new cap for whatever reel comes next, but the live
+        // docked player is left completely untouched. startPlayback() applies
+        // the deferred switch once this reel is genuinely visible again.
+        if (player != null && playerView != null && playerView.getPlayer() != player) {
+            if (preloader != null) preloader.setQualityCap(cap);
+            pendingQualitySwitchWhileDocked = true;
+            Log.d(TAG, "Quality switch to " + AdaptiveStreamingManager.capLabel(cap)
+                + " deferred — reel is currently chat-docked");
+            return;
+        }
+
         // Sync preloader so next reel caches the same quality
         if (preloader != null) preloader.setQualityCap(cap);
         qoeQualitySwitches++;
