@@ -22,12 +22,23 @@
     android:clipChildren="false"
     android:clipToPadding="false">
 
-    <!-- ── 1. Main photo ─────────────────────────────────────────────────── -->
+    <!-- ── 0. Blurred background (Instagram-style letterbox fill) ─────────
+         Loads the same photo blurred + darkened, centerCrop so it fills
+         the full 9:16 frame. The foreground photo (below) sits on top
+         with fitCenter so it is NEVER cropped, regardless of aspect ratio. -->
+    <ImageView
+        android:id="@+id/iv_photo_bg_blur"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="centerCrop"
+        android:contentDescription=""/>
+
+    <!-- ── 1. Main photo (fitCenter — never cropped) ─────────────────────── -->
     <ImageView
         android:id="@+id/iv_photo_slide"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:scaleType="centerCrop"
+        android:scaleType="fitCenter"
         android:contentDescription="Reel photo"/>
 
     <!-- ── 2. Effect overlay  (vignette / grain / glitch / neon_glow / etc.) -->

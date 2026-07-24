@@ -45,6 +45,7 @@ import com.bumptech.glide.load.engine.GlideException;
 import com.bumptech.glide.request.RequestListener;
 import com.bumptech.glide.request.RequestOptions;
 import com.bumptech.glide.request.target.Target;
+import com.bumptech.glide.load.resource.bitmap.CenterCrop;
 import com.callx.app.models.ReelModel;
 import com.callx.app.reels.R;
 
@@ -191,13 +192,27 @@ public class ReelPhotoSlideshowAdapter
         // Stickers
         bindStickers(h, stickerJson, position);
 
-        // Load image
+        // ── Instagram-style background: same photo blurred + darkened, centerCrop ──
+        // This fills the 9:16 frame so there are no black bars, even for landscape
+        // or square photos. The foreground photo (fitCenter) sits on top uncropped.
+        if (h.ivPhotoBgBlur != null) {
+            Glide.with(h.ivPhotoBgBlur.getContext())
+                    .load(url)
+                    .apply(new RequestOptions()
+                            .diskCacheStrategy(DiskCacheStrategy.ALL)
+                            .transform(new CenterCrop(), new ReelBlurTransformation(20))
+                            .override(200, 356))
+                    .into(h.ivPhotoBgBlur);
+        }
+
+        // ── Load foreground photo with fitCenter so it is NEVER cropped ──────────
         Glide.with(h.ivPhoto.getContext())
                 .load(url)
                 .apply(new RequestOptions()
                         .diskCacheStrategy(DiskCacheStrategy.ALL)
+                        .fitCenter()
                         .override(Target.SIZE_ORIGINAL))
-                .placeholder(android.R.color.black)
+                .placeholder(android.R.color.transparent)
                 .listener(new RequestListener<android.graphics.drawable.Drawable>() {
                     @Override public boolean onLoadFailed(GlideException e, Object model,
                             Target<android.graphics.drawable.Drawable> t, boolean first) {
@@ -236,6 +251,9 @@ public class ReelPhotoSlideshowAdapter
         cancelKenBurns(h);
         resetViewTransforms(h);
         h.ivPhoto.clearColorFilter();
+        if (h.ivPhotoBgBlur != null) {
+            Glide.with(h.ivPhotoBgBlur.getContext()).clear(h.ivPhotoBgBlur);
+        }
         h.vEffectOverlay.setVisibility(View.GONE);
         h.vColorFilterOverlay.setVisibility(View.GONE);
         h.tvCaption.setVisibility(View.GONE);
@@ -1214,6 +1232,9 @@ public class ReelPhotoSlideshowAdapter
 
     public static class PhotoVH extends RecyclerView.ViewHolder {
         final ImageView   ivPhoto;
+        /** Blurred background fill — Instagram-style: same photo, blurred + darkened,
+         *  centerCrop so it fills the full 9:16 frame behind the fitCenter foreground. */
+        final ImageView   ivPhotoBgBlur;
         final View        vEffectOverlay;
         final View        vColorFilterOverlay;
         final FrameLayout llStickerLayer;
@@ -1225,6 +1246,7 @@ public class ReelPhotoSlideshowAdapter
         PhotoVH(@NonNull View itemView) {
             super(itemView);
             ivPhoto             = itemView.findViewById(R.id.iv_photo_slide);
+            ivPhotoBgBlur       = itemView.findViewById(R.id.iv_photo_bg_blur);
             vEffectOverlay      = itemView.findViewById(R.id.v_effect_overlay);
             vColorFilterOverlay = itemView.findViewById(R.id.v_color_filter_overlay);
             llStickerLayer      = itemView.findViewById(R.id.ll_sticker_layer);

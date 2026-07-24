@@ -1907,6 +1907,10 @@ public class ReelUploadActivity extends AppCompatActivity {
                     // that read raced/failed.
                     if (!a.preSelectedSoundCover.isEmpty()) reel.musicCoverUrl = a.preSelectedSoundCover;
                     if (!a.currentSoundArtist.isEmpty())    reel.musicArtist   = a.currentSoundArtist;
+                    // ✅ FIX: persist trim range so the playback side can seek to the
+                    // right position and loop within the trimmed window.
+                    if (a.musicStartMs > 0) reel.musicStartMs = a.musicStartMs;
+                    if (a.musicEndMs   > 0) reel.musicEndMs   = a.musicEndMs;
 
                     FirebaseUtils.getReelsRef().child(reelId).setValue(reel)
                         .addOnSuccessListener(unused -> {

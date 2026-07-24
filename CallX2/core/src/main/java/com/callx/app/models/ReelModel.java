@@ -49,6 +49,17 @@ public class ReelModel {
     public String  musicCoverUrl;
     public String  musicArtist;
     public int     musicStartSec;
+    /**
+     * ✅ FIX: millisecond-precision trim start for photo-slideshow background audio.
+     * 0 = play from the very beginning of the track.
+     * Separate from musicStartSec (kept for video reels backward-compat).
+     */
+    public int     musicStartMs = 0;
+    /**
+     * ✅ FIX: millisecond-precision trim end for photo-slideshow background audio.
+     * 0 = play to the natural end of the track (no trim).
+     */
+    public int     musicEndMs   = 0;
     public String  originalAudioUrl;
     public String  thumbnailUrl;
     public long    timestamp;

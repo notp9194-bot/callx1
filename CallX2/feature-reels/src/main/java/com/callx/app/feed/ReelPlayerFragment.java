@@ -81,6 +81,8 @@ public class ReelPlayerFragment extends Fragment
         args.putString("music_cover_url", reel.musicCoverUrl  != null ? reel.musicCoverUrl  : "");
         args.putString("music_artist",    reel.musicArtist    != null ? reel.musicArtist    : "");
         args.putInt("music_start_sec",    reel.musicStartSec);
+        args.putInt("music_start_ms",     reel.musicStartMs);  // ✅ FIX: ms-precision trim for photo audio
+        args.putInt("music_end_ms",       reel.musicEndMs);
         args.putLong("timestamp",         reel.timestamp);
         args.putInt("duration",      reel.duration);
         args.putInt("width",         reel.width);
@@ -147,6 +149,8 @@ public class ReelPlayerFragment extends Fragment
             reel.musicCoverUrl = getArguments().getString("music_cover_url","");
             reel.musicArtist   = getArguments().getString("music_artist",   "");
             reel.musicStartSec = getArguments().getInt("music_start_sec",    0);
+            reel.musicStartMs  = getArguments().getInt("music_start_ms",     0);  // ✅ FIX
+            reel.musicEndMs    = getArguments().getInt("music_end_ms",        0);
             reel.timestamp     = getArguments().getLong("timestamp");
             reel.duration      = getArguments().getInt("duration");
             reel.width         = getArguments().getInt("width");

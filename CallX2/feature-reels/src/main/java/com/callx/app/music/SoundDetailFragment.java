@@ -95,6 +95,7 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
     private String  soundId, soundTitle, soundUrl, artist, coverUrl, genre, previewAudioUrl;
     private int     durationMs, bpm;
     private int     trimStartMs = 0, trimEndMs = 0;   // ✂ user-picked range from ReelMusicTrimActivity
+    private int     pendingUseTarget = -1;             // -1=none  0=camera  1=gallery  (set by dialog before trim)
     private boolean isSheet       = false;
     private boolean isSaved       = false;
     private boolean isPlaying     = false;
@@ -247,12 +248,41 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
     @Override
     public void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+
+        // ── Trim result ───────────────────────────────────────────────────
         if (requestCode == REQUEST_TRIM_SOUND && resultCode == android.app.Activity.RESULT_OK && data != null) {
             trimStartMs = data.getIntExtra(com.callx.app.editor.ReelMusicTrimActivity.RESULT_START_MS, 0);
             trimEndMs   = data.getIntExtra(com.callx.app.editor.ReelMusicTrimActivity.RESULT_END_MS, durationMs);
             if (btnTrimStart != null && !isGone()) {
                 btnTrimStart.setText("✂ " + formatMs(trimStartMs) + " – " + formatMs(trimEndMs));
             }
+            // ✅ FIX: after trim dialog, auto-launch the pending destination
+            int target = pendingUseTarget;
+            pendingUseTarget = -1;
+            if (target == 0) openCameraWithSound();
+            else if (target == 1) openGalleryForVideo();
+            return;
+        }
+
+        // ── Gallery video pick (request 701) ─────────────────────────────
+        // ✅ FIX: was missing entirely — nothing happened when user picked a video
+        if (requestCode == 701 && resultCode == android.app.Activity.RESULT_OK
+                && data != null && !isGone()) {
+            android.net.Uri videoUri = data.getData();
+            if (videoUri == null) return;
+            Intent i = new Intent(requireContext(), com.callx.app.editor.ReelEditorActivity.class);
+            i.putExtra(com.callx.app.editor.ReelEditorActivity.EXTRA_VIDEO_URI, videoUri.toString());
+            if (!soundId.isEmpty())    i.putExtra("selected_sound_id",    soundId);
+            if (!soundTitle.isEmpty()) i.putExtra("selected_sound_title", soundTitle);
+            if (!soundUrl.isEmpty())   i.putExtra("selected_sound_url",   soundUrl);
+            if (!coverUrl.isEmpty())   i.putExtra("selected_sound_cover", coverUrl);
+            if (!artist.isEmpty())     i.putExtra("selected_sound_artist", artist);
+            if (trimEndMs > trimStartMs) {
+                i.putExtra("music_start_ms", trimStartMs);
+                i.putExtra("music_end_ms",   trimEndMs);
+            }
+            startActivity(i);
+            if (onCloseListener != null) onCloseListener.run();
         }
     }
 
@@ -964,32 +994,16 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         if (btnFloatingUseAudio != null) btnFloatingUseAudio.setOnClickListener(v -> showUseAudioDialog());
         if (btnPlayPause        != null) btnPlayPause.setOnClickListener(v -> togglePlayPause());
 
+        // ✅ FIX Bug 2: show "Full Audio / Trim Audio" dialog before opening camera
         if (btnUseSoundCamera != null) btnUseSoundCamera.setOnClickListener(v -> {
             if (isGone()) return;
-            Intent i = new Intent(requireContext(), com.callx.app.camera.ReelCameraActivity.class);
-            i.putExtra("selected_sound_id",        soundId);
-            i.putExtra("selected_sound_title",     soundTitle);
-            i.putExtra("selected_sound_url",       soundUrl);
-            // ✅ FIX: carry the sound's cover art forward so the reel's
-            // right-rail music disc shows the ORIGINAL sound's photo
-            // immediately, instead of depending only on the later async
-            // Firebase patch in registerOrLinkSound().
-            i.putExtra("selected_sound_cover",     coverUrl);
-            i.putExtra("selected_sound_artist",    artist);
-            i.putExtra("replace_audio_with_sound", true);
-            if (trimEndMs > trimStartMs) {
-                i.putExtra("selected_sound_start_ms", trimStartMs);
-                i.putExtra("selected_sound_end_ms",   trimEndMs);
-            }
-            startActivity(i);
-            if (onCloseListener != null) onCloseListener.run();
+            showUseTypeDialog(0 /* camera */);
         });
 
+        // ✅ FIX Bug 2: show "Full Audio / Trim Audio" dialog before opening gallery
         if (btnUseSoundGallery != null) btnUseSoundGallery.setOnClickListener(v -> {
-            Intent pick = new Intent(Intent.ACTION_PICK,
-                android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI);
-            pick.setType("video/*");
-            requireActivity().startActivityForResult(pick, 701);
+            if (isGone()) return;
+            showUseTypeDialog(1 /* gallery */);
         });
 
         // ✂ Trim chip — was left unwired after the UI rework; sound has a URL to trim
@@ -1227,9 +1241,67 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         new androidx.appcompat.app.AlertDialog.Builder(requireContext())
             .setTitle(soundTitle.isEmpty() ? "Use this sound" : soundTitle)
             .setItems(new String[]{"🎥  Use in Camera", "🎬  Use in Video"}, (d, which) -> {
-                if (which == 0 && btnUseSoundCamera != null)  btnUseSoundCamera.performClick();
-                else if (which == 1 && btnUseSoundGallery != null) btnUseSoundGallery.performClick();
+                if (which == 0) showUseTypeDialog(0);
+                else            showUseTypeDialog(1);
             }).setNegativeButton("Cancel", null).show();
+    }
+
+    /**
+     * ✅ FIX Bug 2: Alert dialog — Full Audio OR Trim Audio.
+     * target: 0 = camera, 1 = gallery/video
+     */
+    private void showUseTypeDialog(int target) {
+        if (isGone()) return;
+        String title = soundTitle.isEmpty() ? "Use this sound" : soundTitle;
+        new androidx.appcompat.app.AlertDialog.Builder(requireContext())
+            .setTitle(title)
+            .setItems(new String[]{"🎵  Full Audio", "✂️  Trim Audio"}, (d, which) -> {
+                if (which == 0) {
+                    // Full audio — clear any previous trim and open directly
+                    trimStartMs = 0;
+                    trimEndMs   = 0;
+                    if (target == 0) openCameraWithSound();
+                    else             openGalleryForVideo();
+                } else {
+                    // Trim audio — open trimmer; onActivityResult will open target after
+                    pendingUseTarget = target;
+                    Intent i = new Intent(requireContext(), com.callx.app.editor.ReelMusicTrimActivity.class);
+                    i.putExtra(com.callx.app.editor.ReelMusicTrimActivity.EXTRA_SOUND_ID,    soundId);
+                    i.putExtra(com.callx.app.editor.ReelMusicTrimActivity.EXTRA_SOUND_TITLE, soundTitle);
+                    i.putExtra(com.callx.app.editor.ReelMusicTrimActivity.EXTRA_SOUND_URL,   soundUrl);
+                    i.putExtra(com.callx.app.editor.ReelMusicTrimActivity.EXTRA_DURATION_MS, durationMs);
+                    startActivityForResult(i, REQUEST_TRIM_SOUND);
+                }
+            })
+            .setNegativeButton("Cancel", (d, w) -> pendingUseTarget = -1)
+            .show();
+    }
+
+    /** ✅ FIX Bug 1: Opens camera, always carrying the sound + trim range. */
+    private void openCameraWithSound() {
+        if (isGone()) return;
+        Intent i = new Intent(requireContext(), com.callx.app.camera.ReelCameraActivity.class);
+        i.putExtra("selected_sound_id",        soundId);
+        i.putExtra("selected_sound_title",     soundTitle);
+        i.putExtra("selected_sound_url",       soundUrl);
+        i.putExtra("selected_sound_cover",     coverUrl);
+        i.putExtra("selected_sound_artist",    artist);
+        i.putExtra("replace_audio_with_sound", true);
+        if (trimEndMs > trimStartMs) {
+            i.putExtra("selected_sound_start_ms", trimStartMs);
+            i.putExtra("selected_sound_end_ms",   trimEndMs);
+        }
+        startActivity(i);
+        if (onCloseListener != null) onCloseListener.run();
+    }
+
+    /** ✅ FIX Bug 1: Opens gallery; onActivityResult 701 will open editor with sound + trim. */
+    private void openGalleryForVideo() {
+        if (isGone()) return;
+        Intent pick = new Intent(Intent.ACTION_PICK,
+            android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI);
+        pick.setType("video/*");
+        requireActivity().startActivityForResult(pick, 701);
     }
 
     // ─────────────────────────────────────────────────────────────────────────

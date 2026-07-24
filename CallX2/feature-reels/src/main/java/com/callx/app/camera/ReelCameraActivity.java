@@ -204,6 +204,9 @@ public class ReelCameraActivity extends AppCompatActivity {
     private String  preSelectedSoundCover  = "";
     private String  preSelectedSoundArtist = "";
     private boolean replaceAudioWithSound = false;
+    // ✅ FIX Bug 1: trim range received from SoundDetailFragment (0 = full audio)
+    private int preSelectedSoundStartMs = 0;
+    private int preSelectedSoundEndMs   = 0;
 
     private MediaPlayer soundPreviewPlayer;
 
@@ -374,6 +377,10 @@ public class ReelCameraActivity extends AppCompatActivity {
         if (artist != null && !artist.isEmpty()) preSelectedSoundArtist = artist;
 
         replaceAudioWithSound = i.getBooleanExtra("replace_audio_with_sound", false);
+        // ✅ FIX Bug 1: read sound trim range so it survives the camera → editor handoff
+        int sm = i.getIntExtra("selected_sound_start_ms", 0);
+        int em = i.getIntExtra("selected_sound_end_ms",   0);
+        if (em > sm) { preSelectedSoundStartMs = sm; preSelectedSoundEndMs = em; }
 
         if (!preSelectedSoundTitle.isEmpty() && btnCameraMusic != null) {
             btnCameraMusic.setContentDescription(preSelectedSoundTitle);
@@ -543,6 +550,11 @@ public class ReelCameraActivity extends AppCompatActivity {
         if (!preSelectedSoundCover.isEmpty()) intent.putExtra("selected_sound_cover", preSelectedSoundCover);
         if (!preSelectedSoundArtist.isEmpty())intent.putExtra("selected_sound_artist",preSelectedSoundArtist);
         if (replaceAudioWithSound)            intent.putExtra("audio_already_replaced", true);
+        // ✅ FIX Bug 1: forward sound trim range → ReelEditorActivity → ReelUploadActivity
+        if (preSelectedSoundEndMs > preSelectedSoundStartMs) {
+            intent.putExtra("music_start_ms", preSelectedSoundStartMs);
+            intent.putExtra("music_end_ms",   preSelectedSoundEndMs);
+        }
 
         // Filter
         if (filterName != null && !filterName.isEmpty() && !filterName.equals("Normal")) {

@@ -1,6 +1,7 @@
 package com.callx.app.feed.controllers;
 
 import android.content.Context;
+import android.media.MediaPlayer;   // ✅ FIX: photo-slideshow background audio
 import com.bumptech.glide.Glide;
 import android.net.ConnectivityManager;
 import android.net.NetworkCapabilities;
@@ -84,6 +85,14 @@ public class ReelPlayerController {
     private ExoPlayer  player;
     private boolean    isMuted    = false;
     private int        speedIndex = 1;
+
+    // ── ✅ FIX: Photo-slideshow background audio ──────────────────────────────
+    // Video reels use ExoPlayer which has its own audio track.
+    // Photo reels have no video → ExoPlayer is never created → silence.
+    // These fields drive a dedicated MediaPlayer for photo reel background music.
+    private MediaPlayer photoAudioPlayer;
+    private final Handler     photoAudioHandler = new Handler(Looper.getMainLooper());
+    private Runnable          photoAudioLoopRunnable;
 
     // ── ABR state ─────────────────────────────────────────────────────────────
     private AdaptiveStreamingManager.QualityCap currentCap    = AdaptiveStreamingManager.QualityCap.AUTO;
@@ -630,6 +639,7 @@ public class ReelPlayerController {
             ivThumb.setVisibility(View.GONE);
             delegate.startPhotoSlideshow();
             delegate.startDiscAnimation();
+            resumePhotoAudio();   // ✅ FIX: start/resume background music for photo reels
             return;
         }
 
@@ -684,7 +694,10 @@ public class ReelPlayerController {
     }
 
     public void pausePlayback() {
-        if (delegate.isPhotoMode()) delegate.stopPhotoSlideshow();
+        if (delegate.isPhotoMode()) {
+            delegate.stopPhotoSlideshow();
+            pausePhotoAudio();   // ✅ FIX: also pause the photo background music
+        }
         if (player != null) player.pause();
         stopProgressTracking();
         delegate.stopDiscAnimation();
@@ -701,6 +714,11 @@ public class ReelPlayerController {
     public void toggleMute() {
         isMuted = !isMuted;
         if (player != null) player.setVolume(isMuted ? 0f : 1f);
+        // ✅ FIX: also mute/unmute the photo slideshow background audio player
+        if (photoAudioPlayer != null) {
+            try { photoAudioPlayer.setVolume(isMuted ? 0f : 1f, isMuted ? 0f : 1f); }
+            catch (Exception ignored) {}
+        }
         if (btnMute != null) btnMute.setImageResource(
             isMuted ? R.drawable.ic_volume_off : R.drawable.ic_volume_on);
     }
@@ -723,6 +741,145 @@ public class ReelPlayerController {
                     player.setPlaybackParameters(new PlaybackParameters(SPEED_STEPS[speedIndex]));
             }).show();
     }
+
+    // ── ✅ FIX: Photo-slideshow background audio helpers ──────────────────────
+    //
+    // Why these exist: video reels play audio through ExoPlayer (which is bound
+    // to the video surface). Photo reels have no video track — ExoPlayer is
+    // intentionally NOT created for them — so they need their own lightweight
+    // audio player (MediaPlayer) to play the background music stored in
+    // ReelModel.musicUrl.
+    //
+    // Trim support: if musicStartMs > 0 or musicEndMs > 0, we seek to the trim
+    // window and loop within it using a Handler runnable rather than relying on
+    // MediaPlayer.setLooping() (which ignores seekTo).
+
+    /**
+     * Starts a brand-new MediaPlayer for photo audio from the beginning of
+     * the trim window. Safe to call even if one is already running — previous
+     * player is released first.
+     */
+    private void startPhotoAudio() {
+        ReelModel reel = delegate.getReel();
+        if (reel == null || reel.musicUrl == null || reel.musicUrl.isEmpty()) return;
+        releasePhotoAudio();
+
+        final int startMs = reel.musicStartMs > 0 ? reel.musicStartMs
+                          : (reel.musicStartSec > 0 ? reel.musicStartSec * 1000 : 0);
+        final int endMs   = reel.musicEndMs > 0 ? reel.musicEndMs : 0;
+        final boolean hasTrim = (endMs > startMs && endMs > 0);
+
+        try {
+            photoAudioPlayer = new MediaPlayer();
+            photoAudioPlayer.setDataSource(reel.musicUrl);
+            photoAudioPlayer.setOnPreparedListener(mp -> {
+                if (photoAudioPlayer == null) return;
+                try {
+                    mp.setVolume(isMuted ? 0f : 1f, isMuted ? 0f : 1f);
+                    if (startMs > 0) mp.seekTo(startMs);
+                    mp.setLooping(!hasTrim);   // loop whole track when no trim
+                    mp.start();
+                    if (hasTrim) schedulePhotoAudioLoop(startMs, endMs);
+                } catch (Exception ignored) {}
+            });
+            photoAudioPlayer.setOnErrorListener((mp, what, extra) -> {
+                releasePhotoAudio();
+                return true;
+            });
+            photoAudioPlayer.prepareAsync();
+        } catch (Exception e) {
+            releasePhotoAudio();
+        }
+    }
+
+    /**
+     * Resumes photo audio. If no player exists yet (first play), starts one.
+     * If one is paused, resumes it and re-schedules the trim-loop runnable.
+     */
+    private void resumePhotoAudio() {
+        ReelModel reel = delegate.getReel();
+        if (reel == null || reel.musicUrl == null || reel.musicUrl.isEmpty()) return;
+
+        if (photoAudioPlayer == null) {
+            startPhotoAudio();
+            return;
+        }
+        try {
+            final int startMs = reel.musicStartMs > 0 ? reel.musicStartMs
+                              : (reel.musicStartSec > 0 ? reel.musicStartSec * 1000 : 0);
+            final int endMs   = reel.musicEndMs > 0 ? reel.musicEndMs : 0;
+            final boolean hasTrim = (endMs > startMs && endMs > 0);
+
+            if (!photoAudioPlayer.isPlaying()) {
+                photoAudioPlayer.start();
+            }
+            if (hasTrim) {
+                // Re-schedule loop from current position
+                int currentPos = photoAudioPlayer.getCurrentPosition();
+                int remaining  = endMs - currentPos;
+                if (remaining > 200) {
+                    schedulePhotoAudioLoop(startMs, endMs);
+                } else {
+                    photoAudioPlayer.seekTo(startMs);
+                    schedulePhotoAudioLoop(startMs, endMs);
+                }
+            }
+        } catch (Exception e) {
+            // Player in an invalid state — restart cleanly
+            startPhotoAudio();
+        }
+    }
+
+    /** Pauses photo audio and cancels any pending loop runnable. */
+    private void pausePhotoAudio() {
+        cancelPhotoAudioLoop();
+        if (photoAudioPlayer != null) {
+            try {
+                if (photoAudioPlayer.isPlaying()) photoAudioPlayer.pause();
+            } catch (Exception ignored) {}
+        }
+    }
+
+    /**
+     * Schedules a runnable that fires when the trim window ends, then seeks
+     * back to startMs and loops. Recursive — each invocation re-schedules itself.
+     */
+    private void schedulePhotoAudioLoop(int startMs, int endMs) {
+        cancelPhotoAudioLoop();
+        int clipDurationMs = endMs - startMs;
+        if (clipDurationMs <= 0) return;
+        photoAudioLoopRunnable = () -> {
+            if (photoAudioPlayer == null) return;
+            try {
+                photoAudioPlayer.seekTo(startMs);
+                if (!photoAudioPlayer.isPlaying()) photoAudioPlayer.start();
+                schedulePhotoAudioLoop(startMs, endMs);   // loop again
+            } catch (Exception ignored) {
+                releasePhotoAudio();
+            }
+        };
+        photoAudioHandler.postDelayed(photoAudioLoopRunnable, clipDurationMs);
+    }
+
+    private void cancelPhotoAudioLoop() {
+        if (photoAudioLoopRunnable != null) {
+            photoAudioHandler.removeCallbacks(photoAudioLoopRunnable);
+            photoAudioLoopRunnable = null;
+        }
+    }
+
+    /** Stops, releases, and nulls the photo audio player. */
+    private void releasePhotoAudio() {
+        cancelPhotoAudioLoop();
+        if (photoAudioPlayer != null) {
+            try { if (photoAudioPlayer.isPlaying()) photoAudioPlayer.stop(); }
+            catch (Exception ignored) {}
+            try { photoAudioPlayer.release(); }
+            catch (Exception ignored) {}
+            photoAudioPlayer = null;
+        }
+    }
+    // ─────────────────────────────────────────────────────────────────────────
 
     public void showQualityPicker() {
         if (!delegate.isAdded() || delegate.getContext() == null) return;
@@ -848,6 +1005,7 @@ public class ReelPlayerController {
         stopProgressTracking();
         unregisterNetworkQualityListener();
         delegate.stopPhotoSlideshow();
+        releasePhotoAudio();  // ✅ FIX: release photo background audio if active
         if (player != null) {
             // Record final watch position before releasing
             if (player.getDuration() > 0) {

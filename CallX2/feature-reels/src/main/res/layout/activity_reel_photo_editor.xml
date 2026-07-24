@@ -81,11 +81,20 @@
         android:layout_weight="1"
         android:background="#000000">
 
+        <!-- Blurred background — Instagram-style letterbox fill (same photo, blurred) -->
+        <ImageView
+            android:id="@+id/iv_photo_editor_bg_blur"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:scaleType="centerCrop"
+            android:contentDescription=""/>
+
+        <!-- Foreground photo: fitCenter — NEVER cropped regardless of aspect ratio -->
         <ImageView
             android:id="@+id/iv_photo_editor_preview"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:scaleType="centerCrop"
+            android:scaleType="fitCenter"
             android:contentDescription="Photo preview"/>
 
         <!-- Effect overlay -->

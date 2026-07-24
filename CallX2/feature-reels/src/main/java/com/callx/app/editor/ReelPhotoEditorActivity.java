@@ -34,6 +34,10 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.FileProvider;
 
 import com.bumptech.glide.Glide;
+import com.bumptech.glide.load.engine.DiskCacheStrategy;
+import com.bumptech.glide.load.resource.bitmap.CenterCrop;
+import com.bumptech.glide.request.RequestOptions;
+import com.callx.app.feed.ReelBlurTransformation;
 import com.callx.app.feed.ReelPhotoSlideshowAdapter;
 import com.callx.app.reels.R;
 
@@ -160,6 +164,8 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
     // ── Views ─────────────────────────────────────────────────────────────────
 
     private ImageView   ivPreview;
+    /** Blurred background fill behind the preview — Instagram-style letterbox. */
+    private ImageView   ivBgBlur;
     private View        vEffectOverlay;
     private View        vColorFilterOverlay;
     private FrameLayout flStickerLayer;
@@ -269,6 +275,7 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
 
     private void bindViews() {
         ivPreview           = findViewById(R.id.iv_photo_editor_preview);
+        ivBgBlur            = findViewById(R.id.iv_photo_editor_bg_blur);
         vEffectOverlay      = findViewById(R.id.v_editor_effect_overlay);
         vColorFilterOverlay = findViewById(R.id.v_editor_color_overlay);
         flStickerLayer      = findViewById(R.id.fl_editor_sticker_layer);
@@ -319,7 +326,28 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
     private void loadPreviewImage() {
         if (photoUri == null || photoUri.isEmpty() || ivPreview == null) return;
         Uri uri = Uri.parse(photoUri);
-        Glide.with(this).load(uri).centerCrop().override(480, 853).into(ivPreview);
+
+        // Instagram-style blurred background: same photo, blurred + darkened, centerCrop.
+        // Fills the entire preview area so there are no black bars for landscape/square photos.
+        if (ivBgBlur != null) {
+            Glide.with(this)
+                    .load(uri)
+                    .apply(new RequestOptions()
+                            .diskCacheStrategy(DiskCacheStrategy.ALL)
+                            .transform(new CenterCrop(), new ReelBlurTransformation(20))
+                            .override(120, 213))
+                    .into(ivBgBlur);
+        }
+
+        // Foreground: fitCenter so the photo is NEVER cropped regardless of aspect ratio.
+        Glide.with(this)
+                .load(uri)
+                .apply(new RequestOptions()
+                        .diskCacheStrategy(DiskCacheStrategy.ALL)
+                        .fitCenter()
+                        .override(480, 853))
+                .into(ivPreview);
+
         if (rotation != 0f) ivPreview.setRotation(rotation);
     }
 
