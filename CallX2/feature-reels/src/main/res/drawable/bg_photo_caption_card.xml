@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Modern frosted-glass-style caption card for photo reel captions -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#CC000000"/>
+    <corners android:radius="12dp"/>
+</shape>

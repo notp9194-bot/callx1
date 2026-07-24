@@ -1,18 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    item_reel_photo_slide.xml  ── Ultra-Advanced Photo Slide v5
+    item_reel_photo_slide.xml  ── Instagram-Level Photo Slide v6
     ─────────────────────────────────────────────────────────────
     One page of the photo ViewPager2 in ReelPlayerFragment.
 
     Layers (bottom → top):
-      1. iv_photo_slide          – main photo (centerCrop, Ken Burns target)
+      0. iv_photo_bg_blur        – blurred letterbox fill (Instagram style)
+      1. iv_photo_slide          – main photo (fitCenter — never cropped)
       2. v_effect_overlay        – full-bleed shader overlay (vignette / grain / glitch / etc.)
       3. v_color_filter_overlay  – semi-transparent colour tint for live filter preview
       4. ll_sticker_layer        – FrameLayout for programmatically added emoji/text stickers
       5. view_zoom_touch         – transparent hit-target for pinch-zoom & double-tap gestures
-      6. tv_photo_caption        – per-photo animated caption bar at the bottom
-      7. v_caption_gradient      – gradient scrim behind the caption
-      8. ll_spark_row            – subtle sparkle/particle strip above the caption (opt.)
+      6. v_top_gradient_scrim    – gradient at top for story bar readability
+      7. v_bottom_gradient_scrim – deep Instagram-style bottom gradient scrim
+      8. tv_photo_caption        – per-photo animated caption card at the bottom
 -->
 <FrameLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
@@ -23,9 +24,9 @@
     android:clipToPadding="false">
 
     <!-- ── 0. Blurred background (Instagram-style letterbox fill) ─────────
-         Loads the same photo blurred + darkened, centerCrop so it fills
-         the full 9:16 frame. The foreground photo (below) sits on top
-         with fitCenter so it is NEVER cropped, regardless of aspect ratio. -->
+         Same photo blurred + darkened, centerCrop so it fills the full
+         9:16 frame. The foreground photo sits on top with fitCenter so it
+         is NEVER cropped, regardless of aspect ratio. -->
     <ImageView
         android:id="@+id/iv_photo_bg_blur"
         android:layout_width="match_parent"
@@ -42,7 +43,6 @@
         android:contentDescription="Reel photo"/>
 
     <!-- ── 2. Effect overlay  (vignette / grain / glitch / neon_glow / etc.) -->
-    <!-- DrawingCache is updated by ReelPhotoSlideshowAdapter.applyEffect()   -->
     <View
         android:id="@+id/v_effect_overlay"
         android:layout_width="match_parent"
@@ -74,7 +74,54 @@
         android:clickable="true"
         android:focusable="false"/>
 
-    <!-- ── 6. Caption gradient scrim ─────────────────────────────────────── -->
+    <!-- ── 6. Top gradient scrim — keeps story progress readable ──────────
+         120dp tall, fades from dark at top to transparent at ~40% height. -->
+    <View
+        android:id="@+id/v_top_gradient_scrim"
+        android:layout_width="match_parent"
+        android:layout_height="120dp"
+        android:layout_gravity="top"
+        android:background="@drawable/gradient_photo_reel_top"
+        android:clickable="false"/>
+
+    <!-- ── 7. Bottom gradient scrim — Instagram-deep fade for action bar ──
+         220dp tall deep gradient so caption and action buttons always pop. -->
+    <View
+        android:id="@+id/v_bottom_gradient_scrim"
+        android:layout_width="match_parent"
+        android:layout_height="220dp"
+        android:layout_gravity="bottom"
+        android:background="@drawable/gradient_photo_reel_bottom"
+        android:clickable="false"/>
+
+    <!-- ── 8. Per-photo caption — animated slide-up frosted card ──────────
+         Hidden initially (alpha=0, translateY=+20dp).
+         Animated in by adapter when a caption is available.
+         Rounded card with semi-transparent backdrop. -->
+    <TextView
+        android:id="@+id/tv_photo_caption"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:layout_marginBottom="24dp"
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="72dp"
+        android:paddingStart="14dp"
+        android:paddingEnd="14dp"
+        android:paddingTop="10dp"
+        android:paddingBottom="10dp"
+        android:textColor="#FFFFFFFF"
+        android:textSize="14sp"
+        android:fontFamily="sans-serif"
+        android:lineSpacingMultiplier="1.45"
+        android:letterSpacing="0.01"
+        android:background="@drawable/bg_photo_caption_card"
+        android:alpha="0"
+        android:translationY="20dp"
+        android:visibility="gone"
+        android:clickable="false"/>
+
+    <!-- ── 9. Caption gradient scrim (behind caption text) ─────────────── -->
     <View
         android:id="@+id/v_caption_gradient"
         android:layout_width="match_parent"
@@ -84,36 +131,13 @@
         android:visibility="gone"
         android:clickable="false"/>
 
-    <!-- ── 7. Per-photo caption overlay ──────────────────────────────────── -->
-    <!--     Animated in from below; alpha = 0 initially.                     -->
-    <TextView
-        android:id="@+id/tv_photo_caption"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom"
-        android:layout_marginBottom="18dp"
-        android:layout_marginStart="14dp"
-        android:layout_marginEnd="64dp"
-        android:paddingStart="10dp"
-        android:paddingEnd="10dp"
-        android:paddingTop="7dp"
-        android:paddingBottom="7dp"
-        android:textColor="#FFFFFFFF"
-        android:textSize="13sp"
-        android:lineSpacingMultiplier="1.35"
-        android:background="#BB000000"
-        android:alpha="0"
-        android:translationY="24dp"
-        android:visibility="gone"
-        android:clickable="false"/>
-
-    <!-- ── 8. Sparkle / particle strip above caption ─────────────────────── -->
+    <!-- ── 10. Sparkle / particle strip (opt.) ───────────────────────────── -->
     <LinearLayout
         android:id="@+id/ll_spark_row"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom|center_horizontal"
-        android:layout_marginBottom="78dp"
+        android:layout_marginBottom="84dp"
         android:orientation="horizontal"
         android:gravity="center_vertical"
         android:visibility="gone"

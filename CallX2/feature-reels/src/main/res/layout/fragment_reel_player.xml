@@ -43,31 +43,32 @@
     <LinearLayout
         android:id="@+id/ll_story_progress"
         android:layout_width="match_parent"
-        android:layout_height="3dp"
+        android:layout_height="4dp"
         android:layout_gravity="top"
-        android:layout_marginTop="10dp"
-        android:layout_marginStart="8dp"
-        android:layout_marginEnd="8dp"
+        android:layout_marginTop="14dp"
+        android:layout_marginStart="10dp"
+        android:layout_marginEnd="10dp"
         android:orientation="horizontal"
         android:gravity="center_vertical"
         android:visibility="gone"/>
 
-    <!-- Photo counter badge: "2 / 5" — top-right corner -->
+    <!-- Photo counter pill: "2 / 5" — centered at top, Instagram-style -->
     <TextView
         android:id="@+id/tv_photo_counter"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_gravity="top|end"
-        android:layout_marginTop="10dp"
-        android:layout_marginEnd="12dp"
+        android:layout_gravity="top|center_horizontal"
+        android:layout_marginTop="26dp"
         android:text="1 / 1"
-        android:textColor="#FFFFFF"
+        android:textColor="#FFFFFFFF"
         android:textSize="12sp"
-        android:background="#66000000"
-        android:paddingStart="8dp"
-        android:paddingEnd="8dp"
-        android:paddingTop="3dp"
-        android:paddingBottom="3dp"
+        android:fontFamily="sans-serif-medium"
+        android:background="@drawable/bg_photo_counter_pill"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:paddingTop="4dp"
+        android:paddingBottom="4dp"
+        android:letterSpacing="0.05"
         android:visibility="gone"/>
 
     <!-- Pause overlay badge: ⏸ shown during long-press hold pause -->
@@ -84,30 +85,37 @@
         android:alpha="0"
         android:visibility="gone"/>
 
-    <!-- Per-photo caption overlay: slides up from bottom on photo change -->
+    <!-- Per-photo caption overlay: slides up from bottom on photo change
+         Modern frosted card with rounded corners, Instagram-style. -->
     <TextView
         android:id="@+id/tv_caption_overlay"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
-        android:layout_marginBottom="130dp"
-        android:layout_marginStart="12dp"
-        android:layout_marginEnd="60dp"
-        android:padding="10dp"
+        android:layout_marginBottom="136dp"
+        android:layout_marginStart="14dp"
+        android:layout_marginEnd="64dp"
+        android:paddingStart="14dp"
+        android:paddingEnd="14dp"
+        android:paddingTop="10dp"
+        android:paddingBottom="10dp"
         android:textColor="#FFFFFFFF"
-        android:textSize="13sp"
-        android:lineSpacingMultiplier="1.3"
-        android:background="#BB000000"
+        android:textSize="14sp"
+        android:fontFamily="sans-serif"
+        android:lineSpacingMultiplier="1.45"
+        android:letterSpacing="0.01"
+        android:background="@drawable/bg_photo_caption_card"
         android:alpha="0"
+        android:translationY="20dp"
         android:visibility="gone"/>
 
-    <!-- Instagram-style dot page indicator -->
+    <!-- Instagram-style dot page indicator — pill active + circle inactive -->
     <LinearLayout
         android:id="@+id/ll_dot_indicator"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom|center_horizontal"
-        android:layout_marginBottom="108dp"
+        android:layout_marginBottom="112dp"
         android:orientation="horizontal"
         android:gravity="center_vertical"
         android:visibility="gone"/>
@@ -512,16 +520,17 @@
         android:layout_width="wrap_content"
         android:layout_height="36dp"
         android:layout_gravity="bottom|start"
-        android:layout_marginStart="12dp"
-        android:layout_marginBottom="186dp"
+        android:layout_marginStart="14dp"
+        android:layout_marginBottom="190dp"
         android:text="✨ Style"
         android:textColor="#FFFFFF"
-        android:textSize="13sp"
+        android:textSize="12sp"
         android:fontFamily="sans-serif-medium"
         android:gravity="center"
-        android:background="@drawable/bg_reel_follow_btn"
-        android:paddingStart="14dp"
-        android:paddingEnd="14dp"
+        android:background="@drawable/bg_photo_style_btn_modern"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:letterSpacing="0.02"
         android:visibility="gone"
         android:clickable="true"
         android:focusable="true"/>

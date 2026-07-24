@@ -96,7 +96,7 @@ public class ReelPhotoSlideshowAdapter
     // ── Constants ─────────────────────────────────────────────────────────────
 
     private static final float  DEFAULT_ZOOM_TARGET   = 2.5f;
-    private static final long   CAPTION_ANIM_DURATION = 280L;
+    private static final long   CAPTION_ANIM_DURATION = 300L; // Instagram-level smooth
     private static final long   ZOOM_SNAP_DURATION    = 220L;
     private static final long   DOUBLE_TAP_MAX_MS     = 300L;
     private static final String TAG_STICKER_VIEW      = "sticker_overlay";
@@ -257,6 +257,8 @@ public class ReelPhotoSlideshowAdapter
         h.vEffectOverlay.setVisibility(View.GONE);
         h.vColorFilterOverlay.setVisibility(View.GONE);
         h.tvCaption.setVisibility(View.GONE);
+        h.tvCaption.setAlpha(0f);
+        h.tvCaption.setTranslationY(0f);
         h.vCaptionGradient.setVisibility(View.GONE);
         stopBreathingPulse(h);
         h.llStickerLayer.removeAllViews();
@@ -625,21 +627,22 @@ public class ReelPhotoSlideshowAdapter
         // Apply caption style
         applyCaptionStyle(h.tvCaption, styleJson);
 
-        // Slide-up + fade-in animation
+        // Instagram-style slide-up + fade-in (decelerate, matches story captions)
         h.tvCaption.setAlpha(0f);
-        h.tvCaption.setTranslationY(24f);
+        h.tvCaption.setTranslationY(28f);
         h.tvCaption.animate()
                 .alpha(1f)
                 .translationY(0f)
                 .setDuration(CAPTION_ANIM_DURATION)
-                .setInterpolator(new DecelerateInterpolator())
+                .setInterpolator(new DecelerateInterpolator(1.6f))
                 .start();
     }
 
     private static void applyCaptionStyle(TextView tv, @Nullable String styleJson) {
         // Defaults
         int textColor   = Color.WHITE;
-        int bgColor     = 0xBB000000;
+        // Default matches bg_photo_caption_card.xml — rounded dark frosted card
+        int bgColor     = 0xCC000000;
         float textSizeSp = 13f;
         boolean bold    = false;
         boolean italic  = false;

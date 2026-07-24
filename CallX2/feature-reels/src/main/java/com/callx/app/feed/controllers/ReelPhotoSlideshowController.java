@@ -13,6 +13,8 @@ import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 import androidx.viewpager2.widget.ViewPager2;
+import android.view.animation.DecelerateInterpolator;
+import android.view.animation.AccelerateInterpolator;
 import com.callx.app.models.ReelModel;
 import com.callx.app.reels.R;
 import com.callx.app.feed.ReelPhotoSlideshowAdapter;
@@ -43,6 +45,10 @@ public class ReelPhotoSlideshowController {
     private int               photoDurationMs      = 3000;
     private int               currentPhotoIndex    = 0;
     private float             photoScale           = 1f;
+
+    // ── Instagram-level touch tracking ────────────────────────────────────
+    private float             touchDownX           = 0f;
+    private float             touchDownY           = 0f;
 
     private final Handler     photoHandler = new Handler(Looper.getMainLooper());
     private Runnable          photoAdvanceRunnable;
@@ -105,6 +111,22 @@ public class ReelPhotoSlideshowController {
         ReelPhotoSlideshowAdapter adapter = new ReelPhotoSlideshowAdapter(reel);
         adapter.setGlobalFilter(reel.photoFilter != null ? reel.photoFilter : "normal");
         vpPhotos.setAdapter(adapter);
+
+        // ── Instagram-level swipe sensitivity ─────────────────────────────
+        // Reduce the touch slop on ViewPager2's internal RecyclerView so that
+        // even a very short finger movement is recognised as a photo swipe —
+        // identical to how Instagram's carousel behaves.
+        try {
+            android.view.View innerRv = vpPhotos.getChildAt(0);
+            if (innerRv instanceof androidx.recyclerview.widget.RecyclerView) {
+                java.lang.reflect.Field slopField =
+                    androidx.recyclerview.widget.RecyclerView.class.getDeclaredField("mTouchSlop");
+                slopField.setAccessible(true);
+                int currentSlop = (int) slopField.get(innerRv);
+                // Half the system slop — matches Instagram carousel sensitivity
+                slopField.set(innerRv, Math.max(1, currentSlop / 2));
+            }
+        } catch (Exception ignored) {}
 
         // Transition
         if (reel.transitionType == null || reel.transitionType.isEmpty()) reel.transitionType = "cube";
@@ -229,6 +251,48 @@ public class ReelPhotoSlideshowController {
                 }
                 return true;
             }
+
+            // ── Instagram-level parent interception control ────────────────
+            // Fix: when a photo reel has multiple photos, left/right swipes
+            // must be owned by the inner ViewPager2 (vpPhotos), NOT by the
+            // parent tab ViewPager2.  We call requestDisallowInterceptTouchEvent
+            // so the parent never gets a chance to steal horizontal drags and
+            // change tabs mid-swipe.
+            final int action = event.getActionMasked();
+            switch (action) {
+                case MotionEvent.ACTION_DOWN:
+                    touchDownX = event.getRawX();
+                    touchDownY = event.getRawY();
+                    // Immediately claim the gesture when there are multiple
+                    // photos — Instagram does this so the very first pixel of
+                    // horizontal movement starts the photo swipe, not a tab change.
+                    if (photoUrls != null && photoUrls.size() > 1) {
+                        v.getParent().requestDisallowInterceptTouchEvent(true);
+                    }
+                    break;
+
+                case MotionEvent.ACTION_MOVE: {
+                    float dx = Math.abs(event.getRawX() - touchDownX);
+                    float dy = Math.abs(event.getRawY() - touchDownY);
+                    if (dx >= dy) {
+                        // Horizontal intent — keep blocking parent so photos swipe
+                        if (photoUrls != null && photoUrls.size() > 1) {
+                            v.getParent().requestDisallowInterceptTouchEvent(true);
+                        }
+                    } else if (dy > dx * 1.5f) {
+                        // Clearly vertical — give control back so reel
+                        // up/down feed scroll still works normally
+                        v.getParent().requestDisallowInterceptTouchEvent(false);
+                    }
+                    break;
+                }
+
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_CANCEL:
+                    v.getParent().requestDisallowInterceptTouchEvent(false);
+                    break;
+            }
+
             gd.onTouchEvent(event);
             if (event.getAction() == MotionEvent.ACTION_UP && photoSlideshowPaused) {
                 photoSlideshowPaused = false;
@@ -248,21 +312,33 @@ public class ReelPhotoSlideshowController {
     private void buildStoryProgress(int count) {
         if (llStoryProgress == null || !delegate.isAdded() || delegate.getContext() == null) return;
         llStoryProgress.removeAllViews();
+        // Instagram-style: 4dp height, 2dp corner radius, 2dp gap between segments
         int marginPx = delegate.dpToPx(2);
         for (int i = 0; i < count; i++) {
-            // Outer container (grey track)
+            // Outer track — semi-transparent white rounded pill
             android.widget.FrameLayout track = new android.widget.FrameLayout(delegate.requireContext());
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, delegate.dpToPx(2), 1f);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, delegate.dpToPx(4), 1f);
             lp.setMargins(marginPx, 0, marginPx, 0);
             track.setLayoutParams(lp);
-            track.setBackgroundColor(0x55FFFFFF);
+            GradientDrawable trackBg = new GradientDrawable();
+            trackBg.setShape(GradientDrawable.RECTANGLE);
+            trackBg.setCornerRadius(delegate.dpToPx(2));
+            trackBg.setColor(0x50FFFFFF);
+            track.setBackground(trackBg);
+            track.setClipToOutline(true);
 
-            // Inner fill (white progress)
+            // Inner fill — solid white rounded pill
             View fill = new View(delegate.requireContext());
             android.widget.FrameLayout.LayoutParams fp =
-                new android.widget.FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
+                new android.widget.FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT);
             fill.setLayoutParams(fp);
-            fill.setBackgroundColor(0xFFFFFFFF);
+            GradientDrawable fillBg = new GradientDrawable();
+            fillBg.setShape(GradientDrawable.RECTANGLE);
+            fillBg.setCornerRadius(delegate.dpToPx(2));
+            fillBg.setColor(0xFFFFFFFF);
+            fill.setBackground(fillBg);
             fill.setScaleX(0f);
             fill.setPivotX(0f);
             track.addView(fill);
@@ -310,19 +386,22 @@ public class ReelPhotoSlideshowController {
         if (llDotIndicator == null || !delegate.isAdded() || delegate.getContext() == null) return;
         llDotIndicator.removeAllViews();
         if (count <= 1) { llDotIndicator.setVisibility(View.GONE); return; }
-        int dotPx    = delegate.dpToPx(7);
-        int marginPx = delegate.dpToPx(4);
+        // Instagram-style: active = wide white pill (20x8dp), inactive = circle (8x8dp)
+        int circlePx = delegate.dpToPx(8);
+        int pillW    = delegate.dpToPx(20);
+        int marginPx = delegate.dpToPx(3);
         for (int i = 0; i < count; i++) {
             View dot = new View(delegate.requireContext());
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dotPx, dotPx);
+            boolean isActive = (i == 0);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                isActive ? pillW : circlePx, circlePx);
             lp.setMargins(marginPx, 0, marginPx, 0);
             dot.setLayoutParams(lp);
             GradientDrawable gd = new GradientDrawable();
-            gd.setShape(GradientDrawable.OVAL);
-            gd.setColor(i == 0 ? 0xFFFFFFFF : 0x66FFFFFF);
+            gd.setShape(GradientDrawable.RECTANGLE);
+            gd.setCornerRadius(circlePx / 2f);
+            gd.setColor(isActive ? 0xFFFFFFFF : 0x66FFFFFF);
             dot.setBackground(gd);
-            dot.setScaleX(i == 0 ? 1.4f : 1f);
-            dot.setScaleY(i == 0 ? 1.4f : 1f);
             llDotIndicator.addView(dot);
         }
         llDotIndicator.setVisibility(View.VISIBLE);
@@ -330,14 +409,23 @@ public class ReelPhotoSlideshowController {
 
     private void updateDotIndicator(int active) {
         if (llDotIndicator == null) return;
+        int circlePx = delegate.dpToPx(8);
+        int pillW    = delegate.dpToPx(20);
+        int marginPx = delegate.dpToPx(3);
         for (int i = 0; i < llDotIndicator.getChildCount(); i++) {
             View dot = llDotIndicator.getChildAt(i);
-            if (dot.getBackground() instanceof GradientDrawable) {
-                ((GradientDrawable) dot.getBackground()).setColor(i == active ? 0xFFFFFFFF : 0x66FFFFFF);
+            boolean isActive = (i == active);
+            // Animate width transition: pill -> circle -> pill
+            LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) dot.getLayoutParams();
+            int targetW = isActive ? pillW : circlePx;
+            if (lp.width != targetW) {
+                lp.width = targetW;
+                dot.setLayoutParams(lp);
             }
-            float scale = (i == active) ? 1.4f : 1f;
-            dot.setScaleX(scale);
-            dot.setScaleY(scale);
+            if (dot.getBackground() instanceof GradientDrawable) {
+                GradientDrawable gd = (GradientDrawable) dot.getBackground();
+                gd.setColor(isActive ? 0xFFFFFFFF : 0x66FFFFFF);
+            }
         }
     }
 
@@ -352,10 +440,29 @@ public class ReelPhotoSlideshowController {
             caption = reel.photoCaptions.get(index);
         }
         if (caption != null && !caption.isEmpty()) {
-            tvCaptionOverlay.setVisibility(View.VISIBLE);
             tvCaptionOverlay.setText(caption);
+            if (tvCaptionOverlay.getVisibility() != View.VISIBLE) {
+                tvCaptionOverlay.setVisibility(View.VISIBLE);
+                tvCaptionOverlay.setAlpha(0f);
+                tvCaptionOverlay.setTranslationY(20f * delegate.requireContext().getResources().getDisplayMetrics().density);
+            }
+            // Instagram-style slide-up + fade-in with decelerate interpolator
+            tvCaptionOverlay.animate()
+                .alpha(1f)
+                .translationY(0f)
+                .setDuration(280)
+                .setInterpolator(new android.view.animation.DecelerateInterpolator(1.5f))
+                .start();
         } else {
-            tvCaptionOverlay.setVisibility(View.GONE);
+            if (tvCaptionOverlay.getVisibility() == View.VISIBLE) {
+                tvCaptionOverlay.animate()
+                    .alpha(0f)
+                    .translationY(12f * delegate.requireContext().getResources().getDisplayMetrics().density)
+                    .setDuration(180)
+                    .setInterpolator(new android.view.animation.AccelerateInterpolator())
+                    .withEndAction(() -> tvCaptionOverlay.setVisibility(View.GONE))
+                    .start();
+            }
         }
     }
 
