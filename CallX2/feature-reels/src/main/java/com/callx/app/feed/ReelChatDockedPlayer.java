@@ -84,6 +84,24 @@ public class ReelChatDockedPlayer implements DockedOverlayHandoff {
     // user deliberately pressed-and-held before moving → free-drag reposition.
     private static final long  HOLD_BEFORE_DRAG_MS = 160L;
 
+    // OPT (v13): mute state cached in memory after the first load — avoids a
+    // blocking SharedPreferences disk read every time it's needed (show(),
+    // and updatePlayer() on EVERY swipe-up, which can fire many times in
+    // quick succession while a user rifles through reels in mini mode).
+    // Only the toggle path still touches SharedPreferences, and even there
+    // only as a fire-and-forget apply() write, never a read.
+    private boolean cachedMuted;
+    private boolean mutedLoaded;
+
+    private boolean loadCachedMutedState() {
+        if (!mutedLoaded) {
+            SharedPreferences prefs = activity.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
+            cachedMuted = prefs.getBoolean(PREF_MUTED, false);
+            mutedLoaded = true;
+        }
+        return cachedMuted;
+    }
+
     // SharedPrefs for mute state persistence (Feature 7)
     private static final String PREF_NAME   = "callx_docked_prefs";
     private static final String PREF_MUTED  = "mini_player_muted";
@@ -239,9 +257,9 @@ public class ReelChatDockedPlayer implements DockedOverlayHandoff {
         this.originalFragmentPlayerView = fragmentPlayer;
         this.callback                   = cb;
 
-        // ── Feature 7: Restore mute state from SharedPrefs ─────────────
-        SharedPreferences prefs = activity.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
-        boolean savedMuted = prefs.getBoolean(PREF_MUTED, false);
+        // ── Feature 7: Restore mute state from SharedPrefs (OPT v13: cached
+        // after first load — see loadCachedMutedState()) ──────────────────
+        boolean savedMuted = loadCachedMutedState();
         player.setVolume(savedMuted ? 0f : 1f);
 
         // ROOT FIX (v4): androidx.media3.ui.PlayerView#setPlayer() early-returns
@@ -341,13 +359,16 @@ public class ReelChatDockedPlayer implements DockedOverlayHandoff {
 
         applyCornerRadius(CORNER_RADIUS_DP);
 
-        // v9 perf: SurfaceView-backed PlayerView (default surface_type in
-        // the layout) composites on its own hardware layer, independent of
-        // the host Activity's view tree — it never forces a redraw of
-        // whatever RecyclerView (e.g. ChatActivity's message list) is
-        // scrolling underneath. The small overlay container additionally
-        // gets its own hardware layer so drag/gesture animations never
-        // trigger a redraw of the content behind it either.
+        // v12: mini_reel_player_view is now surface_type="texture_view"
+        // (see layout_reel_chat_docked.xml ROOT FIX comment) so the
+        // expand/collapse large-preview scale animation renders correctly.
+        // TextureView draws through the normal view tree instead of a
+        // separate compositor window, so giving this container its own
+        // hardware layer is what keeps drag/gesture animations and the
+        // preview scale tween cheap and off the host Activity's own
+        // redraw path (e.g. ChatActivity's message list scrolling
+        // underneath) — this now matters more than it did with
+        // surface_view, not less.
         container.setLayerType(View.LAYER_TYPE_HARDWARE, null);
 
         ViewGroup root = activity.findViewById(android.R.id.content);
@@ -460,7 +481,16 @@ public class ReelChatDockedPlayer implements DockedOverlayHandoff {
      * Called BEFORE ReelsFragment.onTabResumed() so startPlayback() sees the view.
      */
     public void collapseBack() {
-        if (!isShowing()) return;
+        // v11 FIX: was `if (!isShowing()) return;`. isShowing() can be false
+        // while a session is still very much active — e.g. right after
+        // detachKeepAlive() for a cross-Activity handoff, before
+        // attachToActivity() runs again. Guarding on isShowing() meant the
+        // surface was NEVER handed back to the fragment in that window —
+        // Reels tab would resume with a fragment PlayerView still unbound,
+        // i.e. "video doesn't play" after a tab switch. isActive() (livePlayer
+        // != null) is the correct guard: hand the surface back whenever a
+        // session exists, whether or not its overlay view is on screen.
+        if (!isActive()) return;
         cancelAllHandlers();
 
         if (originalFragmentPlayerView != null && livePlayer != null) {
@@ -560,9 +590,11 @@ public class ReelChatDockedPlayer implements DockedOverlayHandoff {
             miniPlayerView.setPlayer(null);
         }
 
-        // Feature 7: persist mute state to new player
-        SharedPreferences prefs = activity.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
-        boolean muted = prefs.getBoolean(PREF_MUTED, false);
+        // OPT (v13): apply mute state to new player from the in-memory cache
+        // instead of a SharedPreferences disk read — this runs on every
+        // swipe-up, so a rapid-fire mini-mode binge no longer touches disk
+        // per reel.
+        boolean muted = loadCachedMutedState();
         newPlayer.setVolume(muted ? 0f : 1f);
 
         // PERF (v10): outgoing reel is no longer mini-docked — undo its cap
@@ -585,6 +617,27 @@ public class ReelChatDockedPlayer implements DockedOverlayHandoff {
         }
         // PERF (v10): new reel is now the mini-docked one.
         capDecodeResolutionForDocking();
+
+        // ROOT FIX (v12) — "reel change hoti hai lekin play nahi hoti":
+        // ReelsFragment.advanceToNextForDockedPlayer() moves the ViewPager2
+        // to `next` via vpReels.setCurrentItem(), which synchronously fires
+        // ViewPager2's onPageSelected → controlPlayback(next). That method's
+        // shouldPlay is `isTabActive && !homeVisible && (i == activePosition)`
+        // — and isTabActive is deliberately false the whole time the user is
+        // chat-docked (Reels tab isn't actually on screen). So shouldPlay is
+        // ALWAYS false for the incoming fragment too, and it gets
+        // setUserVisibleHint(false) → pausePlayback() → player.pause()
+        // before this updatePlayer() call ever runs (500ms later). The mini
+        // docked player is a deliberate, intentional exception to the
+        // "tab not active → don't play" rule: it must keep playing
+        // regardless of Reels-tab visibility. Nothing else in this flow
+        // ever calls play() on newPlayer, so without this the surface swap
+        // lands correctly but the video just sits there paused — exactly
+        // the reported symptom.
+        if (newPlayer.getPlaybackState() == Player.STATE_IDLE) {
+            newPlayer.prepare();
+        }
+        newPlayer.setPlayWhenReady(true);
 
         // Feature 4 v3: reel switch has landed — allow the next swipe-up.
         isAdvancingReel = false;
@@ -761,12 +814,30 @@ public class ReelChatDockedPlayer implements DockedOverlayHandoff {
         int marginPx = (int) dpToPx(EDGE_MARGIN_DP);
         int navPx    = getNavBarHeightPx();
 
+        // Default lp is the bottom-right corner (used as the fallback below,
+        // and matches inflateOverlayView()'s first-ever-show default).
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(widthPx, heightPx);
         lp.gravity      = android.view.Gravity.BOTTOM | android.view.Gravity.END;
         lp.bottomMargin = marginPx + navPx;
         lp.rightMargin  = marginPx;
         container.setLayoutParams(lp);
-        container.setX(0); container.setY(0);
+
+        // BUG FIX (v13) — "PiP se wapas aane pe mini player hamesha bottom-right
+        // corner me jump kar jata tha, chahe user ne use kisi aur corner me drag
+        // kiya ho": this used to hardcode setX(0)/setY(0), which combined with
+        // the gravity above always lands bottom-right — throwing away whatever
+        // corner snapToNearestCorner() had it in before PiP was entered. Same
+        // pattern as inflateOverlayView()'s isReattach branch: land at the last
+        // known snapX/snapY (an absolute on-screen coordinate) instead, and only
+        // fall back to the gravity-computed bottom-right default the very first
+        // time a session exists (snapX/snapY not captured yet).
+        if (snapX != 0f || snapY != 0f) {
+            container.setX(snapX);
+            container.setY(snapY);
+        } else {
+            container.setX(0);
+            container.setY(0);
+        }
         container.setTranslationX(0); container.setTranslationY(0);
 
         View btnClose = container.findViewById(R.id.btn_mini_reel_close);
@@ -780,7 +851,9 @@ public class ReelChatDockedPlayer implements DockedOverlayHandoff {
         // Re-enable auto-enter for the restored mini player position
         enableAutoEnterPip();
 
-        // Re-capture snap position after next layout pass
+        // Re-capture snap position after next layout pass (covers the
+        // first-time fallback path above, where it's now legitimately
+        // bottom-right and should be remembered as such going forward).
         container.post(() -> {
             if (container != null) {
                 snapX = container.getX();
@@ -977,7 +1050,13 @@ public class ReelChatDockedPlayer implements DockedOverlayHandoff {
                                     if (livePlayer != null) {
                                         boolean muted = livePlayer.getVolume() <= 0f;
                                         livePlayer.setVolume(muted ? 1f : 0f);
-                                        // Feature 7: Persist mute state
+                                        // Feature 7 (OPT v13): update the in-memory
+                                        // cache immediately so the next swipe-up's
+                                        // updatePlayer() sees the new state without
+                                        // waiting on the disk write below; the write
+                                        // itself stays a fire-and-forget apply().
+                                        cachedMuted  = !muted;
+                                        mutedLoaded  = true;
                                         activity.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
                                                 .edit()
                                                 .putBoolean(PREF_MUTED, !muted)

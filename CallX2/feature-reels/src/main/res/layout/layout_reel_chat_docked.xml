@@ -26,14 +26,36 @@
         android:visibility="gone"
         android:contentDescription="Thumbnail" />
 
-    <!-- Live video surface — receives ExoPlayer via setPlayer() -->
+    <!-- Live video surface — receives ExoPlayer via setPlayer()
+
+         ROOT FIX (v12) — "bde docked se chote docked me aate waqt video
+         kabhi kabhi kat jata hai, aavaj chalti rehti hai":
+         This was surface_type="surface_view". A SurfaceView punches a hole
+         in the window and composites its own separate native surface
+         UNDER the app's view hierarchy at a position/size the system
+         updates asynchronously — it does NOT participate in normal View
+         transform animations. expandToLargePreview()/collapseFromLargePreview()
+         animate this container's scaleX/scaleY/x/y (120×213dp ⇄ 200×350dp).
+         During that tween the SurfaceView's real backing surface can lag
+         behind, snap to a stale rect, or briefly show nothing at all —
+         while ExoPlayer's audio track (which isn't tied to the surface at
+         all) keeps playing right on schedule. That mismatch is exactly
+         "video cuts out, audio keeps going".
+         TextureView is a normal View — it renders into the parent's own
+         hardware layer, so scaleX/scaleY/translation animations apply to
+         it frame-for-frame like any other view, with no separate window to
+         fall out of sync. The mini/preview surface is tiny (≤200×350dp)
+         and only exists while docked, so the small extra composition cost
+         vs. SurfaceView is worth trading for a transform-safe surface here.
+         (Full-screen ReelPlayerFragment, which never animates a scale
+         transform on its player view, keeps surface_view for that perf.) -->
     <androidx.media3.ui.PlayerView
         android:id="@+id/mini_reel_player_view"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         app:use_controller="false"
         app:resize_mode="zoom"
-        app:surface_type="surface_view"
+        app:surface_type="texture_view"
         android:background="#000000" />
 
     <!-- Feature 4: Swipe-up hint — subtle upward chevron at bottom center.
@@ -76,18 +98,12 @@
         android:visibility="gone"
         android:contentDescription="Mute indicator" />
 
-    <!-- Close button — top-right corner -->
+    <!-- Close button — top-right corner (no background, smaller) -->
     <FrameLayout
-        android:layout_width="28dp"
-        android:layout_height="28dp"
+        android:layout_width="20dp"
+        android:layout_height="20dp"
         android:layout_gravity="top|end"
         android:layout_margin="4dp">
-
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:background="#AA000000"
-            android:importantForAccessibility="no" />
 
         <ImageButton
             android:id="@+id/btn_mini_reel_close"
@@ -96,7 +112,7 @@
             android:src="@drawable/ic_close"
             android:tint="#FFFFFF"
             android:background="@android:color/transparent"
-            android:padding="4dp"
+            android:padding="2dp"
             android:contentDescription="Close mini player" />
 
     </FrameLayout>

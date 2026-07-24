@@ -591,6 +591,16 @@ public class ReelPlayerController {
         // can never get stuck audio-only with no video surface.
         if (playerView.getPlayer() != player) {
             playerView.setPlayer(player);
+            // CORRECTNESS (v11): a docked session may have capped this same
+            // ExoPlayer's decode resolution (ReelChatDockedPlayer PERF v10).
+            // If we're here re-asserting the binding, this reel is visibly
+            // active again — never leave it stuck at mini-player quality.
+            try {
+                player.setTrackSelectionParameters(
+                        player.getTrackSelectionParameters().buildUpon()
+                                .setMaxVideoSize(Integer.MAX_VALUE, Integer.MAX_VALUE)
+                                .build());
+            } catch (Exception ignored) {}
         }
 
         player.setVolume(isMuted ? 0f : 1f);

@@ -1223,10 +1223,13 @@ public class MainActivity extends AppCompatActivity {
 
         if (isReelsTabActive) {
             // ── Returning to Reels ────────────────────────────────────────────
-            if (dockedPlayer != null && dockedPlayer.isShowing()) {
+            if (dockedPlayer != null && dockedPlayer.isActive()) {
                 // Transfer ExoPlayer surface back to fragment BEFORE resuming playback.
                 // collapseBack() calls originalFragmentPlayerView.setPlayer(player),
                 // so when onTabResumed() → startPlayback() runs, the view is ready.
+                // v11: isActive() (not isShowing()) — must still hand the surface
+                // back even if the docked overlay happens to be mid cross-Activity
+                // handoff (detached but session still alive) right now.
                 dockedPlayer.collapseBack();
                 dockedPlayer = null;
             }
@@ -1239,7 +1242,7 @@ public class MainActivity extends AppCompatActivity {
             if (isGoingToChat) {
                 // ── Chat-tab docking: keep reel playing in mini overlay ────────
                 // Dismiss any stale docked player first (e.g. from a previous switch)
-                if (dockedPlayer != null && dockedPlayer.isShowing()) {
+                if (dockedPlayer != null && dockedPlayer.isActive()) {
                     dockedPlayer.dismiss(false);
                 }
                 dockedPlayer = new ReelChatDockedPlayer(this);
@@ -1288,7 +1291,7 @@ public class MainActivity extends AppCompatActivity {
                 // ── Other tab (Status, Groups, Calls): normal pause ───────────
                 // If a docked player is showing (user switches from Chat → Groups),
                 // dismiss it properly so we don't leak the player surface.
-                if (dockedPlayer != null && dockedPlayer.isShowing()) {
+                if (dockedPlayer != null && dockedPlayer.isActive()) {
                     dockedPlayer.dismiss(false);
                     dockedPlayer = null;
                     // Normal pause handles player release
