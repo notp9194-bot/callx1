@@ -343,6 +343,27 @@ public class ReelDuetController {
 
     // ── Sound / Bookmark / Profile ────────────────────────────────────────
 
+    /**
+     * Shows the small "Remix and sequence" + audio-info card (matches the
+     * Instagram-style intermediate popup) when the sound-disc right-rail
+     * button is tapped. The card's audio row calls openSoundDetail(); the
+     * "Remix and sequence" row calls openRemix(). Neither this method nor
+     * the sheet itself navigates directly.
+     */
+    public void showSoundQuickActions() {
+        if (!delegate.isAdded() || delegate.getContext() == null) return;
+        ReelModel reel = delegate.getReel();
+        if (reel == null) return;
+
+        String title = (reel.musicName != null && !reel.musicName.isEmpty())
+            ? reel.musicName : "Original Audio";
+        String cover = reel.musicCoverUrl != null ? reel.musicCoverUrl : "";
+
+        com.callx.app.music.ReelSoundQuickActionSheet sheet =
+            com.callx.app.music.ReelSoundQuickActionSheet.newInstance(title, cover);
+        sheet.show(delegate.getChildFragmentManager(), com.callx.app.music.ReelSoundQuickActionSheet.TAG);
+    }
+
     public void openSoundDetail() {
         if (!delegate.isAdded() || delegate.getActivity() == null) return;
         ReelModel reel = delegate.getReel();

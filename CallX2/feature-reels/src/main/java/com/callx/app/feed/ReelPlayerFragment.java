@@ -44,6 +44,7 @@ import java.util.ArrayList;
 public class ReelPlayerFragment extends Fragment
         implements ReelPlayerDelegate,
                     ReelMoreBottomSheet.OnItemClickListener,
+                    com.callx.app.music.ReelSoundQuickActionSheet.OnActionListener,
                     ReelCommentsBottomSheet.Host {
 
     private static final float[] SPEED_STEPS  = {0.5f, 1.0f, 1.5f, 2.0f};
@@ -455,6 +456,11 @@ public class ReelPlayerFragment extends Fragment
     @Override public void openCollabRepost()       { duetController.openCollabRepost(); }
     @Override public void openBookmarkCollections() { duetController.openBookmarkCollections(); }
     @Override public void openSoundDetail()        { duetController.openSoundDetail(); }
+    @Override public void showSoundQuickActions()  { duetController.showSoundQuickActions(); }
+
+    // ── ReelSoundQuickActionSheet.OnActionListener ────────────────────────
+    @Override public void onRemixAndSequence()   { duetController.openRemix(); }
+    @Override public void onSoundInfoSelected()  { duetController.openSoundDetail(); }
     @Override public void openUserReels()          { duetController.openUserReels(); }
     @Override public void openOwnerStatus()        { duetController.openOwnerStatus(); }
     @Override public void confirmDeleteReel()      { duetController.confirmDeleteReel(); }

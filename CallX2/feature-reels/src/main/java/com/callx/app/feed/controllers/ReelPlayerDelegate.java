@@ -110,6 +110,8 @@ public interface ReelPlayerDelegate {
     void openCollabRepost();
     void openBookmarkCollections();
     void openSoundDetail();
+    /** Shows the small "Remix and sequence" + audio-info card before SoundDetailActivity. */
+    void showSoundQuickActions();
     void openUserReels();
     void openOwnerStatus();
     void confirmDeleteReel();
