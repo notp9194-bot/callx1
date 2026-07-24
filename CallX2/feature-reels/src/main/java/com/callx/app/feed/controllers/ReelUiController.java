@@ -241,7 +241,7 @@ public class ReelUiController {
         String rawMusicName = reel.musicName == null ? "" : reel.musicName.trim();
         if (btnCreateAudio != null) {
             btnCreateAudio.setVisibility(View.VISIBLE);
-            btnCreateAudio.setOnClickListener(v -> delegate.openSoundDetail());
+            btnCreateAudio.setOnClickListener(v -> delegate.showSoundQuickActions());
             btnCreateAudio.setContentDescription(
                 rawMusicName.isEmpty() ? "Original audio" : rawMusicName);
 
@@ -479,7 +479,7 @@ public class ReelUiController {
         if (btnMore     != null) btnMore.setOnClickListener(v -> delegate.showMoreOptions());
         if (btnDownload != null) btnDownload.setOnClickListener(v -> delegate.downloadReel());
         if (tvMusicName != null) tvMusicName.setOnClickListener(v -> delegate.openSoundDetail());
-        if (ivMusicDisc != null) ivMusicDisc.setOnClickListener(v -> delegate.showSoundQuickActions());
+        if (ivMusicDisc != null) ivMusicDisc.setOnClickListener(v -> delegate.openSoundDetail());
         if (ivOwnerAvatar != null) ivOwnerAvatar.setOnClickListener(v -> delegate.openUserReels());
         if (tvOwnerName   != null) tvOwnerName.setOnClickListener(v -> delegate.openUserReels());
         if (tvCaption     != null) tvCaption.setOnClickListener(v -> showReelDetailsCard());
