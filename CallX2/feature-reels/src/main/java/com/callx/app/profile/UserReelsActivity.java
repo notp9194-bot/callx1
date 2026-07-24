@@ -2990,6 +2990,10 @@ public class UserReelsActivity extends AppCompatActivity
             menu.getMenu().add(0, 2, 0, "Copy Profile Link");
             if (isSelf)  menu.getMenu().add(0, 5, 0, "Creator Dashboard");
             if (isSelf && pinnedReel != null) menu.getMenu().add(0, 4, 0, "Remove Pinned Reel");
+            boolean dockedEnabled = com.callx.app.docked.DockedPlayerSettings.isEnabled(this);
+            if (isSelf) menu.getMenu().add(0, 8, 0,
+                dockedEnabled ? "Docked Reel Player: ON (tap to turn off)"
+                              : "Docked Reel Player: OFF (tap to turn on)");
             if (isSelf)  menu.getMenu().add(0, 6, 0, "🗑️ Delete All Reels");
             if (!isSelf) menu.getMenu().add(0, 3, 0, "Report User");
             if (!isSelf) menu.getMenu().add(0, 7, 0, "About this account");
@@ -3006,6 +3010,14 @@ public class UserReelsActivity extends AppCompatActivity
                     case 5: startActivity(new Intent(this, ReelCreatorDashboardActivity.class)); break;
                     case 6: deleteAllReels(); break;
                     case 7: openAboutAccount(); break;
+                    case 8: {
+                        boolean newState = !com.callx.app.docked.DockedPlayerSettings.isEnabled(this);
+                        com.callx.app.docked.DockedPlayerSettings.setEnabled(this, newState);
+                        Toast.makeText(this, newState
+                            ? "Docked reel player turned ON"
+                            : "Docked reel player turned OFF", Toast.LENGTH_SHORT).show();
+                        break;
+                    }
                 }
                 return true;
             });

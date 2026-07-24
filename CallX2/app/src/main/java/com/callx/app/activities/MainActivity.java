@@ -1237,7 +1237,8 @@ public class MainActivity extends AppCompatActivity {
 
         } else {
             // ── Leaving Reels ─────────────────────────────────────────────────
-            boolean isGoingToChat = (newTabPosition == TAB_CHATS);
+            boolean isGoingToChat = (newTabPosition == TAB_CHATS)
+                && com.callx.app.docked.DockedPlayerSettings.isEnabled(this);
 
             if (isGoingToChat) {
                 // ── Chat-tab docking: keep reel playing in mini overlay ────────
