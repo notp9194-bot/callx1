@@ -20,6 +20,7 @@ import com.callx.app.chatlist.canvas.ChatListStoryRingView;
 import com.callx.app.chatlist.canvas.ChatListUnreadBadgeView;
 import com.callx.app.chatlist.canvas.ChatRowContentView;
 import com.callx.app.conversation.ChatActivity;
+import com.callx.app.docked.DockedOverlayRegistry;
 import com.callx.app.models.User;
 import de.hdodenhof.circleimageview.CircleImageView;
 import com.callx.app.cache.StatusCacheManager;
@@ -634,6 +635,12 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         String chatId = (myUid != null && u.uid != null)
                 ? FirebaseUtils.getChatId(myUid, u.uid) : null;
         Runnable navigate = () -> {
+            // v8: hand off the docked mini reel player (if one is showing)
+            // so it survives the hop into ChatActivity instead of just
+            // disappearing behind it — ChatActivity picks it back up in
+            // its own onResume().
+            DockedOverlayRegistry.detachIfShowing();
+
             Intent i = new Intent(ctx, ChatActivity.class);
             i.putExtra("partnerUid",   u.uid);
             i.putExtra("partnerName",  u.name);

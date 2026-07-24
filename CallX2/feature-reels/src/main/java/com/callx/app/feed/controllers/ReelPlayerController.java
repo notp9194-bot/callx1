@@ -997,15 +997,30 @@ public class ReelPlayerController {
         progressRunnable = new Runnable() {
             @Override public void run() {
                 if (!delegate.isAdded() || player == null) return;
+
+                // PERF (v9): true while ReelChatDockedPlayer has stolen this
+                // reel's video surface (see its ROOT FIX — it nulls
+                // playerView's player before the mini view claims it). The
+                // docked mini layout has no SeekBar at all, so touching
+                // progressVideo here would just be an invalidate/traversal
+                // on a view that's invisible (or on an entirely different,
+                // currently backgrounded window) — silently stealing frame
+                // budget from whatever the user is actually scrolling
+                // (Reels feed or a chat's message list) right now.
+                boolean surfaceIsDocked = playerView == null || playerView.getPlayer() != player;
+
                 long dur = player.getDuration();
                 if (dur > 0) {
                     long pos = player.getCurrentPosition();
 
-                    // Update progress bar (0–1000 granularity)
-                    int barProgress = (int)(pos * 1000 / dur);
-                    if (progressVideo != null) progressVideo.setProgress(barProgress);
+                    // Update progress bar (0–1000 granularity) — visible-surface only.
+                    if (!surfaceIsDocked) {
+                        int barProgress = (int)(pos * 1000 / dur);
+                        if (progressVideo != null) progressVideo.setProgress(barProgress);
+                    }
 
-                    // Firebase watch-progress milestones (every 10%)
+                    // Firebase watch-progress milestones (every 10%) — kept
+                    // regardless of docked state, this is analytics, not UI.
                     int pct     = (int)(pos * 100 / dur);
                     int milestone = (pct / 10) * 10;
                     if (milestone != lastSavedProgressPct && milestone > 0) {
@@ -1020,7 +1035,10 @@ public class ReelPlayerController {
                     // Watch history milestones (25 / 50 / 75%)
                     recordWatchHistory(pct);
                 }
-                progressHandler.postDelayed(this, 300);
+
+                // PERF (v9): fewer main-thread wake-ups while nothing on
+                // screen actually needs the tighter cadence.
+                progressHandler.postDelayed(this, surfaceIsDocked ? 1000L : 300L);
             }
         };
         progressHandler.post(progressRunnable);

@@ -33,6 +33,7 @@
         android:layout_height="match_parent"
         app:use_controller="false"
         app:resize_mode="zoom"
+        app:surface_type="surface_view"
         android:background="#000000" />
 
     <!-- Feature 4: Swipe-up hint — subtle upward chevron at bottom center.

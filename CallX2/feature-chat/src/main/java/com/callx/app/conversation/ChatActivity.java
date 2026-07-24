@@ -733,6 +733,13 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // Re-assert immersive full-screen (system can restore bars after
         // returning from a picker / dialog / app-switch).
         com.callx.app.utils.ImmersiveModeUtils.enterImmersive(this);
+
+        // v8: pick the docked mini reel player back up if the user had one
+        // playing when they opened this chat (handed off in ChatListAdapter
+        // right before startActivity, or still active from an even earlier
+        // screen). Same ExoPlayer instance, no reload — video keeps playing.
+        com.callx.app.docked.DockedOverlayRegistry.attachIfActiveAndHidden(this);
+
         // Publish that we currently have THIS chat screen open & foregrounded,
         // so the partner's chat header can show "active in this chat".
         if (presenceController != null) {
@@ -935,6 +942,11 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     @Override
     protected void onPause() {
         super.onPause();
+        // v8: detach (not stop) the docked mini reel player before this
+        // window goes away — playback continues invisibly; whichever
+        // screen the user lands on next re-attaches it in its own onResume.
+        com.callx.app.docked.DockedOverlayRegistry.detachIfShowing();
+
         // Cancel any in-flight Glide preloads so we don't decode images for a
         // chat the user just left.  Clearing the strong references also lets
         // Glide GC the targets normally.

@@ -34,6 +34,8 @@ import androidx.media3.ui.AspectRatioFrameLayout;
 import androidx.media3.ui.PlayerView;
 
 import com.bumptech.glide.Glide;
+import com.callx.app.docked.DockedOverlayHandoff;
+import com.callx.app.docked.DockedOverlayRegistry;
 import com.callx.app.reels.R;
 
 /**
@@ -53,9 +55,15 @@ import com.callx.app.reels.R;
  *  5. Picture-in-Picture      — app goes background → Android native PiP wrapper
  *  6. Animated thumbnail      — blurred thumb fades out on first video frame render
  *  7. Mute state persistence  — SharedPreferences remembers mute across sessions
+ *  8. Cross-Activity handoff  — survives Chats-tab-list → ChatActivity (conversation
+ *                                screen) → back, by detaching its view from one
+ *                                Activity window and re-parenting into another while
+ *                                the same ExoPlayer instance keeps playing throughout.
+ *                                See {@link #detachKeepAlive()} / {@link #attachToActivity}
+ *                                and {@link DockedOverlayRegistry}.
  */
 @OptIn(markerClass = UnstableApi.class)
-public class ReelChatDockedPlayer {
+public class ReelChatDockedPlayer implements DockedOverlayHandoff {
 
     // ── Constants ──────────────────────────────────────────────────────────
     private static final float MINI_WIDTH_DP      = 120f;
@@ -94,7 +102,7 @@ public class ReelChatDockedPlayer {
 
     // ── State ──────────────────────────────────────────────────────────────
 
-    private final Activity  activity;
+    private       Activity  activity;
     private       Callback  callback;
 
     private ViewGroup  container;
@@ -135,14 +143,80 @@ public class ReelChatDockedPlayer {
     // Active spring animations for corner snap, so a new drag can cancel them (Feature 1 v3)
     private SpringAnimation springX, springY;
 
+    // PERF (v9): cached once per Activity instead of re-resolved via
+    // Resources/DisplayMetrics on every dpToPx() call — dpToPx() runs many
+    // times per drag gesture (every ACTION_MOVE), so this avoids repeated
+    // Activity→Resources→DisplayMetrics chasing during the most touch-event-
+    // dense part of this class's work.
+    private float density;
+
+    // PERF (v10): the mini overlay is ~120dp wide — decoding/rendering the
+    // reel at full resolution into that tiny surface is pure wasted CPU/GPU
+    // work that competes with whatever the user is actually scrolling
+    // (Reels feed or a chat's message list) right now. Reels stream via
+    // adaptive HLS (see AdaptiveStreamingManager), so this is a LIVE
+    // TrackSelectionParameters constraint — ExoPlayer just selects a
+    // lower-bitrate/resolution rendition at the next segment boundary. No
+    // player rebuild, no MediaItem reload, no visible hitch in the mini view.
+    private static final int DOCKED_MAX_VIDEO_DIMENSION_PX      = 480;
+    // PERF (v11): low-RAM devices (ActivityManager#isLowRamDevice — Android's
+    // own signal for "go easy here", already ≤ ~1-2GB class hardware) get an
+    // even tighter cap. Decode cost scales roughly with pixel count, so
+    // 240px vs 480px is a real ~4x reduction in decode work specifically on
+    // the hardware that needs it most — full-res devices are untouched.
+    private static final int DOCKED_MAX_VIDEO_DIMENSION_PX_LOW_RAM = 240;
+
+    /** Resolved once per Activity (cheap ActivityManager check) instead of per attach. */
+    private int dockedMaxVideoDimensionPx = DOCKED_MAX_VIDEO_DIMENSION_PX;
+
+    private void resolveDockedResolutionCap() {
+        try {
+            android.app.ActivityManager am =
+                    (android.app.ActivityManager) activity.getSystemService(Context.ACTIVITY_SERVICE);
+            boolean lowRam = am != null && am.isLowRamDevice();
+            dockedMaxVideoDimensionPx = lowRam
+                    ? DOCKED_MAX_VIDEO_DIMENSION_PX_LOW_RAM
+                    : DOCKED_MAX_VIDEO_DIMENSION_PX;
+        } catch (Exception ignored) {
+            dockedMaxVideoDimensionPx = DOCKED_MAX_VIDEO_DIMENSION_PX;
+        }
+    }
+
+    /** Cap decode resolution — call once the player is confirmed docked (mini-sized). */
+    private void capDecodeResolutionForDocking() {
+        if (livePlayer == null) return;
+        try {
+            livePlayer.setTrackSelectionParameters(
+                    livePlayer.getTrackSelectionParameters().buildUpon()
+                            .setMaxVideoSize(dockedMaxVideoDimensionPx, dockedMaxVideoDimensionPx)
+                            .build());
+        } catch (Exception ignored) {
+            // Defensive — never let a track-selection tweak break playback.
+        }
+    }
+
+    /** Restore full decode resolution — call before/at the point a player becomes full-screen again. */
+    private void restoreFullDecodeResolution(@Nullable ExoPlayer p) {
+        if (p == null) return;
+        try {
+            p.setTrackSelectionParameters(
+                    p.getTrackSelectionParameters().buildUpon()
+                            .setMaxVideoSize(Integer.MAX_VALUE, Integer.MAX_VALUE)
+                            .build());
+        } catch (Exception ignored) {}
+    }
+
     // ── Constructor ────────────────────────────────────────────────────────
 
     public ReelChatDockedPlayer(Activity activity) {
         this.activity = activity;
+        this.density  = activity.getResources().getDisplayMetrics().density;
+        resolveDockedResolutionCap();
     }
 
     // ── Public API ─────────────────────────────────────────────────────────
 
+    @Override
     public boolean isShowing() {
         return container != null && container.getParent() != null;
     }
@@ -161,22 +235,15 @@ public class ReelChatDockedPlayer {
                      @NonNull Callback cb) {
         if (isShowing()) return;
 
-        this.livePlayer                = player;
+        this.livePlayer                 = player;
         this.originalFragmentPlayerView = fragmentPlayer;
-        this.callback                  = cb;
-
-        // ── Inflate layout ───────────────────────────────────────────────
-        LayoutInflater inflater = LayoutInflater.from(activity);
-        container = (ViewGroup) inflater.inflate(
-                R.layout.layout_reel_chat_docked, null, false);
-        miniPlayerView = container.findViewById(R.id.mini_reel_player_view);
+        this.callback                   = cb;
 
         // ── Feature 7: Restore mute state from SharedPrefs ─────────────
         SharedPreferences prefs = activity.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
         boolean savedMuted = prefs.getBoolean(PREF_MUTED, false);
         player.setVolume(savedMuted ? 0f : 1f);
 
-        // ── Transfer ExoPlayer surface → mini view ───────────────────────
         // ROOT FIX (v4): androidx.media3.ui.PlayerView#setPlayer() early-returns
         // as a no-op when the view's internal player field already equals the
         // player being assigned. fragmentPlayer still holds `player` from the
@@ -186,14 +253,103 @@ public class ReelChatDockedPlayer {
         // already matches) — the video surface never reattaches, ExoPlayer
         // keeps playing (audio audible) but has nowhere to render the frame.
         fragmentPlayer.setPlayer(null);
-        miniPlayerView.setPlayer(player);
+
+        inflateOverlayView(/* isReattach= */ false);
+
+        // ── Feature 6: Animated thumbnail fallback (first-time only — a
+        // reattach across Activities already has a rendered first frame) ──
+        showThumbnailFallback(thumbUrl);
+        listenForFirstFrame();
+
+        // v8: publish this session so screens outside feature-reels (e.g.
+        // ChatActivity/ChatListAdapter in feature-chat) can hand it off /
+        // reattach it across Activity boundaries.
+        DockedOverlayRegistry.setActive(this);
+    }
+
+    /**
+     * True while a docked session exists at all (ExoPlayer alive), regardless
+     * of whether its overlay view is currently attached to any window.
+     */
+    @Override
+    public boolean isActive() {
+        return livePlayer != null;
+    }
+
+    /**
+     * Remove the overlay from whatever Activity window it's currently
+     * attached to, WITHOUT stopping playback or touching the ExoPlayer —
+     * the mini player keeps playing invisibly until {@link #attachToActivity}
+     * re-parents it into a new window. This is what lets the docked reel
+     * survive Chats-tab-list → ChatActivity (conversation screen) → back.
+     */
+    @Override
+    public void detachKeepAlive() {
+        if (!isShowing()) return;
+        cancelAllHandlers();
+        disableAutoEnterPip();
+        removeOverlay();
+    }
+
+    /**
+     * Re-parent the still-playing overlay into a different Activity's
+     * window — e.g. MainActivity (Chats tab) ⇄ ChatActivity (conversation
+     * screen). Reuses the SAME ExoPlayer instance, so the video keeps
+     * playing from wherever it was with no reload and no dropped frame —
+     * only the rendering surface moves.
+     */
+    @Override
+    public void attachToActivity(@NonNull Activity newActivity) {
+        if (!isActive()) return;                        // no docked session to hand off
+        if (isShowing() && activity == newActivity) return; // already here
+
+        if (isShowing()) {
+            // Attached to a stale window (shouldn't normally happen) — clear
+            // it first rather than leaking two overlays.
+            cancelAllHandlers();
+            removeOverlay();
+        }
+
+        this.activity = newActivity;
+        this.density  = newActivity.getResources().getDisplayMetrics().density;
+        inflateOverlayView(/* isReattach= */ true);
+        enableAutoEnterPip();
+    }
+
+    /**
+     * Inflate the mini overlay layout under the current {@link #activity}'s
+     * content root and bind the live ExoPlayer to it. Shared by {@link #show}
+     * (first time) and {@link #attachToActivity} (re-parenting into a
+     * different Activity window).
+     */
+    private void inflateOverlayView(boolean isReattach) {
+        LayoutInflater inflater = LayoutInflater.from(activity);
+        container = (ViewGroup) inflater.inflate(
+                R.layout.layout_reel_chat_docked, null, false);
+        miniPlayerView = container.findViewById(R.id.mini_reel_player_view);
+
+        // ROOT FIX (v4): release any stale claim before this (possibly brand
+        // new, on reattach) PlayerView takes the surface — harmless no-op on
+        // a freshly-inflated view, essential on any reused one.
+        miniPlayerView.setPlayer(null);
+        miniPlayerView.setPlayer(livePlayer);
         miniPlayerView.setUseController(false);
         miniPlayerView.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_ZOOM);
 
-        // ── Corner radius ────────────────────────────────────────────────
+        // PERF (v10): mini-sized surface → mini-sized decode budget.
+        capDecodeResolutionForDocking();
+
         applyCornerRadius(CORNER_RADIUS_DP);
 
-        // ── Add to activity content root (bottom-right default) ──────────
+        // v9 perf: SurfaceView-backed PlayerView (default surface_type in
+        // the layout) composites on its own hardware layer, independent of
+        // the host Activity's view tree — it never forces a redraw of
+        // whatever RecyclerView (e.g. ChatActivity's message list) is
+        // scrolling underneath. The small overlay container additionally
+        // gets its own hardware layer so drag/gesture animations never
+        // trigger a redraw of the content behind it either.
+        container.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+
         ViewGroup root = activity.findViewById(android.R.id.content);
         int widthPx   = (int) dpToPx(MINI_WIDTH_DP);
         int heightPx  = (int) (widthPx * ASPECT_RATIO);
@@ -206,25 +362,39 @@ public class ReelChatDockedPlayer {
         lp.rightMargin  = marginPx;
         root.addView(container, lp);
 
-        // After layout, capture initial position for drag tracking
-        container.post(() -> {
-            snapX = container.getX();
-            snapY = container.getY();
-        });
+        if (isReattach && (snapX != 0f || snapY != 0f)) {
+            // v8: land straight at the last known corner instead of
+            // resetting to bottom-right, so hopping between Activities
+            // doesn't visibly reset the user's chosen position.
+            container.setX(snapX);
+            container.setY(snapY);
+        } else {
+            // After layout, capture initial position for drag tracking
+            container.post(() -> {
+                snapX = container.getX();
+                snapY = container.getY();
+            });
+        }
 
-        // ── Entrance animation: slide up + fade in ───────────────────────
-        container.setTranslationY(heightPx + marginPx);
-        container.setAlpha(0f);
-        container.animate()
-                .translationY(0f)
-                .alpha(1f)
-                .setDuration(320)
-                .setInterpolator(new android.view.animation.DecelerateInterpolator(1.5f))
-                .start();
-
-        // ── Feature 6: Animated thumbnail fallback ───────────────────────
-        showThumbnailFallback(thumbUrl);
-        listenForFirstFrame();
+        if (isReattach) {
+            // v8: quick fade-in only — no slide-up, no thumbnail; the video
+            // already has its first frame rendered from before the hop.
+            container.setAlpha(0f);
+            container.animate()
+                    .alpha(1f)
+                    .setDuration(160)
+                    .start();
+        } else {
+            // ── Entrance animation: slide up + fade in ───────────────────
+            container.setTranslationY(heightPx + marginPx);
+            container.setAlpha(0f);
+            container.animate()
+                    .translationY(0f)
+                    .alpha(1f)
+                    .setDuration(320)
+                    .setInterpolator(new android.view.animation.DecelerateInterpolator(1.5f))
+                    .start();
+        }
 
         // ── Close button ─────────────────────────────────────────────────
         ImageButton btnClose = container.findViewById(R.id.btn_mini_reel_close);
@@ -294,6 +464,8 @@ public class ReelChatDockedPlayer {
         cancelAllHandlers();
 
         if (originalFragmentPlayerView != null && livePlayer != null) {
+            // PERF (v10): about to be full-screen again — undo the mini-view cap.
+            restoreFullDecodeResolution(livePlayer);
             originalFragmentPlayerView.setPlayer(livePlayer);
         }
         if (miniPlayerView != null) {
@@ -315,11 +487,20 @@ public class ReelChatDockedPlayer {
         }
         livePlayer                 = null;
         originalFragmentPlayerView = null;
+
+        // v8: session over — unpublish so nothing tries to reattach it later.
+        if (DockedOverlayRegistry.getActive() == this) {
+            DockedOverlayRegistry.setActive(null);
+        }
     }
 
     /** Permanently dismiss the overlay. */
     public void dismiss(boolean animated) {
         cancelAllHandlers();
+
+        // PERF (v10): defensive — in case this ExoPlayer instance is reused
+        // elsewhere without being rebuilt, don't leave it stuck capped.
+        restoreFullDecodeResolution(livePlayer);
 
         if (firstFrameListener != null && livePlayer != null) {
             livePlayer.removeListener(firstFrameListener);
@@ -330,6 +511,11 @@ public class ReelChatDockedPlayer {
         }
         livePlayer                 = null;
         originalFragmentPlayerView = null;
+
+        // v8: session over — unpublish so nothing tries to reattach it later.
+        if (DockedOverlayRegistry.getActive() == this) {
+            DockedOverlayRegistry.setActive(null);
+        }
 
         if (container != null && container.getParent() != null) {
             if (animated) {
@@ -379,6 +565,11 @@ public class ReelChatDockedPlayer {
         boolean muted = prefs.getBoolean(PREF_MUTED, false);
         newPlayer.setVolume(muted ? 0f : 1f);
 
+        // PERF (v10): outgoing reel is no longer mini-docked — undo its cap
+        // now, before we lose the reference, so it isn't stuck at reduced
+        // resolution if the user later swipes back to it full-screen.
+        restoreFullDecodeResolution(livePlayer);
+
         livePlayer                 = newPlayer;
         originalFragmentPlayerView = newFragmentView;
 
@@ -392,6 +583,8 @@ public class ReelChatDockedPlayer {
         if (miniPlayerView != null) {
             miniPlayerView.setPlayer(newPlayer);
         }
+        // PERF (v10): new reel is now the mini-docked one.
+        capDecodeResolutionForDocking();
 
         // Feature 4 v3: reel switch has landed — allow the next swipe-up.
         isAdvancingReel = false;
@@ -1037,7 +1230,7 @@ public class ReelChatDockedPlayer {
     }
 
     private float dpToPx(float dp) {
-        return dp * activity.getResources().getDisplayMetrics().density;
+        return dp * density;
     }
 
     private int getNavBarHeightPx() {

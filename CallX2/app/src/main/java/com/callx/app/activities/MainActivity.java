@@ -305,9 +305,26 @@ public class MainActivity extends AppCompatActivity {
         loadReelsAvatarIntoNavTab();
         int currentTab = binding.viewPager.getCurrentItem();
         boolean isReelsTab = currentTab == TAB_REELS;
-        // Pass current tab as destination — onResume doesn't represent a "switch",
-        // so we treat it as a no-op dock transition (normal resume path).
-        notifyReelsTabVisibility(isReelsTab, currentTab);
+
+        // v8: pick the docked mini reel player back up first — e.g. the user
+        // just returned from ChatActivity with one still playing. Same
+        // ExoPlayer instance, no reload, only the rendering surface moves.
+        if (dockedPlayer != null && dockedPlayer.isActive() && !dockedPlayer.isShowing()) {
+            dockedPlayer.attachToActivity(this);
+        }
+
+        // onResume doesn't represent a tab switch. If a docked session is
+        // already active (just reattached above, or was already showing
+        // before this pause/resume cycle) skip the normal dock/undock
+        // transition below entirely — re-running it here would immediately
+        // tear down the session we just reattached and rebuild a brand new
+        // one from whatever ReelsFragment's internal pager happens to be on.
+        boolean dockedAlreadyActive = dockedPlayer != null && dockedPlayer.isActive();
+        if (!dockedAlreadyActive) {
+            // Pass current tab as destination — onResume doesn't represent a "switch",
+            // so we treat it as a no-op dock transition (normal resume path).
+            notifyReelsTabVisibility(isReelsTab, currentTab);
+        }
         setMainNavVisible(!isReelsTab);
         // Feature 1: Return to Call Banner
         updateReturnToCallBanner();
