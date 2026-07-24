@@ -245,6 +245,12 @@ public class ReelUiController {
             btnCreateAudio.setContentDescription(
                 rawMusicName.isEmpty() ? "Original audio" : rawMusicName);
 
+            // ✅ FIX: for OLD reels (posted before musicCoverUrl was saved on
+            // reused-sound reels), fetch the cover from sounds/{musicId}
+            // once at render time instead of silently showing no photo.
+            if (TextUtils.isEmpty(reel.musicCoverUrl) && !TextUtils.isEmpty(reel.musicId)) {
+                fetchAndBindMissingSoundCover(reel);
+            }
             String audioImageUrl = !TextUtils.isEmpty(reel.musicCoverUrl)
                 ? reel.musicCoverUrl
                 : reel.ownerPhoto;
@@ -266,7 +272,11 @@ public class ReelUiController {
         // Music disc cover art
         startDiscAnimation();
         if (ivMusicDisc != null && delegate.isAdded() && delegate.getContext() != null) {
-            String coverUrl = reel.musicCoverUrl;
+            // ✅ FIX: same fallback as btnCreateAudio — own thumbnail for a
+            // brand-new original, else generic icon while the DB fetch runs.
+            String coverUrl = !TextUtils.isEmpty(reel.musicCoverUrl)
+                ? reel.musicCoverUrl
+                : reel.ownerPhoto;
             if (coverUrl != null && !coverUrl.isEmpty()) {
                 Glide.with(delegate.requireContext())
                     .load(coverUrl)
@@ -538,6 +548,57 @@ public class ReelUiController {
             .setView(detailsScroll)
             .setPositiveButton("Close", null)
             .show();
+    }
+
+    // ── Legacy sound-cover backfill ─────────────────────────────────────
+    // Reels posted before the musicCoverUrl fix have that field missing in
+    // Firebase even though they DO have a valid musicId. Rather than a full
+    // data migration, fetch the cover once from sounds/{musicId} at render
+    // time and bind it in — cached per musicId so repeat reels with the same
+    // sound don't re-fetch.
+    private static final java.util.Map<String, String> soundCoverCache = new java.util.HashMap<>();
+    private static final Set<String> soundCoverFetchInFlight = new HashSet<>();
+
+    private void fetchAndBindMissingSoundCover(ReelModel reel) {
+        String musicId = reel.musicId;
+        String cached = soundCoverCache.get(musicId);
+        if (cached != null) {
+            if (!cached.isEmpty()) bindMusicCover(reel, cached);
+            return;
+        }
+        if (!soundCoverFetchInFlight.add(musicId)) return; // already fetching
+
+        FirebaseDatabase.getInstance(com.callx.app.utils.Constants.DB_URL)
+            .getReference("sounds").child(musicId).child("coverUrl")
+            .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
+                @Override public void onDataChange(@androidx.annotation.NonNull com.google.firebase.database.DataSnapshot snap) {
+                    String coverUrl = snap.getValue(String.class);
+                    soundCoverCache.put(musicId, coverUrl != null ? coverUrl : "");
+                    soundCoverFetchInFlight.remove(musicId);
+                    if (coverUrl != null && !coverUrl.isEmpty()) {
+                        bindMusicCover(reel, coverUrl);
+                    }
+                }
+                @Override public void onCancelled(@androidx.annotation.NonNull com.google.firebase.database.DatabaseError e) {
+                    soundCoverFetchInFlight.remove(musicId);
+                }
+            });
+    }
+
+    /** Sets reel.musicCoverUrl (so future binds don't re-fetch) and refreshes both music views if still on screen. */
+    private void bindMusicCover(ReelModel reel, String coverUrl) {
+        reel.musicCoverUrl = coverUrl;
+        if (!delegate.isAdded() || delegate.getContext() == null) return;
+        if (btnCreateAudio != null) {
+            Glide.with(delegate.requireContext()).load(coverUrl)
+                .apply(new RequestOptions().centerCrop().placeholder(R.drawable.ic_audio))
+                .into(btnCreateAudio);
+        }
+        if (ivMusicDisc != null) {
+            Glide.with(delegate.requireContext()).load(coverUrl)
+                .apply(new RequestOptions().circleCrop().placeholder(R.drawable.ic_music_note))
+                .into(ivMusicDisc);
+        }
     }
 
     // ── Music disc animation ──────────────────────────────────────────────

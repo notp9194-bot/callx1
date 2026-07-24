@@ -956,6 +956,12 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
             i.putExtra("selected_sound_id",        soundId);
             i.putExtra("selected_sound_title",     soundTitle);
             i.putExtra("selected_sound_url",       soundUrl);
+            // ✅ FIX: carry the sound's cover art forward so the reel's
+            // right-rail music disc shows the ORIGINAL sound's photo
+            // immediately, instead of depending only on the later async
+            // Firebase patch in registerOrLinkSound().
+            i.putExtra("selected_sound_cover",     coverUrl);
+            i.putExtra("selected_sound_artist",    artist);
             i.putExtra("replace_audio_with_sound", true);
             startActivity(i);
             if (onCloseListener != null) onCloseListener.run();

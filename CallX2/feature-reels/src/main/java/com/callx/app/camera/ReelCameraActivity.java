@@ -198,6 +198,11 @@ public class ReelCameraActivity extends AppCompatActivity {
     private String  preSelectedSoundId    = "";
     private String  preSelectedSoundTitle = "";
     private String  preSelectedSoundUrl   = "";
+    // ✅ FIX: cover/artist carried alongside id/url so the reel's music
+    // disc can show the ORIGINAL sound's photo right away, instead of
+    // depending only on the later async Firebase patch.
+    private String  preSelectedSoundCover  = "";
+    private String  preSelectedSoundArtist = "";
     private boolean replaceAudioWithSound = false;
 
     private MediaPlayer soundPreviewPlayer;
@@ -357,12 +362,16 @@ public class ReelCameraActivity extends AppCompatActivity {
     private void readSoundExtras() {
         Intent i = getIntent();
         if (i == null) return;
-        String id    = i.getStringExtra("selected_sound_id");
-        String title = i.getStringExtra("selected_sound_title");
-        String url   = i.getStringExtra("selected_sound_url");
-        if (id    != null && !id.isEmpty())    preSelectedSoundId    = id;
-        if (title != null && !title.isEmpty()) preSelectedSoundTitle = title;
-        if (url   != null && !url.isEmpty())   preSelectedSoundUrl   = url;
+        String id     = i.getStringExtra("selected_sound_id");
+        String title  = i.getStringExtra("selected_sound_title");
+        String url    = i.getStringExtra("selected_sound_url");
+        String cover  = i.getStringExtra("selected_sound_cover");
+        String artist = i.getStringExtra("selected_sound_artist");
+        if (id     != null && !id.isEmpty())     preSelectedSoundId     = id;
+        if (title  != null && !title.isEmpty())  preSelectedSoundTitle  = title;
+        if (url    != null && !url.isEmpty())    preSelectedSoundUrl    = url;
+        if (cover  != null && !cover.isEmpty())  preSelectedSoundCover  = cover;
+        if (artist != null && !artist.isEmpty()) preSelectedSoundArtist = artist;
 
         replaceAudioWithSound = i.getBooleanExtra("replace_audio_with_sound", false);
 
@@ -529,6 +538,10 @@ public class ReelCameraActivity extends AppCompatActivity {
         if (!preSelectedSoundId.isEmpty())    intent.putExtra("selected_sound_id",    preSelectedSoundId);
         if (!preSelectedSoundTitle.isEmpty()) intent.putExtra("selected_sound_title", preSelectedSoundTitle);
         if (!preSelectedSoundUrl.isEmpty())   intent.putExtra("selected_sound_url",   preSelectedSoundUrl);
+        // ✅ FIX: forward cover/artist too, so ReelUploadActivity can set
+        // reel.musicCoverUrl/musicArtist synchronously at creation time.
+        if (!preSelectedSoundCover.isEmpty()) intent.putExtra("selected_sound_cover", preSelectedSoundCover);
+        if (!preSelectedSoundArtist.isEmpty())intent.putExtra("selected_sound_artist",preSelectedSoundArtist);
         if (replaceAudioWithSound)            intent.putExtra("audio_already_replaced", true);
 
         // Filter

@@ -95,6 +95,11 @@ public class ReelUploadActivity extends AppCompatActivity {
     public static final String EXTRA_SOUND_ID    = "selected_sound_id";
     public static final String EXTRA_SOUND_TITLE = "selected_sound_title";
     public static final String EXTRA_SOUND_URL   = "selected_sound_url";
+    // ✅ FIX: cover/artist extras so the music disc shows the ORIGINAL
+    // sound's photo immediately at post time, not just after the later
+    // async Firebase patch in registerOrLinkSound().
+    public static final String EXTRA_SOUND_COVER  = "selected_sound_cover";
+    public static final String EXTRA_SOUND_ARTIST = "selected_sound_artist";
     // Fix 4 & 6 & 8: duet metadata
     public static final String EXTRA_IS_DUET          = "upload_is_duet";
     public static final String EXTRA_DUET_ORIGINAL_ID = "upload_duet_original_id";
@@ -192,6 +197,9 @@ public class ReelUploadActivity extends AppCompatActivity {
     private Uri                    selectedUri;
     private String                 preSelectedSoundId    = "";
     private String                 preSelectedSoundUrl   = "";
+    // ✅ FIX: carried alongside id/url so reel.musicCoverUrl can be set
+    // synchronously at post time (artist reuses existing currentSoundArtist).
+    private String                 preSelectedSoundCover  = "";
     /** Human-readable title of the currently selected sound. */
     private String                 currentSoundTitle     = "";
     /** Artist of the currently selected sound. */
@@ -584,6 +592,7 @@ public class ReelUploadActivity extends AppCompatActivity {
     private void clearSelectedAudio() {
         preSelectedSoundId    = "";
         preSelectedSoundUrl   = "";
+        preSelectedSoundCover = "";
         currentSoundTitle     = "";
         currentSoundArtist    = "";
         mixMusicVol           = 0.8f;
@@ -753,11 +762,15 @@ public class ReelUploadActivity extends AppCompatActivity {
 
         // ── Read sound extras FIRST (before any early return) ─────────────
         // These are set by SoundDetailActivity (gallery flow) OR ReelEditorActivity (camera flow)
-        String soundId    = i.getStringExtra(EXTRA_SOUND_ID);
-        String soundTitle = i.getStringExtra(EXTRA_SOUND_TITLE);
-        String soundUrl   = i.getStringExtra(EXTRA_SOUND_URL);
-        if (soundId    != null && !soundId.isEmpty())    preSelectedSoundId  = soundId;
-        if (soundUrl   != null && !soundUrl.isEmpty())   preSelectedSoundUrl = soundUrl;
+        String soundId     = i.getStringExtra(EXTRA_SOUND_ID);
+        String soundTitle  = i.getStringExtra(EXTRA_SOUND_TITLE);
+        String soundUrl    = i.getStringExtra(EXTRA_SOUND_URL);
+        String soundCover  = i.getStringExtra(EXTRA_SOUND_COVER);
+        String soundArtist = i.getStringExtra(EXTRA_SOUND_ARTIST);
+        if (soundId     != null && !soundId.isEmpty())     preSelectedSoundId     = soundId;
+        if (soundUrl    != null && !soundUrl.isEmpty())    preSelectedSoundUrl    = soundUrl;
+        if (soundCover  != null && !soundCover.isEmpty())  preSelectedSoundCover  = soundCover;
+        if (soundArtist != null && !soundArtist.isEmpty()) currentSoundArtist     = soundArtist;
         if (soundTitle != null && !soundTitle.isEmpty()) {
             currentSoundTitle = soundTitle;
             if (etMusic != null && (etMusic.getText() == null || etMusic.getText().toString().isEmpty())) {
@@ -1888,6 +1901,12 @@ public class ReelUploadActivity extends AppCompatActivity {
 
                     if (!a.preSelectedSoundId.isEmpty())  reel.musicId  = a.preSelectedSoundId;
                     if (!a.preSelectedSoundUrl.isEmpty()) reel.musicUrl = a.preSelectedSoundUrl;
+                    // ✅ FIX: set musicCoverUrl/musicArtist right away (existing-sound
+                    // case) instead of relying only on the later async patch in
+                    // registerOrLinkSound(), which was silently skipped whenever
+                    // that read raced/failed.
+                    if (!a.preSelectedSoundCover.isEmpty()) reel.musicCoverUrl = a.preSelectedSoundCover;
+                    if (!a.currentSoundArtist.isEmpty())    reel.musicArtist   = a.currentSoundArtist;
 
                     FirebaseUtils.getReelsRef().child(reelId).setValue(reel)
                         .addOnSuccessListener(unused -> {
@@ -1985,6 +2004,12 @@ public class ReelUploadActivity extends AppCompatActivity {
                 // Attach pre-selected sound if provided
                 if (!a.preSelectedSoundId.isEmpty())  reel.musicId  = a.preSelectedSoundId;
                 if (!a.preSelectedSoundUrl.isEmpty()) reel.musicUrl = a.preSelectedSoundUrl;
+                // ✅ FIX: set musicCoverUrl/musicArtist right away (existing-sound
+                // case) instead of relying only on the later async patch in
+                // registerOrLinkSound(), which was silently skipped whenever
+                // that read raced/failed.
+                if (!a.preSelectedSoundCover.isEmpty()) reel.musicCoverUrl = a.preSelectedSoundCover;
+                if (!a.currentSoundArtist.isEmpty())    reel.musicArtist   = a.currentSoundArtist;
                 if (result != null) {
                     reel.compressionSummary = result.compressionSummary();
                     reel.savingsPercent     = result.savingsPercent();
