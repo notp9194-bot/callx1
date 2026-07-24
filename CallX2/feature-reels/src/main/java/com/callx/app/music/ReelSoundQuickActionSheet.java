@@ -1,39 +1,35 @@
 package com.callx.app.music;
 
-import android.app.Dialog;
 import android.content.Context;
-import android.graphics.Color;
-import android.graphics.drawable.ColorDrawable;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.Window;
-import android.view.WindowManager;
 import android.widget.ImageView;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-import androidx.fragment.app.DialogFragment;
 
 import com.bumptech.glide.Glide;
 import com.callx.app.reels.R;
+import com.google.android.material.bottomsheet.BottomSheetBehavior;
+import com.google.android.material.bottomsheet.BottomSheetDialog;
+import com.google.android.material.bottomsheet.BottomSheetDialogFragment;
 
 /**
  * ReelSoundQuickActionSheet
  *
- * Small floating card shown when the sound/audio tile in the Reel player's
- * right action rail is tapped — matches Instagram's compact "Remix and
- * sequence" popup exactly: no dark scrim, no drag handle, no full-width
- * bottom sheet — just a small rounded card floating above the caption row.
+ * Small intermediate card shown when the sound-disc / right-rail action
+ * button is tapped in the Reel player (Instagram-style "Remix and
+ * sequence" + audio-info card). Tapping the audio row opens
+ * SoundDetailActivity; tapping "Remix and sequence" opens the remix flow.
  *
- * Tapping the audio row opens SoundDetailActivity; tapping "Remix and
- * sequence" opens the remix flow. The sheet itself performs no navigation —
- * it reports the tap back to the host via {@link OnActionListener} and
- * dismisses itself.
+ * This sheet itself performs no navigation — it just reports the tap
+ * back to the host via {@link OnActionListener} and dismisses itself,
+ * matching the pattern used by ReelMoreBottomSheet.
  */
-public class ReelSoundQuickActionSheet extends DialogFragment {
+public class ReelSoundQuickActionSheet extends BottomSheetDialogFragment {
 
     public static final String TAG = "ReelSoundQuickActionSheet";
 
@@ -71,81 +67,10 @@ public class ReelSoundQuickActionSheet extends DialogFragment {
     @Override
     public void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setStyle(STYLE_NO_FRAME, R.style.ReelSoundQuickCardTheme);
+        setStyle(STYLE_NORMAL, R.style.ReelMoreBottomSheetTheme);
         if (getArguments() != null) {
             soundTitle = getArguments().getString(ARG_TITLE, "Original Audio");
             coverUrl   = getArguments().getString(ARG_COVER_URL, "");
-        }
-    }
-
-    @NonNull
-    @Override
-    public Dialog onCreateDialog(@Nullable Bundle savedInstanceState) {
-        Dialog dialog = super.onCreateDialog(savedInstanceState);
-        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
-        Window window = dialog.getWindow();
-        if (window != null) {
-            // Full-screen transparent window — the card itself is a small
-            // bottom|end-anchored view inside the layout, so it floats over
-            // the reel instead of stretching edge-to-edge like a bottom sheet.
-            window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
-            window.setLayout(WindowManager.LayoutParams.MATCH_PARENT,
-                              WindowManager.LayoutParams.MATCH_PARENT);
-            window.setDimAmount(0f); // no dark scrim behind the card
-            window.setGravity(android.view.Gravity.NO_GRAVITY);
-            applyImmersive(window);
-        }
-        return dialog;
-    }
-
-    /**
-     * Fully HIDES the status bar and nav bar on this dialog's own window —
-     * same technique as ImmersiveModeUtils.enterImmersive() used by the chat
-     * screens. Translucent-flag approaches still let the bars show through;
-     * a new Dialog window needs its own hide() call, since it doesn't
-     * inherit the host activity's immersive window state automatically.
-     */
-    private void applyImmersive(@NonNull Window window) {
-        androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false);
-
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
-            WindowManager.LayoutParams attrs = window.getAttributes();
-            attrs.layoutInDisplayCutoutMode =
-                android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R
-                    ? WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
-                    : WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
-            window.setAttributes(attrs);
-        }
-
-        androidx.core.view.WindowInsetsControllerCompat controller =
-            androidx.core.view.WindowCompat.getInsetsController(window, window.getDecorView());
-        if (controller != null) {
-            controller.hide(androidx.core.view.WindowInsetsCompat.Type.statusBars()
-                | androidx.core.view.WindowInsetsCompat.Type.navigationBars());
-            controller.setSystemBarsBehavior(
-                androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
-        }
-
-        window.getDecorView().setSystemUiVisibility(
-            View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-            | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-            | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-            | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-            | View.SYSTEM_UI_FLAG_FULLSCREEN
-            | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
-
-        window.setStatusBarColor(Color.TRANSPARENT);
-        window.setNavigationBarColor(Color.TRANSPARENT);
-    }
-
-    @Override
-    public void onStart() {
-        super.onStart();
-        // Re-apply after the window is actually attached — some OEM skins
-        // reset the hide() call around this point in the dialog lifecycle.
-        Dialog dialog = getDialog();
-        if (dialog != null && dialog.getWindow() != null) {
-            applyImmersive(dialog.getWindow());
         }
     }
 
@@ -161,13 +86,16 @@ public class ReelSoundQuickActionSheet extends DialogFragment {
     public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
 
+        if (getDialog() instanceof BottomSheetDialog) {
+            BottomSheetDialog d = (BottomSheetDialog) getDialog();
+            d.getBehavior().setState(BottomSheetBehavior.STATE_EXPANDED);
+            d.getBehavior().setSkipCollapsed(true);
+        }
+
         TextView  tvTitle = view.findViewById(R.id.tv_quick_sound_title);
         ImageView ivCover = view.findViewById(R.id.iv_quick_sound_cover);
         View rowRemix     = view.findViewById(R.id.row_remix_sequence);
         View rowSound     = view.findViewById(R.id.row_sound_info);
-
-        // Tapping anywhere outside the card (the transparent host) dismisses it.
-        view.setOnClickListener(v -> dismiss());
 
         if (tvTitle != null) tvTitle.setText(soundTitle);
         if (ivCover != null && coverUrl != null && !coverUrl.isEmpty()) {

@@ -1,17 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    item_sound_reel_thumb — grid cell used only by SoundDetailActivity's
-    "Reels with this sound" grid (ReelThumbAdapter).
-
-    Height is set programmatically in ReelThumbAdapter.onCreateViewHolder()
-    to keep a 9:16 (vertical) aspect ratio based on the column width, since
-    GridLayoutManager slices width by spanCount automatically.
+    item_sound_reel_thumb — grid cell used by SoundDetailActivity /
+    SoundDetailSheetFragment's "Reels with this sound" grid (ReelThumbAdapter),
+    styled to match Instagram's audio-page reel grid:
+      • square, edge-to-edge tile
+      • small dark "Original" pill, top-left — only on the original
+        creator's tile (ReelThumbAdapter shows it when isOriginalCreator)
+      • eye icon + view count, bottom-left overlay
 -->
 <FrameLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:padding="1dp"
+    android:layout_height="wrap_content"
     android:background="?attr/selectableItemBackground"
     android:clickable="true"
     android:focusable="true">
@@ -20,25 +20,54 @@
         android:id="@+id/iv_media_thumb"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
+        android:minHeight="160dp"
         android:scaleType="centerCrop"
         android:src="@drawable/ic_gallery"
-        android:background="@color/surface_input"/>
+        android:background="@color/surface_input"
+        android:contentDescription="Reel thumbnail"/>
 
-    <!-- Instagram-style "Original" strip — only shown on the original
-         creator's reel tile. Hidden by default. -->
+    <!-- Instagram-style small "Original" pill — top-left corner, only on the
+         original creator's reel tile. Hidden by default. -->
     <TextView
-        android:id="@+id/tv_original_strip"
-        android:layout_width="match_parent"
-        android:layout_height="20dp"
-        android:layout_gravity="top"
-        android:gravity="center"
+        android:id="@+id/tv_original_badge"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|start"
+        android:layout_margin="6dp"
+        android:paddingStart="8dp" android:paddingEnd="8dp"
+        android:paddingTop="3dp" android:paddingBottom="3dp"
         android:text="Original"
-        android:textAllCaps="true"
-        android:textColor="@color/white"
+        android:textColor="#FFFFFF"
         android:textSize="10sp"
-        android:letterSpacing="0.05"
         android:fontFamily="sans-serif-medium"
-        android:background="#99000000"
+        android:background="@drawable/bg_pill_dark_solid"
         android:visibility="gone"/>
+
+    <!-- Eye icon + view count — bottom-left overlay -->
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|start"
+        android:layout_margin="6dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+        <ImageView
+            android:layout_width="12dp"
+            android:layout_height="12dp"
+            android:src="@drawable/ic_eye"
+            android:tint="#FFFFFF"
+            android:alpha="0.9"
+            android:contentDescription="Views"/>
+        <TextView
+            android:id="@+id/tv_views_overlay"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="4dp"
+            android:text="0"
+            android:textColor="#FFFFFF"
+            android:textSize="11sp"
+            android:fontFamily="sans-serif-medium"
+            android:shadowColor="#CC000000" android:shadowDx="0" android:shadowDy="1" android:shadowRadius="2"/>
+    </LinearLayout>
 
 </FrameLayout>

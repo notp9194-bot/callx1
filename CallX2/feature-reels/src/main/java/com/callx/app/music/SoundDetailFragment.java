@@ -83,6 +83,7 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
     private static final String ARG_IS_SHEET    = "is_sheet";
 
     private static final int REELS_PAGE_SIZE = 12;
+    private static final int REQUEST_TRIM_SOUND = 702;
 
     // ── Host callback (Activity → finish, Sheet → dismiss) ────────────────────
     private Runnable onCloseListener;
@@ -93,6 +94,7 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
     // ── State ─────────────────────────────────────────────────────────────────
     private String  soundId, soundTitle, soundUrl, artist, coverUrl, genre, previewAudioUrl;
     private int     durationMs, bpm;
+    private int     trimStartMs = 0, trimEndMs = 0;   // ✂ user-picked range from ReelMusicTrimActivity
     private boolean isSheet       = false;
     private boolean isSaved       = false;
     private boolean isPlaying     = false;
@@ -240,6 +242,18 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         loadCreatorProfile();
         setupClickListeners();
         checkIfSaved();
+    }
+
+    @Override
+    public void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQUEST_TRIM_SOUND && resultCode == android.app.Activity.RESULT_OK && data != null) {
+            trimStartMs = data.getIntExtra(com.callx.app.editor.ReelMusicTrimActivity.RESULT_START_MS, 0);
+            trimEndMs   = data.getIntExtra(com.callx.app.editor.ReelMusicTrimActivity.RESULT_END_MS, durationMs);
+            if (btnTrimStart != null && !isGone()) {
+                btnTrimStart.setText("✂ " + formatMs(trimStartMs) + " – " + formatMs(trimEndMs));
+            }
+        }
     }
 
     @Override
@@ -963,6 +977,10 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
             i.putExtra("selected_sound_cover",     coverUrl);
             i.putExtra("selected_sound_artist",    artist);
             i.putExtra("replace_audio_with_sound", true);
+            if (trimEndMs > trimStartMs) {
+                i.putExtra("selected_sound_start_ms", trimStartMs);
+                i.putExtra("selected_sound_end_ms",   trimEndMs);
+            }
             startActivity(i);
             if (onCloseListener != null) onCloseListener.run();
         });
@@ -973,6 +991,20 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
             pick.setType("video/*");
             requireActivity().startActivityForResult(pick, 701);
         });
+
+        // ✂ Trim chip — was left unwired after the UI rework; sound has a URL to trim
+        if (btnTrimStart != null) {
+            btnTrimStart.setVisibility(soundUrl != null && !soundUrl.isEmpty() ? View.VISIBLE : View.GONE);
+            btnTrimStart.setOnClickListener(v -> {
+                if (isGone()) return;
+                Intent i = new Intent(requireContext(), com.callx.app.editor.ReelMusicTrimActivity.class);
+                i.putExtra(com.callx.app.editor.ReelMusicTrimActivity.EXTRA_SOUND_ID,       soundId);
+                i.putExtra(com.callx.app.editor.ReelMusicTrimActivity.EXTRA_SOUND_TITLE,    soundTitle);
+                i.putExtra(com.callx.app.editor.ReelMusicTrimActivity.EXTRA_SOUND_URL,      soundUrl);
+                i.putExtra(com.callx.app.editor.ReelMusicTrimActivity.EXTRA_DURATION_MS,    durationMs);
+                startActivityForResult(i, REQUEST_TRIM_SOUND);
+            });
+        }
 
         if (btnMore != null) btnMore.setOnClickListener(v -> showMoreMenu());
 

@@ -104,11 +104,10 @@ public class SoundDetailActivity extends AppCompatActivity {
         @androidx.annotation.NonNull
         @Override
         public VH onCreateViewHolder(@androidx.annotation.NonNull android.view.ViewGroup parent, int viewType) {
-            // Same square, edge-to-edge grid cell used by UserReelsActivity's
-            // reels grid (item_saved_reel) — combined with WhiteGridDecoration
-            // on the RecyclerView this produces the same bordered-grid look.
+            // Dedicated sound-detail grid cell (Instagram audio-page style):
+            // square tile + top-left "Original" pill + bottom-left eye/view-count.
             android.view.View v = android.view.LayoutInflater.from(parent.getContext())
-                .inflate(com.callx.app.reels.R.layout.item_saved_reel, parent, false);
+                .inflate(com.callx.app.reels.R.layout.item_sound_reel_thumb, parent, false);
             return new VH(v);
         }
 
@@ -119,6 +118,8 @@ public class SoundDetailActivity extends AppCompatActivity {
                 com.bumptech.glide.Glide.with(h.iv.getContext()).load(item.thumbnailUrl)
                     .centerCrop().into(h.iv);
             if (h.tvViews != null) h.tvViews.setText(formatViews(item.viewsCount));
+            if (h.tvOriginal != null)
+                h.tvOriginal.setVisibility(item.isOriginalCreator ? android.view.View.VISIBLE : android.view.View.GONE);
             h.itemView.setOnClickListener(v -> { int p = h.getAdapterPosition(); if (p >= 0 && listener != null) listener.onClick(p); });
         }
 
@@ -133,10 +134,12 @@ public class SoundDetailActivity extends AppCompatActivity {
         public static class VH extends androidx.recyclerview.widget.RecyclerView.ViewHolder {
             final android.widget.ImageView iv;
             final android.widget.TextView tvViews;
+            final android.widget.TextView tvOriginal;
             VH(android.view.View v) {
                 super(v);
-                iv = v.findViewById(com.callx.app.reels.R.id.iv_thumb);
+                iv = v.findViewById(com.callx.app.reels.R.id.iv_media_thumb);
                 tvViews = v.findViewById(com.callx.app.reels.R.id.tv_views_overlay);
+                tvOriginal = v.findViewById(com.callx.app.reels.R.id.tv_original_badge);
             }
         }
     }

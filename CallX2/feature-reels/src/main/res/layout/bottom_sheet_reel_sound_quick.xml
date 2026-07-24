@@ -1,102 +1,94 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Transparent full-screen host; the actual visible card is the
-     LinearLayout below, positioned bottom|end with margins so it floats
-     over the reel exactly like Instagram's "Remix and sequence" popup —
-     no dark scrim, no drag handle, no full-width bottom sheet. -->
-<FrameLayout
+<LinearLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:background="@android:color/transparent">
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:paddingBottom="18dp"
+    android:background="@drawable/bg_more_sheet">
 
+    <!-- Row 1: Remix and sequence -->
     <LinearLayout
-        android:layout_width="255dp"
+        android:id="@+id/row_remix_sequence"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_gravity="bottom|end"
-        android:layout_marginEnd="12dp"
-        android:layout_marginBottom="92dp"
-        android:orientation="vertical"
-        android:paddingTop="4dp"
-        android:paddingBottom="4dp"
-        android:clickable="true"
-        android:focusable="true"
-        android:background="@drawable/bg_reel_sound_quick_card">
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="20dp"
+        android:paddingEnd="20dp"
+        android:paddingTop="18dp"
+        android:paddingBottom="18dp"
+        android:background="?attr/selectableItemBackground">
 
-        <!-- Row 1: Remix and sequence -->
-        <LinearLayout
-            android:id="@+id/row_remix_sequence"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:paddingStart="14dp"
-            android:paddingEnd="14dp"
-            android:paddingTop="12dp"
-            android:paddingBottom="12dp"
-            android:background="?attr/selectableItemBackground">
-
+        <FrameLayout
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:background="@drawable/bg_card_rounded">
             <ImageView
                 android:layout_width="20dp"
                 android:layout_height="20dp"
+                android:layout_gravity="center"
                 android:src="@drawable/ic_remix_sequence"/>
+        </FrameLayout>
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="14dp"
+            android:text="Remix and sequence"
+            android:textColor="#FFFFFF"
+            android:textSize="15sp"
+            android:textStyle="bold"/>
+    </LinearLayout>
+
+    <!-- Row 2: Sound / audio info -> opens SoundDetailActivity -->
+    <LinearLayout
+        android:id="@+id/row_sound_info"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="20dp"
+        android:paddingEnd="20dp"
+        android:paddingTop="10dp"
+        android:paddingBottom="10dp"
+        android:background="?attr/selectableItemBackground">
+
+        <ImageView
+            android:id="@+id/iv_quick_sound_cover"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:scaleType="centerCrop"
+            android:background="@drawable/bg_card_rounded"
+            android:src="@drawable/ic_music_note"/>
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="14dp"
+            android:orientation="vertical">
 
             <TextView
-                android:layout_width="0dp"
+                android:id="@+id/tv_quick_sound_title"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:layout_marginStart="12dp"
-                android:text="Remix and sequence"
                 android:textColor="#FFFFFF"
-                android:textSize="14sp"/>
-        </LinearLayout>
+                android:textSize="14sp"
+                android:maxLines="1"
+                android:ellipsize="end"
+                android:text="Original Audio"/>
 
-        <!-- Row 2: Sound / audio info -> opens SoundDetailActivity -->
-        <LinearLayout
-            android:id="@+id/row_sound_info"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:paddingStart="14dp"
-            android:paddingEnd="14dp"
-            android:paddingTop="8dp"
-            android:paddingBottom="12dp"
-            android:background="?attr/selectableItemBackground">
-
-            <ImageView
-                android:id="@+id/iv_quick_sound_cover"
-                android:layout_width="36dp"
-                android:layout_height="36dp"
-                android:scaleType="centerCrop"
-                android:background="@drawable/bg_reel_sound_cover_mask"
-                android:src="@drawable/ic_music_note"/>
-
-            <LinearLayout
-                android:layout_width="0dp"
+            <TextView
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:layout_marginStart="12dp"
-                android:orientation="vertical">
-
-                <TextView
-                    android:id="@+id/tv_quick_sound_title"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:textColor="#FFFFFF"
-                    android:textSize="13sp"
-                    android:maxLines="1"
-                    android:ellipsize="end"
-                    android:text="Original Audio"/>
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="2dp"
-                    android:textColor="#B3FFFFFF"
-                    android:textSize="11sp"
-                    android:text="Audio"/>
-            </LinearLayout>
+                android:layout_marginTop="2dp"
+                android:textColor="#99FFFFFF"
+                android:textSize="12sp"
+                android:text="Audio"/>
         </LinearLayout>
-
     </LinearLayout>
-</FrameLayout>
+
+</LinearLayout>
