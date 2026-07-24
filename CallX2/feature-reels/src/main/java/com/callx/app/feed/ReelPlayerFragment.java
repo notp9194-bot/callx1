@@ -45,6 +45,7 @@ public class ReelPlayerFragment extends Fragment
         implements ReelPlayerDelegate,
                     ReelMoreBottomSheet.OnItemClickListener,
                     com.callx.app.music.ReelSoundQuickActionSheet.OnActionListener,
+                    com.callx.app.social.ReelRemixSequencePickerSheet.OnModeSelectedListener,
                     ReelCommentsBottomSheet.Host {
 
     private static final float[] SPEED_STEPS  = {0.5f, 1.0f, 1.5f, 2.0f};
@@ -458,13 +459,31 @@ public class ReelPlayerFragment extends Fragment
     @Override public void openSoundDetail()        { duetController.openSoundDetail(); }
     @Override public void showSoundQuickActions()  { duetController.showSoundQuickActions(); }
 
-    // ── ReelSoundQuickActionSheet.OnActionListener ────────────────────────
-    @Override public void onRemixAndSequence()   { duetController.openRemix(); }
-    @Override public void onSoundInfoSelected()  { duetController.openSoundDetail(); }
+    // ── ReelSoundQuickActionSheet.OnActionListener (v2: 3 separate rows) ────
+    /** "Remix" row tapped → show layout picker → ReelRemixActivity. */
+    @Override public void onRemix()             { duetController.openRemixWithPicker(); }
+    /** "Sequence" row tapped → ReelSequenceActivity. */
+    @Override public void onSequence()          { duetController.openSequence(); }
+    @Override public void onSoundInfoSelected() { duetController.openSoundDetail(); }
+
+    // ── ReelRemixSequencePickerSheet.OnModeSelectedListener (kept for compat) ──
+    @Override
+    public void onRemixSelected(com.callx.app.models.ReelModel reelStub) {
+        duetController.openRemixWithPicker();
+    }
+    @Override
+    public void onSequenceSelected(com.callx.app.models.ReelModel reelStub) {
+        duetController.openSequence();
+    }
+
     @Override public void openUserReels()          { duetController.openUserReels(); }
     @Override public void openOwnerStatus()        { duetController.openOwnerStatus(); }
     @Override public void confirmDeleteReel()      { duetController.confirmDeleteReel(); }
     @Override public void blockReelOwner()         { duetController.blockReelOwner(); }
+    // Remix & Sequence delegate methods
+    @Override public void openRemixSequencePicker() { duetController.openRemixSequencePicker(); }
+    @Override public void openRemixWithPicker()    { duetController.openRemixWithPicker(); }
+    @Override public void openSequence()           { duetController.openSequence(); }
     @Override public void openRemix()              { duetController.openRemix(); }
     @Override public void openViewRemixes()        { duetController.openViewRemixes(); }
     @Override public void openWatchHistory()       { duetController.openWatchHistory(); }

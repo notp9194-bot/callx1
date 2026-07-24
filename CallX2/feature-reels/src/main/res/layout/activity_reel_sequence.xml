@@ -1,0 +1,428 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#000000">
+
+    <!-- ── STEP 1: Original reel preview (full screen, used for clip selection) ── -->
+    <FrameLayout
+        android:id="@+id/container_seq_step1"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="visible">
+
+        <!-- Original video preview -->
+        <androidx.media3.ui.PlayerView
+            android:id="@+id/pv_seq_original"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            app:use_controller="false"
+            app:resize_mode="zoom"/>
+
+        <!-- Semi-transparent overlay for controls readability -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="@drawable/gradient_reel_bottom"
+            android:alpha="0.7"/>
+
+        <!-- ── Top bar ───────────────────────────────────────────────────── -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top"
+            android:orientation="horizontal"
+            android:paddingTop="44dp"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:gravity="center_vertical">
+
+            <ImageButton
+                android:id="@+id/btn_seq_back"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:src="@drawable/ic_arrow_back"
+                android:tint="#FFFFFF"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Back"/>
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="8dp"
+                android:text="Select clip length"
+                android:textColor="#FFFFFF"
+                android:textSize="16sp"
+                android:fontFamily="sans-serif-medium"/>
+
+        </LinearLayout>
+
+        <!-- ── Owner label ───────────────────────────────────────────────── -->
+        <LinearLayout
+            android:id="@+id/layout_seq_owner"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top"
+            android:paddingTop="110dp"
+            android:paddingStart="20dp"
+            android:paddingEnd="20dp"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/tv_seq_owner_name"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp"
+                android:fontFamily="sans-serif-medium"
+                android:text="Sequencing @username's reel"/>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:textColor="#CCCCCC"
+                android:textSize="12sp"
+                android:text="Your video will play right after the selected clip"/>
+        </LinearLayout>
+
+        <!-- ── CLIP DURATION PICKER ──────────────────────────────────────── -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom"
+            android:orientation="vertical"
+            android:paddingBottom="32dp"
+            android:paddingStart="20dp"
+            android:paddingEnd="20dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_horizontal"
+                android:layout_marginBottom="12dp"
+                android:textColor="#CCCCCC"
+                android:textSize="13sp"
+                android:text="How much of the original to include?"/>
+
+            <!-- Duration chips -->
+            <LinearLayout
+                android:id="@+id/layout_seq_duration_chips"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center"
+                android:layout_marginBottom="20dp">
+
+                <TextView
+                    android:id="@+id/chip_seq_1s"
+                    android:layout_width="60dp"
+                    android:layout_height="36dp"
+                    android:text="1s"
+                    android:gravity="center"
+                    android:textColor="#FFFFFF"
+                    android:textSize="14sp"
+                    android:background="@drawable/bg_speed_chip"
+                    android:layout_marginEnd="8dp"/>
+
+                <TextView
+                    android:id="@+id/chip_seq_3s"
+                    android:layout_width="60dp"
+                    android:layout_height="36dp"
+                    android:text="3s"
+                    android:gravity="center"
+                    android:textColor="#FFFFFF"
+                    android:textSize="14sp"
+                    android:background="@drawable/bg_speed_chip"
+                    android:layout_marginEnd="8dp"/>
+
+                <TextView
+                    android:id="@+id/chip_seq_5s"
+                    android:layout_width="60dp"
+                    android:layout_height="36dp"
+                    android:text="5s"
+                    android:gravity="center"
+                    android:textColor="#FFFFFF"
+                    android:textSize="14sp"
+                    android:fontFamily="sans-serif-medium"
+                    android:background="@drawable/bg_speed_chip"
+                    android:layout_marginEnd="8dp"/>
+
+                <TextView
+                    android:id="@+id/chip_seq_10s"
+                    android:layout_width="60dp"
+                    android:layout_height="36dp"
+                    android:text="10s"
+                    android:gravity="center"
+                    android:textColor="#FFFFFF"
+                    android:textSize="14sp"
+                    android:background="@drawable/bg_speed_chip"
+                    android:layout_marginEnd="8dp"/>
+
+                <TextView
+                    android:id="@+id/chip_seq_15s"
+                    android:layout_width="60dp"
+                    android:layout_height="36dp"
+                    android:text="15s"
+                    android:gravity="center"
+                    android:textColor="#FFFFFF"
+                    android:textSize="14sp"
+                    android:background="@drawable/bg_speed_chip"/>
+
+            </LinearLayout>
+
+            <!-- Current selection label -->
+            <TextView
+                android:id="@+id/tv_seq_selection_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_horizontal"
+                android:layout_marginBottom="16dp"
+                android:textColor="#FFFFFF"
+                android:textSize="13sp"
+                android:text="Using first 5s of original"/>
+
+            <!-- Preview + Next button row -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center">
+
+                <Button
+                    android:id="@+id/btn_seq_preview"
+                    style="?attr/borderlessButtonStyle"
+                    android:layout_width="0dp"
+                    android:layout_height="48dp"
+                    android:layout_weight="1"
+                    android:text="▶ Preview clip"
+                    android:textColor="#CCCCCC"
+                    android:textSize="14sp"/>
+
+                <Button
+                    android:id="@+id/btn_seq_next"
+                    android:layout_width="0dp"
+                    android:layout_height="48dp"
+                    android:layout_weight="1"
+                    android:text="Next →"
+                    android:textColor="#FFFFFF"
+                    android:backgroundTint="#0095F6"
+                    android:textSize="14sp"
+                    android:textStyle="bold"/>
+
+            </LinearLayout>
+
+        </LinearLayout>
+
+    </FrameLayout>
+
+    <!-- ── STEP 2: Recording screen (user records their continuation) ── -->
+    <FrameLayout
+        android:id="@+id/container_seq_step2"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone">
+
+        <!-- Camera preview (full screen) -->
+        <androidx.camera.view.PreviewView
+            android:id="@+id/pv_seq_camera"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"/>
+
+        <!-- Original clip thumbnail (small, top-left — context reminder) -->
+        <FrameLayout
+            android:layout_width="80dp"
+            android:layout_height="110dp"
+            android:layout_gravity="top|start"
+            android:layout_margin="12dp"
+            android:background="@drawable/bg_action_btn_circle"
+            android:clipToOutline="true"
+            android:elevation="6dp">
+
+            <ImageView
+                android:id="@+id/iv_seq_thumb"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:scaleType="centerCrop"/>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_gravity="bottom"
+                android:background="#AA000000"
+                android:text="Original"
+                android:textColor="#FFFFFF"
+                android:textSize="10sp"
+                android:gravity="center"
+                android:padding="3dp"/>
+        </FrameLayout>
+
+        <!-- Sequence indicator banner -->
+        <TextView
+            android:id="@+id/tv_seq_banner"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top"
+            android:layout_marginTop="140dp"
+            android:background="#AA000000"
+            android:paddingTop="6dp"
+            android:paddingBottom="6dp"
+            android:text="◀  YOUR SEQUENCE  ▶"
+            android:textColor="#FFFFFF"
+            android:textSize="11sp"
+            android:fontFamily="sans-serif-medium"
+            android:gravity="center"/>
+
+        <!-- Countdown overlay (3-2-1) -->
+        <TextView
+            android:id="@+id/tv_seq_countdown"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:textColor="#FFFFFF"
+            android:textSize="96sp"
+            android:fontFamily="sans-serif-black"
+            android:shadowColor="#99000000"
+            android:shadowDx="2"
+            android:shadowDy="2"
+            android:shadowRadius="8"
+            android:visibility="gone"/>
+
+        <!-- Timer + progress bar (top-right) -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top|end"
+            android:layout_margin="12dp"
+            android:orientation="vertical"
+            android:gravity="center_horizontal">
+
+            <TextView
+                android:id="@+id/tv_seq_timer"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="0:00"
+                android:textColor="#FFFFFF"
+                android:textSize="16sp"
+                android:fontFamily="sans-serif-medium"/>
+
+            <ProgressBar
+                android:id="@+id/pb_seq_duration"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="80dp"
+                android:layout_height="4dp"
+                android:max="60"
+                android:progress="0"
+                android:progressTint="#FF3B5C"
+                android:progressBackgroundTint="#55FFFFFF"
+                android:layout_marginTop="4dp"/>
+
+        </LinearLayout>
+
+        <!-- ── Top controls ──────────────────────────────────────────────── -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top"
+            android:paddingTop="44dp"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <ImageButton
+                android:id="@+id/btn_seq_back2"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:src="@drawable/ic_arrow_back"
+                android:tint="#FFFFFF"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Back"/>
+
+            <View android:layout_width="0dp" android:layout_height="1dp" android:layout_weight="1"/>
+
+            <ImageButton
+                android:id="@+id/btn_seq_flip"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:src="@drawable/ic_camera"
+                android:tint="#FFFFFF"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Flip camera"/>
+
+        </LinearLayout>
+
+        <!-- ── Bottom: Record button ─────────────────────────────────────── -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:paddingBottom="48dp">
+
+            <TextView
+                android:id="@+id/tv_seq_record_hint"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="12dp"
+                android:textColor="#CCCCCC"
+                android:textSize="13sp"
+                android:text="Record your continuation (max 60s)"/>
+
+            <ImageButton
+                android:id="@+id/btn_seq_record"
+                android:layout_width="72dp"
+                android:layout_height="72dp"
+                android:src="@drawable/ic_play"
+                android:tint="#FFFFFF"
+                android:background="@drawable/bg_action_btn_circle"
+                android:contentDescription="Record"/>
+
+        </LinearLayout>
+
+    </FrameLayout>
+
+    <!-- ── Compositing progress overlay ─────────────────────────────────── -->
+    <LinearLayout
+        android:id="@+id/layout_seq_compositing"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:background="#CC000000"
+        android:padding="40dp"
+        android:visibility="gone">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="✂️"
+            android:textSize="40sp"
+            android:layout_marginBottom="16dp"/>
+
+        <TextView
+            android:id="@+id/tv_seq_compositing_status"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Preparing your sequence…"
+            android:textSize="16sp"
+            android:fontFamily="sans-serif-medium"
+            android:textColor="#FFFFFF"
+            android:layout_marginBottom="20dp"/>
+
+        <ProgressBar
+            android:id="@+id/pb_seq_compositing"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="8dp"
+            android:max="100"
+            android:progress="0"
+            android:progressTint="#0095F6"
+            android:progressBackgroundTint="#33FFFFFF"/>
+
+    </LinearLayout>
+
+</FrameLayout>

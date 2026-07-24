@@ -18,16 +18,17 @@ import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment;
 
 /**
- * ReelSoundQuickActionSheet
+ * ReelSoundQuickActionSheet v2
  *
- * Small intermediate card shown when the sound-disc / right-rail action
- * button is tapped in the Reel player (Instagram-style "Remix and
- * sequence" + audio-info card). Tapping the audio row opens
- * SoundDetailActivity; tapping "Remix and sequence" opens the remix flow.
+ * Small card shown when the right-rail photo/disc button is tapped in the Reel player.
  *
- * This sheet itself performs no navigation — it just reports the tap
- * back to the host via {@link OnActionListener} and dismisses itself,
- * matching the pattern used by ReelMoreBottomSheet.
+ * Contains THREE separate, distinct action rows:
+ *   1. Remix    — record ALONGSIDE the original (side-by-side, react cam, etc.)
+ *   2. Sequence — record your continuation AFTER the original
+ *   3. Sound    — open SoundDetailActivity to explore / use this audio
+ *
+ * Callbacks are separate per row — no combined "Remix and sequence" anymore.
+ * The host fragment (ReelPlayerFragment) implements {@link OnActionListener}.
  */
 public class ReelSoundQuickActionSheet extends BottomSheetDialogFragment {
 
@@ -36,8 +37,14 @@ public class ReelSoundQuickActionSheet extends BottomSheetDialogFragment {
     private static final String ARG_TITLE     = "title";
     private static final String ARG_COVER_URL = "cover_url";
 
+    // ── Listener ──────────────────────────────────────────────────────────────
+
     public interface OnActionListener {
-        void onRemixAndSequence();
+        /** User tapped the Remix row → show layout picker → ReelRemixActivity */
+        void onRemix();
+        /** User tapped the Sequence row → ReelSequenceActivity */
+        void onSequence();
+        /** User tapped the Sound row → SoundDetailActivity */
         void onSoundInfoSelected();
     }
 
@@ -45,14 +52,18 @@ public class ReelSoundQuickActionSheet extends BottomSheetDialogFragment {
     private String soundTitle;
     private String coverUrl;
 
+    // ── Factory ───────────────────────────────────────────────────────────────
+
     public static ReelSoundQuickActionSheet newInstance(String title, String coverUrl) {
         ReelSoundQuickActionSheet sheet = new ReelSoundQuickActionSheet();
         Bundle args = new Bundle();
-        args.putString(ARG_TITLE, title != null ? title : "Original Audio");
+        args.putString(ARG_TITLE,     title    != null ? title    : "Original Audio");
         args.putString(ARG_COVER_URL, coverUrl != null ? coverUrl : "");
         sheet.setArguments(args);
         return sheet;
     }
+
+    // ── Lifecycle ─────────────────────────────────────────────────────────────
 
     @Override
     public void onAttach(@NonNull Context context) {
@@ -69,7 +80,7 @@ public class ReelSoundQuickActionSheet extends BottomSheetDialogFragment {
         super.onCreate(savedInstanceState);
         setStyle(STYLE_NORMAL, R.style.ReelMoreBottomSheetTheme);
         if (getArguments() != null) {
-            soundTitle = getArguments().getString(ARG_TITLE, "Original Audio");
+            soundTitle = getArguments().getString(ARG_TITLE,     "Original Audio");
             coverUrl   = getArguments().getString(ARG_COVER_URL, "");
         }
     }
@@ -86,17 +97,16 @@ public class ReelSoundQuickActionSheet extends BottomSheetDialogFragment {
     public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
 
+        // Expand immediately, no peek
         if (getDialog() instanceof BottomSheetDialog) {
             BottomSheetDialog d = (BottomSheetDialog) getDialog();
             d.getBehavior().setState(BottomSheetBehavior.STATE_EXPANDED);
             d.getBehavior().setSkipCollapsed(true);
         }
 
+        // Sound cover + title
         TextView  tvTitle = view.findViewById(R.id.tv_quick_sound_title);
         ImageView ivCover = view.findViewById(R.id.iv_quick_sound_cover);
-        View rowRemix     = view.findViewById(R.id.row_remix_sequence);
-        View rowSound     = view.findViewById(R.id.row_sound_info);
-
         if (tvTitle != null) tvTitle.setText(soundTitle);
         if (ivCover != null && coverUrl != null && !coverUrl.isEmpty()) {
             Glide.with(this)
@@ -106,13 +116,31 @@ public class ReelSoundQuickActionSheet extends BottomSheetDialogFragment {
                 .into(ivCover);
         }
 
-        if (rowRemix != null) rowRemix.setOnClickListener(v -> {
-            if (listener != null) listener.onRemixAndSequence();
-            dismiss();
-        });
-        if (rowSound != null) rowSound.setOnClickListener(v -> {
-            if (listener != null) listener.onSoundInfoSelected();
-            dismiss();
-        });
+        // ── Row 1: Remix ──────────────────────────────────────────────────────
+        View rowRemix = view.findViewById(R.id.row_remix);
+        if (rowRemix != null) {
+            rowRemix.setOnClickListener(v -> {
+                dismiss();
+                if (listener != null) listener.onRemix();
+            });
+        }
+
+        // ── Row 2: Sequence ───────────────────────────────────────────────────
+        View rowSequence = view.findViewById(R.id.row_sequence);
+        if (rowSequence != null) {
+            rowSequence.setOnClickListener(v -> {
+                dismiss();
+                if (listener != null) listener.onSequence();
+            });
+        }
+
+        // ── Row 3: Sound info ─────────────────────────────────────────────────
+        View rowSound = view.findViewById(R.id.row_sound_info);
+        if (rowSound != null) {
+            rowSound.setOnClickListener(v -> {
+                dismiss();
+                if (listener != null) listener.onSoundInfoSelected();
+            });
+        }
     }
 }

@@ -116,7 +116,14 @@ public interface ReelPlayerDelegate {
     void openOwnerStatus();
     void confirmDeleteReel();
     void blockReelOwner();
-    // Remix
+    // Remix & Sequence
+    /** Shows the ReelRemixSequencePickerSheet (Remix vs Sequence chooser). */
+    void openRemixSequencePicker();
+    /** Shows the layout-mode picker (Side-by-Side, React Cam, etc.) then opens ReelRemixActivity. */
+    void openRemixWithPicker();
+    /** Starts ReelSequenceActivity so the user records their continuation. */
+    void openSequence();
+    /** Legacy: directly opens ReelRemixActivity with default layout (kept for other callers). */
     void openRemix();
     void openViewRemixes();
     // Watch History

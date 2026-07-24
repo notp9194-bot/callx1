@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Sequence / stitch icon: two video clips linked in sequence -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="@color/white">
+    <!-- Film-strip left -->
+    <path android:fillColor="#FFFFFFFF"
+        android:pathData="M2,4 L2,10 L8,10 L8,4 Z M3,5 L7,5 L7,9 L3,9 Z"/>
+    <!-- Film-strip left notches -->
+    <path android:fillColor="#FFFFFFFF"
+        android:pathData="M2,4 L2,5 L1,5 L1,4 Z M2,8 L2,9 L1,9 L1,8 Z M8,4 L8,5 L9,5 L9,4 Z M8,8 L8,9 L9,9 L9,8 Z"/>
+    <!-- Film-strip right -->
+    <path android:fillColor="#FFFFFFFF"
+        android:pathData="M16,14 L16,20 L22,20 L22,14 Z M17,15 L21,15 L21,19 L17,19 Z"/>
+    <!-- Film-strip right notches -->
+    <path android:fillColor="#FFFFFFFF"
+        android:pathData="M16,14 L16,15 L15,15 L15,14 Z M16,18 L16,19 L15,19 L15,18 Z M22,14 L22,15 L23,15 L23,14 Z M22,18 L22,19 L23,19 L23,18 Z"/>
+    <!-- Arrow: left clip → right clip -->
+    <path android:fillColor="#FFFFFFFF"
+        android:pathData="M9.5,7 L14.5,7 L14.5,5.5 L17.5,7 L14.5,8.5 L14.5,7 L9.5,7 Z"
+        android:translateX="0" android:translateY="5"/>
+</vector>

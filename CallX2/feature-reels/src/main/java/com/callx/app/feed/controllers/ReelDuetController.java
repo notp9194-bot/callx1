@@ -477,8 +477,65 @@ public class ReelDuetController {
             .show();
     }
 
-    // ── Remix ─────────────────────────────────────────────────────────────────
+    // ── Remix & Sequence ──────────────────────────────────────────────────────
 
+    /**
+     * Shows the "Remix or Sequence?" chooser bottom sheet.
+     * The sheet calls back to ReelPlayerFragment (OnModeSelectedListener):
+     *   • onRemixSelected   → openRemixWithPicker()
+     *   • onSequenceSelected → openSequence()
+     */
+    public void openRemixSequencePicker() {
+        if (!delegate.isAdded() || delegate.getContext() == null) return;
+        ReelModel reel = delegate.getReel();
+        if (reel == null) return;
+
+        com.callx.app.social.ReelRemixSequencePickerSheet sheet =
+            com.callx.app.social.ReelRemixSequencePickerSheet.newInstance(reel);
+        sheet.show(delegate.getChildFragmentManager(),
+            com.callx.app.social.ReelRemixSequencePickerSheet.TAG);
+    }
+
+    /**
+     * Shows the layout-mode picker (Side-by-Side, React Cam, Green Screen, Overlay)
+     * and then opens ReelRemixActivity with the chosen mode.
+     */
+    public void openRemixWithPicker() {
+        ReelModel reel = delegate.getReel();
+        if (reel == null || !delegate.isAdded() || delegate.getActivity() == null) return;
+
+        com.callx.app.social.ReelRemixPickerSheet sheet =
+            com.callx.app.social.ReelRemixPickerSheet.newInstance(reel);
+        sheet.show(delegate.getChildFragmentManager(), "remix_picker");
+    }
+
+    /**
+     * Starts ReelSequenceActivity: user selects clip length from original,
+     * then records their continuation which plays after the original.
+     */
+    public void openSequence() {
+        ReelModel reel = delegate.getReel();
+        if (reel == null || !delegate.isAdded() || delegate.getActivity() == null) return;
+
+        Intent i = new Intent(delegate.getActivity(),
+            com.callx.app.social.ReelSequenceActivity.class);
+        i.putExtra(com.callx.app.social.ReelSequenceActivity.EXTRA_ORIGINAL_REEL_ID,
+            reel.reelId  != null ? reel.reelId    : "");
+        i.putExtra(com.callx.app.social.ReelSequenceActivity.EXTRA_ORIGINAL_VIDEO_URL,
+            reel.videoUrl != null ? reel.videoUrl  : "");
+        i.putExtra(com.callx.app.social.ReelSequenceActivity.EXTRA_ORIGINAL_OWNER_UID,
+            reel.uid     != null ? reel.uid        : "");
+        i.putExtra(com.callx.app.social.ReelSequenceActivity.EXTRA_ORIGINAL_OWNER_NAME,
+            reel.ownerName != null ? reel.ownerName : "");
+        i.putExtra(com.callx.app.social.ReelSequenceActivity.EXTRA_ORIGINAL_THUMB_URL,
+            reel.effectiveThumbUrl());
+        delegate.getFragment().startActivity(i);
+    }
+
+    /**
+     * Legacy: opens ReelRemixActivity directly with default layout (Side-by-Side).
+     * Kept for callers that bypass the picker (e.g. ReelMoreBottomSheet ACTION_REMIX).
+     */
     public void openRemix() {
         ReelModel reel = delegate.getReel();
         if (reel == null || !delegate.isAdded() || delegate.getActivity() == null) return;
@@ -489,6 +546,8 @@ public class ReelDuetController {
         i.putExtra(com.callx.app.social.ReelRemixActivity.EXTRA_OWNER_NAME, reel.ownerName != null ? reel.ownerName : "");
         i.putExtra(com.callx.app.social.ReelRemixActivity.EXTRA_VIDEO_URL,  reel.videoUrl != null ? reel.videoUrl : "");
         i.putExtra(com.callx.app.social.ReelRemixActivity.EXTRA_THUMB_URL,  reel.thumbUrl != null ? reel.thumbUrl : "");
+        i.putExtra(com.callx.app.social.ReelRemixActivity.EXTRA_LAYOUT,
+            com.callx.app.social.ReelRemixActivity.LAYOUT_SIDE_BY_SIDE);
         delegate.getFragment().startActivity(i);
     }
 

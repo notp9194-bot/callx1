@@ -449,14 +449,17 @@ public class ReelRemixActivity extends AppCompatActivity {
 
     private void goToEditor(Uri videoUri) {
         Intent intent = new Intent(this, ReelEditorActivity.class);
-        intent.putExtra("videoPath",              videoUri.toString());
-        intent.putExtra("isRemix",                true);
-        intent.putExtra("remixOriginalReelId",    originalReelId);
-        intent.putExtra("remixOriginalVideoUrl",  originalVideoUrl);
-        intent.putExtra("remixOriginalThumbUrl",  originalThumbUrl);
-        intent.putExtra("remixOwnerUid",          ownerUid);
-        intent.putExtra("remixOwnerName",         ownerName);
-        intent.putExtra("remixLayoutMode",        layoutMode);
+        // ── Correct extras for ReelEditorActivity ──────────────────────────
+        intent.putExtra(ReelEditorActivity.EXTRA_VIDEO_URI,    videoUri.toString());
+        intent.putExtra(ReelEditorActivity.EXTRA_IS_FILE_PATH, true);
+        // ── Remix metadata — passed through to ReelUploadActivity ──────────
+        intent.putExtra("is_remix",               true);
+        intent.putExtra("remix_original_reel_id", originalReelId   != null ? originalReelId   : "");
+        intent.putExtra("remix_original_uid",     ownerUid          != null ? ownerUid          : "");
+        intent.putExtra("remix_original_name",    ownerName         != null ? ownerName         : "");
+        intent.putExtra("remix_original_url",     originalVideoUrl  != null ? originalVideoUrl  : "");
+        intent.putExtra("remix_original_thumb",   originalThumbUrl  != null ? originalThumbUrl  : "");
+        intent.putExtra("remix_layout_mode",      layoutMode        != null ? layoutMode        : LAYOUT_SIDE_BY_SIDE);
         startActivity(intent);
         finish();
     }
