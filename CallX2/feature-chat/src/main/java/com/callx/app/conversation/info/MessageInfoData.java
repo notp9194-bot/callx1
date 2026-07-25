@@ -31,6 +31,10 @@ public class MessageInfoData {
         }
     }
 
+    /** The message's own id — lets a live receipt update find "is this sheet
+     *  still showing the message that just changed?" without any other state. */
+    public String messageId;
+
     // ── Message preview (shown at the top, like WhatsApp's small bubble) ──
     public String previewLabel;   // e.g. "📷 Photo", "🎤 Voice message", or the text itself
     public String messageType;

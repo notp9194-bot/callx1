@@ -54,7 +54,7 @@ public class CommunityMentionSuggestionsAdapter
     @NonNull @Override
     public VH onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
         View v = LayoutInflater.from(parent.getContext())
-                .inflate(R.layout.item_mention_suggestion, parent, false);
+                .inflate(R.layout.item_community_mention_suggestion, parent, false);
         return new VH(v);
     }
 

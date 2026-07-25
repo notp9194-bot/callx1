@@ -197,6 +197,13 @@ public class GroupChatActivity extends AppCompatActivity
 
     // ── Read-by observer ──────────────────────────────────────────────────
     private GroupMessageReadObserver activeReadByObserver;
+    // WHATSAPP-LEVEL MESSAGE INFO FIX: reference to whichever Message Info
+    // sheet is currently showing (group, outgoing message only) so a fresh
+    // Firebase read or a live receipt update can push corrected rows into it
+    // instead of only updating the message list underneath, silently, while
+    // the open sheet keeps showing its stale opening-snapshot forever. See
+    // showGroupMessageInfoDialog()'s doc for the full explanation.
+    private com.callx.app.conversation.info.MessageInfoBottomSheet activeInfoSheet;
 
     // ── Bot Commands ──────────────────────────────────────────────────────
     private BotManager botManager;
@@ -2358,20 +2365,9 @@ public class GroupChatActivity extends AppCompatActivity
         java.util.List<String> otherUids = new java.util.ArrayList<>(memberNames.keySet());
         otherUids.remove(m.senderId);
         data.totalOthers = otherUids.size();
+        data.messageId = m.id;
 
-        for (String uid : otherUids) {
-            String name = memberNames.getOrDefault(uid, "Member");
-            String photo = memberPhotos != null ? memberPhotos.get(uid) : null;
-            Long readTs = m.readBy != null ? m.readBy.get(uid) : null;
-            Long delTs  = m.deliveredBy != null ? m.deliveredBy.get(uid) : null;
-            if (readTs != null) {
-                data.readBy.add(new com.callx.app.conversation.info.MessageInfoData.MemberReceipt(uid, name, photo, readTs));
-            } else if (delTs != null) {
-                data.deliveredOnly.add(new com.callx.app.conversation.info.MessageInfoData.MemberReceipt(uid, name, photo, delTs));
-            } else {
-                data.pending.add(new com.callx.app.conversation.info.MessageInfoData.MemberReceipt(uid, name, photo, null));
-            }
-        }
+        fillGroupReceiptBuckets(data, otherUids, m.readBy, m.deliveredBy);
 
         // Prefetch avatars into Glide's cache now, while the sheet is still
         // being shown/inflated, instead of letting each row's Glide.load()
@@ -2390,8 +2386,32 @@ public class GroupChatActivity extends AppCompatActivity
         }
 
         com.callx.app.conversation.info.MessageInfoBridge.set(data);
-        com.callx.app.conversation.info.MessageInfoBottomSheet.newInstance()
-                .show(getSupportFragmentManager(), com.callx.app.conversation.info.MessageInfoBottomSheet.TAG);
+        com.callx.app.conversation.info.MessageInfoBottomSheet sheet =
+                com.callx.app.conversation.info.MessageInfoBottomSheet.newInstance();
+        sheet.show(getSupportFragmentManager(), com.callx.app.conversation.info.MessageInfoBottomSheet.TAG);
+        activeInfoSheet = sheet;
+
+        // WHATSAPP-LEVEL MESSAGE INFO FIX: the sheet just opened with
+        // whatever m.readBy/m.deliveredBy happened to hold locally — that
+        // local copy can be stale (a member may have already opened the
+        // chat and been acked on Firebase well before this device's own
+        // onChildChanged for that ack round-tripped back down). Rather than
+        // trust the local cache, do one fresh read of the real receipt maps
+        // straight from groupMessages/{groupId}/{msgId} right now and push
+        // the corrected buckets into the sheet the moment it resolves — this
+        // is the fix for "message was actually seen but Message Info still
+        // shows everyone Pending".
+        groupMessagesRef.child(m.id).addListenerForSingleValueEvent(
+                new com.google.firebase.database.ValueEventListener() {
+                    @Override public void onDataChange(@NonNull com.google.firebase.database.DataSnapshot snap) {
+                        java.util.Map<String, Long> freshRead = readReceiptChild(snap, "readBy");
+                        java.util.Map<String, Long> freshDelivered = readReceiptChild(snap, "deliveredBy");
+                        m.readBy = freshRead;
+                        m.deliveredBy = freshDelivered;
+                        pushGroupInfoUpdate(m.id, otherUids, freshRead, freshDelivered);
+                    }
+                    @Override public void onCancelled(@NonNull com.google.firebase.database.DatabaseError error) { /* keep showing local snapshot */ }
+                });
 
         // Attach live observer so info sheet stays fresh as more people read
         if (activeReadByObserver != null) activeReadByObserver.detach();
@@ -2413,8 +2433,66 @@ public class GroupChatActivity extends AppCompatActivity
                     }
                 }
             }
+            // WHATSAPP-LEVEL MESSAGE INFO FIX: also push into the open sheet
+            // itself, not just the message list underneath it — previously
+            // this observer updated `m` and the bubble tick but the sheet's
+            // already-rendered rows never changed, so a sender watching
+            // Message Info open would never see it flip from Pending to
+            // Delivered/Read live the way WhatsApp does.
+            pushGroupInfoUpdate(m.id, otherUids, rb, db);
         });
         activeReadByObserver.attach();
+    }
+
+    /** Reads a receipt child (readBy/deliveredBy) off a message snapshot into a uid→timestamp map. */
+    private static java.util.Map<String, Long> readReceiptChild(
+            com.google.firebase.database.DataSnapshot msgSnap, String childName) {
+        java.util.Map<String, Long> out = new java.util.LinkedHashMap<>();
+        com.google.firebase.database.DataSnapshot child = msgSnap.child(childName);
+        for (com.google.firebase.database.DataSnapshot uidSnap : child.getChildren()) {
+            Long ts = uidSnap.getValue(Long.class);
+            if (ts != null) out.put(uidSnap.getKey(), ts);
+        }
+        return out;
+    }
+
+    /**
+     * Rebuilds the read/delivered-only/pending buckets from fresh receipt
+     * maps and pushes them into whichever Message Info sheet is currently
+     * open, if it's still open and still showing this exact message.
+     */
+    private void pushGroupInfoUpdate(String msgId, java.util.List<String> otherUids,
+                                      java.util.Map<String, Long> readByMap,
+                                      java.util.Map<String, Long> deliveredByMap) {
+        if (activeInfoSheet == null || !activeInfoSheet.isAdded()) return;
+        com.callx.app.conversation.info.MessageInfoData fresh =
+                new com.callx.app.conversation.info.MessageInfoData();
+        fresh.messageId = msgId;
+        fillGroupReceiptBuckets(fresh, otherUids, readByMap, deliveredByMap);
+        activeInfoSheet.updateGroupData(fresh);
+    }
+
+    /** Buckets each of otherUids into data.readBy / data.deliveredOnly / data.pending. */
+    private void fillGroupReceiptBuckets(com.callx.app.conversation.info.MessageInfoData data,
+                                          java.util.List<String> otherUids,
+                                          java.util.Map<String, Long> readByMap,
+                                          java.util.Map<String, Long> deliveredByMap) {
+        data.readBy.clear();
+        data.deliveredOnly.clear();
+        data.pending.clear();
+        for (String uid : otherUids) {
+            String name = memberNames.getOrDefault(uid, "Member");
+            String photo = memberPhotos != null ? memberPhotos.get(uid) : null;
+            Long readTs = readByMap != null ? readByMap.get(uid) : null;
+            Long delTs  = deliveredByMap != null ? deliveredByMap.get(uid) : null;
+            if (readTs != null) {
+                data.readBy.add(new com.callx.app.conversation.info.MessageInfoData.MemberReceipt(uid, name, photo, readTs));
+            } else if (delTs != null) {
+                data.deliveredOnly.add(new com.callx.app.conversation.info.MessageInfoData.MemberReceipt(uid, name, photo, delTs));
+            } else {
+                data.pending.add(new com.callx.app.conversation.info.MessageInfoData.MemberReceipt(uid, name, photo, null));
+            }
+        }
     }
 
     // ── MessageInfoBottomSheet.HostRecyclerPauseListener ────────────────────
@@ -2429,6 +2507,8 @@ public class GroupChatActivity extends AppCompatActivity
     @Override
     public void onMessageInfoClosed() {
         binding.rvMessages.suppressLayout(false);
+        activeInfoSheet = null;
+        if (activeReadByObserver != null) { activeReadByObserver.detach(); activeReadByObserver = null; }
     }
 
     private void showMultiSelectBar(int count) {

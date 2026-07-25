@@ -317,6 +317,7 @@ public class SoundRemixActivity extends AppCompatActivity {
                     // ── musicLibrary/{id} ───────────────────────────────────
                     Map<String, Object> lib = new HashMap<>();
                     lib.put("title",           title);
+                    lib.put("titleLower",      title.toLowerCase(java.util.Locale.ROOT));
                     lib.put("artist",          finalName);
                     lib.put("audioUrl",        audioUrl);
                     lib.put("coverUrl",        soundACover);
@@ -331,6 +332,7 @@ public class SoundRemixActivity extends AppCompatActivity {
                     // ── sounds/{id} ─────────────────────────────────────────
                     Map<String, Object> snd = new HashMap<>();
                     snd.put("title",            title);
+                    snd.put("titleLower",       title.toLowerCase(java.util.Locale.ROOT));
                     snd.put("artist",           finalName);
                     snd.put("audioUrl",         audioUrl);
                     snd.put("coverUrl",         soundACover);

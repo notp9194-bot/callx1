@@ -101,7 +101,7 @@ public class CommunityAnalyticsDashboardActivity extends AppCompatActivity {
         int limit = Math.min(5, sorted.size());
         for (int i = 0; i < limit; i++) {
             CommunityPostEntity p = sorted.get(i);
-            View row = LayoutInflater.from(this).inflate(R.layout.item_analytics_top_post, layoutTopPosts, false);
+            View row = LayoutInflater.from(this).inflate(R.layout.item_community_analytics_top_post, layoutTopPosts, false);
             TextView tvRank    = row.findViewById(R.id.tv_rank);
             TextView tvSnippet = row.findViewById(R.id.tv_snippet);
             TextView tvLikes   = row.findViewById(R.id.tv_likes_count);

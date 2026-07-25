@@ -198,6 +198,12 @@ public class SoundUploadActivity extends AppCompatActivity {
 
         Map<String, Object> data = new HashMap<>();
         data.put("title",      title);
+        // Search fix: prefix search (SoundSearchActivity) needs a
+        // consistently-cased field to orderByChild/startAt/endAt against —
+        // querying "title" directly with a lowercased search term never
+        // matched anything unless the title was typed all-lowercase, since
+        // Firebase's ordering does a byte-wise comparison ('B' < 'b').
+        data.put("titleLower", title.toLowerCase(java.util.Locale.ROOT));
         data.put("artist",     artist.isEmpty() ? "Unknown Artist" : artist);
         data.put("genre",      genre);
         data.put("audioUrl",   audioUrl);

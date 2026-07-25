@@ -2390,6 +2390,7 @@ public class ReelUploadActivity extends AppCompatActivity {
         // button streams instead of the full-quality audioUrl above.
         soundData.put("previewAudioUrl", previewAudioUrl != null ? previewAudioUrl : "");
         soundData.put("title",        "Original audio");
+        soundData.put("titleLower",   "original audio");
         soundData.put("artist",       ownerName != null ? ownerName : "");
         soundData.put("coverUrl",     thumbUrl != null ? thumbUrl : "");
         soundData.put("is_original",  true);

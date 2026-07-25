@@ -110,6 +110,11 @@ public class MessageInfoBottomSheet extends BottomSheetDialogFragment {
     private MaxHeightRecyclerView rv;
     private ProgressBar progressBar;
     private MessageInfoAdapter adapter;
+    /** The id of the message currently rendered — set once from the bridged
+     *  data, then used by updateGroupData() to reject a stray refresh meant
+     *  for a different message (e.g. a slow single-value read that resolves
+     *  after the user has already closed this sheet and opened another). */
+    private String shownMessageId;
 
     @Override
     public void onStart() {
@@ -146,6 +151,7 @@ public class MessageInfoBottomSheet extends BottomSheetDialogFragment {
             dismissAllowingStateLoss();
             return;
         }
+        shownMessageId = data.messageId;
 
         rv = v.findViewById(R.id.rv_message_info);
         progressBar = v.findViewById(R.id.progress_message_info);
@@ -168,6 +174,37 @@ public class MessageInfoBottomSheet extends BottomSheetDialogFragment {
                 adapter.submitList(rows);
                 progressBar.setVisibility(View.GONE);
                 rv.setVisibility(View.VISIBLE);
+            });
+        });
+    }
+
+    /**
+     * Re-renders this sheet from fresher data — the group-chat WhatsApp-level
+     * fix. Message Info used to be a single-shot render off whatever
+     * m.readBy/deliveredBy happened to hold at the instant it was opened,
+     * which could show every member as "Pending" even seconds after someone
+     * genuinely opened the chat and read it, if the sender's local copy of
+     * the message hadn't caught the Firebase update yet. Callers (currently
+     * GroupChatActivity, both for its initial fresh-Firebase-read correction
+     * and for every subsequent live receipt it observes) call this any
+     * number of times after the sheet is already showing; each call rebuilds
+     * the row list off the same background executor the initial build uses,
+     * so a long member list never costs a main-thread rebuild.
+     *
+     * A no-op if the sheet has since been dismissed, or if newData belongs to
+     * a different message than the one currently shown (defensive — avoids a
+     * slow-to-resolve read from clobbering a sheet the user has since
+     * navigated away from and reopened for another message).
+     */
+    public void updateGroupData(@NonNull MessageInfoData newData) {
+        if (!isAdded() || adapter == null) return;
+        if (shownMessageId != null && newData.messageId != null
+                && !shownMessageId.equals(newData.messageId)) return;
+        ROW_BUILD_EXECUTOR.execute(() -> {
+            List<MessageInfoRow> rows = MessageInfoRowBuilder.build(newData);
+            mainHandler.post(() -> {
+                if (!isAdded() || getView() == null || adapter == null) return;
+                adapter.submitList(rows);
             });
         });
     }

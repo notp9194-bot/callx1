@@ -58,6 +58,11 @@ public class SoundSearchActivity extends AppCompatActivity {
     // Track in-flight Firebase listeners so we can cancel stale ones
     private Query libQuery, soundsQuery;
     private ValueEventListener libListener, soundsListener;
+    // Fallback (legacy, no titleLower) scan uses one-shot listeners that
+    // can't be cancelled mid-flight — instead this holds the query they were
+    // launched for, so a stale result arriving after the user has typed
+    // something new is dropped instead of clobbering the newer search.
+    private String fallbackQuery;
 
     // Merged result set (prevents duplicate IDs)
     private final Map<String, SoundResult> resultMap = new LinkedHashMap<>();
@@ -127,15 +132,26 @@ public class SoundSearchActivity extends AppCompatActivity {
         showLoading(true);
 
         String lo = query.toLowerCase(Locale.ROOT);
+        fallbackQuery = lo;
         // Firebase prefix query trick: \uf8ff is highest unicode char so
-        // startAt(lo).endAt(lo + "\uf8ff") matches all titles starting with `lo`
+        // startAt(lo).endAt(lo + "\uf8ff") matches all titles starting with `lo`.
+        //
+        // SEARCH FIX: this used to query orderByChild("title") directly with
+        // the lowercased `lo` — Firebase's startAt/endAt do a byte-wise
+        // comparison, so a lowercase query against a Title-Cased "title"
+        // field ('B' < 'b') never matched anything, which is exactly why
+        // search always came back empty. musicLibrary/sounds writers now
+        // also stamp a lowercase "titleLower" field (SoundUploadActivity,
+        // SoundRemixActivity, ReelUploadActivity's original-audio entry) —
+        // query that instead, matching the same nameLower pattern already
+        // used for user search elsewhere in the app.
         String hibound = lo + "\uf8ff";
 
         final boolean[] done = {false, false}; // [libDone, soundsDone]
 
         // ── Search musicLibrary ──────────────────────────────────────────
         libQuery = FirebaseUtils.getMusicLibraryRef()
-            .orderByChild("title")
+            .orderByChild("titleLower")
             .startAt(lo).endAt(hibound)
             .limitToFirst(30);
         libListener = new ValueEventListener() {
@@ -167,7 +183,7 @@ public class SoundSearchActivity extends AppCompatActivity {
 
         // ── Search sounds (original audio) ───────────────────────────────
         soundsQuery = FirebaseUtils.db().getReference("sounds")
-            .orderByChild("title")
+            .orderByChild("titleLower")
             .startAt(lo).endAt(hibound)
             .limitToFirst(30);
         soundsListener = new ValueEventListener() {
@@ -198,10 +214,86 @@ public class SoundSearchActivity extends AppCompatActivity {
 
     private void finishMerge() {
         if (isFinishing() || isDestroyed()) return;
+        if (resultMap.isEmpty()) {
+            // FALLBACK: covers musicLibrary/sounds entries uploaded before
+            // this fix, which have no "titleLower" field yet to index-query
+            // against. Bounded broad fetch + in-memory case-insensitive
+            // filter, only run when the indexed query above found nothing —
+            // so a normal search (new uploads, already titleLower-tagged)
+            // never pays this cost.
+            runFallbackScan();
+            return;
+        }
         showLoading(false);
         results.clear();
         results.addAll(resultMap.values());
         // Sort: higher usage first
+        results.sort((a, b) -> Long.compare(b.reelCount, a.reelCount));
+        adapter.notifyDataSetChanged();
+        showEmpty(results.isEmpty());
+    }
+
+    private void runFallbackScan() {
+        final String lo = fallbackQuery;
+        if (lo == null || lo.isEmpty()) { showLoading(false); showEmpty(true); return; }
+
+        final boolean[] done = {false, false};
+        FirebaseUtils.getMusicLibraryRef().limitToFirst(300)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    if (lo.equals(fallbackQuery)) scanSnapshotForMatches(snap, lo, false);
+                    done[0] = true;
+                    if (done[1]) finishFallback(lo);
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) {
+                    done[0] = true;
+                    if (done[1]) finishFallback(lo);
+                }
+            });
+        FirebaseUtils.db().getReference("sounds").limitToFirst(300)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    if (lo.equals(fallbackQuery)) scanSnapshotForMatches(snap, lo, true);
+                    done[1] = true;
+                    if (done[0]) finishFallback(lo);
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) {
+                    done[1] = true;
+                    if (done[0]) finishFallback(lo);
+                }
+            });
+    }
+
+    private void scanSnapshotForMatches(DataSnapshot snap, String lo, boolean isSoundsNode) {
+        for (DataSnapshot s : snap.getChildren()) {
+            String id = s.getKey();
+            String title = nvl(s.child("title").getValue(String.class));
+            if (id == null || title.isEmpty()) continue;
+            if (!title.toLowerCase(Locale.ROOT).startsWith(lo)) continue;
+            if (resultMap.containsKey(id)) continue;
+            String artist = nvl(s.child("artist").getValue(String.class));
+            String cover  = nvl(s.child("coverUrl").getValue(String.class));
+            String audio  = nvl(s.child("audioUrl").getValue(String.class));
+            if (isSoundsNode) {
+                Long reels = s.child("reel_count").getValue(Long.class);
+                resultMap.put(id, new SoundResult(id, title, artist, cover, audio,
+                    reels != null ? reels : 0L, 0, "Original", true));
+            } else {
+                Long uses = s.child("usageCount").getValue(Long.class);
+                Integer bpm = s.child("bpm").getValue(Integer.class);
+                String genre = nvl(s.child("genre").getValue(String.class));
+                resultMap.put(id, new SoundResult(id, title, artist, cover, audio,
+                    uses != null ? uses : 0L, bpm != null ? bpm : 0, genre, false));
+            }
+        }
+    }
+
+    private void finishFallback(String lo) {
+        if (isFinishing() || isDestroyed()) return;
+        if (!lo.equals(fallbackQuery)) return; // a newer query has since started — drop this stale result
+        showLoading(false);
+        results.clear();
+        results.addAll(resultMap.values());
         results.sort((a, b) -> Long.compare(b.reelCount, a.reelCount));
         adapter.notifyDataSetChanged();
         showEmpty(results.isEmpty());
