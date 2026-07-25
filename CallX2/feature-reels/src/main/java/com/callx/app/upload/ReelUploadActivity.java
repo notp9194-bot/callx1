@@ -1700,19 +1700,27 @@ public class ReelUploadActivity extends AppCompatActivity {
             }
 
             @Override
-            public void onSuccessWithQualities(String thumbUrl, String videoUrl,
+            public void onSuccessWithHls(String thumbUrl, String videoUrl, String hlsManifestUrl,
                                   String video480, String video720, String video1080,
                                   int durationMs, int width, int height) {
                 ReelUploadActivity a = ref.get();
                 if (a == null || a.isFinishing() || a.isDestroyed()) return;
-                a.saveReelToFirebase(thumbUrl, videoUrl, video480, video720, video1080,
+                a.saveReelToFirebase(thumbUrl, videoUrl, hlsManifestUrl,
+                    video480, video720, video1080,
                     durationMs, width, height, caption, musicName, uploadResult, videoPath);
+            }
+
+            @Override
+            public void onSuccessWithQualities(String thumbUrl, String videoUrl,
+                                  String video480, String video720, String video1080,
+                                  int durationMs, int width, int height) {
+                // fallback — won't be called if onSuccessWithHls is overridden
             }
 
             @Override
             public void onSuccess(String thumbUrl, String videoUrl,
                                   int durationMs, int width, int height) {
-                // fallback — won't be called if onSuccessWithQualities is overridden
+                // fallback — won't be called if onSuccessWithHls is overridden
             }
 
             @Override
@@ -1943,7 +1951,7 @@ public class ReelUploadActivity extends AppCompatActivity {
 
     // ── Firebase save ─────────────────────────────────────────────────────
 
-    private void saveReelToFirebase(String thumbUrl, String videoUrl,
+    private void saveReelToFirebase(String thumbUrl, String videoUrl, String hlsManifestUrl,
                                     String video480, String video720, String video1080,
                                     int durationMs, int width, int height,
                                     String caption, String musicName,
@@ -1996,6 +2004,10 @@ public class ReelUploadActivity extends AppCompatActivity {
                 reel.video480  = video480  != null ? video480  : "";
                 reel.video720  = video720  != null ? video720  : "";
                 reel.video1080 = video1080 != null ? video1080 : "";
+                // ✅ HLS: single adaptive-streaming manifest — "" when Cloudinary's
+                // Adaptive Streaming add-on isn't enabled on the account; player
+                // falls back to video480/720/1080 above in that case.
+                reel.hlsManifestUrl = hlsManifestUrl != null ? hlsManifestUrl : "";
 
                 // ✅ Duet & Stitch permission — set by creator at upload time
                 String duetLevel   = a.getDuetLevel();

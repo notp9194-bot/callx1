@@ -133,6 +133,8 @@ public interface ReelPlayerDelegate {
     // v5: Offline save + QoE dashboard entry points
     void saveReelOffline();
     void showQoeStats();
+    /** ✅ Shows a dialog telling the user whether THIS reel is on HLS Adaptive Streaming or the per-quality-URL fallback. */
+    void showStreamingModeInfo();
     // Reels Display Mode (Immersive vs Normal) picker
     void showDisplayModePicker();
     /** Toggles the "Background Play" setting (reel keeps playing with audio after app is backgrounded). */

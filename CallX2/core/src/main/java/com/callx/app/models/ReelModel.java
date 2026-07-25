@@ -18,6 +18,19 @@ public class ReelModel {
     public String  video480;
     public String  video720;
     public String  video1080;
+
+    /**
+     * HLS adaptive-bitrate master playlist (.m3u8) — single manifest that
+     * bundles 480p/720p/1080p (Cloudinary "full_hd" streaming profile) as
+     * segments. When this is present, the player streams THIS url and lets
+     * ExoPlayer's HlsMediaSource switch renditions itself; video480/720/1080
+     * are kept populated too (upload side still derives them) purely as a
+     * fallback for reels/devices that can't play HLS, and so old app builds
+     * mid-rollout keep working. Empty/null for reels uploaded before this
+     * feature shipped — player falls back to the old per-quality-URL path.
+     */
+    public String  hlsManifestUrl;
+
     public String  thumbUrl;
 
     /**

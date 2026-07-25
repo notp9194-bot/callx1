@@ -232,6 +232,11 @@ public class ReelPredictivePreloader {
         int launched = 0;
         for (ReelCandidate c : candidates) {
             if (launched >= maxPreload) break;
+            // ✅ HLS reels: same reasoning as ReelVideoPreloader — a raw
+            // byte-range prefetch of the .m3u8 manifest text doesn't warm
+            // any actual video segment cache. Skip; ExoPlayer's own
+            // prepare()-ahead + CacheDataSource handle it for HLS.
+            if (c.reel.hlsManifestUrl != null && !c.reel.hlsManifestUrl.isEmpty()) continue;
             String url = pickBestUrl(c.reel, netQ);
             if (url == null || url.isEmpty()) continue;
             preloadSingle(url, adaptiveBytes);

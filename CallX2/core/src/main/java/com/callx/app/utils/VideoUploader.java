@@ -39,9 +39,21 @@ public class VideoUploader {
 
     private static final OkHttpClient HTTP = new OkHttpClient.Builder()
         .connectTimeout(30,  TimeUnit.SECONDS)
-        .readTimeout(120,    TimeUnit.SECONDS)
-        .writeTimeout(300,   TimeUnit.SECONDS)
-        .build();
+        .readTimeout(240,    TimeUnit.SECONDS) // bumped 120→240: HLS eager transform
+        .writeTimeout(300,   TimeUnit.SECONDS) // (adaptive streaming) runs synchronously
+        .build();                              // before Cloudinary responds to the last chunk
+
+    /**
+     * Cloudinary eager transformation string requesting an HLS adaptive
+     * streaming manifest using the predefined "full_hd" profile — bundles
+     * 240p/360p/480p/720p/1080p renditions as segments under ONE .m3u8, so
+     * ExoPlayer can switch quality mid-playback without re-downloading and
+     * CacheDataSource caches under one manifest regardless of resolution
+     * watched. Requires Cloudinary's Adaptive Streaming add-on to be enabled
+     * on the account — if it isn't, Cloudinary simply omits `eager` from the
+     * response and upload still succeeds; see parseEagerHlsUrl().
+     */
+    private static final String EAGER_HLS = "sp_full_hd/m3u8";
 
     /**
      * BACKWARD-COMPATIBLE callback — same 5-param onSuccess as v23.
@@ -56,6 +68,22 @@ public class VideoUploader {
                        String video480, String video720, String video1080,
                        int durationMs, int width, int height) {
             onSuccess(thumbUrl, videoUrl, durationMs, width, height);
+        }
+        /**
+         * Called with the HLS master playlist URL alongside everything
+         * onSuccessWithQualities() gives — override this for the new
+         * single-manifest ABR flow. hlsManifestUrl is "" (not null) when
+         * Cloudinary didn't return an eager HLS variant (add-on not enabled
+         * on the account, or eager transform failed) — callers should treat
+         * empty as "fall back to video480/720/1080 like before".
+         * Default just forwards to onSuccessWithQualities so existing
+         * overrides that don't know about HLS keep working unchanged.
+         */
+        default void onSuccessWithHls(String thumbUrl, String videoUrl, String hlsManifestUrl,
+                       String video480, String video720, String video1080,
+                       int durationMs, int width, int height) {
+            onSuccessWithQualities(thumbUrl, videoUrl, video480, video720, video1080,
+                durationMs, width, height);
         }
         void onError(Exception e);
     }
@@ -121,8 +149,9 @@ public class VideoUploader {
 
             MAIN.post(() -> cb.onProgress(25));
 
-            String videoUrl = uploadVideoChunked(videoOverride, "callx/videos/file",
-                pct -> MAIN.post(() -> cb.onProgress(25 + (pct * 70 / 100))));
+            final JSONObject[] lastVideoResponseJson = new JSONObject[1];
+            String videoUrl = uploadVideoChunked(videoOverride, "callx/videos/file", EAGER_HLS,
+                pct -> MAIN.post(() -> cb.onProgress(25 + (pct * 70 / 100))), lastVideoResponseJson);
 
             MAIN.post(() -> cb.onProgress(98));
 
@@ -133,7 +162,8 @@ public class VideoUploader {
             final String fVideo480  = cloudinaryQualityUrl(videoUrl, 854,  480);
             final String fVideo720  = cloudinaryQualityUrl(videoUrl, 1280, 720);
             final String fVideo1080 = cloudinaryQualityUrl(videoUrl, 1920, 1080);
-            MAIN.post(() -> cb.onSuccessWithQualities(fThumb, fVideo,
+            final String fHlsUrl    = parseEagerHlsUrl(lastVideoResponseJson[0]);
+            MAIN.post(() -> cb.onSuccessWithHls(fThumb, fVideo, fHlsUrl,
                 fVideo480, fVideo720, fVideo1080, r.durationMs, r.width, r.height));
 
         } catch (Exception e) {
@@ -175,9 +205,14 @@ public class VideoUploader {
             String thumbUrl = uploadDirect(r.thumbFile, "image", "callx/videos/thumb",
                 pct -> MAIN.post(() -> cb.onProgress((int)(pct * 0.20f))));
 
-            // 2. Video (20–100%) — chunked for large files
-            String videoUrl = uploadVideoChunked(r.videoFile, "callx/videos/file",
-                pct -> MAIN.post(() -> cb.onProgress(20 + (int)(pct * 0.80f))));
+            // 2. Video (20–100%) — chunked for large files.
+            // lastVideoResponseJson[] is filled in by uploadVideoChunked()/uploadDirect()
+            // with the raw Cloudinary JSON of the FINAL request, so we can pull the
+            // `eager` HLS manifest out of it without changing every call site's
+            // return type from String → object.
+            final JSONObject[] lastVideoResponseJson = new JSONObject[1];
+            String videoUrl = uploadVideoChunked(r.videoFile, "callx/videos/file", EAGER_HLS,
+                pct -> MAIN.post(() -> cb.onProgress(20 + (int)(pct * 0.80f))), lastVideoResponseJson);
 
             // 3. Record compression stats internally (no API change needed)
             try {
@@ -190,13 +225,16 @@ public class VideoUploader {
             VideoCompressor.safeDelete(r.videoFile);
 
             // Generate Cloudinary adaptive quality URLs (no extra upload needed)
+            // — kept as fallback for pre-HLS reels / accounts without the
+            // Adaptive Streaming add-on.
             final String fVideo480  = cloudinaryQualityUrl(videoUrl, 854,  480);
             final String fVideo720  = cloudinaryQualityUrl(videoUrl, 1280, 720);
             final String fVideo1080 = cloudinaryQualityUrl(videoUrl, 1920, 1080);
+            final String fHlsUrl    = parseEagerHlsUrl(lastVideoResponseJson[0]);
 
             MAIN.post(() -> {
                 cb.onProgress(100);
-                cb.onSuccessWithQualities(thumbUrl, videoUrl,
+                cb.onSuccessWithHls(thumbUrl, videoUrl, fHlsUrl,
                     fVideo480, fVideo720, fVideo1080,
                     r.durationMs, r.width, r.height);
             });
@@ -216,18 +254,21 @@ public class VideoUploader {
 
     // ── Chunked video upload (5 MB chunks) ────────────────────────────────
 
-    private String uploadVideoChunked(File file, String folder,
-                                      ProgressListener progress) throws Exception {
+    private String uploadVideoChunked(File file, String folder, String eager,
+                                      ProgressListener progress, JSONObject[] outLastResponseJson)
+            throws Exception {
         if (file == null || !file.exists() || file.length() == 0)
             throw new IOException("Video file missing or empty");
 
         // Small files: direct upload (no chunking overhead)
         if (file.length() <= CHUNK_SIZE)
-            return uploadDirect(file, "video", folder, progress);
+            return uploadDirect(file, "video", folder, eager, progress, outLastResponseJson);
 
-        // Sign once for the entire upload
+        // Sign once for the entire upload — eager MUST be included here too,
+        // since it's part of what gets signed (see server /cloudinary/sign/video).
         JSONObject payload = new JSONObject()
             .put("folder", folder).put("resource_type", "video");
+        if (eager != null && !eager.isEmpty()) payload.put("eager", eager);
         JSONObject s = sign(payload);
 
         String apiKey  = s.getString("api_key");
@@ -260,7 +301,7 @@ public class VideoUploader {
 
                 final int    cNum    = chunkNum;
                 final int    cTotal  = totalChunks;
-                RequestBody multipart = new MultipartBody.Builder()
+                MultipartBody.Builder chunkBuilder = new MultipartBody.Builder()
                     .setType(MultipartBody.FORM)
                     .addFormDataPart("file", "chunk.mp4",
                         new CountingRequestBody(
@@ -274,8 +315,9 @@ public class VideoUploader {
                     .addFormDataPart("api_key",   apiKey)
                     .addFormDataPart("timestamp", ts)
                     .addFormDataPart("signature", sig)
-                    .addFormDataPart("folder",    f)
-                    .build();
+                    .addFormDataPart("folder",    f);
+                if (eager != null && !eager.isEmpty()) chunkBuilder.addFormDataPart("eager", eager);
+                RequestBody multipart = chunkBuilder.build();
 
                 Request req = new Request.Builder()
                     .url(upUrl).post(multipart)
@@ -290,6 +332,7 @@ public class VideoUploader {
                 if (res.code() == 200) {
                     JSONObject j = new JSONObject(resBody);
                     lastUrl = j.optString("secure_url", j.optString("url", ""));
+                    if (outLastResponseJson != null) outLastResponseJson[0] = j;
                 } else if (res.code() == 308) {
                     Log.d(TAG, "Chunk " + chunkNum + " accepted (308), continuing");
                 } else {
@@ -311,8 +354,22 @@ public class VideoUploader {
 
     // ── Single-part direct upload ──────────────────────────────────────────
 
+    /** Original signature — thumbs and any resourceType with no eager transform. */
     private String uploadDirect(File file, String resourceType,
                                 String folder, ProgressListener progress)
+        throws Exception {
+        return uploadDirect(file, resourceType, folder, null, progress, null);
+    }
+
+    /**
+     * Overload: optional eager transform (video HLS) + optional out-param to
+     * capture the raw Cloudinary response JSON, so the caller can pull the
+     * `eager` array (manifest url) out without changing this method's return
+     * type everywhere it's already used.
+     */
+    private String uploadDirect(File file, String resourceType, String folder,
+                                String eager, ProgressListener progress,
+                                JSONObject[] outResponseJson)
         throws Exception {
 
         if (file == null || !file.exists() || file.length() == 0)
@@ -321,6 +378,7 @@ public class VideoUploader {
 
         JSONObject payload = new JSONObject()
             .put("folder", folder).put("resource_type", resourceType);
+        if (eager != null && !eager.isEmpty()) payload.put("eager", eager);
         JSONObject s = sign(payload);
 
         String apiKey = s.getString("api_key");
@@ -335,14 +393,15 @@ public class VideoUploader {
         RequestBody fileBody = new CountingRequestBody(
             RequestBody.create(file, MediaType.parse(mime)), progress);
 
-        RequestBody multipart = new MultipartBody.Builder()
+        MultipartBody.Builder mb = new MultipartBody.Builder()
             .setType(MultipartBody.FORM)
             .addFormDataPart("file",      "upload." + ext, fileBody)
             .addFormDataPart("api_key",   apiKey)
             .addFormDataPart("timestamp", ts)
             .addFormDataPart("signature", sig)
-            .addFormDataPart("folder",    f)
-            .build();
+            .addFormDataPart("folder",    f);
+        if (eager != null && !eager.isEmpty()) mb.addFormDataPart("eager", eager);
+        RequestBody multipart = mb.build();
 
         String upUrl = "https://api.cloudinary.com/v1_1/" + cloud
             + "/" + resourceType + "/upload";
@@ -356,12 +415,37 @@ public class VideoUploader {
                 + upRes.code() + "): " + upBody);
 
         JSONObject j = new JSONObject(upBody);
+        if (outResponseJson != null) outResponseJson[0] = j;
         String url   = j.optString("secure_url", j.optString("url", ""));
         if (url.isEmpty())
             throw new IOException("No URL in Cloudinary response for " + resourceType);
 
         Log.d(TAG, "Uploaded [" + resourceType + "]: " + url);
         return url;
+    }
+
+    /**
+     * Pulls the HLS manifest (.m3u8) secure_url out of a Cloudinary upload
+     * response's `eager` array. Returns "" (never null) if the account has
+     * no Adaptive Streaming add-on enabled, the eager transform failed, or
+     * responseJson is null — callers treat "" as "fall back to per-quality
+     * progressive URLs like before this feature shipped".
+     */
+    private static String parseEagerHlsUrl(JSONObject responseJson) {
+        if (responseJson == null) return "";
+        try {
+            org.json.JSONArray eager = responseJson.optJSONArray("eager");
+            if (eager == null || eager.length() == 0) return "";
+            for (int i = 0; i < eager.length(); i++) {
+                JSONObject e = eager.optJSONObject(i);
+                if (e == null) continue;
+                String url = e.optString("secure_url", e.optString("url", ""));
+                if (!url.isEmpty() && url.contains(".m3u8")) return url;
+            }
+        } catch (Exception ex) {
+            Log.w(TAG, "parseEagerHlsUrl: " + ex.getMessage());
+        }
+        return "";
     }
 
     // ── Sign helper ───────────────────────────────────────────────────────

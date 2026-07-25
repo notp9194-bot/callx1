@@ -506,6 +506,7 @@ public class ReelPlayerFragment extends Fragment
     @Override public void showQualityPicker()      { playerController.showQualityPicker(); }
     @Override public void saveReelOffline()         { playerController.saveReelOffline(); }
     @Override public void showQoeStats()            { playerController.showQoeStats(); }
+    @Override public void showStreamingModeInfo()   { playerController.showStreamingModeInfo(); }
 
     // ── Reels Display Mode (Immersive vs Normal) — reopened anytime from ⋮ menu ──
     @Override

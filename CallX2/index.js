@@ -146,8 +146,16 @@ app.post("/cloudinary/sign", (req, res) => {
   }
   const folder       = (req.body && req.body.folder)        || "callx";
   const resourceType = (req.body && req.body.resource_type) || "auto";
+  // ✅ HLS support: optional eager transform, e.g. "sp_full_hd/m3u8" —
+  // requested by VideoUploader.java when uploading reel videos so Cloudinary
+  // returns an adaptive-streaming manifest alongside the normal upload.
+  // Must be included in the signed string (alphabetically: eager < folder <
+  // timestamp) exactly like /cloudinary/sign/video already does below, or
+  // Cloudinary rejects the upload with an invalid-signature error.
+  const eager        = (req.body && req.body.eager) || "";
   const timestamp    = Math.floor(Date.now() / 1000).toString();
-  const toSign       = `folder=${folder}&timestamp=${timestamp}`;
+  let toSign          = `folder=${folder}&timestamp=${timestamp}`;
+  if (eager) toSign = `eager=${eager}&` + toSign;
   const signature    = crypto.createHash("sha1")
     .update(toSign + CLOUD_SEC).digest("hex");
   res.json({
@@ -155,7 +163,8 @@ app.post("/cloudinary/sign", (req, res) => {
     api_key:       CLOUD_KEY,
     cloud_name:    CLOUD_NAME,
     folder,
-    resource_type: resourceType
+    resource_type: resourceType,
+    eager
   });
 });
 

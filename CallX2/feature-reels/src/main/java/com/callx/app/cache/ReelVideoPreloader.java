@@ -117,6 +117,23 @@ public class ReelVideoPreloader {
             ReelModel reel = reels.get(i);
             if (reel == null) continue;
 
+            // ✅ HLS reels: skip this byte-range preloader entirely. It was
+            // built to warm-cache a chunk of a single progressive MP4 URL —
+            // preloading N raw bytes of a .m3u8 TEXT manifest doesn't cache
+            // any actual video segments (those are separate .ts/.m4s URLs
+            // only known once ExoPlayer parses the manifest). ExoPlayer's
+            // own prepare()-ahead-of-visibility + CacheDataSource already
+            // handle segment-level prefetch correctly for HLS; duplicating
+            // that here would just waste data on the manifest text itself.
+            if (reel.hlsManifestUrl != null && !reel.hlsManifestUrl.isEmpty()) {
+                // Duet original still benefits from a legacy byte-range warm
+                // — it's always progressive MP4, HLS or not.
+                if (reel.duetOriginalUrl != null && !reel.duetOriginalUrl.isEmpty()) {
+                    preloadSingle(reel.duetOriginalUrl, PRELOAD_BYTES_DUET);
+                }
+                continue;
+            }
+
             // Pick quality URL matching current player cap
             String preloadUrl = pickQualityUrl(reel, cap);
             if (preloadUrl != null && !preloadUrl.isEmpty()) {

@@ -96,6 +96,12 @@ public class ReelPlayerController {
 
     // ── ABR state ─────────────────────────────────────────────────────────────
     private AdaptiveStreamingManager.QualityCap currentCap    = AdaptiveStreamingManager.QualityCap.AUTO;
+    // ✅ true when the current reel is streaming from a single HLS manifest
+    // (reel.hlsManifestUrl) rather than a separate video480/720/1080 URL —
+    // quality changes for such reels are applied in-place (no source
+    // rebuild) via AdaptiveStreamingManager.applyQualityCap(). See
+    // preparePlayerSilently() / switchToQuality().
+    private boolean                              isHlsActive   = false;
     private int                                 stallCount     = 0;
     private final DefaultBandwidthMeter         bwMeter        = new DefaultBandwidthMeter.Builder(null).build();
     /** True when user manually picked a quality — disable auto-switch until they reset */
@@ -391,20 +397,39 @@ public class ReelPlayerController {
             currentCap = AdaptiveStreamingManager.get(ctx).recommendedCap(ctx);
         }
 
-        // Pick quality URL based on cap (Cloudinary transformation URLs)
-        String playUrl = pickQualityUrl(reel, currentCap);
+        // ✅ HLS (single adaptive manifest): when the reel has one, use it
+        // directly and skip the whole legacy per-quality-URL dance below.
+        // There's only ONE url now, so there's no "picked a different
+        // quality than last session" problem to patch around — the old
+        // cache-reuse workaround (preferAlreadyCachedQualityUrl) existed
+        // specifically because video480/720/1080 were separate Cloudinary
+        // URLs/cache-keys; HLS segments cache under the manifest's own
+        // deterministic keys regardless of which rendition ExoPlayer picks,
+        // so CacheDataSource already reuses them for free. currentCap is
+        // still applied via the track selector inside buildPlayer() (and
+        // later via applyQualityCap()) so manual quality lock / data-saver
+        // settings keep working exactly as before.
+        isHlsActive = reel.hlsManifestUrl != null && !reel.hlsManifestUrl.isEmpty();
+        String playUrl;
+        if (isHlsActive) {
+            playUrl = reel.hlsManifestUrl;
+        } else {
+            // Legacy path — pre-HLS reels, or accounts without Cloudinary's
+            // Adaptive Streaming add-on enabled (hlsManifestUrl came back "").
+            playUrl = pickQualityUrl(reel, currentCap);
 
-        // ROOT-CAUSE FIX (cache reuse bug): currentCap above is picked from
-        // LIVE network conditions (recommendedCap()/registerNetworkQualityListener),
-        // which can easily differ between app sessions — WiFi last night,
-        // mobile data now, weaker signal, etc. Since each quality maps to a
-        // DIFFERENT Cloudinary URL (video480/720/1080), picking a different
-        // quality than last time means CacheDataSource sees a brand new URL
-        // and treats it as never-seen — a full re-download of a reel the
-        // user already watched and cached. Before committing to the
-        // network-based pick, check whether ANY quality variant of this
-        // reel is already substantially cached and reuse that one instead.
-        playUrl = preferAlreadyCachedQualityUrl(ctx, reel, playUrl);
+            // ROOT-CAUSE FIX (cache reuse bug): currentCap above is picked from
+            // LIVE network conditions (recommendedCap()/registerNetworkQualityListener),
+            // which can easily differ between app sessions — WiFi last night,
+            // mobile data now, weaker signal, etc. Since each quality maps to a
+            // DIFFERENT Cloudinary URL (video480/720/1080), picking a different
+            // quality than last time means CacheDataSource sees a brand new URL
+            // and treats it as never-seen — a full re-download of a reel the
+            // user already watched and cached. Before committing to the
+            // network-based pick, check whether ANY quality variant of this
+            // reel is already substantially cached and reuse that one instead.
+            playUrl = preferAlreadyCachedQualityUrl(ctx, reel, playUrl);
+        }
 
         // v5: Init ReelABREngine — segment-level MPC-like ABR decisions
         abrEngine = ReelABREngine.get(ctx);
@@ -969,6 +994,51 @@ public class ReelPlayerController {
             "Saving reel for offline viewing…", android.widget.Toast.LENGTH_SHORT).show();
     }
 
+    /** ✅ true if THIS reel is currently playing via a single HLS adaptive manifest */
+    public boolean isHlsActive() {
+        return isHlsActive;
+    }
+
+    /**
+     * ✅ Streaming Mode info dialog — tells the user, per reel, whether it's
+     * playing via Cloudinary's HLS Adaptive Streaming (single .m3u8 manifest,
+     * ABR handled natively by ExoPlayer) or the legacy per-quality-URL
+     * fallback (video480/720/1080, manual cap switching via
+     * AdaptiveStreamingManager.applyQualityCap's source-rebuild path).
+     * Falls back automatically whenever reel.hlsManifestUrl is empty — see
+     * preparePlayerSilently().
+     */
+    public void showStreamingModeInfo() {
+        if (!delegate.isAdded() || delegate.getContext() == null) return;
+
+        String title;
+        String message;
+        if (isHlsActive) {
+            title = "🟢 HLS Adaptive Streaming";
+            message = "This reel is playing via a single adaptive manifest (.m3u8).\n\n"
+                + "Quality switches happen in-place — no player rebuild, no re-buffer.\n\n"
+                + "Cloudinary Adaptive Streaming add-on: Enabled for this reel.";
+        } else {
+            title = "🟡 Per-Quality URL (Fallback)";
+            message = "This reel is playing via separate per-quality video files "
+                + "(480p/720p/1080p), not a single HLS manifest.\n\n"
+                + "Quality switches rebuild the player source, so a short reload "
+                + "may happen when switching.\n\n"
+                + "This happens automatically when the Cloudinary Adaptive Streaming "
+                + "add-on isn't enabled on the account (or wasn't enabled when this "
+                + "particular reel was uploaded). Nothing is broken — playback still "
+                + "works normally.\n\n"
+                + "Check: Cloudinary Dashboard → Settings → Add-ons.";
+        }
+        message += "\n\nCurrent quality: " + AdaptiveStreamingManager.capLabel(currentCap);
+
+        new android.app.AlertDialog.Builder(delegate.getContext())
+            .setTitle(title)
+            .setMessage(message)
+            .setPositiveButton("OK", null)
+            .show();
+    }
+
     /** v5: Open the QoE Analytics dashboard for this reel session. */
     public void showQoeStats() {
         if (!delegate.isAdded() || delegate.getContext() == null) return;
@@ -1182,6 +1252,26 @@ public class ReelPlayerController {
         if (!delegate.isAdded() || delegate.getContext() == null) return;
         ReelModel reel = delegate.getReel();
         if (reel == null) return;
+
+        // ✅ HLS in-place fast path — no stop/release/rebuild, no new
+        // network source, no re-download. Just tighten/loosen the track
+        // selector's resolution/bitrate ceiling on the SAME player and let
+        // ExoPlayer pick a different rendition from the same manifest at
+        // the next segment boundary. This is what item 3 in the HLS
+        // migration ("smooth mid-playback quality switch, no buffering")
+        // actually depends on — the old teardown-and-rebuild-with-a-
+        // different-progressive-URL path below is for legacy reels only.
+        if (isHlsActive && player != null) {
+            Context hlsCtx = delegate.requireContext();
+            AdaptiveStreamingManager.get(hlsCtx).applyQualityCap(player, cap);
+            String label = AdaptiveStreamingManager.capLabel(cap)
+                + (badgeSuffix != null && !badgeSuffix.isEmpty() ? " " + badgeSuffix : "");
+            if (tvQualityBadge != null) {
+                tvQualityBadge.setText(label);
+                tvQualityBadge.setVisibility(android.view.View.VISIBLE);
+            }
+            return;
+        }
 
         long resumePos  = player != null ? player.getCurrentPosition() : 0;
         boolean wasPlay = player != null && player.isPlaying();

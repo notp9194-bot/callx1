@@ -243,6 +243,52 @@ public class AdaptiveStreamingManager {
         return selector;
     }
 
+    // ── In-place quality cap change (HLS/DASH — no source rebuild) ────────────
+
+    /**
+     * Applies a new quality cap to an ALREADY-BUILT HLS/DASH player, in
+     * place — no stop/release/rebuild, no re-download. ExoPlayer's adaptive
+     * track selection just starts picking segments within the new
+     * resolution/bitrate ceiling from the next segment boundary onward.
+     *
+     * This is the HLS-native equivalent of what ReelPlayerController used to
+     * do by tearing down the player and calling buildPlayer() with a
+     * DIFFERENT progressive Cloudinary URL (video480/720/1080) — with a
+     * single adaptive manifest there's only one URL, so quality changes are
+     * just a track-selector constraint, not a new network source.
+     */
+    public void applyQualityCap(ExoPlayer player, QualityCap cap) {
+        if (player == null) return;
+        androidx.media3.exoplayer.trackselection.TrackSelector ts = player.getTrackSelector();
+        if (!(ts instanceof DefaultTrackSelector)) return;
+        DefaultTrackSelector selector = (DefaultTrackSelector) ts;
+        TrackSelectionParameters.Builder params = selector.getParameters().buildUpon();
+        switch (cap) {
+            case Q360P:
+                params.setMaxVideoSize(640, 360).setMaxVideoBitrate((int) (800 * 1000));
+                break;
+            case Q480P:
+                params.setMaxVideoSize(854, 480).setMaxVideoBitrate((int) (1_500 * 1000));
+                break;
+            case Q720P:
+                params.setMaxVideoSize(1280, 720).setMaxVideoBitrate((int) (4_000 * 1000));
+                break;
+            case Q1080P:
+                params.setMaxVideoSize(1920, 1080).setMaxVideoBitrate((int) (8_000 * 1000));
+                break;
+            case AUTO:
+            default:
+                // Must explicitly clear any earlier cap — buildUpon() otherwise
+                // carries forward whatever ceiling was set last time.
+                params.setMaxVideoSize(Integer.MAX_VALUE, Integer.MAX_VALUE)
+                      .setMaxVideoBitrate(Integer.MAX_VALUE);
+                break;
+        }
+        params.setForceHighestSupportedBitrate(cap == QualityCap.Q1080P);
+        selector.setParameters(params.build());
+        Log.d(TAG, "applyQualityCap (in-place, no rebuild): " + cap);
+    }
+
     // ── Media source factory ──────────────────────────────────────────────────
 
     private MediaSource buildSource(String url) {
