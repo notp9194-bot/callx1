@@ -394,6 +394,18 @@ public class ReelPlayerController {
         // Pick quality URL based on cap (Cloudinary transformation URLs)
         String playUrl = pickQualityUrl(reel, currentCap);
 
+        // ROOT-CAUSE FIX (cache reuse bug): currentCap above is picked from
+        // LIVE network conditions (recommendedCap()/registerNetworkQualityListener),
+        // which can easily differ between app sessions — WiFi last night,
+        // mobile data now, weaker signal, etc. Since each quality maps to a
+        // DIFFERENT Cloudinary URL (video480/720/1080), picking a different
+        // quality than last time means CacheDataSource sees a brand new URL
+        // and treats it as never-seen — a full re-download of a reel the
+        // user already watched and cached. Before committing to the
+        // network-based pick, check whether ANY quality variant of this
+        // reel is already substantially cached and reuse that one instead.
+        playUrl = preferAlreadyCachedQualityUrl(ctx, reel, playUrl);
+
         // v5: Init ReelABREngine — segment-level MPC-like ABR decisions
         abrEngine = ReelABREngine.get(ctx);
         // v7: Auto-enable Data Saver on low battery (non-charging) at session start
@@ -1332,6 +1344,54 @@ public class ReelPlayerController {
      * Returns the most appropriate Cloudinary quality URL for the given cap.
      * Falls back to videoUrl if quality variants are not available (old reels).
      */
+    /**
+     * ROOT-CAUSE FIX (cache reuse bug): given the URL the network-based
+     * quality cap would normally pick, check every quality variant of this
+     * reel (480/720/1080 + raw fallback, each with the same codec transform
+     * pickQualityUrl() would apply) for existing cached bytes. If one is
+     * already substantially cached — meaning the user watched this reel
+     * before, at some quality — reuse that exact URL so CacheDataSource
+     * serves it from disk instead of re-downloading a "new" quality variant
+     * just because today's network conditions suggested a different cap.
+     *
+     * Falls back to the original network-picked URL if nothing is cached
+     * yet (first-ever view of this reel) — normal fresh-download path.
+     */
+    private static String preferAlreadyCachedQualityUrl(Context ctx, ReelModel reel, String networkPickedUrl) {
+        if (reel == null) return networkPickedUrl;
+        try {
+            if (!com.callx.app.cache.ReelCacheManager.isInitialized()) {
+                com.callx.app.cache.ReelCacheManager.init(ctx);
+            }
+            // Already-cached bytes required before we trust it as "this reel was
+            // seen before" rather than a stray partial preload chunk.
+            final long MIN_CACHED_BYTES = 500_000L; // 500KB
+
+            // If the network-picked URL itself is already cached, nothing to do.
+            if (com.callx.app.cache.ReelCacheManager.getCachedBytes(networkPickedUrl) >= MIN_CACHED_BYTES) {
+                return networkPickedUrl;
+            }
+
+            // Check the other quality variants, highest first (best viewing experience).
+            String[] candidates = new String[] {
+                com.callx.app.utils.CodecSupport.applyToUrl(reel.video1080),
+                com.callx.app.utils.CodecSupport.applyToUrl(reel.video720),
+                com.callx.app.utils.CodecSupport.applyToUrl(reel.video480),
+                com.callx.app.utils.CodecSupport.applyToUrl(reel.videoUrl),
+            };
+            for (String candidate : candidates) {
+                if (candidate == null || candidate.isEmpty()) continue;
+                if (candidate.equals(networkPickedUrl)) continue; // already checked above
+                if (com.callx.app.cache.ReelCacheManager.getCachedBytes(candidate) >= MIN_CACHED_BYTES) {
+                    return candidate;
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "preferAlreadyCachedQualityUrl: " + e.getMessage());
+        }
+        return networkPickedUrl;
+    }
+
     private static String pickQualityUrl(ReelModel reel, AdaptiveStreamingManager.QualityCap cap) {
         if (reel == null) return "";
         String url480  = reel.video480  != null && !reel.video480.isEmpty()  ? reel.video480  : null;

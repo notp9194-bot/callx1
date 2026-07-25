@@ -91,6 +91,8 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
       public static final String ACTION_QOE_STATS       = "qoe_stats";
       // ── Reels Display Mode (Immersive vs Normal) ──
       public static final String ACTION_DISPLAY_MODE    = "display_mode";
+      // ── Background Play toggle ──
+      public static final String ACTION_BACKGROUND_PLAY = "background_play";
 
     // ─── Item model ──────────────────────────────────────────────────────────
     private static class MenuItem {
@@ -288,6 +290,13 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
         }
     }
 
+    /** "Background Play: On/Off" — reflects the persisted setting so the sheet always shows current state. */
+    private String backgroundPlayLabel() {
+        boolean on = getContext() != null
+                && com.callx.app.utils.ReelBackgroundPlaySettings.isEnabled(getContext());
+        return "Background Play: " + (on ? "On" : "Off");
+    }
+
     // ─── Viewer menu items ────────────────────────────────────────────────────
 
     private List<MenuItem> buildViewerItems() {
@@ -296,6 +305,7 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
         list.add(new MenuItem(ACTION_SPEED,                speedLabel,             R.drawable.ic_speed,         CLR_YELLOW, false, false));
         list.add(new MenuItem(ACTION_DOWNLOAD,             "Download",             R.drawable.ic_download_reel, CLR_GREEN,  true,  false));
         list.add(new MenuItem(ACTION_DISPLAY_MODE,         "Display Mode",         R.drawable.ic_display_mode_normal, CLR_TEAL, true, false));
+        list.add(new MenuItem(ACTION_BACKGROUND_PLAY,      backgroundPlayLabel(),  R.drawable.ic_audio,        CLR_TEAL,   true,  false));
 
         // ── Duet ──
         addDuetStitchItem(list, ACTION_DUET, "Duet", R.drawable.ic_video_call,
@@ -354,6 +364,7 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
         list.add(new MenuItem(ACTION_SPEED,                speedLabel,             R.drawable.ic_speed,         CLR_YELLOW, false, false));
         list.add(new MenuItem(ACTION_DOWNLOAD,             "Download",             R.drawable.ic_download_reel, CLR_GREEN,  true,  false));
         list.add(new MenuItem(ACTION_DISPLAY_MODE,         "Display Mode",         R.drawable.ic_display_mode_normal, CLR_TEAL, true, false));
+        list.add(new MenuItem(ACTION_BACKGROUND_PLAY,      backgroundPlayLabel(),  R.drawable.ic_audio,        CLR_TEAL,   true,  false));
         list.add(new MenuItem(ACTION_EDIT,                 "Edit Reel",            R.drawable.ic_edit,          CLR_ORANGE, false, false));
         list.add(new MenuItem(ACTION_ANALYTICS,            "Analytics",            R.drawable.ic_reel_explore,  CLR_TEAL,   false, false));
         list.add(new MenuItem(ACTION_PINNED_COMMENTS,      "Pinned Comments",      R.drawable.ic_pin,           CLR_TEAL,   true,  false));

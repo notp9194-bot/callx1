@@ -2338,8 +2338,8 @@ public class GroupChatActivity extends AppCompatActivity
      * shows, since a group has many recipients, not one. Text messages only,
      * same scope as the tick system above.
      */
-    private void showGroupMessageInfoDialog(Message m) {
-        if (m == null) return;
+    private void showGroupMessageInfoDialog(Message mParam) {
+        if (mParam == null) return;
         // BUG FIX: same root cause as ChatActivity#showMessageInfoDialog —
         // getSelectedMessages() can hand back a stale/near-empty Message
         // (Paging reload window right after a fast send) for the id the
@@ -2348,11 +2348,16 @@ public class GroupChatActivity extends AppCompatActivity
         // even for the sender's own outgoing group message. Re-resolve the
         // same id off the adapter's live snapshot right before building the
         // sheet's data.
-        String infoId = m.messageId != null ? m.messageId : m.id;
+        String infoId = mParam.messageId != null ? mParam.messageId : mParam.id;
+        Message resolved = mParam;
         if (pagingAdapter != null && infoId != null) {
             Message fresh = pagingAdapter.findMessageById(infoId);
-            if (fresh != null) m = fresh;
+            if (fresh != null) resolved = fresh;
         }
+        // Effectively-final reference for use inside the inner class/lambdas below
+        // (the ValueEventListener and GroupMessageReadObserver callback mutate
+        // m.readBy/m.deliveredBy, which requires m itself to never be reassigned).
+        final Message m = resolved;
         boolean isOutgoing = m.senderId != null && currentUid.equals(m.senderId);
 
         com.callx.app.conversation.info.MessageInfoData data = new com.callx.app.conversation.info.MessageInfoData();

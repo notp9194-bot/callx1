@@ -251,7 +251,18 @@ public class ReelPlayerFragment extends Fragment
 
     @Override
     public void onPause() {
-        playerController.pausePlayback();
+        // BACKGROUND PLAY: fragment onPause() only fires here when the Activity
+        // itself is going to the background (home button / recents / screen off) —
+        // in-app tab switches and feed scroll are handled separately via
+        // setUserVisibleHint()/applyVisibleState(), which always pause regardless
+        // of this setting. So this is exactly the "app closed" moment the user's
+        // 3-dot toggle is meant to control.
+        boolean keepPlayingInBackground = getContext() != null
+                && com.callx.app.utils.ReelBackgroundPlaySettings.isEnabled(getContext())
+                && !photoController.isPhotoMode(); // photo reels have nothing to keep "playing"
+        if (!keepPlayingInBackground) {
+            playerController.pausePlayback();
+        }
         super.onPause();
     }
 
@@ -504,6 +515,22 @@ public class ReelPlayerFragment extends Fragment
         com.callx.app.social.ReelDisplayModeBottomSheet sheet =
             com.callx.app.social.ReelDisplayModeBottomSheet.newInstance(current, false);
         sheet.show(getChildFragmentManager(), com.callx.app.social.ReelDisplayModeBottomSheet.TAG);
+    }
+
+    // ── Background Play toggle ────────────────────────────────────────────
+    /**
+     * Toggles whether reels keep playing (with audio) after the app is
+     * backgrounded. OFF by default — see ReelBackgroundPlaySettings and
+     * this fragment's own onPause() below for where it's enforced.
+     */
+    @Override
+    public void toggleBackgroundPlay() {
+        if (!isAdded() || getContext() == null) return;
+        boolean nowOn = com.callx.app.utils.ReelBackgroundPlaySettings.toggle(getContext());
+        android.widget.Toast.makeText(getContext(),
+                nowOn ? "Background Play turned on — reels keep playing when you leave the app"
+                      : "Background Play turned off — reels pause when you leave the app",
+                android.widget.Toast.LENGTH_SHORT).show();
     }
 
     /** ReelDisplayModeBottomSheet.OnModeSelectedListener — user picked a mode. */

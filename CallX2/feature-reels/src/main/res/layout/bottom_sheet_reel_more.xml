@@ -18,8 +18,20 @@
             android:layout_marginTop="10dp"/>
     </FrameLayout>
 
-    <!-- Scrollable Items -->
-    <ScrollView
+    <!-- Scrollable Items
+         FIX: plain ScrollView does NOT implement NestedScrollingChild, so
+         BottomSheetBehavior (which lives on the parent CoordinatorLayout)
+         can't tell the difference between "user is scrolling the list" and
+         "user is dragging the sheet to dismiss it". Result: scroll down works
+         fine (content just scrolls), but reversing direction to scroll back
+         up gets intercepted by the sheet's own drag handling instead of the
+         ScrollView, and since the sheet is already fully expanded that drag
+         reads as a dismiss swipe — closing the whole sheet mid-scroll.
+         NestedScrollView implements NestedScrollingChild2 and correctly
+         hands scroll deltas to/from the CoordinatorLayout's nested scrolling
+         parent, so BottomSheetBehavior only takes over for an actual
+         drag-to-dismiss gesture once the list is scrolled to its top. -->
+    <androidx.core.widget.NestedScrollView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:scrollbars="none"
@@ -32,5 +44,5 @@
             android:orientation="vertical"
             android:paddingBottom="16dp"/>
 
-    </ScrollView>
+    </androidx.core.widget.NestedScrollView>
 </LinearLayout>

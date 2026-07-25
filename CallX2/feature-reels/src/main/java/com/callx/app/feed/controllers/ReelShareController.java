@@ -186,6 +186,7 @@ public class ReelShareController {
             case ReelMoreBottomSheet.ACTION_QOE_STATS:          delegate.showQoeStats();           break;
             // Reels Display Mode
             case ReelMoreBottomSheet.ACTION_DISPLAY_MODE:       delegate.showDisplayModePicker();  break;
+            case ReelMoreBottomSheet.ACTION_BACKGROUND_PLAY:    delegate.toggleBackgroundPlay();   break;
         }
     }
 }

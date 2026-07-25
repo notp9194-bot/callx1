@@ -258,7 +258,12 @@
             android:paddingBottom="8dp"/>
     </LinearLayout>
 
-    <!-- Top row: mute button — paddingTop absorbs status-bar height (set in code) -->
+    <!-- Top row: mute button — paddingTop absorbs status-bar height (set in code).
+         Speed (1x) and Download buttons removed from here — both actions
+         already exist in the 3-dot "More" menu (ACTION_SPEED, ACTION_DOWNLOAD),
+         no need to duplicate them up top. ReelPlayerController/ReelUiController
+         already null-check btnSpeed/btnDownload before use, so removing these
+         views here is safe. -->
     <LinearLayout
         android:id="@+id/top_controls"
         android:layout_width="match_parent"
@@ -277,29 +282,6 @@
             android:tint="#FFD700"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="Mute"/>
-
-        <TextView
-            android:id="@+id/btn_speed"
-            android:layout_width="wrap_content"
-            android:layout_height="38dp"
-            android:gravity="center"
-            android:paddingStart="8dp"
-            android:paddingEnd="8dp"
-            android:text="1x"
-            android:textColor="#FFFFFF"
-            android:textSize="13sp"
-            android:textStyle="bold"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Playback speed"/>
-
-        <ImageButton
-            android:id="@+id/btn_download"
-            android:layout_width="38dp"
-            android:layout_height="38dp"
-            android:src="@drawable/ic_download_reel"
-            android:tint="#FFFFFF"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Download"/>
     </LinearLayout>
 
     <!-- Right action bar: Avatar · Like · Comment · Share · More
@@ -431,13 +413,17 @@
             android:textColor="#FFFFFF"
             android:textSize="12sp"
             android:gravity="center"
-            android:layout_marginBottom="16dp"/>
+            android:layout_marginBottom="10dp"/>
 
-        <!-- Screenshot-style menu action: long line above, shorter line below. -->
+        <!-- Screenshot-style menu action: long line above, shorter line below.
+             Equal 10dp margin top + bottom so this sits centered between the
+             repost count above and the audio photo tile below it. -->
         <ImageButton
             android:id="@+id/btn_more"
             android:layout_width="42dp"
             android:layout_height="30dp"
+            android:layout_marginTop="10dp"
+            android:layout_marginBottom="10dp"
             android:src="@drawable/ic_reel_more_lines"
             android:tint="#FFFFFF"
             android:background="?attr/selectableItemBackgroundBorderless"

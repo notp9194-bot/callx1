@@ -135,4 +135,6 @@ public interface ReelPlayerDelegate {
     void showQoeStats();
     // Reels Display Mode (Immersive vs Normal) picker
     void showDisplayModePicker();
+    /** Toggles the "Background Play" setting (reel keeps playing with audio after app is backgrounded). */
+    void toggleBackgroundPlay();
 }

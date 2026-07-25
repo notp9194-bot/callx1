@@ -582,7 +582,17 @@ public class ReelsFragment extends Fragment {
     @Override
     public void onPause() {
         if (vpReels != null) savedPosition = vpReels.getCurrentItem();
-        pauseAllReels();
+        // BACKGROUND PLAY: this onPause() fires when the Activity itself goes
+        // to the background. If the user turned on "Background Play" from the
+        // Reels 3-dot menu, skip the force-pause here so the current reel keeps
+        // playing with audio — ReelPlayerFragment#onPause() makes the same
+        // check per-fragment. All OTHER pause paths (tab switch, Home overlay,
+        // feed scroll) still call pauseAllReels() unconditionally.
+        boolean keepPlayingInBackground = getContext() != null
+                && com.callx.app.utils.ReelBackgroundPlaySettings.isEnabled(getContext());
+        if (!keepPlayingInBackground) {
+            pauseAllReels();
+        }
         super.onPause();
     }
 
