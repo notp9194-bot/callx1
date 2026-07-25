@@ -61,10 +61,15 @@ import com.callx.app.services.CallForegroundService;
 import com.callx.app.compose.NewStatusActivity;
 import com.callx.app.hub.GamesHubActivity;
 import com.callx.app.feed.ReelChatDockedPlayer;
+import com.callx.app.feed.ReelDisplayModeListener;
+import com.callx.app.social.ReelDisplayModeBottomSheet;
+import com.callx.app.utils.ReelDisplayModePrefs;
 import androidx.annotation.OptIn;
 import androidx.media3.common.util.UnstableApi;
 
-public class MainActivity extends AppCompatActivity {
+public class MainActivity extends AppCompatActivity
+        implements com.callx.app.feed.ReelDisplayModeListener,
+                   com.callx.app.social.ReelDisplayModeBottomSheet.OnModeSelectedListener {
 
     private ActivityMainBinding binding;
 
@@ -205,8 +210,15 @@ public class MainActivity extends AppCompatActivity {
                 if (position >= 0 && position < ids.length)
                     binding.bottomNav.setSelectedItemId(ids[position]);
                 updateFab(position);
-                // Hide main bottom nav + FAB when Reels tab is active
-                setMainNavVisible(position != TAB_REELS);
+                // First time ever landing on the Reels tab: ask the user which
+                // display mode they want (Immersive vs Normal) before applying
+                // any chrome visibility change for this tab.
+                if (position == TAB_REELS && !com.callx.app.utils.ReelDisplayModePrefs.hasBeenAsked(MainActivity.this)) {
+                    showReelDisplayModeFirstVisitChooser();
+                }
+                // Hide main bottom nav + FAB when Reels tab is active — unless
+                // the user chose "Normal" mode, in which case chrome stays visible.
+                setMainNavVisible(position != TAB_REELS || com.callx.app.utils.ReelDisplayModePrefs.isNormalMode(MainActivity.this));
                 // ── Reel playback: pause when leaving, resume when entering ──
                 // Track previous tab so we know whether user is going TO or FROM Reels
                 notifyReelsTabVisibility(position == TAB_REELS, position);
@@ -325,7 +337,7 @@ public class MainActivity extends AppCompatActivity {
             // so we treat it as a no-op dock transition (normal resume path).
             notifyReelsTabVisibility(isReelsTab, currentTab);
         }
-        setMainNavVisible(!isReelsTab);
+        setMainNavVisible(!isReelsTab || com.callx.app.utils.ReelDisplayModePrefs.isNormalMode(this));
         // Feature 1: Return to Call Banner
         updateReturnToCallBanner();
     }
@@ -1188,6 +1200,41 @@ public class MainActivity extends AppCompatActivity {
             controller.setSystemBarsBehavior(
                 WindowInsetsControllerCompat.BEHAVIOR_DEFAULT);
             getWindow().setStatusBarColor(android.graphics.Color.TRANSPARENT);
+        }
+    }
+
+    /**
+     * Called once — the very first time the user ever lands on the Reels tab.
+     * Shown non-cancelable so the user picks a real answer; MainActivity itself
+     * is the listener since it shows the sheet on its own FragmentManager.
+     */
+    private void showReelDisplayModeFirstVisitChooser() {
+        ReelDisplayModeBottomSheet sheet = ReelDisplayModeBottomSheet.newInstance(
+            ReelDisplayModePrefs.MODE_IMMERSIVE, true);
+        sheet.show(getSupportFragmentManager(), ReelDisplayModeBottomSheet.TAG);
+    }
+
+    /** ReelDisplayModeBottomSheet.OnModeSelectedListener — first-visit chooser answered. */
+    @Override
+    public void onModeSelected(String mode) {
+        ReelDisplayModePrefs.setMode(this, mode);
+        ReelDisplayModePrefs.markAsked(this);
+        applyReelDisplayModeIfOnReelsTab();
+    }
+
+    /**
+     * ReelDisplayModeListener — the user changed their mind from the Reels
+     * 3-dot menu while still sitting on the Reels tab (no tab-switch to
+     * trigger the usual re-check), so re-apply chrome visibility right now.
+     */
+    @Override
+    public void onReelDisplayModeChanged(String mode) {
+        applyReelDisplayModeIfOnReelsTab();
+    }
+
+    private void applyReelDisplayModeIfOnReelsTab() {
+        if (binding.viewPager.getCurrentItem() == TAB_REELS) {
+            setMainNavVisible(ReelDisplayModePrefs.isNormalMode(this));
         }
     }
 

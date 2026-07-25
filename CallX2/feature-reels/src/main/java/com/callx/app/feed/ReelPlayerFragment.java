@@ -495,6 +495,30 @@ public class ReelPlayerFragment extends Fragment
     @Override public void saveReelOffline()         { playerController.saveReelOffline(); }
     @Override public void showQoeStats()            { playerController.showQoeStats(); }
 
+    // ── Reels Display Mode (Immersive vs Normal) — reopened anytime from ⋮ menu ──
+    @Override
+    public void showDisplayModePicker() {
+        if (!isAdded() || getContext() == null) return;
+        String current = com.callx.app.utils.ReelDisplayModePrefs.getMode(getContext());
+        com.callx.app.social.ReelDisplayModeBottomSheet sheet =
+            com.callx.app.social.ReelDisplayModeBottomSheet.newInstance(current, false);
+        sheet.show(getChildFragmentManager(), com.callx.app.social.ReelDisplayModeBottomSheet.TAG);
+    }
+
+    /** ReelDisplayModeBottomSheet.OnModeSelectedListener — user picked a mode. */
+    @Override
+    public void onModeSelected(String mode) {
+        if (getContext() == null) return;
+        com.callx.app.utils.ReelDisplayModePrefs.setMode(getContext(), mode);
+        com.callx.app.utils.ReelDisplayModePrefs.markAsked(getContext());
+        // Notify the hosting Activity (MainActivity) to re-apply status bar /
+        // bottom nav visibility immediately — no tab-switch happens here so
+        // it wouldn't otherwise re-check the preference on its own.
+        if (getActivity() instanceof ReelDisplayModeListener) {
+            ((ReelDisplayModeListener) getActivity()).onReelDisplayModeChanged(mode);
+        }
+    }
+
     // ── Instagram-style comments transition ───────────────────────────────
 
     @Override

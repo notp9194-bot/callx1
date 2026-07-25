@@ -184,6 +184,8 @@ public class ReelShareController {
             case ReelMoreBottomSheet.ACTION_QUALITY:            delegate.showQualityPicker();     break;
             case ReelMoreBottomSheet.ACTION_SAVE_OFFLINE:       delegate.saveReelOffline();        break;
             case ReelMoreBottomSheet.ACTION_QOE_STATS:          delegate.showQoeStats();           break;
+            // Reels Display Mode
+            case ReelMoreBottomSheet.ACTION_DISPLAY_MODE:       delegate.showDisplayModePicker();  break;
         }
     }
 }

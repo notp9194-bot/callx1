@@ -133,4 +133,6 @@ public interface ReelPlayerDelegate {
     // v5: Offline save + QoE dashboard entry points
     void saveReelOffline();
     void showQoeStats();
+    // Reels Display Mode (Immersive vs Normal) picker
+    void showDisplayModePicker();
 }
