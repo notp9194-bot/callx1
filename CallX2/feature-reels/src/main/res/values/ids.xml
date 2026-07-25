@@ -17,4 +17,9 @@
 
     <!-- Sound detail bottom sheet — "See full page" button -->
     <item name="btn_see_full_page"       type="id"/>
+
+    <!-- Reel player top-bar speed badge — removed from fragment_reel_player.xml
+         (Speed action lives only in the 3-dot "More" menu now), but
+         ReelPlayerController still holds a nullable reference to it. -->
+    <item name="btn_speed"               type="id"/>
 </resources>

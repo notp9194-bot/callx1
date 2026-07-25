@@ -170,6 +170,11 @@ public class ReelPlayerController {
         progressVideo        = root.findViewById(R.id.progress_video);
         progressBuffering    = root.findViewById(R.id.progress_buffering);
         btnMute              = root.findViewById(R.id.btn_mute);
+        // btn_speed view was removed from fragment_reel_player.xml (Speed action
+        // now lives only in the 3-dot "More" menu / ACTION_SPEED). R.id.btn_speed
+        // is kept alive via values/ids.xml (see that file's header comment) so
+        // this still compiles; btnSpeed resolves to null here and every call
+        // site already null-checks it before use (see ~line 767).
         btnSpeed             = root.findViewById(R.id.btn_speed);
 
         // Capture the status bar inset once so the docked video (comments
