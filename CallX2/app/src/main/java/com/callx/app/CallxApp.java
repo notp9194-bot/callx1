@@ -321,10 +321,14 @@ public class CallxApp extends Application {
 
             } else if (level >= ComponentCallbacks2.TRIM_MEMORY_MODERATE) {
                 cache.evictLowPriority();
-                // FIX #MEM-3B: Moderate signal pe bhi Reel cache trim karo
-                ReelCacheManager.trimMemory();
+                // FIX #cache-compound-2: pehle yahan ReelCacheManager.trimMemory() seedha
+                // call hota tha — wahi shared SimpleCache jo UnifiedVideoCacheManager bhi
+                // use karta hai, isliye duplicate wipe path yahin se wapas aa jata tha.
+                // Ab sirf ek hi function (UnifiedVideoCacheManager.trimMemory()) shared
+                // cache ko touch karta hai — reels + chat/status/x sab modules ke liye.
+                UnifiedVideoCacheManager.trimMemory();
                 com.callx.app.cache.LastMessagesCache.getInstance().trimMemory(level);
-                Log.d(TAG, "onTrimMemory MODERATE — low priority + reel cache trimmed");
+                Log.d(TAG, "onTrimMemory MODERATE — low priority + unified video cache trimmed");
             }
         } catch (Exception e) {
             Log.w(TAG, "onTrimMemory error: " + e.getMessage());
