@@ -123,6 +123,17 @@ public class AdaptiveStreamingManager {
 
     // ── QoE persistence ──────────────────────────────────────────────────────
     private static final String QOE_PREFS          = "abr_qoe_stats";
+    // ✅ FIX (cache-reuse across app restarts): recommendedCap() used to fall
+    // back to a generic per-network-type guess (WiFi=10Mbps, Cellular=1.5Mbps)
+    // on every fresh app launch, since ewmaBwKbps always started at 0. That
+    // guess frequently differs from what the network actually sustained last
+    // session, so a reopened app can pick a DIFFERENT quality (different
+    // Cloudinary URL / different HLS rendition = different cache key) than
+    // what's already cached — the reel shows up in "cache in use" but that
+    // exact URL is never queried again. Persisting the last EWMA estimate and
+    // seeding it back in keeps the quality pick — and therefore the cache
+    // key — stable across restarts.
+    private static final String KEY_LAST_EWMA_BW_KBPS = "last_ewma_bw_kbps";
     private static final String KEY_TOTAL_SESSIONS  = "total_sessions";
     private static final String KEY_TOTAL_STALL_MS  = "total_stall_ms";
     private static final String KEY_TOTAL_SWITCHES  = "total_quality_switches";
@@ -141,6 +152,14 @@ public class AdaptiveStreamingManager {
         appCtx         = ctx.getApplicationContext();
         bandwidthMeter = new DefaultBandwidthMeter.Builder(appCtx).build();
         mainHandler    = new Handler(Looper.getMainLooper());
+        // Seed with last session's measured bandwidth instead of starting at
+        // 0 (which forces recommendedCap() to guess from network TYPE alone)
+        // — see KEY_LAST_EWMA_BW_KBPS comment above.
+        try {
+            long saved = appCtx.getSharedPreferences(QOE_PREFS, Context.MODE_PRIVATE)
+                .getLong(KEY_LAST_EWMA_BW_KBPS, 0L);
+            if (saved > 0) ewmaBwKbps = saved;
+        } catch (Exception ignored) {}
     }
 
     public static AdaptiveStreamingManager get(Context ctx) {
@@ -507,6 +526,17 @@ public class AdaptiveStreamingManager {
             ewmaBwKbps = EWMA_ALPHA * rawKbps + (1.0 - EWMA_ALPHA) * ewmaBwKbps;
         }
         Log.v(TAG, "BW sample raw=" + rawKbps + " ewma=" + (long)ewmaBwKbps + " kbps");
+
+        // Persist every ~5th sample (not every single one — sampleBandwidth()
+        // fires on playback state/video size changes, cheap to throttle
+        // anyway) so recommendedCap() picks the same quality on next launch.
+        if (bwHistory.size() % 5 == 0) {
+            try {
+                appCtx.getSharedPreferences(QOE_PREFS, Context.MODE_PRIVATE).edit()
+                    .putLong(KEY_LAST_EWMA_BW_KBPS, (long) ewmaBwKbps)
+                    .apply();
+            } catch (Exception ignored) {}
+        }
     }
 
     /**
