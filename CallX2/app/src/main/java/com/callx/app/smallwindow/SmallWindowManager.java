@@ -73,7 +73,8 @@ public class SmallWindowManager {
         WindowManager wm = (WindowManager) context.getSystemService(Context.WINDOW_SERVICE);
         if (wm == null) return;
 
-        LayoutInflater inflater = LayoutInflater.from(context);
+        LayoutInflater inflater = LayoutInflater.from(
+            new android.view.ContextThemeWrapper(context, R.style.Theme_CallX));
         smallWindowView = inflater.inflate(R.layout.layout_small_window, null);
 
         // ── Window params ─────────────────────────────────────────────────
@@ -188,7 +189,8 @@ public class SmallWindowManager {
         try { wm.removeView(smallWindowView); } catch (Exception ignored) {}
         smallWindowView = null;
 
-        LayoutInflater inflater = LayoutInflater.from(context);
+        LayoutInflater inflater = LayoutInflater.from(
+            new android.view.ContextThemeWrapper(context, R.style.Theme_CallX));
         bubbleView = inflater.inflate(R.layout.layout_small_window_bubble, null);
 
         int overlayType = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
