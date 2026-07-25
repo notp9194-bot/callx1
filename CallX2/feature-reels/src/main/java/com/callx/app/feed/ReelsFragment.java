@@ -35,7 +35,10 @@ import com.callx.app.cache.ReelCacheManager;
 import com.callx.app.cache.ReelPredictivePreloader;
 import com.callx.app.cache.ReelVideoPreloader;
 import com.callx.app.cache.ReelThumbnailPreloader;
+import com.callx.app.cache.ReelUiStatePrecomputer;
 import com.callx.app.player.ReelOfflineManager;
+import com.callx.app.player.PrewarmThrottleGuard;
+import com.callx.app.player.ExoPlayerPool;
 import com.callx.app.feed.ReelsAdapter;
 import com.callx.app.models.ReelModel;
 import com.callx.app.utils.FirebaseUtils;
@@ -124,6 +127,8 @@ public class ReelsFragment extends Fragment {
 
     private ReelVideoPreloader     videoPreloader;
     private ReelThumbnailPreloader thumbPreloader;
+    private ReelChoreographerSnapSync snapSync;
+    private ReelUiStatePrecomputer uiStatePrecomputer;
     // v5: Predictive preloader + offline manager
     private ReelPredictivePreloader predictivePreloader;
     private float lastScrollVelocity = 0f; // v6: px/ms, feeds adaptive preload window
@@ -177,19 +182,65 @@ public class ReelsFragment extends Fragment {
         adapter.setGamesCardsEnabled(true); // Mini Games card every 3 reels (YouTube-Playables style)
         vpReels.setAdapter(adapter);
         // ── Instagram-style instant playback ──────────────────────────────
-        // offscreenPageLimit=3 → N-1, N, N+1, N+2 fragments all kept alive.
-        // Combined with preparePlayerSilently() in ReelPlayerFragment, the next
-        // 2 reels are always pre-prepared → zero buffering spinner on swipe.
-        vpReels.setOffscreenPageLimit(3);
+        // offscreenPageLimit=4 → N-1, N, N+1, N+2, N+3 fragments all kept
+        // alive. Combined with preparePlayerSilently() in ReelPlayerFragment,
+        // up to 3 reels ahead can be pre-prepared → zero buffering spinner on
+        // swipe even during a fast flick (see controlPlayback()'s
+        // velocity-adaptive prewarm distance below — normally only N+1/N+2
+        // are actually warmed; N+3 is reached only on a fast scroll).
+        vpReels.setOffscreenPageLimit(4);
+
+        // UX advance — "gesture-based snap animation": Instagram-style
+        // scale+fade on the outgoing/incoming page, purely a view-property
+        // transform, doesn't touch playback/prewarm at all.
+        ReelPageTransformer pageTransformer = new ReelPageTransformer();
+        vpReels.setPageTransformer(pageTransformer);
+
+        // PERF/UX advance — "Choreographer-synced page snap": re-applies the
+        // above transform on every vsync while dragging/settling instead of
+        // only on however many onPageScrolled calls RecyclerView happens to
+        // dispatch during that window — see ReelChoreographerSnapSync doc.
+        snapSync = new ReelChoreographerSnapSync(vpReels, pageTransformer);
+
+        // PERF (advance #8 — "GPU decode warm-up"): fire-and-forget,
+        // process-lifetime-once codec + EGL warm-up on a background thread
+        // so the FIRST reel opened this session doesn't pay the one-time
+        // codec-HAL/GL-driver init cost that every reel after it skips.
+        com.callx.app.player.GpuDecodeWarmup.warmUpOnce(requireContext());
 
         ReelCacheManager.init(requireContext());
         videoPreloader = new ReelVideoPreloader(requireContext());
         // Wire preloader to existing fragments if any (e.g. after config change)
         wirePreloaderToVisibleFragment();
         thumbPreloader = new ReelThumbnailPreloader(requireContext());
+        uiStatePrecomputer = new ReelUiStatePrecomputer();
         // v5: Init predictive preloader + offline manager
         predictivePreloader = new ReelPredictivePreloader(requireContext());
         offlineManager      = ReelOfflineManager.get(requireContext());
+
+        // PERF (advance #5 — predictive prefetch extended to player level):
+        // when the learned model's top-ranked upcoming reel already has an
+        // instantiated fragment (within offscreenPageLimit), warm its
+        // ExoPlayer for real instead of just its cache bytes. Purely
+        // additive on top of the positional N+1/N+2/N+3 prewarm below —
+        // this is what lets "the reel the user is statistically about to
+        // watch" jump the queue even if it's not the very next one.
+        predictivePreloader.setPlayerPrewarmListener((reel, offset, score) -> {
+            if (reel == null || reel.reelId == null || !isTabActive) return;
+            if (PrewarmThrottleGuard.shouldThrottleExtraDistance(requireContext())) return;
+            int curPos = vpReels.getCurrentItem();
+            for (int i = curPos + 1; i < adapter.getItemCount(); i++) {
+                Fragment nf = getChildFragmentManager()
+                    .findFragmentByTag("f" + adapter.getItemId(i));
+                if (nf instanceof ReelPlayerFragment) {
+                    ReelModel bound = ((ReelPlayerFragment) nf).getReel();
+                    if (bound != null && reel.reelId.equals(bound.reelId)) {
+                        ((ReelPlayerFragment) nf).prewarmPlayer();
+                    }
+                    break; // only the exact matching, already-instantiated fragment
+                }
+            }
+        });
 
         vpReels.registerOnPageChangeCallback(new ViewPager2.OnPageChangeCallback() {
             private long lastScrollNs = 0;
@@ -213,6 +264,11 @@ public class ReelsFragment extends Fragment {
             }
 
             @Override
+            public void onPageScrollStateChanged(int state) {
+                if (snapSync != null) snapSync.onScrollStateChanged(state);
+            }
+
+            @Override
             public void onPageSelected(int position) {
                 controlPlayback(position);
                 int reelIndex = adapter.toReelIndex(position);
@@ -222,6 +278,7 @@ public class ReelsFragment extends Fragment {
                 // Sync preloader to newly visible fragment
                 wirePreloaderToCurrentFragment(position);
                 if (thumbPreloader != null) thumbPreloader.preloadFrom(cur, reelIndex);
+                if (uiStatePrecomputer != null) uiStatePrecomputer.precomputeFrom(cur, reelIndex);
                 // v5/v6: Record watch event + drive predictive preload order
                 // (velocity-adaptive: fast flicks shrink the lookahead window/bytes)
                 if (predictivePreloader != null && reelIndex < cur.size()) {
@@ -508,6 +565,13 @@ public class ReelsFragment extends Fragment {
 
         if (videoPreloader != null) { videoPreloader.shutdown(); videoPreloader = null; }
         thumbPreloader = null;
+        if (uiStatePrecomputer != null) { uiStatePrecomputer.shutdown(); uiStatePrecomputer = null; }
+        if (snapSync != null) { snapSync.stop(); snapSync = null; }
+        if (predictivePreloader != null) { predictivePreloader.shutdown(); predictivePreloader = null; }
+        // PERF (advance #3): hard-release the pool here — this is the whole
+        // Reels feature going away (not just a tab switch), so there's no
+        // more reason to keep the pooled ExoPlayer instances warm.
+        if (getContext() != null) ExoPlayerPool.get(getContext()).releaseAll();
         super.onDestroyView();
     }
 
@@ -732,6 +796,7 @@ public class ReelsFragment extends Fragment {
         savedPosition = 0;
         if (videoPreloader != null) videoPreloader.preloadFrom(source.subList(0, end), 0);
         if (thumbPreloader != null) thumbPreloader.preloadFrom(source.subList(0, end), 0);
+        if (uiStatePrecomputer != null) uiStatePrecomputer.precomputeFrom(source.subList(0, end), 0);
         if (getActivity() != null) getActivity().runOnUiThread(() -> {
             if (!isAdded() || vpReels == null) return;
             vpReels.setCurrentItem(0, false);
@@ -812,6 +877,45 @@ public class ReelsFragment extends Fragment {
             if (f instanceof ReelPlayerFragment) {
                 boolean shouldPlay = isTabActive && !homeVisible && (i == activePosition);
                 ((ReelPlayerFragment) f).setUserVisibleHint(shouldPlay);
+            }
+        }
+
+        // ✅ Instagram-style pre-warm: build+prepare the NEXT reel's
+        // ExoPlayer now (muted, paused — see ReelPlayerFragment.prewarmPlayer())
+        // while the current one is still playing, so swiping forward plays
+        // instantly instead of a thumbnail-then-video flash. Swiping BACK
+        // doesn't need this — a previously-active reel's player is only ever
+        // paused, never released, so it already resumes instantly.
+        //
+        // PERF (advance #2 — adaptive prewarm distance): N+1 always gets
+        // warmed (that's the one that actually removes the visible flash).
+        // Whether we ALSO reach further (N+2, and N+3 on a fast flick) is
+        // driven by the live swipe velocity computed in onPageScrolled()
+        // above — a fast flick means the user is skip-browsing several
+        // reels at once, so it's worth having more than just the very next
+        // one ready; a slow/settled scroll means N+1 is enough. Each extra
+        // step is also gated by PrewarmThrottleGuard so a hot/low-battery
+        // device only ever gets the always-safe N+1.
+        if (isTabActive && !homeVisible) {
+            int prewarmDistance = 1;
+            float absVel = Math.abs(lastScrollVelocity);
+            if (absVel > 3.5f) {
+                prewarmDistance = 3;       // fast flick — reach N+1..N+3
+            } else if (absVel > 1.2f) {
+                prewarmDistance = 2;       // moderate scroll — N+1..N+2
+            }
+
+            for (int d = 1; d <= prewarmDistance; d++) {
+                if (d >= 2 && PrewarmThrottleGuard.shouldThrottleExtraDistance(requireContext())) {
+                    break; // device under pressure — stop extending past N+1
+                }
+                int pos = activePosition + d;
+                if (pos >= adapter.getItemCount()) break;
+                Fragment nf = getChildFragmentManager()
+                    .findFragmentByTag("f" + adapter.getItemId(pos));
+                if (nf instanceof ReelPlayerFragment) {
+                    ((ReelPlayerFragment) nf).prewarmPlayer();
+                }
             }
         }
     }

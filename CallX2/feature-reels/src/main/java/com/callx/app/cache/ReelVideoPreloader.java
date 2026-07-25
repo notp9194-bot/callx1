@@ -145,6 +145,17 @@ public class ReelVideoPreloader {
                 preloadSingle(reel.duetOriginalUrl, PRELOAD_BYTES_DUET);
                 Log.d(TAG, "Duet original preloading (50MB): " + shortUrl(reel.duetOriginalUrl));
             }
+
+            // NOTE (advance #7 — "preload audio track separately"): deliberately
+            // NOT byte-preloading reel.musicUrl here via CacheDataSource. Photo
+            // reels' background music plays through android.media.MediaPlayer
+            // (ReelPlayerController.startPhotoAudio()), which uses its own
+            // native HTTP stack (NuPlayer/libstagefright) — it never reads from
+            // the CacheDataSource cache this class warms for ExoPlayer. Warming
+            // bytes here would silently do nothing for MediaPlayer playback.
+            // The real fix is ReelPlayerController.prewarmPhotoAudio(), which
+            // pre-creates and prepareAsync()'s the actual MediaPlayer instance
+            // ahead of visibility — see ReelPlayerFragment.prewarmPlayer().
         }
     }
 

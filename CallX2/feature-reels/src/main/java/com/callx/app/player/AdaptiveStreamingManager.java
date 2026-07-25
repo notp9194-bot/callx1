@@ -7,7 +7,9 @@ import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.net.Uri;
 import android.os.Handler;
+import android.os.HandlerThread;
 import android.os.Looper;
+import android.os.Process;
 import android.util.Log;
 
 import androidx.annotation.NonNull;
@@ -79,6 +81,34 @@ public class AdaptiveStreamingManager {
     private static final long BW_MIN_FOR_480P_KBPS  =   600;
     private static final long BW_MIN_FOR_720P_KBPS  = 1_500;
     private static final long BW_MIN_FOR_1080P_KBPS = 4_000;
+
+    // ── PERF advance — "render thread priority boost" ────────────────────────
+    // By default every ExoPlayer instance spins up its own internal playback
+    // thread at the process' normal Handler priority (THREAD_PRIORITY_DEFAULT).
+    // Under CPU contention (heavy main-thread scroll/layout work during a
+    // fast flick through the feed, background sync jobs, etc.) that thread
+    // can get starved right when it matters most — mid-decode on the reel
+    // the user just swiped to. Building every pooled/bare ExoPlayer against
+    // ONE shared HandlerThread whose priority is boosted to
+    // THREAD_PRIORITY_DISPLAY (same tier the UI/RenderThread itself runs at)
+    // via ExoPlayer.Builder#setPlaybackLooper keeps decode/playback
+    // scheduling competitive with rendering instead of falling behind it —
+    // fewer dropped frames and stutters on swipe under load. A single shared
+    // thread (rather than one boosted thread per pooled player) is
+    // intentional: ExoPlayer's playback thread is idle almost all the time
+    // (event-driven), so sharing it across the pool's 3-4 instances doesn't
+    // meaningfully contend, and it keeps exactly one extra elevated-priority
+    // thread alive for the whole feature instead of N of them.
+    private static volatile HandlerThread playbackThread;
+
+    private static synchronized Looper sharedBoostedPlaybackLooper() {
+        if (playbackThread == null || !playbackThread.isAlive()) {
+            playbackThread = new HandlerThread("ReelExoPlayback", Process.THREAD_PRIORITY_DISPLAY);
+            playbackThread.start();
+            Log.d(TAG, "sharedBoostedPlaybackLooper: started boosted playback thread (THREAD_PRIORITY_DISPLAY)");
+        }
+        return playbackThread.getLooper();
+    }
 
     // ── EWMA bandwidth history ───────────────────────────────────────────────
     private static final int  EWMA_WINDOW = 10;   // rolling samples
@@ -191,11 +221,14 @@ public class AdaptiveStreamingManager {
             .build();
 
         // 4. Build ExoPlayer
+        // PERF (render thread priority boost): shared THREAD_PRIORITY_DISPLAY
+        // playback looper — see sharedBoostedPlaybackLooper() doc above.
         ExoPlayer player = new ExoPlayer.Builder(appCtx, renderersFactory)
             .setTrackSelector(trackSelector)
             .setBandwidthMeter(bandwidthMeter)
             .setLoadControl(loadControl)
             .setHandleAudioBecomingNoisy(true)
+            .setPlaybackLooper(sharedBoostedPlaybackLooper())
             .build();
 
         // 5. Create media source
@@ -207,6 +240,81 @@ public class AdaptiveStreamingManager {
 
         Log.d(TAG, "buildPlayer cap=" + cap + " url=" + url);
         return player;
+    }
+
+    // ── Pool support (PERF advance #3 — player pool reuse) ────────────────────
+
+    /**
+     * Builds a "bare" ExoPlayer — track selector + renderers factory +
+     * a generic (WiFi-tier) LoadControl, no MediaSource, no listener,
+     * paused/muted. Used exclusively by {@link ExoPlayerPool} to populate
+     * its pool; the network-tier-specific LoadControl tuning that
+     * {@link #buildPlayer} does per-call is deliberately NOT redone here —
+     * that tuning matters at prepare()-time for startup latency, and
+     * {@link #attachToPlayer} re-applies the quality-cap track-selector
+     * params (the part that actually matters for a reused instance) on
+     * every reuse. A pooled player always keeping the more generous
+     * WiFi-tier buffer durations is a reasonable trade for skipping a full
+     * rebuild.
+     */
+    public ExoPlayer buildBarePlayer() {
+        DefaultTrackSelector trackSelector = buildTrackSelector(QualityCap.AUTO);
+        DefaultRenderersFactory renderersFactory = new DefaultRenderersFactory(appCtx)
+            .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER);
+        DefaultLoadControl loadControl = new DefaultLoadControl.Builder()
+            .setBufferDurationsMs(5_000, 12_000, 800, 2_000)
+            .setPrioritizeTimeOverSizeThresholds(true)
+            .setBackBuffer(3_000, true)
+            .build();
+        // PERF (render thread priority boost): pooled players get the same
+        // boosted shared playback looper as buildPlayer() — see
+        // sharedBoostedPlaybackLooper() doc above. Matters even more here:
+        // pooled instances are exactly the ones decoding while the user is
+        // mid-swipe/fast-scrolling, i.e. under the most main-thread contention.
+        ExoPlayer player = new ExoPlayer.Builder(appCtx, renderersFactory)
+            .setTrackSelector(trackSelector)
+            .setBandwidthMeter(bandwidthMeter)
+            .setLoadControl(loadControl)
+            .setHandleAudioBecomingNoisy(true)
+            .setPlaybackLooper(sharedBoostedPlaybackLooper())
+            .build();
+        player.setVolume(0f);
+        player.setPlayWhenReady(false);
+        Log.d(TAG, "buildBarePlayer (pool)");
+        return player;
+    }
+
+    /**
+     * Reconfigures an already-built (pooled) ExoPlayer for a new URL/cap —
+     * new MediaSource, quality-cap track-selector params applied in place
+     * (same mechanism as {@link #applyQualityCap}), and a fresh listener
+     * attached. Does NOT call prepare() — caller does that once any other
+     * per-reel setup (repeat mode, speed, etc.) is also applied, matching
+     * the previous buildPlayer() + prepare() call order.
+     *
+     * @return the Player.Listener that was attached, so the caller can hand
+     *         it to {@link ExoPlayerPool#trackListener} for cleanup on release.
+     */
+    public Player.Listener attachToPlayer(@NonNull ExoPlayer player,
+                                          @NonNull String url,
+                                          @NonNull QualityCap cap,
+                                          ReelABRCallback callback) {
+        player.stop();
+        player.clearMediaItems();
+
+        // Re-apply quality cap to the existing track selector in place —
+        // same params buildTrackSelector() would have set on a fresh one.
+        androidx.media3.exoplayer.trackselection.TrackSelector ts = player.getTrackSelector();
+        if (ts instanceof DefaultTrackSelector) {
+            applyQualityCap(player, cap);
+        }
+
+        MediaSource source = buildSource(url);
+        player.setMediaSource(source);
+
+        Player.Listener listener = attachListenerReturning(player, callback);
+        Log.d(TAG, "attachToPlayer (pooled) cap=" + cap + " url=" + url);
+        return listener;
     }
 
     // ── Track selector ────────────────────────────────────────────────────────
@@ -324,9 +432,16 @@ public class AdaptiveStreamingManager {
     // ── Listener attachment + EWMA sampling ───────────────────────────────────
 
     private void attachListener(ExoPlayer player, ReelABRCallback cb) {
+        attachListenerReturning(player, cb);
+    }
+
+    /** Same as {@link #attachListener} but returns the created listener so a
+     *  pooled-player caller can track it for removal on release (see
+     *  {@link #attachToPlayer} / {@link ExoPlayerPool#trackListener}). */
+    private Player.Listener attachListenerReturning(ExoPlayer player, ReelABRCallback cb) {
         final int[] stallCount = {0};
 
-        player.addListener(new Player.Listener() {
+        Player.Listener listener = new Player.Listener() {
             @Override
             public void onPlaybackStateChanged(int state) {
                 // Sample bandwidth into EWMA on every state change
@@ -365,7 +480,9 @@ public class AdaptiveStreamingManager {
                     mainHandler.post(() -> cb.onError(error));
                 }
             }
-        });
+        };
+        player.addListener(listener);
+        return listener;
     }
 
     // ── EWMA bandwidth tracking ───────────────────────────────────────────────

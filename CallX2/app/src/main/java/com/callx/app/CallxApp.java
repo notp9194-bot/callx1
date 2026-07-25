@@ -260,7 +260,32 @@ public class CallxApp extends Application {
         try {
             CacheManager cache = CacheManager.getInstance(this);
 
-            if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL) {
+            // ✅ ROOT-CAUSE FIX: TRIM_MEMORY_UI_HIDDEN (20) fires on EVERY
+            // single app backgrounding — home button, app switch, screen
+            // lock — it is NOT a real memory-pressure signal, just "the UI
+            // isn't visible right now". The old code's first check was
+            // `level >= TRIM_MEMORY_RUNNING_CRITICAL` (15). Android's trim
+            // levels aren't on one ordered scale though: UI_HIDDEN=20,
+            // BACKGROUND=40, MODERATE=60, COMPLETE=80 are ALL >= 15 too, so
+            // that "critical" branch actually fired on every single
+            // backgrounding and wiped 50%+ of the persistent reel video
+            // cache (ReelCacheManager.trimMemory() + UnifiedVideoCacheManager
+            // .trimMemory() both trim the SAME underlying cache, compounding
+            // it) — this is why reels were re-downloading every time the
+            // app was reopened. UI_HIDDEN now does only lightweight,
+            // reversible cleanup and NEVER touches the disk video cache.
+            if (level == ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN) {
+                cache.evictLowPriority();
+                NetworkCacheHelper.evictConnectionPool(this);
+                Log.d(TAG, "onTrimMemory UI_HIDDEN — light cleanup only, video cache preserved");
+                return;
+            }
+
+            // Real pressure signals only from here: RUNNING_CRITICAL(15) is
+            // the foreground "about to OOM right now" signal; BACKGROUND(40)/
+            // MODERATE(60)/COMPLETE(80) are background-process levels Android
+            // sends as it gets closer to killing this process for memory.
+            if (level >= ComponentCallbacks2.TRIM_MEMORY_COMPLETE) {
                 cache.clearMemoryCache();
                 // FIX #MEM-3B: Reel + ExoPlayer video cache bhi trim karo — OOM se bachao
                 ReelCacheManager.trimMemory();
@@ -271,23 +296,15 @@ public class CallxApp extends Application {
                 // this only disables the instant-render fast path until chats
                 // are reopened (which re-primes it) — no data loss.
                 com.callx.app.cache.LastMessagesCache.getInstance().trimMemory(level);
-                Log.w(TAG, "onTrimMemory CRITICAL — full memory cache + video caches cleared");
+                Log.w(TAG, "onTrimMemory COMPLETE — full memory cache + video caches cleared");
 
-            } else if (level >= ComponentCallbacks2.TRIM_MEMORY_MODERATE) {
+            } else if (level >= ComponentCallbacks2.TRIM_MEMORY_BACKGROUND
+                    || level == ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL) {
                 cache.evictLowPriority();
-                // FIX #MEM-3B: Moderate signal pe bhi Reel cache trim karo
+                // FIX #MEM-3B: Moderate/background signal pe bhi Reel cache trim karo
                 ReelCacheManager.trimMemory();
                 com.callx.app.cache.LastMessagesCache.getInstance().trimMemory(level);
-                Log.d(TAG, "onTrimMemory MODERATE — low priority + reel cache trimmed");
-
-            } else if (level == ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN) {
-                // App fully backgrounded
-                cache.evictLowPriority();
-                // FIX #6: close idle OkHttp connections — frees OS sockets
-                NetworkCacheHelper.evictConnectionPool(this);
-                // FIX #MEM-3B: Background mein jao to Reel cache bhi thoda release karo
-                ReelCacheManager.trimMemory();
-                Log.d(TAG, "onTrimMemory UI_HIDDEN — evicted + connections closed + reels trimmed");
+                Log.d(TAG, "onTrimMemory BACKGROUND/CRITICAL — low priority + reel cache trimmed");
             }
         } catch (Exception e) {
             Log.w(TAG, "onTrimMemory error: " + e.getMessage());

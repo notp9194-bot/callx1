@@ -162,8 +162,19 @@ public class ReelUiController {
                 llCollabAuthors.setVisibility(View.GONE);
             }
         }
-        String captionText = reel.caption != null ? reel.caption : "";
-        if (reel.duetOf != null && !reel.duetOf.isEmpty()) captionText = "🔀 Duet · " + captionText;
+        // PERF advance — "precompute next reel's UI state": reuse the
+        // caption text already built ahead of time by ReelUiStatePrecomputer
+        // when present, instead of re-concatenating the duet prefix here on
+        // the swipe-completion frame.
+        com.callx.app.cache.ReelUiStateCache.State precomputedCaption =
+            com.callx.app.cache.ReelUiStateCache.get(reel.reelId);
+        String captionText;
+        if (precomputedCaption != null) {
+            captionText = precomputedCaption.captionText;
+        } else {
+            captionText = reel.caption != null ? reel.caption : "";
+            if (reel.duetOf != null && !reel.duetOf.isEmpty()) captionText = "🔀 Duet · " + captionText;
+        }
         if (tvCaption != null) tvCaption.setText(captionText);
 
         // Duet Series chip

@@ -87,6 +87,30 @@ public class ReelPredictivePreloader {
     private final Set<String>     preloading   = ConcurrentHashMap.newKeySet();
     private final Map<String, Future<?>> tasks = new ConcurrentHashMap<>();
 
+    /**
+     * PERF (advance #5 — predictive prefetch extended to player level).
+     * ReelPredictivePreloader already ranks upcoming reels by learned
+     * watch-probability (category affinity × transition matrix ×
+     * position decay) and byte-preloads them in that order. This listener
+     * lets the feed go one step further for the SINGLE top-ranked
+     * candidate: instead of just warming its cache bytes, ask the host
+     * (ReelsFragment) to build an actual muted/paused ExoPlayer for it —
+     * same mechanism as the positional N+1/N+2 prewarm, just triggered by
+     * predicted engagement instead of raw position. Only fires when the
+     * top candidate's fragment is already instantiated (within
+     * offscreenPageLimit) — this is a bonus on top of positional prewarm,
+     * not a replacement, so it never forces extra fragments into existence.
+     */
+    public interface PlayerPrewarmListener {
+        void onTopPriorityReel(ReelModel reel, int offset, double score);
+    }
+
+    private PlayerPrewarmListener playerPrewarmListener;
+
+    public void setPlayerPrewarmListener(PlayerPrewarmListener listener) {
+        this.playerPrewarmListener = listener;
+    }
+
     // Watch model: category → {nextCategory → count}
     private final Map<String, Map<String, Integer>> transitionMatrix;
     // Category affinity: category → watch_count
@@ -228,6 +252,15 @@ public class ReelPredictivePreloader {
 
         // Sort by predicted score descending
         candidates.sort((a, b) -> Double.compare(b.score, a.score));
+
+        // PERF (advance #5): tell the host about the single top-ranked
+        // candidate so it can attempt a real player-level prewarm for it
+        // (if that reel's fragment already exists) — see
+        // PlayerPrewarmListener doc above.
+        if (playerPrewarmListener != null && !candidates.isEmpty()) {
+            ReelCandidate top = candidates.get(0);
+            playerPrewarmListener.onTopPriorityReel(top.reel, top.offset, top.score);
+        }
 
         int launched = 0;
         for (ReelCandidate c : candidates) {

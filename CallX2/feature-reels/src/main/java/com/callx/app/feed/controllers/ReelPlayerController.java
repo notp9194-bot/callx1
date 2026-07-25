@@ -43,6 +43,7 @@ import com.callx.app.player.NetworkQualityMonitor;
 import com.callx.app.player.ReelABREngine;
 import com.callx.app.player.ReelABRSettingsActivity;
 import com.callx.app.player.ReelOfflineManager;
+import com.callx.app.player.ReelLoopSeekHelper;
 import com.callx.app.reels.R;
 import com.callx.app.utils.FirebaseUtils;
 
@@ -93,6 +94,16 @@ public class ReelPlayerController {
     private MediaPlayer photoAudioPlayer;
     private final Handler     photoAudioHandler = new Handler(Looper.getMainLooper());
     private Runnable          photoAudioLoopRunnable;
+    /** True once prewarmPhotoAudio()'s MediaPlayer has finished prepareAsync(). */
+    private boolean           photoAudioPrewarmed = false;
+    /** True once this reel's photo audio has actually been start()ed at least once. */
+    private boolean           photoAudioStarted   = false;
+
+    // ── PERF advance #7: frame-perfect loop seek (video reels only) ───────────
+    /** Pre-empts REPEAT_MODE_ONE's own end-of-stream restart with an earlier,
+     *  exact seekTo(0) — see ReelLoopSeekHelper doc. Must be detach()'d before
+     *  `player` is returned to the pool / released — see every teardown path. */
+    private ReelLoopSeekHelper loopSeekHelper;
 
     // ── ABR state ─────────────────────────────────────────────────────────────
     private AdaptiveStreamingManager.QualityCap currentCap    = AdaptiveStreamingManager.QualityCap.AUTO;
@@ -386,11 +397,15 @@ public class ReelPlayerController {
         // Progressive loading: show thumbnail instantly while video buffers
         if (ivThumb != null && reel.thumbUrl != null && !reel.thumbUrl.isEmpty()) {
             ivThumb.setVisibility(View.VISIBLE);
-            Glide.with(ctx)
-                .load(reel.thumbUrl)
-                .placeholder(android.R.color.black)
-                .override(480, 853)
-                .into(ivThumb);
+            // PERF advance — "bitmap memory cache for thumbnails (LRU)":
+            // this reel's thumb was very likely already decoded ahead of
+            // time by ReelThumbnailPreloader.preloadFrom() into
+            // ReelThumbBitmapCache — a hit here is a synchronous
+            // setImageBitmap() with no Glide request at all (no re-decode,
+            // no re-running centerCrop). Falls through to a normal Glide
+            // load (and populates the cache for next time) on a miss, e.g.
+            // the very first reel of a cold-started session.
+            com.callx.app.cache.ReelThumbBitmapCache.get().loadInto(ctx, ivThumb, reel.thumbUrl);
         }
 
         // Determine quality cap from user setting + current network
@@ -455,10 +470,14 @@ public class ReelPlayerController {
             }
         }
 
-        // Build ABR-aware ExoPlayer via AdaptiveStreamingManager
-        player = AdaptiveStreamingManager.get(ctx).buildPlayer(
-            playUrl,
-            currentCap,
+        // PERF (advance #3 — player pool reuse): acquire a pooled ExoPlayer
+        // instead of building a brand-new one every time. The pool (3-4
+        // instances) hands back an already-built instance whenever one is
+        // free (previous reel just got paused-off-window, etc), so only the
+        // MediaSource + track-selector params change here — the expensive
+        // renderer/codec/internal-thread setup is paid once per pool slot,
+        // not once per reel. See ExoPlayerPool + AdaptiveStreamingManager.
+        AdaptiveStreamingManager.ReelABRCallback abrCallback =
             new AdaptiveStreamingManager.ReelABRCallback() {
                 @Override
                 public void onQualitySelected(int w, int h, long bwKbps) {
@@ -484,10 +503,28 @@ public class ReelPlayerController {
                     progressBuffering.setVisibility(View.GONE);
                     ivThumb.setVisibility(View.VISIBLE);
                 }
-            }
-        );
+            };
+
+        com.callx.app.player.ExoPlayerPool pool = com.callx.app.player.ExoPlayerPool.get(ctx);
+        player = pool.acquire();
+        Player.Listener abrPlayerListener = AdaptiveStreamingManager.get(ctx)
+            .attachToPlayer(player, playUrl, currentCap, abrCallback);
+        pool.trackListener(player, abrPlayerListener);
 
         playerView.setPlayer(player);
+
+        // PERF (advance #4 — first-frame pre-render): speculatively decode
+        // this reel's first GOP frame into a bitmap on a background thread
+        // (no-op if the video isn't substantially cached yet — see
+        // ReelFirstFrameCache doc). If it lands before the player itself
+        // reaches STATE_READY, swap it in over the plain Glide thumbnail so
+        // the thumbnail→video transition is a no-op visually.
+        com.callx.app.cache.ReelFirstFrameCache.get(ctx).decodeFirstFrameAsync(playUrl, bitmap -> {
+            if (!delegate.isAdded() || ivThumb == null) return;
+            if (ivThumb.getVisibility() == View.VISIBLE) {
+                ivThumb.setImageBitmap(bitmap);
+            }
+        });
 
         // v5: Attach ABR engine — auto-monitors player buffer + bandwidth every 2s
         abrSession = abrEngine.attachTo(player, null,
@@ -511,7 +548,7 @@ public class ReelPlayerController {
                 @Override public void onStallEnd(long ms) { qoeTotalStallMs += ms; }
             });
 
-        player.addListener(new Player.Listener() {
+        Player.Listener controllerListener = new Player.Listener() {
             @Override
             public void onPlaybackStateChanged(int state) {
                 if (!delegate.isAdded() || delegate.getContext() == null) return;
@@ -645,13 +682,20 @@ public class ReelPlayerController {
                 progressBuffering.setVisibility(View.GONE);
                 ivThumb.setVisibility(View.VISIBLE);
             }
-        });
+        };
+        player.addListener(controllerListener);
+        pool.trackListener(player, controllerListener);
 
         player.setRepeatMode(Player.REPEAT_MODE_ONE);
         player.setVolume(0f);
         player.setPlaybackParameters(new PlaybackParameters(SPEED_STEPS[speedIndex]));
         player.setPlayWhenReady(false);
         player.prepare();
+
+        // PERF (advance #7 — frame-perfect seek reset): pre-empt the
+        // REPEAT_MODE_ONE auto-restart hitch with our own earlier exact seek.
+        loopSeekHelper = new ReelLoopSeekHelper(player);
+        loopSeekHelper.attach();
 
         // Sync preloader with initial cap
         if (preloader != null) preloader.setQualityCap(currentCap);
@@ -688,6 +732,13 @@ public class ReelPlayerController {
         if (reel.videoUrl == null || reel.videoUrl.isEmpty()) return;
 
         if (player == null) preparePlayerSilently();
+
+        // ✅ FIX (NPE): preparePlayerSilently() has legitimate early-return paths
+        // that leave `player` null — e.g. offline + reel not cached (shows the
+        // "unavailable offline" thumbnail state instead), or the fragment
+        // detaching mid-call. Every line below unconditionally dereferences
+        // `player`, so bail out here instead of crashing.
+        if (player == null) return;
 
         // SAFETY NET (v4): the chat-docked mini player transfers this ExoPlayer's
         // video surface away and back (ReelChatDockedPlayer.show()/collapseBack()).
@@ -797,19 +848,82 @@ public class ReelPlayerController {
     // MediaPlayer.setLooping() (which ignores seekTo).
 
     /**
-     * Starts a brand-new MediaPlayer for photo audio from the beginning of
-     * the trim window. Safe to call even if one is already running — previous
-     * player is released first.
+     * PERF (advance #7 — "preload audio track separately"): pre-creates and
+     * prepares (but does not start) the photo-reel background-music
+     * MediaPlayer while this reel is still off-screen — the audio-side
+     * equivalent of preparePlayerSilently() for video reels.
+     *
+     * Without this, startPhotoAudio() only begins prepareAsync() the
+     * instant the reel becomes the visible one, so the photo slideshow's
+     * first frame (which starts immediately) can appear before the music
+     * has finished preparing — a visible/audible sync gap on swipe. Called
+     * from ReelPlayerFragment.prewarmPlayer() for photo reels (that method
+     * is a no-op for photo reels otherwise, since preparePlayerSilently()
+     * — the video path — early-returns on an empty videoUrl).
+     */
+    public void prewarmPhotoAudio() {
+        if (!delegate.isAdded() || delegate.getContext() == null) return;
+        ReelModel reel = delegate.getReel();
+        if (reel == null || reel.musicUrl == null || reel.musicUrl.isEmpty()) return;
+        if (photoAudioPlayer != null) return; // already prewarmed, or already playing
+
+        try {
+            MediaPlayer mp = new MediaPlayer();
+            mp.setDataSource(reel.musicUrl);
+            mp.setOnPreparedListener(prepared -> {
+                if (photoAudioPlayer == prepared) photoAudioPrewarmed = true;
+                // Stays paused/idle here — resumePhotoAudio()/startPhotoAudio()
+                // does the actual seek-to-trim-start + volume + start() once
+                // this reel becomes visible.
+            });
+            mp.setOnErrorListener((m, what, extra) -> {
+                if (photoAudioPlayer == m) {
+                    photoAudioPlayer = null;
+                    photoAudioPrewarmed = false;
+                }
+                return true;
+            });
+            mp.prepareAsync();
+            photoAudioPlayer = mp;
+        } catch (Exception e) {
+            photoAudioPlayer   = null;
+            photoAudioPrewarmed = false;
+        }
+    }
+
+    /**
+     * Starts photo audio from the beginning of the trim window. Reuses the
+     * already-prepared MediaPlayer from prewarmPhotoAudio() when one is
+     * available (the whole point of prewarming — resumePhotoAudio() then
+     * only has to seek+start, not prepareAsync() from zero). Falls back to
+     * building a fresh MediaPlayer otherwise, same as before this feature.
      */
     private void startPhotoAudio() {
         ReelModel reel = delegate.getReel();
         if (reel == null || reel.musicUrl == null || reel.musicUrl.isEmpty()) return;
-        releasePhotoAudio();
 
         final int startMs = reel.musicStartMs > 0 ? reel.musicStartMs
                           : (reel.musicStartSec > 0 ? reel.musicStartSec * 1000 : 0);
         final int endMs   = reel.musicEndMs > 0 ? reel.musicEndMs : 0;
         final boolean hasTrim = (endMs > startMs && endMs > 0);
+
+        // PERF: reuse the prewarmed instance instead of releasing it and
+        // starting a fresh prepareAsync() from zero.
+        if (photoAudioPlayer != null && photoAudioPrewarmed) {
+            try {
+                photoAudioPlayer.setVolume(isMuted ? 0f : 1f, isMuted ? 0f : 1f);
+                if (startMs > 0) photoAudioPlayer.seekTo(startMs);
+                photoAudioPlayer.setLooping(!hasTrim);
+                photoAudioPlayer.start();
+                photoAudioStarted = true;
+                if (hasTrim) schedulePhotoAudioLoop(startMs, endMs);
+                return;
+            } catch (Exception e) {
+                releasePhotoAudio(); // fall through to a fresh build below
+            }
+        }
+
+        releasePhotoAudio();
 
         try {
             photoAudioPlayer = new MediaPlayer();
@@ -821,6 +935,7 @@ public class ReelPlayerController {
                     if (startMs > 0) mp.seekTo(startMs);
                     mp.setLooping(!hasTrim);   // loop whole track when no trim
                     mp.start();
+                    photoAudioStarted = true;
                     if (hasTrim) schedulePhotoAudioLoop(startMs, endMs);
                 } catch (Exception ignored) {}
             });
@@ -842,7 +957,11 @@ public class ReelPlayerController {
         ReelModel reel = delegate.getReel();
         if (reel == null || reel.musicUrl == null || reel.musicUrl.isEmpty()) return;
 
-        if (photoAudioPlayer == null) {
+        if (photoAudioPlayer == null || !photoAudioStarted) {
+            // Either nothing built yet, or prewarmPhotoAudio() built one
+            // that was only ever prepared, never actually start()ed —
+            // startPhotoAudio() handles both (it reuses the prewarmed
+            // instance when photoAudioPrewarmed is set).
             startPhotoAudio();
             return;
         }
@@ -920,6 +1039,8 @@ public class ReelPlayerController {
             catch (Exception ignored) {}
             photoAudioPlayer = null;
         }
+        photoAudioPrewarmed = false;
+        photoAudioStarted   = false;
     }
     // ─────────────────────────────────────────────────────────────────────────
 
@@ -1075,6 +1196,7 @@ public class ReelPlayerController {
             if (!delegate.isAdded() || delegate.getContext() == null) return;
             boolean wasPlaying = player != null && player.isPlaying();
             if (player != null) {
+                if (loopSeekHelper != null) { loopSeekHelper.detach(); loopSeekHelper = null; }
                 player.release();
                 player = null;
             }
@@ -1093,6 +1215,10 @@ public class ReelPlayerController {
         unregisterNetworkQualityListener();
         delegate.stopPhotoSlideshow();
         releasePhotoAudio();  // ✅ FIX: release photo background audio if active
+        // PERF (advance #7): MUST detach before the player is returned to
+        // the pool below — a pooled player gets handed to a different reel
+        // next, and a still-attached helper would keep seeking it there.
+        if (loopSeekHelper != null) { loopSeekHelper.detach(); loopSeekHelper = null; }
         if (player != null) {
             // Record final watch position before releasing
             if (player.getDuration() > 0) {
@@ -1123,8 +1249,15 @@ public class ReelPlayerController {
             }
             // ─────────────────────────────────────────────────────────────────
 
-            try { player.stop();    } catch (Exception ignored) {}
-            try { player.release(); } catch (Exception ignored) {}
+            // PERF (advance #3): return to the pool instead of destroying —
+            // ExoPlayerPool.release() resets state and strips our listener,
+            // so the instance is clean for whichever reel acquires it next.
+            if (delegate.isAdded() && delegate.getContext() != null) {
+                com.callx.app.player.ExoPlayerPool.get(delegate.requireContext()).release(player);
+            } else {
+                try { player.stop();    } catch (Exception ignored) {}
+                try { player.release(); } catch (Exception ignored) {}
+            }
             player = null;
         }
         // v5: Detach ABR engine session before player release
@@ -1287,6 +1420,7 @@ public class ReelPlayerController {
         // not actually ending the watch. We stop/release the ExoPlayer directly.
         stopProgressTracking();
         unregisterNetworkQualityListener();
+        if (loopSeekHelper != null) { loopSeekHelper.detach(); loopSeekHelper = null; }
         if (player != null) {
             try { player.stop();    } catch (Exception ignored) {}
             try { player.release(); } catch (Exception ignored) {}
@@ -1304,6 +1438,11 @@ public class ReelPlayerController {
         player.seekTo(resumePos);
         player.setPlayWhenReady(wasPlay);
         player.prepare();
+
+        // PERF (advance #7): re-attach for the rebuilt player — the old
+        // helper was detached above along with the old `player` instance.
+        loopSeekHelper = new ReelLoopSeekHelper(player);
+        loopSeekHelper.attach();
 
         // Re-register network listener for the new player
         registerNetworkQualityListener(ctx);

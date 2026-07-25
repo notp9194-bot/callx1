@@ -68,6 +68,16 @@ public class ReelThumbnailPreloader {
                 .apply(mOptions)
                 .preload();
 
+            // PERF advance — "bitmap memory cache for thumbnails (LRU)":
+            // also decode straight into ReelThumbBitmapCache, not just
+            // Glide's own disk/RAM cache. This means the *next* time this
+            // thumbnail is bound (ReelPlayerController's ivThumb), it's a
+            // synchronous in-process LRU hit — no Glide request, no
+            // decode-thread hop, no re-running centerCrop — instead of
+            // "fast because the bytes are local" it's "instant because the
+            // Bitmap already exists in this process".
+            ReelThumbBitmapCache.get().prefetch(mContext, reel.thumbUrl);
+
             Log.v(TAG, "Preloading thumb for reel[" + i + "]: " + reel.reelId);
         }
     }

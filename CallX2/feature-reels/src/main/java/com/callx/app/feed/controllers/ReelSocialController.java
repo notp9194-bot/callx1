@@ -166,6 +166,20 @@ public class ReelSocialController {
     public void populateCounts() {
         ReelModel reel = delegate.getReel();
         if (reel == null) return;
+        // PERF advance — "precompute next reel's UI state": if this reel's
+        // formatted counts were already computed ahead of time (see
+        // ReelUiStatePrecomputer, driven from ReelsFragment.onPageSelected),
+        // use them directly instead of re-running formatCount() on the
+        // frame the swipe completes on.
+        com.callx.app.cache.ReelUiStateCache.State precomputed =
+            com.callx.app.cache.ReelUiStateCache.get(reel.reelId);
+        if (precomputed != null) {
+            if (tvLikesCount != null)    tvLikesCount.setText(precomputed.likesText);
+            if (tvCommentsCount != null) tvCommentsCount.setText(precomputed.commentsText);
+            if (tvSharesCount != null)   tvSharesCount.setText(precomputed.sharesText);
+            if (tvRepostCount != null)   tvRepostCount.setText(precomputed.repostText);
+            return;
+        }
         if (tvLikesCount != null)    tvLikesCount.setText(delegate.formatCount(reel.likesCount));
         if (tvCommentsCount != null) tvCommentsCount.setText(delegate.formatCount(reel.commentsCount));
         if (tvSharesCount != null)   tvSharesCount.setText(delegate.formatCount(reel.sharesCount));

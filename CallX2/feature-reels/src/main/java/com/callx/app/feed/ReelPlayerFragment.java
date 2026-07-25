@@ -284,6 +284,54 @@ public class ReelPlayerFragment extends Fragment
     }
 
     /**
+     * ✅ Instagram-style pre-warm — called by ReelsFragment for the NEXT
+     * reel (activePosition + 1) while the current reel is still playing.
+     *
+     * preparePlayerSilently() already builds the ExoPlayer, attaches the
+     * cache-first media source, and calls prepare() — muted
+     * (setVolume(0f)) and paused (setPlayWhenReady(false)) — so it's
+     * already exactly the "pre-warm" step we need; it just was never
+     * triggered before the reel became visible. Calling it here means
+     * that by the time the user actually swipes to this reel,
+     * startPlayback() finds `player` already built and buffering, so it
+     * skips straight to setVolume()+play() instead of building the player
+     * from zero — removing the thumbnail-flash / hitch on swipe.
+     *
+     * Previous reels don't need this: applyVisibleState(false) only
+     * pauses (never releases) a player that was already built while
+     * active, so swiping back already resumes instantly. Only a reel
+     * that's never been visible yet needs its player pre-built.
+     *
+     * Skips on Data Saver or a poor connection — a pre-warm isn't
+     * guaranteed to be watched, so it shouldn't spend a slow/limited
+     * connection's budget on a reel the user might swipe past.
+     */
+    public void prewarmPlayer() {
+        if (isVisible) return;              // already the active reel — nothing to prewarm
+        if (!isAdded() || getContext() == null) return;
+        if (com.callx.app.player.ReelABREngine.get(requireContext()).isDataSaverMode()) return;
+        if (com.callx.app.utils.NetworkUtils.getNetworkQuality(requireContext())
+                == com.callx.app.utils.NetworkUtils.Quality.SLOW) return;
+        // PERF (advance #6 — battery/thermal aware throttling): skip
+        // speculative work entirely on power-save mode, low battery
+        // (not charging), or a device that's already thermally stressed —
+        // see PrewarmThrottleGuard doc for the exact thresholds. This is
+        // pure UX polish, never required for correctness, so it's the
+        // right thing to drop first under any resource pressure.
+        if (com.callx.app.player.PrewarmThrottleGuard.shouldThrottle(requireContext())) return;
+
+        // PERF (advance #7 — "preload audio track separately"): photo reels
+        // have no videoUrl, so preparePlayerSilently() (the video/ExoPlayer
+        // path below) early-returns and does nothing for them — without this
+        // branch a photo reel's background music never gets prewarmed at all.
+        if (photoController.isPhotoMode()) {
+            playerController.prewarmPhotoAudio();
+            return;
+        }
+        playerController.preparePlayerSilently();
+    }
+
+    /**
      * BUGFIX: setUserVisibleHint(true) can arrive from the host
      * Activity/ViewPager2 (e.g. SingleReelPlayerActivity opening a reel from
      * Profile) BEFORE onCreateView() has actually run — ViewPager2's
