@@ -794,6 +794,7 @@ public class GroupChatActivity extends AppCompatActivity
             }
             m.add(0, R.id.action_export_chat, 9, "📤 Export Chat").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
             m.add(0, R.id.action_chat_backup, 10, "💾 Backup Chat").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
+            m.add(0, R.id.action_display_mode, 11, "🖥️ Display Mode").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
             popup.setOnMenuItemClickListener(item -> onOptionsItemSelected(item));
             popup.show();
         });
