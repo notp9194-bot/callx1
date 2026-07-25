@@ -75,6 +75,40 @@ public final class ImmersiveModeUtils {
     }
 
     /**
+     * Reverses {@link #enterImmersive(Activity)} — restores normal system
+     * chrome: status bar AND navigation bar both visible, content no longer
+     * draws edge-to-edge behind them. Used for chat's "Normal" display mode
+     * (see ChatDisplayModePrefs) so the user can opt out of the full-screen
+     * look on a per-preference basis, same as Reels' display-mode toggle.
+     */
+    public static void exitImmersive(Activity activity) {
+        if (activity == null || activity.getWindow() == null) return;
+        Window window = activity.getWindow();
+
+        WindowCompat.setDecorFitsSystemWindows(window, true);
+
+        WindowInsetsControllerCompat controller =
+                WindowCompat.getInsetsController(window, window.getDecorView());
+        if (controller != null) {
+            controller.show(WindowInsetsCompat.Type.statusBars()
+                    | WindowInsetsCompat.Type.navigationBars());
+            controller.setSystemBarsBehavior(
+                    WindowInsetsControllerCompat.BEHAVIOR_DEFAULT);
+        }
+
+        window.getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_VISIBLE);
+
+        window.setStatusBarColor(Color.TRANSPARENT);
+        window.setNavigationBarColor(Color.TRANSPARENT);
+    }
+
+    /** Convenience: applies immersive or normal chrome based on a single flag. */
+    public static void applyMode(Activity activity, boolean immersive) {
+        if (immersive) enterImmersive(activity);
+        else exitImmersive(activity);
+    }
+
+    /**
      * Pads {@code topBar} (the chat header) by the status-bar inset height —
      * this is 0 once the bar is fully hidden, but keeps the header correctly
      * placed on the brief moments a user swipes the status bar back into view.

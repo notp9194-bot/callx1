@@ -134,7 +134,8 @@ import java.util.concurrent.Executors;
  *   Pager<Long, MessageEntity> (keyset) ──LiveData──► PagingAdapter ──► RecyclerView
  */
 public class ChatActivity extends AppCompatActivity implements ChatActivityDelegate,
-        com.callx.app.conversation.info.MessageInfoBottomSheet.HostRecyclerPauseListener {
+        com.callx.app.conversation.info.MessageInfoBottomSheet.HostRecyclerPauseListener,
+        com.callx.app.chat.ui.ChatDisplayModeBottomSheet.OnModeSelectedListener {
 
     // ── Constants ──────────────────────────────────────────────────────────
     private static final String TAG           = "ChatActivity";
@@ -434,10 +435,18 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         edgeSwipeBackHelper = new com.callx.app.utils.EdgeSwipeBackHelper(this, binding.getRoot());
 
         // Reels-tab jaisa full-screen look: status bar transparent (behind
-        // content) + bottom nav bar hidden the moment chat screen khulti hai.
-        com.callx.app.utils.ImmersiveModeUtils.enterImmersive(this);
+        // content) + nav bar hidden the moment chat screen khulti hai —
+        // unless the user has chosen "Normal" display mode (see
+        // ChatDisplayModePrefs / applyChatDisplayMode below).
+        applyChatDisplayMode();
         com.callx.app.utils.ImmersiveModeUtils.applyTopInsetPadding(binding.toolbar);
         com.callx.app.utils.ImmersiveModeUtils.applyImeBottomPaddingAnimated(binding.getRoot());
+
+        // First time the user EVER opens a chat: ask which display mode they
+        // want, same UX as the Reels-tab first-visit chooser. Not cancelable.
+        if (!com.callx.app.utils.ChatDisplayModePrefs.hasBeenAsked(this)) {
+            binding.getRoot().post(this::showChatDisplayModeFirstVisitChooser);
+        }
 
         // Press-and-hold mic gesture (waveform + swipe-to-cancel/lock) —
         // binding must exist first; presenceController hookup happens once
@@ -723,16 +732,16 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // sheet, notification shade) reset ho sakta hai — focus wapas aate hi
         // dobara hide karo taaki status bar ki jagah gap na dikhe.
         if (hasFocus) {
-            com.callx.app.utils.ImmersiveModeUtils.enterImmersive(this);
+            applyChatDisplayMode();
         }
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        // Re-assert immersive full-screen (system can restore bars after
+        // Re-assert chosen display mode (system can restore bars after
         // returning from a picker / dialog / app-switch).
-        com.callx.app.utils.ImmersiveModeUtils.enterImmersive(this);
+        applyChatDisplayMode();
 
         // v8: pick the docked mini reel player back up if the user had one
         // playing when they opened this chat (handed off in ChatListAdapter
@@ -4390,7 +4399,43 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             return true;
         }
         if (id == R.id.action_small_window)          { openSmallWindow();                          return true; }
+        if (id == R.id.action_display_mode)          { showChatDisplayModePicker();                return true; }
         return super.onOptionsItemSelected(item);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // CHAT DISPLAY MODE (Immersive vs Normal) — mirrors Reels-tab toggle
+    // ─────────────────────────────────────────────────────────────────────
+
+    /** Applies the currently saved display mode (immersive or normal) to this window. */
+    private void applyChatDisplayMode() {
+        boolean immersive = com.callx.app.utils.ChatDisplayModePrefs.isImmersiveMode(this);
+        com.callx.app.utils.ImmersiveModeUtils.applyMode(this, immersive);
+    }
+
+    /** Shown once — the very first time the user ever opens a chat. Not cancelable. */
+    private void showChatDisplayModeFirstVisitChooser() {
+        if (isFinishing() || isDestroyed()) return;
+        com.callx.app.chat.ui.ChatDisplayModeBottomSheet sheet =
+            com.callx.app.chat.ui.ChatDisplayModeBottomSheet.newInstance(
+                com.callx.app.utils.ChatDisplayModePrefs.MODE_IMMERSIVE, true);
+        sheet.show(getSupportFragmentManager(), com.callx.app.chat.ui.ChatDisplayModeBottomSheet.TAG);
+    }
+
+    /** Reopened anytime afterwards from the 3-dot menu's "Display Mode" item. */
+    private void showChatDisplayModePicker() {
+        String current = com.callx.app.utils.ChatDisplayModePrefs.getMode(this);
+        com.callx.app.chat.ui.ChatDisplayModeBottomSheet sheet =
+            com.callx.app.chat.ui.ChatDisplayModeBottomSheet.newInstance(current, false);
+        sheet.show(getSupportFragmentManager(), com.callx.app.chat.ui.ChatDisplayModeBottomSheet.TAG);
+    }
+
+    /** ChatDisplayModeBottomSheet.OnModeSelectedListener — user picked a mode. */
+    @Override
+    public void onChatModeSelected(String mode) {
+        com.callx.app.utils.ChatDisplayModePrefs.setMode(this, mode);
+        com.callx.app.utils.ChatDisplayModePrefs.markAsked(this);
+        applyChatDisplayMode();
     }
 
     // ─────────────────────────────────────────────────────────────────────

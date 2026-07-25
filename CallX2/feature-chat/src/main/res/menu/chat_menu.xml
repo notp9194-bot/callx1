@@ -60,4 +60,8 @@
         android:title="🗔 Small window"
         app:showAsAction="never"/>
 
+    <item android:id="@+id/action_display_mode"
+        android:title="🖥️ Display Mode"
+        app:showAsAction="never"/>
+
 </menu>
