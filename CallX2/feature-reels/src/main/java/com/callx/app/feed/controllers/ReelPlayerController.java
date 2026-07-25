@@ -1185,18 +1185,31 @@ public class ReelPlayerController {
         if (reel == null || reel.reelId == null) return;
 
         String url = reel.videoUrl;
-        long cachedBytes = com.callx.app.cache.UnifiedVideoCacheManager.getCachedBytesForUrl(url);
+        long cachedBytes  = com.callx.app.cache.UnifiedVideoCacheManager.getCachedBytesForUrl(url);
+        long contentBytes = com.callx.app.cache.UnifiedVideoCacheManager.getContentLengthForUrl(url);
+        boolean fullyCached = com.callx.app.cache.UnifiedVideoCacheManager.isReelFullyCached(url);
         long totalUsed   = com.callx.app.cache.UnifiedVideoCacheManager.getReelsCacheBytes();
         long totalLimit  = com.callx.app.cache.UnifiedVideoCacheManager.getReelsCacheLimitBytes();
-        String usageLine = "\n\nReels cache in use: " + (totalUsed / (1024 * 1024)) + " MB / "
-            + (totalLimit / (1024 * 1024)) + " MB";
+        String usageLine = "\n\nReels cache in use: " + formatSize(totalUsed) + " / " + formatSize(totalLimit);
 
         String title;
         String message;
-        if (cachedBytes > 0) {
-            title = "✅ Cached";
-            message = "This reel is cached on disk (" + (cachedBytes / (1024 * 1024)) + " MB stored). "
+        if (fullyCached) {
+            // ✅ Entire file on disk — replaying genuinely costs zero data.
+            title = "✅ Fully cached";
+            message = "This reel is fully cached on disk (" + formatSize(cachedBytes) + "). "
                 + "Replaying it won't use mobile data." + usageLine;
+        } else if (cachedBytes > 0) {
+            // 🟡 BUGFIX: previously this showed "✅ Cached — 0 MB stored" for
+            // reels that only had the small autoplay prewarm chunk cached
+            // (PARTIAL_BYTES_REELS, ~6MB) — not the full video. That's a
+            // real partial cache, not nothing, but replaying it still needs
+            // to fetch the rest, so it's labelled separately here.
+            title = "🟡 Partially cached";
+            String ofTotal = contentBytes > 0 ? (" of " + formatSize(contentBytes)) : "";
+            message = "Only part of this reel is cached (" + formatSize(cachedBytes) + ofTotal
+                + ") — usually just the autoplay prewarm chunk. "
+                + "Replaying it will still use some data to fetch the rest." + usageLine;
         } else {
             android.content.Context ctx = delegate.getContext();
             boolean everWatched = com.callx.app.cache.ReelCacheEvictionLog
@@ -1214,7 +1227,7 @@ public class ReelPlayerController {
                     + " min ago by: " + trimReason + ".";
             } else {
                 message = "This reel was cached before but isn't anymore. Most likely reason: "
-                    + "the reels cache limit (" + (totalLimit / (1024 * 1024)) + " MB) was reached, "
+                    + "the reels cache limit (" + formatSize(totalLimit) + ") was reached, "
                     + "and it was auto-removed (oldest/least-recently-watched first) to make room "
                     + "for newer reels.";
             }
@@ -1226,6 +1239,13 @@ public class ReelPlayerController {
             .setMessage(message)
             .setPositiveButton("OK", null)
             .show();
+    }
+
+    /** Shows KB for anything under 1MB instead of rounding down to a misleading "0 MB". */
+    private static String formatSize(long bytes) {
+        if (bytes <= 0) return "0 KB";
+        if (bytes < 1024 * 1024) return (bytes / 1024) + " KB";
+        return String.format(java.util.Locale.US, "%.1f MB", bytes / (1024.0 * 1024.0));
     }
 
     /** v5: Open the QoE Analytics dashboard for this reel session. */

@@ -37,7 +37,13 @@ import java.util.concurrent.Future;
  *  ✅ FIX: "reel_video_cache" — original naam, existing disk data reuse hogi
  *
  *  ❌ OLD: CacheDataSink fragment size = 6MB → reel 100+ small spans mein toot jaati thi
- *  ✅ FIX: fragment size = Long.MAX_VALUE → ek reel = ek contiguous cached file
+ *  ⚠️  THEN: fragment size = Long.MAX_VALUE fixed that, but silently caused a
+ *          NEW bug — reel ka cache tabhi persistent index mein commit hota
+ *          tha jab poora download close ho jaye; app kill mid-download pe
+ *          sab discard ho jaata tha (0 MB after reopen).
+ *  ✅ FIX: fragment size = 20MB (reels) — chhoti reels ab bhi ek fragment
+ *          mein rehti hain (seek/extraction theek), lambi reels periodically
+ *          checkpoint hoti hain (kill-safe).
  *
  * Cache budget:
  *   Reels : 500MB dedicated (own SimpleCache + own DB)
@@ -67,6 +73,13 @@ public class UnifiedVideoCacheManager {
     private static final long PARTIAL_BYTES_CHAT   =  8L * 1024 * 1024;
     /** Duet originals — compositor needs large chunk */
     public  static final long PARTIAL_BYTES_DUET   = 50L * 1024 * 1024;
+
+    // Fragment (checkpoint) size for cache writes — see the FIX comment in
+    // init() for why this can't be Long.MAX_VALUE. 20MB comfortably covers
+    // a full short-form reel in one fragment (no seek/extraction issue);
+    // anything longer gets periodic commit points instead of all-or-nothing.
+    private static final long FRAGMENT_SIZE_REELS = 20L * 1024 * 1024;
+    private static final long FRAGMENT_SIZE_OTHER = 12L * 1024 * 1024;
 
     // ── Two separate SimpleCache instances ───────────────────────────────────
     private static SimpleCache             sReelsCache;
@@ -129,12 +142,26 @@ public class UnifiedVideoCacheManager {
                     .setReadTimeoutMs(20_000)
                     .setAllowCrossProtocolRedirects(true);
 
-            // fragment size = Long.MAX_VALUE: ek reel contiguous cached rehti hai
-            // Chhote fragments se seeking + extraction dono broken ho jaati thi
-            sReelsFactory  = buildFactory(httpFactory, sReelsCache,  Long.MAX_VALUE);
-            sXFactory      = buildFactory(httpFactory, sOtherCache,  Long.MAX_VALUE);
-            sStatusFactory = buildFactory(httpFactory, sOtherCache,  Long.MAX_VALUE);
-            sChatFactory   = buildFactory(httpFactory, sOtherCache,  Long.MAX_VALUE);
+            // ✅ ROOT-CAUSE FIX: fragment size WAS Long.MAX_VALUE ("one reel =
+            // one contiguous cached file", fixed the seeking/extraction bug).
+            // Side effect nobody caught: with an unbounded fragment, the
+            // CacheDataSink only renames its temp file + commits the span
+            // into the PERSISTENT (SQLite) index when that giant fragment
+            // finishes writing and closes cleanly. If the app process is
+            // killed (swipe-close from recents, OS kill) while a reel is
+            // still downloading — even at 90% — nothing had been committed
+            // yet, so the ENTIRE reel's cached bytes are discarded on next
+            // launch. That's why "cache in use" grows while browsing but
+            // resets toward 0 after a real app close+reopen.
+            // FIX: bound it. Typical reels (well under FRAGMENT_SIZE_REELS)
+            // still land in a single fragment — same seek/extraction
+            // behaviour as before — but anything longer now checkpoints
+            // periodically, so a kill mid-download only loses the
+            // in-progress fragment, not everything watched so far.
+            sReelsFactory  = buildFactory(httpFactory, sReelsCache,  FRAGMENT_SIZE_REELS);
+            sXFactory      = buildFactory(httpFactory, sOtherCache,  FRAGMENT_SIZE_OTHER);
+            sStatusFactory = buildFactory(httpFactory, sOtherCache,  FRAGMENT_SIZE_OTHER);
+            sChatFactory   = buildFactory(httpFactory, sOtherCache,  FRAGMENT_SIZE_OTHER);
 
             sPreloadExecutor = Executors.newFixedThreadPool(2);
             sInitialized = true;
@@ -306,8 +333,33 @@ public class UnifiedVideoCacheManager {
         }
     }
 
+    /**
+     * Total expected size of the resource in bytes (from the HTTP response
+     * that was cached), or -1 if unknown. Needed to tell "fully cached, safe
+     * to replay with zero data use" apart from "just the 6MB autoplay
+     * prewarm chunk is cached" — BUGFIX: getCachedBytesForUrl() alone can't
+     * distinguish these, which previously showed a misleading "✅ Cached —
+     * 0 MB stored" for reels that only had a small partial preload.
+     */
+    public static long getContentLengthForUrl(@Nullable String url) {
+        if (url == null || sReelsCache == null) return -1;
+        try {
+            androidx.media3.datasource.cache.ContentMetadata metadata = sReelsCache.getContentMetadata(url);
+            return androidx.media3.datasource.cache.ContentMetadata.getContentLength(metadata);
+        } catch (Exception e) {
+            return -1;
+        }
+    }
+
     public static boolean isReelCached(@Nullable String url) {
         return getCachedBytesForUrl(url) > 0;
+    }
+
+    /** True only if the ENTIRE resource is on disk — replaying uses zero data. */
+    public static boolean isReelFullyCached(@Nullable String url) {
+        long cached = getCachedBytesForUrl(url);
+        long total  = getContentLengthForUrl(url);
+        return cached > 0 && total > 0 && cached >= total;
     }
 
     public static long getReelsCacheBytes()      { return sReelsCache != null ? sReelsCache.getCacheSpace() : 0; }
