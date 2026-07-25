@@ -135,6 +135,8 @@ public interface ReelPlayerDelegate {
     void showQoeStats();
     /** ✅ Shows a dialog telling the user whether THIS reel is on HLS Adaptive Streaming or the per-quality-URL fallback. */
     void showStreamingModeInfo();
+    /** Shows a dialog telling the user whether THIS reel is currently cached on disk (won't re-download), and if not, why. */
+    void showCacheStatus();
     // Reels Display Mode (Immersive vs Normal) picker
     void showDisplayModePicker();
     /** Toggles the "Background Play" setting (reel keeps playing with audio after app is backgrounded). */

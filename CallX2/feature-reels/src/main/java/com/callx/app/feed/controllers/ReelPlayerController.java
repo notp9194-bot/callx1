@@ -1165,6 +1165,69 @@ public class ReelPlayerController {
             .show();
     }
 
+    /**
+     * Cache Status dialog — tells the user, per reel, whether the video is
+     * currently sitting in the disk cache (won't use data if replayed) or
+     * not, and if not, the most likely reason:
+     *   1. Never watched far enough to be cached in the first place.
+     *   2. Watched/cached before, but a recent memory-pressure trim
+     *      (onTrimMemory MODERATE/COMPLETE — e.g. swipe-closing the app)
+     *      removed it. See UnifiedVideoCacheManager.trimMemory() +
+     *      ReelCacheEvictionLog.
+     *   3. Watched/cached before, no recent trim recorded — most likely the
+     *      cache hit its size limit and the LRU evictor
+     *      (LeastRecentlyUsedCacheEvictor) quietly removed it to make room
+     *      for newer reels.
+     */
+    public void showCacheStatus() {
+        if (!delegate.isAdded() || delegate.getContext() == null) return;
+        ReelModel reel = delegate.getReel();
+        if (reel == null || reel.reelId == null) return;
+
+        String url = reel.videoUrl;
+        long cachedBytes = com.callx.app.cache.UnifiedVideoCacheManager.getCachedBytesForUrl(url);
+        long totalUsed   = com.callx.app.cache.UnifiedVideoCacheManager.getReelsCacheBytes();
+        long totalLimit  = com.callx.app.cache.UnifiedVideoCacheManager.getReelsCacheLimitBytes();
+        String usageLine = "\n\nReels cache in use: " + (totalUsed / (1024 * 1024)) + " MB / "
+            + (totalLimit / (1024 * 1024)) + " MB";
+
+        String title;
+        String message;
+        if (cachedBytes > 0) {
+            title = "✅ Cached";
+            message = "This reel is cached on disk (" + (cachedBytes / (1024 * 1024)) + " MB stored). "
+                + "Replaying it won't use mobile data." + usageLine;
+        } else {
+            android.content.Context ctx = delegate.getContext();
+            boolean everWatched = com.callx.app.cache.ReelCacheEvictionLog
+                .wasEverWatchedEnoughToCache(ctx, reel.reelId);
+            long msSinceTrim = com.callx.app.cache.ReelCacheEvictionLog.msSinceLastTrim(ctx);
+            String trimReason = com.callx.app.cache.ReelCacheEvictionLog.lastTrimReason(ctx);
+
+            title = "❌ Not cached";
+            if (!everWatched) {
+                message = "This reel hasn't been watched enough yet to be fully cached. "
+                    + "It'll cache automatically once you watch more of it.";
+            } else if (msSinceTrim >= 0 && msSinceTrim < 30 * 60 * 1000L && trimReason != null) {
+                long minsAgo = msSinceTrim / 60000;
+                message = "This reel was cached before but got removed " + minsAgo
+                    + " min ago by: " + trimReason + ".";
+            } else {
+                message = "This reel was cached before but isn't anymore. Most likely reason: "
+                    + "the reels cache limit (" + (totalLimit / (1024 * 1024)) + " MB) was reached, "
+                    + "and it was auto-removed (oldest/least-recently-watched first) to make room "
+                    + "for newer reels.";
+            }
+            message += usageLine;
+        }
+
+        new android.app.AlertDialog.Builder(delegate.getContext())
+            .setTitle(title)
+            .setMessage(message)
+            .setPositiveButton("OK", null)
+            .show();
+    }
+
     /** v5: Open the QoE Analytics dashboard for this reel session. */
     public void showQoeStats() {
         if (!delegate.isAdded() || delegate.getContext() == null) return;
@@ -1477,6 +1540,14 @@ public class ReelPlayerController {
 
         WatchHistoryManager.get().record(reel, milestone);
         Log.d(TAG, "WatchHistory recorded: " + reel.reelId + " at " + milestone + "%");
+
+        // Cache Status support: watched this far ⇒ it was very likely fully
+        // downloaded into the disk cache by now. Record that so "Cache Status"
+        // can later say "was cached, got evicted" instead of just "not cached".
+        if (milestone >= 75 && delegate.getContext() != null) {
+            com.callx.app.cache.ReelCacheEvictionLog.markWatched(
+                delegate.getContext(), reel.reelId);
+        }
     }
 
     // ── Play/Pause visual indicator ───────────────────────────────────────────

@@ -91,6 +91,8 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
       public static final String ACTION_QOE_STATS       = "qoe_stats";
       /** ✅ Shows whether this reel is on HLS Adaptive Streaming or per-quality-URL fallback */
       public static final String ACTION_STREAMING_INFO  = "streaming_info";
+      // ── Cache Status: is this reel cached right now, and if not, why ──
+      public static final String ACTION_CACHE_STATUS    = "cache_status";
       // ── Reels Display Mode (Immersive vs Normal) ──
       public static final String ACTION_DISPLAY_MODE    = "display_mode";
       // ── Background Play toggle ──
@@ -346,6 +348,7 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
         list.add(new MenuItem(ACTION_NOT_INTERESTED,"Not Interested",   R.drawable.ic_eye_off,     CLR_GOLD,    false, false));
         list.add(new MenuItem(ACTION_QUALITY,       "Video Quality",    R.drawable.ic_speed,       CLR_CYAN,    false, false));
         list.add(new MenuItem(ACTION_STREAMING_INFO,"Streaming Mode",   R.drawable.ic_speed,       CLR_GREEN,   false, false));
+        list.add(new MenuItem(ACTION_CACHE_STATUS,  "Cache Status",     R.drawable.ic_download_reel, CLR_CYAN,  false, false));
         list.add(new MenuItem(ACTION_SAVE_OFFLINE,  "Save for Offline", R.drawable.ic_download_reel, CLR_TEAL,  false, false));
         list.add(new MenuItem(ACTION_QOE_STATS,     "Network & QoE Stats", R.drawable.ic_speed,    CLR_ORANGE,  false, false));
         list.add(new MenuItem(ACTION_WATCH_HISTORY, "Watch History",    R.drawable.ic_history,     CLR_ORANGE,  true,  false));
@@ -394,7 +397,8 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
         list.add(new MenuItem(ACTION_QR_CODE,        "QR Code",          R.drawable.ic_qr_code,     CLR_ORANGE,  false, false));
         list.add(new MenuItem(ACTION_COLLAB_REQUEST, "Collab Request",   R.drawable.ic_group,       CLR_TEAL,    false, false));
         list.add(new MenuItem(ACTION_QUALITY,        "Video Quality",    R.drawable.ic_speed,       CLR_CYAN,    false, false));
-        list.add(new MenuItem(ACTION_STREAMING_INFO, "Streaming Mode",   R.drawable.ic_speed,       CLR_GREEN,   true,  false));
+        list.add(new MenuItem(ACTION_STREAMING_INFO, "Streaming Mode",   R.drawable.ic_speed,       CLR_GREEN,   false, false));
+        list.add(new MenuItem(ACTION_CACHE_STATUS,   "Cache Status",     R.drawable.ic_download_reel, CLR_CYAN,  true,  false));
         list.add(new MenuItem(ACTION_COPY_LINK,      "Copy Link",        R.drawable.ic_link,        CLR_CYAN,   false, false));
         list.add(new MenuItem(ACTION_DELETE,         "Delete",           R.drawable.ic_delete,      CLR_RED,    false, false));
         return list;

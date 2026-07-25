@@ -86,6 +86,11 @@ public class UnifiedVideoCacheManager {
     private static final ConcurrentHashMap<String, Future<?>> sActiveTasks = new ConcurrentHashMap<>();
     private static final java.util.Set<String> sPreloading = ConcurrentHashMap.newKeySet();
 
+    // Retained for ReelCacheEvictionLog (Cache Status menu — explains WHY a
+    // reel is missing from cache) and other diagnostics that need a Context
+    // after init() has already returned.
+    private static Context sAppContext;
+
     public enum Module { REELS, X, STATUS, CHAT }
 
     private UnifiedVideoCacheManager() {}
@@ -94,6 +99,7 @@ public class UnifiedVideoCacheManager {
         if (sInitialized) return;
         try {
             Context app = context.getApplicationContext();
+            sAppContext = app;
             boolean lowMem = isLowMemory(app);
 
             sReelsCacheSize = lowMem ? REELS_CACHE_LOW : REELS_CACHE_NORM;
@@ -240,6 +246,10 @@ public class UnifiedVideoCacheManager {
 
     public static synchronized void trimMemory() {
         try {
+            if (sAppContext != null) {
+                ReelCacheEvictionLog.recordTrim(sAppContext,
+                    "Memory cleanup (OS low-memory signal / app swipe-closed)");
+            }
             if (sReelsCache != null) {
                 long before = sReelsCache.getCacheSpace();
                 long target = before / 2;
@@ -274,6 +284,30 @@ public class UnifiedVideoCacheManager {
         sReelsDb = null; sOtherDb = null;
         sInitialized = false;
         Log.d(TAG, "released.");
+    }
+
+    /**
+     * Cache Status (3-dot menu) support: bytes currently cached on disk for
+     * this exact URL, or 0 if nothing is cached for it. Uses the default
+     * CacheKeyFactory behaviour (no custom key set in buildFactory()), which
+     * keys spans by the request URI string — same key ExoPlayer's
+     * CacheDataSource used when writing it.
+     */
+    public static long getCachedBytesForUrl(@Nullable String url) {
+        if (url == null || sReelsCache == null) return 0;
+        try {
+            long total = 0;
+            for (androidx.media3.datasource.cache.CacheSpan span : sReelsCache.getCachedSpans(url)) {
+                total += span.length;
+            }
+            return total;
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    public static boolean isReelCached(@Nullable String url) {
+        return getCachedBytesForUrl(url) > 0;
     }
 
     public static long getReelsCacheBytes()      { return sReelsCache != null ? sReelsCache.getCacheSpace() : 0; }
