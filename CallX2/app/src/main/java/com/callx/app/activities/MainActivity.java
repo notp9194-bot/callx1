@@ -216,9 +216,10 @@ public class MainActivity extends AppCompatActivity
                 if (position == TAB_REELS && !com.callx.app.utils.ReelDisplayModePrefs.hasBeenAsked(MainActivity.this)) {
                     showReelDisplayModeFirstVisitChooser();
                 }
-                // Hide main bottom nav + FAB when Reels tab is active — unless
-                // the user chose "Normal" mode, in which case chrome stays visible.
-                setMainNavVisible(position != TAB_REELS || com.callx.app.utils.ReelDisplayModePrefs.isNormalMode(MainActivity.this));
+                // Hide app's own header + bottom nav when Reels tab is active
+                // (always, in both display modes); phone status/nav bar
+                // visibility depends on the chosen Reels display mode.
+                applyReelsTabChrome(position == TAB_REELS);
                 // ── Reel playback: pause when leaving, resume when entering ──
                 // Track previous tab so we know whether user is going TO or FROM Reels
                 notifyReelsTabVisibility(position == TAB_REELS, position);
@@ -337,7 +338,7 @@ public class MainActivity extends AppCompatActivity
             // so we treat it as a no-op dock transition (normal resume path).
             notifyReelsTabVisibility(isReelsTab, currentTab);
         }
-        setMainNavVisible(!isReelsTab || com.callx.app.utils.ReelDisplayModePrefs.isNormalMode(this));
+        applyReelsTabChrome(isReelsTab);
         // Feature 1: Return to Call Banner
         updateReturnToCallBanner();
     }
@@ -1125,8 +1126,10 @@ public class MainActivity extends AppCompatActivity
     }
 
     /**
-     * Show or hide the main app header, bottom nav and FAB.
-     * Also toggles full-screen immersive edge-to-edge for the Reels tab.
+     * Show or hide the main app header and bottom nav (the app's OWN tab
+     * bar — Chats/Reels/Status/Groups/Calls), independent of the phone's
+     * system status bar / navigation bar. See applyReelsTabChrome() below
+     * for how these combine on the Reels tab.
      */
     private void setMainNavVisible(boolean visible) {
           int vis = visible ? android.view.View.VISIBLE : android.view.View.GONE;
@@ -1160,10 +1163,67 @@ public class MainActivity extends AppCompatActivity
           // changes are always re-measured immediately (avoids the view
           // staying visually collapsed after a window inset toggle).
           binding.getRoot().requestLayout();
-
-          // 5. Edge-to-edge immersive mode
-          setImmersiveMode(!visible);
       }
+
+    /**
+     * Applies the correct combination of chrome for the current tab.
+     *
+     *  Non-Reels tabs: app header + app bottom nav VISIBLE, phone status bar
+     *                  + phone navigation bar VISIBLE (fully normal).
+     *
+     *  Reels tab:      app header + app bottom nav ALWAYS HIDDEN — Reels is
+     *                  always full-bleed edge-to-edge for its own chrome,
+     *                  in BOTH display modes.
+     *                    - Immersive mode: phone status bar + nav bar HIDDEN too
+     *                      (true full-screen, swipe-to-reveal).
+     *                    - Normal mode:    phone status bar + nav bar VISIBLE
+     *                      (only the app's own header/tab-bar stay hidden).
+     */
+    private void applyReelsTabChrome(boolean isReelsTab) {
+        if (!isReelsTab) {
+            setMainNavVisible(true);
+            setImmersiveMode(false);
+            return;
+        }
+        setMainNavVisible(false);
+        boolean showSystemBars = com.callx.app.utils.ReelDisplayModePrefs.isNormalMode(this);
+        setReelsSystemBarsVisible(showSystemBars);
+    }
+
+    /**
+     * Reels-tab-only system bar toggle (used by applyReelsTabChrome). Unlike
+     * setImmersiveMode(), this always keeps status/nav bar ICONS light —
+     * Reels' background is black in both display modes, so dark icons would
+     * be invisible against it even when the bars themselves are visible.
+     */
+    private void setReelsSystemBarsVisible(boolean visible) {
+        WindowInsetsControllerCompat controller =
+            WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
+        if (visible) {
+            // Normal mode: phone status bar + nav bar VISIBLE, light (white)
+            // icons/buttons so they read over the black Reels background.
+            WindowCompat.setDecorFitsSystemWindows(getWindow(), true);
+            controller.show(WindowInsetsCompat.Type.statusBars()
+                | WindowInsetsCompat.Type.navigationBars());
+            controller.setAppearanceLightStatusBars(false);
+            controller.setAppearanceLightNavigationBars(false);
+            controller.setSystemBarsBehavior(
+                WindowInsetsControllerCompat.BEHAVIOR_DEFAULT);
+            getWindow().setStatusBarColor(android.graphics.Color.BLACK);
+            getWindow().setNavigationBarColor(android.graphics.Color.BLACK);
+        } else {
+            // Immersive mode: both bars HIDDEN, edge-to-edge, swipe to reveal.
+            WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+            controller.hide(WindowInsetsCompat.Type.statusBars()
+                | WindowInsetsCompat.Type.navigationBars());
+            controller.setAppearanceLightStatusBars(false);
+            controller.setAppearanceLightNavigationBars(false);
+            controller.setSystemBarsBehavior(
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+            getWindow().setStatusBarColor(android.graphics.Color.TRANSPARENT);
+            getWindow().setNavigationBarColor(android.graphics.Color.TRANSPARENT);
+        }
+    }
 
     /**
      * Enable or disable full-screen immersive (edge-to-edge) mode.
@@ -1234,7 +1294,7 @@ public class MainActivity extends AppCompatActivity
 
     private void applyReelDisplayModeIfOnReelsTab() {
         if (binding.viewPager.getCurrentItem() == TAB_REELS) {
-            setMainNavVisible(ReelDisplayModePrefs.isNormalMode(this));
+            applyReelsTabChrome(true);
         }
     }
 

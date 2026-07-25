@@ -113,7 +113,7 @@ public class ReelDisplayModeBottomSheet extends BottomSheetDialogFragment {
             ReelDisplayModePrefs.MODE_NORMAL,
             R.drawable.ic_display_mode_normal,
             "Normal",
-            "Status bar and bottom navigation stay visible in Reels");
+            "Phone's status bar & navigation bar stay visible in Reels");
     }
 
     private void addOption(LinearLayout container, String mode, int iconRes,
