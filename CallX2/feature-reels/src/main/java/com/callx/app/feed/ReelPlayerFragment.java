@@ -46,6 +46,7 @@ public class ReelPlayerFragment extends Fragment
                     ReelMoreBottomSheet.OnItemClickListener,
                     com.callx.app.music.ReelSoundQuickActionSheet.OnActionListener,
                     com.callx.app.social.ReelRemixSequencePickerSheet.OnModeSelectedListener,
+                    com.callx.app.social.ReelDisplayModeBottomSheet.OnModeSelectedListener,
                     ReelCommentsBottomSheet.Host {
 
     private static final float[] SPEED_STEPS  = {0.5f, 1.0f, 1.5f, 2.0f};
