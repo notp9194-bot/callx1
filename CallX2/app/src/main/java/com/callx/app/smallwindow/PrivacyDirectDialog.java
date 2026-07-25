@@ -32,20 +32,28 @@ public class PrivacyDirectDialog extends BottomSheetDialogFragment {
 
     public static final int REQ_OVERLAY_PERMISSION = 5555;
 
-    private static final String ARG_USER_ID   = "user_id";
-    private static final String ARG_USER_NAME = "user_name";
-    private static final String ARG_STATUS    = "status";
+    private static final String ARG_USER_ID    = "user_id";
+    private static final String ARG_USER_NAME  = "user_name";
+    private static final String ARG_STATUS     = "status";
+    private static final String ARG_USER_PHOTO = "user_photo";
 
     private String userId;
     private String userName;
     private String userStatus;
+    private String userPhoto;
 
+    /** Backward-compatible overload (no photo). */
     public static PrivacyDirectDialog newInstance(String userId, String userName, String status) {
+        return newInstance(userId, userName, status, null);
+    }
+
+    public static PrivacyDirectDialog newInstance(String userId, String userName, String status, String photoUrl) {
         PrivacyDirectDialog d = new PrivacyDirectDialog();
         Bundle args = new Bundle();
-        args.putString(ARG_USER_ID,   userId);
-        args.putString(ARG_USER_NAME, userName);
-        args.putString(ARG_STATUS,    status);
+        args.putString(ARG_USER_ID,    userId);
+        args.putString(ARG_USER_NAME,  userName);
+        args.putString(ARG_STATUS,     status);
+        args.putString(ARG_USER_PHOTO, photoUrl);
         d.setArguments(args);
         return d;
     }
@@ -54,9 +62,10 @@ public class PrivacyDirectDialog extends BottomSheetDialogFragment {
     public void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         if (getArguments() != null) {
-            userId     = getArguments().getString(ARG_USER_ID,   "");
-            userName   = getArguments().getString(ARG_USER_NAME, "User");
-            userStatus = getArguments().getString(ARG_STATUS,    "");
+            userId     = getArguments().getString(ARG_USER_ID,    "");
+            userName   = getArguments().getString(ARG_USER_NAME,  "User");
+            userStatus = getArguments().getString(ARG_STATUS,     "");
+            userPhoto  = getArguments().getString(ARG_USER_PHOTO, "");
         }
     }
 
@@ -141,6 +150,7 @@ public class PrivacyDirectDialog extends BottomSheetDialogFragment {
                 activity.getIntent().putExtra("_sw_pending_uid",    userId);
                 activity.getIntent().putExtra("_sw_pending_name",   userName);
                 activity.getIntent().putExtra("_sw_pending_status", userStatus);
+                activity.getIntent().putExtra("_sw_pending_photo",  userPhoto);
                 activity.startActivityForResult(i, REQ_OVERLAY_PERMISSION);
                 Toast.makeText(ctx,
                     "'Display over other apps' permission dijiye, phir automatic open hoga",
@@ -172,6 +182,7 @@ public class PrivacyDirectDialog extends BottomSheetDialogFragment {
         svc.putExtra(SmallWindowService.EXTRA_USER_ID, userId);
         svc.putExtra(SmallWindowService.EXTRA_NAME,    userName);
         svc.putExtra(SmallWindowService.EXTRA_STATUS,  userStatus);
+        svc.putExtra(SmallWindowService.EXTRA_PHOTO,   userPhoto);
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             ctx.startForegroundService(svc);

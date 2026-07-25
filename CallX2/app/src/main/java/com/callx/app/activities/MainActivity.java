@@ -562,12 +562,14 @@ public class MainActivity extends AppCompatActivity
                 String uid    = getIntent().getStringExtra("_sw_pending_uid");
                 String name   = getIntent().getStringExtra("_sw_pending_name");
                 String status = getIntent().getStringExtra("_sw_pending_status");
+                String photo  = getIntent().getStringExtra("_sw_pending_photo");
 
                 if (uid != null || name != null) {
                     // Clean up pending extras
                     getIntent().removeExtra("_sw_pending_uid");
                     getIntent().removeExtra("_sw_pending_name");
                     getIntent().removeExtra("_sw_pending_status");
+                    getIntent().removeExtra("_sw_pending_photo");
 
                     // Launch service
                     android.content.Intent svc = new android.content.Intent(
@@ -577,6 +579,8 @@ public class MainActivity extends AppCompatActivity
                         name != null ? name : "");
                     svc.putExtra(com.callx.app.smallwindow.SmallWindowService.EXTRA_STATUS,
                         status != null ? status : "");
+                    svc.putExtra(com.callx.app.smallwindow.SmallWindowService.EXTRA_PHOTO,
+                        photo != null ? photo : "");
 
                     if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                         startForegroundService(svc);

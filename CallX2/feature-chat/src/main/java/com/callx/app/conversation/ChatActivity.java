@@ -3914,8 +3914,10 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         try {
             Class<?> svcClass = Class.forName("com.callx.app.smallwindow.SmallWindowService");
             Intent svc = new Intent(appCtx, svcClass);
-            svc.putExtra("name",   partnerName != null ? partnerName : "Chat");
-            svc.putExtra("status", "CallX Small Window");
+            svc.putExtra("userId", partnerUid   != null ? partnerUid   : "");
+            svc.putExtra("name",   partnerName  != null ? partnerName  : "Chat");
+            svc.putExtra("photo",  partnerPhoto != null ? partnerPhoto : "");
+            svc.putExtra("status", "Online"); // live presence listener overwrites this immediately
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                 appCtx.startForegroundService(svc);
             } else {

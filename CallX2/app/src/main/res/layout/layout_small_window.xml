@@ -1,14 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
     layout_small_window.xml
-    Floating small window — draggable overlay that shows chat/call info.
-    Screenshot 2 jaisa: top bar (minimize + close), content area.
+    Floating small window — full mini-chat: live message list + send box,
+    draggable + resizable-feel overlay. Not just a preview anymore.
 -->
 <androidx.cardview.widget.CardView
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
-    android:layout_width="260dp"
-    android:layout_height="180dp"
+    android:layout_width="300dp"
+    android:layout_height="400dp"
     app:cardCornerRadius="14dp"
     app:cardElevation="12dp"
     app:cardBackgroundColor="#1C1C1E">
@@ -20,20 +20,22 @@
 
         <!-- ── Top drag-bar ─────────────────────────────────────────────── -->
         <LinearLayout
+            android:id="@+id/ll_sw_dragbar"
             android:layout_width="match_parent"
-            android:layout_height="36dp"
+            android:layout_height="40dp"
             android:orientation="horizontal"
             android:gravity="center_vertical"
             android:paddingStart="10dp"
             android:paddingEnd="4dp"
             android:background="#2C2C2E">
 
-            <!-- Drag handle indicator -->
-            <View
-                android:layout_width="32dp"
-                android:layout_height="3dp"
-                android:background="#48484A"
-                android:layout_gravity="center_vertical"/>
+            <ImageView
+                android:id="@+id/iv_sw_avatar_small"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:scaleType="centerCrop"
+                android:src="@drawable/ic_person"
+                android:background="@drawable/circle_avatar_bg"/>
 
             <LinearLayout
                 android:layout_width="0dp"
@@ -63,11 +65,21 @@
                     android:maxLines="1"/>
             </LinearLayout>
 
+            <!-- Expand → open full ChatActivity -->
+            <ImageButton
+                android:id="@+id/btn_sw_expand"
+                android:layout_width="30dp"
+                android:layout_height="30dp"
+                android:src="@drawable/ic_picture_in_picture"
+                android:tint="#AEAEB2"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Open full chat"/>
+
             <!-- Minimize button -->
             <ImageButton
                 android:id="@+id/btn_sw_minimize"
-                android:layout_width="32dp"
-                android:layout_height="32dp"
+                android:layout_width="30dp"
+                android:layout_height="30dp"
                 android:src="@drawable/ic_pause"
                 android:tint="#AEAEB2"
                 android:background="?attr/selectableItemBackgroundBorderless"
@@ -76,8 +88,8 @@
             <!-- Close button -->
             <ImageButton
                 android:id="@+id/btn_sw_close"
-                android:layout_width="32dp"
-                android:layout_height="32dp"
+                android:layout_width="30dp"
+                android:layout_height="30dp"
                 android:src="@drawable/ic_close"
                 android:tint="#FF453A"
                 android:background="?attr/selectableItemBackgroundBorderless"
@@ -85,46 +97,94 @@
 
         </LinearLayout>
 
-        <!-- ── Content area ──────────────────────────────────────────────── -->
+        <!-- ── Message list — real, live chat content ──────────────────────── -->
         <FrameLayout
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_weight="1"
             android:background="#000000">
 
-            <!-- Background gradient overlay -->
             <View
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 android:background="@drawable/bg_call_dark_scrim"/>
 
-            <!-- Center content — avatar + status -->
-            <LinearLayout
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/rv_sw_messages"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
+                android:clipToPadding="false"
+                android:paddingHorizontal="8dp"
+                android:paddingVertical="6dp"/>
+
+            <!-- Empty-state — shown only while there are no messages yet -->
+            <LinearLayout
+                android:id="@+id/ll_sw_empty_state"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
                 android:orientation="vertical"
                 android:gravity="center"
-                android:padding="12dp">
+                android:visibility="gone">
 
                 <ImageView
                     android:id="@+id/iv_sw_avatar"
                     android:layout_width="48dp"
                     android:layout_height="48dp"
                     android:src="@drawable/ic_person"
-                    android:tint="#FFFFFF"
-                    android:background="@drawable/circle_avatar_bg"
-                    android:padding="8dp"/>
+                    android:scaleType="centerCrop"
+                    android:background="@drawable/circle_avatar_bg"/>
 
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Small Window"
-                    android:textColor="#AEAEB2"
-                    android:textSize="10sp"
+                    android:text="No messages yet"
+                    android:textColor="#8E8E93"
+                    android:textSize="11sp"
                     android:layout_marginTop="6dp"/>
             </LinearLayout>
 
         </FrameLayout>
+
+        <!-- ── Send box — type + send, real message, not just preview ──────── -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="#2C2C2E"
+            android:paddingStart="8dp"
+            android:paddingEnd="4dp"
+            android:paddingVertical="4dp">
+
+            <EditText
+                android:id="@+id/et_sw_message"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:background="@drawable/bg_sw_input"
+                android:hint="Message"
+                android:textColorHint="#8E8E93"
+                android:textColor="#FFFFFF"
+                android:textSize="13sp"
+                android:paddingHorizontal="10dp"
+                android:paddingVertical="6dp"
+                android:minHeight="36dp"
+                android:maxLines="3"
+                android:inputType="textCapSentences|textMultiLine"
+                android:imeOptions="actionSend"/>
+
+            <ImageButton
+                android:id="@+id/btn_sw_send"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:layout_marginStart="4dp"
+                android:src="@drawable/ic_forward"
+                android:tint="#0A84FF"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Send"/>
+
+        </LinearLayout>
 
     </LinearLayout>
 

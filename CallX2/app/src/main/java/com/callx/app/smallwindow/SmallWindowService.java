@@ -29,6 +29,7 @@ public class SmallWindowService extends Service {
     public static final String EXTRA_USER_ID = "userId";
     public static final String EXTRA_NAME    = "name";
     public static final String EXTRA_STATUS  = "status";
+    public static final String EXTRA_PHOTO   = "photo";
 
     private static final String CHANNEL_ID = "small_window_channel";
     private static final int    NOTIF_ID   = 9901;
@@ -44,6 +45,7 @@ public class SmallWindowService extends Service {
         String userId = intent != null ? intent.getStringExtra(EXTRA_USER_ID) : null;
         String name   = intent != null ? intent.getStringExtra(EXTRA_NAME)    : "CallX";
         String status = intent != null ? intent.getStringExtra(EXTRA_STATUS)  : "";
+        String photo  = intent != null ? intent.getStringExtra(EXTRA_PHOTO)   : null;
 
         // Android 14+ (API 34): specialUse type requires explicit foreground type flag
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
@@ -53,8 +55,9 @@ public class SmallWindowService extends Service {
             startForeground(NOTIF_ID, buildNotification(name, status));
         }
 
-        // Show the floating window — pass userId for deep-link / chat open
-        SmallWindowManager.getInstance().show(this, userId, name, status);
+        // Show the floating window — pass userId + photo for real avatar,
+        // deep-link / chat open, and live last-message/presence binding
+        SmallWindowManager.getInstance().show(this, userId, name, status, photo);
 
         return START_STICKY;
     }

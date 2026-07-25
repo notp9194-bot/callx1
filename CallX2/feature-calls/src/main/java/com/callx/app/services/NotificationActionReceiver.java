@@ -503,7 +503,8 @@ public class NotificationActionReceiver extends BroadcastReceiver {
                 Intent svc = new Intent(appCtx, svcClass);
                 svc.putExtra("userId", partnerUid != null ? partnerUid : "");
                 svc.putExtra("name",   partnerName != null ? partnerName : "Chat");
-                svc.putExtra("status", "CallX Small Window");
+                svc.putExtra("photo",  partnerPhoto != null ? partnerPhoto : "");
+                svc.putExtra("status", "Online"); // live presence listener overwrites this immediately
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                     appCtx.startForegroundService(svc);
                 } else {
