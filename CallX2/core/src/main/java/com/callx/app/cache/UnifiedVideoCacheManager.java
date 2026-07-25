@@ -74,12 +74,27 @@ public class UnifiedVideoCacheManager {
     /** Duet originals — compositor needs large chunk */
     public  static final long PARTIAL_BYTES_DUET   = 50L * 1024 * 1024;
 
-    // Fragment (checkpoint) size for cache writes — see the FIX comment in
-    // init() for why this can't be Long.MAX_VALUE. 20MB comfortably covers
-    // a full short-form reel in one fragment (no seek/extraction issue);
-    // anything longer gets periodic commit points instead of all-or-nothing.
-    private static final long FRAGMENT_SIZE_REELS = 20L * 1024 * 1024;
-    private static final long FRAGMENT_SIZE_OTHER = 12L * 1024 * 1024;
+    // Fragment (checkpoint) size for cache writes.
+    //
+    // ROOT-CAUSE FIX (kill-safe cache persistence):
+    //  ❌ OLD: FRAGMENT_SIZE_REELS = Long.MAX_VALUE → all-or-nothing, app kill
+    //          mid-download = 0 bytes committed, full re-download on restart.
+    //  ❌ WAS: FRAGMENT_SIZE_REELS = 20MB → still too large. A 6MB preload on
+    //          a slow 3G link can take 20-30 seconds. SIGKILL during that window
+    //          = no fragment boundary crossed yet = temp file abandoned = 0 bytes
+    //          in DB on restart. Same for full-reel downloads: 15MB reel =
+    //          1 fragment, committed only when DONE — killed at 90% = restart
+    //          from zero.
+    //  ✅ FIX: FRAGMENT_SIZE_REELS = 2MB — each 2MB written is atomically
+    //          committed to the SQLite index (StandaloneDatabaseProvider). An
+    //          app kill loses AT MOST the last in-progress 2MB fragment; all
+    //          completed 2MB chunks survive restart and are served from disk
+    //          without any network on next session.
+    //          Tradeoff: 4-8 DB rows per reel instead of 1. Acceptable cost.
+    //          Seeking still works — ExoPlayer's CacheDataSource stitches
+    //          non-contiguous spans transparently.
+    private static final long FRAGMENT_SIZE_REELS =  2L * 1024 * 1024; //  2MB — kill-safe checkpoints
+    private static final long FRAGMENT_SIZE_OTHER  =  2L * 1024 * 1024; //  2MB — same for status/X/chat
 
     // ── Two separate SimpleCache instances ───────────────────────────────────
     private static SimpleCache             sReelsCache;
@@ -248,8 +263,15 @@ public class UnifiedVideoCacheManager {
                     + bytes / (1024 * 1024) + "MB: " + shortUrl(videoUrl));
             } catch (Exception e) {
                 Log.w(TAG, "[" + module + "] preload failed: " + e.getMessage());
-                sPreloading.remove(videoUrl);
             } finally {
+                // ✅ FIX: Remove from sPreloading in finally (not just on error).
+                // Previously: removed only on exception → successful preload kept URL
+                // in sPreloading forever, blocking any re-preload if that entry was
+                // later LRU-evicted from the SimpleCache (e.g. under low storage).
+                // Now: always remove so a future preloadPartial() call for the same
+                // URL re-checks the actual cache state via CacheWriter (which skips
+                // already-cached byte ranges automatically — no redundant downloads).
+                sPreloading.remove(videoUrl);
                 sActiveTasks.remove(videoUrl);
             }
         });

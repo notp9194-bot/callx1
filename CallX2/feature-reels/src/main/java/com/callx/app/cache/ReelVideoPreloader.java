@@ -247,8 +247,18 @@ public class ReelVideoPreloader {
 
             } catch (Exception e) {
                 Log.w(TAG, "Preload failed for " + shortUrl(videoUrl) + ": " + e.getMessage());
-                mPreloading.remove(videoUrl); // Failed → retry allow karo
             } finally {
+                // ✅ FIX: Remove from mPreloading in finally (not just on error).
+                // Previously: mPreloading.remove() was called ONLY in the catch block,
+                // so successful preloads kept the URL in mPreloading for the rest of the
+                // session. Consequence: if the LRU evictor later flushed those bytes
+                // (low storage), the preloader would never re-warm them (mPreloading still
+                // contained the URL → early return at the top of preloadSingle). The reel
+                // would then buffer from network instead of cache on next open.
+                // Now: always remove, so a future preloadFrom() call re-evaluates the
+                // actual cache state via CacheWriter (which skips already-cached ranges
+                // automatically — no redundant network bytes spent).
+                mPreloading.remove(videoUrl);
                 mActiveTasks.remove(videoUrl);
             }
         });

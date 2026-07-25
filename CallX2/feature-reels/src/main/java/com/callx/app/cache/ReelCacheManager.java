@@ -95,15 +95,36 @@ public class ReelCacheManager {
     /**
      * Kisi specific reel ka kitna data cache mein hai (bytes mein).
      * 0 = bilkul cache nahi, > 0 = partially ya fully cached.
+     *
+     * ROOT-CAUSE FIX:
+     *  ❌ OLD: ContentMetadata.getContentLength(sSimpleCache.getContentMetadata(url))
+     *          This returns the HTTP Content-Length header value (total file size
+     *          as reported by the server) — NOT how many bytes are actually stored
+     *          on disk. For chunked-transfer URLs it returns LENGTH_UNSET (-1).
+     *          Either way it does NOT tell you whether bytes are in the cache.
+     *
+     *          Side effect: preferAlreadyCachedQualityUrl() was calling this and
+     *          checking >= 500KB. If a reel was never cached, it returned -1
+     *          (fail = correct). But if a reel WAS cached, it returned the full
+     *          file size (e.g. 15MB) — always >= 500KB, so the check passed. This
+     *          accidentally worked for fully-watched reels, but for partial preloads
+     *          on CDNs without Content-Length it returned -1 even when bytes WERE
+     *          on disk, causing a false "not cached" → wrong URL chosen → re-download.
+     *
+     *  ✅ FIX: Sum the lengths of all committed CacheSpans for this URL.
+     *          getCachedSpans() reads from the persistent SQLite index (via
+     *          StandaloneDatabaseProvider) — survives app restarts. Returns 0
+     *          if nothing is cached (no spans), and the actual byte count if any
+     *          spans exist. Accurate across HTTP/chunked/HLS regardless of whether
+     *          Content-Length was ever set.
      */
     public static long getCachedBytes(String videoUrl) {
         if (!sInitialized || sSimpleCache == null) return 0;
-        try {
-            return androidx.media3.datasource.cache.ContentMetadata.getContentLength(
-                sSimpleCache.getContentMetadata(videoUrl));
-        } catch (Exception e) {
-            return 0;
-        }
+        // ✅ Delegate to the authoritative implementation in UnifiedVideoCacheManager
+        // (which also owns this SimpleCache instance). Avoids duplicating span-summing
+        // logic and keeps both the "Cache Status" 3-dot menu display and the
+        // preferAlreadyCachedQualityUrl() path reading from the same source of truth.
+        return UnifiedVideoCacheManager.getCachedBytesForUrl(videoUrl);
     }
 
     /**

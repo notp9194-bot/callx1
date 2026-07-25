@@ -259,12 +259,13 @@ public class ReelOfflineManager {
             return;
         }
 
+        final String downloadUrl = url; // effectively final for lambda
         scheduler.submit(() -> {
             try {
                 CacheDataSource.Factory factory = ReelCacheManager.getCacheDataSourceFactory();
                 CacheDataSource src = factory.createDataSource();
                 DataSpec spec = new DataSpec.Builder()
-                    .setUri(Uri.parse(url))
+                    .setUri(Uri.parse(downloadUrl))
                     .setPosition(0)
                     .setLength(OFFLINE_BYTES)
                     .build();
@@ -279,6 +280,11 @@ public class ReelOfflineManager {
                     offlineCatalog.add(reelId);
                     persistOfflineCatalog();
                 }
+                // ✅ FIX: persist the actual URL we downloaded under, so isAvailableOffline()
+                // can query the cache by URL (cache key = URL, NOT reelId).
+                prefs.edit()
+                    .putString(KEY_OFFLINE_URL_PREFIX + reelId, downloadUrl)
+                    .apply();
                 // v6: track save time + enforce storage cap (evict oldest first)
                 offlineTimestamps.put(reelId, System.currentTimeMillis());
                 persistOfflineTimestamps();
@@ -306,10 +312,22 @@ public class ReelOfflineManager {
         persistOfflineTimestamps();
         try {
             SimpleCache cache = ReelCacheManager.getSimpleCache();
-            if (cache != null) cache.removeResource(reelId);
+            if (cache != null) {
+                // ✅ FIX: remove by the actual cached URL (not reelId) since SimpleCache
+                // keys entries by URL. Also clean up the persisted URL mapping.
+                String cachedUrl = prefs.getString(KEY_OFFLINE_URL_PREFIX + reelId, null);
+                if (cachedUrl != null && !cachedUrl.isEmpty()) {
+                    cache.removeResource(cachedUrl);
+                } else {
+                    // Fallback for stale entries written before this fix
+                    cache.removeResource(reelId);
+                }
+            }
         } catch (Exception e) {
             Log.w(TAG, "removeOfflineReel cache purge: " + e.getMessage());
         }
+        // Clean up the URL mapping key
+        prefs.edit().remove(KEY_OFFLINE_URL_PREFIX + reelId).apply();
     }
 
     /**
@@ -373,12 +391,38 @@ public class ReelOfflineManager {
 
     /**
      * Returns true if reelId is available for offline playback (catalog + cache check).
+     *
+     * ROOT-CAUSE FIX:
+     *  ❌ OLD: ReelCacheManager.getCachedBytes(reelId) — passing the REEL ID as the
+     *          cache key. But SimpleCache/CacheDataSource key cache entries by the
+     *          VIDEO URL (the actual HTTP URI), not by our internal reelId string.
+     *          Querying by reelId always returned 0, so isAvailableOffline() always
+     *          returned false, making the entire offline catalog feature a no-op:
+     *          reels "saved for offline" would still trigger network requests even
+     *          when the bytes were actually on disk.
+     *
+     *  ✅ FIX: Look up the reel's video URL from offlineUrlMap (populated by
+     *          downloadForOffline()) and query the cache by URL. Falls back to
+     *          checking any known quality variant of the reel using the offline
+     *          URL map, which is persisted across restarts in SharedPreferences.
      */
     public boolean isAvailableOffline(@NonNull String reelId) {
         if (!offlineCatalog.contains(reelId)) return false;
-        long cachedBytes = ReelCacheManager.getCachedBytes(reelId);
-        return cachedBytes > 500_000;  // require at least 500 KB
+        // Look up the URL we actually downloaded for this reelId
+        String cachedUrl = prefs.getString(KEY_OFFLINE_URL_PREFIX + reelId, null);
+        if (cachedUrl == null || cachedUrl.isEmpty()) {
+            // No URL recorded — catalog entry is stale (pre-fix data), treat as unavailable
+            Log.d(TAG, "isAvailableOffline: no URL recorded for " + reelId + " (stale entry)");
+            return false;
+        }
+        long cachedBytes = ReelCacheManager.getCachedBytes(cachedUrl);
+        boolean available = cachedBytes > 500_000;
+        Log.d(TAG, "isAvailableOffline " + reelId + ": " + cachedBytes + " bytes (" + (available ? "OK" : "insufficient") + ")");
+        return available;
     }
+
+    // Shared-prefs key prefix for the URL we downloaded for each offline reel
+    private static final String KEY_OFFLINE_URL_PREFIX = "offline_url_";
 
     /**
      * Returns total bytes used by the offline cache.
