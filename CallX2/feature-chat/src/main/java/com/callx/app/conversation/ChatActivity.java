@@ -3833,6 +3833,21 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
 
     private void showMessageInfoDialog(Message m) {
         if (m == null) return;
+        // BUG FIX: getSelectedMessages() reads off the PagingDataAdapter's
+        // current snapshot, which can be mid-reload right after a fast send
+        // (Paging invalidate/reload window) — that can hand back a stale or
+        // near-empty Message for the id the user actually selected, which
+        // then renders Message Info as if it were a *received* message
+        // ("Sent" only, no Seen/Delivered breakdown) even for the user's
+        // own outgoing message. Re-resolve the same id straight off the
+        // adapter's live snapshot (findMessageById does a fresh linear scan,
+        // not the same possibly-stale reference) right before building the
+        // sheet's data, so the sheet always reflects the real message.
+        String infoId = m.messageId != null ? m.messageId : m.id;
+        if (pagingAdapter != null && infoId != null) {
+            Message fresh = pagingAdapter.findMessageById(infoId);
+            if (fresh != null) m = fresh;
+        }
         boolean isOutgoing = m.senderId != null && currentUid != null && m.senderId.equals(currentUid);
 
         com.callx.app.conversation.info.MessageInfoData data = new com.callx.app.conversation.info.MessageInfoData();

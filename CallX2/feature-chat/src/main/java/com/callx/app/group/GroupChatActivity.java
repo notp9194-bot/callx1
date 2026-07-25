@@ -2340,6 +2340,19 @@ public class GroupChatActivity extends AppCompatActivity
      */
     private void showGroupMessageInfoDialog(Message m) {
         if (m == null) return;
+        // BUG FIX: same root cause as ChatActivity#showMessageInfoDialog —
+        // getSelectedMessages() can hand back a stale/near-empty Message
+        // (Paging reload window right after a fast send) for the id the
+        // user actually tapped Info on, which then renders as a *received*
+        // message ("Sent" only — no Read By/Delivered To/Pending sections)
+        // even for the sender's own outgoing group message. Re-resolve the
+        // same id off the adapter's live snapshot right before building the
+        // sheet's data.
+        String infoId = m.messageId != null ? m.messageId : m.id;
+        if (pagingAdapter != null && infoId != null) {
+            Message fresh = pagingAdapter.findMessageById(infoId);
+            if (fresh != null) m = fresh;
+        }
         boolean isOutgoing = m.senderId != null && currentUid.equals(m.senderId);
 
         com.callx.app.conversation.info.MessageInfoData data = new com.callx.app.conversation.info.MessageInfoData();

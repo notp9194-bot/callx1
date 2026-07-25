@@ -913,6 +913,16 @@ public class MessagePagingAdapter
         for (int i = 0; i < getItemCount(); i++) {
             Message m = getItem(i);
             if (m == null) continue;
+            // BUG FIX: synthetic rows (date_separator etc.) live in the same
+            // position-indexed list as real messages but were never meant to
+            // be selectable — they carry no senderId/timestamp/status, so if
+            // one ever slips into selectedMessageIds (e.g. a stale id from a
+            // list reshuffle right after a fast send), the caller (Message
+            // Info) ends up rendering a near-blank Message as if it were a
+            // real received message ("Sent" fallback, no Seen/Delivered
+            // rows) instead of the outgoing message the user actually
+            // selected. Filter these out defensively at the source.
+            if ("date_separator".equals(m.type)) continue;
             String id = m.messageId != null ? m.messageId : m.id;
             if (id != null && selectedMessageIds.contains(id)) result.add(m);
         }
