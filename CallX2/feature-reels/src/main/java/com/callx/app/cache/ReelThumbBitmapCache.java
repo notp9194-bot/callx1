@@ -115,7 +115,7 @@ public final class ReelThumbBitmapCache {
             .apply(options)
             .into(new CustomTarget<Bitmap>() {
                 @Override
-                public void onResourceReady(androidx.annotation.NonNull Bitmap resource,
+                public void onResourceReady(@androidx.annotation.NonNull Bitmap resource,
                                              @Nullable Transition<? super Bitmap> transition) {
                     cache.put(url, resource);
                     target.setImageBitmap(resource);
@@ -142,7 +142,7 @@ public final class ReelThumbBitmapCache {
             .apply(options)
             .into(new CustomTarget<Bitmap>() {
                 @Override
-                public void onResourceReady(androidx.annotation.NonNull Bitmap resource,
+                public void onResourceReady(@androidx.annotation.NonNull Bitmap resource,
                                              @Nullable Transition<? super Bitmap> transition) {
                     cache.put(url, resource);
                 }
