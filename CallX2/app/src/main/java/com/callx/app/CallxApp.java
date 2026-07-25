@@ -263,16 +263,7 @@ public class CallxApp extends Application {
             // ✅ ROOT-CAUSE FIX: TRIM_MEMORY_UI_HIDDEN (20) fires on EVERY
             // single app backgrounding — home button, app switch, screen
             // lock — it is NOT a real memory-pressure signal, just "the UI
-            // isn't visible right now". The old code's first check was
-            // `level >= TRIM_MEMORY_RUNNING_CRITICAL` (15). Android's trim
-            // levels aren't on one ordered scale though: UI_HIDDEN=20,
-            // BACKGROUND=40, MODERATE=60, COMPLETE=80 are ALL >= 15 too, so
-            // that "critical" branch actually fired on every single
-            // backgrounding and wiped 50%+ of the persistent reel video
-            // cache (ReelCacheManager.trimMemory() + UnifiedVideoCacheManager
-            // .trimMemory() both trim the SAME underlying cache, compounding
-            // it) — this is why reels were re-downloading every time the
-            // app was reopened. UI_HIDDEN now does only lightweight,
+            // isn't visible right now". UI_HIDDEN does only lightweight,
             // reversible cleanup and NEVER touches the disk video cache.
             if (level == ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN) {
                 cache.evictLowPriority();
@@ -281,16 +272,46 @@ public class CallxApp extends Application {
                 return;
             }
 
-            // Real pressure signals only from here: RUNNING_CRITICAL(15) is
-            // the foreground "about to OOM right now" signal; BACKGROUND(40)/
-            // MODERATE(60)/COMPLETE(80) are background-process levels Android
-            // sends as it gets closer to killing this process for memory.
+            // ✅ ROOT-CAUSE FIX #2: BACKGROUND(40) fires as soon as the
+            // process enters Android's background/cached process list —
+            // basically every single time the app is backgrounded, not
+            // just under real memory pressure. RUNNING_CRITICAL(15) is a
+            // *foreground* signal and can genuinely mean "about to OOM
+            // right now", but in practice fires far more often than an
+            // actual OOM on many devices too. Both used to call
+            // ReelCacheManager.trimMemory(), which deletes ~50% of the
+            // PERSISTENT reel video disk cache (SimpleCache.removeResource)
+            // — meaning reels re-downloaded on almost every reopen, even
+            // right after being watched minutes earlier. These two levels
+            // now only touch genuinely in-memory, instantly-reconstructible
+            // state — the disk video cache is left completely alone.
+            // NOTE: deliberately NOT calling ExoPlayerManager.trimMemory()
+            // here — it shares the same UnifiedVideoCacheManager SimpleCache
+            // as ReelCacheManager (see ExoPlayerManager.init()) and would
+            // silently reintroduce the exact same disk-cache wipe under a
+            // different name.
+            if (level == ComponentCallbacks2.TRIM_MEMORY_BACKGROUND
+                    || level == ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL) {
+                cache.evictLowPriority();
+                Log.d(TAG, "onTrimMemory BACKGROUND/CRITICAL — memory-only cleanup, disk video cache preserved");
+                return;
+            }
+
+            // Real "process about to be reclaimed" pressure only from here:
+            // MODERATE(60)/COMPLETE(80) are the levels Android sends as a
+            // background process gets closer to being killed outright for
+            // memory — this is the only tier where trimming the persistent
+            // disk video cache is actually justified.
             if (level >= ComponentCallbacks2.TRIM_MEMORY_COMPLETE) {
                 cache.clearMemoryCache();
-                // FIX #MEM-3B: Reel + ExoPlayer video cache bhi trim karo — OOM se bachao
-                ReelCacheManager.trimMemory();
+                // FIX #MEM-3B / FIX #cache-compound: ReelCacheManager,
+                // ExoPlayerManager and UnifiedVideoCacheManager all delegate
+                // to the SAME underlying SimpleCache (see each class' init())
+                // — calling trimMemory() on all three back-to-back doesn't
+                // trim 50% once, it compounds to ~50%×50%×50% ≈ 12.5% of the
+                // original cache surviving. One call already trims every
+                // module's disk cache (reels + chat/status/x share pool).
                 UnifiedVideoCacheManager.trimMemory();
-                com.callx.app.utils.ExoPlayerManager.trimMemory();
                 // PERF FIX: per-chat last-messages cache — drop everything under
                 // real memory pressure. Room remains the source of truth, so
                 // this only disables the instant-render fast path until chats
@@ -298,13 +319,12 @@ public class CallxApp extends Application {
                 com.callx.app.cache.LastMessagesCache.getInstance().trimMemory(level);
                 Log.w(TAG, "onTrimMemory COMPLETE — full memory cache + video caches cleared");
 
-            } else if (level >= ComponentCallbacks2.TRIM_MEMORY_BACKGROUND
-                    || level == ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL) {
+            } else if (level >= ComponentCallbacks2.TRIM_MEMORY_MODERATE) {
                 cache.evictLowPriority();
-                // FIX #MEM-3B: Moderate/background signal pe bhi Reel cache trim karo
+                // FIX #MEM-3B: Moderate signal pe bhi Reel cache trim karo
                 ReelCacheManager.trimMemory();
                 com.callx.app.cache.LastMessagesCache.getInstance().trimMemory(level);
-                Log.d(TAG, "onTrimMemory BACKGROUND/CRITICAL — low priority + reel cache trimmed");
+                Log.d(TAG, "onTrimMemory MODERATE — low priority + reel cache trimmed");
             }
         } catch (Exception e) {
             Log.w(TAG, "onTrimMemory error: " + e.getMessage());
