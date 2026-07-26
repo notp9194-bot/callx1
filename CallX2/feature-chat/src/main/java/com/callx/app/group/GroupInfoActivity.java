@@ -584,9 +584,9 @@ public class GroupInfoActivity extends AppCompatActivity {
                     sys.put("timestamp", System.currentTimeMillis());
                     sysRef.setValue(sys);
                     Toast.makeText(this, finalName + " removed", Toast.LENGTH_SHORT).show();
-                })
-                .setNegativeButton("Cancel", null)
-        .create(), com.callx.app.utils.AlertDialogStyler.DialogSize.COMPACT);
+                },
+                null, null,
+                "Cancel");
     }
 
     // ── Admin: Rename group ───────────────────────────────────────────────
