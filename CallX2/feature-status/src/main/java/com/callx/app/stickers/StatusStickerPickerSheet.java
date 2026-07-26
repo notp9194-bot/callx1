@@ -240,7 +240,10 @@ public class StatusStickerPickerSheet extends BottomSheetDialogFragment {
             String soundId = data.getStringExtra("audio_id");
             String title   = data.getStringExtra("audio_title");
             String artist  = data.getStringExtra("audio_artist");
-            String soundUrl= data.getStringExtra("audio_url");
+            // Preview-only stream (audio_preview_url) — never the full-quality
+            // audio_url, since that's meant for actual reel composition, not
+            // for a viewer just tapping to listen to the sticker.
+            String soundUrl= data.getStringExtra("audio_preview_url");
             String coverUrl= data.getStringExtra("audio_cover_url");
 
             if (title == null || title.trim().isEmpty()) {

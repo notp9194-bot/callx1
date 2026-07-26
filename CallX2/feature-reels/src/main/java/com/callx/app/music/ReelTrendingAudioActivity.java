@@ -45,6 +45,9 @@ public class ReelTrendingAudioActivity extends AppCompatActivity {
     public static final String RESULT_AUDIO_ARTIST= "audio_artist";
     public static final String RESULT_AUDIO_URL   = "audio_url";
     public static final String RESULT_COVER_URL   = "audio_cover_url";
+    // Low-bitrate preview stream only — used by callers (e.g. Status music sticker)
+    // that just need to play the track, not the full-quality master (audio_url).
+    public static final String RESULT_PREVIEW_AUDIO_URL = "audio_preview_url";
 
     // ✅ NEW: Request code for opening SoundDetailActivity
     private static final int REQ_SOUND_DETAIL = 901;
@@ -237,6 +240,7 @@ public class ReelTrendingAudioActivity extends AppCompatActivity {
                         if (a.title == null || a.title.isEmpty()) continue;
                         a.artist     = s.child("artist").getValue(String.class);
                         a.audioUrl   = s.child("audioUrl").getValue(String.class);
+                        a.previewAudioUrl = s.child("previewAudioUrl").getValue(String.class);
                         a.coverUrl   = s.child("coverUrl").getValue(String.class);
                         a.genre      = "Original";
                         Long rc      = s.child("reel_count").getValue(Long.class);
@@ -276,6 +280,7 @@ public class ReelTrendingAudioActivity extends AppCompatActivity {
                         if (a.title == null) a.title = s.child("name").getValue(String.class);
                         a.artist     = s.child("artist").getValue(String.class);
                         a.audioUrl   = s.child("audioUrl").getValue(String.class);
+                        a.previewAudioUrl = s.child("previewAudioUrl").getValue(String.class);
                         a.coverUrl   = s.child("coverUrl").getValue(String.class);
                         a.genre      = s.child("genre").getValue(String.class);
                         a.mood       = s.child("mood").getValue(String.class);
@@ -476,6 +481,7 @@ public class ReelTrendingAudioActivity extends AppCompatActivity {
         result.putExtra(RESULT_AUDIO_TITLE,  audio.title != null ? audio.title : "");
         result.putExtra(RESULT_AUDIO_ARTIST, audio.artist!= null ? audio.artist: "");
         result.putExtra(RESULT_AUDIO_URL,    audio.audioUrl != null ? audio.audioUrl : "");
+        result.putExtra(RESULT_PREVIEW_AUDIO_URL, audio.previewAudioUrl != null ? audio.previewAudioUrl : "");
         result.putExtra(RESULT_COVER_URL,    audio.coverUrl != null ? audio.coverUrl : "");
         setResult(RESULT_OK, result);
         finish();
@@ -513,7 +519,7 @@ public class ReelTrendingAudioActivity extends AppCompatActivity {
     }
 
     static class Audio {
-        String id, title, artist, audioUrl, coverUrl, genre, mood;
+        String id, title, artist, audioUrl, coverUrl, genre, mood, previewAudioUrl;
         long usageCount, durationMs, trendingRank, addedAt;
         int bpm;
     }
