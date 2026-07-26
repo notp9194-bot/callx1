@@ -63,6 +63,7 @@ import com.callx.app.utils.FirebaseUtils;
 public class ReelPlayerController {
 
     private static final String TAG = "ReelPlayerCtrl";
+    private static final long THUMB_CROSSFADE_MS = 80L;
 
     private static final float[] SPEED_STEPS   = {0.5f, 1.0f, 1.5f, 2.0f};
     private static final String[] SPEED_LABELS = {"0.5×", "1×", "1.5×", "2×"};
@@ -86,6 +87,8 @@ public class ReelPlayerController {
     private ExoPlayer  player;
     private boolean    isMuted    = false;
     private int        speedIndex = 1;
+    /** True after Media3 has delivered an actual decoded frame to the surface. */
+    private boolean    firstFrameRendered = false;
 
     // ── ✅ FIX: Photo-slideshow background audio ──────────────────────────────
     // Video reels use ExoPlayer which has its own audio track.
@@ -198,6 +201,14 @@ public class ReelPlayerController {
             return insets;
         });
         tvQualityBadge       = root.findViewById(R.id.tv_quality_badge); // optional view
+
+        // Media3's default shutter is opaque black. With a thumbnail layered
+        // above the surface, that shutter can flash between the thumbnail
+        // disappearing and the first decoded frame. Keep the surface
+        // transparent and retain the last frame while a player is rebound.
+        playerView.setShutterBackgroundColor(android.graphics.Color.TRANSPARENT);
+        playerView.setKeepContentOnPlayerReset(true);
+        playerView.setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER);
 
         // Outline clip so the video frame can round its corners as it docks
         // above the comments sheet — radius is driven live from dockCornerRadiusPx.
@@ -394,9 +405,13 @@ public class ReelPlayerController {
 
         Context ctx = delegate.requireContext();
 
+        firstFrameRendered = false;
+
         // Progressive loading: show thumbnail instantly while video buffers
         if (ivThumb != null && reel.thumbUrl != null && !reel.thumbUrl.isEmpty()) {
             ivThumb.setVisibility(View.VISIBLE);
+            ivThumb.animate().cancel();
+            ivThumb.setAlpha(1f);
             // PERF advance — "bitmap memory cache for thumbnails (LRU)":
             // this reel's thumb was very likely already decoded ahead of
             // time by ReelThumbnailPreloader.preloadFrom() into
@@ -550,6 +565,18 @@ public class ReelPlayerController {
 
         Player.Listener controllerListener = new Player.Listener() {
             @Override
+            public void onRenderedFirstFrame() {
+                /*
+                 * Do not hide the thumbnail on STATE_READY or isPlaying:
+                 * those states can arrive before the surface has displayed a
+                 * decoded frame. The first-frame callback is the only safe
+                 * handoff point. An 80ms alpha crossfade masks the one-frame
+                 * surface handoff without delaying playback.
+                 */
+                revealThumbnailAfterFirstFrame();
+            }
+
+            @Override
             public void onPlaybackStateChanged(int state) {
                 if (!delegate.isAdded() || delegate.getContext() == null) return;
                 if (state == Player.STATE_BUFFERING) {
@@ -579,7 +606,6 @@ public class ReelPlayerController {
                     // a visible one, just at the runnable's own slower cadence.
                     boolean dockedElsewhere = playerView != null && playerView.getPlayer() != player;
                     if (state == Player.STATE_READY && (delegate.isCurrentlyVisible() || dockedElsewhere)) {
-                        ivThumb.setVisibility(View.GONE);
                         startProgressTracking();
                         // v5: Query ABR engine for quality suggestion + log
                         if (abrEngine != null && player != null) {
@@ -639,7 +665,6 @@ public class ReelPlayerController {
                 if (!delegate.isAdded()) return;
                 if (playing) {
                     progressBuffering.setVisibility(View.GONE);
-                    ivThumb.setVisibility(View.GONE);
                 }
                 if (btnMute != null) {
                     btnMute.setVisibility(playing ? View.GONE : View.VISIBLE);
@@ -722,7 +747,7 @@ public class ReelPlayerController {
         if (reel == null || playerView == null) return;
 
         if (delegate.isPhotoMode()) {
-            ivThumb.setVisibility(View.GONE);
+            if (ivThumb != null) ivThumb.setVisibility(View.GONE);
             delegate.startPhotoSlideshow();
             delegate.startDiscAnimation();
             resumePhotoAudio();   // ✅ FIX: start/resume background music for photo reels
@@ -778,7 +803,6 @@ public class ReelPlayerController {
         player.setVolume(isMuted ? 0f : 1f);
 
         if (player.getPlaybackState() == Player.STATE_READY) {
-            ivThumb.setVisibility(View.GONE);
             progressBuffering.setVisibility(View.GONE);
             startProgressTracking();
         }
@@ -794,6 +818,29 @@ public class ReelPlayerController {
         if (player != null) player.pause();
         stopProgressTracking();
         delegate.stopDiscAnimation();
+    }
+
+    /**
+     * Crossfades the decoded surface over the thumbnail. This is deliberately
+     * driven by onRenderedFirstFrame(), not a buffering/playback state, so a
+     * black ExoPlayer shutter can never be exposed for a frame.
+     */
+    private void revealThumbnailAfterFirstFrame() {
+        if (firstFrameRendered) return;
+        firstFrameRendered = true;
+        if (ivThumb == null) return;
+        ivThumb.animate().cancel();
+        if (ivThumb.getVisibility() != View.VISIBLE) return;
+        ivThumb.setAlpha(1f);
+        ivThumb.animate()
+            .alpha(0f)
+            .setDuration(THUMB_CROSSFADE_MS)
+            .withEndAction(() -> {
+                if (ivThumb == null) return;
+                ivThumb.setVisibility(View.GONE);
+                ivThumb.setAlpha(1f);
+            })
+            .start();
     }
 
     public void togglePlayPause() {

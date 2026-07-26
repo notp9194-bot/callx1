@@ -60,12 +60,19 @@ import java.util.concurrent.ConcurrentHashMap;
 public class ReelVideoPreloader {
 
     private static final String TAG           = "ReelVideoPreloader";
-    private static final int    PRELOAD_COUNT = 4;            // Agle 4 reels preload karo
-    private static final long   PRELOAD_BYTES = 10 * 1024 * 1024L; // Pehle 10MB preload (guaranteed smooth playback)
-    private static final long   PRELOAD_BYTES_WIFI = 10 * 1024 * 1024L; // WiFi/5G: 10MB
-    private static final long   PRELOAD_BYTES_4G   =  5 * 1024 * 1024L; // 4G: 5MB
-    private static final long   PRELOAD_BYTES_3G   =  2 * 1024 * 1024L; // 3G: 2MB
-    private static final long   PRELOAD_BYTES_2G   =    512 * 1024L;    // 2G/slow: 512KB
+    // FIX: PRELOAD_COUNT 4→2. offscreenPageLimit=1 ke baad N+2/N+3 fragments
+    // exist nahi karte — unke liye 10MB download karna pure waste tha.
+    // Sirf N+1 aur N+2 ke liye preload — N+1 hamesha exist karta hai,
+    // N+2 tab banata hai jab user N+1 par hota hai. Practically safer.
+    private static final int    PRELOAD_COUNT = 2;
+    // FIX: PRELOAD_BYTES 10MB→4MB. 10MB per reel × 4 reels = 40MB concurrent
+    // downloads tha. Ab 4MB × 2 = 8MB — smooth autoplay ke liye kaafi hai
+    // (ExoPlayer ke 1-2s buffer ke liye sirf ~2-3MB chahiye typical 720p reel mein).
+    private static final long   PRELOAD_BYTES = 4 * 1024 * 1024L; // Pehle 4MB preload
+    private static final long   PRELOAD_BYTES_WIFI = 4 * 1024 * 1024L; // WiFi/5G: 4MB
+    private static final long   PRELOAD_BYTES_4G   =  3 * 1024 * 1024L; // 4G: 3MB
+    private static final long   PRELOAD_BYTES_3G   =  1 * 1024 * 1024L; // 3G: 1MB
+    private static final long   PRELOAD_BYTES_2G   =    256 * 1024L;    // 2G/slow: 256KB
     /** Duet originals: 50MB — compositor needs the full video for rendering */
     private static final long   PRELOAD_BYTES_DUET = UnifiedVideoCacheManager.PARTIAL_BYTES_DUET;
 
@@ -81,8 +88,10 @@ public class ReelVideoPreloader {
 
     public ReelVideoPreloader(Context context) {
         mContext  = context.getApplicationContext();
-        // 3 background threads — next 3 reels parallel preload karo
-        mExecutor = Executors.newFixedThreadPool(3);
+        // FIX: threads 3→2. Pehle 3 threads × 10MB = 30MB ek waqt download
+        // ho raha tha + ExoPlayer ka apna network = phone ki battery aur
+        // CPU dono hit. 2 threads kaafi hain next 2 reels ke liye.
+        mExecutor = Executors.newFixedThreadPool(2);
         ReelCacheManager.init(mContext);
     }
 

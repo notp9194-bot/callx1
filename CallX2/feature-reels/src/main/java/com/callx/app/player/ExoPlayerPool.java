@@ -42,7 +42,11 @@ import java.util.Map;
 public final class ExoPlayerPool {
 
     private static final String TAG        = "ExoPlayerPool";
-    private static final int    POOL_SIZE  = 4;
+    // FIX: POOL_SIZE 4→3. offscreenPageLimit=1 ke baad max 3 fragments exist
+    // karte hain simultaneously: N-1 (paused), N (playing), N+1 (prewarmed).
+    // Pehle 4 tha lekin 4th slot kabhi use nahi hota tha offscreenPageLimit=1 mein —
+    // sirf memory waste. 3 players: ek playing, ek prewarmed next, ek paused prev.
+    private static final int    POOL_SIZE  = 3;
 
     private static volatile ExoPlayerPool instance;
 

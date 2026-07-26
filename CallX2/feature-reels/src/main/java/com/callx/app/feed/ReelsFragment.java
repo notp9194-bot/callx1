@@ -127,7 +127,6 @@ public class ReelsFragment extends Fragment {
 
     private ReelVideoPreloader     videoPreloader;
     private ReelThumbnailPreloader thumbPreloader;
-    private ReelChoreographerSnapSync snapSync;
     private ReelUiStatePrecomputer uiStatePrecomputer;
     // v5: Predictive preloader + offline manager
     private ReelPredictivePreloader predictivePreloader;
@@ -181,26 +180,26 @@ public class ReelsFragment extends Fragment {
         adapter = new ReelsAdapter(this);
         adapter.setGamesCardsEnabled(true); // Mini Games card every 3 reels (YouTube-Playables style)
         vpReels.setAdapter(adapter);
-        // ── Instagram-style instant playback ──────────────────────────────
-        // offscreenPageLimit=4 → N-1, N, N+1, N+2, N+3 fragments all kept
-        // alive. Combined with preparePlayerSilently() in ReelPlayerFragment,
-        // up to 3 reels ahead can be pre-prepared → zero buffering spinner on
-        // swipe even during a fast flick (see controlPlayback()'s
-        // velocity-adaptive prewarm distance below — normally only N+1/N+2
-        // are actually warmed; N+3 is reached only on a fast scroll).
-        vpReels.setOffscreenPageLimit(4);
+        // ── Optimized offscreen limit ──────────────────────────────────────
+        // FIX: offscreenPageLimit=1 → sirf N-1 aur N+1 fragments alive hain.
+        // Pehle 4 tha: 5 fragments simultaneously alive → 5 sets of Firebase
+        // real-time listeners + multiple ExoPlayer instances → phone garam +
+        // hang. Ab 1 hai: sirf 3 fragments → drastically kam RAM/CPU/Firebase.
+        // N+1 ka prewarm (preparePlayerSilently) abhi bhi hota hai — ExoPlayer
+        // prepare() fragment exist hone ke baad bhi kaam karta hai. Zero
+        // buffering on normal swipe maintained.
+        vpReels.setOffscreenPageLimit(1);
 
-        // UX advance — "gesture-based snap animation": Instagram-style
-        // scale+fade on the outgoing/incoming page, purely a view-property
-        // transform, doesn't touch playback/prewarm at all.
-        ReelPageTransformer pageTransformer = new ReelPageTransformer();
-        vpReels.setPageTransformer(pageTransformer);
-
-        // PERF/UX advance — "Choreographer-synced page snap": re-applies the
-        // above transform on every vsync while dragging/settling instead of
-        // only on however many onPageScrolled calls RecyclerView happens to
-        // dispatch during that window — see ReelChoreographerSnapSync doc.
-        snapSync = new ReelChoreographerSnapSync(vpReels, pageTransformer);
+        /*
+         * PERF: keep ViewPager2 on its native full-page path.
+         *
+         * A scale/alpha PageTransformer forces Android to invalidate and
+         * composite two full-screen video surfaces on every scroll frame.
+         * A second Choreographer loop used to walk the inner RecyclerView and
+         * repeat that work once more per vsync. Reels are already full-screen
+         * pages, so the native pager animation is both cheaper and smoother.
+         */
+        configurePagerForVideoScroll();
 
         // PERF (advance #8 — "GPU decode warm-up"): fire-and-forget,
         // process-lifetime-once codec + EGL warm-up on a background thread
@@ -229,15 +228,18 @@ public class ReelsFragment extends Fragment {
             if (reel == null || reel.reelId == null || !isTabActive) return;
             if (PrewarmThrottleGuard.shouldThrottleExtraDistance(requireContext())) return;
             int curPos = vpReels.getCurrentItem();
-            for (int i = curPos + 1; i < adapter.getItemCount(); i++) {
+            // With offscreenPageLimit=1 only N+1 can be instantiated ahead of
+            // the current page. Searching the rest of the feed cannot find a
+            // live fragment and needlessly turns a page callback into O(feed).
+            int nextPos = curPos + 1;
+            if (nextPos < adapter.getItemCount()) {
                 Fragment nf = getChildFragmentManager()
-                    .findFragmentByTag("f" + adapter.getItemId(i));
+                    .findFragmentByTag("f" + adapter.getItemId(nextPos));
                 if (nf instanceof ReelPlayerFragment) {
                     ReelModel bound = ((ReelPlayerFragment) nf).getReel();
                     if (bound != null && reel.reelId.equals(bound.reelId)) {
                         ((ReelPlayerFragment) nf).prewarmPlayer();
                     }
-                    break; // only the exact matching, already-instantiated fragment
                 }
             }
         });
@@ -265,7 +267,6 @@ public class ReelsFragment extends Fragment {
 
             @Override
             public void onPageScrollStateChanged(int state) {
-                if (snapSync != null) snapSync.onScrollStateChanged(state);
             }
 
             @Override
@@ -566,7 +567,6 @@ public class ReelsFragment extends Fragment {
         if (videoPreloader != null) { videoPreloader.shutdown(); videoPreloader = null; }
         thumbPreloader = null;
         if (uiStatePrecomputer != null) { uiStatePrecomputer.shutdown(); uiStatePrecomputer = null; }
-        if (snapSync != null) { snapSync.stop(); snapSync = null; }
         if (predictivePreloader != null) { predictivePreloader.shutdown(); predictivePreloader = null; }
         // PERF (advance #3): hard-release the pool here — this is the whole
         // Reels feature going away (not just a tab switch), so there's no
@@ -871,7 +871,15 @@ public class ReelsFragment extends Fragment {
         //     the Home overlay)
         boolean homeVisible = homeContainer != null
                 && homeContainer.getVisibility() == android.view.View.VISIBLE;
-        for (int i = 0; i < adapter.getItemCount(); i++) {
+        /*
+         * ViewPager2 is configured with offscreenPageLimit=1, so only the
+         * current page and its immediate neighbours can own live player
+         * fragments. Never scan the whole feed (which can contain hundreds of
+         * items) on a page change.
+         */
+        int firstAttached = Math.max(0, activePosition - 1);
+        int lastAttached  = Math.min(adapter.getItemCount() - 1, activePosition + 1);
+        for (int i = firstAttached; i <= lastAttached; i++) {
             Fragment f = getChildFragmentManager()
                 .findFragmentByTag("f" + adapter.getItemId(i));
             if (f instanceof ReelPlayerFragment) {
@@ -880,37 +888,16 @@ public class ReelsFragment extends Fragment {
             }
         }
 
-        // ✅ Instagram-style pre-warm: build+prepare the NEXT reel's
-        // ExoPlayer now (muted, paused — see ReelPlayerFragment.prewarmPlayer())
-        // while the current one is still playing, so swiping forward plays
-        // instantly instead of a thumbnail-then-video flash. Swiping BACK
-        // doesn't need this — a previously-active reel's player is only ever
-        // paused, never released, so it already resumes instantly.
-        //
-        // PERF (advance #2 — adaptive prewarm distance): N+1 always gets
-        // warmed (that's the one that actually removes the visible flash).
-        // Whether we ALSO reach further (N+2, and N+3 on a fast flick) is
-        // driven by the live swipe velocity computed in onPageScrolled()
-        // above — a fast flick means the user is skip-browsing several
-        // reels at once, so it's worth having more than just the very next
-        // one ready; a slow/settled scroll means N+1 is enough. Each extra
-        // step is also gated by PrewarmThrottleGuard so a hot/low-battery
-        // device only ever gets the always-safe N+1.
+        // ✅ N+1 pre-warm (offscreenPageLimit=1 ke saath):
+        // offscreenPageLimit=1 → N+1 fragment always exists (ViewPager2 ise
+        // khud banata hai). Isko muted+paused prepare karo taaki swipe
+        // instantly play ho. N+2/N+3 ke fragments exist nahi hote ab
+        // (offscreenPageLimit=1) — unhe prewarm karna wasted CPU hai.
+        // FIX: prewarmDistance ab sirf 1. Fast flick pe bhi N+1 hi hai
+        // kyunki N+2 fragment abhi exist nahi karta.
         if (isTabActive && !homeVisible) {
-            int prewarmDistance = 1;
-            float absVel = Math.abs(lastScrollVelocity);
-            if (absVel > 3.5f) {
-                prewarmDistance = 3;       // fast flick — reach N+1..N+3
-            } else if (absVel > 1.2f) {
-                prewarmDistance = 2;       // moderate scroll — N+1..N+2
-            }
-
-            for (int d = 1; d <= prewarmDistance; d++) {
-                if (d >= 2 && PrewarmThrottleGuard.shouldThrottleExtraDistance(requireContext())) {
-                    break; // device under pressure — stop extending past N+1
-                }
-                int pos = activePosition + d;
-                if (pos >= adapter.getItemCount()) break;
+            int pos = activePosition + 1;
+            if (pos < adapter.getItemCount()) {
                 Fragment nf = getChildFragmentManager()
                     .findFragmentByTag("f" + adapter.getItemId(pos));
                 if (nf instanceof ReelPlayerFragment) {
@@ -921,12 +908,36 @@ public class ReelsFragment extends Fragment {
     }
 
     private void pauseAllReels() {
-        for (int i = 0; i < adapter.getItemCount(); i++) {
+        if (adapter == null || adapter.getItemCount() == 0 || vpReels == null) return;
+        int center = vpReels.getCurrentItem();
+        int firstAttached = Math.max(0, center - 1);
+        int lastAttached  = Math.min(adapter.getItemCount() - 1, center + 1);
+        for (int i = firstAttached; i <= lastAttached; i++) {
             Fragment f = getChildFragmentManager()
                 .findFragmentByTag("f" + adapter.getItemId(i));
             if (f instanceof ReelPlayerFragment) {
                 ((ReelPlayerFragment) f).setUserVisibleHint(false);
             }
+        }
+    }
+
+    /**
+     * Applies the cheap, native RecyclerView settings that are safe for a
+     * full-screen video pager. ViewPager2 owns the inner RecyclerView, so this
+     * intentionally avoids replacing its PagerSnapHelper or LayoutManager.
+     */
+    private void configurePagerForVideoScroll() {
+        if (vpReels == null) return;
+        vpReels.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        View inner = vpReels.getChildAt(0);
+        if (inner instanceof androidx.recyclerview.widget.RecyclerView) {
+            androidx.recyclerview.widget.RecyclerView rv =
+                (androidx.recyclerview.widget.RecyclerView) inner;
+            rv.setHasFixedSize(true);
+            rv.setItemViewCacheSize(1);
+            rv.setItemAnimator(null);
+            rv.setOverScrollMode(View.OVER_SCROLL_NEVER);
+            rv.setNestedScrollingEnabled(false);
         }
     }
 
@@ -1007,7 +1018,13 @@ public class ReelsFragment extends Fragment {
             if (player != null && pv != null) {
                 // Surface will be moved to mini overlay — do NOT pause this fragment.
                 // Pause all others.
-                for (int i = 0; i < adapter.getItemCount(); i++) {
+                // offscreenPageLimit=1 means only the current page and its
+                // immediate neighbours can have attached player fragments.
+                // Do not walk the entire (potentially very large) feed just
+                // to pause views that cannot be alive.
+                int firstAttached = Math.max(0, currentPos - 1);
+                int lastAttached  = Math.min(adapter.getItemCount() - 1, currentPos + 1);
+                for (int i = firstAttached; i <= lastAttached; i++) {
                     if (i == currentPos) continue;
                     try {
                         androidx.fragment.app.Fragment other = getChildFragmentManager()

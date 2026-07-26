@@ -74,6 +74,13 @@ public class ReelSocialController {
     private boolean reactionsVisible  = false;
     private long    lastRepostActionMs = 0L;
 
+    // FIX: Guard — double-start aur double-remove se bachao.
+    // startFirebaseListeners() ab applyVisibleState(true) se call hota hai.
+    // Agar bina remove ke dobara call ho (e.g. prewarm race) to duplicate
+    // Firebase connections ban jaayenge. Guard se ensure hota hai ki sirf
+    // ek baar start hota hai aur sirf ek baar remove hota hai.
+    private boolean listenersActive = false;
+
     // Firebase listeners
     private ValueEventListener likeListener;
     private ValueEventListener saveListener;
@@ -460,6 +467,11 @@ public class ReelSocialController {
     // ── Firebase real-time listeners ──────────────────────────────────────
 
     public void startFirebaseListeners() {
+        // FIX: Double-start guard — prevent duplicate Firebase connections
+        // if startFirebaseListeners is called twice without removeFirebaseListeners.
+        if (listenersActive) return;
+        listenersActive = true;
+
         loadLiveReactionCounts();
         String myUid = delegate.safeMyUid();
         ReelModel reel = delegate.getReel();
@@ -542,6 +554,12 @@ public class ReelSocialController {
     }
 
     public void removeFirebaseListeners() {
+        // FIX: Guard — agar listeners already removed hain to dobara remove mat karo.
+        // Ye important hai kyunki ab applyVisibleState(false) se bhi call hota hai
+        // aur onDestroyView se bhi — dono baar safe hona chahiye.
+        if (!listenersActive) return;
+        listenersActive = false;
+
         removeLiveReactionsListener();
         String myUid = delegate.safeMyUid();
         ReelModel reel = delegate.getReel();
@@ -553,7 +571,15 @@ public class ReelSocialController {
         if (repostListener != null && myUid != null)
             FirebaseUtils.db().getReference("reelReposts").child(reel.reelId).child(myUid).removeEventListener(repostListener);
         if (likersListener != null) FirebaseUtils.getReelLikesRef(reel.reelId).removeEventListener(likersListener);
-        likersListener = null;
+
+        // FIX: References null karo taaki next startFirebaseListeners() fresh banaye.
+        likeListener    = null;
+        saveListener    = null;
+        followListener  = null;
+        countListener   = null;
+        repostListener  = null;
+        reactionsListener = null;
+        likersListener  = null;
     }
 
     // ── Liker avatar row ──────────────────────────────────────────────────

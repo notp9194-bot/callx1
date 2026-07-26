@@ -228,8 +228,10 @@ public class ReelPlayerFragment extends Fragment
         uiController.setupClickListeners(v);
         socialController.setupClickListeners();
 
-        // Start Firebase listeners
-        socialController.startFirebaseListeners();
+        // FIX: Firebase listeners ab onCreateView mein NAHI lagate.
+        // Pehle yahan lagte the → offscreen fragments ke bhi listeners chalte the
+        // (4 offscreen × 6+ listeners = 24+ Firebase connections simultaneously).
+        // Ab sirf tab lagte hain jab reel ACTUALLY visible ho (applyVisibleState(true)).
 
         // Restore cinema mode state
         uiController.applyCinemaState(v);
@@ -279,6 +281,14 @@ public class ReelPlayerFragment extends Fragment
     // ── Called by ReelsFragment to control playback ───────────────────────
 
     public void setUserVisibleHint(boolean visible) {
+        // ViewPager2 can re-assert the same page several times during a tab
+        // resume or a data refresh. Do not restart social listeners and
+        // animations for the same visibility transition. Playback still gets
+        // a cheap resume call so returning from the background works.
+        if (isVisible == visible) {
+            if (visible) playerController.startPlayback();
+            return;
+        }
         isVisible = visible;
         applyVisibleState(visible);
     }
@@ -351,6 +361,10 @@ public class ReelPlayerFragment extends Fragment
         if (visible) {
             playerController.startPlayback();
             uiController.startDiscAnimation();
+            // FIX: Firebase listeners sirf tab start honge jab reel VISIBLE ho.
+            // Pehle onCreateView mein hote the → offscreen fragments ke bhi
+            // listeners chal rahe the → wasted CPU + Firebase connections.
+            socialController.startFirebaseListeners();
             socialController.recordView();
             socialController.markReelNotificationsRead();
             // v5: Notify predictive preloader in parent ReelsFragment
@@ -363,6 +377,11 @@ public class ReelPlayerFragment extends Fragment
             }
         } else {
             playerController.pausePlayback();
+            // FIX: Reel invisible hone par Firebase listeners turant remove karo.
+            // Pehle sirf onDestroyView mein hata rahe the — tab tak offscreen
+            // reel ke listeners ghante bhar chal sakte the. Ab swipe karte hi
+            // listeners stop → Firebase connections & CPU dono free.
+            socialController.removeFirebaseListeners();
         }
     }
 
