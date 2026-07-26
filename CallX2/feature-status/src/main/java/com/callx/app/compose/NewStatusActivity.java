@@ -397,7 +397,7 @@ public class NewStatusActivity extends AppCompatActivity {
                     }
                     @Override public void onMediaSend(
                             java.util.List<com.callx.app.conversation.controllers.RecentMediaLoader.Item> items,
-                            String caption, boolean isHD) {
+                            String caption, boolean isHD, boolean isViewOnce) {
                         if (items.isEmpty()) return;
                         sheet.dismiss();
                         java.util.ArrayList<String> uriStrings = new java.util.ArrayList<>();
