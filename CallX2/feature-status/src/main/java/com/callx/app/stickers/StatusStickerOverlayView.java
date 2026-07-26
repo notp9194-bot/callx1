@@ -27,12 +27,173 @@ import androidx.annotation.NonNull;
 public class StatusStickerOverlayView extends LinearLayout {
 
     private CountDownTimer countdownTimer;
+    private String stickerType;
+    private String stickerJson;
+
+    // ── Music sticker metadata (links back to the Reels trending-audio track) ──
+    private String musicSoundId, musicSong, musicArtist, musicCoverUrl, musicSoundUrl;
+
+    // ── Quiz interactivity state (mirrors the question sticker's full flow) ──
+    private String quizQuestion;
+    private java.util.List<String> quizOptions;
+    private java.util.List<Boolean> quizCorrects;
+    private final java.util.List<TextView> quizOptionViews = new java.util.ArrayList<>();
+    private boolean quizAnswered = false;
+    private OnQuizOptionSelectedListener quizListener;
+
+    /** Fired when a viewer taps an unanswered quiz option. Index is 0-based into getQuizOptions(). */
+    public interface OnQuizOptionSelectedListener {
+        void onOptionSelected(int index);
+    }
+
+    // ── Countdown "Remind me" subscription state ─────────────────────────────
+    private String countdownLabel;
+    private boolean countdownSubscribed = false;
+    private boolean countdownExpired = false;
+    private LinearLayout countdownSubscribeRow;
+    private TextView countdownBellIcon;
+    private TextView countdownSubscribeLabel;
+    private OnCountdownSubscribeToggleListener countdownListener;
+
+    /** Fired when a viewer taps the ⏳ Countdown card's "Remind me" row. newState = subscribed or not. */
+    public interface OnCountdownSubscribeToggleListener {
+        void onToggle(boolean nowSubscribed);
+    }
 
     private StatusStickerOverlayView(Context ctx) {
         super(ctx);
         setOrientation(VERTICAL);
         setClickable(true);
         setFocusable(true);
+    }
+
+    /** The sticker's type — "music"/"countdown"/"quiz"/"question". */
+    public String getStickerType() { return stickerType; }
+
+    /** For a "question" sticker, the prompt the poster typed (e.g. "Ask me anything!"). Null for other types. */
+    public String getQuestionPrompt() {
+        return "question".equals(stickerType) ? jsonStr(stickerJson, "prompt", "Ask me anything!") : null;
+    }
+
+    // ── Music sticker linking (tap → open the Reels Sound Detail sheet) ─────
+
+    /** The Reels sound/track id this sticker points to, or null/empty if it isn't linked to one. */
+    public String getMusicSoundId() { return "music".equals(stickerType) ? musicSoundId : null; }
+
+    /** Song title shown on the card, or null for non-music stickers. */
+    public String getMusicSong() { return "music".equals(stickerType) ? musicSong : null; }
+
+    /** Artist name shown on the card, or null for non-music stickers. */
+    public String getMusicArtist() { return "music".equals(stickerType) ? musicArtist : null; }
+
+    /** Album art / cover URL, or null for non-music stickers. */
+    public String getMusicCoverUrl() { return "music".equals(stickerType) ? musicCoverUrl : null; }
+
+    /** Playable audio URL for the linked track, or null for non-music stickers. */
+    public String getMusicSoundUrl() { return "music".equals(stickerType) ? musicSoundUrl : null; }
+
+    /** True once this music sticker is linked to a real Reels track the viewer can open. */
+    public boolean isMusicLinkedToReelSound() {
+        return "music".equals(stickerType) && musicSoundId != null && !musicSoundId.isEmpty();
+    }
+
+    // ── Quiz interactive flow ────────────────────────────────────────────────
+
+    /** The quiz's question text, or null for non-quiz stickers. */
+    public String getQuizQuestion() { return "quiz".equals(stickerType) ? quizQuestion : null; }
+
+    /** The quiz's option labels in order, or null for non-quiz stickers. */
+    public java.util.List<String> getQuizOptions() { return "quiz".equals(stickerType) ? quizOptions : null; }
+
+    /** Index of the correct option, or -1 if unknown/not a quiz. */
+    public int getQuizCorrectIndex() {
+        if (quizCorrects == null) return -1;
+        for (int i = 0; i < quizCorrects.size(); i++) {
+            if (Boolean.TRUE.equals(quizCorrects.get(i))) return i;
+        }
+        return -1;
+    }
+
+    /** True once this viewer has answered (tapped an option, or had a prior answer restored). */
+    public boolean isQuizAnswered() { return quizAnswered; }
+
+    /** Wires the tap-to-answer callback for an unanswered quiz sticker. No-op once answered. */
+    public void setOnQuizOptionSelectedListener(OnQuizOptionSelectedListener listener) {
+        this.quizListener = listener;
+    }
+
+    /**
+     * Locks the quiz card into its answered state: disables further taps and
+     * highlights the correct option green, a wrong selection red, and dims the rest —
+     * mirrors what viewers already expect from the ✓/✗ pattern IG-style quiz stickers use.
+     * Safe to call to restore a previously-recorded answer (e.g. on reopening the status).
+     */
+    public void revealQuizAnswer(int selectedIndex) {
+        if (quizOptionViews.isEmpty() || quizOptions == null) return;
+        quizAnswered = true;
+        int correctIdx = getQuizCorrectIndex();
+        int dp = dp(getContext());
+        for (int i = 0; i < quizOptionViews.size(); i++) {
+            TextView opt = quizOptionViews.get(i);
+            opt.setOnClickListener(null);
+            opt.setClickable(false);
+            boolean isCorrect = (i == correctIdx);
+            boolean isWrongSelected = (i == selectedIndex && i != correctIdx);
+            String label = i < quizOptions.size() ? quizOptions.get(i) : "";
+            opt.setText((isCorrect ? "\u2713 " : isWrongSelected ? "\u2717 " : "") + label);
+
+            android.graphics.drawable.GradientDrawable optBg = new android.graphics.drawable.GradientDrawable();
+            optBg.setCornerRadius(dp * 10);
+            if (isCorrect) {
+                optBg.setColor(0xFF2ECC71);
+            } else if (isWrongSelected) {
+                optBg.setColor(0xFFE74C3C);
+            } else {
+                optBg.setColor(0x22FFFFFF);
+                optBg.setStroke(1, 0x33FFFFFF);
+            }
+            opt.setBackground(optBg);
+            opt.setTextColor(Color.WHITE);
+            opt.setAlpha((isCorrect || isWrongSelected) ? 1f : 0.5f);
+        }
+    }
+
+    // ── Countdown interactive flow ───────────────────────────────────────────
+
+    /** The countdown's label text (e.g. "My Birthday 🎂"), or null for non-countdown stickers. */
+    public String getCountdownLabel() { return "countdown".equals(stickerType) ? countdownLabel : null; }
+
+    /** True once this viewer has subscribed for a reminder (or had a prior subscription restored). */
+    public boolean isCountdownSubscribed() { return countdownSubscribed; }
+
+    /** True once the countdown has reached zero. */
+    public boolean isCountdownExpired() { return countdownExpired; }
+
+    /** Wires the tap-to-subscribe/unsubscribe callback. No-op once the countdown has expired. */
+    public void setOnCountdownSubscribeToggleListener(OnCountdownSubscribeToggleListener listener) {
+        this.countdownListener = listener;
+    }
+
+    /**
+     * Sets the subscribed/unsubscribed visual state without firing the toggle listener —
+     * used to restore a viewer's prior subscription when the status is reopened.
+     */
+    public void setCountdownSubscribed(boolean subscribed) {
+        this.countdownSubscribed = subscribed;
+        updateCountdownSubscribeUi();
+    }
+
+    private void updateCountdownSubscribeUi() {
+        if (countdownSubscribeRow == null) return;
+        if (countdownExpired) {
+            countdownBellIcon.setText("\u23F0"); // ⏰
+            countdownSubscribeLabel.setText("Countdown ended");
+            countdownSubscribeRow.setClickable(false);
+            countdownSubscribeRow.setAlpha(0.6f);
+            return;
+        }
+        countdownBellIcon.setText(countdownSubscribed ? "\uD83D\uDD14" : "\uD83D\uDD15"); // 🔔 / 🔕
+        countdownSubscribeLabel.setText(countdownSubscribed ? "Reminder set \u2713" : "Remind me");
     }
 
     // ── Factory ────────────────────────────────────────────────────────────
@@ -43,13 +204,17 @@ public class StatusStickerOverlayView extends LinearLayout {
      */
     public static StatusStickerOverlayView fromJson(Context ctx, String json) {
         String type = jsonStr(json, "type", "");
+        StatusStickerOverlayView v;
         switch (type) {
-            case "music":     return buildMusic(ctx, json);
-            case "countdown": return buildCountdown(ctx, json);
-            case "quiz":      return buildQuiz(ctx, json);
-            case "question":  return buildQuestion(ctx, json);
-            default:          return buildQuestion(ctx, json);
+            case "music":     v = buildMusic(ctx, json); break;
+            case "countdown": v = buildCountdown(ctx, json); break;
+            case "quiz":      v = buildQuiz(ctx, json); break;
+            case "question":  v = buildQuestion(ctx, json); break;
+            default:          v = buildQuestion(ctx, json); type = "question"; break;
         }
+        v.stickerType = type;
+        v.stickerJson = json;
+        return v;
     }
 
     // ─── Music sticker ─────────────────────────────────────────────────────
@@ -111,6 +276,13 @@ public class StatusStickerOverlayView extends LinearLayout {
 
         String song   = jsonStr(json, "song",   "Unknown Song");
         String artist = jsonStr(json, "artist", "");
+        String soundId  = jsonStr(json, "soundId", "");
+        String soundUrl = jsonStr(json, "soundUrl", "");
+        v.musicSong = song;
+        v.musicArtist = artist;
+        v.musicCoverUrl = artUrl;
+        v.musicSoundId = soundId;
+        v.musicSoundUrl = soundUrl;
 
         TextView tvSong = new TextView(ctx);
         tvSong.setText(song);
@@ -154,6 +326,20 @@ public class StatusStickerOverlayView extends LinearLayout {
         row.addView(textCol, new LinearLayout.LayoutParams(
             0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
 
+        // Chevron hint — only shown when this sticker is linked to a real Reels
+        // track, so viewers know tapping it opens that track's sound detail sheet.
+        if (!soundId.isEmpty()) {
+            TextView tvChevron = new TextView(ctx);
+            tvChevron.setText("\u203A"); // ›
+            tvChevron.setTextColor(0xFFCCCCCC);
+            tvChevron.setTextSize(20);
+            tvChevron.setGravity(android.view.Gravity.CENTER);
+            LinearLayout.LayoutParams chevLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            chevLp.leftMargin = dp * 4;
+            row.addView(tvChevron, chevLp);
+        }
+
         v.addView(row);
         return v;
     }
@@ -184,6 +370,7 @@ public class StatusStickerOverlayView extends LinearLayout {
 
         String label = jsonStr(json, "label", "Countdown");
         String targetDate = jsonStr(json, "targetDate", "");
+        v.countdownLabel = label;
 
         // Header
         TextView tvEmoji = new TextView(ctx);
@@ -258,6 +445,56 @@ public class StatusStickerOverlayView extends LinearLayout {
 
         v.addView(timeRow);
 
+        // "🔔 Remind me" row — tap to subscribe/unsubscribe; StatusViewerActivity wires
+        // the actual persistence + owner-notify via setOnCountdownSubscribeToggleListener.
+        // Rendered but inert (no-op toggle) when no listener is attached, e.g. in the
+        // NewStatusActivity composer preview.
+        LinearLayout subscribeRow = new LinearLayout(ctx);
+        subscribeRow.setOrientation(LinearLayout.HORIZONTAL);
+        subscribeRow.setGravity(android.view.Gravity.CENTER);
+        subscribeRow.setPadding(dp * 12, dp * 8, dp * 12, dp * 8);
+        subscribeRow.setClickable(true);
+        subscribeRow.setFocusable(true);
+
+        android.graphics.drawable.GradientDrawable subBg = new android.graphics.drawable.GradientDrawable();
+        subBg.setCornerRadius(dp * 20);
+        subBg.setColor(0x33FFFFFF);
+        subBg.setStroke(1, 0x55FFFFFF);
+        subscribeRow.setBackground(subBg);
+
+        TextView tvBell = new TextView(ctx);
+        tvBell.setText("\uD83D\uDD15"); // 🔕
+        tvBell.setTextSize(15);
+        LinearLayout.LayoutParams bellLp = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        bellLp.rightMargin = dp * 6;
+        subscribeRow.addView(tvBell, bellLp);
+
+        TextView tvSubLabel = new TextView(ctx);
+        tvSubLabel.setText("Remind me");
+        tvSubLabel.setTextColor(Color.WHITE);
+        tvSubLabel.setTextSize(13);
+        tvSubLabel.setTypeface(null, Typeface.BOLD);
+        subscribeRow.addView(tvSubLabel);
+
+        LinearLayout.LayoutParams subRowLp = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        subRowLp.topMargin = dp * 12;
+        subRowLp.gravity = android.view.Gravity.CENTER;
+        v.addView(subscribeRow, subRowLp);
+
+        v.countdownSubscribeRow   = subscribeRow;
+        v.countdownBellIcon       = tvBell;
+        v.countdownSubscribeLabel = tvSubLabel;
+
+        subscribeRow.setOnClickListener(clickedView -> {
+            if (v.countdownExpired) return;
+            boolean newState = !v.countdownSubscribed;
+            v.countdownSubscribed = newState;
+            v.updateCountdownSubscribeUi();
+            if (v.countdownListener != null) v.countdownListener.onToggle(newState);
+        });
+
         // Start live countdown if target date is valid
         v.startCountdown(targetDate, timeViews);
 
@@ -286,6 +523,8 @@ public class StatusStickerOverlayView extends LinearLayout {
             timeViews[1].setText("00");
             timeViews[2].setText("00");
             timeViews[3].setText("00");
+            countdownExpired = true;
+            updateCountdownSubscribeUi();
             return;
         }
 
@@ -306,6 +545,8 @@ public class StatusStickerOverlayView extends LinearLayout {
             }
             @Override public void onFinish() {
                 for (TextView tv : timeViews) tv.setText("00");
+                StatusStickerOverlayView.this.countdownExpired = true;
+                StatusStickerOverlayView.this.updateCountdownSubscribeUi();
             }
         }.start();
     }
@@ -399,25 +640,41 @@ public class StatusStickerOverlayView extends LinearLayout {
 
         if (opts.isEmpty()) { opts.add("Option A"); opts.add("Option B"); corrects.add(true); corrects.add(false); }
 
+        v.quizQuestion = question;
+        v.quizOptions  = opts;
+        v.quizCorrects = corrects;
+
+        // NOTE: unlike the old build, the correct answer is never revealed up front —
+        // that was spoiling the quiz for every viewer before they'd even tapped. Options
+        // render neutral + tappable here; revealQuizAnswer() does the ✓/✗ styling once
+        // this viewer has actually answered (see setOnQuizOptionSelectedListener).
         for (int i = 0; i < opts.size() && i < 4; i++) {
-            boolean isCorrect = i < corrects.size() && corrects.get(i);
+            final int idx = i;
             TextView opt = new TextView(ctx);
-            opt.setText((isCorrect ? "✓ " : "") + opts.get(i));
-            opt.setTextColor(isCorrect ? Color.WHITE : 0xFFCCCCCC);
+            opt.setText(opts.get(i));
+            opt.setTextColor(Color.WHITE);
             opt.setTextSize(13);
             opt.setGravity(android.view.Gravity.CENTER);
             opt.setPadding(dp * 12, dp * 8, dp * 12, dp * 8);
+            opt.setClickable(true);
+            opt.setFocusable(true);
 
             android.graphics.drawable.GradientDrawable optBg = new android.graphics.drawable.GradientDrawable();
             optBg.setCornerRadius(dp * 10);
-            optBg.setColor(isCorrect ? 0xFF7C3AED : 0x33FFFFFF);
-            if (!isCorrect) optBg.setStroke(1, 0x55FFFFFF);
+            optBg.setColor(0x33FFFFFF);
+            optBg.setStroke(1, 0x55FFFFFF);
             opt.setBackground(optBg);
+
+            opt.setOnClickListener(clickedView -> {
+                if (v.quizAnswered) return;
+                if (v.quizListener != null) v.quizListener.onOptionSelected(idx);
+            });
 
             LinearLayout.LayoutParams optLp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
             optLp.bottomMargin = dp * 6;
             v.addView(opt, optLp);
+            v.quizOptionViews.add(opt);
         }
 
         return v;

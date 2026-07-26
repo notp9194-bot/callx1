@@ -242,6 +242,30 @@ public class FirebaseUtils {
         return db().getReference("statusHighlights").child(ownerUid);
     }
 
+    /**
+     * Ref for a single viewer's answer to a 🧠 Quiz sticker on a status.
+     * Mirrors getStatusReactionRef's shape — status/{ownerUid}/{statusId}/stickerVotes/{stickerIndex}/{voterUid}.
+     * Used to lock a viewer into their first answer (quiz stickers can only be answered once)
+     * and to restore that locked-in state when the same status is reopened.
+     */
+    public static DatabaseReference getStatusQuizVoteRef(String ownerUid, String statusId,
+                                                          int stickerIndex, String voterUid) {
+        return db().getReference("status").child(ownerUid).child(statusId)
+                   .child("stickerVotes").child(String.valueOf(stickerIndex)).child(voterUid);
+    }
+
+    /**
+     * Ref for a single viewer's "🔔 Remind me" subscription to a ⏳ Countdown sticker.
+     * status/{ownerUid}/{statusId}/stickerSubscribers/{stickerIndex}/{viewerUid} — a
+     * separate node from stickerVotes since subscribing is toggleable (unlike a locked-in
+     * quiz answer, a viewer can subscribe and later unsubscribe).
+     */
+    public static DatabaseReference getStatusCountdownSubscriberRef(String ownerUid, String statusId,
+                                                                     int stickerIndex, String viewerUid) {
+        return db().getReference("status").child(ownerUid).child(statusId)
+                   .child("stickerSubscribers").child(String.valueOf(stickerIndex)).child(viewerUid);
+    }
+
     // ── Channels ──────────────────────────────────────────────────────────────
 
     /** Root channel metadata: channels/{channelId}/ */

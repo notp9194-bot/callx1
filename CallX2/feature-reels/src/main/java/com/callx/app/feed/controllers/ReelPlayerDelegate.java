@@ -143,4 +143,12 @@ public interface ReelPlayerDelegate {
     void showDisplayModePicker();
     /** Toggles the "Background Play" setting (reel keeps playing with audio after app is backgrounded). */
     void toggleBackgroundPlay();
+    /** Toggles Cinema Mode (hides right actions, bottom info, top bar, etc.) for the current reel — a 3-dot menu action. */
+    void toggleCinemaMode();
+    /** True if Cinema Mode is currently hiding the overlay UI for the current reel. */
+    boolean isCinemaModeOn();
+    /** True if the reel is actively playing right now (used to decide long-press pause/resume). */
+    boolean isPlaybackActive();
+    /** Resumes playback after an Instagram-style long-press pause. */
+    void resumePlayback();
 }

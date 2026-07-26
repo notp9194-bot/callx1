@@ -115,6 +115,20 @@
           android:layout_width="match_parent"
           android:layout_height="match_parent"/>
 
+      <!-- Interactive sticker overlay (music/countdown/quiz/question cards).
+           Declared after touch_layer so a tap landing on a sticker card is
+           handled by that card's own click listener instead of falling
+           through to the tap-to-navigate layer underneath — same ordering
+           trick the header/footer controls below already rely on. Empty
+           areas of this FrameLayout aren't clickable, so taps there still
+           pass through to touch_layer as normal. -->
+      <FrameLayout
+          android:id="@+id/fl_sticker_overlay"
+          android:layout_width="match_parent"
+          android:layout_height="match_parent"
+          android:clickable="false"
+          android:focusable="false"/>
+
       <!-- Top chrome -->
       <LinearLayout
           android:layout_width="match_parent"

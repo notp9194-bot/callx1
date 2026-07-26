@@ -44,6 +44,7 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
     private static final String ARG_STITCH_LEVEL = "stitch_level"; // "everyone"|"followers"|"off"
     private static final String ARG_IS_FOLLOWING = "is_following";
     private static final String ARG_SERIES_ID   = "series_id";
+    private static final String ARG_IS_CINEMA_MODE_ON = "is_cinema_mode_on";
 
     // Callback interface — caller handles all actions
     public interface OnItemClickListener {
@@ -97,6 +98,9 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
       public static final String ACTION_DISPLAY_MODE    = "display_mode";
       // ── Background Play toggle ──
       public static final String ACTION_BACKGROUND_PLAY = "background_play";
+      // ── Cinema Mode (hide all overlay UI) — moved here from long-press (v20).
+      // Long-press on the player now pauses/resumes playback Instagram-style instead. ──
+      public static final String ACTION_CINEMA_MODE     = "cinema_mode";
 
     // ─── Item model ──────────────────────────────────────────────────────────
     private static class MenuItem {
@@ -142,6 +146,7 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
     private String  stitchLevel;
     private boolean isFollowing;
     private String  seriesId;
+    private boolean isCinemaModeOn;
 
     // ─── Factory ─────────────────────────────────────────────────────────────
 
@@ -154,13 +159,14 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
                                                   String speedLabel,
                                                   String duetLevel, String stitchLevel,
                                                   boolean isFollowing) {
-        return newInstance(isOwner, isSaved, speedLabel, duetLevel, stitchLevel, isFollowing, null);
+        return newInstance(isOwner, isSaved, speedLabel, duetLevel, stitchLevel, isFollowing, null, false);
     }
 
     public static ReelMoreBottomSheet newInstance(boolean isOwner, boolean isSaved,
                                                   String speedLabel,
                                                   String duetLevel, String stitchLevel,
-                                                  boolean isFollowing, String seriesId) {
+                                                  boolean isFollowing, String seriesId,
+                                                  boolean isCinemaModeOn) {
         ReelMoreBottomSheet sheet = new ReelMoreBottomSheet();
         Bundle args = new Bundle();
         args.putBoolean(ARG_IS_OWNER,     isOwner);
@@ -170,6 +176,7 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
         args.putString (ARG_STITCH_LEVEL, stitchLevel != null ? stitchLevel : "everyone");
         args.putBoolean(ARG_IS_FOLLOWING, isFollowing);
         args.putString (ARG_SERIES_ID,    seriesId    != null ? seriesId    : "");
+        args.putBoolean(ARG_IS_CINEMA_MODE_ON, isCinemaModeOn);
         sheet.setArguments(args);
         return sheet;
     }
@@ -196,6 +203,7 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
             stitchLevel = getArguments().getString (ARG_STITCH_LEVEL, "everyone");
             isFollowing = getArguments().getBoolean(ARG_IS_FOLLOWING, false);
             seriesId    = getArguments().getString (ARG_SERIES_ID,   "");
+            isCinemaModeOn = getArguments().getBoolean(ARG_IS_CINEMA_MODE_ON, false);
         }
     }
 
@@ -301,6 +309,15 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
         return "Background Play: " + (on ? "On" : "Off");
     }
 
+    /** "Cinema Mode — Hide UI" / "Restore UI" — reflects current per-reel hidden state. */
+    private String cinemaModeLabel() {
+        return isCinemaModeOn ? "Restore UI" : "Cinema Mode — Hide UI";
+    }
+
+    private int cinemaModeIcon() {
+        return isCinemaModeOn ? R.drawable.ic_eye : R.drawable.ic_eye_off;
+    }
+
     // ─── Viewer menu items ────────────────────────────────────────────────────
 
     private List<MenuItem> buildViewerItems() {
@@ -308,7 +325,8 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
         list.add(new MenuItem(ACTION_BOOKMARK_COLLECTIONS, "Bookmark Collections", R.drawable.ic_bookmark,      CLR_CYAN,   true,  false));
         list.add(new MenuItem(ACTION_SPEED,                speedLabel,             R.drawable.ic_speed,         CLR_YELLOW, false, false));
         list.add(new MenuItem(ACTION_DOWNLOAD,             "Download",             R.drawable.ic_download_reel, CLR_GREEN,  true,  false));
-        list.add(new MenuItem(ACTION_DISPLAY_MODE,         "Display Mode",         R.drawable.ic_display_mode_normal, CLR_TEAL, true, false));
+        list.add(new MenuItem(ACTION_DISPLAY_MODE,         "Display Mode",         R.drawable.ic_display_mode_normal, CLR_TEAL, false, false));
+        list.add(new MenuItem(ACTION_CINEMA_MODE,          cinemaModeLabel(),      cinemaModeIcon(),            CLR_TEAL,   true,  false));
         list.add(new MenuItem(ACTION_BACKGROUND_PLAY,      backgroundPlayLabel(),  R.drawable.ic_audio,        CLR_TEAL,   true,  false));
 
         // ── Duet ──
@@ -369,7 +387,8 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
         list.add(new MenuItem(ACTION_BOOKMARK_COLLECTIONS, "Bookmark Collections", R.drawable.ic_bookmark,      CLR_CYAN,   true,  false));
         list.add(new MenuItem(ACTION_SPEED,                speedLabel,             R.drawable.ic_speed,         CLR_YELLOW, false, false));
         list.add(new MenuItem(ACTION_DOWNLOAD,             "Download",             R.drawable.ic_download_reel, CLR_GREEN,  true,  false));
-        list.add(new MenuItem(ACTION_DISPLAY_MODE,         "Display Mode",         R.drawable.ic_display_mode_normal, CLR_TEAL, true, false));
+        list.add(new MenuItem(ACTION_DISPLAY_MODE,         "Display Mode",         R.drawable.ic_display_mode_normal, CLR_TEAL, false, false));
+        list.add(new MenuItem(ACTION_CINEMA_MODE,          cinemaModeLabel(),      cinemaModeIcon(),            CLR_TEAL,   true,  false));
         list.add(new MenuItem(ACTION_BACKGROUND_PLAY,      backgroundPlayLabel(),  R.drawable.ic_audio,        CLR_TEAL,   true,  false));
         list.add(new MenuItem(ACTION_EDIT,                 "Edit Reel",            R.drawable.ic_edit,          CLR_ORANGE, false, false));
         list.add(new MenuItem(ACTION_ANALYTICS,            "Analytics",            R.drawable.ic_reel_explore,  CLR_TEAL,   false, false));

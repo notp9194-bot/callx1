@@ -42,6 +42,8 @@ import com.callx.app.utils.AlertDialogStyler;
   import com.callx.app.utils.StatusMentionHelper;
   import com.callx.app.utils.StatusMuteManager;
   import com.callx.app.utils.StatusSeenTracker;
+  import com.callx.app.stickers.StatusStickerOverlayView;
+  import org.json.JSONArray;
   /**
    * StatusViewerActivity v26 — Fully comprehensive story/status viewer.
    *
@@ -256,6 +258,7 @@ import com.callx.app.utils.AlertDialogStyler;
                   break;
               default: next();
           }
+          renderStickers(s);
 
           // ── Reshare attribution card ─────────────────────────────────────
           try {
@@ -408,7 +411,157 @@ import com.callx.app.utils.AlertDialogStyler;
           binding.tvCaption.setVisibility(View.GONE);
           // FIX: was findViewWithTag("tv_location_tag") — always null — now binding ref
           binding.tvLocationTag.setVisibility(View.GONE);
+          binding.flStickerOverlay.removeAllViews();
       }
+
+      // ── Interactive stickers (music/countdown/quiz/question) ────────────────
+      // Renders the poster's stickers on top of the current status (any media
+      // type) and, for a 💬 Question sticker, wires a tap to open the
+      // dedicated answer sheet — mirrors setupReplyButton()'s pause/resume
+      // pattern so the progress timer stops while the viewer is typing.
+      private void renderStickers(StatusItem item) {
+          if (item == null || item.stickersJson == null || item.stickersJson.isEmpty()) return;
+          try {
+              JSONArray arr = new JSONArray(item.stickersJson);
+              int dp = (int) getResources().getDisplayMetrics().density;
+              for (int i = 0; i < arr.length(); i++) {
+                  String stickerJson = arr.getJSONObject(i).toString();
+                  StatusStickerOverlayView sticker = StatusStickerOverlayView.fromJson(this, stickerJson);
+
+                  FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+                          Math.min(binding.flStickerOverlay.getWidth() > 0
+                                  ? binding.flStickerOverlay.getWidth() - dp * 32 : dp * 280, dp * 280),
+                          FrameLayout.LayoutParams.WRAP_CONTENT,
+                          Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+                  lp.topMargin = dp * (140 + i * 90); // below header chrome; stacks if multiple stickers
+                  binding.flStickerOverlay.addView(sticker, lp);
+
+                  if ("question".equals(sticker.getStickerType())
+                          && myUid != null && !myUid.equals(ownerUid)) {
+                      sticker.setOnClickListener(v -> {
+                          StatusItem current = idx < items.size() ? items.get(idx) : null;
+                          if (current == null) return;
+                          pauseProgress();
+                          StatusReplyBottomSheet.showForQuestion(this, current, ownerName, myUid, ownerUid,
+                                  sticker.getQuestionPrompt(), msg -> resumeProgress());
+                      });
+                  }
+
+                  if ("quiz".equals(sticker.getStickerType())
+                          && myUid != null && !myUid.equals(ownerUid)) {
+                      StatusItem current = idx < items.size() ? items.get(idx) : null;
+                      final int stickerIndex = i;
+                      final String statusId = current != null ? current.id : null;
+                      if (statusId != null) {
+                          // Restore a prior answer if this viewer already voted, otherwise let them tap once.
+                          FirebaseUtils.getStatusQuizVoteRef(ownerUid, statusId, stickerIndex, myUid)
+                                  .addListenerForSingleValueEvent(new ValueEventListener() {
+                              @Override public void onDataChange(DataSnapshot snap) {
+                                  if (snap.exists()) {
+                                      Long prevSelected = snap.child("selectedIndex").getValue(Long.class);
+                                      if (prevSelected != null) sticker.revealQuizAnswer(prevSelected.intValue());
+                                  } else {
+                                      sticker.setOnQuizOptionSelectedListener(selectedIndex -> {
+                                          StatusItem cur = idx < items.size() ? items.get(idx) : null;
+                                          if (cur == null) return;
+                                          pauseProgress();
+                                          java.util.List<String> opts = sticker.getQuizOptions();
+                                          String selectedText = opts != null && selectedIndex < opts.size()
+                                                  ? opts.get(selectedIndex) : "";
+                                          boolean isCorrect = selectedIndex == sticker.getQuizCorrectIndex();
+                                          sticker.revealQuizAnswer(selectedIndex);
+                                          StatusReplyBottomSheet.sendQuizAnswer(myUid, ownerUid, ownerName,
+                                                  cur, stickerIndex, sticker.getQuizQuestion(),
+                                                  selectedText, selectedIndex, isCorrect);
+                                          // Give the viewer a beat to see the ✓/✗ reveal before the story resumes.
+                                          new Handler(Looper.getMainLooper())
+                                                  .postDelayed(StatusViewerActivity.this::resumeProgress, 1200);
+                                      });
+                                  }
+                              }
+                              @Override public void onCancelled(DatabaseError e) {}
+                          });
+                      }
+                  }
+
+                  if ("music".equals(sticker.getStickerType()) && sticker.isMusicLinkedToReelSound()) {
+                      sticker.setOnClickListener(v -> openMusicStickerSoundSheet(sticker));
+                  }
+
+                  if ("countdown".equals(sticker.getStickerType())
+                          && myUid != null && !myUid.equals(ownerUid)) {
+                      StatusItem current = idx < items.size() ? items.get(idx) : null;
+                      final int stickerIndex = i;
+                      final String statusId = current != null ? current.id : null;
+                      if (statusId != null) {
+                          FirebaseUtils.getStatusCountdownSubscriberRef(ownerUid, statusId, stickerIndex, myUid)
+                                  .addListenerForSingleValueEvent(new ValueEventListener() {
+                              @Override public void onDataChange(DataSnapshot snap) {
+                                  if (snap.exists()) {
+                                      sticker.setCountdownSubscribed(true);
+                                  }
+                                  sticker.setOnCountdownSubscribeToggleListener(nowSubscribed -> {
+                                      StatusItem cur = idx < items.size() ? items.get(idx) : null;
+                                      if (cur == null) return;
+                                      if (nowSubscribed) {
+                                          StatusReplyBottomSheet.sendCountdownSubscription(myUid, ownerUid,
+                                                  ownerName, cur, stickerIndex, sticker.getCountdownLabel());
+                                      } else {
+                                          // Quietly remove the subscription — no DM on unsubscribe,
+                                          // so the poster isn't notified every time someone changes their mind.
+                                          FirebaseUtils.getStatusCountdownSubscriberRef(
+                                                  ownerUid, statusId, stickerIndex, myUid).removeValue();
+                                      }
+                                  });
+                              }
+                              @Override public void onCancelled(DatabaseError e) {}
+                          });
+                      }
+                  }
+              }
+          } catch (Exception ignored) {
+              // Malformed/legacy stickersJson — skip rendering rather than crash the viewer.
+          }
+      }
+      /**
+       * Opens the exact same Sound Detail bottom sheet Reels uses (SoundDetailSheetFragment),
+       * pre-filled with the track this music sticker points to. Loaded via reflection since
+       * feature-status has no compile-time dependency on feature-reels — only pauses/resumes
+       * the story progress bar around the sheet's lifetime.
+       */
+      private void openMusicStickerSoundSheet(StatusStickerOverlayView sticker) {
+          try {
+              Class<?> sheetCls = Class.forName("com.callx.app.music.SoundDetailSheetFragment");
+              java.lang.reflect.Method newInstance = sheetCls.getMethod("newInstance",
+                      String.class, String.class, String.class, String.class, String.class, int.class);
+              Object sheetObj = newInstance.invoke(null,
+                      sticker.getMusicSoundId(),
+                      sticker.getMusicSong(),
+                      sticker.getMusicArtist(),
+                      sticker.getMusicCoverUrl(),
+                      sticker.getMusicSoundUrl(),
+                      0);
+              if (!(sheetObj instanceof androidx.fragment.app.DialogFragment)) return;
+              final androidx.fragment.app.DialogFragment sheet = (androidx.fragment.app.DialogFragment) sheetObj;
+
+              pauseProgress();
+              getSupportFragmentManager().registerFragmentLifecycleCallbacks(
+                      new androidx.fragment.app.FragmentManager.FragmentLifecycleCallbacks() {
+                  @Override public void onFragmentDestroyed(
+                          @NonNull androidx.fragment.app.FragmentManager fm,
+                          @NonNull androidx.fragment.app.Fragment f) {
+                      if (f == sheet) {
+                          resumeProgress();
+                          fm.unregisterFragmentLifecycleCallbacks(this);
+                      }
+                  }
+              }, false);
+              sheet.show(getSupportFragmentManager(), "sound_detail_full");
+          } catch (Exception ignored) {
+              // Reels module unavailable at runtime — the sticker just stays inert.
+          }
+      }
+
       private void showCaption(String caption) {
           if (!TextUtils.isEmpty(caption)) {
               binding.tvCaption.setVisibility(View.VISIBLE);

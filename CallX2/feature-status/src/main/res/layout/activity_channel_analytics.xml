@@ -150,7 +150,7 @@
                 android:letterSpacing="0.1"
                 android:layout_marginBottom="8dp"/>
 
-            <com.callx.app.channel.ChannelAnalyticsActivity.BarChartView
+            <com.callx.app.channel.ChannelAnalyticsActivity$BarChartView
                 android:id="@+id/chart_post_types"
                 android:layout_width="match_parent"
                 android:layout_height="180dp"
@@ -167,7 +167,7 @@
                 android:letterSpacing="0.1"
                 android:layout_marginBottom="8dp"/>
 
-            <com.callx.app.channel.ChannelAnalyticsActivity.LineChartView
+            <com.callx.app.channel.ChannelAnalyticsActivity$LineChartView
                 android:id="@+id/chart_weekly_growth"
                 android:layout_width="match_parent"
                 android:layout_height="160dp"
@@ -184,7 +184,7 @@
                 android:letterSpacing="0.1"
                 android:layout_marginBottom="8dp"/>
 
-            <com.callx.app.channel.ChannelAnalyticsActivity.BarChartView
+            <com.callx.app.channel.ChannelAnalyticsActivity$BarChartView
                 android:id="@+id/chart_peak_hours"
                 android:layout_width="match_parent"
                 android:layout_height="140dp"

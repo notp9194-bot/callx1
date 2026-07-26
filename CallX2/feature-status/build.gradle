@@ -23,6 +23,11 @@ android {
 
 dependencies {
     implementation project(':core')
+    // Reuses feature-chat's shared attach-sheet (AttachSheetRecentMediaBinder +
+    // bottom_sheet_attach.xml + MediaEditActivity) for the Status "Upload"
+    // flow's Gallery option — same multi-select/caption/edit/view-once sheet
+    // used by 1-1 chat and group chat, instead of a 3rd copy of that UI.
+    implementation project(':feature-chat')
 
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'androidx.core:core:1.13.1'

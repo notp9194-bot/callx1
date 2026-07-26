@@ -253,7 +253,7 @@
                     android:letterSpacing="0.08"
                     android:layout_marginBottom="12dp"/>
 
-                <com.callx.app.music.SoundAnalyticsActivity.BarChartView
+                <com.callx.app.music.SoundAnalyticsActivity$BarChartView
                     android:id="@+id/bar_chart_plays"
                     android:layout_width="match_parent"
                     android:layout_height="160dp"/>

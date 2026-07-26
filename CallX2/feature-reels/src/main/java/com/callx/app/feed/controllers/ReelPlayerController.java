@@ -829,6 +829,22 @@ public class ReelPlayerController {
         delegate.stopDiscAnimation();
     }
 
+    /** True if the video is actively playing right now (not paused/ended). Video-mode only —
+     *  photo-mode long-press-pause is handled separately by ReelPhotoSlideshowController. */
+    public boolean isPlaybackActive() {
+        return player != null && player.isPlaying();
+    }
+
+    /**
+     * Resumes playback after an Instagram-style long-press pause. Reuses
+     * startPlayback()'s full resume path (rebinds surface, restores quality
+     * cap, restarts progress tracking) — it does not seek, so playback
+     * continues from wherever pausePlayback() left it.
+     */
+    public void resumePlayback() {
+        startPlayback();
+    }
+
     /**
      * Crossfades the decoded surface over the thumbnail. This is deliberately
      * driven by onRenderedFirstFrame(), not a buffering/playback state, so a

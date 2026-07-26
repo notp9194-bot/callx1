@@ -3,6 +3,7 @@ import com.callx.app.utils.AlertDialogStyler;
 
 import android.app.Dialog;
 import android.content.Context;
+import android.content.Intent;
 import android.os.Bundle;
 import android.view.*;
 import android.widget.*;
@@ -43,6 +44,11 @@ public class StatusStickerPickerSheet extends BottomSheetDialogFragment {
     }
 
     private OnStickerSelected listener;
+
+    // Request code for ReelTrendingAudioActivity (feature-reels). Launched via
+    // reflection since feature-status does not have a compile-time dependency
+    // on feature-reels (only feature-reels depends on feature-status).
+    private static final int REQ_MUSIC_TRENDING_AUDIO = 7031;
 
     public static StatusStickerPickerSheet show(
             androidx.fragment.app.FragmentActivity host,
@@ -178,8 +184,15 @@ public class StatusStickerPickerSheet extends BottomSheetDialogFragment {
         card.addView(tvDesc, dLp);
 
         card.setOnClickListener(v -> {
-            dismiss();
-            openCreator(ctx, name);
+            if ("Music".equals(name)) {
+                // Music picks a real track from ReelTrendingAudioActivity and comes back
+                // via onActivityResult — dismissing now would detach this fragment before
+                // the result arrives, so we only dismiss once the pick is confirmed.
+                openMusicCreator(ctx);
+            } else {
+                dismiss();
+                openCreator(ctx, name);
+            }
         });
 
         // Ripple effect
@@ -199,52 +212,51 @@ public class StatusStickerPickerSheet extends BottomSheetDialogFragment {
     }
 
     // ─── Music Sticker Creator ─────────────────────────────────────────────
+    // Instead of typing a song name, the user picks a real track from the same
+    // Trending Audio screen used by Reels. The picked track's soundId/soundUrl
+    // travel with the sticker so a viewer tapping it later opens that exact
+    // track's Sound Detail sheet (same one Reels uses).
 
     private void openMusicCreator(Context ctx) {
-        int dp = (int) ctx.getResources().getDisplayMetrics().density;
+        try {
+            Class<?> trendingCls = Class.forName("com.callx.app.music.ReelTrendingAudioActivity");
+            Intent intent = new Intent(ctx, trendingCls);
+            startActivityForResult(intent, REQ_MUSIC_TRENDING_AUDIO);
+        } catch (Exception e) {
+            Toast.makeText(ctx, "Trending audio isn't available right now", Toast.LENGTH_SHORT).show();
+            dismiss();
+        }
+    }
 
-        LinearLayout layout = new LinearLayout(ctx);
-        layout.setOrientation(LinearLayout.VERTICAL);
-        layout.setPadding(dp * 20, dp * 16, dp * 20, dp * 8);
+    @Override
+    public void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != REQ_MUSIC_TRENDING_AUDIO) return;
 
-        EditText etSong = new EditText(ctx);
-        etSong.setHint("Song name e.g. Blinding Lights");
-        etSong.setTextSize(15);
-        layout.addView(etSong);
+        if (resultCode == android.app.Activity.RESULT_OK && data != null) {
+            // Literal extra keys mirror ReelTrendingAudioActivity.RESULT_* constants —
+            // kept as literals (not a compile-time import) since feature-status has
+            // no build dependency on feature-reels.
+            String soundId = data.getStringExtra("audio_id");
+            String title   = data.getStringExtra("audio_title");
+            String artist  = data.getStringExtra("audio_artist");
+            String soundUrl= data.getStringExtra("audio_url");
+            String coverUrl= data.getStringExtra("audio_cover_url");
 
-        EditText etArtist = new EditText(ctx);
-        etArtist.setHint("Artist name e.g. The Weeknd");
-        etArtist.setTextSize(14);
-        LinearLayout.LayoutParams etLp = new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        etLp.topMargin = dp * 10;
-        layout.addView(etArtist, etLp);
-
-        EditText etAlbumArt = new EditText(ctx);
-        etAlbumArt.setHint("Album art URL (optional)");
-        etAlbumArt.setTextSize(13);
-        LinearLayout.LayoutParams artLp = new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        artLp.topMargin = dp * 10;
-        layout.addView(etAlbumArt, artLp);
-
-        AlertDialogStyler.showRounded(new android.app.AlertDialog.Builder(ctx)
-            .setTitle("🎵 Music Sticker")
-            .setView(layout)
-            .setPositiveButton("Add to Status", (d, w) -> {
-                String song   = etSong.getText().toString().trim();
-                String artist = etArtist.getText().toString().trim();
-                String art    = etAlbumArt.getText().toString().trim();
-                if (song.isEmpty()) {
-                    Toast.makeText(ctx, "Add song name", Toast.LENGTH_SHORT).show(); return;
-                }
-                String json = "{\"type\":\"music\",\"song\":\"" + esc(song)
-                    + "\",\"artist\":\"" + esc(artist)
-                    + "\",\"albumArt\":\"" + esc(art) + "\"}";
-                if (listener != null) listener.onSelected(new StickerResult("music", json));
-            })
-            .setNegativeButton("Cancel", null)
-            .create());
+            if (title == null || title.trim().isEmpty()) {
+                dismiss();
+                return;
+            }
+            String json = "{\"type\":\"music\""
+                + ",\"song\":\"" + esc(title.trim()) + "\""
+                + ",\"artist\":\"" + esc(artist != null ? artist.trim() : "") + "\""
+                + ",\"albumArt\":\"" + esc(coverUrl != null ? coverUrl : "") + "\""
+                + ",\"soundId\":\"" + esc(soundId != null ? soundId : "") + "\""
+                + ",\"soundUrl\":\"" + esc(soundUrl != null ? soundUrl : "") + "\""
+                + "}";
+            if (listener != null) listener.onSelected(new StickerResult("music", json));
+        }
+        dismiss();
     }
 
     // ─── Countdown Sticker Creator ─────────────────────────────────────────

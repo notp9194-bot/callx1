@@ -226,4 +226,273 @@ public class StatusReplyBottomSheet {
     private static int dp(Context ctx, int v) {
         return Math.round(v * ctx.getResources().getDisplayMetrics().density);
     }
+
+    // ── Question-sticker tap-to-answer ──────────────────────────────────────
+    /**
+     * Shown when a viewer taps a 💬 Question sticker on someone's status
+     * (see StatusStickerOverlayView / StatusViewerActivity's sticker overlay).
+     * Same underlying send path as {@link #show}, just a focused UI that
+     * leads with the actual question instead of a generic status preview,
+     * and tags the resulting chat bubble as an answer to that question.
+     */
+    public static void showForQuestion(Context ctx, StatusItem item, String ownerName,
+                                        String myUid, String ownerUid, String questionPrompt,
+                                        OnReplySentListener listener) {
+        if (item == null || myUid == null || ownerUid == null) return;
+        if (myUid.equals(ownerUid)) return; // Owner cannot answer their own question
+
+        final String prompt = (questionPrompt == null || questionPrompt.isEmpty())
+                ? "Ask me anything!" : questionPrompt;
+
+        BottomSheetDialog sheet = new BottomSheetDialog(ctx);
+        LinearLayout root = new LinearLayout(ctx);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dp(ctx, 16), dp(ctx, 16), dp(ctx, 16), dp(ctx, 24));
+
+        TextView tvTo = new TextView(ctx);
+        tvTo.setText("Answering " + (ownerName != null ? ownerName : "status") + "'s question");
+        tvTo.setTextSize(12);
+        tvTo.setTextColor(Color.parseColor("#00C897"));
+        tvTo.setTypeface(null, android.graphics.Typeface.BOLD);
+        root.addView(tvTo);
+
+        TextView tvQuestion = new TextView(ctx);
+        tvQuestion.setText("\uD83D\uDCAC " + prompt); // 💬
+        tvQuestion.setTextSize(15);
+        tvQuestion.setTextColor(Color.parseColor("#212121"));
+        tvQuestion.setMaxLines(3);
+        LinearLayout.LayoutParams qLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        qLp.topMargin = dp(ctx, 4);
+        qLp.bottomMargin = dp(ctx, 16);
+        root.addView(tvQuestion, qLp);
+
+        LinearLayout inputRow = new LinearLayout(ctx);
+        inputRow.setOrientation(LinearLayout.HORIZONTAL);
+        inputRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        EditText et = new EditText(ctx);
+        et.setHint("Type your answer…");
+        et.setMaxLines(3);
+        et.setInputType(android.text.InputType.TYPE_CLASS_TEXT
+                | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
+                | android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+        LinearLayout.LayoutParams etLp = new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        et.setLayoutParams(etLp);
+        inputRow.addView(et);
+
+        ImageButton sendBtn = new ImageButton(ctx);
+        sendBtn.setImageResource(android.R.drawable.ic_menu_send);
+        int btnSz = dp(ctx, 48);
+        LinearLayout.LayoutParams btnLp = new LinearLayout.LayoutParams(btnSz, btnSz);
+        btnLp.setMarginStart(dp(ctx, 8));
+        sendBtn.setLayoutParams(btnLp);
+        sendBtn.setBackground(null);
+        sendBtn.setOnClickListener(v -> {
+            String answer = et.getText() != null ? et.getText().toString().trim() : "";
+            if (answer.isEmpty()) { et.setError("Type an answer"); return; }
+            sendQuestionReply(myUid, ownerUid, ownerName, item, prompt, answer);
+            if (listener != null) listener.onSent(answer);
+            Toast.makeText(ctx, "Answer sent ✓", Toast.LENGTH_SHORT).show();
+            sheet.dismiss();
+        });
+        inputRow.addView(sendBtn);
+        root.addView(inputRow);
+
+        sheet.setContentView(root);
+        sheet.setOnShowListener(d -> {
+            BottomSheetBehavior<View> behavior = BottomSheetBehavior.from((View) root.getParent());
+            behavior.setState(BottomSheetBehavior.STATE_EXPANDED);
+            et.requestFocus();
+            InputMethodManager imm = (InputMethodManager)
+                    ctx.getSystemService(Context.INPUT_METHOD_SERVICE);
+            if (imm != null)
+                imm.showSoftInput(et, InputMethodManager.SHOW_IMPLICIT);
+        });
+        sheet.show();
+    }
+
+    private static void sendQuestionReply(String myUid, String ownerUid, String ownerName,
+                                           StatusItem item, String questionPrompt, String answer) {
+        String chatId = myUid.compareTo(ownerUid) < 0
+                ? myUid + "_" + ownerUid : ownerUid + "_" + myUid;
+        String msgId = FirebaseUtils.db().getReference().push().getKey();
+        if (msgId == null) return;
+        Map<String, Object> msg = new HashMap<>();
+        msg.put("id",                  msgId);
+        msg.put("senderId",            myUid);
+        msg.put("text",                answer);
+        msg.put("type",                "text");
+        msg.put("timestamp",           com.google.firebase.database.ServerValue.TIMESTAMP);
+        msg.put("seen",                false);
+        // Quote box shows the question itself (not the status's generic
+        // preview text) so it's obvious in-chat this is an answer, not a
+        // regular status reply — same quote-bubble fields the chat's
+        // ReplyDataMapper/MessageBubbleCanvasView already renders for any
+        // replyToType, so no chat-side changes needed for this to display.
+        msg.put("replyToType",         item.type != null ? item.type : "text");
+        msg.put("replyToText",         "\uD83D\uDCAC " + questionPrompt); // 💬
+        msg.put("replyToSenderName",   statusReplyLabel(ownerName));
+        msg.put("replyToId",           "status_" + (item.id != null ? item.id : "unknown"));
+        if (item.thumbnailUrl != null)
+            msg.put("replyToMediaUrl", item.thumbnailUrl);
+        else if ("image".equals(item.type) && item.mediaUrl != null)
+            msg.put("replyToMediaUrl", item.mediaUrl);
+        FirebaseUtils.db()
+            .getReference("messages").child(chatId).child(msgId)
+            .setValue(msg)
+            .addOnSuccessListener(u ->
+                FirebaseUtils.db().getReference("users").child(myUid)
+                    .addListenerForSingleValueEvent(new ValueEventListener() {
+                        @Override public void onDataChange(DataSnapshot snap) {
+                            String name  = snap.child("name").getValue(String.class);
+                            String photo = snap.child("thumbUrl").getValue(String.class);
+                            if (photo == null) photo = snap.child("photoUrl").getValue(String.class);
+                            try {
+                                com.callx.app.utils.PushNotify.notifyStatusReply(
+                                        ownerUid, myUid,
+                                        name != null ? name : "Someone",
+                                        photo != null ? photo : "",
+                                        "\uD83D\uDCAC Answered: " + answer, chatId);
+                            } catch (Exception ignored) {}
+                        }
+                        @Override public void onCancelled(DatabaseError e) {}
+                    }));
+    }
+
+    // ── Quiz-sticker tap-to-answer ───────────────────────────────────────────
+    /**
+     * Called when a viewer taps an option on a 🧠 Quiz sticker (see
+     * StatusStickerOverlayView#setOnQuizOptionSelectedListener /
+     * StatusViewerActivity's sticker overlay). Same underlying DM + notify
+     * path as {@link #showForQuestion}'s answer flow, plus persists the vote
+     * under FirebaseUtils.getStatusQuizVoteRef so re-opening the status
+     * restores the viewer's locked-in answer instead of asking again.
+     */
+    public static void sendQuizAnswer(String myUid, String ownerUid, String ownerName,
+                                       StatusItem item, int stickerIndex, String question,
+                                       String selectedOption, int selectedIndex, boolean isCorrect) {
+        if (item == null || myUid == null || ownerUid == null) return;
+        if (myUid.equals(ownerUid)) return; // Owner cannot answer their own quiz
+
+        // 1) Persist the vote so this quiz sticker only asks once per viewer.
+        Map<String, Object> vote = new HashMap<>();
+        vote.put("selectedIndex", selectedIndex);
+        vote.put("correct",       isCorrect);
+        vote.put("timestamp",     com.google.firebase.database.ServerValue.TIMESTAMP);
+        FirebaseUtils.getStatusQuizVoteRef(ownerUid, item.id != null ? item.id : "unknown",
+                stickerIndex, myUid).setValue(vote);
+
+        // 2) Send the answer to the owner as a quoted chat DM — same node/shape
+        //    ChatRepository reads, same as every other status-reply path.
+        String chatId = myUid.compareTo(ownerUid) < 0
+                ? myUid + "_" + ownerUid : ownerUid + "_" + myUid;
+        String msgId = FirebaseUtils.db().getReference().push().getKey();
+        if (msgId == null) return;
+        Map<String, Object> msg = new HashMap<>();
+        msg.put("id",                  msgId);
+        msg.put("senderId",            myUid);
+        msg.put("text",                "\uD83E\uDDE0 Answered: " + selectedOption
+                                         + (isCorrect ? " \u2713 Correct!" : " \u2717 Incorrect"));
+        msg.put("type",                "text");
+        msg.put("timestamp",           com.google.firebase.database.ServerValue.TIMESTAMP);
+        msg.put("seen",                false);
+        msg.put("replyToType",         item.type != null ? item.type : "text");
+        msg.put("replyToText",         "\uD83E\uDDE0 " + question); // 🧠
+        msg.put("replyToSenderName",   statusReplyLabel(ownerName));
+        msg.put("replyToId",           "status_" + (item.id != null ? item.id : "unknown"));
+        if (item.thumbnailUrl != null)
+            msg.put("replyToMediaUrl", item.thumbnailUrl);
+        else if ("image".equals(item.type) && item.mediaUrl != null)
+            msg.put("replyToMediaUrl", item.mediaUrl);
+
+        FirebaseUtils.db()
+            .getReference("messages").child(chatId).child(msgId)
+            .setValue(msg)
+            .addOnSuccessListener(u ->
+                FirebaseUtils.db().getReference("users").child(myUid)
+                    .addListenerForSingleValueEvent(new ValueEventListener() {
+                        @Override public void onDataChange(DataSnapshot snap) {
+                            String name  = snap.child("name").getValue(String.class);
+                            String photo = snap.child("thumbUrl").getValue(String.class);
+                            if (photo == null) photo = snap.child("photoUrl").getValue(String.class);
+                            try {
+                                com.callx.app.utils.PushNotify.notifyStatusReply(
+                                        ownerUid, myUid,
+                                        name != null ? name : "Someone",
+                                        photo != null ? photo : "",
+                                        "\uD83E\uDDE0 Answered your quiz: " + selectedOption, chatId);
+                            } catch (Exception ignored) {}
+                        }
+                        @Override public void onCancelled(DatabaseError e) {}
+                    }));
+    }
+
+    // ── Countdown "Remind me" subscribe ──────────────────────────────────────
+    /**
+     * Called when a viewer subscribes to a ⏳ Countdown sticker's reminder (see
+     * StatusStickerOverlayView#setOnCountdownSubscribeToggleListener /
+     * StatusViewerActivity's sticker overlay). Same DM + notify path as the
+     * question/quiz flows, plus persists the subscription under
+     * FirebaseUtils.getStatusCountdownSubscriberRef. Unsubscribing is a plain
+     * ref delete handled directly by the caller — no DM is sent for that, to
+     * avoid spamming the poster every time a viewer changes their mind.
+     */
+    public static void sendCountdownSubscription(String myUid, String ownerUid, String ownerName,
+                                                  StatusItem item, int stickerIndex, String countdownLabel) {
+        if (item == null || myUid == null || ownerUid == null) return;
+        if (myUid.equals(ownerUid)) return; // Owner cannot subscribe to their own countdown
+
+        final String label = (countdownLabel == null || countdownLabel.isEmpty())
+                ? "Countdown" : countdownLabel;
+
+        // 1) Persist the subscription so re-opening the status restores the bell state.
+        Map<String, Object> sub = new HashMap<>();
+        sub.put("subscribed", true);
+        sub.put("timestamp",  com.google.firebase.database.ServerValue.TIMESTAMP);
+        FirebaseUtils.getStatusCountdownSubscriberRef(ownerUid, item.id != null ? item.id : "unknown",
+                stickerIndex, myUid).setValue(sub);
+
+        // 2) Let the poster know, as a quoted chat DM — same node/shape as every other status-reply path.
+        String chatId = myUid.compareTo(ownerUid) < 0
+                ? myUid + "_" + ownerUid : ownerUid + "_" + myUid;
+        String msgId = FirebaseUtils.db().getReference().push().getKey();
+        if (msgId == null) return;
+        Map<String, Object> msg = new HashMap<>();
+        msg.put("id",                  msgId);
+        msg.put("senderId",            myUid);
+        msg.put("text",                "\uD83D\uDD14 Set a reminder for: " + label);
+        msg.put("type",                "text");
+        msg.put("timestamp",           com.google.firebase.database.ServerValue.TIMESTAMP);
+        msg.put("seen",                false);
+        msg.put("replyToType",         item.type != null ? item.type : "text");
+        msg.put("replyToText",         "\u23F0 " + label); // ⏰
+        msg.put("replyToSenderName",   statusReplyLabel(ownerName));
+        msg.put("replyToId",           "status_" + (item.id != null ? item.id : "unknown"));
+        if (item.thumbnailUrl != null)
+            msg.put("replyToMediaUrl", item.thumbnailUrl);
+        else if ("image".equals(item.type) && item.mediaUrl != null)
+            msg.put("replyToMediaUrl", item.mediaUrl);
+
+        FirebaseUtils.db()
+            .getReference("messages").child(chatId).child(msgId)
+            .setValue(msg)
+            .addOnSuccessListener(u ->
+                FirebaseUtils.db().getReference("users").child(myUid)
+                    .addListenerForSingleValueEvent(new ValueEventListener() {
+                        @Override public void onDataChange(DataSnapshot snap) {
+                            String name  = snap.child("name").getValue(String.class);
+                            String photo = snap.child("thumbUrl").getValue(String.class);
+                            if (photo == null) photo = snap.child("photoUrl").getValue(String.class);
+                            try {
+                                com.callx.app.utils.PushNotify.notifyStatusReply(
+                                        ownerUid, myUid,
+                                        name != null ? name : "Someone",
+                                        photo != null ? photo : "",
+                                        "\uD83D\uDD14 Wants a reminder about: " + label, chatId);
+                            } catch (Exception ignored) {}
+                        }
+                        @Override public void onCancelled(DatabaseError e) {}
+                    }));
+    }
 }

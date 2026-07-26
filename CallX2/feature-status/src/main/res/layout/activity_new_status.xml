@@ -358,23 +358,18 @@
 
             </com.google.android.material.card.MaterialCardView>
 
-            <!-- ── Media buttons ── -->
+            <!-- ── Media button ──
+                 Photo + Video merged into one "Upload" button (was two
+                 separate buttons). Tapping it shows the same Camera/Gallery/
+                 Cancel dialog as before; "Gallery" now opens the shared
+                 chat attach-sheet (multi-select + caption + edit + view-once)
+                 instead of a plain single-file picker. -->
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_pick_image"
                 android:layout_width="match_parent"
                 android:layout_height="52dp"
-                android:text="Add Photo"
+                android:text="Upload"
                 app:icon="@drawable/ic_gallery"
-                app:cornerRadius="14dp"
-                android:layout_marginBottom="10dp"/>
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btn_pick_video"
-                style="@style/Widget.Material3.Button.OutlinedButton"
-                android:layout_width="match_parent"
-                android:layout_height="52dp"
-                android:text="Add Video"
-                app:icon="@drawable/ic_video"
                 app:cornerRadius="14dp"
                 android:layout_marginBottom="10dp"/>
 

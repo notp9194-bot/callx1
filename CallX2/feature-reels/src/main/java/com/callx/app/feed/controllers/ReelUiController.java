@@ -80,10 +80,11 @@ public class ReelUiController {
     // ── uiHandler for reactions auto-hide ────────────────────────────────
     private final Handler uiHandler = new Handler(Looper.getMainLooper());
 
-    // ── Long-press peek state ─────────────────────────────────────────────
-    // Instagram-style: long press temporarily hides all overlay UI buttons.
-    // Released on ACTION_UP / ACTION_CANCEL.
-    private boolean isLongPressUiHidden = false;
+    // ── Long-press pause state ────────────────────────────────────────────
+    // Instagram-style: holding a finger down pauses playback; lifting resumes
+    // it — but only if THIS gesture was the one that paused it (if the user
+    // had already tapped to pause before holding, releasing leaves it paused).
+    private boolean pausedByLongPress = false;
 
     // ── Single-tap delay handler (for double-tap disambiguation) ──────────
     // onSingleTapConfirmed fires 280ms after tap only if no second tap arrives.
@@ -484,8 +485,10 @@ public class ReelUiController {
         //
         //  • Single tap confirmed (300ms delay) → play / pause
         //  • Double tap (immediate)             → like animation
-        //  • Long press (hold)                  → hide all overlay buttons
-        //    while finger is held, restore on ACTION_UP / ACTION_CANCEL
+        //  • Long press (hold)                  → pause playback while held,
+        //    resume on ACTION_UP / ACTION_CANCEL (only if this gesture is what
+        //    paused it). Hiding the overlay UI is now a 3-dot menu action
+        //    (Cinema Mode) instead — see toggleCinemaMode().
         //
         // The touch listener returns false for MOVE/CANCEL so ViewPager2's
         // RecyclerView can still intercept scroll gestures normally.
@@ -528,9 +531,16 @@ public class ReelUiController {
 
                 @Override
                 public void onLongPress(android.view.MotionEvent e) {
-                    // Instagram-style: hide all overlay UI while finger is held down
-                    if (delegate.isAdded() && !isLongPressUiHidden) {
-                        hideOverlayForLongPress(root);
+                    // Instagram-style: hold to pause. Photo-mode reels have
+                    // their own hold-to-pause gesture on the photo ViewPager
+                    // (ReelPhotoSlideshowController) so this is video-only.
+                    // Skip if already paused (manually or by an earlier hold)
+                    // so we don't mark ourselves as the one who paused it.
+                    if (delegate.isAdded() && !delegate.isDocked()
+                            && !delegate.isPhotoMode() && !pausedByLongPress
+                            && delegate.isPlaybackActive()) {
+                        delegate.pausePlayback();
+                        pausedByLongPress = true;
                     }
                 }
             });
@@ -543,11 +553,14 @@ public class ReelUiController {
         root.setOnTouchListener((v, event) -> {
             boolean handled = gd.onTouchEvent(event);
             int action = event.getActionMasked();
-            // Restore hidden overlay when finger lifts (long-press "peek" ends)
+            // Resume playback when the finger lifts, but only if this same
+            // long-press paused it — a manual pre-existing pause (single tap)
+            // should stay paused after release, matching Instagram.
             if ((action == android.view.MotionEvent.ACTION_UP
                     || action == android.view.MotionEvent.ACTION_CANCEL)
-                    && isLongPressUiHidden) {
-                showOverlayAfterLongPress(root);
+                    && pausedByLongPress) {
+                pausedByLongPress = false;
+                if (delegate.isAdded()) delegate.resumePlayback();
             }
             // Return true for ACTION_DOWN so GestureDetector continues tracking;
             // return false for MOVE events so ViewPager2 can intercept scrolls.
@@ -791,7 +804,7 @@ public class ReelUiController {
         sheet.show(delegate.getChildFragmentManager(), com.callx.app.feed.ReelCinemaSheet.TAG);
     }
 
-    private void toggleCinemaMode() {
+    public void toggleCinemaMode() {
         ReelModel reel = delegate.getReel();
         if (reel == null || reel.reelId == null) return;
         if (cinemaHiddenReels.contains(reel.reelId)) {
@@ -801,6 +814,12 @@ public class ReelUiController {
         }
         View root = delegate.getFragment().getView();
         if (root != null) applyCinemaState(root);
+    }
+
+    /** True if Cinema Mode (hidden overlay UI) is currently on for the current reel. */
+    public boolean isCinemaModeOn() {
+        ReelModel reel = delegate.getReel();
+        return reel != null && reel.reelId != null && cinemaHiddenReels.contains(reel.reelId);
     }
 
     public void applyCinemaState(View root) {
@@ -888,43 +907,8 @@ public class ReelUiController {
         uiHandler.removeCallbacksAndMessages(null);
         singleTapHandler.removeCallbacksAndMessages(null);
         pendingSingleTap = null;
-        isLongPressUiHidden = false;
+        pausedByLongPress = false;
         if (discAnimator != null) { discAnimator.cancel(); discAnimator = null; }
-    }
-
-    // ── Long-press peek helpers ────────────────────────────────────────────
-
-    /**
-     * Instagram-style: when user holds a finger on the reel, smoothly fade out
-     * all overlay UI (right-side buttons, caption, top bar) so the video is
-     * visible in full. Restores on finger lift via showOverlayAfterLongPress().
-     */
-    private void hideOverlayForLongPress(View root) {
-        if (root == null || isUiHidden) return; // cinema mode already hides them
-        isLongPressUiHidden = true;
-        View rightActions = root.findViewById(R.id.right_actions);
-        View bottomInfo   = root.findViewById(R.id.bottom_info);
-        View topControls  = root.findViewById(R.id.top_controls);
-        long dur = 150L;
-        if (rightActions != null) rightActions.animate().alpha(0f).setDuration(dur).start();
-        if (bottomInfo   != null) bottomInfo.animate().alpha(0f).setDuration(dur).start();
-        if (topControls  != null) topControls.animate().alpha(0f).setDuration(dur).start();
-    }
-
-    /**
-     * Restores all overlay UI faded by hideOverlayForLongPress() when the
-     * user lifts their finger. Uses a slightly longer fade-in for a polished feel.
-     */
-    private void showOverlayAfterLongPress(View root) {
-        if (root == null) return;
-        isLongPressUiHidden = false;
-        View rightActions = root.findViewById(R.id.right_actions);
-        View bottomInfo   = root.findViewById(R.id.bottom_info);
-        View topControls  = root.findViewById(R.id.top_controls);
-        long dur = 220L;
-        if (rightActions != null) rightActions.animate().alpha(1f).setDuration(dur).start();
-        if (bottomInfo   != null) bottomInfo.animate().alpha(1f).setDuration(dur).start();
-        if (topControls  != null) topControls.animate().alpha(1f).setDuration(dur).start();
     }
 
 }

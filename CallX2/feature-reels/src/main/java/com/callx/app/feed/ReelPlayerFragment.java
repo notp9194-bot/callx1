@@ -492,6 +492,8 @@ public class ReelPlayerFragment extends Fragment
     @Override public void stopPhotoSlideshow()  { photoController.stopPhotoSlideshow(); }
     @Override public void startPhotoSlideshow() { photoController.startPhotoSlideshow(); }
     @Override public void pausePlayback()       { playerController.pausePlayback(); }
+    @Override public void resumePlayback()      { playerController.resumePlayback(); }
+    @Override public boolean isPlaybackActive() { return playerController.isPlaybackActive(); }
 
     // ── Social actions ────────────────────────────────────────────────────
 
@@ -602,6 +604,12 @@ public class ReelPlayerFragment extends Fragment
                       : "Background Play turned off — reels pause when you leave the app",
                 android.widget.Toast.LENGTH_SHORT).show();
     }
+
+    // ── Cinema Mode toggle — moved here from long-press (v20) ──────────────
+    // Long-press on the player is now Instagram-style hold-to-pause instead;
+    // hiding the overlay UI is an explicit 3-dot menu action.
+    @Override public void toggleCinemaMode() { uiController.toggleCinemaMode(); }
+    @Override public boolean isCinemaModeOn() { return uiController.isCinemaModeOn(); }
 
     /** ReelDisplayModeBottomSheet.OnModeSelectedListener — user picked a mode. */
     @Override

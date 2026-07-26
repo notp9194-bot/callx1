@@ -95,6 +95,9 @@ public class NewStatusActivity extends AppCompatActivity {
     private ActivityResultLauncher<String>  videoPicker;
     private ActivityResultLauncher<Uri>     cameraCapture;
     private ActivityResultLauncher<String>  cameraVideoCapture;
+    // Result of the full-screen editor opened from the attach-sheet's "Edit"
+    // action — see openStatusAttachSheet()'s onMediaEdit callback.
+    private ActivityResultLauncher<Intent>  statusMediaEditLauncher;
 
     /** FrameLayout that holds the status preview + sticker overlays */
     private android.widget.FrameLayout stickerOverlayFrame;
@@ -109,6 +112,25 @@ public class NewStatusActivity extends AppCompatActivity {
         setupToolbar();
         setupMediaPickers();
         setupCameraCapture();
+        statusMediaEditLauncher = registerForActivityResult(
+                new ActivityResultContracts.StartActivityForResult(),
+                result -> {
+                    if (result.getResultCode() != android.app.Activity.RESULT_OK || result.getData() == null) return;
+                    java.util.ArrayList<String> uriStrings = result.getData().getStringArrayListExtra(
+                            com.callx.app.conversation.controllers.MediaEditActivity.RESULT_URIS);
+                    if (uriStrings == null || uriStrings.isEmpty()) return;
+                    java.util.List<Uri> uris = new java.util.ArrayList<>();
+                    java.util.List<Boolean> videoFlags = new java.util.ArrayList<>();
+                    for (String s : uriStrings) {
+                        Uri u = Uri.parse(s);
+                        uris.add(u);
+                        String mime = getContentResolver().getType(u);
+                        videoFlags.add(mime != null && mime.startsWith("video"));
+                    }
+                    String caption = result.getData().getStringExtra(
+                            com.callx.app.conversation.controllers.MediaEditActivity.RESULT_CAPTION);
+                    postStatusBatch(uris, videoFlags, caption == null || caption.isEmpty() ? null : caption);
+                });
         setupBgColorPicker();
         setupFontStylePicker();
         setupPrivacyButton();
@@ -118,8 +140,8 @@ public class NewStatusActivity extends AppCompatActivity {
         setupTextInput();
         setupStickerOverlayFrame();
         restoreDraft();
-        binding.btnPickImage.setOnClickListener(v -> showMediaSourceDialog("image"));
-        binding.btnPickVideo.setOnClickListener(v -> showMediaSourceDialog("video"));
+        // "Add Photo"/"Add Video" merged into one "Upload" button.
+        binding.btnPickImage.setOnClickListener(v -> showMediaSourceDialog());
         binding.btnPost.setOnClickListener(v -> post());
         binding.btnDiscardMedia.setOnClickListener(v -> discardMedia());
         // GIF / Sticker button
@@ -200,19 +222,106 @@ public class NewStatusActivity extends AppCompatActivity {
         binding.toolbar.setNavigationOnClickListener(v -> finish());
     }
     // ── Media source dialog (gallery or camera) ───────────────────────────
-    private void showMediaSourceDialog(String type) {
+    // Single "Upload" button now covers both photo and video (previously two
+    // separate buttons/dialogs). Camera still captures a photo directly;
+    // Gallery opens the shared chat attach-sheet instead of a plain picker.
+    private void showMediaSourceDialog() {
         String[] options = {"Camera", "Gallery", "Cancel"};
         AlertDialogStyler.showRounded(new androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle(type.equals("image") ? "Pick Image" : "Pick Video")
+            .setTitle("Upload")
             .setItems(options, (d, w) -> {
                 if (w == 0) {
-                    if (type.equals("image")) captureFromCamera();
-                    else                      captureVideoFromCamera();
+                    captureFromCamera();
                 } else if (w == 1) {
-                    if (type.equals("image")) imagePicker.launch("image/*");
-                    else                      videoPicker.launch("video/*");
+                    openStatusAttachSheet();
                 }
             }).create());
+    }
+
+    // ── Attach sheet (Gallery) — reuses feature-chat's shared sheet ────────
+    // Same bottom_sheet_attach.xml + AttachSheetRecentMediaBinder that
+    // ChatMediaController (1-1 chat) and GroupChatActivity already share, so
+    // Status gets the same multi-select grid, caption field, Edit action and
+    // view-once toggle instead of a 3rd hand-rolled picker.
+    private final java.util.concurrent.ExecutorService statusAttachMediaExecutor =
+            java.util.concurrent.Executors.newSingleThreadExecutor();
+
+    private void openStatusAttachSheet() {
+        com.google.android.material.bottomsheet.BottomSheetDialog sheet =
+                new com.google.android.material.bottomsheet.BottomSheetDialog(this);
+        View v = getLayoutInflater().inflate(com.callx.app.chat.R.layout.bottom_sheet_attach, null);
+
+        // Status has no poll/contact/location/document/payment/event/AI-image
+        // concepts — hide those chips, keep the sheet focused on media.
+        int[] chatOnlyOptionIds = {
+                com.callx.app.chat.R.id.opt_document, com.callx.app.chat.R.id.opt_poll,
+                com.callx.app.chat.R.id.opt_contact, com.callx.app.chat.R.id.opt_location,
+                com.callx.app.chat.R.id.opt_payment, com.callx.app.chat.R.id.opt_event,
+                com.callx.app.chat.R.id.opt_ai_images
+        };
+        for (int id : chatOnlyOptionIds) {
+            View opt = v.findViewById(id);
+            if (opt != null) opt.setVisibility(View.GONE);
+        }
+        View optGallery = v.findViewById(com.callx.app.chat.R.id.opt_gallery);
+        if (optGallery != null) optGallery.setOnClickListener(x -> { sheet.dismiss(); imagePicker.launch("image/*"); });
+
+        com.callx.app.conversation.controllers.AttachSheetRecentMediaBinder.bind(
+                this, sheet, v, statusAttachMediaExecutor,
+                // supportsViewOnce=false — Status doesn't need this toggle
+                // (already ephemeral/24h), so hide it entirely instead of
+                // leaving a dead control sitting in the sheet.
+                false,
+                new com.callx.app.conversation.controllers.AttachSheetRecentMediaBinder.Callbacks() {
+                    @Override public void onCameraTapped() {
+                        sheet.dismiss();
+                        captureFromCamera();
+                    }
+                    @Override public void onMoreAppsRequested() {
+                        sheet.dismiss();
+                        imagePicker.launch("image/*");
+                    }
+                    @Override public void onSeeMoreRequested() {
+                        sheet.dismiss();
+                        imagePicker.launch("image/*");
+                    }
+                    @Override public void onMediaSend(
+                            java.util.List<com.callx.app.conversation.controllers.RecentMediaLoader.Item> items,
+                            String caption, boolean isHD, boolean isViewOnce) {
+                        if (items.isEmpty()) return;
+                        sheet.dismiss();
+                        java.util.List<Uri> uris = new java.util.ArrayList<>();
+                        java.util.List<Boolean> videoFlags = new java.util.ArrayList<>();
+                        for (com.callx.app.conversation.controllers.RecentMediaLoader.Item item : items) {
+                            uris.add(item.uri);
+                            videoFlags.add(item.isVideo);
+                        }
+                        postStatusBatch(uris, videoFlags, caption == null || caption.isEmpty() ? null : caption);
+                    }
+                    @Override public void onMediaEdit(
+                            java.util.List<com.callx.app.conversation.controllers.RecentMediaLoader.Item> items,
+                            String caption, boolean isHD) {
+                        if (items.isEmpty()) return;
+                        sheet.dismiss();
+                        java.util.ArrayList<String> uriStrings = new java.util.ArrayList<>();
+                        java.util.ArrayList<Integer> videoFlags = new java.util.ArrayList<>();
+                        for (com.callx.app.conversation.controllers.RecentMediaLoader.Item item : items) {
+                            uriStrings.add(item.uri.toString());
+                            videoFlags.add(item.isVideo ? 1 : 0);
+                        }
+                        Intent intent = new Intent(NewStatusActivity.this,
+                                com.callx.app.conversation.controllers.MediaEditActivity.class);
+                        intent.putStringArrayListExtra(
+                                com.callx.app.conversation.controllers.MediaEditActivity.EXTRA_URIS, uriStrings);
+                        intent.putIntegerArrayListExtra(
+                                com.callx.app.conversation.controllers.MediaEditActivity.EXTRA_IS_VIDEO, videoFlags);
+                        intent.putExtra(com.callx.app.conversation.controllers.MediaEditActivity.EXTRA_CAPTION, caption);
+                        intent.putExtra(com.callx.app.conversation.controllers.MediaEditActivity.EXTRA_HD, isHD);
+                        statusMediaEditLauncher.launch(intent);
+                    }
+                });
+        sheet.setContentView(v);
+        sheet.show();
     }
     // ── Media pickers (gallery) ───────────────────────────────────────────
     private void setupMediaPickers() {
@@ -743,6 +852,140 @@ public class NewStatusActivity extends AppCompatActivity {
                 toast("Failed to post: " + e.getMessage());
             });
     }
+    // ── Batch post (attach-sheet multi-select) ─────────────────────────────
+    // Posts each selected item from the attach-sheet as its own status entry
+    // (same as WhatsApp posting several picked photos back-to-back), sharing
+    // one caption + the screen's current privacy/expiry/close-friends
+    // settings across all of them. Kept separate from post()/saveStatus()
+    // above so the existing single-item flow (with its own txt/link/gif
+    // handling and single finish()) is untouched.
+    private java.util.List<Uri>    pendingBatchUris;
+    private java.util.List<Boolean> pendingBatchIsVideo;
+    private int    pendingBatchIndex;
+    private String pendingBatchCaption;
+
+    private void postStatusBatch(java.util.List<Uri> uris, java.util.List<Boolean> isVideoFlags, String caption) {
+        if (uris == null || uris.isEmpty()) return;
+        pendingBatchUris    = uris;
+        pendingBatchIsVideo = isVideoFlags;
+        pendingBatchCaption = caption;
+        pendingBatchIndex   = 0;
+        postNextBatchItem();
+    }
+
+    private void postNextBatchItem() {
+        if (pendingBatchUris == null || pendingBatchIndex >= pendingBatchUris.size()) {
+            setPosting(false);
+            toast("Status posted!");
+            finish();
+            return;
+        }
+        setPosting(true);
+        setHint("Posting " + (pendingBatchIndex + 1) + " of " + pendingBatchUris.size() + "…");
+        Uri uri          = pendingBatchUris.get(pendingBatchIndex);
+        boolean isVideo  = pendingBatchIsVideo.get(pendingBatchIndex);
+        String uid       = FirebaseAuth.getInstance().getCurrentUser().getUid();
+        String name      = FirebaseUtils.getCurrentName();
+        FirebaseUtils.getUserRef(uid).addListenerForSingleValueEvent(new ValueEventListener() {
+            @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                String thumb = snap.child("thumbUrl").getValue(String.class);
+                String full  = snap.child("photoUrl").getValue(String.class);
+                String photo = (thumb != null && !thumb.isEmpty()) ? thumb : (full != null ? full : safePhoto());
+                uploadBatchItem(uri, isVideo, pendingBatchCaption, uid, name, photo);
+            }
+            @Override public void onCancelled(@NonNull DatabaseError e) {
+                uploadBatchItem(uri, isVideo, pendingBatchCaption, uid, name, safePhoto());
+            }
+        });
+    }
+
+    private void uploadBatchItem(Uri uri, boolean isVideo, String caption, String uid, String name, String photo) {
+        if (isVideo) {
+            VideoQualityPreferences.Quality quality = new VideoQualityPreferences(this).getGlobalQuality();
+            VideoCompressor.compress(this, uri, quality, new VideoCompressor.Callback() {
+                @Override public void onProgress(int pct) { runOnUiThread(() -> setHint("Compressing video… " + pct + "%")); }
+                @Override public void onSuccess(VideoCompressor.Result r) {
+                    runOnUiThread(() -> setHint("Uploading video…"));
+                    uploadBatchAndSave(Uri.fromFile(r.videoFile), "video", caption, uid, name, photo, r.thumbFile);
+                }
+                @Override public void onError(Exception e) {
+                    runOnUiThread(() -> setHint("Uploading video…"));
+                    uploadBatchAndSave(uri, "video", caption, uid, name, photo, null);
+                }
+            });
+        } else {
+            ImageCompressor.compress(this, uri, new ImageCompressor.Callback() {
+                @Override public void onSuccess(ImageCompressor.Result r) {
+                    runOnUiThread(() -> setHint("Uploading image…"));
+                    uploadBatchAndSave(Uri.fromFile(r.fullFile), "image", caption, uid, name, photo, r.thumbFile);
+                }
+                @Override public void onError(Exception e) {
+                    runOnUiThread(() -> setHint("Uploading image…"));
+                    uploadBatchAndSave(uri, "image", caption, uid, name, photo, null);
+                }
+            });
+        }
+    }
+
+    private void uploadBatchAndSave(Uri uri, String type, String caption, String uid, String name,
+                                     String photo, java.io.File thumbFile) {
+        String rt = "video".equals(type) ? "video" : "image";
+        CloudinaryUploader.upload(this, uri, "callx/status", rt, new CloudinaryUploader.UploadCallback() {
+            @Override public void onSuccess(CloudinaryUploader.Result r) {
+                runOnUiThread(() -> {
+                    String thumbUrl = "video".equals(type) ? r.thumbnailUrl : null;
+                    if (thumbFile != null) VideoCompressor.safeDelete(thumbFile);
+                    saveBatchStatus(type, r.secureUrl, thumbUrl, caption, uid, name, photo);
+                });
+            }
+            @Override public void onError(String err) {
+                runOnUiThread(() -> {
+                    toast((err != null ? err : "Upload failed") + " — skipping item " + (pendingBatchIndex + 1));
+                    pendingBatchIndex++;
+                    postNextBatchItem();
+                });
+            }
+        });
+    }
+
+    private void saveBatchStatus(String type, String mediaUrl, String thumbUrl, String caption,
+                                  String uid, String name, String photo) {
+        long now = System.currentTimeMillis();
+        DatabaseReference ref = FirebaseUtils.getStatusRef().child(uid).push();
+        StatusItem item     = new StatusItem();
+        item.id             = ref.getKey();
+        item.ownerUid       = uid;
+        item.ownerName      = name;
+        item.ownerPhoto     = photo;
+        item.type           = type;
+        item.text           = null;
+        item.caption        = (caption == null || caption.isEmpty()) ? null : caption;
+        item.mediaUrl       = mediaUrl;
+        item.thumbnailUrl   = thumbUrl;
+        item.bgColor        = String.format("#%08X", selectedBgColor);
+        item.fontStyle      = selectedFontStyle;
+        item.textColor      = String.format("#%08X", selectedTextColor);
+        item.textAlign      = selectedTextAlign;
+        item.privacy        = selectedPrivacy;
+        item.privacyList    = privacyUids.isEmpty() ? null : new ArrayList<>(privacyUids);
+        item.isCloseFriends = isCloseFriends;
+        item.expiryHours    = selectedExpiryHours;
+        item.timestamp      = now;
+        item.expiresAt      = StatusCustomExpiryHelper.computeExpiresAt(selectedExpiryHours);
+        item.deleted        = false;
+        ref.setValue(item.toMap())
+            .addOnSuccessListener(u -> {
+                StatusNotificationHelper.scheduleStatusExpiryReminder(this, item.id, item.expiresAt);
+                pendingBatchIndex++;
+                postNextBatchItem();
+            })
+            .addOnFailureListener(e -> {
+                toast("Failed to post item " + (pendingBatchIndex + 1) + ": " + e.getMessage());
+                pendingBatchIndex++;
+                postNextBatchItem();
+            });
+    }
+
     // ── UI helpers ────────────────────────────────────────────────────────
     private void setPosting(boolean posting) {
         binding.btnPost.setEnabled(!posting);

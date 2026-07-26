@@ -139,7 +139,8 @@ public class ReelShareController {
 
         ReelMoreBottomSheet sheet = ReelMoreBottomSheet.newInstance(
             isOwner, delegate.isSaved(), speedLabel,
-            duetLevel, stitchLevel, delegate.isFollowing(), reel.seriesId);
+            duetLevel, stitchLevel, delegate.isFollowing(), reel.seriesId,
+            delegate.isCinemaModeOn());
         sheet.show(delegate.getChildFragmentManager(), ReelMoreBottomSheet.TAG);
     }
 
@@ -189,6 +190,7 @@ public class ReelShareController {
             // Reels Display Mode
             case ReelMoreBottomSheet.ACTION_DISPLAY_MODE:       delegate.showDisplayModePicker();  break;
             case ReelMoreBottomSheet.ACTION_BACKGROUND_PLAY:    delegate.toggleBackgroundPlay();   break;
+            case ReelMoreBottomSheet.ACTION_CINEMA_MODE:        delegate.toggleCinemaMode();       break;
         }
     }
 }
