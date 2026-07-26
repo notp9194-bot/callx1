@@ -67,6 +67,11 @@ import com.google.android.material.bottomsheet.BottomSheetDialog;
  *   ✅ Sticker JSON serialized and stored with the status post
  */
 public class NewStatusActivity extends AppCompatActivity {
+
+    /** Extra: sticker JSON to auto-attach on open (used by the ➕ Add Yours chain flow). */
+    public static final String EXTRA_PREFILL_STICKER_JSON = "prefillStickerJson";
+    /** Extra: optional toast message to show once the prefilled sticker is attached. */
+    public static final String EXTRA_PREFILL_TOAST = "prefillToast";
     private static final String PREFS_DRAFT = "status_draft";
     private static final String KEY_DRAFT   = "draft_text";
     private static final int[] BG_COLORS = {
@@ -168,6 +173,7 @@ public class NewStatusActivity extends AppCompatActivity {
                     statusMediaEditLauncher.launch(editIntent);
                 });
         restoreDraft();
+        applyPrefillStickerIfAny();
         // v216: "Upload" button now opens the WhatsApp-style "Add status" sheet
         //       (Text / Music / Layout / Voice / AI Images + Recents grid) instead
         //       of the old plain Camera/Gallery alert dialog.
@@ -195,6 +201,32 @@ public class NewStatusActivity extends AppCompatActivity {
         }
     }
 
+    /**
+     * If this activity was launched from a ➕ Add Yours sticker tap
+     * (StatusViewerActivity.openAddYoursComposer), auto-attaches that same
+     * sticker here so the viewer doesn't have to re-type the prompt — they
+     * just add their media/text and post to continue the chain.
+     */
+    private void applyPrefillStickerIfAny() {
+        String prefillJson = getIntent().getStringExtra(EXTRA_PREFILL_STICKER_JSON);
+        if (prefillJson == null || prefillJson.isEmpty()) return;
+
+        // Wait a frame so the overlay frame has real dimensions before the
+        // sticker is measured/positioned (mirrors addStickerOverlay's own
+        // width fallback, but this runs before any layout pass at all).
+        if (stickerOverlayFrame != null) {
+            stickerOverlayFrame.post(() -> {
+                addedStickerJsons.add(prefillJson);
+                addStickerOverlay(prefillJson);
+            });
+        }
+
+        String toastMsg = getIntent().getStringExtra(EXTRA_PREFILL_TOAST);
+        if (toastMsg != null && !toastMsg.isEmpty()) {
+            Toast.makeText(this, toastMsg, Toast.LENGTH_SHORT).show();
+        }
+    }
+
     /** Open the sticker type picker sheet. */
     private void openStickerPicker() {
         StatusStickerPickerSheet.show(this, result -> {
@@ -212,6 +244,12 @@ public class NewStatusActivity extends AppCompatActivity {
             case "countdown": return "⏳ Countdown";
             case "quiz":      return "🧠 Quiz sticker";
             case "question":  return "💬 Question box";
+            case "poll":      return "🗳️ Poll sticker";
+            case "slider":    return "🎚️ Slider sticker";
+            case "mention":   return "👤 Mention sticker";
+            case "hashtag":   return "#️⃣ Hashtag sticker";
+            case "link":      return "🔗 Link sticker";
+            case "addyours":  return "➕ Add Yours sticker";
             default:          return "✨ Sticker";
         }
     }
@@ -232,7 +270,17 @@ public class NewStatusActivity extends AppCompatActivity {
                 dp * 280),
             android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
             android.view.Gravity.TOP | android.view.Gravity.CENTER_HORIZONTAL);
-        lp.topMargin = dp * (16 + addedStickerJsons.size() * 12);
+        // BUG FIX: this used to be `dp * (16 + addedStickerJsons.size() * 12)` —
+        // a flat 12dp increment per sticker no matter how tall the previous
+        // card actually was. Music/Countdown/Quiz/Question cards range from
+        // ~70dp to 160dp+ tall, so adding all four landed each new one almost
+        // fully on top of the last, all centred, all TOP-anchored. Instead,
+        // stack each new sticker just below the *real* measured bottom of the
+        // previously-added one (tracked in stickerStackBottomPx) plus a fixed
+        // gap, so 4 stickers end up spaced apart down the story canvas instead
+        // of overlapping. User can still drag any of them afterward.
+        int gap = dp * 14;
+        lp.topMargin = (stickerStackBottomPx < 0) ? (dp * 16) : (stickerStackBottomPx + gap);
         stickerOverlayFrame.addView(stickerView, lp);
 
         // Enable drag + pinch-resize + long-press-remove
@@ -247,7 +295,24 @@ public class NewStatusActivity extends AppCompatActivity {
         stickerView.animate().scaleX(stickerView.getStickerScale()).scaleY(stickerView.getStickerScale())
             .alpha(1f).setDuration(300)
             .setInterpolator(new android.view.animation.OvershootInterpolator(1.3f)).start();
+
+        // Once this card is actually measured/laid out, remember where its
+        // bottom edge landed so the *next* sticker (if any) starts below it.
+        final int appliedTopMargin = lp.topMargin;
+        stickerView.post(() -> {
+            if (stickerView.getHeight() > 0) {
+                stickerStackBottomPx = appliedTopMargin + stickerView.getHeight();
+            }
+        });
     }
+
+    /**
+     * Bottom Y (px) of the last sticker card added to {@link #stickerOverlayFrame},
+     * used to place the next sticker below it instead of on top of it.
+     * -1 until the first sticker has been measured.
+     */
+    private int stickerStackBottomPx = -1;
+
 
     /**
      * Small floating Small/Medium/Large row shown just above a tapped sticker —
@@ -1044,8 +1109,19 @@ public class NewStatusActivity extends AppCompatActivity {
     private int    pendingBatchIndex;
     private String pendingBatchCaption;
 
+    // BUG FIX (double upload): the layout-picker → edit → post chain reaches
+    // postStatusBatch() from an ActivityResult callback. If Done/Send got
+    // double-tapped upstream (StatusLayoutPickerActivity / MediaEditActivity —
+    // now guarded there too) and the result still arrived twice, this used to
+    // re-run the whole batch and upload the same edited photos a second time.
+    // One NewStatusActivity screen only ever posts once, so a simple one-shot
+    // guard is enough.
+    private boolean batchUploadStarted = false;
+
     private void postStatusBatch(java.util.List<Uri> uris, java.util.List<Boolean> isVideoFlags, String caption) {
         if (uris == null || uris.isEmpty()) return;
+        if (batchUploadStarted) return;
+        batchUploadStarted  = true;
         pendingBatchUris    = uris;
         pendingBatchIsVideo = isVideoFlags;
         pendingBatchCaption = caption;

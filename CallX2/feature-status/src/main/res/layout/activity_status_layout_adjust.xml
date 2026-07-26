@@ -1,27 +1,30 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    activity_status_layout_picker.xml — Screen 1 of the WhatsApp-level Layout
-    Picker for Status: pure multi-photo selection, matching the reference
-    "Start layout" screen exactly (title + subtitle + Recents dropdown +
-    gallery grid). No preview / layout-style row here anymore — tapping
-    "Next" now hands off to a genuinely separate screen
-    (activity_status_layout_adjust.xml / StatusLayoutAdjustActivity) for
-    arranging the collage, instead of the preview appearing inline on this
-    same screen.
+    activity_status_layout_adjust.xml — Screen 2 of the WhatsApp-level Layout
+    Picker for Status: arranging the collage. Reached only after ≥1 photo is
+    picked on the "Start layout" selection screen (activity_status_layout_picker.xml)
+    and "Next" is tapped — matching the reference app's own two-step flow
+    (select screen, then a genuinely separate adjust screen) instead of the
+    old behaviour where the preview popped up inline under the same grid.
 
     Structure:
       ┌──────────────────────────────────────────┐
-      │  ← toolbar                       Next    │
+      │  ← toolbar                       Done     │
       ├──────────────────────────────────────────┤
-      │  "Start layout" title / subtitle          │
+      │  "Choose layout" subtitle                 │
+      ├──────────────────────────────────────────┤
+      │  StatusLayoutPreviewView  (top preview)   │
       ├──────────────────────────────────────────┤
       │  Recents ▾  (folder selector header)      │
       ├──────────────────────────────────────────┤
       │  3-column gallery grid (RecyclerView)     │
+      ├──────────────────────────────────────────┤
+      │  ────────────────────────────────────── │
+      │  [■] [■│■] [■ ■] [■▬] [■│■] [■]  ←6btns│
       └──────────────────────────────────────────┘
 -->
 <androidx.coordinatorlayout.widget.CoordinatorLayout
-    android:id="@+id/layout_picker_root"
+    android:id="@+id/layout_adjust_root"
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
@@ -30,7 +33,7 @@
 
     <!-- ── Toolbar ─────────────────────────────────────────────────────── -->
     <LinearLayout
-        android:id="@+id/layout_picker_toolbar"
+        android:id="@+id/layout_adjust_toolbar"
         android:layout_width="match_parent"
         android:layout_height="56dp"
         android:orientation="horizontal"
@@ -40,14 +43,14 @@
         android:background="#000000">
 
         <ImageView
-            android:id="@+id/btn_layout_back"
+            android:id="@+id/btn_layout_adjust_back"
             android:layout_width="48dp"
             android:layout_height="48dp"
             android:padding="12dp"
             android:src="@drawable/ic_arrow_back"
             android:tint="#FFFFFF"
             android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Close"/>
+            android:contentDescription="Back"/>
 
         <!-- Spacer -->
         <View
@@ -56,10 +59,10 @@
             android:layout_weight="1"/>
 
         <TextView
-            android:id="@+id/tv_layout_picker_done"
+            android:id="@+id/tv_layout_adjust_done"
             android:layout_width="wrap_content"
             android:layout_height="40dp"
-            android:text="Next"
+            android:text="Done"
             android:textColor="#FFFFFF"
             android:textSize="16sp"
             android:textStyle="bold"
@@ -81,25 +84,40 @@
 
         <!-- Title subtitle -->
         <TextView
-            android:id="@+id/tv_layout_picker_title"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Start layout"
+            android:text="Choose layout"
             android:textColor="#FFFFFF"
             android:textSize="18sp"
             android:textStyle="bold"
             android:gravity="center"
             android:paddingTop="10dp"
-            android:paddingBottom="6dp"/>
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Choose up to 6 photos for your layout."
-            android:textColor="#AAAAAA"
-            android:textSize="13sp"
-            android:gravity="center"
             android:paddingBottom="12dp"/>
+
+        <!-- ── Layout preview ───────────────────────────────────────────── -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="220dp"
+            android:orientation="vertical">
+
+            <com.callx.app.compose.StatusLayoutPreviewView
+                android:id="@+id/layout_preview_view"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:layout_marginStart="12dp"
+                android:layout_marginEnd="12dp"
+                android:layout_marginBottom="8dp"/>
+
+            <!-- Small drag handle separator -->
+            <View
+                android:layout_width="32dp"
+                android:layout_height="3dp"
+                android:layout_gravity="center_horizontal"
+                android:background="@drawable/bg_drag_handle"
+                android:layout_marginBottom="6dp"/>
+
+        </LinearLayout>
 
         <!-- ── Recents header with working folder dropdown ─────────────── -->
         <LinearLayout
@@ -140,6 +158,23 @@
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_weight="1"
+            android:clipToPadding="false"
+            android:overScrollMode="never"/>
+
+        <!-- ── Divider above layout style row ──────────────────────────── -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="#2A2A2A"
+            android:layout_marginTop="4dp"/>
+
+        <!-- ── Layout style selector row ───────────────────────────────── -->
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/rv_layout_styles"
+            android:layout_width="match_parent"
+            android:layout_height="72dp"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
             android:clipToPadding="false"
             android:overScrollMode="never"/>
 

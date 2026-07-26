@@ -10,11 +10,17 @@ import androidx.annotation.NonNull;
 /**
  * StatusStickerOverlayView — renders a live sticker card on top of a status/story preview.
  *
- * Supports four sticker types:
+ * Supports six sticker types:
  *  🎵 music     — album art + song + artist, pulsing equaliser bars
  *  ⏳ countdown — live ticking countdown to a target date, coloured card
  *  🧠 quiz      — multiple-choice question card with option rows
  *  💬 question  — open question box with "Send a reply" hint
+ *  🗳️ poll      — 2-option vote card, reveals live % split once voted
+ *  🎚️ slider    — draggable emoji rating slider (0-100%), reveals live average once released
+ *  👤 mention    — @username tag card, tap opens that user's profile
+ *  #️⃣ hashtag   — #topic tag card, tap opens the hashtag's feed
+ *  🔗 link       — tappable link pill, tap opens it in the browser
+ *  ➕ addyours   — prompt card, tap opens the composer to join the chain
  *
  * The view is draggable by default. The host activity should call
  * {@link #attachDragToParent(ViewGroup)} after adding this view to a FrameLayout.
@@ -73,6 +79,44 @@ public class StatusStickerOverlayView extends LinearLayout {
     public interface OnCountdownSubscribeToggleListener {
         void onToggle(boolean nowSubscribed);
     }
+
+    // ── Poll interactivity state ─────────────────────────────────────────────
+    private String pollQuestion, pollOptionA, pollOptionB;
+    private boolean pollAnswered = false;
+    private TextView pollOptViewA, pollOptViewB;
+    private View pollFillA, pollFillB;
+    private View pollContainerA, pollContainerB;
+    private TextView pollPctA, pollPctB;
+    private OnPollOptionSelectedListener pollListener;
+
+    /** Fired when a viewer taps an unanswered 🗳️ Poll option. option is "A" or "B". */
+    public interface OnPollOptionSelectedListener {
+        void onOptionSelected(String option);
+    }
+
+    // ── Slider interactivity state ───────────────────────────────────────────
+    private String sliderQuestion, sliderEmoji;
+    private boolean sliderAnswered = false;
+    private SeekBar sliderBar;
+    private TextView sliderValueLabel, sliderThumbEmoji, sliderAvgLabel;
+    private OnSliderValueSubmittedListener sliderListener;
+
+    /** Fired once a viewer releases the 🎚️ Slider thumb. value is 0-100. */
+    public interface OnSliderValueSubmittedListener {
+        void onSubmitted(int value);
+    }
+
+    // ── Mention sticker data (links to a tagged user's profile) ─────────────
+    private String mentionUsername;
+
+    // ── Hashtag sticker data (links to the topic's feed) ────────────────────
+    private String hashtagTag;
+
+    // ── Link sticker data (opens an external URL in the browser) ────────────
+    private String linkUrl, linkLabel;
+
+    // ── Add Yours sticker data (prompt + chain-origin attribution) ──────────
+    private String addYoursPrompt, addYoursOriginUid, addYoursOriginName;
 
     private StatusStickerOverlayView(Context ctx) {
         super(ctx);
@@ -210,6 +254,116 @@ public class StatusStickerOverlayView extends LinearLayout {
         countdownSubscribeLabel.setText(countdownSubscribed ? "Reminder set \u2713" : "Remind me");
     }
 
+    // ── Poll interactive flow ────────────────────────────────────────────────
+
+    /** The poll's question text, or null for non-poll stickers. */
+    public String getPollQuestion() { return "poll".equals(stickerType) ? pollQuestion : null; }
+
+    /** Option A's label, or null for non-poll stickers. */
+    public String getPollOptionA() { return "poll".equals(stickerType) ? pollOptionA : null; }
+
+    /** Option B's label, or null for non-poll stickers. */
+    public String getPollOptionB() { return "poll".equals(stickerType) ? pollOptionB : null; }
+
+    /** True once this viewer has voted (tapped an option, or had a prior vote restored). */
+    public boolean isPollAnswered() { return pollAnswered; }
+
+    /** Wires the tap-to-vote callback for an unanswered poll. No-op once voted. */
+    public void setOnPollOptionSelectedListener(OnPollOptionSelectedListener listener) {
+        this.pollListener = listener;
+    }
+
+    /**
+     * Locks the poll into its voted state: disables further taps, highlights this
+     * viewer's pick, and fills each option's percentage bar from the live vote counts.
+     * Safe to call to restore a previously-recorded vote (e.g. on reopening the status).
+     */
+    public void revealPollResult(String selectedOption, int countA, int countB) {
+        if (pollOptViewA == null || pollOptViewB == null) return;
+        pollAnswered = true;
+        int total = countA + countB;
+        int pctA = total > 0 ? Math.round(countA * 100f / total) : 50;
+        int pctB = total > 0 ? 100 - pctA : 50;
+
+        if (pollContainerA != null) { pollContainerA.setOnClickListener(null); pollContainerA.setClickable(false); }
+        if (pollContainerB != null) { pollContainerB.setOnClickListener(null); pollContainerB.setClickable(false); }
+
+        pollPctA.setText(pctA + "%");
+        pollPctB.setText(pctB + "%");
+        pollPctA.setVisibility(VISIBLE);
+        pollPctB.setVisibility(VISIBLE);
+
+        ViewGroup.LayoutParams fillLpA = pollFillA.getLayoutParams();
+        if (fillLpA instanceof LinearLayout.LayoutParams) ((LinearLayout.LayoutParams) fillLpA).weight = Math.max(pctA, 1);
+        ViewGroup.LayoutParams fillLpB = pollFillB.getLayoutParams();
+        if (fillLpB instanceof LinearLayout.LayoutParams) ((LinearLayout.LayoutParams) fillLpB).weight = Math.max(pctB, 1);
+        pollFillA.requestLayout();
+        pollFillB.requestLayout();
+
+        boolean pickedA = "A".equals(selectedOption);
+        pollOptViewA.setAlpha(pickedA ? 1f : 0.6f);
+        pollOptViewB.setAlpha(!pickedA ? 1f : 0.6f);
+        TextView pickedView = pickedA ? pollOptViewA : pollOptViewB;
+        pickedView.setText("\u2713 " + pickedView.getText());
+    }
+
+    // ── Slider interactive flow ──────────────────────────────────────────────
+
+    /** The slider's question/prompt text, or null for non-slider stickers. */
+    public String getSliderQuestion() { return "slider".equals(stickerType) ? sliderQuestion : null; }
+
+    /** The slider's emoji thumb, or null for non-slider stickers. */
+    public String getSliderEmoji() { return "slider".equals(stickerType) ? sliderEmoji : null; }
+
+    /** The tagged username (no leading @), or null for non-mention stickers. */
+    public String getMentionUsername() { return "mention".equals(stickerType) ? mentionUsername : null; }
+
+    /** The tagged topic (no leading #), or null for non-hashtag stickers. */
+    public String getHashtagTag() { return "hashtag".equals(stickerType) ? hashtagTag : null; }
+
+    // ── Link sticker linking (tap → open the URL in the browser) ────────────
+
+    /** The full URL this sticker points to (always includes a scheme), or null for non-link stickers. */
+    public String getLinkUrl() { return "link".equals(stickerType) ? linkUrl : null; }
+
+    /** The custom label text the poster typed, or "" if they left it blank. Null for non-link stickers. */
+    public String getLinkLabel() { return "link".equals(stickerType) ? linkLabel : null; }
+
+    // ── Add Yours chain flow ─────────────────────────────────────────────────
+
+    /** The prompt text (e.g. "My study era 📚"), or null for non-addyours stickers. */
+    public String getAddYoursPrompt() { return "addyours".equals(stickerType) ? addYoursPrompt : null; }
+
+    /** The uid of whoever started this chain, or "" if this status IS the origin. Null for other types. */
+    public String getAddYoursOriginUid() { return "addyours".equals(stickerType) ? addYoursOriginUid : null; }
+
+    /** The display name of whoever started this chain, or "" if this status IS the origin. Null for other types. */
+    public String getAddYoursOriginName() { return "addyours".equals(stickerType) ? addYoursOriginName : null; }
+
+    /** True once this viewer has released the slider (or had a prior value restored). */
+    public boolean isSliderAnswered() { return sliderAnswered; }
+
+    /** Wires the release-to-submit callback for an unanswered slider. No-op once submitted. */
+    public void setOnSliderValueSubmittedListener(OnSliderValueSubmittedListener listener) {
+        this.sliderListener = listener;
+    }
+
+    /**
+     * Locks the slider at myValue and shows the live average (0-100) as a small emoji
+     * marker on the track. Safe to call to restore a previously-recorded response.
+     */
+    public void revealSliderAverage(int myValue, int avgValue) {
+        if (sliderBar == null) return;
+        sliderAnswered = true;
+        sliderBar.setProgress(myValue);
+        sliderBar.setEnabled(false);
+        sliderValueLabel.setText(myValue + "%");
+        if (sliderAvgLabel != null) {
+            sliderAvgLabel.setVisibility(VISIBLE);
+            sliderAvgLabel.setText("Avg " + avgValue + "%");
+        }
+    }
+
     // ── Factory ────────────────────────────────────────────────────────────
 
     /**
@@ -224,6 +378,12 @@ public class StatusStickerOverlayView extends LinearLayout {
             case "countdown": v = buildCountdown(ctx, json); break;
             case "quiz":      v = buildQuiz(ctx, json); break;
             case "question":  v = buildQuestion(ctx, json); break;
+            case "poll":      v = buildPoll(ctx, json); break;
+            case "slider":    v = buildSlider(ctx, json); break;
+            case "mention":   v = buildMention(ctx, json); break;
+            case "hashtag":   v = buildHashtag(ctx, json); break;
+            case "link":      v = buildLink(ctx, json); break;
+            case "addyours":  v = buildAddYours(ctx, json); break;
             default:          v = buildQuestion(ctx, json); type = "question"; break;
         }
         v.stickerType = type;
@@ -800,6 +960,462 @@ public class StatusStickerOverlayView extends LinearLayout {
 
         v.addView(replyBox, new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        return v;
+    }
+
+    // ─── Poll sticker ──────────────────────────────────────────────────────
+
+    private static StatusStickerOverlayView buildPoll(Context ctx, String json) {
+        int dp = dp(ctx);
+        StatusStickerOverlayView v = new StatusStickerOverlayView(ctx);
+        v.setPadding(dp * 14, dp * 14, dp * 14, dp * 14);
+
+        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+        bg.setCornerRadius(dp * 18);
+        bg.setColor(0xEE0A1F2A);
+        bg.setStroke(1, 0xFF17C3E0);
+        v.setBackground(bg);
+
+        // Header
+        LinearLayout headerRow = new LinearLayout(ctx);
+        headerRow.setOrientation(LinearLayout.HORIZONTAL);
+        headerRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams hrLp = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        hrLp.bottomMargin = dp * 10;
+
+        TextView tvEmoji = new TextView(ctx);
+        tvEmoji.setText("\uD83D\uDDF3\uFE0F"); // 🗳️
+        tvEmoji.setTextSize(18);
+        LinearLayout.LayoutParams eLp = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        eLp.rightMargin = dp * 6;
+        headerRow.addView(tvEmoji, eLp);
+
+        TextView tvType = new TextView(ctx);
+        tvType.setText("POLL");
+        tvType.setTextColor(0xFF17C3E0);
+        tvType.setTextSize(12);
+        tvType.setTypeface(null, Typeface.BOLD);
+        tvType.setLetterSpacing(0.12f);
+        headerRow.addView(tvType);
+
+        v.addView(headerRow, hrLp);
+
+        // Question
+        String question = jsonStr(json, "question", "Poll question");
+        String optA = jsonStr(json, "optionA", "Yes");
+        String optB = jsonStr(json, "optionB", "No");
+        v.pollQuestion = question;
+        v.pollOptionA  = optA;
+        v.pollOptionB  = optB;
+
+        TextView tvQuestion = new TextView(ctx);
+        tvQuestion.setText(question);
+        tvQuestion.setTextColor(Color.WHITE);
+        tvQuestion.setTextSize(15);
+        tvQuestion.setTypeface(null, Typeface.BOLD);
+        tvQuestion.setMaxLines(3);
+        LinearLayout.LayoutParams qLp = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        qLp.bottomMargin = dp * 10;
+        v.addView(tvQuestion, qLp);
+
+        Object[] rA = buildPollOptionRow(ctx, dp, optA);
+        Object[] rB = buildPollOptionRow(ctx, dp, optB);
+        View containerA = (View) rA[0], containerB = (View) rB[0];
+        v.pollOptViewA = (TextView) rA[1]; v.pollFillA = (View) rA[2]; v.pollPctA = (TextView) rA[3];
+        v.pollOptViewB = (TextView) rB[1]; v.pollFillB = (View) rB[2]; v.pollPctB = (TextView) rB[3];
+
+        LinearLayout.LayoutParams optLpA = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, dp * 42);
+        optLpA.bottomMargin = dp * 8;
+        v.addView(containerA, optLpA);
+        v.addView(containerB, new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, dp * 42));
+
+        // Full pill is the tap target (not just the label), and gets disabled on vote.
+        containerA.setOnClickListener(cv -> {
+            if (v.pollAnswered) return;
+            if (v.pollListener != null) v.pollListener.onOptionSelected("A");
+        });
+        containerB.setOnClickListener(cv -> {
+            if (v.pollAnswered) return;
+            if (v.pollListener != null) v.pollListener.onOptionSelected("B");
+        });
+        v.pollContainerA = containerA;
+        v.pollContainerB = containerB;
+
+        return v;
+    }
+
+    /** Builds one poll option pill: [container, labelView, fillView, pctView]. */
+    private static Object[] buildPollOptionRow(Context ctx, int dp, String label) {
+        FrameLayout container = new FrameLayout(ctx);
+        android.graphics.drawable.GradientDrawable pillBg = new android.graphics.drawable.GradientDrawable();
+        pillBg.setCornerRadius(dp * 20);
+        pillBg.setColor(0x22FFFFFF);
+        pillBg.setStroke(1, 0x55FFFFFF);
+        container.setBackground(pillBg);
+        container.setClipToOutline(true);
+        container.setClickable(true);
+        container.setFocusable(true);
+
+        // Percentage fill bar — hidden (0-width) until the viewer votes.
+        LinearLayout fillRow = new LinearLayout(ctx);
+        fillRow.setOrientation(LinearLayout.HORIZONTAL);
+        View fill = new View(ctx);
+        fill.setBackgroundColor(0x5517C3E0);
+        View spacer = new View(ctx);
+        fillRow.addView(fill, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 0f));
+        fillRow.addView(spacer, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f));
+        container.addView(fillRow, new FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+
+        // Label + percentage content row, drawn on top of the fill.
+        LinearLayout content = new LinearLayout(ctx);
+        content.setOrientation(LinearLayout.HORIZONTAL);
+        content.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        content.setPadding(dp * 14, 0, dp * 14, 0);
+
+        TextView tvLabel = new TextView(ctx);
+        tvLabel.setText(label);
+        tvLabel.setTextColor(Color.WHITE);
+        tvLabel.setTextSize(14);
+        tvLabel.setTypeface(null, Typeface.BOLD);
+        content.addView(tvLabel, new LinearLayout.LayoutParams(
+            0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+
+        TextView tvPct = new TextView(ctx);
+        tvPct.setTextColor(Color.WHITE);
+        tvPct.setTextSize(13);
+        tvPct.setTypeface(null, Typeface.BOLD);
+        tvPct.setVisibility(GONE);
+        content.addView(tvPct);
+
+        container.addView(content, new FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+
+        return new Object[]{container, tvLabel, fill, tvPct};
+    }
+
+    // ─── Slider sticker ────────────────────────────────────────────────────
+
+    private static StatusStickerOverlayView buildSlider(Context ctx, String json) {
+        int dp = dp(ctx);
+        StatusStickerOverlayView v = new StatusStickerOverlayView(ctx);
+        v.setPadding(dp * 14, dp * 14, dp * 14, dp * 14);
+
+        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+        bg.setCornerRadius(dp * 18);
+        bg.setColor(0xEE23122E);
+        bg.setStroke(1, 0xFFE91E8C);
+        v.setBackground(bg);
+
+        String emoji = jsonStr(json, "emoji", "\u2764\uFE0F"); // ❤️
+        String question = jsonStr(json, "question", "Rate it!");
+        v.sliderEmoji = emoji;
+        v.sliderQuestion = question;
+
+        // Header
+        LinearLayout headerRow = new LinearLayout(ctx);
+        headerRow.setOrientation(LinearLayout.HORIZONTAL);
+        headerRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams hrLp = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        hrLp.bottomMargin = dp * 10;
+
+        TextView tvEmoji = new TextView(ctx);
+        tvEmoji.setText("\uD83C\uDF9A\uFE0F"); // 🎚️
+        tvEmoji.setTextSize(18);
+        LinearLayout.LayoutParams eLp = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        eLp.rightMargin = dp * 6;
+        headerRow.addView(tvEmoji, eLp);
+
+        TextView tvType = new TextView(ctx);
+        tvType.setText("SLIDER");
+        tvType.setTextColor(0xFFE91E8C);
+        tvType.setTextSize(12);
+        tvType.setTypeface(null, Typeface.BOLD);
+        tvType.setLetterSpacing(0.12f);
+        headerRow.addView(tvType);
+
+        v.addView(headerRow, hrLp);
+
+        // Question
+        TextView tvQuestion = new TextView(ctx);
+        tvQuestion.setText(question);
+        tvQuestion.setTextColor(Color.WHITE);
+        tvQuestion.setTextSize(15);
+        tvQuestion.setTypeface(null, Typeface.BOLD);
+        tvQuestion.setMaxLines(3);
+        LinearLayout.LayoutParams qLp = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        qLp.bottomMargin = dp * 10;
+        v.addView(tvQuestion, qLp);
+
+        // Live value readout, above the track
+        LinearLayout valueRow = new LinearLayout(ctx);
+        valueRow.setOrientation(LinearLayout.HORIZONTAL);
+        valueRow.setGravity(android.view.Gravity.CENTER);
+
+        TextView tvThumbEmoji = new TextView(ctx);
+        tvThumbEmoji.setText(emoji);
+        tvThumbEmoji.setTextSize(20);
+        LinearLayout.LayoutParams teLp = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        teLp.rightMargin = dp * 6;
+        valueRow.addView(tvThumbEmoji, teLp);
+        v.sliderThumbEmoji = tvThumbEmoji;
+
+        TextView tvValue = new TextView(ctx);
+        tvValue.setText("50%");
+        tvValue.setTextColor(Color.WHITE);
+        tvValue.setTextSize(15);
+        tvValue.setTypeface(null, Typeface.BOLD);
+        valueRow.addView(tvValue);
+        v.sliderValueLabel = tvValue;
+
+        TextView tvAvg = new TextView(ctx);
+        tvAvg.setTextColor(0xFFE91E8C);
+        tvAvg.setTextSize(12);
+        tvAvg.setTypeface(null, Typeface.BOLD);
+        tvAvg.setVisibility(GONE);
+        LinearLayout.LayoutParams avgLp = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        avgLp.leftMargin = dp * 10;
+        valueRow.addView(tvAvg, avgLp);
+        v.sliderAvgLabel = tvAvg;
+
+        LinearLayout.LayoutParams vrLp = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        vrLp.bottomMargin = dp * 4;
+        v.addView(valueRow, vrLp);
+
+        // Track
+        SeekBar seekBar = new SeekBar(ctx);
+        seekBar.setMax(100);
+        seekBar.setProgress(50);
+        try {
+            seekBar.setThumbTintList(android.content.res.ColorStateList.valueOf(0xFFE91E8C));
+            seekBar.setProgressTintList(android.content.res.ColorStateList.valueOf(0xFFE91E8C));
+        } catch (Exception ignored) {}
+        v.sliderBar = seekBar;
+
+        seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar sb, int progress, boolean fromUser) {
+                tvValue.setText(progress + "%");
+            }
+            @Override public void onStartTrackingTouch(SeekBar sb) { }
+            @Override public void onStopTrackingTouch(SeekBar sb) {
+                if (v.sliderAnswered) return;
+                if (v.sliderListener != null) v.sliderListener.onSubmitted(sb.getProgress());
+            }
+        });
+
+        v.addView(seekBar, new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        return v;
+    }
+
+    // ─── Mention sticker ───────────────────────────────────────────────────
+
+    private static StatusStickerOverlayView buildMention(Context ctx, String json) {
+        int dp = dp(ctx);
+        StatusStickerOverlayView v = new StatusStickerOverlayView(ctx);
+        v.setPadding(dp * 14, dp * 10, dp * 16, dp * 10);
+        v.setOrientation(HORIZONTAL);
+        v.setGravity(android.view.Gravity.CENTER_VERTICAL);
+
+        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+        bg.setCornerRadius(dp * 24);
+        bg.setColor(0xEE14283A);
+        bg.setStroke(1, 0xFF3D9BE9);
+        v.setBackground(bg);
+
+        String username = jsonStr(json, "username", "");
+        v.mentionUsername = username;
+
+        TextView tvAt = new TextView(ctx);
+        tvAt.setText("👤");
+        tvAt.setTextSize(16);
+        LinearLayout.LayoutParams atLp = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        atLp.rightMargin = dp * 8;
+        v.addView(tvAt, atLp);
+
+        TextView tvUsername = new TextView(ctx);
+        tvUsername.setText("@" + username);
+        tvUsername.setTextColor(0xFF3D9BE9);
+        tvUsername.setTextSize(15);
+        tvUsername.setTypeface(null, Typeface.BOLD);
+        tvUsername.setMaxLines(1);
+        tvUsername.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        v.addView(tvUsername);
+
+        return v;
+    }
+
+    // ─── Hashtag sticker ───────────────────────────────────────────────────
+
+    private static StatusStickerOverlayView buildHashtag(Context ctx, String json) {
+        int dp = dp(ctx);
+        StatusStickerOverlayView v = new StatusStickerOverlayView(ctx);
+        v.setPadding(dp * 14, dp * 10, dp * 16, dp * 10);
+        v.setOrientation(HORIZONTAL);
+        v.setGravity(android.view.Gravity.CENTER_VERTICAL);
+
+        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+        bg.setCornerRadius(dp * 24);
+        bg.setColor(0xEE2A2410);
+        bg.setStroke(1, 0xFFE9C93D);
+        v.setBackground(bg);
+
+        String tag = jsonStr(json, "tag", "");
+        v.hashtagTag = tag;
+
+        TextView tvHash = new TextView(ctx);
+        tvHash.setText("#");
+        tvHash.setTextColor(0xFFE9C93D);
+        tvHash.setTextSize(18);
+        tvHash.setTypeface(null, Typeface.BOLD);
+        LinearLayout.LayoutParams hLp = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        hLp.rightMargin = dp * 6;
+        v.addView(tvHash, hLp);
+
+        TextView tvTag = new TextView(ctx);
+        tvTag.setText(tag);
+        tvTag.setTextColor(0xFFE9C93D);
+        tvTag.setTextSize(15);
+        tvTag.setTypeface(null, Typeface.BOLD);
+        tvTag.setMaxLines(1);
+        tvTag.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        v.addView(tvTag);
+
+        return v;
+    }
+
+    // ─── Link sticker ──────────────────────────────────────────────────────
+
+    private static StatusStickerOverlayView buildLink(Context ctx, String json) {
+        int dp = dp(ctx);
+        StatusStickerOverlayView v = new StatusStickerOverlayView(ctx);
+        v.setPadding(dp * 16, dp * 10, dp * 18, dp * 10);
+        v.setOrientation(HORIZONTAL);
+        v.setGravity(android.view.Gravity.CENTER_VERTICAL);
+
+        // Rendered as a solid white pill (unlike the other dark cards) — mirrors
+        // the high-contrast "link" pill viewers already expect from IG-style stories.
+        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+        bg.setCornerRadius(dp * 24);
+        bg.setColor(0xFFFFFFFF);
+        v.setBackground(bg);
+
+        String url   = jsonStr(json, "url", "");
+        String label = jsonStr(json, "label", "");
+        v.linkUrl   = url;
+        v.linkLabel = label;
+
+        TextView tvIcon = new TextView(ctx);
+        tvIcon.setText("\uD83D\uDD17"); // 🔗
+        tvIcon.setTextSize(16);
+        LinearLayout.LayoutParams iLp = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        iLp.rightMargin = dp * 8;
+        v.addView(tvIcon, iLp);
+
+        String display = !label.isEmpty() ? label : displayHost(url);
+        TextView tvLabel = new TextView(ctx);
+        tvLabel.setText(display);
+        tvLabel.setTextColor(0xFF111111);
+        tvLabel.setTextSize(15);
+        tvLabel.setTypeface(null, Typeface.BOLD);
+        tvLabel.setMaxLines(1);
+        tvLabel.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        v.addView(tvLabel);
+
+        return v;
+    }
+
+    /** Best-effort host name for display (e.g. "example.com"), falling back to the raw URL. */
+    private static String displayHost(String url) {
+        try {
+            android.net.Uri u = android.net.Uri.parse(url);
+            String host = u.getHost();
+            return host != null ? host.replaceFirst("^www\\.", "") : url;
+        } catch (Exception e) {
+            return url;
+        }
+    }
+
+    // ─── Add Yours sticker ─────────────────────────────────────────────────
+
+    private static StatusStickerOverlayView buildAddYours(Context ctx, String json) {
+        int dp = dp(ctx);
+        StatusStickerOverlayView v = new StatusStickerOverlayView(ctx);
+        v.setPadding(dp * 16, dp * 14, dp * 16, dp * 14);
+        v.setGravity(android.view.Gravity.CENTER);
+
+        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+        bg.setCornerRadius(dp * 18);
+        bg.setColor(0xEE1A1A1A);
+        bg.setStroke(dp * 2, 0xFFFFFFFF);
+        v.setBackground(bg);
+
+        String prompt     = jsonStr(json, "prompt", "Add Yours");
+        String originUid  = jsonStr(json, "originUid", "");
+        String originName = jsonStr(json, "originName", "");
+        v.addYoursPrompt     = prompt;
+        v.addYoursOriginUid  = originUid;
+        v.addYoursOriginName = originName;
+
+        TextView tvPlus = new TextView(ctx);
+        tvPlus.setText("\u2795"); // ➕
+        tvPlus.setTextSize(22);
+        tvPlus.setGravity(android.view.Gravity.CENTER);
+        LinearLayout.LayoutParams pLp = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        pLp.bottomMargin = dp * 6;
+        v.addView(tvPlus, pLp);
+
+        TextView tvHeader = new TextView(ctx);
+        tvHeader.setText("ADD YOURS");
+        tvHeader.setTextColor(Color.WHITE);
+        tvHeader.setTextSize(12);
+        tvHeader.setTypeface(null, Typeface.BOLD);
+        tvHeader.setLetterSpacing(0.12f);
+        tvHeader.setGravity(android.view.Gravity.CENTER);
+        LinearLayout.LayoutParams hLp = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        hLp.bottomMargin = dp * 6;
+        v.addView(tvHeader, hLp);
+
+        TextView tvPrompt = new TextView(ctx);
+        tvPrompt.setText(prompt);
+        tvPrompt.setTextColor(Color.WHITE);
+        tvPrompt.setTextSize(16);
+        tvPrompt.setTypeface(null, Typeface.BOLD);
+        tvPrompt.setGravity(android.view.Gravity.CENTER);
+        tvPrompt.setMaxLines(2);
+        LinearLayout.LayoutParams promptLp = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        if (!originName.isEmpty()) promptLp.bottomMargin = dp * 6;
+        v.addView(tvPrompt, promptLp);
+
+        // Only present once a viewer has actually joined the chain — the origin
+        // post itself has no originName yet, since it hasn't been added-to.
+        if (!originName.isEmpty()) {
+            TextView tvOrigin = new TextView(ctx);
+            tvOrigin.setText("\u21B3 Started by " + originName);
+            tvOrigin.setTextColor(0xFFBBBBBB);
+            tvOrigin.setTextSize(11);
+            tvOrigin.setGravity(android.view.Gravity.CENTER);
+            v.addView(tvOrigin);
+        }
 
         return v;
     }

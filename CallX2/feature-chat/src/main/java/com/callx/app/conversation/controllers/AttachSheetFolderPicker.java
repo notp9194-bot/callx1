@@ -23,9 +23,9 @@ import java.util.concurrent.ExecutorService;
  * card anchored under the header, exactly like the reference screenshot's
  * folder picker. Picking a row swaps the grid over to that folder.
  */
-final class AttachSheetFolderPicker {
+public final class AttachSheetFolderPicker {
 
-    interface OnFolderSelected {
+    public interface OnFolderSelected {
         void onFolderSelected(RecentMediaLoader.Folder folder);
     }
 
@@ -36,7 +36,7 @@ final class AttachSheetFolderPicker {
      * @param currentFilterKey the RecentMediaLoader filter currently applied to the grid, so
      *                    the matching row can be checkmarked.
      */
-    static void showUnderAnchor(Activity activity, View anchor, View sheetRoot,
+    public static void showUnderAnchor(Activity activity, View anchor, View sheetRoot,
                                  ExecutorService executor, String currentFilterKey,
                                  OnFolderSelected callback) {
         executor.execute(() -> {

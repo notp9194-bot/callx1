@@ -757,8 +757,25 @@ public class MediaEditActivity extends AppCompatActivity {
         if (btnDelete != null) btnDelete.setOnClickListener(v -> deleteCurrentItem());
 
         View btnSend = findViewById(R.id.btnEditSend);
-        if (btnSend != null) btnSend.setOnClickListener(v -> bakeAndSend());
+        if (btnSend != null) btnSend.setOnClickListener(v -> {
+            // BUG FIX (double upload): bakeAndSend()/processItemForSend() bake
+            // each photo/video on a background executor and only call
+            // setResult()+finish() once every item is done. A fast double-tap
+            // on Send (very easy to do since baking isn't instant) used to
+            // kick off two full processItemForSend() chains in parallel, and
+            // whichever one finished last called finish() with its own
+            // result — with the caller (NewStatusActivity) in some flows
+            // already having posted from the first chain, this uploaded the
+            // same item(s) twice. Guard so only the first tap runs.
+            if (sendInProgress) return;
+            sendInProgress = true;
+            btnSend.setEnabled(false);
+            bakeAndSend();
+        });
     }
+
+    /** Set on the first Send tap to block a duplicate bake+upload from a fast double-tap. */
+    private boolean sendInProgress = false;
 
     // ── Thumbnail strip ───────────────────────────────────────────────────
 

@@ -495,4 +495,132 @@ public class StatusReplyBottomSheet {
                         @Override public void onCancelled(DatabaseError e) {}
                     }));
     }
+
+    // ── Poll-sticker tap-to-vote ──────────────────────────────────────────────
+    /**
+     * Called when a viewer taps an option on a 🗳️ Poll sticker (see
+     * StatusStickerOverlayView#setOnPollOptionSelectedListener / StatusViewerActivity's
+     * sticker overlay). Same DM + notify path as the quiz/countdown flows, plus persists
+     * the vote under FirebaseUtils.getStatusPollVoteRef so re-opening the status restores
+     * this viewer's locked-in choice instead of asking again.
+     */
+    public static void sendPollVote(String myUid, String ownerUid, String ownerName,
+                                     StatusItem item, int stickerIndex, String question,
+                                     String selectedOption, String selectedText) {
+        if (item == null || myUid == null || ownerUid == null) return;
+        if (myUid.equals(ownerUid)) return; // Owner cannot vote on their own poll
+
+        // 1) Persist the vote so this poll sticker only asks once per viewer.
+        Map<String, Object> vote = new HashMap<>();
+        vote.put("option",    selectedOption); // "A" | "B"
+        vote.put("timestamp", com.google.firebase.database.ServerValue.TIMESTAMP);
+        FirebaseUtils.getStatusPollVoteRef(ownerUid, item.id != null ? item.id : "unknown",
+                stickerIndex, myUid).setValue(vote);
+
+        // 2) Send the vote to the owner as a quoted chat DM.
+        String chatId = myUid.compareTo(ownerUid) < 0
+                ? myUid + "_" + ownerUid : ownerUid + "_" + myUid;
+        String msgId = FirebaseUtils.db().getReference().push().getKey();
+        if (msgId == null) return;
+        Map<String, Object> msg = new HashMap<>();
+        msg.put("id",                  msgId);
+        msg.put("senderId",            myUid);
+        msg.put("text",                "\uD83D\uDDF3\uFE0F Voted: " + selectedText); // 🗳️
+        msg.put("type",                "text");
+        msg.put("timestamp",           com.google.firebase.database.ServerValue.TIMESTAMP);
+        msg.put("seen",                false);
+        msg.put("replyToType",         item.type != null ? item.type : "text");
+        msg.put("replyToText",         "\uD83D\uDDF3\uFE0F " + question);
+        msg.put("replyToSenderName",   statusReplyLabel(ownerName));
+        msg.put("replyToId",           "status_" + (item.id != null ? item.id : "unknown"));
+        if (item.thumbnailUrl != null)
+            msg.put("replyToMediaUrl", item.thumbnailUrl);
+        else if ("image".equals(item.type) && item.mediaUrl != null)
+            msg.put("replyToMediaUrl", item.mediaUrl);
+
+        FirebaseUtils.db()
+            .getReference("messages").child(chatId).child(msgId)
+            .setValue(msg)
+            .addOnSuccessListener(u ->
+                FirebaseUtils.db().getReference("users").child(myUid)
+                    .addListenerForSingleValueEvent(new ValueEventListener() {
+                        @Override public void onDataChange(DataSnapshot snap) {
+                            String name  = snap.child("name").getValue(String.class);
+                            String photo = snap.child("thumbUrl").getValue(String.class);
+                            if (photo == null) photo = snap.child("photoUrl").getValue(String.class);
+                            try {
+                                com.callx.app.utils.PushNotify.notifyStatusReply(
+                                        ownerUid, myUid,
+                                        name != null ? name : "Someone",
+                                        photo != null ? photo : "",
+                                        "\uD83D\uDDF3\uFE0F Voted on your poll: " + selectedText, chatId);
+                            } catch (Exception ignored) {}
+                        }
+                        @Override public void onCancelled(DatabaseError e) {}
+                    }));
+    }
+
+    // ── Slider-sticker drag-to-submit ─────────────────────────────────────────
+    /**
+     * Called when a viewer releases the thumb on a 🎚️ Slider sticker (see
+     * StatusStickerOverlayView#setOnSliderValueSubmittedListener / StatusViewerActivity's
+     * sticker overlay). Same DM + notify path as the poll/quiz flows, plus persists the
+     * response under FirebaseUtils.getStatusSliderResponseRef so re-opening the status
+     * restores this viewer's locked-in value instead of asking again.
+     */
+    public static void sendSliderResponse(String myUid, String ownerUid, String ownerName,
+                                           StatusItem item, int stickerIndex, String question,
+                                           String emoji, int value) {
+        if (item == null || myUid == null || ownerUid == null) return;
+        if (myUid.equals(ownerUid)) return; // Owner cannot respond to their own slider
+
+        // 1) Persist the response so this slider sticker only asks once per viewer.
+        Map<String, Object> resp = new HashMap<>();
+        resp.put("value",     value);
+        resp.put("timestamp", com.google.firebase.database.ServerValue.TIMESTAMP);
+        FirebaseUtils.getStatusSliderResponseRef(ownerUid, item.id != null ? item.id : "unknown",
+                stickerIndex, myUid).setValue(resp);
+
+        // 2) Send the rating to the owner as a quoted chat DM.
+        String chatId = myUid.compareTo(ownerUid) < 0
+                ? myUid + "_" + ownerUid : ownerUid + "_" + myUid;
+        String msgId = FirebaseUtils.db().getReference().push().getKey();
+        if (msgId == null) return;
+        Map<String, Object> msg = new HashMap<>();
+        msg.put("id",                  msgId);
+        msg.put("senderId",            myUid);
+        msg.put("text",                "\uD83C\uDF9A\uFE0F Rated " + emoji + " " + value + "%");
+        msg.put("type",                "text");
+        msg.put("timestamp",           com.google.firebase.database.ServerValue.TIMESTAMP);
+        msg.put("seen",                false);
+        msg.put("replyToType",         item.type != null ? item.type : "text");
+        msg.put("replyToText",         "\uD83C\uDF9A\uFE0F " + question);
+        msg.put("replyToSenderName",   statusReplyLabel(ownerName));
+        msg.put("replyToId",           "status_" + (item.id != null ? item.id : "unknown"));
+        if (item.thumbnailUrl != null)
+            msg.put("replyToMediaUrl", item.thumbnailUrl);
+        else if ("image".equals(item.type) && item.mediaUrl != null)
+            msg.put("replyToMediaUrl", item.mediaUrl);
+
+        FirebaseUtils.db()
+            .getReference("messages").child(chatId).child(msgId)
+            .setValue(msg)
+            .addOnSuccessListener(u ->
+                FirebaseUtils.db().getReference("users").child(myUid)
+                    .addListenerForSingleValueEvent(new ValueEventListener() {
+                        @Override public void onDataChange(DataSnapshot snap) {
+                            String name  = snap.child("name").getValue(String.class);
+                            String photo = snap.child("thumbUrl").getValue(String.class);
+                            if (photo == null) photo = snap.child("photoUrl").getValue(String.class);
+                            try {
+                                com.callx.app.utils.PushNotify.notifyStatusReply(
+                                        ownerUid, myUid,
+                                        name != null ? name : "Someone",
+                                        photo != null ? photo : "",
+                                        "\uD83C\uDF9A\uFE0F Rated your slider: " + emoji + " " + value + "%", chatId);
+                            } catch (Exception ignored) {}
+                        }
+                        @Override public void onCancelled(DatabaseError e) {}
+                    }));
+    }
 }

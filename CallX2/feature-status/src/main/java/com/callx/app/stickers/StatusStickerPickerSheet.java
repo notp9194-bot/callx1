@@ -17,10 +17,17 @@ import com.callx.app.status.R;
  * StatusStickerPickerSheet — Instagram-style sticker picker for Status/Stories.
  *
  * Available sticker types:
- *  ✅ 🎵 Music Sticker   — show now-playing song card on status
- *  ✅ ⏳ Countdown Timer — count down to an upcoming event
- *  ✅ 🧠 Quiz Sticker    — multiple choice quiz, one correct answer
- *  ✅ 💬 Question Box    — open-ended question for viewers to answer
+ *  ✅ 🎵 Music Sticker    — show now-playing song card on status
+ *  ✅ ⏳ Countdown Timer  — count down to an upcoming event
+ *  ✅ 🧠 Quiz Sticker     — multiple choice quiz, one correct answer
+ *  ✅ 💬 Question Box     — open-ended question for viewers to answer
+ *  ✅ 🗳️ Poll Sticker     — 2-option vote (Yes/No style), live % split
+ *  ✅ 🎚️ Slider Sticker   — emoji rating slider (0-100%), live average
+ *  ✅ 👤 Mention Sticker  — @username tag, tap opens that user's profile
+ *  ✅ #️⃣ Hashtag Sticker  — #topic tag, tap opens the hashtag's X feed
+ *  ✅ 🔗 Link Sticker     — tappable external link, opens in the browser
+ *  ✅ ➕ Add Yours        — a prompt that opens the composer so others can
+ *                          post their own story continuing the same chain
  *
  * Usage:
  *   StatusStickerPickerSheet.show(activity, listener);
@@ -34,7 +41,7 @@ public class StatusStickerPickerSheet extends BottomSheetDialogFragment {
     }
 
     public static class StickerResult {
-        public final String type;   // "music" | "countdown" | "quiz" | "question"
+        public final String type;   // "music" | "countdown" | "quiz" | "question" | "poll" | "slider" | "mention" | "hashtag" | "link" | "addyours"
         public final String json;   // config JSON for this sticker
 
         public StickerResult(String type, String json) {
@@ -90,29 +97,29 @@ public class StatusStickerPickerSheet extends BottomSheetDialogFragment {
         titleLp.bottomMargin = dp * 20;
         root.addView(tvTitle, titleLp);
 
-        // 2x2 grid of sticker type cards
+        // 2-wide grid of sticker type cards
         String[][] stickers = {
             {"🎵", "Music",     "Show what you're listening to"},
             {"⏳", "Countdown", "Create a countdown to an event"},
             {"🧠", "Quiz",      "Test your audience (one correct answer)"},
-            {"💬", "Question",  "Ask viewers anything"}
+            {"💬", "Question",  "Ask viewers anything"},
+            {"🗳️", "Poll",      "Let viewers vote between 2 options"},
+            {"🎚️", "Slider",    "Emoji rating slider viewers can drag"},
+            {"👤", "Mention",   "Tag a user — tap opens their profile"},
+            {"#️⃣", "Hashtag",   "Tag a topic — tap opens the hashtag feed"},
+            {"🔗", "Link",      "Add a tappable link — opens in browser"},
+            {"➕", "Add Yours", "Start a prompt others can join"}
         };
 
-        // Row 1
-        LinearLayout row1 = buildRow(ctx, dp);
-        row1.addView(buildStickerCard(ctx, dp, stickers[0]));
-        row1.addView(buildStickerCard(ctx, dp, stickers[1]));
-        LinearLayout.LayoutParams rowLp1 = new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        rowLp1.bottomMargin = dp * 12;
-        root.addView(row1, rowLp1);
-
-        // Row 2
-        LinearLayout row2 = buildRow(ctx, dp);
-        row2.addView(buildStickerCard(ctx, dp, stickers[2]));
-        row2.addView(buildStickerCard(ctx, dp, stickers[3]));
-        root.addView(row2, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        for (int r = 0; r < stickers.length; r += 2) {
+            LinearLayout row = buildRow(ctx, dp);
+            row.addView(buildStickerCard(ctx, dp, stickers[r]));
+            if (r + 1 < stickers.length) row.addView(buildStickerCard(ctx, dp, stickers[r + 1]));
+            LinearLayout.LayoutParams rowLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            if (r + 2 < stickers.length) rowLp.bottomMargin = dp * 12;
+            root.addView(row, rowLp);
+        }
 
         sv.addView(root);
         return sv;
@@ -143,6 +150,12 @@ public class StatusStickerPickerSheet extends BottomSheetDialogFragment {
             case "Countdown": cardColor = 0xFF251A40; break;
             case "Quiz":      cardColor = 0xFF1A2520; break;
             case "Question":  cardColor = 0xFF251A1A; break;
+            case "Poll":      cardColor = 0xFF102A2A; break;
+            case "Slider":    cardColor = 0xFF2A1A2E; break;
+            case "Mention":   cardColor = 0xFF14283A; break;
+            case "Hashtag":   cardColor = 0xFF2A2410; break;
+            case "Link":      cardColor = 0xFF232323; break;
+            case "Add Yours": cardColor = 0xFF241A2E; break;
             default:          cardColor = 0xFF1E1E1E;
         }
         bg.setColor(cardColor);
@@ -208,6 +221,12 @@ public class StatusStickerPickerSheet extends BottomSheetDialogFragment {
             case "Countdown": openCountdownCreator(ctx); break;
             case "Quiz":      openQuizCreator(ctx);      break;
             case "Question":  openQuestionCreator(ctx);  break;
+            case "Poll":      openPollCreator(ctx);      break;
+            case "Slider":    openSliderCreator(ctx);    break;
+            case "Mention":   openMentionCreator(ctx);   break;
+            case "Hashtag":   openHashtagCreator(ctx);   break;
+            case "Link":      openLinkCreator(ctx);      break;
+            case "Add Yours": openAddYoursCreator(ctx);  break;
         }
     }
 
@@ -480,6 +499,347 @@ public class StatusStickerPickerSheet extends BottomSheetDialogFragment {
                 if (question.isEmpty()) question = "Ask me anything!";
                 String json = "{\"type\":\"question\",\"prompt\":\"" + esc(question) + "\"}";
                 if (listener != null) listener.onSelected(new StickerResult("question", json));
+            })
+            .setNegativeButton("Cancel", null)
+            .create());
+    }
+
+    // ─── Poll Sticker Creator ───────────────────────────────────────────────
+
+    private void openPollCreator(Context ctx) {
+        int dp = (int) ctx.getResources().getDisplayMetrics().density;
+
+        LinearLayout layout = new LinearLayout(ctx);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setPadding(dp * 20, dp * 16, dp * 20, dp * 8);
+
+        EditText etQuestion = new EditText(ctx);
+        etQuestion.setHint("Poll question e.g. Should I get a haircut?");
+        etQuestion.setTextSize(15);
+        etQuestion.setMaxLines(2);
+        layout.addView(etQuestion);
+
+        TextView hint = new TextView(ctx);
+        hint.setText("Options:");
+        hint.setTextColor(android.graphics.Color.GRAY);
+        hint.setTextSize(13);
+        LinearLayout.LayoutParams hLp = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        hLp.topMargin = dp * 12;
+        layout.addView(hint, hLp);
+
+        LinearLayout optRow = new LinearLayout(ctx);
+        optRow.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams optRowLp = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        optRowLp.topMargin = dp * 6;
+        layout.addView(optRow, optRowLp);
+
+        EditText etOptA = new EditText(ctx);
+        etOptA.setHint("Option A");
+        etOptA.setText("Yes");
+        etOptA.setTextSize(14);
+        LinearLayout.LayoutParams aLp = new LinearLayout.LayoutParams(
+            0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        aLp.rightMargin = dp * 6;
+        optRow.addView(etOptA, aLp);
+
+        EditText etOptB = new EditText(ctx);
+        etOptB.setHint("Option B");
+        etOptB.setText("No");
+        etOptB.setTextSize(14);
+        optRow.addView(etOptB, new LinearLayout.LayoutParams(
+            0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+
+        AlertDialogStyler.showRounded(new android.app.AlertDialog.Builder(ctx)
+            .setTitle("🗳️ Poll Sticker")
+            .setView(layout)
+            .setPositiveButton("Add to Status", (d, w) -> {
+                String question = etQuestion.getText().toString().trim();
+                if (question.isEmpty()) {
+                    Toast.makeText(ctx, "Add a poll question", Toast.LENGTH_SHORT).show(); return;
+                }
+                String optA = etOptA.getText().toString().trim();
+                String optB = etOptB.getText().toString().trim();
+                if (optA.isEmpty()) optA = "Yes";
+                if (optB.isEmpty()) optB = "No";
+                String json = "{\"type\":\"poll\",\"question\":\"" + esc(question)
+                    + "\",\"optionA\":\"" + esc(optA)
+                    + "\",\"optionB\":\"" + esc(optB) + "\"}";
+                if (listener != null) listener.onSelected(new StickerResult("poll", json));
+            })
+            .setNegativeButton("Cancel", null)
+            .create());
+    }
+
+    // ─── Slider Sticker Creator ─────────────────────────────────────────────
+
+    private void openSliderCreator(Context ctx) {
+        int dp = (int) ctx.getResources().getDisplayMetrics().density;
+
+        LinearLayout layout = new LinearLayout(ctx);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setPadding(dp * 20, dp * 16, dp * 20, dp * 8);
+
+        EditText etQuestion = new EditText(ctx);
+        etQuestion.setHint("Rate it! e.g. How excited are you?");
+        etQuestion.setTextSize(15);
+        etQuestion.setMaxLines(2);
+        layout.addView(etQuestion);
+
+        TextView tvEmojiLabel = new TextView(ctx);
+        tvEmojiLabel.setText("Slider emoji:");
+        tvEmojiLabel.setTextColor(android.graphics.Color.GRAY);
+        tvEmojiLabel.setTextSize(13);
+        LinearLayout.LayoutParams elLp = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        elLp.topMargin = dp * 14;
+        layout.addView(tvEmojiLabel, elLp);
+
+        String[] emojiOpts = {"❤️", "😂", "😮", "😢", "👍", "🔥"};
+        final String[] selectedEmoji = {"❤️"};
+
+        LinearLayout emojiRow = new LinearLayout(ctx);
+        emojiRow.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams erLp = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        erLp.topMargin = dp * 6;
+        layout.addView(emojiRow, erLp);
+
+        for (String emoji : emojiOpts) {
+            TextView chip = new TextView(ctx);
+            chip.setText(emoji);
+            chip.setTextSize(20);
+            chip.setPadding(dp * 8, dp * 6, dp * 8, dp * 6);
+            LinearLayout.LayoutParams chipLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            chipLp.rightMargin = dp * 4;
+            chip.setLayoutParams(chipLp);
+            chip.setAlpha(emoji.equals(selectedEmoji[0]) ? 1f : 0.4f);
+            chip.setOnClickListener(v -> {
+                selectedEmoji[0] = emoji;
+                for (int i = 0; i < emojiRow.getChildCount(); i++)
+                    emojiRow.getChildAt(i).setAlpha(0.4f);
+                chip.setAlpha(1f);
+            });
+            emojiRow.addView(chip);
+        }
+
+        AlertDialogStyler.showRounded(new android.app.AlertDialog.Builder(ctx)
+            .setTitle("🎚️ Slider Sticker")
+            .setView(layout)
+            .setPositiveButton("Add to Status", (d, w) -> {
+                String question = etQuestion.getText().toString().trim();
+                if (question.isEmpty()) question = "Rate it!";
+                String json = "{\"type\":\"slider\",\"question\":\"" + esc(question)
+                    + "\",\"emoji\":\"" + selectedEmoji[0] + "\"}";
+                if (listener != null) listener.onSelected(new StickerResult("slider", json));
+            })
+            .setNegativeButton("Cancel", null)
+            .create());
+    }
+
+    // ─── Mention Sticker Creator ────────────────────────────────────────────
+
+    private void openMentionCreator(Context ctx) {
+        int dp = (int) ctx.getResources().getDisplayMetrics().density;
+
+        LinearLayout layout = new LinearLayout(ctx);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setPadding(dp * 20, dp * 16, dp * 20, dp * 8);
+
+        EditText etUsername = new EditText(ctx);
+        etUsername.setHint("username (without @)");
+        etUsername.setTextSize(15);
+        etUsername.setMaxLines(1);
+        layout.addView(etUsername);
+
+        TextView sub = new TextView(ctx);
+        sub.setText("Tapping this sticker opens their profile.");
+        sub.setTextColor(android.graphics.Color.GRAY);
+        sub.setTextSize(12);
+        LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        subLp.topMargin = dp * 10;
+        layout.addView(sub, subLp);
+
+        AlertDialogStyler.showRounded(new android.app.AlertDialog.Builder(ctx)
+            .setTitle("👤 Mention Sticker")
+            .setView(layout)
+            .setPositiveButton("Add to Status", (d, w) -> {
+                String username = etUsername.getText().toString().trim();
+                if (username.startsWith("@")) username = username.substring(1);
+                if (username.isEmpty()) {
+                    Toast.makeText(ctx, "Enter a username to mention", Toast.LENGTH_SHORT).show(); return;
+                }
+                String json = "{\"type\":\"mention\",\"username\":\"" + esc(username) + "\"}";
+                if (listener != null) listener.onSelected(new StickerResult("mention", json));
+            })
+            .setNegativeButton("Cancel", null)
+            .create());
+    }
+
+    // ─── Hashtag Sticker Creator ────────────────────────────────────────────
+
+    private void openHashtagCreator(Context ctx) {
+        int dp = (int) ctx.getResources().getDisplayMetrics().density;
+
+        LinearLayout layout = new LinearLayout(ctx);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setPadding(dp * 20, dp * 16, dp * 20, dp * 8);
+
+        EditText etTag = new EditText(ctx);
+        etTag.setHint("topic (without #) e.g. sunset");
+        etTag.setTextSize(15);
+        etTag.setMaxLines(1);
+        layout.addView(etTag);
+
+        TextView sub = new TextView(ctx);
+        sub.setText("Tapping this sticker opens the topic's feed.");
+        sub.setTextColor(android.graphics.Color.GRAY);
+        sub.setTextSize(12);
+        LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        subLp.topMargin = dp * 10;
+        layout.addView(sub, subLp);
+
+        AlertDialogStyler.showRounded(new android.app.AlertDialog.Builder(ctx)
+            .setTitle("#️⃣ Hashtag Sticker")
+            .setView(layout)
+            .setPositiveButton("Add to Status", (d, w) -> {
+                String tag = etTag.getText().toString().trim();
+                if (tag.startsWith("#")) tag = tag.substring(1);
+                tag = tag.replaceAll("\\s+", "");
+                if (tag.isEmpty()) {
+                    Toast.makeText(ctx, "Enter a topic to tag", Toast.LENGTH_SHORT).show(); return;
+                }
+                String json = "{\"type\":\"hashtag\",\"tag\":\"" + esc(tag) + "\"}";
+                if (listener != null) listener.onSelected(new StickerResult("hashtag", json));
+            })
+            .setNegativeButton("Cancel", null)
+            .create());
+    }
+
+    // ─── Link Sticker Creator ───────────────────────────────────────────────
+
+    private void openLinkCreator(Context ctx) {
+        int dp = (int) ctx.getResources().getDisplayMetrics().density;
+
+        LinearLayout layout = new LinearLayout(ctx);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setPadding(dp * 20, dp * 16, dp * 20, dp * 8);
+
+        EditText etUrl = new EditText(ctx);
+        etUrl.setHint("https://example.com");
+        etUrl.setTextSize(15);
+        etUrl.setMaxLines(1);
+        etUrl.setInputType(android.text.InputType.TYPE_TEXT_VARIATION_URI);
+        layout.addView(etUrl);
+
+        EditText etLabel = new EditText(ctx);
+        etLabel.setHint("Link text (optional) e.g. Shop now");
+        etLabel.setTextSize(14);
+        etLabel.setMaxLines(1);
+        LinearLayout.LayoutParams lLp = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        lLp.topMargin = dp * 10;
+        layout.addView(etLabel, lLp);
+
+        TextView sub = new TextView(ctx);
+        sub.setText("Tapping this sticker opens the link in a browser.");
+        sub.setTextColor(android.graphics.Color.GRAY);
+        sub.setTextSize(12);
+        LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        subLp.topMargin = dp * 10;
+        layout.addView(sub, subLp);
+
+        AlertDialogStyler.showRounded(new android.app.AlertDialog.Builder(ctx)
+            .setTitle("🔗 Link Sticker")
+            .setView(layout)
+            .setPositiveButton("Add to Status", (d, w) -> {
+                String url = etUrl.getText().toString().trim();
+                if (url.isEmpty()) {
+                    Toast.makeText(ctx, "Enter a link", Toast.LENGTH_SHORT).show(); return;
+                }
+                // No scheme typed — default to https so ACTION_VIEW resolves correctly later.
+                if (!url.matches("(?i)^[a-z][a-z0-9+.\\-]*://.*")) url = "https://" + url;
+                String label = etLabel.getText().toString().trim();
+                String json = "{\"type\":\"link\",\"url\":\"" + esc(url)
+                    + "\",\"label\":\"" + esc(label) + "\"}";
+                if (listener != null) listener.onSelected(new StickerResult("link", json));
+            })
+            .setNegativeButton("Cancel", null)
+            .create());
+    }
+
+    // ─── Add Yours Sticker Creator ─────────────────────────────────────────
+    // The poster only sets the prompt here — originUid/originName stay empty,
+    // marking this status as the start of the chain. When a viewer taps the
+    // rendered card, StatusViewerActivity opens the composer pre-loaded with
+    // this same prompt and fills in originUid/originName, so the chain keeps
+    // pointing back to whoever started it (not just the immediately-previous
+    // poster).
+
+    private void openAddYoursCreator(Context ctx) {
+        int dp = (int) ctx.getResources().getDisplayMetrics().density;
+
+        LinearLayout layout = new LinearLayout(ctx);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setPadding(dp * 20, dp * 16, dp * 20, dp * 8);
+
+        EditText etPrompt = new EditText(ctx);
+        etPrompt.setHint("e.g. My study era 📚");
+        etPrompt.setTextSize(15);
+        etPrompt.setMaxLines(2);
+        layout.addView(etPrompt);
+
+        TextView sub = new TextView(ctx);
+        sub.setText("Friends who tap this can post their own story with the same prompt.");
+        sub.setTextColor(android.graphics.Color.GRAY);
+        sub.setTextSize(12);
+        LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        subLp.topMargin = dp * 10;
+        layout.addView(sub, subLp);
+
+        // Quick-fill suggestion chips — tapping one just fills the field, doesn't submit.
+        String[] suggestions = {"My study era 📚", "Rate my fit 👗", "Song of the day 🎵", "POV: today 📍"};
+        LinearLayout chipRow = new LinearLayout(ctx);
+        chipRow.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams chipRowLp = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        chipRowLp.topMargin = dp * 12;
+        layout.addView(chipRow, chipRowLp);
+
+        for (String sug : suggestions) {
+            TextView chip = new TextView(ctx);
+            chip.setText(sug);
+            chip.setTextColor(android.graphics.Color.WHITE);
+            chip.setTextSize(11);
+            chip.setPadding(dp * 8, dp * 6, dp * 8, dp * 6);
+            android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
+            gd.setCornerRadius(dp * 14);
+            gd.setColor(0xFF333333);
+            chip.setBackground(gd);
+            LinearLayout.LayoutParams chipLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            chipLp.rightMargin = dp * 6;
+            chip.setOnClickListener(v -> etPrompt.setText(sug));
+            chipRow.addView(chip, chipLp);
+        }
+
+        AlertDialogStyler.showRounded(new android.app.AlertDialog.Builder(ctx)
+            .setTitle("➕ Add Yours Sticker")
+            .setView(layout)
+            .setPositiveButton("Add to Status", (d, w) -> {
+                String prompt = etPrompt.getText().toString().trim();
+                if (prompt.isEmpty()) {
+                    Toast.makeText(ctx, "Add a prompt", Toast.LENGTH_SHORT).show(); return;
+                }
+                String json = "{\"type\":\"addyours\",\"prompt\":\"" + esc(prompt)
+                    + "\",\"originUid\":\"\",\"originName\":\"\"}";
+                if (listener != null) listener.onSelected(new StickerResult("addyours", json));
             })
             .setNegativeButton("Cancel", null)
             .create());

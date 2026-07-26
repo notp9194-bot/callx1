@@ -518,10 +518,127 @@ import com.callx.app.utils.AlertDialogStyler;
                           });
                       }
                   }
+                  if ("poll".equals(sticker.getStickerType())
+                          && myUid != null && !myUid.equals(ownerUid)) {
+                      StatusItem current = idx < items.size() ? items.get(idx) : null;
+                      final int stickerIndex = i;
+                      final String statusId = current != null ? current.id : null;
+                      if (statusId != null) {
+                          // Restore a prior vote if this viewer already voted, otherwise let them tap once.
+                          FirebaseUtils.getStatusPollVoteRef(ownerUid, statusId, stickerIndex, myUid)
+                                  .addListenerForSingleValueEvent(new ValueEventListener() {
+                              @Override public void onDataChange(DataSnapshot snap) {
+                                  if (snap.exists()) {
+                                      String prevOption = snap.child("option").getValue(String.class);
+                                      revealPollWithCounts(sticker, ownerUid, statusId, stickerIndex, prevOption);
+                                  } else {
+                                      sticker.setOnPollOptionSelectedListener(selectedOption -> {
+                                          StatusItem cur = idx < items.size() ? items.get(idx) : null;
+                                          if (cur == null) return;
+                                          String selectedText = "A".equals(selectedOption)
+                                                  ? sticker.getPollOptionA() : sticker.getPollOptionB();
+                                          StatusReplyBottomSheet.sendPollVote(myUid, ownerUid, ownerName,
+                                                  cur, stickerIndex, sticker.getPollQuestion(),
+                                                  selectedOption, selectedText);
+                                          revealPollWithCounts(sticker, ownerUid, statusId, stickerIndex, selectedOption);
+                                      });
+                                  }
+                              }
+                              @Override public void onCancelled(DatabaseError e) {}
+                          });
+                      }
+                  }
+
+                  if ("slider".equals(sticker.getStickerType())
+                          && myUid != null && !myUid.equals(ownerUid)) {
+                      StatusItem current = idx < items.size() ? items.get(idx) : null;
+                      final int stickerIndex = i;
+                      final String statusId = current != null ? current.id : null;
+                      if (statusId != null) {
+                          // Restore a prior response if this viewer already rated, otherwise let them drag once.
+                          FirebaseUtils.getStatusSliderResponseRef(ownerUid, statusId, stickerIndex, myUid)
+                                  .addListenerForSingleValueEvent(new ValueEventListener() {
+                              @Override public void onDataChange(DataSnapshot snap) {
+                                  if (snap.exists()) {
+                                      Long prevValue = snap.child("value").getValue(Long.class);
+                                      int myVal = prevValue != null ? prevValue.intValue() : 50;
+                                      revealSliderWithAverage(sticker, ownerUid, statusId, stickerIndex, myVal);
+                                  } else {
+                                      sticker.setOnSliderValueSubmittedListener(value -> {
+                                          StatusItem cur = idx < items.size() ? items.get(idx) : null;
+                                          if (cur == null) return;
+                                          StatusReplyBottomSheet.sendSliderResponse(myUid, ownerUid, ownerName,
+                                                  cur, stickerIndex, sticker.getSliderQuestion(),
+                                                  sticker.getSliderEmoji(), value);
+                                          revealSliderWithAverage(sticker, ownerUid, statusId, stickerIndex, value);
+                                      });
+                                  }
+                              }
+                              @Override public void onCancelled(DatabaseError e) {}
+                          });
+                      }
+                  }
+                  if ("mention".equals(sticker.getStickerType())) {
+                      sticker.setOnClickListener(v -> openMentionStickerProfile(sticker));
+                  }
+
+                  if ("hashtag".equals(sticker.getStickerType())) {
+                      sticker.setOnClickListener(v -> openHashtagStickerFeed(sticker));
+                  }
+
+                  if ("link".equals(sticker.getStickerType())) {
+                      sticker.setOnClickListener(v -> openLinkSticker(sticker));
+                  }
+
+                  if ("addyours".equals(sticker.getStickerType())
+                          && myUid != null && !myUid.equals(ownerUid)) {
+                      sticker.setOnClickListener(v -> openAddYoursComposer(sticker));
+                  }
               }
           } catch (Exception ignored) {
               // Malformed/legacy stickersJson — skip rendering rather than crash the viewer.
           }
+      }
+
+      /** Reads all votes on a 🗳️ Poll sticker and reveals the live A/B percentage split. */
+      private void revealPollWithCounts(StatusStickerOverlayView sticker, String ownerUid,
+                                         String statusId, int stickerIndex, String myOption) {
+          FirebaseUtils.getStatusPollVotesRef(ownerUid, statusId, stickerIndex)
+                  .addListenerForSingleValueEvent(new ValueEventListener() {
+              @Override public void onDataChange(DataSnapshot snap) {
+                  int countA = 0, countB = 0;
+                  for (DataSnapshot child : snap.getChildren()) {
+                      String opt = child.child("option").getValue(String.class);
+                      if ("A".equals(opt)) countA++;
+                      else if ("B".equals(opt)) countB++;
+                  }
+                  sticker.revealPollResult(myOption, countA, countB);
+              }
+              @Override public void onCancelled(DatabaseError e) {
+                  sticker.revealPollResult(myOption, "A".equals(myOption) ? 1 : 0,
+                          "B".equals(myOption) ? 1 : 0);
+              }
+          });
+      }
+
+      /** Reads all responses on a 🎚️ Slider sticker and reveals the live average. */
+      private void revealSliderWithAverage(StatusStickerOverlayView sticker, String ownerUid,
+                                            String statusId, int stickerIndex, int myValue) {
+          FirebaseUtils.getStatusSliderResponsesRef(ownerUid, statusId, stickerIndex)
+                  .addListenerForSingleValueEvent(new ValueEventListener() {
+              @Override public void onDataChange(DataSnapshot snap) {
+                  long total = 0; int count = 0;
+                  for (DataSnapshot child : snap.getChildren()) {
+                      Long val = child.child("value").getValue(Long.class);
+                      if (val != null) { total += val; count++; }
+                  }
+                  int avg = count > 0 ? Math.round(total / (float) count) : myValue;
+                  sticker.revealSliderAverage(myValue, avg);
+              }
+              @Override public void onCancelled(DatabaseError e) {
+                  sticker.revealSliderAverage(myValue, myValue);
+              }
+          });
       }
       /**
        * Opens the exact same Sound Detail bottom sheet Reels uses (SoundDetailSheetFragment),
@@ -559,6 +676,119 @@ import com.callx.app.utils.AlertDialogStyler;
               sheet.show(getSupportFragmentManager(), "sound_detail_full");
           } catch (Exception ignored) {
               // Reels module unavailable at runtime — the sticker just stays inert.
+          }
+      }
+
+      /**
+       * Resolves the 👤 Mention sticker's username to a uid (Firebase "users" node,
+       * same lookup pattern chat mentions use) then opens that profile. Loaded via
+       * reflection since feature-status has no compile-time dependency on the app
+       * module — pauses/resumes the story progress bar around the lookup + activity.
+       */
+      private void openMentionStickerProfile(StatusStickerOverlayView sticker) {
+          String username = sticker.getMentionUsername();
+          if (username == null || username.isEmpty()) return;
+          pauseProgress();
+          com.google.firebase.database.FirebaseDatabase.getInstance()
+                  .getReference("users").orderByChild("username").equalTo(username).limitToFirst(1)
+                  .addListenerForSingleValueEvent(new ValueEventListener() {
+              @Override public void onDataChange(DataSnapshot snap) {
+                  if (!snap.exists()) { resumeProgress(); return; }
+                  DataSnapshot userSnap = snap.getChildren().iterator().next();
+                  String uid = userSnap.getKey();
+                  String name = userSnap.child("name").getValue(String.class);
+                  if (name == null || name.isEmpty()) name = username;
+                  String photo = userSnap.child("profileImage").getValue(String.class);
+                  if (photo == null || photo.isEmpty()) photo = userSnap.child("photoUrl").getValue(String.class);
+                  try {
+                      Class<?> profileCls = Class.forName("com.callx.app.activities.UserProfileActivity");
+                      Intent intent = new Intent(StatusViewerActivity.this, profileCls);
+                      intent.putExtra("uid", uid);
+                      intent.putExtra("name", name);
+                      if (photo != null) intent.putExtra("photo", photo);
+                      startActivity(intent);
+                  } catch (Exception ignored2) {
+                      // Profile activity unavailable at runtime — the sticker just stays inert.
+                  }
+                  resumeProgress();
+              }
+              @Override public void onCancelled(DatabaseError e) { resumeProgress(); }
+          });
+      }
+
+      /**
+       * Opens the same Hashtag feed the X ("Twitter-like") tab uses for a
+       * # Hashtag sticker. Loaded via reflection since feature-status has no
+       * compile-time dependency on feature-x — pauses/resumes the story
+       * progress bar around the activity's lifetime.
+       */
+      private void openHashtagStickerFeed(StatusStickerOverlayView sticker) {
+          String tag = sticker.getHashtagTag();
+          if (tag == null || tag.isEmpty()) return;
+          try {
+              Class<?> hashtagCls = Class.forName("com.callx.app.search.XHashtagActivity");
+              Intent intent = new Intent(this, hashtagCls);
+              intent.putExtra("hashtag", tag);
+              pauseProgress();
+              startActivity(intent);
+          } catch (Exception ignored) {
+              // X module unavailable at runtime — the sticker just stays inert.
+          }
+      }
+
+      /**
+       * Opens the 🔗 Link sticker's URL in the device's default browser. The
+       * scheme was already normalised (https:// prepended if missing) back
+       * at creation time in StatusStickerPickerSheet, so this is just a plain
+       * ACTION_VIEW — no reflection needed since it's a system intent, not an
+       * in-app screen.
+       */
+      private void openLinkSticker(StatusStickerOverlayView sticker) {
+          String url = sticker.getLinkUrl();
+          if (url == null || url.isEmpty()) return;
+          try {
+              pauseProgress();
+              startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)));
+          } catch (Exception ignored) {
+              // No app can handle this link — sticker just stays inert.
+          }
+      }
+
+      /**
+       * Opens NewStatusActivity pre-loaded with the same ➕ Add Yours prompt so
+       * this viewer can post their own story continuing the chain. Both
+       * activities live in feature-status, so this is a direct reference
+       * (no reflection needed, unlike the cross-module Mention/Hashtag taps).
+       *
+       * originUid/originName carry forward the *original* chain-starter's
+       * identity across repeated taps — if the tapped sticker already has an
+       * origin (meaning the current status is itself a chain reply), that
+       * origin is preserved rather than being overwritten with this ownerUid.
+       */
+      private void openAddYoursComposer(StatusStickerOverlayView sticker) {
+          String prompt = sticker.getAddYoursPrompt();
+          if (prompt == null || prompt.isEmpty()) return;
+          String originUid  = sticker.getAddYoursOriginUid();
+          String originName = sticker.getAddYoursOriginName();
+          if (originUid == null || originUid.isEmpty()) {
+              originUid  = ownerUid;
+              originName = ownerName;
+          }
+          try {
+              org.json.JSONObject o = new org.json.JSONObject();
+              o.put("type", "addyours");
+              o.put("prompt", prompt);
+              o.put("originUid", originUid);
+              o.put("originName", originName != null ? originName : "");
+
+              Intent intent = new Intent(this, com.callx.app.compose.NewStatusActivity.class);
+              intent.putExtra(com.callx.app.compose.NewStatusActivity.EXTRA_PREFILL_STICKER_JSON, o.toString());
+              intent.putExtra(com.callx.app.compose.NewStatusActivity.EXTRA_PREFILL_TOAST,
+                      "Adding to " + (originName != null && !originName.isEmpty() ? originName : "their") + "'s prompt");
+              pauseProgress();
+              startActivity(intent);
+          } catch (Exception ignored) {
+              // Malformed data — sticker just stays inert.
           }
       }
 

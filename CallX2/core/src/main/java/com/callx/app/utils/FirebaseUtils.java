@@ -266,6 +266,48 @@ public class FirebaseUtils {
                    .child("stickerSubscribers").child(String.valueOf(stickerIndex)).child(viewerUid);
     }
 
+    /**
+     * Ref for a single viewer's vote on a 🗳️ Poll sticker (2-option, e.g. Yes/No).
+     * status/{ownerUid}/{statusId}/stickerPollVotes/{stickerIndex}/{voterUid} — kept in its
+     * own node (separate from stickerVotes, which is quiz-shaped) since a poll vote is just
+     * "A" or "B", not an index + correctness flag.
+     */
+    public static DatabaseReference getStatusPollVoteRef(String ownerUid, String statusId,
+                                                          int stickerIndex, String voterUid) {
+        return db().getReference("status").child(ownerUid).child(statusId)
+                   .child("stickerPollVotes").child(String.valueOf(stickerIndex)).child(voterUid);
+    }
+
+    /**
+     * Ref for ALL votes on a 🗳️ Poll sticker — used to compute the live A/B percentage
+     * split shown once a viewer has voted. status/{ownerUid}/{statusId}/stickerPollVotes/{stickerIndex}/
+     */
+    public static DatabaseReference getStatusPollVotesRef(String ownerUid, String statusId,
+                                                           int stickerIndex) {
+        return db().getReference("status").child(ownerUid).child(statusId)
+                   .child("stickerPollVotes").child(String.valueOf(stickerIndex));
+    }
+
+    /**
+     * Ref for a single viewer's response to a 🎚️ Slider sticker (0-100 emoji rating).
+     * status/{ownerUid}/{statusId}/stickerSliderResponses/{stickerIndex}/{voterUid}
+     */
+    public static DatabaseReference getStatusSliderResponseRef(String ownerUid, String statusId,
+                                                                int stickerIndex, String voterUid) {
+        return db().getReference("status").child(ownerUid).child(statusId)
+                   .child("stickerSliderResponses").child(String.valueOf(stickerIndex)).child(voterUid);
+    }
+
+    /**
+     * Ref for ALL responses to a 🎚️ Slider sticker — used to compute the live average
+     * shown once a viewer has dragged and released the slider.
+     */
+    public static DatabaseReference getStatusSliderResponsesRef(String ownerUid, String statusId,
+                                                                 int stickerIndex) {
+        return db().getReference("status").child(ownerUid).child(statusId)
+                   .child("stickerSliderResponses").child(String.valueOf(stickerIndex));
+    }
+
     // ── Channels ──────────────────────────────────────────────────────────────
 
     /** Root channel metadata: channels/{channelId}/ */

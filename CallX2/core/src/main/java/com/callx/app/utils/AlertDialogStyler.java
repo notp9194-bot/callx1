@@ -181,6 +181,11 @@ public final class AlertDialogStyler {
     private static final int COLOR_NEUTRAL     = Color.parseColor("#8E24AA"); // purple
     private static final int COLOR_PRIMARY     = Color.parseColor("#2E7D32"); // green
     private static final float BUTTON_RADIUS_DP = 8f; // tight corners, not a full pill
+    // Floor size for the button box — was 0/0 (no floor at all, so a single-word
+    // label like "OK" or "No" produced a tiny box). 96×44dp gives every button a
+    // comfortably tappable minimum regardless of label length.
+    private static final float BUTTON_MIN_WIDTH_DP  = 96f;
+    private static final float BUTTON_MIN_HEIGHT_DP = 44f;
 
     private static void styleActionButtons(Dialog dialog) {
         android.widget.Button pos = null, neg = null, neu = null;
@@ -198,7 +203,7 @@ public final class AlertDialogStyler {
             return; // unknown dialog type — leave default look
         }
 
-        int gapPx = Math.round(6 * dialog.getContext().getResources().getDisplayMetrics().density);
+        int gapPx = Math.round(8 * dialog.getContext().getResources().getDisplayMetrics().density);
         applyCanvasButtonStyle(pos, gapPx);
         applyCanvasButtonStyle(neg, gapPx);
         applyCanvasButtonStyle(neu, gapPx);
@@ -220,24 +225,35 @@ public final class AlertDialogStyler {
         btn.setStateListAnimator(null);
         btn.setTextColor(Color.WHITE);
         btn.setAllCaps(false);
-        // Compact "premium" size: AppCompat's default Button style carries a
-        // built-in minWidth (~88dp) and minHeight (~48dp) that padding alone
-        // can't shrink past — clearing those first is what actually lets the
-        // box get small instead of just padding a still-oversized min box.
+        // Bigger, easier-to-tap button box — was cramped (13sp text, 14/6dp
+        // padding, no floor on width) across every module using this shared
+        // dialog (chat/group/reels/status/calls). AppCompat's default Button
+        // style carries a built-in minWidth (~88dp) / minHeight (~48dp) that
+        // padding alone can't override past — clearing those first, then
+        // setting our OWN larger floor below, is what actually controls the
+        // box size instead of just padding a still-mismatched min box.
         btn.setMinWidth(0);
         btn.setMinimumWidth(0);
         btn.setMinHeight(0);
         btn.setMinimumHeight(0);
-        btn.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 13f);
-        int padH = Math.round(14 * btn.getResources().getDisplayMetrics().density);
-        int padV = Math.round(6 * btn.getResources().getDisplayMetrics().density);
+        btn.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 15f);
+        int padH = Math.round(24 * btn.getResources().getDisplayMetrics().density);
+        int padV = Math.round(12 * btn.getResources().getDisplayMetrics().density);
         btn.setPadding(padH, padV, padH, padV);
+        int minWidthPx = Math.round(BUTTON_MIN_WIDTH_DP * btn.getResources().getDisplayMetrics().density);
+        int minHeightPx = Math.round(BUTTON_MIN_HEIGHT_DP * btn.getResources().getDisplayMetrics().density);
+        btn.setMinWidth(minWidthPx);
+        btn.setMinimumWidth(minWidthPx);
+        btn.setMinHeight(minHeightPx);
+        btn.setMinimumHeight(minHeightPx);
 
         android.view.ViewGroup.LayoutParams lp = btn.getLayoutParams();
         if (lp instanceof android.widget.LinearLayout.LayoutParams) {
             android.widget.LinearLayout.LayoutParams llp = (android.widget.LinearLayout.LayoutParams) lp;
             llp.leftMargin = gapPx;
             llp.rightMargin = gapPx;
+            llp.topMargin = gapPx;
+            llp.bottomMargin = gapPx;
             llp.weight = 0; // stop equal-width stretch so buttons hug their own text
             llp.width = android.widget.LinearLayout.LayoutParams.WRAP_CONTENT;
             llp.height = android.widget.LinearLayout.LayoutParams.WRAP_CONTENT;
