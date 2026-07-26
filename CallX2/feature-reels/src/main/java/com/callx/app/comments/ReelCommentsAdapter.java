@@ -1,4 +1,5 @@
 package com.callx.app.comments;
+import com.callx.app.utils.AlertDialogStyler;
 
 import android.content.Context;
 import android.text.format.DateUtils;
@@ -433,16 +434,16 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
         }
 
         String[] optsArray = opts.toArray(new String[0]);
-        new android.app.AlertDialog.Builder(ctx)
+        AlertDialogStyler.showRounded(new android.app.AlertDialog.Builder(ctx)
             .setItems(optsArray, (d, which) -> actions.get(which).run())
-            .show();
+            .create());
     }
 
     private void showEmojiPanel(Context ctx, ReelComment c, int position) {
         String[] emojis  = {"❤️", "😂", "😮", "😢", "👏", "🔥"};
         String myReaction = c.getMyReaction(myUid);
 
-        new android.app.AlertDialog.Builder(ctx)
+        AlertDialogStyler.showRounded(new android.app.AlertDialog.Builder(ctx)
             .setTitle("React to comment")
             .setItems(emojis, (d, which) -> {
                 String selected = emojis[which];
@@ -450,7 +451,7 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
                 String send = selected.equals(myReaction) ? null : selected;
                 if (listener != null) listener.onReactComment(c, send, position);
             })
-            .show();
+            .create());
     }
 
     // ── ViewHolder ────────────────────────────────────────────────────────

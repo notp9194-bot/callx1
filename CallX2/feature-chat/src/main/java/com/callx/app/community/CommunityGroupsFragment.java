@@ -9,7 +9,6 @@ import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-import androidx.appcompat.app.AlertDialog;
 import androidx.fragment.app.Fragment;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
@@ -212,10 +211,10 @@ public class CommunityGroupsFragment extends Fragment {
             }
             if (!canManage) return;
 
-            new AlertDialog.Builder(requireContext())
-                    .setTitle("Remove Group")
-                    .setMessage("Remove \"" + group.name + "\" from this community?")
-                    .setPositiveButton("Remove", (d, w) ->
+            com.callx.app.utils.AlertDialogStyler.showReusableConfirm(requireContext(),
+                    "community_remove_group", com.callx.app.utils.AlertDialogStyler.DialogSize.DEFAULT,
+                    "Remove Group", "Remove \"" + group.name + "\" from this community?",
+                    "Remove", () ->
                             repo.removeGroupFromCommunity(communityId, group.id,
                                     (success, error) -> {
                                         if (!isAdded()) return;
@@ -224,9 +223,9 @@ public class CommunityGroupsFragment extends Fragment {
                                                     Toast.makeText(requireContext(),
                                                             "Failed: " + error, Toast.LENGTH_SHORT).show());
                                         }
-                                    }))
-                    .setNegativeButton("Cancel", null)
-                    .show();
+                                    }),
+                    null, null,
+                    "Cancel");
         });
     }
 }

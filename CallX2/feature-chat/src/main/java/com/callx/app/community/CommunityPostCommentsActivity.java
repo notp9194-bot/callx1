@@ -18,7 +18,6 @@ import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
@@ -462,10 +461,12 @@ public class CommunityPostCommentsActivity extends AppCompatActivity {
             h.itemView.setOnLongClickListener(v -> {
                 if (currentUid == null) return false;
                 if (currentUid.equals(c.authorUid)) {
-                    new AlertDialog.Builder(CommunityPostCommentsActivity.this)
-                            .setTitle("Delete Comment?")
-                            .setPositiveButton("Delete", (d, w) -> deleteComment(c.id))
-                            .setNegativeButton("Cancel", null).show();
+                    com.callx.app.utils.AlertDialogStyler.showReusableConfirm(CommunityPostCommentsActivity.this,
+                            "delete_comment", com.callx.app.utils.AlertDialogStyler.DialogSize.DEFAULT,
+                            "Delete Comment?", null,
+                            "Delete", () -> deleteComment(c.id),
+                            null, null,
+                            "Cancel");
                     return true;
                 }
                 return false;
@@ -555,10 +556,12 @@ public class CommunityPostCommentsActivity extends AppCompatActivity {
 
             h.itemView.setOnLongClickListener(v -> {
                 if (currentUid != null && currentUid.equals(r.authorUid)) {
-                    new AlertDialog.Builder(CommunityPostCommentsActivity.this)
-                            .setTitle("Delete Reply?")
-                            .setPositiveButton("Delete", (d,w) -> deleteReply(parentCommentId, r.id))
-                            .setNegativeButton("Cancel", null).show();
+                    com.callx.app.utils.AlertDialogStyler.showReusableConfirm(CommunityPostCommentsActivity.this,
+                            "delete_reply", com.callx.app.utils.AlertDialogStyler.DialogSize.DEFAULT,
+                            "Delete Reply?", null,
+                            "Delete", () -> deleteReply(parentCommentId, r.id),
+                            null, null,
+                            "Cancel");
                     return true;
                 }
                 return false;

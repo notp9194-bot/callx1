@@ -1,4 +1,5 @@
 package com.callx.app.comments;
+import com.callx.app.utils.AlertDialogStyler;
 
 import android.os.Bundle;
 import android.view.*;
@@ -130,7 +131,7 @@ public class ReelPinnedCommentsActivity extends AppCompatActivity {
     }
 
     private void pinComment(Comment comment) {
-        new android.app.AlertDialog.Builder(this)
+        AlertDialogStyler.showRounded(new android.app.AlertDialog.Builder(this)
             .setTitle("Pin Comment?")
             .setMessage("Pin this comment to the top?\n\n\"" + comment.text + "\"")
             .setPositiveButton("Pin", (d, w) -> {
@@ -142,7 +143,7 @@ public class ReelPinnedCommentsActivity extends AppCompatActivity {
                 adapter.setPinned(pinnedCommentId);
                 Toast.makeText(this, "Comment pinned!", Toast.LENGTH_SHORT).show();
             })
-            .setNegativeButton("Cancel", null).show();
+            .setNegativeButton("Cancel", null).create());
     }
 
     private void unpin() {

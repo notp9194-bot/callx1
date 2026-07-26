@@ -275,10 +275,10 @@ public class CommunityFeedFragment extends Fragment implements CommunityPostAdap
     @Override
     public void onDelete(CommunityPostEntity post) {
         if (!isAdded()) return;
-        new AlertDialog.Builder(requireContext())
-                .setTitle("Delete Post?")
-                .setMessage("This post will be permanently removed.")
-                .setPositiveButton("Delete", (d, w) -> {
+        com.callx.app.utils.AlertDialogStyler.showReusableConfirm(requireContext(),
+                "community_delete_post", com.callx.app.utils.AlertDialogStyler.DialogSize.DEFAULT,
+                "Delete Post?", "This post will be permanently removed.",
+                "Delete", () -> {
                     repo.deletePost(communityId, post.id, currentUid, myName, null,
                             (success, error) -> {
                                 if (isAdded())
@@ -287,8 +287,9 @@ public class CommunityFeedFragment extends Fragment implements CommunityPostAdap
                                                     success ? "Post deleted" : "Failed: " + error,
                                                     Toast.LENGTH_SHORT).show());
                             });
-                })
-                .setNegativeButton("Cancel", null).show();
+                },
+                null, null,
+                "Cancel");
     }
 
     @Override

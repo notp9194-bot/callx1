@@ -142,22 +142,22 @@ public class GlobalSavedMessagesActivity extends AppCompatActivity {
     // ─── Unsave ───────────────────────────────────────────────────────────────
 
     private void unsave(SavedMessageEntity item) {
-        new android.app.AlertDialog.Builder(this)
-            .setTitle("Remove from Saved?")
-            .setMessage("Yeh message saved list se hata diya jayega.")
-            .setPositiveButton("Remove", (d, w) -> {
-                Executors.newSingleThreadExecutor().execute(() -> {
-                    dao.deleteSaved(item.id);
-                    runOnUiThread(() -> {
-                        allItems.remove(item);
-                        String query = etSearch.getText() != null ? etSearch.getText().toString() : "";
-                        applyFilter(query);
-                        Toast.makeText(this, "Removed from saved", Toast.LENGTH_SHORT).show();
+        com.callx.app.utils.AlertDialogStyler.showReusableConfirm(this,
+                "unsave_message", com.callx.app.utils.AlertDialogStyler.DialogSize.DEFAULT,
+                "Remove from Saved?", "Yeh message saved list se hata diya jayega.",
+                "Remove", () -> {
+                    Executors.newSingleThreadExecutor().execute(() -> {
+                        dao.deleteSaved(item.id);
+                        runOnUiThread(() -> {
+                            allItems.remove(item);
+                            String query = etSearch.getText() != null ? etSearch.getText().toString() : "";
+                            applyFilter(query);
+                            Toast.makeText(this, "Removed from saved", Toast.LENGTH_SHORT).show();
+                        });
                     });
-                });
-            })
-            .setNegativeButton("Cancel", null)
-            .show();
+                },
+                null, null,
+                "Cancel");
     }
 
     // ─── Add/edit note ────────────────────────────────────────────────────────

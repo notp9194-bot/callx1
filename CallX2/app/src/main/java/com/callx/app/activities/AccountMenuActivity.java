@@ -161,19 +161,20 @@ public class AccountMenuActivity extends AppCompatActivity {
     }
 
     private void confirmLogout() {
-        new AlertDialog.Builder(this)
-            .setTitle("Logout")
-            .setMessage("Kya aap logout karna chahte hain?")
-            .setPositiveButton("Logout", (d, w) -> {
-                // Fix #2: Logout pe biometric login disable karo (security)
-                BiometricLoginManager.getInstance(this).disable();
-                com.callx.app.utils.PresenceManager.getInstance().onLogout();
-                FirebaseAuth.getInstance().signOut();
-                Intent i = new Intent(this, AuthActivity.class);
-                i.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
-                startActivity(i);
-            })
-            .setNegativeButton("Cancel", null).show();
+        com.callx.app.utils.AlertDialogStyler.showReusableConfirm(this,
+                "account_logout", com.callx.app.utils.AlertDialogStyler.DialogSize.DEFAULT,
+                "Logout", "Kya aap logout karna chahte hain?",
+                "Logout", () -> {
+                    // Fix #2: Logout pe biometric login disable karo (security)
+                    BiometricLoginManager.getInstance(this).disable();
+                    com.callx.app.utils.PresenceManager.getInstance().onLogout();
+                    FirebaseAuth.getInstance().signOut();
+                    Intent i = new Intent(this, AuthActivity.class);
+                    i.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+                    startActivity(i);
+                },
+                null, null,
+                "Cancel");
     }
 
     private void confirmDeleteAccount() {

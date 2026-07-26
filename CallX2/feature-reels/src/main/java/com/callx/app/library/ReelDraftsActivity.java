@@ -1,4 +1,5 @@
 package com.callx.app.library;
+import com.callx.app.utils.AlertDialogStyler;
 
 import com.callx.app.camera.ReelCameraActivity;
 import com.callx.app.editor.ReelEditorActivity;
@@ -10,7 +11,6 @@ import android.widget.ProgressBar;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
-import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.Toolbar;
 import androidx.recyclerview.widget.GridLayoutManager;
@@ -128,12 +128,13 @@ public class ReelDraftsActivity extends AppCompatActivity
 
     @Override
     public void onDraftLongClick(ReelDraft draft, int position) {
-        new AlertDialog.Builder(this)
-            .setTitle("Delete Draft")
-            .setMessage("This draft will be permanently deleted. Continue?")
-            .setPositiveButton("Delete", (d, w) -> deleteDraft(draft, position))
-            .setNegativeButton("Cancel", null)
-            .show();
+        AlertDialogStyler.showReusableConfirm(this, "delete_draft",
+            AlertDialogStyler.DialogSize.DEFAULT,
+            "Delete Draft",
+            "This draft will be permanently deleted. Continue?",
+            "Delete", () -> deleteDraft(draft, position),
+            null, null,
+            "Cancel");
     }
 
     private void deleteDraft(ReelDraft draft, int position) {

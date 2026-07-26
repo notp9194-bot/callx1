@@ -13,6 +13,7 @@ import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AlertDialog;
+import com.callx.app.utils.AlertDialogStyler;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
@@ -130,12 +131,12 @@ public class BroadcastListsActivity extends AppCompatActivity {
     }
 
     private void confirmDelete(BroadcastList bl) {
-        new AlertDialog.Builder(this)
-                .setTitle("Delete \"" + bl.name + "\"?")
-                .setMessage("Yeh broadcast list delete ho jayegi. Messages delete nahi honge.")
-                .setPositiveButton("Delete", (d, w) -> deleteBroadcastList(bl))
-                .setNegativeButton("Cancel", null)
-                .show();
+        AlertDialogStyler.showReusableConfirm(this,
+                "broadcast_list_delete", AlertDialogStyler.DialogSize.DEFAULT,
+                "Delete \"" + bl.name + "\"?", "Yeh broadcast list delete ho jayegi. Messages delete nahi honge.",
+                "Delete", () -> deleteBroadcastList(bl),
+                null, null,
+                "Cancel");
     }
 
     private void deleteBroadcastList(BroadcastList bl) {

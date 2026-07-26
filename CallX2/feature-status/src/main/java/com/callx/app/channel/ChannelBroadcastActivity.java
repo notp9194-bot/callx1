@@ -1,11 +1,11 @@
 package com.callx.app.channel;
+import com.callx.app.utils.AlertDialogStyler;
 
 import android.os.Bundle;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.view.*;
 import android.widget.*;
-import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.Toolbar;
 import androidx.lifecycle.ViewModelProvider;
@@ -202,18 +202,18 @@ public class ChannelBroadcastActivity extends AppCompatActivity {
         String msg = actionLabel + "?\n\nPriority: " + priority.toUpperCase(Locale.US)
             + (notifyAll ? "\nAll followers will receive a push notification." : "");
 
-        new AlertDialog.Builder(this)
-            .setTitle("Confirm broadcast")
-            .setMessage(msg)
-            .setPositiveButton(scheduledTime != null ? "Schedule" : "Send", (d, w) -> {
-                if (progressBar != null) progressBar.setVisibility(View.VISIBLE);
-                if (btnSend     != null) btnSend.setEnabled(false);
-                long scheduledMs = scheduledTime != null ? scheduledTime.getTimeInMillis() : 0;
-                // ── FIXED: actually passes notifyAll to ViewModel which sends FCM ──
-                viewModel.createBroadcastPost(channelId, text, priority, notifyAll, scheduledMs);
-            })
-            .setNegativeButton("Cancel", null)
-            .show();
+        AlertDialogStyler.showReusableConfirm(this,
+                "channel_broadcast_confirm", AlertDialogStyler.DialogSize.DEFAULT,
+                "Confirm broadcast", msg,
+                scheduledTime != null ? "Schedule" : "Send", () -> {
+                    if (progressBar != null) progressBar.setVisibility(View.VISIBLE);
+                    if (btnSend     != null) btnSend.setEnabled(false);
+                    long scheduledMs = scheduledTime != null ? scheduledTime.getTimeInMillis() : 0;
+                    // ── FIXED: actually passes notifyAll to ViewModel which sends FCM ──
+                    viewModel.createBroadcastPost(channelId, text, priority, notifyAll, scheduledMs);
+                },
+                null, null,
+                "Cancel");
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────

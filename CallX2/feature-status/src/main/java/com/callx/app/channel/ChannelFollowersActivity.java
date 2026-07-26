@@ -1,4 +1,5 @@
 package com.callx.app.channel;
+import com.callx.app.utils.AlertDialogStyler;
 
 import android.os.Bundle;
 import android.text.Editable;
@@ -244,16 +245,16 @@ public class ChannelFollowersActivity extends AppCompatActivity {
 
     private void confirmBulkRemove() {
         if (selectedUids.isEmpty()) return;
-        new AlertDialog.Builder(this)
-            .setTitle("Remove " + selectedUids.size() + " followers?")
-            .setMessage("They will be removed from this channel.")
-            .setPositiveButton("Remove", (d, w) -> {
-                for (String uid : selectedUids)
-                    viewModel.blockFollower(channelId, uid);
-                exitSelectionMode();
-            })
-            .setNegativeButton("Cancel", null)
-            .show();
+        AlertDialogStyler.showReusableConfirm(this,
+                "channel_followers_bulk_remove", AlertDialogStyler.DialogSize.DEFAULT,
+                "Remove " + selectedUids.size() + " followers?", "They will be removed from this channel.",
+                "Remove", () -> {
+                    for (String uid : selectedUids)
+                        viewModel.blockFollower(channelId, uid);
+                    exitSelectionMode();
+                },
+                null, null,
+                "Cancel");
     }
 
     // ── FollowerAdapter ───────────────────────────────────────────────────
@@ -350,20 +351,22 @@ public class ChannelFollowersActivity extends AppCompatActivity {
         if (!isBlocked) options.add("Block follower");
         else             options.add("Unblock follower");
 
-        new AlertDialog.Builder(this)
+        AlertDialogStyler.showRounded(new AlertDialog.Builder(this)
             .setTitle(e.name != null ? e.name : "Follower")
             .setItems(options.toArray(new String[0]), (d, which) -> {
                 String action = options.get(which);
                 switch (action) {
                     case "Promote to admin":
-                        new AlertDialog.Builder(this)
-                            .setTitle("Promote to admin?")
-                            .setPositiveButton("Promote", (dd, w) -> {
-                                viewModel.addAdmin(channelId, e.uid, "admin");
-                                adminUids.add(e.uid);
-                                adapter.setAdminUids(adminUids);
-                            })
-                            .setNegativeButton("Cancel", null).show();
+                        AlertDialogStyler.showReusableConfirm(this,
+                                "channel_followers_promote", AlertDialogStyler.DialogSize.DEFAULT,
+                                "Promote to admin?", null,
+                                "Promote", () -> {
+                                    viewModel.addAdmin(channelId, e.uid, "admin");
+                                    adminUids.add(e.uid);
+                                    adapter.setAdminUids(adminUids);
+                                },
+                                null, null,
+                                "Cancel");
                         break;
                     case "Remove admin":
                         viewModel.removeAdmin(channelId, e.uid);
@@ -390,7 +393,7 @@ public class ChannelFollowersActivity extends AppCompatActivity {
                 }
             })
             .setNegativeButton("Cancel", null)
-            .show();
+            .create());
     }
 
     // ── Data class ────────────────────────────────────────────────────────

@@ -1,4 +1,5 @@
 package com.callx.app.channel;
+import com.callx.app.utils.AlertDialogStyler;
 
 import android.os.Bundle;
 import android.text.Editable;
@@ -7,7 +8,6 @@ import android.text.format.DateUtils;
 import android.view.*;
 import android.widget.*;
 import androidx.annotation.NonNull;
-import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.Toolbar;
 import androidx.recyclerview.widget.LinearLayoutManager;
@@ -379,24 +379,25 @@ public class ChannelReplyActivity extends AppCompatActivity {
     // ── Delete reply ──────────────────────────────────────────────────────
 
     private void deleteReply(ReplyEntry r) {
-        new AlertDialog.Builder(this)
-            .setTitle("Delete comment?")
-            .setPositiveButton("Delete", (d, w) -> {
-                repliesRef.child(r.replyId).removeValue();
-                // Decrement reply count
-                FirebaseUtils.db().getReference("channelPosts")
-                    .child(channelId).child(postId).child("replyCount")
-                    .runTransaction(new Transaction.Handler() {
-                        @NonNull @Override public Transaction.Result doTransaction(@NonNull MutableData md) {
-                            Long v = md.getValue(Long.class);
-                            md.setValue(v == null || v <= 0 ? 0 : v - 1);
-                            return Transaction.success(md);
-                        }
-                        @Override public void onComplete(DatabaseError e, boolean c, DataSnapshot s) {}
-                    });
-            })
-            .setNegativeButton("Cancel", null)
-            .show();
+        AlertDialogStyler.showReusableConfirm(this,
+                "channel_reply_delete", AlertDialogStyler.DialogSize.DEFAULT,
+                "Delete comment?", null,
+                "Delete", () -> {
+                    repliesRef.child(r.replyId).removeValue();
+                    // Decrement reply count
+                    FirebaseUtils.db().getReference("channelPosts")
+                        .child(channelId).child(postId).child("replyCount")
+                        .runTransaction(new Transaction.Handler() {
+                            @NonNull @Override public Transaction.Result doTransaction(@NonNull MutableData md) {
+                                Long v = md.getValue(Long.class);
+                                md.setValue(v == null || v <= 0 ? 0 : v - 1);
+                                return Transaction.success(md);
+                            }
+                            @Override public void onComplete(DatabaseError e, boolean c, DataSnapshot s) {}
+                        });
+                },
+                null, null,
+                "Cancel");
     }
 
     // ── Typing presence ───────────────────────────────────────────────────

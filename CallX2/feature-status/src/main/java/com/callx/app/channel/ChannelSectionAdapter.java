@@ -1,4 +1,5 @@
 package com.callx.app.channel;
+import com.callx.app.utils.AlertDialogStyler;
 
 import android.content.Context;
 import android.text.format.DateUtils;
@@ -230,7 +231,7 @@ public class ChannelSectionAdapter extends RecyclerView.Adapter<RecyclerView.Vie
         options.add("Notification settings");
         options.add("Unfollow");
         String[] arr = options.toArray(new String[0]);
-        new android.app.AlertDialog.Builder(ctx)
+        AlertDialogStyler.showRounded(new android.app.AlertDialog.Builder(ctx)
             .setTitle(ch.name)
             .setItems(arr, (d, which) -> {
                 switch (arr[which]) {
@@ -244,7 +245,7 @@ public class ChannelSectionAdapter extends RecyclerView.Adapter<RecyclerView.Vie
                         if (onUnfollowClick != null) onUnfollowClick.accept(ch); break;
                 }
             })
-            .show();
+            .create());
     }
 
     private String buildLastPostPreview(ChannelEntity ch) {

@@ -1,4 +1,5 @@
 package com.callx.app.compose;
+import com.callx.app.utils.AlertDialogStyler;
 import android.Manifest;
 import android.content.*;
 import android.content.pm.PackageManager;
@@ -201,7 +202,7 @@ public class NewStatusActivity extends AppCompatActivity {
     // ── Media source dialog (gallery or camera) ───────────────────────────
     private void showMediaSourceDialog(String type) {
         String[] options = {"Camera", "Gallery", "Cancel"};
-        new androidx.appcompat.app.AlertDialog.Builder(this)
+        AlertDialogStyler.showRounded(new androidx.appcompat.app.AlertDialog.Builder(this)
             .setTitle(type.equals("image") ? "Pick Image" : "Pick Video")
             .setItems(options, (d, w) -> {
                 if (w == 0) {
@@ -211,7 +212,7 @@ public class NewStatusActivity extends AppCompatActivity {
                     if (type.equals("image")) imagePicker.launch("image/*");
                     else                      videoPicker.launch("video/*");
                 }
-            }).show();
+            }).create());
     }
     // ── Media pickers (gallery) ───────────────────────────────────────────
     private void setupMediaPickers() {
@@ -286,7 +287,7 @@ public class NewStatusActivity extends AppCompatActivity {
     private void showGifInputDialog() {
         EditText et = new EditText(this);
         et.setHint("Paste GIF or sticker URL…");
-        new androidx.appcompat.app.AlertDialog.Builder(this)
+        AlertDialogStyler.showRounded(new androidx.appcompat.app.AlertDialog.Builder(this)
             .setTitle("Add GIF / Sticker")
             .setView(et)
             .setPositiveButton("Preview", (d, w) -> {
@@ -299,7 +300,7 @@ public class NewStatusActivity extends AppCompatActivity {
                 binding.btnPickImage.setTag("gif");
             })
             .setNegativeButton("Cancel", null)
-            .show();
+            .create());
     }
     // ── Privacy button (NEW bottom sheet) ────────────────────────────────
     private void setupPrivacyButton() {
@@ -339,12 +340,12 @@ public class NewStatusActivity extends AppCompatActivity {
     private void showExpiryPicker() {
         String[] labels = StatusCustomExpiryHelper.getLabelOptions();
         int[] hours     = StatusCustomExpiryHelper.getHoursOptions();
-        new androidx.appcompat.app.AlertDialog.Builder(this)
+        AlertDialogStyler.showRounded(new androidx.appcompat.app.AlertDialog.Builder(this)
             .setTitle("Status expires in…")
             .setItems(labels, (d, which) -> {
                 selectedExpiryHours = hours[which];
                 updateExpiryLabel();
-            }).show();
+            }).create());
     }
     private void updateExpiryLabel() {
         View btn = binding.getRoot().findViewWithTag("btn_expiry");

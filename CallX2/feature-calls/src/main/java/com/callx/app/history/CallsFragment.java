@@ -1,6 +1,6 @@
 package com.callx.app.history;
+import com.callx.app.utils.AlertDialogStyler;
 
-import android.app.AlertDialog;
 import android.content.Intent;
 import android.os.Bundle;
 import android.text.Editable;
@@ -1082,11 +1082,13 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
     private void confirmDeleteSelected() {
         int count = adapter == null ? 0 : adapter.getSelectedCount();
         if (count == 0) return;
-        new AlertDialog.Builder(requireContext())
-            .setTitle("Delete " + count + " call log" + (count > 1 ? "s" : "") + "?")
-            .setMessage("Selected call history will be permanently deleted.")
-            .setPositiveButton("Delete", (d, w) -> deleteSelected())
-            .setNegativeButton("Cancel", null).show();
+        AlertDialogStyler.showReusableConfirm(requireContext(),
+                "delete_selected_call_logs", AlertDialogStyler.DialogSize.DEFAULT,
+                "Delete " + count + " call log" + (count > 1 ? "s" : "") + "?",
+                "Selected call history will be permanently deleted.",
+                "Delete", this::deleteSelected,
+                null, null,
+                "Cancel");
     }
 
     private void deleteSelected() {

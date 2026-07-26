@@ -1,4 +1,5 @@
 package com.callx.app.creator;
+import com.callx.app.utils.AlertDialogStyler;
 
 import android.os.Bundle;
 import android.view.View;
@@ -117,11 +118,11 @@ public class ReelReportActivity extends AppCompatActivity {
     }
 
     private void showSuccessDialog() {
-        new AlertDialog.Builder(this)
+        AlertDialogStyler.showRounded(new AlertDialog.Builder(this)
             .setTitle("Report Submitted")
             .setMessage("Thank you for keeping CallX safe. We'll review this reel and take action if it violates our community guidelines.")
             .setPositiveButton("Done", (d, w) -> finish())
             .setCancelable(false)
-            .show();
+            .create());
     }
 }

@@ -1,4 +1,5 @@
 package com.callx.app.upload;
+import com.callx.app.utils.AlertDialogStyler;
 
 import com.callx.app.editor.ReelEditorActivity;
 
@@ -227,7 +228,7 @@ public class ReelSchedulerActivity extends AppCompatActivity {
     }
 
     private void cancelSchedule(String scheduleId) {
-        new android.app.AlertDialog.Builder(this)
+        AlertDialogStyler.showRounded(new android.app.AlertDialog.Builder(this)
             .setTitle("Cancel Schedule?")
             .setMessage("This scheduled reel will not be posted.")
             .setPositiveButton("Cancel Schedule", (d, w) -> {
@@ -247,7 +248,7 @@ public class ReelSchedulerActivity extends AppCompatActivity {
                 Toast.makeText(this, "Schedule cancelled", Toast.LENGTH_SHORT).show();
             })
             .setNegativeButton("Keep", null)
-            .show();
+            .create());
     }
 
     private void loadScheduledQueue() {

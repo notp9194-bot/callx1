@@ -1,4 +1,5 @@
 package com.callx.app.channel;
+import com.callx.app.utils.AlertDialogStyler;
 
 import android.content.ClipData;
 import android.content.ClipboardManager;
@@ -8,7 +9,6 @@ import android.graphics.Bitmap;
 import android.os.Bundle;
 import android.view.View;
 import android.widget.*;
-import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.Toolbar;
 import androidx.lifecycle.ViewModelProvider;
@@ -191,15 +191,15 @@ public class ChannelInviteLinkActivity extends AppCompatActivity {
 
     private void confirmRevoke() {
         if (currentLink == null) return;
-        new AlertDialog.Builder(this)
-            .setTitle("Revoke invite link?")
-            .setMessage("The old link will stop working. A new link will be generated.")
-            .setPositiveButton("Revoke", (d, w) -> {
-                viewModel.revokeInviteLink(channelId, currentLink);
-                // Auto-generate a fresh link
-                viewModel.generateInviteLink(channelId);
-            })
-            .setNegativeButton("Cancel", null)
-            .show();
+        AlertDialogStyler.showReusableConfirm(this,
+                "channel_invite_revoke", AlertDialogStyler.DialogSize.DEFAULT,
+                "Revoke invite link?", "The old link will stop working. A new link will be generated.",
+                "Revoke", () -> {
+                    viewModel.revokeInviteLink(channelId, currentLink);
+                    // Auto-generate a fresh link
+                    viewModel.generateInviteLink(channelId);
+                },
+                null, null,
+                "Cancel");
     }
 }

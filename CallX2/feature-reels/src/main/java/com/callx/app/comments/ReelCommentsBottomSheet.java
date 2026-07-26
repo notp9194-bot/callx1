@@ -1,4 +1,5 @@
 package com.callx.app.comments;
+import com.callx.app.utils.AlertDialogStyler;
 
 import android.content.Intent;
 import android.os.Bundle;
@@ -636,7 +637,7 @@ public class ReelCommentsBottomSheet extends BottomSheetDialogFragment {
         options.add("Copy text");
         if (!isOwner)             options.add("Report");
 
-        new android.app.AlertDialog.Builder(requireContext())
+        AlertDialogStyler.showRounded(new android.app.AlertDialog.Builder(requireContext())
                 .setItems(options.toArray(new String[0]), (dialog, which) -> {
                     String chosen = options.get(which);
                     switch (chosen) {
@@ -663,7 +664,7 @@ public class ReelCommentsBottomSheet extends BottomSheetDialogFragment {
                             Toast.makeText(requireContext(), "Comment reported", Toast.LENGTH_SHORT).show();
                             break;
                     }
-                }).show();
+                }).create());
     }
 
     private void deleteComment(CommentItem item) {
@@ -694,7 +695,7 @@ public class ReelCommentsBottomSheet extends BottomSheetDialogFragment {
             }
         });
         builder.setNegativeButton("Cancel", null);
-        builder.show();
+        AlertDialogStyler.showRounded(builder.create());
     }
 
     private void togglePin(CommentItem item) {

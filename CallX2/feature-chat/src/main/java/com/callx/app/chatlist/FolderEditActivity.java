@@ -162,16 +162,17 @@ public class FolderEditActivity extends AppCompatActivity {
 
     private void confirmDelete() {
         if (editingFolder == null) { finish(); return; }
-        new android.app.AlertDialog.Builder(this)
-            .setTitle("Folder Delete Karein?")
-            .setMessage("\"" + editingFolder.name + "\" folder delete ho jayega. Chats safe rahenge.")
-            .setPositiveButton("Delete", (d, w) ->
-                Executors.newSingleThreadExecutor().execute(() -> {
-                    dao.deleteFolder(editingFolder);
-                    runOnUiThread(this::finish);
-                }))
-            .setNegativeButton("Cancel", null)
-            .show();
+        com.callx.app.utils.AlertDialogStyler.showReusableConfirm(this,
+                "delete_folder", com.callx.app.utils.AlertDialogStyler.DialogSize.DEFAULT,
+                "Folder Delete Karein?",
+                "\"" + editingFolder.name + "\" folder delete ho jayega. Chats safe rahenge.",
+                "Delete", () ->
+                    Executors.newSingleThreadExecutor().execute(() -> {
+                        dao.deleteFolder(editingFolder);
+                        runOnUiThread(this::finish);
+                    }),
+                null, null,
+                "Cancel");
     }
 
     // ─── Inline emoji adapter ────────────────────────────────────────────────

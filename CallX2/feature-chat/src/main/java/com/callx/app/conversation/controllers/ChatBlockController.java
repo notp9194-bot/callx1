@@ -1,6 +1,5 @@
 package com.callx.app.conversation.controllers;
 
-import android.app.AlertDialog;
 import android.content.Intent;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -180,27 +179,26 @@ public class ChatBlockController {
         boolean isBlocked = delegate.isBlocked();
         String partnerName = delegate.getPartnerName();
         String label = isBlocked ? "Unblock" : "Block";
-        com.callx.app.utils.AlertDialogStyler.showRounded(
-            new AlertDialog.Builder(delegate.getActivity())
-                .setTitle(label + " " + partnerName + "?")
-                .setPositiveButton(label, (d, w) ->
-                    FirebaseUtils.getBlocksRef(delegate.getCurrentUid())
-                            .child(delegate.getPartnerUid())
-                            .setValue(!isBlocked))
-                .setNegativeButton("Cancel", null)
-        .create(), com.callx.app.utils.AlertDialogStyler.DialogSize.COMPACT);
+        com.callx.app.utils.AlertDialogStyler.showReusableConfirm(delegate.getActivity(),
+                "block_user", com.callx.app.utils.AlertDialogStyler.DialogSize.COMPACT,
+                label + " " + partnerName + "?", null,
+                label, () -> FirebaseUtils.getBlocksRef(delegate.getCurrentUid())
+                        .child(delegate.getPartnerUid())
+                        .setValue(!isBlocked),
+                null, null,
+                "Cancel");
     }
 
     // ── Confirm permanent block ───────────────────────────────────────────
 
     public void confirmPermanentBlock() {
         String partnerName = delegate.getPartnerName();
-        com.callx.app.utils.AlertDialogStyler.showRounded(
-            new AlertDialog.Builder(delegate.getActivity())
-                .setTitle("⛔ Permanently Block " + partnerName + "?")
-                .setMessage(partnerName + " will be permanently blocked. They will NOT be able to "
-                        + "send you any requests or contact you ever again.\n\nThis action cannot be undone.")
-                .setPositiveButton("Permanent Block", (d, w) -> {
+        com.callx.app.utils.AlertDialogStyler.showReusableConfirm(delegate.getActivity(),
+                "permanent_block", com.callx.app.utils.AlertDialogStyler.DialogSize.WIDE,
+                "⛔ Permanently Block " + partnerName + "?",
+                partnerName + " will be permanently blocked. They will NOT be able to "
+                        + "send you any requests or contact you ever again.\n\nThis action cannot be undone.",
+                "Permanent Block", () -> {
                     FirebaseUtils.db().getReference("permaBlocked")
                             .child(delegate.getCurrentUid()).child(delegate.getPartnerUid())
                             .setValue(true);
@@ -210,9 +208,9 @@ public class ChatBlockController {
                     Toast.makeText(delegate.getActivity(),
                             partnerName + " has been permanently blocked.", Toast.LENGTH_LONG).show();
                     delegate.getBinding().llBlockBanner.setVisibility(View.GONE);
-                })
-                .setNegativeButton("Cancel", null)
-        .create(), com.callx.app.utils.AlertDialogStyler.DialogSize.WIDE);
+                },
+                null, null,
+                "Cancel");
     }
 
     // ── Unblock joy sheet ─────────────────────────────────────────────────

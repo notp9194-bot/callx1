@@ -1,4 +1,5 @@
 package com.callx.app.upload;
+import com.callx.app.utils.AlertDialogStyler;
 
 import com.callx.app.camera.ReelCameraActivity;
 import com.callx.app.editor.ReelEditorActivity;
@@ -1292,7 +1293,7 @@ public class ReelUploadActivity extends AppCompatActivity {
         et.setSelection(et.getText().length());
         et.setPadding(32, 24, 32, 8);
 
-        new android.app.AlertDialog.Builder(this)
+        AlertDialogStyler.showRounded(new android.app.AlertDialog.Builder(this)
             .setTitle("Photo Caption")
             .setView(et)
             .setPositiveButton("Save", (d, w) -> {
@@ -1317,7 +1318,7 @@ public class ReelUploadActivity extends AppCompatActivity {
                 }
             })
             .setNegativeButton("Cancel", null)
-            .show();
+            .create());
     }
 
     // ── Per-photo metadata helpers ────────────────────────────────────────────

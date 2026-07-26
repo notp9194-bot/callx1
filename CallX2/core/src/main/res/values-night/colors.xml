@@ -44,6 +44,12 @@
     <!-- Shared AlertDialog panel background — dark mode (unchanged, this was
          the original hardcoded value in bg_rounded_alert_dialog.xml). -->
     <color name="dialog_surface">#1E1E1E</color>
+    <!-- Night-mode counterparts of dialog_text_primary/secondary — light
+         greys so hand-built dialog content stays readable against the
+         dark #1E1E1E dialog surface instead of the near-black text most
+         dialogs hardcode (which was fine on the old white-only surface). -->
+    <color name="dialog_text_primary">#FFECECEC</color>
+    <color name="dialog_text_secondary">#FFAAAAAA</color>
 
     <!-- Aliases for feature-status layouts that reference Material-style
          color names directly; kept in sync with the palette above. -->

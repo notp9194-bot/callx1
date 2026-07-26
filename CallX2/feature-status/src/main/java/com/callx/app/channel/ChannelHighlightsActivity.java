@@ -1,4 +1,5 @@
 package com.callx.app.channel;
+import com.callx.app.utils.AlertDialogStyler;
 
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -181,7 +182,7 @@ public class ChannelHighlightsActivity extends AppCompatActivity {
 
     private void showSortDialog() {
         String[] opts = {"Date saved (newest)", "Post date (newest)", "Post type"};
-        new androidx.appcompat.app.AlertDialog.Builder(this)
+        AlertDialogStyler.showRounded(new androidx.appcompat.app.AlertDialog.Builder(this)
             .setTitle("Sort by")
             .setItems(opts, (d, w) -> {
                 if (w == 0) highlights.sort((a, b) -> Long.compare(b.savedAt, a.savedAt));
@@ -190,7 +191,7 @@ public class ChannelHighlightsActivity extends AppCompatActivity {
                 adapter.setData(highlights);
             })
             .setNegativeButton("Cancel", null)
-            .show();
+            .create());
     }
 
     // ── HighlightAdapter ───────────────────────────────────────────────────
@@ -235,7 +236,7 @@ public class ChannelHighlightsActivity extends AppCompatActivity {
             // Long-press → options: Share to Status, Share externally, Remove
             h.itemView.setOnLongClickListener(v -> {
                 String[] opts = {"Share to my Status", "Share externally", "Remove bookmark"};
-                new androidx.appcompat.app.AlertDialog.Builder(ChannelHighlightsActivity.this)
+                AlertDialogStyler.showRounded(new androidx.appcompat.app.AlertDialog.Builder(ChannelHighlightsActivity.this)
                     .setTitle("Post options")
                     .setItems(opts, (d, w) -> {
                         if (w == 0) {
@@ -258,7 +259,7 @@ public class ChannelHighlightsActivity extends AppCompatActivity {
                         }
                     })
                     .setNegativeButton("Cancel", null)
-                    .show();
+                    .create());
                 return true;
             });
         }

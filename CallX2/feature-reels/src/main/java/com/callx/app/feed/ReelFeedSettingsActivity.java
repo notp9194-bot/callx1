@@ -1,4 +1,5 @@
 package com.callx.app.feed;
+import com.callx.app.utils.AlertDialogStyler;
 
 import android.os.Bundle;
 import android.view.*;
@@ -135,7 +136,7 @@ public class ReelFeedSettingsActivity extends AppCompatActivity {
     }
 
     private void resetFyp() {
-        new android.app.AlertDialog.Builder(this)
+        AlertDialogStyler.showRounded(new android.app.AlertDialog.Builder(this)
             .setTitle("Reset FYP?")
             .setMessage("This clears all your topic preferences and resets the algorithm. Continue?")
             .setPositiveButton("Reset", (d, w) -> {
@@ -146,7 +147,7 @@ public class ReelFeedSettingsActivity extends AppCompatActivity {
                 interestAdapter.setSelected(preferredTopics);
                 Toast.makeText(this, "FYP reset!", Toast.LENGTH_SHORT).show();
             })
-            .setNegativeButton("Cancel", null).show();
+            .setNegativeButton("Cancel", null).create());
     }
 
     static class TopicAdapter extends RecyclerView.Adapter<TopicAdapter.VH> {

@@ -1,4 +1,5 @@
 package com.callx.app.viewer;
+import com.callx.app.utils.AlertDialogStyler;
   import android.content.Intent;
   import android.graphics.Color;
   import android.net.Uri;
@@ -586,7 +587,7 @@ package com.callx.app.viewer;
       private void showOwnerMoreMenu() {
           StatusItem current = idx < items.size() ? items.get(idx) : null;
           String[] opts = {"Who viewed this", "Delete this status", "Archive status", "Add to Highlights", "Analytics", "Cancel"};
-          new AlertDialog.Builder(this)
+          AlertDialogStyler.showRounded(new AlertDialog.Builder(this)
               .setItems(opts, (d, w) -> {
                   if (w == 0) {
                       // FIX: "Who viewed this" — open SeenByBottomSheet directly from menu
@@ -616,13 +617,13 @@ package com.callx.app.viewer;
                   }
               })
               .setOnCancelListener(d -> resumeProgress())
-              .show();
+              .create());
       }
       private void showViewerMoreMenu() {
           String muteLabel = StatusMuteManager.isMuted(this, ownerUid)
                   ? "Unmute " + ownerName : "Mute " + ownerName;
           String[] opts = {muteLabel, "Download", "Forward", "Report", "Cancel"};
-          new AlertDialog.Builder(this)
+          AlertDialogStyler.showRounded(new AlertDialog.Builder(this)
               .setItems(opts, (d, w) -> {
                   if (w == 0) {
                       StatusMuteManager.toggle(this, ownerUid);
@@ -642,7 +643,7 @@ package com.callx.app.viewer;
                   resumeProgress();
               })
               .setOnCancelListener(d -> resumeProgress())
-              .show();
+              .create());
       }
       private void showAddToHighlightBottomSheet(StatusItem item) {
           pauseProgress();

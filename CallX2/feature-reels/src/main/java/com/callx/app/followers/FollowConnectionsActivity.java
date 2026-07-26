@@ -1,4 +1,5 @@
 package com.callx.app.followers;
+import com.callx.app.utils.AlertDialogStyler;
 
 import android.content.Context;
 import android.content.Intent;
@@ -604,7 +605,7 @@ public class FollowConnectionsActivity extends AppCompatActivity {
         openLp.leftMargin = (int) (8 * density);
         btnRow.addView(btnOpen, openLp);
 
-        dialog.show();
+        AlertDialogStyler.showRounded(dialog);
     }
 
     private void styleCompactDialogBtn(TextView btn, boolean filled, float density) {
@@ -781,9 +782,10 @@ public class FollowConnectionsActivity extends AppCompatActivity {
 
     private void unfollowUser(UserItem u, int pos) {
         String myUid = safeMyUid(); if (myUid == null) return;
-        new AlertDialog.Builder(this)
-            .setTitle("Unfollow " + (u.name != null ? u.name : "this user") + "?")
-            .setPositiveButton("Unfollow", (d, w) -> {
+        AlertDialogStyler.showReusableConfirm(this, "unfollow_user_connections",
+            AlertDialogStyler.DialogSize.DEFAULT,
+            "Unfollow " + (u.name != null ? u.name : "this user") + "?", null,
+            "Unfollow", () -> {
                 FirebaseUtils.getReelFollowsRef(myUid).child(u.uid).removeValue();
                 FirebaseUtils.getReelFollowersRef(u.uid).child(myUid).removeValue();
                 allItems[TAB_FOLLOWING].remove(u);
@@ -792,9 +794,9 @@ public class FollowConnectionsActivity extends AppCompatActivity {
                 updateTabLabel(TAB_FOLLOWING);
                 if (adapters[TAB_FOLLOWING] != null) adapters[TAB_FOLLOWING].notifyDataSetChanged();
                 showEmpty(TAB_FOLLOWING, filteredItems[TAB_FOLLOWING].isEmpty());
-            })
-            .setNegativeButton("Cancel", null)
-            .show();
+            },
+            null, null,
+            "Cancel");
     }
 
     // ══════════════════════════════════════════════════════════════════════

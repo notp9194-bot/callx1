@@ -1,4 +1,5 @@
 package com.callx.app.followers;
+import com.callx.app.utils.AlertDialogStyler;
 
 import android.os.Bundle;
 import android.text.*;
@@ -53,9 +54,9 @@ public class ReelCollabRequestActivity extends AppCompatActivity {
         Spinner sp=v.findViewById(R.id.sp_collab_type);
         ArrayAdapter<String>sa=new ArrayAdapter<>(this,android.R.layout.simple_spinner_item,new String[]{"Duet","Stitch","Co-create"});
         sa.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);sp.setAdapter(sa);
-        new android.app.AlertDialog.Builder(this).setTitle("Send Collab Request").setView(v)
+        AlertDialogStyler.showRounded(new android.app.AlertDialog.Builder(this).setTitle("Send Collab Request").setView(v)
             .setPositiveButton("Send",(d,w)->{String u=etUser.getText()!=null?etUser.getText().toString().trim():"",m=etMsg.getText()!=null?etMsg.getText().toString().trim():"",t=(String)sp.getSelectedItem();if(u.isEmpty()){Toast.makeText(this,"Enter a username",Toast.LENGTH_SHORT).show();return;}sendReq(u,m,t);})
-            .setNegativeButton("Cancel",null).show();
+            .setNegativeButton("Cancel",null).create());
     }
 
     private void sendReq(String username,String msg,String type){

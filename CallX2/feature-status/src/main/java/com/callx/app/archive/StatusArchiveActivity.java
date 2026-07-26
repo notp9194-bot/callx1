@@ -1,4 +1,5 @@
 package com.callx.app.archive;
+import com.callx.app.utils.AlertDialogStyler;
 import android.content.Intent;
 import android.os.Bundle;
 import android.view.*;
@@ -149,7 +150,7 @@ public class StatusArchiveActivity extends AppCompatActivity {
         }
     }
     private void showAddToHighlightDialog(StatusItem item) {
-        new androidx.appcompat.app.AlertDialog.Builder(this)
+        AlertDialogStyler.showRounded(new androidx.appcompat.app.AlertDialog.Builder(this)
             .setTitle("Add to Highlights")
             .setMessage("Enter album name:")
             .setView(new EditText(this) {{
@@ -166,6 +167,6 @@ public class StatusArchiveActivity extends AppCompatActivity {
                 Toast.makeText(this, "Added to " + album, Toast.LENGTH_SHORT).show();
             })
             .setNegativeButton("Cancel", null)
-            .show();
+            .create());
     }
 }

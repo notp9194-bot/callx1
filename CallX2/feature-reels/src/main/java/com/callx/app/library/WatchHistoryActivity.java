@@ -1,4 +1,5 @@
 package com.callx.app.library;
+import com.callx.app.utils.AlertDialogStyler;
 
 import android.content.Intent;
 import android.os.Bundle;
@@ -8,7 +9,6 @@ import android.view.View;
 import android.widget.*;
 
 import androidx.annotation.NonNull;
-import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.SearchView;
 import androidx.appcompat.widget.Toolbar;
@@ -341,19 +341,20 @@ public class WatchHistoryActivity extends AppCompatActivity
 
     @Override
     public void onDelete(WatchHistoryItem item) {
-        new AlertDialog.Builder(this)
-            .setTitle("Remove from history?")
-            .setMessage("This reel will be removed from your watch history.")
-            .setPositiveButton("Remove", (d, w) -> {
+        AlertDialogStyler.showReusableConfirm(this, "remove_history_item",
+            AlertDialogStyler.DialogSize.DEFAULT,
+            "Remove from history?",
+            "This reel will be removed from your watch history.",
+            "Remove", () -> {
                 WatchHistoryManager.get().delete(item.reelId);
                 allItems.remove(item);
                 displayItems.remove(item);
                 adapter.removeItem(item);
                 if (displayItems.isEmpty()) showEmpty("No more history");
                 updateStats();
-            })
-            .setNegativeButton("Cancel", null)
-            .show();
+            },
+            null, null,
+            "Cancel");
     }
 
     // ── Clear all ─────────────────────────────────────────────────────────────
@@ -363,10 +364,11 @@ public class WatchHistoryActivity extends AppCompatActivity
             Toast.makeText(this, "History is already empty", Toast.LENGTH_SHORT).show();
             return;
         }
-        new AlertDialog.Builder(this)
-            .setTitle("Clear watch history?")
-            .setMessage("All " + allItems.size() + " entries will be permanently removed.")
-            .setPositiveButton("Clear All", (d, w) ->
+        AlertDialogStyler.showReusableConfirm(this, "clear_watch_history",
+            AlertDialogStyler.DialogSize.DEFAULT,
+            "Clear watch history?",
+            "All " + allItems.size() + " entries will be permanently removed.",
+            "Clear All", () ->
                 WatchHistoryManager.get().clearAll(success -> {
                     if (success) {
                         allItems.clear();
@@ -378,9 +380,8 @@ public class WatchHistoryActivity extends AppCompatActivity
                     } else {
                         Toast.makeText(this, "Failed to clear", Toast.LENGTH_SHORT).show();
                     }
-                })
-            )
-            .setNegativeButton("Cancel", null)
-            .show();
+                }),
+            null, null,
+            "Cancel");
     }
 }

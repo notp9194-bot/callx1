@@ -2011,16 +2011,16 @@ public class GroupChatActivity extends AppCompatActivity
     // ─────────────────────────────────────────────────────────────────────
 
     private void confirmDelete(Message m) {
-        com.callx.app.utils.AlertDialogStyler.showRounded(
-            new AlertDialog.Builder(this)
-                .setTitle("Delete message?")
-                .setPositiveButton("Delete", (d, w) -> {
+        com.callx.app.utils.AlertDialogStyler.showReusableConfirm(this,
+                "group_delete_message", com.callx.app.utils.AlertDialogStyler.DialogSize.COMPACT,
+                "Delete message?", null,
+                "Delete", () -> {
                     groupMessagesRef.child(m.id).child("deleted").setValue(true);
                     groupMessagesRef.child(m.id).child("text").setValue("");
                     ioExecutor.execute(() -> db.messageDao().softDelete(m.id));
-                })
-                .setNegativeButton("Cancel", null).create(),
-                com.callx.app.utils.AlertDialogStyler.DialogSize.COMPACT);
+                },
+                null, null,
+                "Cancel");
     }
 
     /** GROUP REACTION FLOW — previously this only ever called .setValue(emoji),
@@ -3138,16 +3138,16 @@ public class GroupChatActivity extends AppCompatActivity
     }
 
     private void confirmRemoveMember(String uid, String name) {
-        com.callx.app.utils.AlertDialogStyler.showRounded(
-            new AlertDialog.Builder(this)
-                .setTitle("Remove " + name + "?")
-                .setPositiveButton("Remove", (d, w) -> {
+        com.callx.app.utils.AlertDialogStyler.showReusableConfirm(this,
+                "group_remove_member", com.callx.app.utils.AlertDialogStyler.DialogSize.COMPACT,
+                "Remove " + name + "?", null,
+                "Remove", () -> {
                     FirebaseUtils.getGroupMembersRef(groupId).child(uid).removeValue();
                     FirebaseUtils.db().getReference("users")
                             .child(uid).child("groups").child(groupId).removeValue();
-                })
-                .setNegativeButton("Cancel", null).create(),
-                com.callx.app.utils.AlertDialogStyler.DialogSize.COMPACT);
+                },
+                null, null,
+                "Cancel");
     }
 
     private void toggleMemberAdmin(String uid, String name, boolean wasAdmin) {

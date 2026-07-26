@@ -4,7 +4,6 @@ import android.graphics.Color;
 import android.os.Bundle;
 import android.view.*;
 import android.widget.*;
-import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.Toolbar;
 import androidx.recyclerview.widget.LinearLayoutManager;
@@ -100,16 +99,16 @@ public class LoginActivityLogActivity extends AppCompatActivity {
     }
 
     private void confirmClear() {
-        new AlertDialog.Builder(this)
-            .setTitle("Clear Login History?")
-            .setMessage("All login records will be permanently deleted.")
-            .setPositiveButton("Clear", (d, w) -> {
-                secMgr.clearLoginHistory();
-                loadHistory();
-                Toast.makeText(this, "Login history cleared", Toast.LENGTH_SHORT).show();
-            })
-            .setNegativeButton("Cancel", null)
-            .show();
+        com.callx.app.utils.AlertDialogStyler.showReusableConfirm(this,
+                "login_history_clear", com.callx.app.utils.AlertDialogStyler.DialogSize.DEFAULT,
+                "Clear Login History?", "All login records will be permanently deleted.",
+                "Clear", () -> {
+                    secMgr.clearLoginHistory();
+                    loadHistory();
+                    Toast.makeText(this, "Login history cleared", Toast.LENGTH_SHORT).show();
+                },
+                null, null,
+                "Cancel");
     }
 
     private int dp(int v) {

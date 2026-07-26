@@ -6,7 +6,6 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.*;
 import androidx.annotation.NonNull;
-import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
@@ -115,23 +114,23 @@ public class BlockedUsersActivity extends AppCompatActivity {
     }
 
     private void confirmUnblock(User user) {
-        new AlertDialog.Builder(this)
-            .setTitle("Unblock " + user.name + "?")
-            .setMessage(user.name + " will be able to message you and see your content again.")
-            .setPositiveButton("Unblock", (d, w) -> {
-                FirebaseUtils.getBlocksRef(myUid).child(user.uid).removeValue()
-                    .addOnSuccessListener(v -> {
-                        blockedUsers.remove(user);
-                        adapter.notifyDataSetChanged();
-                        if (tvBlockCount != null)
-                            tvBlockCount.setText(blockedUsers.size() + " blocked user" + (blockedUsers.size() == 1 ? "" : "s"));
-                        if (tvEmpty != null)
-                            tvEmpty.setVisibility(blockedUsers.isEmpty() ? View.VISIBLE : View.GONE);
-                        Toast.makeText(this, user.name + " unblocked", Toast.LENGTH_SHORT).show();
-                    });
-            })
-            .setNegativeButton("Cancel", null)
-            .show();
+        com.callx.app.utils.AlertDialogStyler.showReusableConfirm(this,
+                "blocked_user_unblock", com.callx.app.utils.AlertDialogStyler.DialogSize.DEFAULT,
+                "Unblock " + user.name + "?", user.name + " will be able to message you and see your content again.",
+                "Unblock", () -> {
+                    FirebaseUtils.getBlocksRef(myUid).child(user.uid).removeValue()
+                        .addOnSuccessListener(v -> {
+                            blockedUsers.remove(user);
+                            adapter.notifyDataSetChanged();
+                            if (tvBlockCount != null)
+                                tvBlockCount.setText(blockedUsers.size() + " blocked user" + (blockedUsers.size() == 1 ? "" : "s"));
+                            if (tvEmpty != null)
+                                tvEmpty.setVisibility(blockedUsers.isEmpty() ? View.VISIBLE : View.GONE);
+                            Toast.makeText(this, user.name + " unblocked", Toast.LENGTH_SHORT).show();
+                        });
+                },
+                null, null,
+                "Cancel");
     }
 
     // ── Adapter ───────────────────────────────────────────────────────────────

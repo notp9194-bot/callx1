@@ -1,4 +1,5 @@
 package com.callx.app.profile;
+import com.callx.app.utils.AlertDialogStyler;
 
 import com.callx.app.player.SingleReelPlayerActivity;
 import com.callx.app.followers.FollowersListActivity;
@@ -1003,14 +1004,14 @@ public class UserReelsActivity extends AppCompatActivity
     private void showHighlightManageSheet(HighlightsRowAdapter.HighlightAlbum album, int adapterPos) {
         if (isFinishing() || isDestroyed()) return;
 
-        new androidx.appcompat.app.AlertDialog.Builder(this)
+        AlertDialogStyler.showRounded(new androidx.appcompat.app.AlertDialog.Builder(this)
             .setTitle(album.albumName)
             .setItems(new String[]{"✏  Rename album", "🗑  Delete album"}, (d, which) -> {
                 if (which == 0) showHighlightRenameDialog(album, adapterPos);
                 else            confirmDeleteHighlight(album, adapterPos);
             })
             .setNegativeButton("Cancel", null)
-            .show();
+            .create());
     }
 
     private void showHighlightRenameDialog(HighlightsRowAdapter.HighlightAlbum album, int adapterPos) {
@@ -1020,7 +1021,7 @@ public class UserReelsActivity extends AppCompatActivity
         int pad = (int)(16 * getResources().getDisplayMetrics().density);
         et.setPadding(pad, pad / 2, pad, pad / 2);
 
-        new androidx.appcompat.app.AlertDialog.Builder(this)
+        AlertDialogStyler.showRounded(new androidx.appcompat.app.AlertDialog.Builder(this)
             .setTitle("Rename highlight")
             .setView(et)
             .setPositiveButton("Save", (d, w) -> {
@@ -1042,11 +1043,11 @@ public class UserReelsActivity extends AppCompatActivity
                 if (highlightsAdapter != null) highlightsAdapter.notifyItemChanged(adapterPos);
             })
             .setNegativeButton("Cancel", null)
-            .show();
+            .create());
     }
 
     private void confirmDeleteHighlight(HighlightsRowAdapter.HighlightAlbum album, int adapterPos) {
-        new androidx.appcompat.app.AlertDialog.Builder(this)
+        AlertDialogStyler.showRounded(new androidx.appcompat.app.AlertDialog.Builder(this)
             .setTitle("Delete \"" + album.albumName + "\"?")
             .setMessage("This will permanently remove this highlight album.")
             .setPositiveButton("Delete", (d, w) -> {
@@ -1063,7 +1064,7 @@ public class UserReelsActivity extends AppCompatActivity
                 }
             })
             .setNegativeButton("Cancel", null)
-            .show();
+            .create());
     }
 
     /** "album_id" → "Album Id" */
@@ -1651,7 +1652,7 @@ public class UserReelsActivity extends AppCompatActivity
     // ── Analytics sheet (Feature 15) ──────────────────────────────────────
 
     private void showAnalyticsSheet(ReelModel reel, int adapterPos) {
-        new AlertDialog.Builder(this)
+        AlertDialogStyler.showRounded(new AlertDialog.Builder(this)
             .setTitle("Reel Options")
             .setItems(new String[]{"View Insights", "Pin Reel", "Share", "Delete"}, (d, which) -> {
                 switch (which) {
@@ -1662,14 +1663,15 @@ public class UserReelsActivity extends AppCompatActivity
                     case 2: shareProfile(); break;
                     case 3: confirmDeleteSingleReel(reel); break;
                 }
-            }).show();
+            }).create());
     }
 
     private void confirmDeleteSingleReel(ReelModel reel) {
-        new AlertDialog.Builder(this)
-            .setTitle("Delete Reel")
-            .setMessage("This reel will be permanently deleted.")
-            .setPositiveButton("Delete", (d, w) -> {
+        AlertDialogStyler.showReusableConfirm(this, "delete_single_reel",
+            AlertDialogStyler.DialogSize.DEFAULT,
+            "Delete Reel",
+            "This reel will be permanently deleted.",
+            "Delete", () -> {
                 FirebaseUtils.getReelsRef().child(reel.reelId).removeValue();
                 FirebaseUtils.getReelsByUserRef(targetUid).child(reel.reelId).removeValue();
                 if (pinnedReel != null && reel.reelId.equals(pinnedReel.reelId)) unpinReel();
@@ -1677,8 +1679,9 @@ public class UserReelsActivity extends AppCompatActivity
                 adapter.notifyDataSetChanged();
                 refreshEmptyState();
                 Toast.makeText(this, "Deleted", Toast.LENGTH_SHORT).show();
-            })
-            .setNegativeButton("Cancel", null).show();
+            },
+            null, null,
+            "Cancel");
     }
 
     // ── Video preview dialog (Feature 4) ──────────────────────────────────
@@ -1799,10 +1802,11 @@ public class UserReelsActivity extends AppCompatActivity
         if (!targetUid.equals(myUid)) {
             Toast.makeText(this, "You can only delete your own reels", Toast.LENGTH_SHORT).show(); return;
         }
-        new AlertDialog.Builder(this)
-            .setTitle("Delete Reels")
-            .setMessage("Delete " + selectedReelIds.size() + " reel(s)? This cannot be undone.")
-            .setPositiveButton("Delete", (d, w) -> {
+        AlertDialogStyler.showReusableConfirm(this, "delete_selected_reels",
+            AlertDialogStyler.DialogSize.DEFAULT,
+            "Delete Reels",
+            "Delete " + selectedReelIds.size() + " reel(s)? This cannot be undone.",
+            "Delete", () -> {
                 for (String id : new HashSet<>(selectedReelIds)) {
                     FirebaseUtils.getReelsRef().child(id).removeValue();
                     FirebaseUtils.getReelsByUserRef(myUid).child(id).removeValue();
@@ -1814,8 +1818,9 @@ public class UserReelsActivity extends AppCompatActivity
                 adapter.notifyDataSetChanged();
                 refreshEmptyState();
                 Toast.makeText(this, "Deleted successfully", Toast.LENGTH_SHORT).show();
-            })
-            .setNegativeButton("Cancel", null).show();
+            },
+            null, null,
+            "Cancel");
     }
 
     private void deleteAllReels() {
@@ -1827,10 +1832,11 @@ public class UserReelsActivity extends AppCompatActivity
             exitMultiSelectMode();
             return;
         }
-        new AlertDialog.Builder(this)
-            .setTitle("Delete All Reels")
-            .setMessage("Delete all " + data.size() + " reel(s)? This cannot be undone.")
-            .setPositiveButton("Delete All", (d, w) -> {
+        AlertDialogStyler.showReusableConfirm(this, "delete_all_reels",
+            AlertDialogStyler.DialogSize.DEFAULT,
+            "Delete All Reels",
+            "Delete all " + data.size() + " reel(s)? This cannot be undone.",
+            "Delete All", () -> {
                 for (ReelModel r : new ArrayList<>(data)) {
                     if (r.reelId == null) continue;
                     FirebaseUtils.getReelsRef().child(r.reelId).removeValue();
@@ -1843,8 +1849,9 @@ public class UserReelsActivity extends AppCompatActivity
                 adapter.notifyDataSetChanged();
                 refreshEmptyState();
                 Toast.makeText(this, "All reels deleted", Toast.LENGTH_SHORT).show();
-            })
-            .setNegativeButton("Cancel", null).show();
+            },
+            null, null,
+            "Cancel");
     }
 
     // ── Action buttons ────────────────────────────────────────────────────

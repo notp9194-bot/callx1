@@ -1,4 +1,5 @@
 package com.callx.app.creator;
+import com.callx.app.utils.AlertDialogStyler;
 
 import android.os.Bundle;
 import android.view.*;
@@ -161,7 +162,7 @@ public class ReelCreatorFundActivity extends AppCompatActivity {
 
     private void toggleEnrollment() {
         String msg = isEnrolled ? "Leave the Creator Fund?" : "Join the Creator Fund to start earning from your reels?";
-        new android.app.AlertDialog.Builder(this)
+        AlertDialogStyler.showRounded(new android.app.AlertDialog.Builder(this)
             .setTitle(isEnrolled ? "Leave Fund" : "Join Fund")
             .setMessage(msg)
             .setPositiveButton("Confirm", (d, w) -> {
@@ -173,11 +174,11 @@ public class ReelCreatorFundActivity extends AppCompatActivity {
                 btnWithdraw.setEnabled(coins >= MIN_WITHDRAW_COINS && isEnrolled);
                 Toast.makeText(this, isEnrolled ? "Enrolled in Creator Fund!" : "Left Creator Fund", Toast.LENGTH_SHORT).show();
             })
-            .setNegativeButton("Cancel", null).show();
+            .setNegativeButton("Cancel", null).create());
     }
 
     private void requestWithdraw() {
-        new android.app.AlertDialog.Builder(this)
+        AlertDialogStyler.showRounded(new android.app.AlertDialog.Builder(this)
             .setTitle("Withdraw " + fmt(coins) + " coins?")
             .setMessage("Amount: $" + String.format("%.2f", coins * COIN_TO_USD) + "\n\nProcessing takes 7–14 business days.")
             .setPositiveButton("Request", (d, w) -> {
@@ -190,7 +191,7 @@ public class ReelCreatorFundActivity extends AppCompatActivity {
                 btnWithdraw.setEnabled(false);
                 Toast.makeText(this, "Withdrawal requested! Processing in 7–14 days.", Toast.LENGTH_LONG).show();
             })
-            .setNegativeButton("Cancel", null).show();
+            .setNegativeButton("Cancel", null).create());
     }
 
     private String fmt(long n) {

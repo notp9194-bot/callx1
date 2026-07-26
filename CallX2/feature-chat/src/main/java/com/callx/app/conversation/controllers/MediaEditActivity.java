@@ -525,14 +525,15 @@ public class MediaEditActivity extends AppCompatActivity {
         // ── Clear all ──
         View btnClear = findViewById(R.id.btnDrawClear);
         if (btnClear != null) btnClear.setOnClickListener(v -> {
-            new android.app.AlertDialog.Builder(this)
-                .setMessage("Clear all drawing?")
-                .setPositiveButton("Clear", (d, w) -> {
-                    drawOverlay.clearStrokes();
-                    current().strokes.clear();
-                })
-                .setNegativeButton("Cancel", null)
-                .show();
+            com.callx.app.utils.AlertDialogStyler.showReusableConfirm(this,
+                    "clear_drawing", com.callx.app.utils.AlertDialogStyler.DialogSize.DEFAULT,
+                    null, "Clear all drawing?",
+                    "Clear", () -> {
+                        drawOverlay.clearStrokes();
+                        current().strokes.clear();
+                    },
+                    null, null,
+                    "Cancel");
         });
 
         // ── Done ──

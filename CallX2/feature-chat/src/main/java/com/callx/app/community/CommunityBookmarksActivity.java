@@ -13,7 +13,6 @@ import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
@@ -237,15 +236,17 @@ public class CommunityBookmarksActivity extends AppCompatActivity {
 
             // Long-press to remove bookmark
             h.itemView.setOnLongClickListener(v -> {
-                new AlertDialog.Builder(CommunityBookmarksActivity.this)
-                        .setTitle("Remove Bookmark?")
-                        .setPositiveButton("Remove", (d, w) -> {
+                com.callx.app.utils.AlertDialogStyler.showReusableConfirm(CommunityBookmarksActivity.this,
+                        "remove_bookmark", com.callx.app.utils.AlertDialogStyler.DialogSize.DEFAULT,
+                        "Remove Bookmark?", null,
+                        "Remove", () -> {
                             removeBookmark(CommunityBookmarksActivity.this, p.communityId, p.id);
                             items.remove(pos);
                             notifyItemRemoved(pos);
                             if (items.isEmpty()) emptyState.setVisibility(View.VISIBLE);
-                        })
-                        .setNegativeButton("Cancel", null).show();
+                        },
+                        null, null,
+                        "Cancel");
                 return true;
             });
 

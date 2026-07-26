@@ -70,6 +70,12 @@
          Was hardcoded #1E1E1E (dark) before, so dialogs looked broken
          in light mode (dark panel + dark platform text = unreadable). -->
     <color name="dialog_surface">#FFFFFF</color>
+    <!-- Text colors for hand-built dialog content (setView() layouts) —
+         see AlertDialogStyler.fixDialogTextContrast(). Light mode: same
+         near-black most dialogs already hardcode, kept here so it's one
+         switchable value instead of scattered literals. -->
+    <color name="dialog_text_primary">#FF222222</color>
+    <color name="dialog_text_secondary">#FF666666</color>
 
     <!-- Aliases for feature-status layouts that reference Material-style
          color names directly; kept in sync with the palette above. -->

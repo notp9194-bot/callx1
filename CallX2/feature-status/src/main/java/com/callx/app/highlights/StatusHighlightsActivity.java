@@ -1,4 +1,5 @@
 package com.callx.app.highlights;
+import com.callx.app.utils.AlertDialogStyler;
 import android.os.Bundle;
 import android.view.*;
 import android.widget.*;
@@ -109,7 +110,7 @@ public class StatusHighlightsActivity extends AppCompatActivity {
                 startActivity(i);
             });
             h.itemView.setOnLongClickListener(v -> {
-                new androidx.appcompat.app.AlertDialog.Builder(StatusHighlightsActivity.this)
+                AlertDialogStyler.showRounded(new androidx.appcompat.app.AlertDialog.Builder(StatusHighlightsActivity.this)
                     .setTitle(albumName)
                     .setItems(new String[]{"Delete album", "Cancel"}, (d, w2) -> {
                         if (w2 == 0) {
@@ -118,7 +119,7 @@ public class StatusHighlightsActivity extends AppCompatActivity {
                             notifyDataSetChanged();
                             tvEmpty.setVisibility(albumMap.isEmpty() ? View.VISIBLE : View.GONE);
                         }
-                    }).show();
+                    }).create());
                 return true;
             });
         }

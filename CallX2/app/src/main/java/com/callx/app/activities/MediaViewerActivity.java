@@ -418,10 +418,11 @@ public class MediaViewerActivity extends AppCompatActivity {
         if (galleryAdapter == null || replyChatId == null || replyMessageId == null) return;
         java.util.List<Integer> selected = new ArrayList<>(galleryAdapter.getSelectedPositions());
         if (selected.isEmpty()) return;
-        new android.app.AlertDialog.Builder(this)
-                .setTitle(selected.size() == 1 ? "Delete this item?" : "Delete " + selected.size() + " items?")
-                .setMessage("This can't be undone.")
-                .setPositiveButton("Delete", (d, w) -> {
+        com.callx.app.utils.AlertDialogStyler.showReusableConfirm(this,
+                "media_viewer_delete_selection", com.callx.app.utils.AlertDialogStyler.DialogSize.DEFAULT,
+                selected.size() == 1 ? "Delete this item?" : "Delete " + selected.size() + " items?",
+                "This can't be undone.",
+                "Delete", () -> {
                     // Highest index first so earlier indices stay valid as
                     // each delete request is queued (bridge is one-shot, so
                     // queue them with small delays — same pattern used for
@@ -438,9 +439,9 @@ public class MediaViewerActivity extends AppCompatActivity {
                     exitSelectMode();
                     finish();
                     overridePendingTransition(0, 0);
-                })
-                .setNegativeButton("Cancel", null)
-                .show();
+                },
+                null, null,
+                "Cancel");
     }
 
     private void starSelection() {
@@ -488,18 +489,18 @@ public class MediaViewerActivity extends AppCompatActivity {
 
     private void deleteSingleActiveItem() {
         if (galleryActivePos < 0 || replyChatId == null || replyMessageId == null) return;
-        new android.app.AlertDialog.Builder(this)
-                .setTitle("Delete this item?")
-                .setMessage("This can't be undone.")
-                .setPositiveButton("Delete", (d, w) -> {
+        com.callx.app.utils.AlertDialogStyler.showReusableConfirm(this,
+                "media_viewer_delete_single", com.callx.app.utils.AlertDialogStyler.DialogSize.DEFAULT,
+                "Delete this item?", "This can't be undone.",
+                "Delete", () -> {
                     com.callx.app.conversation.GalleryItemActionBridge.request(
                             replyChatId, replyMessageId, galleryActivePos,
                             com.callx.app.conversation.GalleryItemActionBridge.ACTION_DELETE_ITEM, null);
                     finish();
                     overridePendingTransition(0, 0);
-                })
-                .setNegativeButton("Cancel", null)
-                .show();
+                },
+                null, null,
+                "Cancel");
     }
 
     private void starSingleActiveItem() {

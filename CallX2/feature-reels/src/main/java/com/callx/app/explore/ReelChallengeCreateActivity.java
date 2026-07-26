@@ -1,4 +1,5 @@
 package com.callx.app.explore;
+import com.callx.app.utils.AlertDialogStyler;
 
 import com.callx.app.music.MusicPickerActivity;
 
@@ -100,11 +101,11 @@ public class ReelChallengeCreateActivity extends AppCompatActivity {
         String hashtag = "#" + name.replaceAll("\\s+", "") + "Challenge";
         String desc    = etDescription.getText() != null ? etDescription.getText().toString() : "";
         String dur     = getDuration() + " days";
-        new android.app.AlertDialog.Builder(this)
+        AlertDialogStyler.showRounded(new android.app.AlertDialog.Builder(this)
             .setTitle(hashtag)
             .setMessage("📋 " + desc + "\n\n⏱ Duration: " + dur
                 + (selectedAudioTitle != null ? "\n🎵 " + selectedAudioTitle : ""))
-            .setPositiveButton("Looks Good!", null).show();
+            .setPositiveButton("Looks Good!", null).create());
     }
 
     private void submitChallenge() {

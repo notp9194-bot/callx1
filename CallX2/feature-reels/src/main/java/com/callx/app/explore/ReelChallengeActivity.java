@@ -1,4 +1,5 @@
 package com.callx.app.explore;
+import com.callx.app.utils.AlertDialogStyler;
 
 import com.callx.app.camera.ReelCameraActivity;
 
@@ -277,7 +278,7 @@ public class ReelChallengeActivity extends AppCompatActivity {
     private void showNewChallengeDialog() {
         EditText etName = new EditText(this);
         etName.setHint("Challenge hashtag (e.g. #DanceChallenge)");
-        new android.app.AlertDialog.Builder(this)
+        AlertDialogStyler.showRounded(new android.app.AlertDialog.Builder(this)
             .setTitle("New Challenge")
             .setView(etName)
             .setPositiveButton("Create", (d, w) -> {
@@ -295,7 +296,7 @@ public class ReelChallengeActivity extends AppCompatActivity {
                     });
             })
             .setNegativeButton("Cancel", null)
-            .show();
+            .create());
     }
 
     private String str(DataSnapshot s, String k) {

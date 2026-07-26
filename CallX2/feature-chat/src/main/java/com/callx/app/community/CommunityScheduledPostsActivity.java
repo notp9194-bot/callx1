@@ -1,6 +1,5 @@
 package com.callx.app.community;
 
-import android.app.AlertDialog;
 import android.os.Bundle;
 import android.view.View;
 import android.widget.Toast;
@@ -66,16 +65,16 @@ public class CommunityScheduledPostsActivity extends AppCompatActivity
 
     @Override
     public void onCancelClicked(CommunityScheduledPostEntity post) {
-        new AlertDialog.Builder(this)
-                .setTitle("Cancel Scheduled Post")
-                .setMessage("Cancel this scheduled post? It won't be published.")
-                .setPositiveButton("Cancel Post", (d, w) ->
+        com.callx.app.utils.AlertDialogStyler.showReusableConfirm(this,
+                "community_cancel_scheduled_post", com.callx.app.utils.AlertDialogStyler.DialogSize.DEFAULT,
+                "Cancel Scheduled Post", "Cancel this scheduled post? It won't be published.",
+                "Cancel Post", () ->
                         repo.cancelScheduledPost(post.id,
                                 (success, error) -> runOnUiThread(() -> {
                                     if (!success)
                                         Toast.makeText(this, "Failed: " + error, Toast.LENGTH_SHORT).show();
-                                })))
-                .setNegativeButton("Keep", null)
-                .show();
+                                })),
+                null, null,
+                "Keep");
     }
 }

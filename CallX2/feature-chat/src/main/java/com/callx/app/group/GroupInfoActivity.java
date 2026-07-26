@@ -567,11 +567,10 @@ public class GroupInfoActivity extends AppCompatActivity {
         for (GroupMemberAdapter.MemberItem m : members)
             if (uid.equals(m.uid)) { name = m.name; break; }
         final String finalName = name;
-        com.callx.app.utils.AlertDialogStyler.showRounded(
-            new AlertDialog.Builder(this)
-                .setTitle("Remove " + name + "?")
-                .setMessage(name + " will be removed from this group.")
-                .setPositiveButton("Remove", (d, w) -> {
+        com.callx.app.utils.AlertDialogStyler.showReusableConfirm(this,
+                "group_info_remove_member", com.callx.app.utils.AlertDialogStyler.DialogSize.DEFAULT,
+                "Remove " + name + "?", name + " will be removed from this group.",
+                "Remove", () -> {
                     FirebaseUtils.getGroupMembersRef(groupId).child(uid).removeValue();
                     FirebaseUtils.getGroupsRef().child(groupId).child("admins").child(uid).removeValue();
                     FirebaseUtils.db().getReference("userGroups").child(uid).child(groupId).removeValue();
@@ -712,20 +711,20 @@ public class GroupInfoActivity extends AppCompatActivity {
     }
 
     private void showResetLinkConfirm() {
-        com.callx.app.utils.AlertDialogStyler.showRounded(
-            new AlertDialog.Builder(this)
-                .setTitle("Reset Invite Link?")
-                .setMessage("The old link will stop working. Anyone with the old link won't be able to join.")
-                .setPositiveButton("Reset", (d, w) -> {
+        com.callx.app.utils.AlertDialogStyler.showReusableConfirm(this,
+                "group_reset_invite_link", com.callx.app.utils.AlertDialogStyler.DialogSize.COMPACT,
+                "Reset Invite Link?",
+                "The old link will stop working. Anyone with the old link won't be able to join.",
+                "Reset", () -> {
                     // Generate a new token-based sub-path (server-side ideally, here we use timestamp)
                     String newToken = Long.toHexString(System.currentTimeMillis());
                     FirebaseUtils.getGroupsRef().child(groupId)
                             .child("inviteToken").setValue(newToken);
                     tvInviteLink.setText(com.callx.app.utils.Constants.DEEP_LINK_BASE_URL + "/join/" + groupId + "?t=" + newToken);
                     Toast.makeText(this, "Invite link reset", Toast.LENGTH_SHORT).show();
-                })
-                .setNegativeButton("Cancel", null)
-        .create(), com.callx.app.utils.AlertDialogStyler.DialogSize.COMPACT);
+                },
+                null, null,
+                "Cancel");
     }
 
     // ── Report group ──────────────────────────────────────────────────────
@@ -751,13 +750,12 @@ public class GroupInfoActivity extends AppCompatActivity {
 
     // ── Leave group ───────────────────────────────────────────────────────
     private void confirmLeaveGroup() {
-        com.callx.app.utils.AlertDialogStyler.showRounded(
-            new AlertDialog.Builder(this)
-                .setTitle("Leave Group?")
-                .setMessage("You will no longer receive messages from this group.")
-                .setPositiveButton("Leave", (d, w) -> doLeaveGroup())
-                .setNegativeButton("Cancel", null)
-        .create(), com.callx.app.utils.AlertDialogStyler.DialogSize.COMPACT);
+        com.callx.app.utils.AlertDialogStyler.showReusableConfirm(this,
+                "group_leave", com.callx.app.utils.AlertDialogStyler.DialogSize.COMPACT,
+                "Leave Group?", "You will no longer receive messages from this group.",
+                "Leave", this::doLeaveGroup,
+                null, null,
+                "Cancel");
     }
 
     private void doLeaveGroup() {
@@ -775,13 +773,12 @@ public class GroupInfoActivity extends AppCompatActivity {
 
     // ── Delete group (admin only) ─────────────────────────────────────────
     private void confirmDeleteGroup() {
-        com.callx.app.utils.AlertDialogStyler.showRounded(
-            new AlertDialog.Builder(this)
-                .setTitle("Delete Group?")
-                .setMessage("All messages and members will be permanently removed. This cannot be undone.")
-                .setPositiveButton("Delete", (d, w) -> doDeleteGroup())
-                .setNegativeButton("Cancel", null)
-        .create(), com.callx.app.utils.AlertDialogStyler.DialogSize.COMPACT);
+        com.callx.app.utils.AlertDialogStyler.showReusableConfirm(this,
+                "group_delete", com.callx.app.utils.AlertDialogStyler.DialogSize.COMPACT,
+                "Delete Group?", "All messages and members will be permanently removed. This cannot be undone.",
+                "Delete", this::doDeleteGroup,
+                null, null,
+                "Cancel");
     }
 
     private void doDeleteGroup() {

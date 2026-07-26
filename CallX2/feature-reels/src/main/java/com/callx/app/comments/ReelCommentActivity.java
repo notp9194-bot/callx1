@@ -1,4 +1,5 @@
 package com.callx.app.comments;
+import com.callx.app.utils.AlertDialogStyler;
 
 import android.os.Bundle;
 import android.text.Editable;
@@ -640,7 +641,7 @@ public class ReelCommentActivity extends AppCompatActivity {
         int pad = dpToPx(16);
         et.setPadding(pad, pad, pad, pad);
 
-        new AlertDialog.Builder(this)
+        AlertDialogStyler.showRounded(new AlertDialog.Builder(this)
             .setTitle("Edit comment")
             .setView(et)
             .setPositiveButton("Save", (d, w) -> {
@@ -662,7 +663,7 @@ public class ReelCommentActivity extends AppCompatActivity {
                 ref.updateChildren(updates);
             })
             .setNegativeButton("Cancel", null)
-            .show();
+            .create());
     }
 
     // ── Pin comment ───────────────────────────────────────────────────────────
@@ -702,13 +703,13 @@ public class ReelCommentActivity extends AppCompatActivity {
             "Nudity or sexual content", "Violence", "Other"
         };
 
-        new AlertDialog.Builder(this)
+        AlertDialogStyler.showRounded(new AlertDialog.Builder(this)
             .setTitle("Report comment")
             .setItems(reasons, (d, which) -> {
                 submitReport(comment, reasons[which]);
             })
             .setNegativeButton("Cancel", null)
-            .show();
+            .create());
     }
 
     private void submitReport(ReelComment comment, String reason) {
@@ -803,12 +804,13 @@ public class ReelCommentActivity extends AppCompatActivity {
     // ── Delete ────────────────────────────────────────────────────────────────
 
     private void showDeleteDialog(ReelComment comment, int position) {
-        new AlertDialog.Builder(this)
-            .setTitle("Delete comment?")
-            .setMessage("This comment will be permanently removed.")
-            .setPositiveButton("Delete", (d, w) -> deleteComment(comment))
-            .setNegativeButton("Cancel", null)
-            .show();
+        AlertDialogStyler.showReusableConfirm(this, "delete_reel_comment",
+            AlertDialogStyler.DialogSize.DEFAULT,
+            "Delete comment?",
+            "This comment will be permanently removed.",
+            "Delete", () -> deleteComment(comment),
+            null, null,
+            "Cancel");
     }
 
     private void deleteComment(ReelComment comment) {

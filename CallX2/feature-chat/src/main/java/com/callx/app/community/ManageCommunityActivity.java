@@ -1,6 +1,5 @@
 package com.callx.app.community;
 
-import android.app.AlertDialog;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
@@ -271,19 +270,21 @@ public class ManageCommunityActivity extends AppCompatActivity {
     }
 
     private void confirmDisable() {
-        new AlertDialog.Builder(this)
-                .setTitle("Disable Community?")
-                .setMessage("This will deactivate the community for all members. This cannot be undone easily.")
-                .setPositiveButton("Disable", (d, w) -> {
+        // NOTE: original dialog also set a warning icon via setIcon(), which
+        // showReusableConfirm doesn't support — dropped for consistency with
+        // the shared rounded-dialog style used across chat/group/reels/status.
+        com.callx.app.utils.AlertDialogStyler.showReusableConfirm(this,
+                "community_disable", com.callx.app.utils.AlertDialogStyler.DialogSize.DEFAULT,
+                "Disable Community?", "This will deactivate the community for all members. This cannot be undone easily.",
+                "Disable", () -> {
                     repo.disableCommunity(communityId, currentUid, (s, e) ->
                             runOnUiThread(() -> {
                                 if (s) { Toast.makeText(this, "Community disabled", Toast.LENGTH_SHORT).show(); finish(); }
                                 else Toast.makeText(this, "Error: " + e, Toast.LENGTH_SHORT).show();
                             }));
-                })
-                .setNegativeButton("Cancel", null)
-                .setIcon(android.R.drawable.ic_dialog_alert)
-                .show();
+                },
+                null, null,
+                "Cancel");
     }
 
     private void generateOrShowInvite() {

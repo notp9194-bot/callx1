@@ -1,4 +1,5 @@
 package com.callx.app.followers;
+import com.callx.app.utils.AlertDialogStyler;
 
 import com.callx.app.player.SingleReelPlayerActivity;
 import com.callx.app.upload.ReelPostDetailsActivity;
@@ -176,7 +177,7 @@ public class ReelCollabInboxActivity extends AppCompatActivity {
     private void declineInvite(CollabInvite invite) {
         if (invite.inviteId == null) return;
 
-        new android.app.AlertDialog.Builder(this)
+        AlertDialogStyler.showRounded(new android.app.AlertDialog.Builder(this)
             .setTitle("Decline Collab?")
             .setMessage("You will not be listed as a collaborator on this reel.")
             .setPositiveButton("Decline", (d, w) -> {
@@ -190,7 +191,7 @@ public class ReelCollabInboxActivity extends AppCompatActivity {
                     });
             })
             .setNegativeButton("Keep", null)
-            .show();
+            .create());
     }
 
     private void previewReel(CollabInvite invite) {

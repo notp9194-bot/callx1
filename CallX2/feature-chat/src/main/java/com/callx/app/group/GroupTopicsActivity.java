@@ -179,15 +179,16 @@ public class GroupTopicsActivity extends AppCompatActivity implements GroupTopic
     }
 
     private void confirmDelete(GroupTopic t) {
-        new AlertDialog.Builder(this)
-                .setTitle("Delete Topic")
-                .setMessage("Delete \"" + t.name + "\"? Messages in this topic will be removed.")
-                .setPositiveButton("Delete", (d, w) -> {
+        com.callx.app.utils.AlertDialogStyler.showReusableConfirm(this,
+                "group_topic_delete", com.callx.app.utils.AlertDialogStyler.DialogSize.DEFAULT,
+                "Delete Topic", "Delete \"" + t.name + "\"? Messages in this topic will be removed.",
+                "Delete", () -> {
                     FirebaseUtils.getGroupsRef().child(groupId).child("topics")
                             .child(t.id).child("deleted").setValue(true);
                     Toast.makeText(this, "Topic deleted", Toast.LENGTH_SHORT).show();
-                })
-                .setNegativeButton("Cancel", null).show();
+                },
+                null, null,
+                "Cancel");
     }
 
     @Override

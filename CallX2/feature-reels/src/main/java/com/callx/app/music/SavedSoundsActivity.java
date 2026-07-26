@@ -1,4 +1,5 @@
 package com.callx.app.music;
+import com.callx.app.utils.AlertDialogStyler;
 
 import com.callx.app.camera.ReelCameraActivity;
 import com.callx.app.upload.ReelUploadActivity;
@@ -285,7 +286,7 @@ public class SavedSoundsActivity extends AppCompatActivity {
     }
 
     private void unsaveSound(SoundItem item) {
-        new android.app.AlertDialog.Builder(this)
+        AlertDialogStyler.showRounded(new android.app.AlertDialog.Builder(this)
             .setTitle("Remove Sound?")
             .setMessage("\"" + item.title + "\" will be removed from your saved sounds.")
             .setPositiveButton("Remove", (d, w) -> {
@@ -297,7 +298,7 @@ public class SavedSoundsActivity extends AppCompatActivity {
                         Toast.makeText(this, "Failed: " + e.getMessage(), Toast.LENGTH_SHORT).show());
             })
             .setNegativeButton("Cancel", null)
-            .show();
+            .create());
     }
 
     @Override protected void onPause() { super.onPause(); stopCurrentPlayer(); }

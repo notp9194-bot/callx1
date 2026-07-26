@@ -1,4 +1,5 @@
 package com.callx.app.channel;
+import com.callx.app.utils.AlertDialogStyler;
 
 import android.content.Intent;
 import android.os.Bundle;
@@ -703,11 +704,12 @@ public class ChannelViewerActivity extends AppCompatActivity
 
     private void confirmUnfollow() {
         if (channelEntity == null) return;
-        new AlertDialog.Builder(this)
-            .setTitle("Unfollow " + channelName + "?")
-            .setMessage("You will stop receiving updates from this channel.")
-            .setPositiveButton("Unfollow", (d, w) -> viewModel.unfollowChannel(channelEntity))
-            .setNegativeButton("Cancel", null).show();
+        AlertDialogStyler.showReusableConfirm(this,
+                "channel_unfollow", AlertDialogStyler.DialogSize.DEFAULT,
+                "Unfollow " + channelName + "?", "You will stop receiving updates from this channel.",
+                "Unfollow", () -> viewModel.unfollowChannel(channelEntity),
+                null, null,
+                "Cancel");
     }
 
     private void updateFollowButton() {
@@ -730,24 +732,25 @@ public class ChannelViewerActivity extends AppCompatActivity
             return;
         }
         String[] opts = {"8 hours", "1 week", "Always"};
-        new AlertDialog.Builder(this)
+        AlertDialogStyler.showRounded(new AlertDialog.Builder(this)
             .setTitle("Mute " + channelName + " for…")
             .setItems(opts, (d, which) -> {
                 long dur = which == 0 ? 8 * 3600_000L
                          : which == 1 ? 7 * 86400_000L
                          : Long.MAX_VALUE;
                 viewModel.muteChannel(channelEntity, dur);
-            }).show();
+            }).create());
     }
 
     // ── Report ────────────────────────────────────────────────────────────────
 
     private void reportChannel() {
-        new AlertDialog.Builder(this)
-            .setTitle("Report channel")
-            .setMessage("Report " + channelName + " for inappropriate content?")
-            .setPositiveButton("Report", (d, w) -> viewModel.reportChannel(channelId))
-            .setNegativeButton("Cancel", null).show();
+        AlertDialogStyler.showReusableConfirm(this,
+                "channel_report", AlertDialogStyler.DialogSize.DEFAULT,
+                "Report channel", "Report " + channelName + " for inappropriate content?",
+                "Report", () -> viewModel.reportChannel(channelId),
+                null, null,
+                "Cancel");
     }
 
     // ── PostActionListener callbacks ──────────────────────────────────────────
@@ -785,11 +788,12 @@ public class ChannelViewerActivity extends AppCompatActivity
     }
 
     @Override public void onDelete(ChannelPost post) {
-        new AlertDialog.Builder(this)
-            .setTitle("Delete post?")
-            .setMessage("This post will be permanently deleted.")
-            .setPositiveButton("Delete", (d, w) -> viewModel.deletePost(channelId, post.id))
-            .setNegativeButton("Cancel", null).show();
+        AlertDialogStyler.showReusableConfirm(this,
+                "channel_post_delete", AlertDialogStyler.DialogSize.DEFAULT,
+                "Delete post?", "This post will be permanently deleted.",
+                "Delete", () -> viewModel.deletePost(channelId, post.id),
+                null, null,
+                "Cancel");
     }
 
     @Override public void onEdit(ChannelPost post) {
@@ -802,11 +806,12 @@ public class ChannelViewerActivity extends AppCompatActivity
     }
 
     @Override public void onReport(ChannelPost post) {
-        new AlertDialog.Builder(this)
-            .setTitle("Report post?")
-            .setMessage("Report this post for inappropriate content?")
-            .setPositiveButton("Report", (d, w) -> viewModel.reportPost(channelId, post.id))
-            .setNegativeButton("Cancel", null).show();
+        AlertDialogStyler.showReusableConfirm(this,
+                "channel_post_report", AlertDialogStyler.DialogSize.DEFAULT,
+                "Report post?", "Report this post for inappropriate content?",
+                "Report", () -> viewModel.reportPost(channelId, post.id),
+                null, null,
+                "Cancel");
     }
 
     @Override public void onVotePoll(ChannelPost post, int optionIndex) {

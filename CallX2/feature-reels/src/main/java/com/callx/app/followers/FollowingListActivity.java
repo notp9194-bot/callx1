@@ -1,4 +1,5 @@
 package com.callx.app.followers;
+import com.callx.app.utils.AlertDialogStyler;
 
 import com.callx.app.profile.ReelUserProfileSheet;
 import com.callx.app.profile.UserReelsActivity;
@@ -11,7 +12,6 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.*;
 import androidx.annotation.NonNull;
-import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.*;
 import com.bumptech.glide.Glide;
@@ -152,10 +152,11 @@ public class FollowingListActivity extends AppCompatActivity {
     }
 
     private void unfollowUser(FollowersListActivity.UserItem u, int pos) {
-        new AlertDialog.Builder(this)
-            .setTitle("Unfollow")
-            .setMessage("Stop following " + u.name + "?")
-            .setPositiveButton("Unfollow", (d, w) -> {
+        AlertDialogStyler.showReusableConfirm(this, "unfollow_user",
+            AlertDialogStyler.DialogSize.DEFAULT,
+            "Unfollow",
+            "Stop following " + u.name + "?",
+            "Unfollow", () -> {
                 FirebaseUtils.getReelFollowsRef(targetUid).child(u.uid).removeValue();
                 FirebaseUtils.getReelFollowersRef(u.uid).child(targetUid).removeValue();
                 allItems.remove(u);
@@ -174,8 +175,9 @@ public class FollowingListActivity extends AppCompatActivity {
                         }
                         @Override public void onComplete(DatabaseError e, boolean b, DataSnapshot s) {}
                     });
-            })
-            .setNegativeButton("Cancel", null).show();
+            },
+            null, null,
+            "Cancel");
     }
 
     // ── Adapter ───────────────────────────────────────────────────────────

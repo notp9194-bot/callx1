@@ -1,4 +1,5 @@
 package com.callx.app.editor;
+import com.callx.app.utils.AlertDialogStyler;
 
 import android.os.Bundle;
 import android.view.View;
@@ -6,7 +7,6 @@ import android.widget.Button;
 import android.widget.ProgressBar;
 import android.widget.Toast;
 
-import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.Toolbar;
 
@@ -128,12 +128,13 @@ public class ReelEditActivity extends AppCompatActivity {
     }
 
     private void confirmDelete() {
-        new AlertDialog.Builder(this)
-            .setTitle("Delete Reel")
-            .setMessage("This reel will be permanently deleted and removed from all feeds. This action cannot be undone.")
-            .setPositiveButton("Delete", (d, w) -> deleteReel())
-            .setNegativeButton("Cancel", null)
-            .show();
+        AlertDialogStyler.showReusableConfirm(this, "delete_reel",
+            AlertDialogStyler.DialogSize.DEFAULT,
+            "Delete Reel",
+            "This reel will be permanently deleted and removed from all feeds. This action cannot be undone.",
+            "Delete", this::deleteReel,
+            null, null,
+            "Cancel");
     }
 
     private void deleteReel() {

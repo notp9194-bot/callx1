@@ -1,4 +1,5 @@
 package com.callx.app.feed;
+import com.callx.app.utils.AlertDialogStyler;
 
 import android.content.Intent;
 import android.os.Bundle;
@@ -235,7 +236,7 @@ public class StatusFragment extends BaseFragment {
         channelAdapter.onMuteClick = ch -> {
             if (getContext() == null) return;
             String[] options = {"For 8 hours", "For 1 week", "Always"};
-            new androidx.appcompat.app.AlertDialog.Builder(requireContext())
+            AlertDialogStyler.showRounded(new androidx.appcompat.app.AlertDialog.Builder(requireContext())
                 .setTitle("Mute " + (ch.name != null ? ch.name : "channel") + " notifications")
                 .setItems(options, (d, which) -> {
                     long until;
@@ -244,7 +245,7 @@ public class StatusFragment extends BaseFragment {
                     else                 until = 0L; // permanent
                     channelViewModel.muteChannel(ch, until);
                 })
-                .show();
+                .create());
         };
 
         channelAdapter.onUnmuteClick = ch -> {
@@ -473,7 +474,7 @@ public class StatusFragment extends BaseFragment {
         String muteLabel = isMuted ? "Unmute " + ownerName : "Mute " + ownerName;
         String cfLabel   = isCF   ? "Remove from Close Friends" : "Add to Close Friends ⭐";
         String[] options = {muteLabel, cfLabel, "Cancel"};
-        new androidx.appcompat.app.AlertDialog.Builder(requireContext())
+        AlertDialogStyler.showRounded(new androidx.appcompat.app.AlertDialog.Builder(requireContext())
             .setItems(options, (d, which) -> {
                 if (which == 0) {
                     StatusMuteManager.toggle(getContext(), ownerUid);
@@ -491,7 +492,7 @@ public class StatusFragment extends BaseFragment {
                         Toast.LENGTH_SHORT).show();
                     rebuildStatusAdapter();
                 }
-            }).show();
+            }).create());
     }
 
     private void saveToRoom() {

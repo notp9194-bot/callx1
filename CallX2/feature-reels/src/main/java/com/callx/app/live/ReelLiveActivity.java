@@ -1,4 +1,5 @@
 package com.callx.app.live;
+import com.callx.app.utils.AlertDialogStyler;
 
 import android.Manifest;
 import android.content.pm.PackageManager;
@@ -55,7 +56,7 @@ public class ReelLiveActivity extends AppCompatActivity {
         Button btnGo=findViewById(R.id.btn_go_live); btnGo.setOnClickListener(v->goLive(btnGo));
         btnFlip.setOnClickListener(v->{front=!front;startCam();});
         btnMute.setOnClickListener(v->{muted=!muted;btnMute.setAlpha(muted?0.4f:1f);Toast.makeText(this,muted?"Mic muted":"Mic on",Toast.LENGTH_SHORT).show();});
-        btnEnd.setOnClickListener(v->new android.app.AlertDialog.Builder(this).setTitle("End Live?").setMessage("End your live stream?").setPositiveButton("End",(d,w)->end()).setNegativeButton("Cancel",null).show());
+        btnEnd.setOnClickListener(v->AlertDialogStyler.showRounded(new android.app.AlertDialog.Builder(this).setTitle("End Live?").setMessage("End your live stream?").setPositiveButton("End",(d,w)->end()).setNegativeButton("Cancel",null).create()));
         btnSend.setOnClickListener(v->sendComment());
     }
 

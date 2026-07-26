@@ -48,6 +48,8 @@ public interface ReelPlayerDelegate {
     boolean isSaved();
     boolean isLiked();
     boolean isReposted();
+    /** True when the reel is docked (shrunk) above the open comments sheet. */
+    boolean isDocked();
 
     // ── Player actions (PlayerController) ────────────────────────────────
 

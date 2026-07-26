@@ -1783,19 +1783,21 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // Feature 3: long-press on sender's lock bubble → revoke confirm dialog
         pagingAdapter.setViewOnceRevokeListener(message -> {
             String msgId = message.messageId != null ? message.messageId : message.id;
-            com.callx.app.utils.AlertDialogStyler.showRounded(
-                new android.app.AlertDialog.Builder(this)
-                    .setTitle("Remove message?")
-                    .setMessage("This will permanently delete the message before your partner opens it. They will see \"Removed\".")
-                    .setPositiveButton("Remove", (d, w) -> {
-                        if (viewOnceController != null && msgId != null) {
-                            viewOnceController.revokeViewOnce(msgId,
-                                () -> Toast.makeText(this, "Message removed", Toast.LENGTH_SHORT).show(),
-                                () -> Toast.makeText(this, "Failed to remove, try again", Toast.LENGTH_SHORT).show());
-                        }
-                    })
-                    .setNegativeButton("Cancel", null)
-                    .create(), com.callx.app.utils.AlertDialogStyler.DialogSize.WIDE);
+            // PERF: reusable singleton dialog — can be tapped repeatedly in
+            // quick succession (revoke, revoke, revoke...), same as delete-confirm.
+            com.callx.app.utils.AlertDialogStyler.showReusableConfirm(this, "revoke_view_once",
+                com.callx.app.utils.AlertDialogStyler.DialogSize.WIDE,
+                "Remove message?",
+                "This will permanently delete the message before your partner opens it. They will see \"Removed\".",
+                "Remove", () -> {
+                    if (viewOnceController != null && msgId != null) {
+                        viewOnceController.revokeViewOnce(msgId,
+                            () -> Toast.makeText(this, "Message removed", Toast.LENGTH_SHORT).show(),
+                            () -> Toast.makeText(this, "Failed to remove, try again", Toast.LENGTH_SHORT).show());
+                    }
+                },
+                null, null,
+                "Cancel");
         });
 
         pagingAdapter.setActionListener(new MessagePagingAdapter.ActionListener() {
@@ -2893,13 +2895,16 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 mediaController.sendGifMessage(contentInfo.getContentUri(), contentInfo);
             });
             ((GifAwareEditText) binding.etMessage).setPasteAsFileListener((pastedText, insertAsText) -> {
-                new AlertDialog.Builder(this)
-                        .setTitle("Large paste detected")
-                        .setMessage("You pasted " + pastedText.length() + " characters. Send as text or as a .txt file?")
-                        .setPositiveButton("Send as Text", (d, w) -> insertAsText.run())
-                        .setNegativeButton("Send as .txt file", (d, w) -> sendPastedTextAsFile(pastedText))
-                        .setNeutralButton("Cancel", null)
-                        .show();
+                // NOTE: showReusableConfirm's "negative" slot is dismiss-only, so the
+                // "Send as .txt file" action (which needs a callback) is mapped to the
+                // neutral slot here, with plain "Cancel" as the negative/dismiss button.
+                com.callx.app.utils.AlertDialogStyler.showReusableConfirm(this, "large_paste",
+                        com.callx.app.utils.AlertDialogStyler.DialogSize.DEFAULT,
+                        "Large paste detected",
+                        "You pasted " + pastedText.length() + " characters. Send as text or as a .txt file?",
+                        "Send as Text", insertAsText::run,
+                        "Send as .txt file", () -> sendPastedTextAsFile(pastedText),
+                        "Cancel");
             });
         }
     }
@@ -3183,19 +3188,21 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // so the UX is consistent whether content was typed or pasted.
         if (text.length() > LARGE_MSG_SEND_THRESHOLD) {
             final String captured = text;
-            new android.app.AlertDialog.Builder(this)
-                    .setTitle("Large message")
-                    .setMessage("This message is " + text.length()
-                            + " characters long. How do you want to send it?")
-                    .setPositiveButton("Send as Text", (d, w) -> doSendTextMessage(captured))
-                    .setNegativeButton("Send as .txt file", (d, w) -> {
+            // NOTE: "Send as .txt file" needs a callback, so it's mapped to the
+            // neutral slot (same convention as the paste-detection dialog above);
+            // negative stays plain "Cancel" (dismiss-only).
+            com.callx.app.utils.AlertDialogStyler.showReusableConfirm(this, "large_typed_message",
+                    com.callx.app.utils.AlertDialogStyler.DialogSize.DEFAULT,
+                    "Large message",
+                    "This message is " + text.length() + " characters long. How do you want to send it?",
+                    "Send as Text", () -> doSendTextMessage(captured),
+                    "Send as .txt file", () -> {
                         // Clear the compose field first, then hand off to the
                         // same pipeline used for pasted-text-as-file.
                         binding.etMessage.setText("");
                         sendPastedTextAsFile(captured);
-                    })
-                    .setNeutralButton("Cancel", null)
-                    .show();
+                    },
+                    "Cancel");
             return;
         }
 
@@ -3653,28 +3660,37 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
 
     private void confirmDeleteMessage(Message m) {
         boolean isMine = currentUid != null && currentUid.equals(m.senderId);
-        AlertDialog.Builder builder = new AlertDialog.Builder(this)
-                .setTitle("Delete message").setNegativeButton("Cancel", null);
+        // PERF: same reusable-singleton pattern as the multi-select bulk delete
+        // confirm above — single-message delete is tapped just as often.
         if (isMine) {
-            builder.setPositiveButton("Delete for everyone", (d, w) -> {
+            // NOTE: separate tag from the "not mine" branch below — the reusable
+            // dialog shell (and its button set) is built once per tag, and this
+            // branch has an extra neutral button the other doesn't.
+            com.callx.app.utils.AlertDialogStyler.showReusableConfirm(this,
+                    "delete_message_single_mine", com.callx.app.utils.AlertDialogStyler.DialogSize.WIDE,
+                    "Delete message", null,
+                    "Delete for everyone", () -> {
                         messagesRef.child(m.id).child("deleted").setValue(true);
                         messagesRef.child(m.id).child("text").setValue("");
                         ioExecutor.execute(() -> db.messageDao().softDelete(m.id));
                         LastMessagesCache.getInstance().removeMessage(chatId, m.id);
-                    })
-                    .setNeutralButton("Delete for me", (d, w) -> {
+                    },
+                    "Delete for me", () -> {
                         ioExecutor.execute(() -> db.messageDao().softDelete(m.id));
                         LastMessagesCache.getInstance().removeMessage(chatId, m.id);
-                    });
+                    },
+                    "Cancel");
         } else {
-            builder.setMessage("Delete this message for you only?")
-                    .setPositiveButton("Delete for me", (d, w) -> {
+            com.callx.app.utils.AlertDialogStyler.showReusableConfirm(this,
+                    "delete_message_single_other", com.callx.app.utils.AlertDialogStyler.DialogSize.WIDE,
+                    "Delete message", "Delete this message for you only?",
+                    "Delete for me", () -> {
                         ioExecutor.execute(() -> db.messageDao().softDelete(m.id));
                         LastMessagesCache.getInstance().removeMessage(chatId, m.id);
-                    });
+                    },
+                    null, null,
+                    "Cancel");
         }
-        com.callx.app.utils.AlertDialogStyler.showRounded(builder.create(),
-                com.callx.app.utils.AlertDialogStyler.DialogSize.WIDE);
     }
 
     private void forwardMessage(Message m) {
@@ -3837,9 +3853,14 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             List<Message> sel = pagingAdapter.getSelectedMessages();
             if (sel.isEmpty()) return;
             String msg = sel.size() == 1 ? "Delete this message?" : "Delete " + sel.size() + " messages?";
-            com.callx.app.utils.AlertDialogStyler.showRounded(
-                new AlertDialog.Builder(this).setTitle("Delete messages").setMessage(msg)
-                    .setPositiveButton("Delete for everyone", (d, w) -> {
+            // PERF: this dialog can reopen many times in one chat session
+            // (delete, delete, delete...) — showReusableConfirm() keeps one
+            // Dialog instance for this Activity+tag instead of building a
+            // fresh AlertDialog.Builder().create() on every tap.
+            com.callx.app.utils.AlertDialogStyler.showReusableConfirm(this,
+                    "delete_messages", com.callx.app.utils.AlertDialogStyler.DialogSize.WIDE,
+                    "Delete messages", msg,
+                    "Delete for everyone", () -> {
                         for (Message m : sel) {
                             messagesRef.child(m.id).child("deleted").setValue(true);
                             messagesRef.child(m.id).child("text").setValue("");
@@ -3848,17 +3869,16 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                             LastMessagesCache.getInstance().removeMessage(chatId, mid);
                         }
                         pagingAdapter.exitMultiSelectMode(); hideMultiSelectBar();
-                    })
-                    .setNeutralButton("Delete for me", (d, w) -> {
+                    },
+                    "Delete for me", () -> {
                         for (Message m : sel) {
                             final String mid = m.id;
                             ioExecutor.execute(() -> db.messageDao().softDelete(mid));
                             LastMessagesCache.getInstance().removeMessage(chatId, mid);
                         }
                         pagingAdapter.exitMultiSelectMode(); hideMultiSelectBar();
-                    })
-                    .setNegativeButton("Cancel", null).create(),
-                    com.callx.app.utils.AlertDialogStyler.DialogSize.WIDE);
+                    },
+                    "Cancel");
         });
         View btnStar = binding.getRoot().findViewById(com.callx.app.chat.R.id.btn_selection_star);
         if (btnStar != null) btnStar.setOnClickListener(v -> {
@@ -4525,16 +4545,16 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // ─────────────────────────────────────────────────────────────────────
 
     private void confirmClearChat() {
-        com.callx.app.utils.AlertDialogStyler.showRounded(
-            new AlertDialog.Builder(this)
-                .setTitle("Clear chat?").setMessage("All messages will be deleted locally.")
-                .setPositiveButton("Clear", (d, w) -> {
+        com.callx.app.utils.AlertDialogStyler.showReusableConfirm(this,
+                "clear_chat", com.callx.app.utils.AlertDialogStyler.DialogSize.COMPACT,
+                "Clear chat?", "All messages will be deleted locally.",
+                "Clear", () -> {
                     ioExecutor.execute(() -> db.messageDao().deleteAllForChat(chatId));
                     CacheManager.getInstance(this).invalidateMessages(chatId);
                     Toast.makeText(this, "Chat cleared", Toast.LENGTH_SHORT).show();
-                })
-                .setNegativeButton("Cancel", null).create(),
-                com.callx.app.utils.AlertDialogStyler.DialogSize.COMPACT);
+                },
+                null, null,
+                "Cancel");
     }
 
     // ─────────────────────────────────────────────────────────────────────

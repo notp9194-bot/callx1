@@ -1,4 +1,5 @@
 package com.callx.app.music;
+import com.callx.app.utils.AlertDialogStyler;
 
 import android.content.Intent;
 import android.os.Bundle;
@@ -130,7 +131,7 @@ public class SoundPlaylistActivity extends AppCompatActivity {
         etDesc.setSingleLine(true);
         layout.addView(etDesc);
 
-        new AlertDialog.Builder(this)
+        AlertDialogStyler.showRounded(new AlertDialog.Builder(this)
             .setTitle("New Sound Playlist")
             .setView(layout)
             .setPositiveButton("Create", (d, w) -> {
@@ -140,7 +141,7 @@ public class SoundPlaylistActivity extends AppCompatActivity {
                 else Toast.makeText(this, "Name cannot be empty", Toast.LENGTH_SHORT).show();
             })
             .setNegativeButton("Cancel", null)
-            .show();
+            .create());
     }
 
     private void createPlaylist(String name, String description) {
@@ -176,12 +177,13 @@ public class SoundPlaylistActivity extends AppCompatActivity {
     }
 
     private void onPlaylistLongPress(Playlist p) {
-        new AlertDialog.Builder(this)
-            .setTitle("Delete playlist?")
-            .setMessage("\"" + p.name + "\" will be permanently deleted.")
-            .setPositiveButton("Delete", (d, w) -> deletePlaylist(p))
-            .setNegativeButton("Cancel", null)
-            .show();
+        AlertDialogStyler.showReusableConfirm(this, "delete_sound_playlist",
+            AlertDialogStyler.DialogSize.DEFAULT,
+            "Delete playlist?",
+            "\"" + p.name + "\" will be permanently deleted.",
+            "Delete", () -> deletePlaylist(p),
+            null, null,
+            "Cancel");
     }
 
     private void deletePlaylist(Playlist p) {

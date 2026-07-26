@@ -1,6 +1,5 @@
 package com.callx.app.activities;
 
-import android.app.AlertDialog;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -385,12 +384,12 @@ public class CacheStatsActivity extends AppCompatActivity {
     }
 
     private void confirmAction(String title, String msg, Runnable action) {
-        new AlertDialog.Builder(this)
-            .setTitle(title)
-            .setMessage(msg)
-            .setPositiveButton("Clear", (d, w) -> action.run())
-            .setNegativeButton("Cancel", null)
-            .show();
+        com.callx.app.utils.AlertDialogStyler.showReusableConfirm(this,
+                "cache_stats_clear", com.callx.app.utils.AlertDialogStyler.DialogSize.DEFAULT,
+                title, msg,
+                "Clear", action::run,
+                null, null,
+                "Cancel");
     }
 
     private void saveClearTs() {

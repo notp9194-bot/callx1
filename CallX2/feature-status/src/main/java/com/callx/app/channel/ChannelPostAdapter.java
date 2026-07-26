@@ -1,4 +1,5 @@
 package com.callx.app.channel;
+import com.callx.app.utils.AlertDialogStyler;
 
 import android.content.Context;
 import android.content.Intent;
@@ -529,10 +530,10 @@ public class ChannelPostAdapter extends RecyclerView.Adapter<ChannelPostAdapter.
             actions.add(() -> { if (listener != null) listener.onReport(p); });
         }
 
-        new AlertDialog.Builder(ctx)
+        AlertDialogStyler.showRounded(new AlertDialog.Builder(ctx)
                 .setItems(options.toArray(new String[0]),
                         (d, which) -> actions.get(which).run())
-                .show();
+                .create());
     }
 
     // ── Audio playback ────────────────────────────────────────────────────

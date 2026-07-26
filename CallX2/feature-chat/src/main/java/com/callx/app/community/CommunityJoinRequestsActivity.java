@@ -1,6 +1,5 @@
 package com.callx.app.community;
 
-import android.app.AlertDialog;
 import android.os.Bundle;
 import android.view.View;
 import android.widget.Toast;
@@ -88,34 +87,34 @@ public class CommunityJoinRequestsActivity extends AppCompatActivity
         String message = isGroupRequest
                 ? "Allow " + request.requesterName + " to join this group?"
                 : "Allow " + request.requesterName + " to join the community?";
-        new AlertDialog.Builder(this)
-                .setTitle("Approve Request")
-                .setMessage(message)
-                .setPositiveButton("Approve", (d, w) ->
+        com.callx.app.utils.AlertDialogStyler.showReusableConfirm(this,
+                "community_approve_join", com.callx.app.utils.AlertDialogStyler.DialogSize.DEFAULT,
+                "Approve Request", message,
+                "Approve", () ->
                         repo.approveJoinRequest(communityId, request.id, request.groupId,
                                 request.requesterUid, request.requesterName, request.requesterPhoto,
                                 currentUid,
                                 (success, error) -> runOnUiThread(() -> {
                                     if (!success)
                                         Toast.makeText(this, "Failed: " + error, Toast.LENGTH_SHORT).show();
-                                })))
-                .setNegativeButton("Cancel", null)
-                .show();
+                                })),
+                null, null,
+                "Cancel");
     }
 
     @Override
     public void onReject(CommunityJoinRequestEntity request) {
         if (currentUid == null) return;
-        new AlertDialog.Builder(this)
-                .setTitle("Reject Request")
-                .setMessage("Reject " + request.requesterName + "'s request to join?")
-                .setPositiveButton("Reject", (d, w) ->
+        com.callx.app.utils.AlertDialogStyler.showReusableConfirm(this,
+                "community_reject_join", com.callx.app.utils.AlertDialogStyler.DialogSize.DEFAULT,
+                "Reject Request", "Reject " + request.requesterName + "'s request to join?",
+                "Reject", () ->
                         repo.rejectJoinRequest(communityId, request.id, currentUid,
                                 (success, error) -> runOnUiThread(() -> {
                                     if (!success)
                                         Toast.makeText(this, "Failed: " + error, Toast.LENGTH_SHORT).show();
-                                })))
-                .setNegativeButton("Cancel", null)
-                .show();
+                                })),
+                null, null,
+                "Cancel");
     }
 }

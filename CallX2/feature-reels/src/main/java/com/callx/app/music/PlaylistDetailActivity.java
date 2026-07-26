@@ -1,4 +1,5 @@
 package com.callx.app.music;
+import com.callx.app.utils.AlertDialogStyler;
 
 import android.content.Intent;
 import android.os.Bundle;
@@ -95,13 +96,13 @@ public class PlaylistDetailActivity extends AppCompatActivity {
                     int pos = viewHolder.getAdapterPosition();
                     if (pos < 0 || pos >= sounds.size()) return;
                     PlaylistSound s = sounds.get(pos);
-                    new AlertDialog.Builder(PlaylistDetailActivity.this)
+                    AlertDialogStyler.showRounded(new AlertDialog.Builder(PlaylistDetailActivity.this)
                         .setTitle("Remove Sound")
                         .setMessage("Remove \"" + s.title + "\" from this playlist?")
                         .setPositiveButton("Remove", (d, w) -> removeSound(s, pos))
                         .setNegativeButton("Cancel", (d, w) -> adapter.notifyItemChanged(pos))
                         .setOnCancelListener(d -> adapter.notifyItemChanged(pos))
-                        .show();
+                        .create());
                 }
             }).attachToRecyclerView(rv);
         }

@@ -1,4 +1,5 @@
 package com.callx.app.editor;
+import com.callx.app.utils.AlertDialogStyler;
 
 import android.content.Intent;
 import android.os.Bundle;
@@ -381,7 +382,7 @@ public class ReelStickerPickerActivity extends AppCompatActivity {
             optionFields.add(et);
         }
 
-        new AlertDialog.Builder(this)
+        AlertDialogStyler.showRounded(new AlertDialog.Builder(this)
             .setTitle("📊 Create Poll")
             .setView(layout)
             .setPositiveButton("Add to Reel", (d, w) -> {
@@ -396,7 +397,7 @@ public class ReelStickerPickerActivity extends AppCompatActivity {
                 returnInteractiveSticker("poll", question, opts, "");
             })
             .setNegativeButton("Cancel", null)
-            .show();
+            .create());
     }
 
     // ─── Quiz Creator ──────────────────────────────────────────────────────
@@ -473,7 +474,7 @@ public class ReelStickerPickerActivity extends AppCompatActivity {
             optionFields.add(et);
         }
 
-        new AlertDialog.Builder(this)
+        AlertDialogStyler.showRounded(new AlertDialog.Builder(this)
             .setTitle("🧠 Create Quiz")
             .setView(layout)
             .setPositiveButton("Add to Reel", (d, w) -> {
@@ -490,7 +491,7 @@ public class ReelStickerPickerActivity extends AppCompatActivity {
                 returnInteractiveSticker("quiz", question, opts, configExtra);
             })
             .setNegativeButton("Cancel", null)
-            .show();
+            .create());
     }
 
     // ─── Slider Creator ────────────────────────────────────────────────────
@@ -550,7 +551,7 @@ public class ReelStickerPickerActivity extends AppCompatActivity {
             emojiRow.addView(tvEm);
         }
 
-        new AlertDialog.Builder(this)
+        AlertDialogStyler.showRounded(new AlertDialog.Builder(this)
             .setTitle("😍 Create Slider")
             .setView(layout)
             .setPositiveButton("Add to Reel", (d, w) -> {
@@ -559,7 +560,7 @@ public class ReelStickerPickerActivity extends AppCompatActivity {
                 returnInteractiveSticker("slider", question, new ArrayList<>(), "emoji:" + selectedSliderEmoji[0]);
             })
             .setNegativeButton("Cancel", null)
-            .show();
+            .create());
     }
 
     // ─── Question Box Creator ──────────────────────────────────────────────
@@ -590,7 +591,7 @@ public class ReelStickerPickerActivity extends AppCompatActivity {
         hintLp.topMargin = dpToPx(10);
         layout.addView(hint, hintLp);
 
-        new AlertDialog.Builder(this)
+        AlertDialogStyler.showRounded(new AlertDialog.Builder(this)
             .setTitle("💬 Question Box")
             .setView(layout)
             .setPositiveButton("Add to Reel", (d, w) -> {
@@ -599,7 +600,7 @@ public class ReelStickerPickerActivity extends AppCompatActivity {
                 returnInteractiveSticker("question", question, new ArrayList<>(), "");
             })
             .setNegativeButton("Cancel", null)
-            .show();
+            .create());
     }
 
     // ─── Return helpers ────────────────────────────────────────────────────

@@ -1,4 +1,5 @@
 package com.callx.app.channel;
+import com.callx.app.utils.AlertDialogStyler;
 
 import android.app.DatePickerDialog;
 import android.app.TimePickerDialog;
@@ -11,7 +12,6 @@ import android.view.*;
 import android.widget.*;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.Toolbar;
 import androidx.lifecycle.ViewModelProvider;
@@ -838,12 +838,12 @@ public class ChannelPostComposerActivity extends AppCompatActivity {
         if (text.isEmpty() && selectedImageUri == null && selectedVideoUri == null) {
             finish(); return;
         }
-        new AlertDialog.Builder(this)
-            .setTitle("Discard post?")
-            .setMessage("Your draft will be saved.")
-            .setPositiveButton("Discard", (d, w) -> { saveDraft(); finish(); })
-            .setNegativeButton("Keep editing", null)
-            .show();
+        AlertDialogStyler.showReusableConfirm(this,
+                "channel_post_discard", AlertDialogStyler.DialogSize.DEFAULT,
+                "Discard post?", "Your draft will be saved.",
+                "Discard", () -> { saveDraft(); finish(); },
+                null, null,
+                "Keep editing");
     }
 
     // ── Lifecycle ─────────────────────────────────────────────────────────

@@ -1,4 +1,5 @@
 package com.callx.app.feed;
+import com.callx.app.utils.AlertDialogStyler;
 
 import com.callx.app.workers.ReelRepostWorker;
 
@@ -1302,7 +1303,7 @@ public class HomeFragment extends Fragment {
                 }
                 // Build options dialog
                 String[] options = {"Repost", "Quote Repost"};
-                new androidx.appcompat.app.AlertDialog.Builder(requireContext())
+                AlertDialogStyler.showRounded(new androidx.appcompat.app.AlertDialog.Builder(requireContext())
                     .setTitle("Repost options")
                     .setItems(options, (d, which) -> {
                         if (which == 0) {
@@ -1333,7 +1334,7 @@ public class HomeFragment extends Fragment {
                         }
                     })
                     .setNegativeButton("Cancel", null)
-                    .show();
+                    .create());
             });
         }
 
@@ -1412,7 +1413,7 @@ public class HomeFragment extends Fragment {
                             if (myUid == null || reelId == null) return true;
                             String[] reportReasons = {"Spam", "Inappropriate content",
                                 "Harassment", "Misinformation", "Kuch aur"};
-                            new androidx.appcompat.app.AlertDialog.Builder(requireContext())
+                            AlertDialogStyler.showRounded(new androidx.appcompat.app.AlertDialog.Builder(requireContext())
                                 .setTitle("Report this reel")
                                 .setItems(reportReasons, (d, which) -> {
                                     String reportKey = FirebaseUtils.db()
@@ -1430,7 +1431,7 @@ public class HomeFragment extends Fragment {
                                     Toast.makeText(requireContext(),
                                         "Report submitted — thanks!", Toast.LENGTH_SHORT).show();
                                 })
-                                .setNegativeButton("Cancel", null).show();
+                                .setNegativeButton("Cancel", null).create());
                             return true;
                         case 3: // Copy link
                             ClipboardManager clipboard = (ClipboardManager)
@@ -1452,7 +1453,7 @@ public class HomeFragment extends Fragment {
                             return true;
                         case 5: // Block
                             if (myUid != null && ownerUid != null) {
-                                new androidx.appcompat.app.AlertDialog.Builder(requireContext())
+                                AlertDialogStyler.showRounded(new androidx.appcompat.app.AlertDialog.Builder(requireContext())
                                     .setTitle("Block @" + reel.ownerName + "?")
                                     .setMessage("They won't be able to find your profile or reels.")
                                     .setPositiveButton("Block", (d, w) -> {
@@ -1462,7 +1463,7 @@ public class HomeFragment extends Fragment {
                                         Toast.makeText(requireContext(),
                                             "Blocked", Toast.LENGTH_SHORT).show();
                                     })
-                                    .setNegativeButton("Cancel", null).show();
+                                    .setNegativeButton("Cancel", null).create());
                             }
                             return true;
                         case 6: // Open original

@@ -1,4 +1,5 @@
 package com.callx.app.social;
+import com.callx.app.utils.AlertDialogStyler;
 
 import com.callx.app.cache.UnifiedVideoCacheManager;
 import com.callx.app.editor.ReelEditorActivity;
@@ -1795,7 +1796,7 @@ public class DuetReelActivity extends AppCompatActivity {
         if (isFinishing() || isDestroyed()) return;
         btnDuetRecord.setEnabled(true);
         btnDuetFlip.setEnabled(true);
-        new AlertDialog.Builder(this)
+        AlertDialogStyler.showRounded(new AlertDialog.Builder(this)
             .setTitle("Could not merge videos")
             .setMessage("Compositing failed on this device. Choose how to proceed:")
             .setCancelable(false)
@@ -1812,7 +1813,7 @@ public class DuetReelActivity extends AppCompatActivity {
                 Toast.makeText(this, "Recording discarded — ready to re-record.",
                         Toast.LENGTH_SHORT).show();
             })
-            .show();
+            .create());
     }
 
     /**

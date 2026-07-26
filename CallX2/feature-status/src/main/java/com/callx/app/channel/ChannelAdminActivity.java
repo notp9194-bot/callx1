@@ -1,4 +1,5 @@
 package com.callx.app.channel;
+import com.callx.app.utils.AlertDialogStyler;
 
 import android.content.Intent;
 import android.os.Bundle;
@@ -188,7 +189,7 @@ public class ChannelAdminActivity extends AppCompatActivity {
     private void showAddAdminDialog() {
         View v = LayoutInflater.from(this).inflate(R.layout.dialog_add_admin, null);
         TextInputEditText etUid = v != null ? v.findViewById(R.id.et_admin_uid) : null;
-        new AlertDialog.Builder(this)
+        AlertDialogStyler.showRounded(new AlertDialog.Builder(this)
             .setTitle("Add admin")
             .setView(v)
             .setPositiveButton("Add", (d, w) -> {
@@ -197,7 +198,7 @@ public class ChannelAdminActivity extends AppCompatActivity {
                 if (!uid.isEmpty()) viewModel.addAdmin(channelId, uid, "admin");
             })
             .setNegativeButton("Cancel", null)
-            .show();
+            .create());
     }
 
     // ── AdminAdapter ──────────────────────────────────────────────────────
@@ -259,14 +260,14 @@ public class ChannelAdminActivity extends AppCompatActivity {
             h.itemView.setOnLongClickListener(v -> {
                 if (!isOwner2 || ae.uid == null || ae.uid.equals(ownerUid2)) return false;
                 String[] opts = {"Remove admin", "Transfer ownership"};
-                new AlertDialog.Builder(ChannelAdminActivity.this)
+                AlertDialogStyler.showRounded(new AlertDialog.Builder(ChannelAdminActivity.this)
                     .setTitle(ae.name != null ? ae.name : "Admin")
                     .setItems(opts, (d, w) -> {
                         if (w == 0) viewModel.removeAdmin(channelId, ae.uid);
                         else confirmTransfer(ae);
                     })
                     .setNegativeButton("Cancel", null)
-                    .show();
+                    .create());
                 return true;
             });
         }
@@ -292,13 +293,13 @@ public class ChannelAdminActivity extends AppCompatActivity {
     // ── Transfer ownership ────────────────────────────────────────────────
 
     private void confirmTransfer(AdminEntry ae) {
-        new AlertDialog.Builder(this)
-            .setTitle("Transfer ownership?")
-            .setMessage("Transfer ownership to " + (ae.name != null ? ae.name : ae.uid)
-                + "? You will become a regular admin.")
-            .setPositiveButton("Transfer", (d, w) -> viewModel.transferOwnership(channelId, ae.uid))
-            .setNegativeButton("Cancel", null)
-            .show();
+        AlertDialogStyler.showReusableConfirm(this,
+                "channel_admin_transfer", AlertDialogStyler.DialogSize.DEFAULT,
+                "Transfer ownership?", "Transfer ownership to " + (ae.name != null ? ae.name : ae.uid)
+                    + "? You will become a regular admin.",
+                "Transfer", () -> viewModel.transferOwnership(channelId, ae.uid),
+                null, null,
+                "Cancel");
     }
 
     // ── Data class ────────────────────────────────────────────────────────

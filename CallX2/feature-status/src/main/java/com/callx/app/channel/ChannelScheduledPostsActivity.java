@@ -1,10 +1,10 @@
 package com.callx.app.channel;
+import com.callx.app.utils.AlertDialogStyler;
 
 import android.os.Bundle;
 import android.view.*;
 import android.widget.*;
 import androidx.annotation.NonNull;
-import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.Toolbar;
 import androidx.lifecycle.ViewModelProvider;
@@ -120,21 +120,21 @@ public class ChannelScheduledPostsActivity extends AppCompatActivity {
 
             // Publish now
             h.btnPublishNow.setOnClickListener(v ->
-                new AlertDialog.Builder(ChannelScheduledPostsActivity.this)
-                    .setTitle("Publish now?")
-                    .setMessage("Publish this post immediately?")
-                    .setPositiveButton("Publish", (d, w) ->
-                        viewModel.publishScheduledPost(channelId, p.id))
-                    .setNegativeButton("Cancel", null).show());
+                AlertDialogStyler.showReusableConfirm(ChannelScheduledPostsActivity.this,
+                        "channel_scheduled_publish", AlertDialogStyler.DialogSize.DEFAULT,
+                        "Publish now?", "Publish this post immediately?",
+                        "Publish", () -> viewModel.publishScheduledPost(channelId, p.id),
+                        null, null,
+                        "Cancel"));
 
             // Delete
             h.btnDelete.setOnClickListener(v ->
-                new AlertDialog.Builder(ChannelScheduledPostsActivity.this)
-                    .setTitle("Cancel scheduled post?")
-                    .setMessage("This post will be permanently deleted.")
-                    .setPositiveButton("Delete", (d, w) ->
-                        viewModel.deleteScheduledPost(channelId, p.id))
-                    .setNegativeButton("Keep", null).show());
+                AlertDialogStyler.showReusableConfirm(ChannelScheduledPostsActivity.this,
+                        "channel_scheduled_delete", AlertDialogStyler.DialogSize.DEFAULT,
+                        "Cancel scheduled post?", "This post will be permanently deleted.",
+                        "Delete", () -> viewModel.deleteScheduledPost(channelId, p.id),
+                        null, null,
+                        "Keep"));
         }
 
         @Override public int getItemCount() { return list.size(); }

@@ -1,4 +1,5 @@
 package com.callx.app.social;
+import com.callx.app.utils.AlertDialogStyler;
 
 import android.content.Intent;
 import android.os.Bundle;
@@ -118,7 +119,7 @@ public class DuetsByReelActivity extends AppCompatActivity {
                   b.setTitle("⚔️ Duet Battle");
                   b.setMessage("Pick a duet from the list, then tap the duet's card to create a battle against it.");
                   b.setPositiveButton("Got it", null);
-                  b.show();
+                  AlertDialogStyler.showRounded(b.create());
               });
           }
 
@@ -325,7 +326,7 @@ public class DuetsByReelActivity extends AppCompatActivity {
     // ── v10: Long-press duet card → Challenge to Battle ───────────────────────
     private void onDuetLongTapped(ReelModel reel) {
         if (reel == null || reel.reelId == null) return;
-        new android.app.AlertDialog.Builder(this)
+        AlertDialogStyler.showRounded(new android.app.AlertDialog.Builder(this)
             .setTitle("⚔️ Challenge to Battle?")
             .setMessage("Start a Duet Battle using @" + (reel.ownerName != null ? reel.ownerName : "this duet") + "'s video?")
             .setPositiveButton("Start Battle", (d, w) -> {
@@ -339,7 +340,7 @@ public class DuetsByReelActivity extends AppCompatActivity {
                 startActivity(i);
             })
             .setNegativeButton("Cancel", null)
-            .show();
+            .create());
     }
 
     // ── Adapter ───────────────────────────────────────────────────────────────

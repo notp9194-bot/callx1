@@ -1,6 +1,5 @@
 package com.callx.app.chatlist;
 
-import android.app.AlertDialog;
 import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
@@ -539,13 +538,13 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
             Toast.makeText(getContext(), "Koi bhi select nahi kiya", Toast.LENGTH_SHORT).show();
             return;
         }
-        com.callx.app.utils.AlertDialogStyler.showRounded(
-            new AlertDialog.Builder(requireContext())
-            .setTitle("Delete " + count + " chat" + (count > 1 ? "s" : "") + "?")
-            .setMessage("Selected conversations aapki chat list se remove ho jayenge.")
-            .setPositiveButton("Delete", (d, w) -> deleteSelected())
-            .setNegativeButton("Cancel", null)
-        .create(), com.callx.app.utils.AlertDialogStyler.DialogSize.COMPACT);
+        com.callx.app.utils.AlertDialogStyler.showReusableConfirm(requireContext(),
+                "delete_selected_chats", com.callx.app.utils.AlertDialogStyler.DialogSize.COMPACT,
+                "Delete " + count + " chat" + (count > 1 ? "s" : "") + "?",
+                "Selected conversations aapki chat list se remove ho jayenge.",
+                "Delete", this::deleteSelected,
+                null, null,
+                "Cancel");
     }
 
     private void deleteSelected() {
@@ -600,13 +599,13 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
             Toast.makeText(getContext(), "Koi chat nahi hai", Toast.LENGTH_SHORT).show();
             return;
         }
-        com.callx.app.utils.AlertDialogStyler.showRounded(
-            new AlertDialog.Builder(requireContext())
-            .setTitle("Delete All Chats?")
-            .setMessage("Aapki saari " + contacts.size() + " conversations chat list se remove ho jayengi.\n\nYe action undo nahi ho sakti.")
-            .setPositiveButton("Delete All", (d, w) -> deleteAllChats())
-            .setNegativeButton("Cancel", null)
-        .create(), com.callx.app.utils.AlertDialogStyler.DialogSize.COMPACT);
+        com.callx.app.utils.AlertDialogStyler.showReusableConfirm(requireContext(),
+                "delete_all_chats", com.callx.app.utils.AlertDialogStyler.DialogSize.COMPACT,
+                "Delete All Chats?",
+                "Aapki saari " + contacts.size() + " conversations chat list se remove ho jayengi.\n\nYe action undo nahi ho sakti.",
+                "Delete All", this::deleteAllChats,
+                null, null,
+                "Cancel");
     }
 
     private void deleteAllChats() {

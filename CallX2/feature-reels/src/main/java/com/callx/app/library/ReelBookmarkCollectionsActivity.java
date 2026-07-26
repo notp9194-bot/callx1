@@ -1,4 +1,5 @@
 package com.callx.app.library;
+import com.callx.app.utils.AlertDialogStyler;
 
 import com.callx.app.player.SingleReelPlayerActivity;
 
@@ -112,7 +113,7 @@ public class ReelBookmarkCollectionsActivity extends AppCompatActivity {
         et.setHint("Collection name");
         if (isEdit) et.setText(existing.name);
         et.setPadding(48, 24, 48, 24);
-        new android.app.AlertDialog.Builder(this)
+        AlertDialogStyler.showRounded(new android.app.AlertDialog.Builder(this)
             .setTitle(isEdit ? "Rename Collection" : "New Collection")
             .setView(et)
             .setPositiveButton(isEdit ? "Rename" : "Create", (d, w) -> {
@@ -128,18 +129,18 @@ public class ReelBookmarkCollectionsActivity extends AppCompatActivity {
                     collRef.child(id).setValue(m);
                 }
             })
-            .setNegativeButton("Cancel", null).show();
+            .setNegativeButton("Cancel", null).create());
     }
 
     private void deleteCollection(Collection coll) {
-        new android.app.AlertDialog.Builder(this)
+        AlertDialogStyler.showRounded(new android.app.AlertDialog.Builder(this)
             .setTitle("Delete \"" + coll.name + "\"?")
             .setMessage("All saved reels in this collection will be removed from it (not deleted).")
             .setPositiveButton("Delete", (d, w) -> {
                 collRef.child(coll.id).removeValue();
                 Toast.makeText(this, "Collection deleted", Toast.LENGTH_SHORT).show();
             })
-            .setNegativeButton("Cancel", null).show();
+            .setNegativeButton("Cancel", null).create());
     }
 
     private void openCollection(Collection coll) {
@@ -180,9 +181,9 @@ public class ReelBookmarkCollectionsActivity extends AppCompatActivity {
             h.itemView.setOnLongClickListener(v -> {
                 if (!c.isDefault) {
                     String[] opts = {"Rename", "Delete"};
-                    new android.app.AlertDialog.Builder(h.itemView.getContext())
+                    AlertDialogStyler.showRounded(new android.app.AlertDialog.Builder(h.itemView.getContext())
                         .setItems(opts, (d, w) -> { if (w == 0) onRename.run(c); else onDelete.run(c); })
-                        .show();
+                        .create());
                 }
                 return true;
             });

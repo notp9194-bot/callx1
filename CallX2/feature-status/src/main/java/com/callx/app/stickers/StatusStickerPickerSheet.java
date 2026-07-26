@@ -1,4 +1,5 @@
 package com.callx.app.stickers;
+import com.callx.app.utils.AlertDialogStyler;
 
 import android.app.Dialog;
 import android.content.Context;
@@ -227,7 +228,7 @@ public class StatusStickerPickerSheet extends BottomSheetDialogFragment {
         artLp.topMargin = dp * 10;
         layout.addView(etAlbumArt, artLp);
 
-        new android.app.AlertDialog.Builder(ctx)
+        AlertDialogStyler.showRounded(new android.app.AlertDialog.Builder(ctx)
             .setTitle("🎵 Music Sticker")
             .setView(layout)
             .setPositiveButton("Add to Status", (d, w) -> {
@@ -243,7 +244,7 @@ public class StatusStickerPickerSheet extends BottomSheetDialogFragment {
                 if (listener != null) listener.onSelected(new StickerResult("music", json));
             })
             .setNegativeButton("Cancel", null)
-            .show();
+            .create());
     }
 
     // ─── Countdown Sticker Creator ─────────────────────────────────────────
@@ -330,7 +331,7 @@ public class StatusStickerPickerSheet extends BottomSheetDialogFragment {
             colorRow.addView(chip);
         }
 
-        new android.app.AlertDialog.Builder(ctx)
+        AlertDialogStyler.showRounded(new android.app.AlertDialog.Builder(ctx)
             .setTitle("⏳ Countdown Sticker")
             .setView(layout)
             .setPositiveButton("Add to Status", (d, w) -> {
@@ -345,7 +346,7 @@ public class StatusStickerPickerSheet extends BottomSheetDialogFragment {
                 if (listener != null) listener.onSelected(new StickerResult("countdown", json));
             })
             .setNegativeButton("Cancel", null)
-            .show();
+            .create());
     }
 
     // ─── Quiz Sticker Creator ──────────────────────────────────────────────
@@ -400,7 +401,7 @@ public class StatusStickerPickerSheet extends BottomSheetDialogFragment {
             optFields.add(et);
         }
 
-        new android.app.AlertDialog.Builder(ctx)
+        AlertDialogStyler.showRounded(new android.app.AlertDialog.Builder(ctx)
             .setTitle("🧠 Quiz Sticker")
             .setView(layout)
             .setPositiveButton("Add to Status", (d, w) -> {
@@ -429,7 +430,7 @@ public class StatusStickerPickerSheet extends BottomSheetDialogFragment {
                 if (listener != null) listener.onSelected(new StickerResult("quiz", json));
             })
             .setNegativeButton("Cancel", null)
-            .show();
+            .create());
     }
 
     // ─── Question Box Creator ──────────────────────────────────────────────
@@ -456,7 +457,7 @@ public class StatusStickerPickerSheet extends BottomSheetDialogFragment {
         subLp.topMargin = dp * 10;
         layout.addView(sub, subLp);
 
-        new android.app.AlertDialog.Builder(ctx)
+        AlertDialogStyler.showRounded(new android.app.AlertDialog.Builder(ctx)
             .setTitle("💬 Question Box")
             .setView(layout)
             .setPositiveButton("Add to Status", (d, w) -> {
@@ -466,7 +467,7 @@ public class StatusStickerPickerSheet extends BottomSheetDialogFragment {
                 if (listener != null) listener.onSelected(new StickerResult("question", json));
             })
             .setNegativeButton("Cancel", null)
-            .show();
+            .create());
     }
 
     private static String esc(String s) {

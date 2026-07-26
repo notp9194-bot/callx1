@@ -421,12 +421,12 @@ public class UserProfileActivity extends AppCompatActivity {
         String msg = (partnerName != null && !partnerName.isEmpty())
             ? partnerName + " ko block karna chahte ho?"
             : "Is user ko block karna chahte ho?";
-        new AlertDialog.Builder(this)
-            .setTitle(isBlocked ? "Unblock" : "Block")
-            .setMessage(msg)
-            .setPositiveButton(isBlocked ? "Unblock" : "Block", (d, w) -> blockUser())
-            .setNegativeButton("Cancel", null)
-            .show();
+        com.callx.app.utils.AlertDialogStyler.showReusableConfirm(this,
+                "user_profile_block", com.callx.app.utils.AlertDialogStyler.DialogSize.DEFAULT,
+                isBlocked ? "Unblock" : "Block", msg,
+                isBlocked ? "Unblock" : "Block", this::blockUser,
+                null, null,
+                "Cancel");
     }
 
     private void blockUser() {

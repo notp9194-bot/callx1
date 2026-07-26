@@ -1,4 +1,5 @@
 package com.callx.app.live;
+import com.callx.app.utils.AlertDialogStyler;
 
 import com.callx.app.upload.ReelPostDetailsActivity;
 
@@ -175,7 +176,7 @@ public class ReelLiveReplayActivity extends AppCompatActivity {
     }
 
     private void deleteReplay() {
-        new android.app.AlertDialog.Builder(this)
+        AlertDialogStyler.showRounded(new android.app.AlertDialog.Builder(this)
             .setTitle("Delete Replay?")
             .setMessage("This will permanently delete your live replay. It cannot be recovered.")
             .setPositiveButton("Delete", (d, w) -> {
@@ -184,7 +185,7 @@ public class ReelLiveReplayActivity extends AppCompatActivity {
                 Toast.makeText(this, "Replay deleted", Toast.LENGTH_SHORT).show();
                 finish();
             })
-            .setNegativeButton("Cancel", null).show();
+            .setNegativeButton("Cancel", null).create());
     }
 
     private static String secToTime(int s) {

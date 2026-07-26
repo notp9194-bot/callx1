@@ -1,7 +1,6 @@
 package com.callx.app.channel;
 
 import android.app.Activity;
-import android.graphics.Color;
 import android.view.*;
 import android.widget.*;
 import androidx.appcompat.app.AlertDialog;
@@ -42,11 +41,7 @@ public class ChannelMilestoneHelper {
                 .setPositiveButton("🎉 Awesome!", null)
                 .setCancelable(true)
                 .create();
-            dialog.show();
-
-            // Tint the positive button green
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE)
-                  .setTextColor(Color.parseColor("#25D366"));
+            com.callx.app.utils.AlertDialogStyler.showRounded(dialog);
         });
     }
 

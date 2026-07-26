@@ -479,6 +479,7 @@ public class ReelPlayerFragment extends Fragment
     @Override public boolean isSaved()             { return socialController.isSaved(); }
     @Override public boolean isLiked()             { return socialController.isLiked(); }
     @Override public boolean isReposted()          { return socialController.isReposted(); }
+    @Override public boolean isDocked()            { return playerController.isDocked(); }
 
     // ── Player actions ────────────────────────────────────────────────────
 

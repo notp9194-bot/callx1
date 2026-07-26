@@ -1,4 +1,5 @@
 package com.callx.app.feed.controllers;
+import com.callx.app.utils.AlertDialogStyler;
 
 import android.content.Context;
 import android.media.MediaPlayer;   // ✅ FIX: photo-slideshow background audio
@@ -235,25 +236,33 @@ public class ReelPlayerController {
             contentFrame.setClipToOutline(true);
         }
 
-        // Tap the video to toggle play/pause — normal Instagram-style behavior.
-        // While docked (comments sheet open, video shrunk above it), mute-only
-        // taps are owned EXCLUSIVELY by ReelPlayerFragment.onCommentsSheetVideoTap()
-        // (forwarded from the sheet's touchOutside overlay, which sits above
-        // this view in the dialog's window). So this listener must no-op
-        // while docked — it must NOT also call toggleMute() here, since on
-        // some sheet states (mid-drag / half-expanded, before the sheet fully
-        // overlays the video) both this listener and the sheet's forwarded
-        // tap can fire for the same touch, double-toggling mute back to
-        // where it started. It must never call togglePlayPause() while
-        // docked either — that flips isPlaying to false, which
-        // onReelPlaybackStateChanged() in ReelsFragment reads as "show the
-        // top bar + bottom nav again", popping those controls back over the
-        // docked video.
-        playerView.setOnClickListener(v -> {
-            if (dockCornerRadiusPx <= 0.5f) { // only when truly undocked
-                togglePlayPause();
-            }
-        });
+        // NOTE: PlayerView intentionally has NO click/touch listener of its own.
+        // It used to (tap-to-toggle-play/pause), but since PlayerView sits on
+        // top of `root` and covers ~the whole screen, being clickable meant it
+        // consumed every touch before `root`'s OnTouchListener ever saw it —
+        // silently killing the double-tap-like and long-press-hide gestures
+        // wired up in ReelUiController.setupClickListeners(), since those never
+        // fired for taps landing on the video itself.
+        //
+        // Single-tap-to-toggle-play/pause now lives in ReelUiController's
+        // shared GestureDetector (onSingleTapConfirmed), guarded by
+        // delegate.isDocked() so the old "don't toggle while docked" behavior
+        // (see isDocked() javadoc below) is preserved in one place.
+        playerView.setClickable(false);
+    }
+
+    /**
+     * True when the reel is docked (shrunk) above the open comments sheet.
+     * While docked, mute-only taps are owned EXCLUSIVELY by
+     * ReelPlayerFragment.onCommentsSheetVideoTap() (forwarded from the sheet's
+     * touchOutside overlay, which sits above this view in the dialog's window).
+     * A plain single-tap on the video must NOT also call togglePlayPause() here
+     * — that flips isPlaying to false, which onReelPlaybackStateChanged() in
+     * ReelsFragment reads as "show the top bar + bottom nav again", popping
+     * those controls back over the docked video.
+     */
+    public boolean isDocked() {
+        return dockCornerRadiusPx > 0.5f;
     }
 
     // ── Accessors ─────────────────────────────────────────────────────────────
@@ -873,13 +882,13 @@ public class ReelPlayerController {
     public void showSpeedPicker() {
         if (!delegate.isAdded() || delegate.getContext() == null) return;
         String[] speeds = {"0.5x", "1x (Normal)", "1.5x", "2x"};
-        new android.app.AlertDialog.Builder(delegate.getContext())
+        AlertDialogStyler.showRounded(new android.app.AlertDialog.Builder(delegate.getContext())
             .setTitle("Playback Speed")
             .setItems(speeds, (d, which) -> {
                 speedIndex = which;
                 if (player != null)
                     player.setPlaybackParameters(new PlaybackParameters(SPEED_STEPS[speedIndex]));
-            }).show();
+            }).create());
     }
 
     // ── ✅ FIX: Photo-slideshow background audio helpers ──────────────────────
@@ -1130,7 +1139,7 @@ public class ReelPlayerController {
         System.arraycopy(baseOptions, 0, options, 0, baseOptions.length);
         options[options.length - 1] = (dataSaverOn ? "✓ " : "   ") + "Data Saver Mode (caps ABR ladder)";
 
-        new android.app.AlertDialog.Builder(delegate.getContext())
+        AlertDialogStyler.showRounded(new android.app.AlertDialog.Builder(delegate.getContext())
             .setTitle(dialogTitle)
             .setItems(options, (d, which) -> {
                 if (which == options.length - 1) {
@@ -1147,7 +1156,7 @@ public class ReelPlayerController {
                 currentCap = chosen;
                 stallCount = 0;
                 switchToQuality(currentCap, userManualCap ? "(manual)" : "");
-            }).show();
+            }).create());
     }
 
     /** v5: Manually trigger offline caching of the current reel for in-app offline playback. */
@@ -1205,11 +1214,11 @@ public class ReelPlayerController {
         }
         message += "\n\nCurrent quality: " + AdaptiveStreamingManager.capLabel(currentCap);
 
-        new android.app.AlertDialog.Builder(delegate.getContext())
+        AlertDialogStyler.showRounded(new android.app.AlertDialog.Builder(delegate.getContext())
             .setTitle(title)
             .setMessage(message)
             .setPositiveButton("OK", null)
-            .show();
+            .create());
     }
 
     /**
@@ -1281,11 +1290,11 @@ public class ReelPlayerController {
             message += usageLine;
         }
 
-        new android.app.AlertDialog.Builder(delegate.getContext())
+        AlertDialogStyler.showRounded(new android.app.AlertDialog.Builder(delegate.getContext())
             .setTitle(title)
             .setMessage(message)
             .setPositiveButton("OK", null)
-            .show();
+            .create());
     }
 
     /** Shows KB for anything under 1MB instead of rounding down to a misleading "0 MB". */

@@ -1,4 +1,5 @@
 package com.callx.app.feed.controllers;
+import com.callx.app.utils.AlertDialogStyler;
 
 import android.content.Intent;
 import android.widget.Toast;
@@ -286,10 +287,10 @@ public class ReelDuetController {
 
     public void confirmDeleteReel() {
         if (!delegate.isAdded() || delegate.getContext() == null) return;
-        new android.app.AlertDialog.Builder(delegate.getContext())
+        AlertDialogStyler.showRounded(new android.app.AlertDialog.Builder(delegate.getContext())
             .setTitle("Delete Reel?").setMessage("This cannot be undone.")
             .setPositiveButton("Delete", (d, w) -> deleteReel())
-            .setNegativeButton("Cancel", null).show();
+            .setNegativeButton("Cancel", null).create());
     }
 
     private void deleteReel() {
@@ -458,7 +459,7 @@ public class ReelDuetController {
 
         String ownerUid  = reel.uid;
         String ownerName = reel.ownerName != null ? reel.ownerName : "this user";
-        new androidx.appcompat.app.AlertDialog.Builder(delegate.requireContext())
+        AlertDialogStyler.showRounded(new androidx.appcompat.app.AlertDialog.Builder(delegate.requireContext())
             .setTitle("Block " + ownerName + "?")
             .setMessage("They won't be able to see your reels or contact you. Their content will be hidden from your feed.")
             .setPositiveButton("Block", (d, w) -> {
@@ -474,7 +475,7 @@ public class ReelDuetController {
                     });
             })
             .setNegativeButton("Cancel", null)
-            .show();
+            .create());
     }
 
     // ── Remix & Sequence ──────────────────────────────────────────────────────

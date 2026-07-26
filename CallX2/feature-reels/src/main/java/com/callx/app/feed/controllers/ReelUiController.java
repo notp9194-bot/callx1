@@ -1,4 +1,5 @@
 package com.callx.app.feed.controllers;
+import com.callx.app.utils.AlertDialogStyler;
 
 import android.animation.ObjectAnimator;
 import android.content.Intent;
@@ -504,7 +505,13 @@ public class ReelUiController {
                     // Fires ~300ms after tap only when no second tap arrived
                     if (delegate.isAdded()) {
                         delegate.hideReactions();
-                        delegate.togglePlayPause();
+                        // Guard matches the old PlayerView click-listener behavior:
+                        // don't toggle play/pause while docked above the open
+                        // comments sheet (that tap is owned by the sheet's
+                        // touchOutside overlay instead).
+                        if (!delegate.isDocked()) {
+                            delegate.togglePlayPause();
+                        }
                     }
                     return true;
                 }
@@ -589,8 +596,10 @@ public class ReelUiController {
         String size = reel.width > 0 && reel.height > 0
             ? reel.width + " × " + reel.height : "Not available";
 
-        String details = "Description\n" + description
-            + "\n\nUploaded\n" + uploaded
+        // Everything EXCEPT description — description gets its own
+        // truncate/expand block below so a long caption doesn't push the
+        // Uploaded/Audio/Duration/etc. rows out of view.
+        String metaDetails = "Uploaded\n" + uploaded
             + "\n\nAudio\n" + audio
             + "\n\nDuration\n" + duration
             + "\n\nSize\n" + size
@@ -599,16 +608,94 @@ public class ReelUiController {
             + "\nComments  " + delegate.formatCount(reel.commentsCount)
             + "   Shares  " + delegate.formatCount(reel.sharesCount);
 
-        TextView detailsText = new TextView(delegate.requireContext());
-        detailsText.setText(details);
-        detailsText.setTextColor(0xFF222222);
-        detailsText.setTextSize(15);
-        detailsText.setLineSpacing(0f, 1.12f);
-        detailsText.setPadding(24, 8, 24, 8);
+        android.widget.LinearLayout container = new android.widget.LinearLayout(delegate.requireContext());
+        container.setOrientation(android.widget.LinearLayout.VERTICAL);
+        container.setPadding(24, 8, 24, 8);
+
+        // ── Description label ───────────────────────────────────────────
+        TextView descLabel = new TextView(delegate.requireContext());
+        descLabel.setText("Description");
+        descLabel.setTextColor(0xFF222222);
+        descLabel.setTextSize(15);
+        descLabel.setTypeface(null, android.graphics.Typeface.BOLD);
+        container.addView(descLabel);
+
+        // ── Description body — starts truncated to a few lines ─────────
+        final int COLLAPSED_MAX_LINES = 3;
+        final TextView descText = new TextView(delegate.requireContext());
+        descText.setText(description);
+        descText.setTextColor(0xFF222222);
+        descText.setTextSize(15);
+        descText.setLineSpacing(0f, 1.12f);
+        descText.setPadding(0, 4, 0, 0);
+        descText.setMaxLines(COLLAPSED_MAX_LINES);
+        descText.setEllipsize(TextUtils.TruncateAt.END);
+        container.addView(descText);
+
+        // ── "Read more" / "Read less" toggle — only shown if the
+        // description actually overflows COLLAPSED_MAX_LINES once laid out.
+        final TextView readMoreToggle = new TextView(delegate.requireContext());
+        readMoreToggle.setText("Read more");
+        readMoreToggle.setTextColor(0xFF2E7D32); // matches AlertDialogStyler's primary green
+        readMoreToggle.setTextSize(14);
+        readMoreToggle.setTypeface(null, android.graphics.Typeface.BOLD);
+        readMoreToggle.setPadding(0, delegate.dpToPx(6), 0, 0);
+        readMoreToggle.setVisibility(View.GONE);
+        readMoreToggle.setOnClickListener(v -> {
+            boolean isCollapsed = descText.getMaxLines() == COLLAPSED_MAX_LINES;
+            if (isCollapsed) {
+                descText.setMaxLines(Integer.MAX_VALUE);
+                descText.setEllipsize(null);
+                readMoreToggle.setText("Read less");
+            } else {
+                descText.setMaxLines(COLLAPSED_MAX_LINES);
+                descText.setEllipsize(TextUtils.TruncateAt.END);
+                readMoreToggle.setText("Read more");
+            }
+        });
+        container.addView(readMoreToggle);
+
+        // Reveal the toggle only once the TextView has actually laid out
+        // and we know whether it truncated — avoids showing "Read more"
+        // on short descriptions that already fit in COLLAPSED_MAX_LINES.
+        //
+        // PERF: this used to be a ViewTreeObserver.OnPreDrawListener, which
+        // hooks into the draw traversal itself — registered, invoked as
+        // part of that pass, then torn back down, every single time this
+        // dialog opens. A plain View.post() gives the same "run after this
+        // view has laid out" guarantee here (descText is already attached
+        // to the dialog window by the time this runs) without touching the
+        // ViewTreeObserver at all — one queued Runnable instead of a
+        // pre-draw hook. Cheaper for a dialog that reopens often (every
+        // reel's "i" info sheet).
+        descText.post(() -> {
+            if (descText.getLineCount() > COLLAPSED_MAX_LINES
+                    || descText.getLayout() != null
+                       && descText.getLayout().getEllipsisCount(COLLAPSED_MAX_LINES - 1) > 0) {
+                readMoreToggle.setVisibility(View.VISIBLE);
+            }
+        });
+
+        // ── Divider + the rest of the metadata (unaffected by expand) ──
+        View divider = new View(delegate.requireContext());
+        android.widget.LinearLayout.LayoutParams dividerLp = new android.widget.LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, 2);
+        dividerLp.topMargin = delegate.dpToPx(14);
+        dividerLp.bottomMargin = delegate.dpToPx(10);
+        divider.setLayoutParams(dividerLp);
+        divider.setBackgroundColor(0x1F000000);
+        container.addView(divider);
+
+        TextView metaText = new TextView(delegate.requireContext());
+        metaText.setText(metaDetails);
+        metaText.setTextColor(0xFF222222);
+        metaText.setTextSize(15);
+        metaText.setLineSpacing(0f, 1.12f);
+        container.addView(metaText);
 
         ScrollView detailsScroll = new ScrollView(delegate.requireContext());
         detailsScroll.setFillViewport(true);
-        detailsScroll.addView(detailsText, new ScrollView.LayoutParams(
+        detailsScroll.addView(container, new ScrollView.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.WRAP_CONTENT));
         int maxDialogHeight = (int) (delegate.requireContext().getResources()
@@ -616,12 +703,12 @@ public class ReelUiController {
         detailsScroll.setLayoutParams(new ViewGroup.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, maxDialogHeight));
 
-        new AlertDialog.Builder(delegate.requireContext())
+        AlertDialogStyler.showRounded(new AlertDialog.Builder(delegate.requireContext())
             .setTitle("@" + (TextUtils.isEmpty(reel.ownerName) ? "user" : reel.ownerName)
                 + " · " + title)
             .setView(detailsScroll)
             .setPositiveButton("Close", null)
-            .show();
+            .create());
     }
 
     // ── Legacy sound-cover backfill ─────────────────────────────────────

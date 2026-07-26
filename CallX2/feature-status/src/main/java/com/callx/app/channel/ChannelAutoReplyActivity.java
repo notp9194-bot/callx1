@@ -1,10 +1,10 @@
 package com.callx.app.channel;
+import com.callx.app.utils.AlertDialogStyler;
 
 import android.os.Bundle;
 import android.text.*;
 import android.view.*;
 import android.widget.*;
-import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.Toolbar;
 import androidx.lifecycle.ViewModelProvider;
@@ -118,16 +118,16 @@ public class ChannelAutoReplyActivity extends AppCompatActivity {
         // Clear
         if (btnClear != null) {
             btnClear.setOnClickListener(v ->
-                new AlertDialog.Builder(this)
-                    .setTitle("Clear welcome message?")
-                    .setMessage("New followers will no longer receive an auto-reply.")
-                    .setPositiveButton("Clear", (d, w) -> {
-                        viewModel.clearWelcomeMessage(channelId);
-                        if (etMessage != null) etMessage.setText("");
-                        if (switchEnabled != null) switchEnabled.setChecked(false);
-                    })
-                    .setNegativeButton("Cancel", null)
-                    .show());
+                AlertDialogStyler.showReusableConfirm(this,
+                        "channel_autoreply_clear", AlertDialogStyler.DialogSize.DEFAULT,
+                        "Clear welcome message?", "New followers will no longer receive an auto-reply.",
+                        "Clear", () -> {
+                            viewModel.clearWelcomeMessage(channelId);
+                            if (etMessage != null) etMessage.setText("");
+                            if (switchEnabled != null) switchEnabled.setChecked(false);
+                        },
+                        null, null,
+                        "Cancel"));
         }
 
         // Observe existing welcome message

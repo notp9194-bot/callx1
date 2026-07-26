@@ -1,4 +1,5 @@
 package com.callx.app.music;
+import com.callx.app.utils.AlertDialogStyler;
 
 import android.animation.ObjectAnimator;
 import android.animation.ValueAnimator;
@@ -1238,12 +1239,12 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
 
     private void showUseAudioDialog() {
         if (isGone()) return;
-        new androidx.appcompat.app.AlertDialog.Builder(requireContext())
+        AlertDialogStyler.showRounded(new androidx.appcompat.app.AlertDialog.Builder(requireContext())
             .setTitle(soundTitle.isEmpty() ? "Use this sound" : soundTitle)
             .setItems(new String[]{"🎥  Use in Camera", "🎬  Use in Video"}, (d, which) -> {
                 if (which == 0) showUseTypeDialog(0);
                 else            showUseTypeDialog(1);
-            }).setNegativeButton("Cancel", null).show();
+            }).setNegativeButton("Cancel", null).create());
     }
 
     /**
@@ -1253,7 +1254,7 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
     private void showUseTypeDialog(int target) {
         if (isGone()) return;
         String title = soundTitle.isEmpty() ? "Use this sound" : soundTitle;
-        new androidx.appcompat.app.AlertDialog.Builder(requireContext())
+        AlertDialogStyler.showRounded(new androidx.appcompat.app.AlertDialog.Builder(requireContext())
             .setTitle(title)
             .setItems(new String[]{"🎵  Full Audio", "✂️  Trim Audio"}, (d, which) -> {
                 if (which == 0) {
@@ -1274,7 +1275,7 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
                 }
             })
             .setNegativeButton("Cancel", (d, w) -> pendingUseTarget = -1)
-            .show();
+            .create());
     }
 
     /** ✅ FIX Bug 1: Opens camera, always carrying the sound + trim range. */

@@ -138,10 +138,13 @@ public class BotSettingsActivity extends AppCompatActivity {
     }
 
     private void confirmDelete(BotCommand bc) {
-        new AlertDialog.Builder(this).setTitle("Delete /" + bc.command + "?")
-                .setPositiveButton("Delete", (d, w) ->
-                        FirebaseUtils.getGroupsRef().child(groupId).child("botCommands").child(bc.command).removeValue())
-                .setNegativeButton("Cancel", null).show();
+        com.callx.app.utils.AlertDialogStyler.showReusableConfirm(this,
+                "delete_bot_command", com.callx.app.utils.AlertDialogStyler.DialogSize.DEFAULT,
+                "Delete /" + bc.command + "?", null,
+                "Delete", () ->
+                        FirebaseUtils.getGroupsRef().child(groupId).child("botCommands").child(bc.command).removeValue(),
+                null, null,
+                "Cancel");
     }
 
     @Override protected void onDestroy() {
