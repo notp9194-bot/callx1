@@ -308,6 +308,19 @@ public class StatusLayoutPickerActivity extends AppCompatActivity {
         public VH onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
             View v = LayoutInflater.from(parent.getContext())
                     .inflate(R.layout.item_layout_picker_media, parent, false);
+            // BUG FIX: item_layout_picker_media.xml's root has layout_height="0dp"
+            // with no weight — that only resolves via LinearLayout's weight
+            // mechanism, which a plain RecyclerView/GridLayoutManager cell
+            // doesn't have, so every cell rendered at 0px tall and thumbnails
+            // never became visible even though the MediaStore query + Glide
+            // load were both succeeding. Give each cell an explicit square
+            // height here (screenWidth / spanCount), same fixed-cellPx
+            // approach RecentMediaGridAdapter already uses for the 4-col
+            // chat/status attach-sheet grid.
+            int cellPx = parent.getContext().getResources().getDisplayMetrics().widthPixels / 3;
+            ViewGroup.LayoutParams lp = v.getLayoutParams();
+            lp.height = cellPx;
+            v.setLayoutParams(lp);
             return new VH(v);
         }
 

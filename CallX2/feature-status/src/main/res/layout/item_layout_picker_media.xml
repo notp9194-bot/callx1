@@ -10,12 +10,17 @@
     android:layout_marginBottom="1dp"
     android:layout_marginEnd="1dp">
 
-    <!-- We set height = width dynamically via item decoration or use a fixed
-         aspect; the layout manager uses grid so width is screenWidth/3.
-         Use a hardcoded height of 120dp here as default; overridden by
-         GridLayoutManager's auto-fit or the item decoration. -->
+    <!--
+        Root height is 0dp on purpose — MediaGridAdapter#onCreateViewHolder
+        (StatusLayoutPickerActivity.java) sets an explicit square pixel
+        height right after inflate (screenWidth / 3, matching the 3-column
+        GridLayoutManager). A plain RecyclerView cell has no LinearLayout
+        weight mechanism, so leaving this at 0dp without that code-side
+        override — as an earlier version of this file did — renders every
+        cell at 0px tall and no thumbnail is ever visible, even though the
+        MediaStore query and Glide load both succeed.
+    -->
 
-    <!-- Thumbnail -->
     <ImageView
         android:id="@+id/iv_layout_media_thumb"
         android:layout_width="match_parent"
