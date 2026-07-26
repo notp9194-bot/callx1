@@ -16,6 +16,7 @@ import com.callx.app.cache.UnifiedVideoCacheManager;
 import com.callx.app.models.ReelModel;
 import com.callx.app.player.AdaptiveStreamingManager;
 import com.callx.app.player.NetworkQualityMonitor;
+import com.callx.app.player.ReelThermalManager;
 import com.callx.app.utils.VideoUploader;
 
 import java.util.HashSet;
@@ -109,10 +110,25 @@ public class ReelVideoPreloader {
     public void preloadFrom(List<ReelModel> reels, int position) {
         if (reels == null || reels.isEmpty()) return;
 
+        // ── Instagram-level thermal gate ──────────────────────────────────────
+        // If device is HOT (severe thermal / low battery / power-save), skip byte
+        // preloading entirely. The current reel plays fine — we just don't prefetch
+        // the next ones until the device cools down. ReelThermalManager notifies
+        // ReelsFragment which cancels any in-flight downloads, so this early-return
+        // also prevents new ones from starting during a throttle event.
+        ReelThermalManager thermal = ReelThermalManager.get(mContext);
+        if (!thermal.canBytePreload()) {
+            Log.d(TAG, "preloadFrom: skipped — thermal=" + thermal.getLevel());
+            return;
+        }
+
         // Network-aware bytes: WiFi aggressive, 2G minimal
         NetworkQualityMonitor monitor = NetworkQualityMonitor.get(mContext);
         NetworkQualityMonitor.Quality netQuality = monitor.currentQuality();
-        long bytesToPreload = networkBytes(netQuality);
+        // Reduce bytes on MODERATE thermal even when preloading is allowed
+        long bytesToPreload = thermal.canReducedBytePreload()
+            ? networkBytes(netQuality)
+            : Math.min(networkBytes(netQuality), 2 * 1024 * 1024L); // 2MB cap on moderate
 
         // Quality-aware URL: preload the URL the player will actually use
         AdaptiveStreamingManager.QualityCap cap = mCurrentCap;

@@ -66,12 +66,14 @@ public class ReelPredictivePreloader {
     private static final String TAG            = "PredictivePreloader";
     private static final String PREFS_NAME     = "reel_watch_model";
 
-    // Preload config
-    private static final int    MAX_PRELOAD       = 5;
-    private static final long   BYTES_WIFI        = 15 * 1024 * 1024L;  // 15 MB per reel
-    private static final long   BYTES_4G          = 8  * 1024 * 1024L;  // 8 MB
-    private static final long   BYTES_3G          = 3  * 1024 * 1024L;  // 3 MB
-    private static final long   BYTES_2G          = 512 * 1024L;         // 512 KB
+    // Preload config — Instagram-level conservative values to prevent thermal buildup.
+    // Previous: BYTES_WIFI=15MB × MAX_PRELOAD=5 = 75MB potential concurrent downloads.
+    // Now: BYTES_WIFI=3MB × MAX_PRELOAD=2 = 6MB — enough for smooth playback, prevents heat.
+    private static final int    MAX_PRELOAD       = 2;  // was 5 — only N+1 and N+2
+    private static final long   BYTES_WIFI        = 3 * 1024 * 1024L;  // was 15MB → 3MB
+    private static final long   BYTES_4G          = 2 * 1024 * 1024L;  // was 8MB  → 2MB
+    private static final long   BYTES_3G          = 1 * 1024 * 1024L;  // was 3MB  → 1MB
+    private static final long   BYTES_2G          = 256 * 1024L;        // was 512KB → 256KB
     private static final long   BYTES_OFFLINE     = 0L;
 
     // Watch model config
@@ -202,10 +204,25 @@ public class ReelPredictivePreloader {
     public void preloadSmartFrom(List<ReelModel> reels, int position, float scrollVelocityPxPerMs) {
         if (reels == null || reels.isEmpty()) return;
 
+        // ── Thermal gate (Instagram-level) ────────────────────────────────────
+        // Predictive preloader is the most aggressive (deepest lookahead + biggest
+        // bytes). It's the first thing to stop when device heats up.
+        com.callx.app.player.ReelThermalManager thermal =
+            com.callx.app.player.ReelThermalManager.get(appCtx);
+        if (!thermal.canBytePreload()) {
+            Log.d(TAG, "preloadSmartFrom: skipped — thermal=" + thermal.getLevel());
+            return;
+        }
+
         NetworkQualityMonitor.Quality netQ =
             NetworkQualityMonitor.get(appCtx).currentQuality();
         long bytesPerReel = resolveBytes(netQ);
         if (bytesPerReel <= 0) return;  // offline → don't preload
+
+        // On MODERATE thermal: reduce bytes further even if preloading is allowed
+        if (thermal.getLevel() == com.callx.app.player.ReelThermalManager.Level.MODERATE) {
+            bytesPerReel = Math.min(bytesPerReel, 1 * 1024 * 1024L); // max 1MB per reel
+        }
 
         // ── Velocity-adaptive window + budget ──────────────────────────────────
         float absVel = Math.abs(scrollVelocityPxPerMs);

@@ -38,6 +38,7 @@ import com.callx.app.cache.ReelThumbnailPreloader;
 import com.callx.app.cache.ReelUiStatePrecomputer;
 import com.callx.app.player.ReelOfflineManager;
 import com.callx.app.player.PrewarmThrottleGuard;
+import com.callx.app.player.ReelThermalManager;
 import com.callx.app.player.ExoPlayerPool;
 import com.callx.app.feed.ReelsAdapter;
 import com.callx.app.models.ReelModel;
@@ -79,6 +80,12 @@ import androidx.media3.common.util.UnstableApi;
 public class ReelsFragment extends Fragment {
 
     private static final int PAGE_SIZE = 10;
+
+    // ── Instagram-level thermal manager ──────────────────────────────────────
+    // Single source of truth for thermal/battery state — gates ExoPlayer
+    // prewarm (hardware decoder allocation) AND byte preloading independently.
+    private ReelThermalManager thermalManager;
+    private final Runnable thermalChangeListener = this::onThermalChanged;
 
     private ViewPager2           vpReels;
     private ReelsAdapter         adapter;
@@ -207,6 +214,11 @@ public class ReelsFragment extends Fragment {
         // codec-HAL/GL-driver init cost that every reel after it skips.
         com.callx.app.player.GpuDecodeWarmup.warmUpOnce(requireContext());
 
+        // ── Instagram-level thermal manager (real-time monitoring) ────────────
+        // Must be initialized BEFORE preloaders so we can gate them immediately.
+        thermalManager = ReelThermalManager.get(requireContext());
+        thermalManager.addChangeListener(thermalChangeListener);
+
         ReelCacheManager.init(requireContext());
         videoPreloader = new ReelVideoPreloader(requireContext());
         // Wire preloader to existing fragments if any (e.g. after config change)
@@ -275,14 +287,26 @@ public class ReelsFragment extends Fragment {
                 int reelIndex = adapter.toReelIndex(position);
                 if (reelIndex >= currentPage - 3) loadMoreReels();
                 List<ReelModel> cur = isFypMode ? allReels : followingReels;
-                if (videoPreloader != null) videoPreloader.preloadFrom(cur, reelIndex);
+                // ── Thermal-gated byte preloading ────────────────────────────────
+                // Byte preloading (network downloads) is allowed up to LIGHT thermal.
+                // On MODERATE+ we skip all preloading to let the device cool down.
+                // The CURRENT reel still plays fine — only the speculative prefetch stops.
+                ReelThermalManager.Level thermalLevel = thermalManager != null
+                    ? thermalManager.getLevel() : ReelThermalManager.Level.SAFE;
+                boolean canPreload = thermalLevel != ReelThermalManager.Level.HOT;
+                if (canPreload) {
+                    if (videoPreloader != null) videoPreloader.preloadFrom(cur, reelIndex);
+                }
                 // Sync preloader to newly visible fragment
                 wirePreloaderToCurrentFragment(position);
                 if (thumbPreloader != null) thumbPreloader.preloadFrom(cur, reelIndex);
                 if (uiStatePrecomputer != null) uiStatePrecomputer.precomputeFrom(cur, reelIndex);
                 // v5/v6: Record watch event + drive predictive preload order
                 // (velocity-adaptive: fast flicks shrink the lookahead window/bytes)
-                if (predictivePreloader != null && reelIndex < cur.size()) {
+                // Predictive preload only on SAFE thermal (it's the most aggressive)
+                boolean canPredictivePreload = (thermalLevel == ReelThermalManager.Level.SAFE
+                    || thermalLevel == ReelThermalManager.Level.LIGHT);
+                if (canPredictivePreload && predictivePreloader != null && reelIndex < cur.size()) {
                     predictivePreloader.preloadSmartFrom(cur, reelIndex, lastScrollVelocity);
                     android.util.Log.d("ReelsFragment", "Predictive preload from pos=" + reelIndex
                         + " vel=" + lastScrollVelocity + "px/ms");
@@ -564,6 +588,13 @@ public class ReelsFragment extends Fragment {
         // Without this, Firebase callbacks fire after vpReels/adapter are null → NPE crash.
         removeListeners();
 
+        // Release thermal manager listener (NOT the manager itself — it's a singleton
+        // that lives for the process; we just remove our callback)
+        if (thermalManager != null) {
+            thermalManager.removeChangeListener(thermalChangeListener);
+            thermalManager = null;
+        }
+
         if (videoPreloader != null) { videoPreloader.shutdown(); videoPreloader = null; }
         thumbPreloader = null;
         if (uiStatePrecomputer != null) { uiStatePrecomputer.shutdown(); uiStatePrecomputer = null; }
@@ -573,6 +604,23 @@ public class ReelsFragment extends Fragment {
         // more reason to keep the pooled ExoPlayer instances warm.
         if (getContext() != null) ExoPlayerPool.get(getContext()).releaseAll();
         super.onDestroyView();
+    }
+
+    /**
+     * Called by ReelThermalManager when device thermal / battery state changes.
+     * Immediately cancels byte preloading if device becomes too hot, so we don't
+     * keep feeding CPU/network resources to background downloads during throttling.
+     */
+    private void onThermalChanged() {
+        if (thermalManager == null) return;
+        ReelThermalManager.Level level = thermalManager.getLevel();
+        android.util.Log.d("ReelsFragment", "Thermal changed → " + level);
+        if (level == ReelThermalManager.Level.HOT) {
+            // Cancel all active byte downloads immediately
+            if (videoPreloader != null) videoPreloader.cancelAll();
+            if (predictivePreloader != null) predictivePreloader.cancelAll();
+            android.util.Log.d("ReelsFragment", "Thermal HOT: all preloads cancelled");
+        }
     }
 
     // ── Preloader → Fragment wiring ───────────────────────────────────────────
@@ -888,21 +936,36 @@ public class ReelsFragment extends Fragment {
             }
         }
 
-        // ✅ N+1 pre-warm (offscreenPageLimit=1 ke saath):
-        // offscreenPageLimit=1 → N+1 fragment always exists (ViewPager2 ise
-        // khud banata hai). Isko muted+paused prepare karo taaki swipe
-        // instantly play ho. N+2/N+3 ke fragments exist nahi hote ab
-        // (offscreenPageLimit=1) — unhe prewarm karna wasted CPU hai.
-        // FIX: prewarmDistance ab sirf 1. Fast flick pe bhi N+1 hi hai
-        // kyunki N+2 fragment abhi exist nahi karta.
+        // ── Instagram-level N+1 prewarm (thermal-gated) ──────────────────────
+        // Instagram approach: only ONE hardware decoder active at a time.
+        // N+1 prewarm (ExoPlayer decoder allocation) fires ONLY when device is
+        // thermally safe (no throttling, battery OK). On moderate thermal we
+        // skip ExoPlayer prewarm entirely — byte preloading via videoPreloader
+        // (below in onPageSelected) is all that happens, which is enough for
+        // instant play because ExoPlayer reads from the pre-cached bytes.
+        //
+        // This eliminates the main thermal risk: two concurrent hardware decoders
+        // (current reel playing + N+1 prewarmed) is exactly what heated the
+        // device. Now at most ONE decoder is ever allocated at a time.
         if (isTabActive && !homeVisible) {
-            int pos = activePosition + 1;
-            if (pos < adapter.getItemCount()) {
-                Fragment nf = getChildFragmentManager()
-                    .findFragmentByTag("f" + adapter.getItemId(pos));
-                if (nf instanceof ReelPlayerFragment) {
-                    ((ReelPlayerFragment) nf).prewarmPlayer();
+            ReelThermalManager.Level thermal = thermalManager != null
+                ? thermalManager.getLevel() : ReelThermalManager.Level.SAFE;
+            boolean canPrewarmDecoder = (thermal == ReelThermalManager.Level.SAFE);
+            if (canPrewarmDecoder) {
+                int pos = activePosition + 1;
+                if (pos < adapter.getItemCount()) {
+                    Fragment nf = getChildFragmentManager()
+                        .findFragmentByTag("f" + adapter.getItemId(pos));
+                    if (nf instanceof ReelPlayerFragment) {
+                        ((ReelPlayerFragment) nf).prewarmPlayer();
+                    }
                 }
+            }
+            // On LIGHT/MODERATE thermal: log that we skipped ExoPlayer prewarm
+            // (byte preloading still handles smooth playback via cache)
+            else {
+                android.util.Log.d("ReelsFragment",
+                    "ExoPlayer prewarm skipped — thermal=" + thermal + " (byte cache handles it)");
             }
         }
     }

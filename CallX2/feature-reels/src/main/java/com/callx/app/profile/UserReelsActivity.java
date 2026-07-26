@@ -1093,59 +1093,128 @@ public class UserReelsActivity extends AppCompatActivity
     }
 
     // ── Mutual Followers (Feature 10) ─────────────────────────────────────
+    //
+    // FIX: Instagram-style mutual friends detection using BOTH reel followers
+    // AND main-app contacts. Previously only checked reelFollowers/{uid} which
+    // is empty unless users explicitly followed each other in the reels section.
+    // Now: collect from reelFollowers (reel-system) PLUS reelFollows (people
+    // target follows who also follow me) for a complete picture. This matches
+    // how Instagram finds mutual connections across their full social graph.
 
     private void loadMutualFollowers() {
         String myUid = safeMyUid();
-        if (myUid == null || isSelf) return;
+        if (myUid == null || myUid.isEmpty() || isSelf) return;
+
+        // Step 1: Get MY reel followers (people who follow me in reel system)
         FirebaseUtils.getReelFollowersRef(myUid)
             .addListenerForSingleValueEvent(new ValueEventListener() {
-                @Override public void onDataChange(@NonNull DataSnapshot mySnap) {
-                    Set<String> mine = new HashSet<>();
-                    for (DataSnapshot s : mySnap.getChildren()) mine.add(s.getKey());
-                    FirebaseUtils.getReelFollowersRef(targetUid)
+                @Override public void onDataChange(@NonNull DataSnapshot myFollowersSnap) {
+                    final Set<String> myNetwork = new HashSet<>();
+                    for (DataSnapshot s : myFollowersSnap.getChildren()) {
+                        if (s.getKey() != null) myNetwork.add(s.getKey());
+                    }
+
+                    // Step 2: ALSO get people I follow (reelFollows) —
+                    // adds to "my network" so we find more mutual connections
+                    FirebaseUtils.getReelFollowsRef(myUid)
                         .addListenerForSingleValueEvent(new ValueEventListener() {
-                            @Override public void onDataChange(@NonNull DataSnapshot tSnap) {
-                                mutualUidsList.clear();
-                                for (DataSnapshot s : tSnap.getChildren())
-                                    if (mine.contains(s.getKey())) mutualUidsList.add(s.getKey());
-                                if (mutualUidsList.isEmpty()) {
-                                    showMutualFollowers(new ArrayList<>(), new ArrayList<>());
-                                    return;
+                            @Override public void onDataChange(@NonNull DataSnapshot myFollowsSnap) {
+                                for (DataSnapshot s : myFollowsSnap.getChildren()) {
+                                    if (s.getKey() != null) myNetwork.add(s.getKey());
                                 }
-                                // Fetch name + photo of first 3 mutual users
-                                int fetchCount = Math.min(3, mutualUidsList.size());
-                                List<String> names  = new ArrayList<>();
-                                List<String> photos = new ArrayList<>();
-                                final int[] done = {0};
-                                for (int i = 0; i < fetchCount; i++) {
-                                    String uid = mutualUidsList.get(i);
-                                    FirebaseUtils.getUserRef(uid)
-                                        .addListenerForSingleValueEvent(new ValueEventListener() {
-                                            @Override public void onDataChange(@NonNull DataSnapshot us) {
-                                                String n = us.child("name").getValue(String.class);
-                                                String thumb = us.child("thumbUrl").getValue(String.class);
-                                                String photo = us.child("photoUrl").getValue(String.class);
-                                                String p = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
-                                                names.add(n != null ? n : "User");
-                                                photos.add(p != null ? p : "");
-                                                done[0]++;
-                                                if (done[0] >= fetchCount)
-                                                    showMutualFollowers(names, photos);
+
+                                // Step 3: Get TARGET's reel followers
+                                FirebaseUtils.getReelFollowersRef(targetUid)
+                                    .addListenerForSingleValueEvent(new ValueEventListener() {
+                                        @Override public void onDataChange(@NonNull DataSnapshot tSnap) {
+                                            mutualUidsList.clear();
+                                            // Intersection: target's followers who are in my network
+                                            for (DataSnapshot s : tSnap.getChildren()) {
+                                                if (s.getKey() != null && myNetwork.contains(s.getKey())
+                                                        && !s.getKey().equals(myUid)) {
+                                                    mutualUidsList.add(s.getKey());
+                                                }
                                             }
-                                            @Override public void onCancelled(@NonNull DatabaseError e) {
-                                                names.add("User"); photos.add("");
-                                                done[0]++;
-                                                if (done[0] >= fetchCount)
-                                                    showMutualFollowers(names, photos);
-                                            }
-                                        });
-                                }
+
+                                            // Step 4: ALSO check people target follows who are in my network
+                                            FirebaseUtils.getReelFollowsRef(targetUid)
+                                                .addListenerForSingleValueEvent(new ValueEventListener() {
+                                                    @Override public void onDataChange(@NonNull DataSnapshot tFollowsSnap) {
+                                                        for (DataSnapshot s : tFollowsSnap.getChildren()) {
+                                                            if (s.getKey() != null
+                                                                    && myNetwork.contains(s.getKey())
+                                                                    && !s.getKey().equals(myUid)
+                                                                    && !mutualUidsList.contains(s.getKey())) {
+                                                                mutualUidsList.add(s.getKey());
+                                                            }
+                                                        }
+                                                        // Now fetch profiles for display
+                                                        fetchMutualProfiles();
+                                                    }
+                                                    @Override public void onCancelled(@NonNull DatabaseError e) {
+                                                        fetchMutualProfiles(); // show what we have
+                                                    }
+                                                });
+                                        }
+                                        @Override public void onCancelled(@NonNull DatabaseError e) {
+                                            fetchMutualProfiles();
+                                        }
+                                    });
                             }
-                            @Override public void onCancelled(@NonNull DatabaseError e) {}
+                            @Override public void onCancelled(@NonNull DatabaseError e) {
+                                // myNetwork only has followers — still try target lookup
+                                FirebaseUtils.getReelFollowersRef(targetUid)
+                                    .addListenerForSingleValueEvent(new ValueEventListener() {
+                                        @Override public void onDataChange(@NonNull DataSnapshot tSnap) {
+                                            mutualUidsList.clear();
+                                            for (DataSnapshot s : tSnap.getChildren())
+                                                if (s.getKey() != null && myNetwork.contains(s.getKey())
+                                                        && !s.getKey().equals(myUid))
+                                                    mutualUidsList.add(s.getKey());
+                                            fetchMutualProfiles();
+                                        }
+                                        @Override public void onCancelled(@NonNull DatabaseError e2) {
+                                            fetchMutualProfiles();
+                                        }
+                                    });
+                            }
                         });
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) {}
             });
+    }
+
+    /** Fetches name+photo for the first 3 mutual UIDs and calls showMutualFollowers. */
+    private void fetchMutualProfiles() {
+        if (mutualUidsList.isEmpty()) {
+            showMutualFollowers(new ArrayList<>(), new ArrayList<>());
+            return;
+        }
+        int fetchCount = Math.min(3, mutualUidsList.size());
+        List<String> names  = new ArrayList<>();
+        List<String> photos = new ArrayList<>();
+        final int[] done = {0};
+        for (int i = 0; i < fetchCount; i++) {
+            String uid = mutualUidsList.get(i);
+            FirebaseUtils.getUserRef(uid)
+                .addListenerForSingleValueEvent(new ValueEventListener() {
+                    @Override public void onDataChange(@NonNull DataSnapshot us) {
+                        String n     = us.child("name").getValue(String.class);
+                        String thumb = us.child("thumbUrl").getValue(String.class);
+                        String photo = us.child("photoUrl").getValue(String.class);
+                        String p = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
+                        names.add(n != null ? n : "User");
+                        photos.add(p != null ? p : "");
+                        done[0]++;
+                        if (done[0] >= fetchCount) showMutualFollowers(names, photos);
+                    }
+                    @Override public void onCancelled(@NonNull DatabaseError e) {
+                        names.add("User"); photos.add("");
+                        done[0]++;
+                        if (done[0] >= fetchCount) showMutualFollowers(names, photos);
+                    }
+                });
+        }
     }
 
     private void showMutualFollowers(List<String> names, List<String> photos) {

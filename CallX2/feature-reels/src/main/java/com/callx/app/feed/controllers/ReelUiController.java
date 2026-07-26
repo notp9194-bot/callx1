@@ -79,6 +79,16 @@ public class ReelUiController {
     // ── uiHandler for reactions auto-hide ────────────────────────────────
     private final Handler uiHandler = new Handler(Looper.getMainLooper());
 
+    // ── Long-press peek state ─────────────────────────────────────────────
+    // Instagram-style: long press temporarily hides all overlay UI buttons.
+    // Released on ACTION_UP / ACTION_CANCEL.
+    private boolean isLongPressUiHidden = false;
+
+    // ── Single-tap delay handler (for double-tap disambiguation) ──────────
+    // onSingleTapConfirmed fires 280ms after tap only if no second tap arrives.
+    private final Handler singleTapHandler = new Handler(Looper.getMainLooper());
+    private Runnable pendingSingleTap;
+
     public ReelUiController(ReelPlayerDelegate delegate) {
         this.delegate = delegate;
     }
@@ -467,22 +477,75 @@ public class ReelUiController {
     // ── Click listener wiring ─────────────────────────────────────────────
 
     public void setupClickListeners(View root) {
-        // Root: single tap → play/pause, long press → cinema, double-tap → like
-        root.setOnClickListener(v -> {
-            if (delegate.isAdded()) {
-                // if reactions are visible, just hide them
-                delegate.hideReactions();
-                delegate.togglePlayPause();
+        // ── Instagram-style unified gesture handler ────────────────────────
+        // Uses GestureDetector so single-tap, double-tap, and long-press are
+        // mutually exclusive — no accidental play/pause toggle on double-tap.
+        //
+        //  • Single tap confirmed (300ms delay) → play / pause
+        //  • Double tap (immediate)             → like animation
+        //  • Long press (hold)                  → hide all overlay buttons
+        //    while finger is held, restore on ACTION_UP / ACTION_CANCEL
+        //
+        // The touch listener returns false for MOVE/CANCEL so ViewPager2's
+        // RecyclerView can still intercept scroll gestures normally.
+
+        android.view.GestureDetector gd = new android.view.GestureDetector(
+            delegate.requireContext(),
+            new android.view.GestureDetector.SimpleOnGestureListener() {
+
+                @Override
+                public boolean onDown(android.view.MotionEvent e) {
+                    // Must return true so GestureDetector continues tracking this gesture
+                    return true;
+                }
+
+                @Override
+                public boolean onSingleTapConfirmed(android.view.MotionEvent e) {
+                    // Fires ~300ms after tap only when no second tap arrived
+                    if (delegate.isAdded()) {
+                        delegate.hideReactions();
+                        delegate.togglePlayPause();
+                    }
+                    return true;
+                }
+
+                @Override
+                public boolean onDoubleTap(android.view.MotionEvent e) {
+                    // Fires immediately on second tap — cancels pending single-tap
+                    if (delegate.isAdded()) {
+                        if (!delegate.isLiked()) delegate.toggleLike();
+                        delegate.showLikeAnimation();
+                    }
+                    return true;
+                }
+
+                @Override
+                public void onLongPress(android.view.MotionEvent e) {
+                    // Instagram-style: hide all overlay UI while finger is held down
+                    if (delegate.isAdded() && !isLongPressUiHidden) {
+                        hideOverlayForLongPress(root);
+                    }
+                }
+            });
+        gd.setIsLongpressEnabled(true);
+
+        // Remove legacy separate click/long-click listeners — GestureDetector owns them now
+        root.setOnClickListener(null);
+        root.setOnLongClickListener(null);
+
+        root.setOnTouchListener((v, event) -> {
+            boolean handled = gd.onTouchEvent(event);
+            int action = event.getActionMasked();
+            // Restore hidden overlay when finger lifts (long-press "peek" ends)
+            if ((action == android.view.MotionEvent.ACTION_UP
+                    || action == android.view.MotionEvent.ACTION_CANCEL)
+                    && isLongPressUiHidden) {
+                showOverlayAfterLongPress(root);
             }
+            // Return true for ACTION_DOWN so GestureDetector continues tracking;
+            // return false for MOVE events so ViewPager2 can intercept scrolls.
+            return action == android.view.MotionEvent.ACTION_DOWN || handled;
         });
-        root.setOnLongClickListener(v -> {
-            openCinemaSheet();
-            return true;
-        });
-        root.setOnTouchListener(new DoubleTapListener(() -> {
-            if (!delegate.isLiked()) delegate.toggleLike();
-            delegate.showLikeAnimation();
-        }));
 
         // Buttons
         if (btnComment  != null) btnComment.setOnClickListener(v -> delegate.openComments());
@@ -736,33 +799,45 @@ public class ReelUiController {
     }
     public void release() {
         uiHandler.removeCallbacksAndMessages(null);
+        singleTapHandler.removeCallbacksAndMessages(null);
+        pendingSingleTap = null;
+        isLongPressUiHidden = false;
         if (discAnimator != null) { discAnimator.cancel(); discAnimator = null; }
     }
 
-    // ── Inner: DoubleTapListener ──────────────────────────────────────────
+    // ── Long-press peek helpers ────────────────────────────────────────────
 
-    private static class DoubleTapListener implements View.OnTouchListener {
-        private static final long DOUBLE_TAP_TIMEOUT = 300;
-        private final Runnable action;
-        private int tapCount = 0;
-        private final Handler handler = new Handler(Looper.getMainLooper());
-
-        DoubleTapListener(Runnable action) { this.action = action; }
-
-        @Override
-        public boolean onTouch(View v, MotionEvent event) {
-            if (event.getAction() == MotionEvent.ACTION_UP) {
-                tapCount++;
-                if (tapCount == 1) {
-                    handler.postDelayed(() -> tapCount = 0, DOUBLE_TAP_TIMEOUT);
-                } else if (tapCount >= 2) {
-                    tapCount = 0;
-                    handler.removeCallbacksAndMessages(null);
-                    action.run();
-                    return true;
-                }
-            }
-            return false;
-        }
+    /**
+     * Instagram-style: when user holds a finger on the reel, smoothly fade out
+     * all overlay UI (right-side buttons, caption, top bar) so the video is
+     * visible in full. Restores on finger lift via showOverlayAfterLongPress().
+     */
+    private void hideOverlayForLongPress(View root) {
+        if (root == null || isUiHidden) return; // cinema mode already hides them
+        isLongPressUiHidden = true;
+        View rightActions = root.findViewById(R.id.right_actions);
+        View bottomInfo   = root.findViewById(R.id.bottom_info);
+        View topControls  = root.findViewById(R.id.top_controls);
+        long dur = 150L;
+        if (rightActions != null) rightActions.animate().alpha(0f).setDuration(dur).start();
+        if (bottomInfo   != null) bottomInfo.animate().alpha(0f).setDuration(dur).start();
+        if (topControls  != null) topControls.animate().alpha(0f).setDuration(dur).start();
     }
+
+    /**
+     * Restores all overlay UI faded by hideOverlayForLongPress() when the
+     * user lifts their finger. Uses a slightly longer fade-in for a polished feel.
+     */
+    private void showOverlayAfterLongPress(View root) {
+        if (root == null) return;
+        isLongPressUiHidden = false;
+        View rightActions = root.findViewById(R.id.right_actions);
+        View bottomInfo   = root.findViewById(R.id.bottom_info);
+        View topControls  = root.findViewById(R.id.top_controls);
+        long dur = 220L;
+        if (rightActions != null) rightActions.animate().alpha(1f).setDuration(dur).start();
+        if (bottomInfo   != null) bottomInfo.animate().alpha(1f).setDuration(dur).start();
+        if (topControls  != null) topControls.animate().alpha(1f).setDuration(dur).start();
+    }
+
 }
