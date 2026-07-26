@@ -33,17 +33,31 @@ import java.util.Map;
 /**
  * StatusLayoutPreviewView — WhatsApp-style multi-photo layout preview.
  *
- * Supports 6 layout styles matching WhatsApp's story layout selector:
+ * Supports 8 layout styles matching WhatsApp's story layout selector, plus
+ * two v229 additions so every photo up to MAX_SELECTION(6) can actually be
+ * arranged instead of silently overflowing past the largest 4-slot style:
  *   STYLE_GRID_2X2   — 4-cell equal 2×2 grid
  *   STYLE_BIG_LEFT   — 1 large left cell + 2 stacked right
  *   STYLE_COLUMNS_2  — 2 equal vertical columns
  *   STYLE_BIG_TOP    — 1 large top cell + 2 bottom cells
  *   STYLE_BIG_RIGHT  — 2 stacked left + 1 large right cell
  *   STYLE_GRID_3     — 1 wide top cell + 2 bottom cells (3-photo collage)
+ *   STYLE_GRID_5     — 2 equal top cells + 3 equal bottom cells (v229)
+ *   STYLE_GRID_6     — 3×2 equal grid, 6 cells (v229)
  *
  * Dynamically lays out ImageViews filled via Glide based on the selected
  * media URIs and the chosen layout style. Empty slots show a placeholder
  * "+" icon for adding more photos.
+ *
+ * v229 performance: thumbnails are decoded at a capped resolution
+ * ({@link #THUMB_DECODE_CAP_PX}) instead of full camera-photo resolution —
+ * this is a preview only, the original Uris are untouched and used as-is
+ * for the actual export — and video/photo MIME lookups are memoized per
+ * Uri so repeated rebuilds (every style switch / reorder / replace) don't
+ * re-query the ContentResolver for Uris already checked. {@link #setMediaUris}
+ * also short-circuits when called with the exact same list it already has,
+ * which happens often since the composer re-pushes the full list on every
+ * change rather than diffing itself.
  */
 public class StatusLayoutPreviewView extends FrameLayout {
 
@@ -53,22 +67,45 @@ public class StatusLayoutPreviewView extends FrameLayout {
     public static final int STYLE_BIG_TOP    = 3; // 1 big top + 2 bottom
     public static final int STYLE_BIG_RIGHT  = 4; // 2 left stacked + 1 large right
     public static final int STYLE_GRID_3     = 5; // 1 wide top + 2 equal bottom (3-cell)
+    public static final int STYLE_GRID_5     = 6; // v229: 2 top + 3 bottom (5-cell)
+    public static final int STYLE_GRID_6     = 7; // v229: 3×2 equal grid (6-cell)
 
     private static final int GAP_DP = 3;
+
+    /** v229: cap Glide's decode size for preview thumbnails — this is never
+     *  the export resolution, just what's shown on-screen, so there's no
+     *  reason to decode a 12MP camera photo into memory for a ~150dp cell. */
+    private static final int THUMB_DECODE_CAP_PX = 720;
 
     private int layoutStyle = STYLE_GRID_2X2;
     private final List<Uri> mediaUris = new ArrayList<>();
     private OnAddSlotClickListener addSlotListener;
+    private OnSlotLongPressListener longPressListener;
 
     // v221: per-photo finger zoom/pan state, keyed by Uri so a user's
     // adjustment survives switching layout styles / rebuildCells().
     private final Map<Uri, PhotoAdjust> photoAdjustMap = new HashMap<>();
+
+    // v229 perf: memoized isVideoUri() results — a ContentResolver query per
+    // Uri per rebuild adds up fast since rebuildCells() runs on every style
+    // switch, reorder, and replace, usually re-checking the same Uris.
+    private final Map<Uri, Boolean> videoUriCache = new HashMap<>();
 
     private final Paint borderPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final float density;
 
     public interface OnAddSlotClickListener {
         void onAddSlotClick(int slotIndex);
+    }
+
+    /**
+     * v228: fired on long-press of an already-filled cell, so the composer
+     * can offer "Replace with Photo / Replace with Video / Delete" for that
+     * one slot — same spirit as {@link OnAddSlotClickListener} but for cells
+     * that already have media in them instead of empty "+" ones.
+     */
+    public interface OnSlotLongPressListener {
+        void onSlotLongPress(int slotIndex);
     }
 
     public StatusLayoutPreviewView(@NonNull Context context) {
@@ -87,12 +124,21 @@ public class StatusLayoutPreviewView extends FrameLayout {
         this.addSlotListener = l;
     }
 
+    public void setOnSlotLongPressListener(OnSlotLongPressListener l) {
+        this.longPressListener = l;
+    }
+
     public void setLayoutStyle(int style) {
         this.layoutStyle = style;
         rebuildCells();
     }
 
     public void setMediaUris(List<Uri> uris) {
+        // v229 perf: the composer re-pushes the whole list on every change
+        // rather than diffing itself — skip the rebuild entirely when
+        // nothing actually changed (e.g. a redundant refreshPreview() call),
+        // avoiding a needless full teardown + re-decode of every cell.
+        if (this.mediaUris.equals(uris)) return;
         this.mediaUris.clear();
         this.mediaUris.addAll(uris);
         rebuildCells();
@@ -106,7 +152,9 @@ public class StatusLayoutPreviewView extends FrameLayout {
             case STYLE_BIG_TOP:
             case STYLE_BIG_RIGHT:
             case STYLE_GRID_3:     return 3;
-            case STYLE_GRID_2X2:
+            case STYLE_GRID_2X2:   return 4;
+            case STYLE_GRID_5:     return 5;
+            case STYLE_GRID_6:     return 6;
             default:               return 4;
         }
     }
@@ -130,6 +178,10 @@ public class StatusLayoutPreviewView extends FrameLayout {
                 iv.setScaleType(ImageView.ScaleType.MATRIX);
                 Glide.with(getContext())
                         .load(uri)
+                        // v229 perf: cap decode size — this is a preview cell,
+                        // not the export — big win on large camera photos.
+                        .override(THUMB_DECODE_CAP_PX, THUMB_DECODE_CAP_PX)
+                        .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
                         .listener(new RequestListener<Drawable>() {
                             @Override public boolean onLoadFailed(@Nullable GlideException e, Object model,
                                                                    Target<Drawable> target, boolean isFirstResource) {
@@ -146,10 +198,24 @@ public class StatusLayoutPreviewView extends FrameLayout {
                             }
                         })
                         .into(iv);
-                setupPinchPanTouch(iv, adjust);
+                setupPinchPanTouch(iv, adjust, slotIdx);
                 cell.addView(iv, new FrameLayout.LayoutParams(
                         FrameLayout.LayoutParams.MATCH_PARENT,
                         FrameLayout.LayoutParams.MATCH_PARENT));
+
+                // v228: small play-icon badge so a video slot is
+                // distinguishable from a photo one at a glance (this preview
+                // now shows a still frame for videos, same as a photo).
+                if (isVideoUri(uri)) {
+                    ImageView playBadge = new ImageView(getContext());
+                    playBadge.setImageResource(android.R.drawable.ic_media_play);
+                    playBadge.setColorFilter(Color.WHITE);
+                    int badgeSizePx = (int) (28 * density);
+                    FrameLayout.LayoutParams badgeLp =
+                            new FrameLayout.LayoutParams(badgeSizePx, badgeSizePx);
+                    badgeLp.gravity = android.view.Gravity.CENTER;
+                    cell.addView(playBadge, badgeLp);
+                }
             } else {
                 // Empty slot — dark bg + "+" icon
                 cell.setBackgroundColor(Color.parseColor("#1E1E1E"));
@@ -182,6 +248,8 @@ public class StatusLayoutPreviewView extends FrameLayout {
             case STYLE_BIG_TOP:    layoutBigTop(w, h, gap);     break;
             case STYLE_BIG_RIGHT:  layoutBigRight(w, h, gap);   break;
             case STYLE_GRID_3:     layoutGrid3(w, h, gap);      break;
+            case STYLE_GRID_5:     layoutGrid5(w, h, gap);      break;
+            case STYLE_GRID_6:     layoutGrid6(w, h, gap);      break;
             default:               layoutGrid2x2(w, h, gap);    break;
         }
     }
@@ -245,6 +313,31 @@ public class StatusLayoutPreviewView extends FrameLayout {
         placeView(2, hw+gap, topH+gap, w,  h);
     }
 
+    /** v229: 2 equal top cells + 3 equal bottom cells (5-photo collage): cells [0,1=top, 2,3,4=bottom] */
+    private void layoutGrid5(int w, int h, int gap) {
+        int topH = (int)(h * 0.45f) - gap / 2;
+        int botH = h - topH - gap;
+        int hw2 = (w - gap) / 2;
+        int hw3 = (w - gap * 2) / 3;
+        placeView(0, 0,             0,        hw2,          topH);
+        placeView(1, hw2+gap,       0,        w,             topH);
+        placeView(2, 0,             topH+gap, hw3,           h);
+        placeView(3, hw3+gap,       topH+gap, hw3*2+gap,     h);
+        placeView(4, hw3*2+gap*2,   topH+gap, w,             h);
+    }
+
+    /** v229: 3×2 equal grid (6-photo collage): cells [0,1,2=top row, 3,4,5=bottom row] */
+    private void layoutGrid6(int w, int h, int gap) {
+        int cw = (w - gap * 2) / 3;
+        int hh = (h - gap) / 2;
+        placeView(0, 0,           0,      cw,          hh);
+        placeView(1, cw+gap,      0,      cw*2+gap,    hh);
+        placeView(2, cw*2+gap*2,  0,      w,           hh);
+        placeView(3, 0,           hh+gap, cw,          h);
+        placeView(4, cw+gap,      hh+gap, cw*2+gap,    h);
+        placeView(5, cw*2+gap*2,  hh+gap, w,           h);
+    }
+
     private void placeView(int index, int l, int t, int r, int b) {
         if (index >= getChildCount()) return;
         View child = getChildAt(index);
@@ -281,6 +374,23 @@ public class StatusLayoutPreviewView extends FrameLayout {
         return Math.max(min, Math.min(max, v));
     }
 
+    /** Same MIME-type check as StatusLayoutAdjustActivity#isVideoUri — kept local here so this view has no dependency on that activity.
+     *  v229 perf: memoized per Uri in {@link #videoUriCache} — rebuildCells() runs on every style switch/reorder/replace and would
+     *  otherwise re-query the ContentResolver for the same Uris every time. */
+    private boolean isVideoUri(Uri uri) {
+        Boolean cached = videoUriCache.get(uri);
+        if (cached != null) return cached;
+        boolean isVideo;
+        try {
+            String type = getContext().getContentResolver().getType(uri);
+            isVideo = type != null && type.startsWith("video/");
+        } catch (Exception e) {
+            isVideo = false;
+        }
+        videoUriCache.put(uri, isVideo);
+        return isVideo;
+    }
+
     /** Rebuilds iv's image matrix from its drawable's intrinsic size + the cell's current size + adjust. */
     private void applyPhotoMatrix(ImageView iv, PhotoAdjust adjust) {
         Drawable d = iv.getDrawable();
@@ -305,8 +415,12 @@ public class StatusLayoutPreviewView extends FrameLayout {
         iv.setImageMatrix(m);
     }
 
-    /** Attaches pinch-to-zoom + one-finger drag-to-pan on iv, updating adjust and re-applying the matrix live. */
-    private void setupPinchPanTouch(ImageView iv, PhotoAdjust adjust) {
+    /** Attaches pinch-to-zoom + one-finger drag-to-pan on iv, updating adjust and re-applying the matrix live.
+     *  Also fires {@link #longPressListener} for slotIdx on a long-press that isn't part of a pan/pinch gesture,
+     *  and resets zoom/pan to default on double-tap (v229) — both fed the same event stream as the existing
+     *  pinch/pan {@link ScaleGestureDetector}, so GestureDetector's own scroll-slop check naturally cancels the
+     *  pending long-press the instant the user actually starts dragging/pinching instead of just holding still. */
+    private void setupPinchPanTouch(ImageView iv, PhotoAdjust adjust, int slotIdx) {
         ScaleGestureDetector scaleDetector = new ScaleGestureDetector(getContext(),
                 new ScaleGestureDetector.SimpleOnScaleGestureListener() {
                     @Override public boolean onScale(ScaleGestureDetector detector) {
@@ -316,9 +430,27 @@ public class StatusLayoutPreviewView extends FrameLayout {
                     }
                 });
 
+        android.view.GestureDetector gestureDetector = new android.view.GestureDetector(getContext(),
+                new android.view.GestureDetector.SimpleOnGestureListener() {
+                    @Override public void onLongPress(MotionEvent e) {
+                        if (longPressListener != null) longPressListener.onSlotLongPress(slotIdx);
+                    }
+                    // v229: double-tap a photo to reset its zoom/pan back to
+                    // the default cover-fit — an easy way out after over-zooming
+                    // without having to fiddle the pinch back to exactly 1x.
+                    @Override public boolean onDoubleTap(MotionEvent e) {
+                        adjust.scale = 1f;
+                        adjust.panX = 0f;
+                        adjust.panY = 0f;
+                        applyPhotoMatrix(iv, adjust);
+                        return true;
+                    }
+                });
+
         final float[] lastTouch = new float[2];
         iv.setOnTouchListener((v, event) -> {
             scaleDetector.onTouchEvent(event);
+            gestureDetector.onTouchEvent(event);
             switch (event.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN:
                 case MotionEvent.ACTION_POINTER_DOWN:

@@ -54,9 +54,17 @@ final class LayoutMediaGridAdapter extends RecyclerView.Adapter<LayoutMediaGridA
     @Override
     public void onBindViewHolder(@NonNull VH h, int pos) {
         LayoutMediaItem item = items.get(pos);
+        int cellPx = h.itemView.getContext().getResources().getDisplayMetrics().widthPixels / 3;
         Glide.with(h.thumb.getContext())
                 .load(item.uri)
                 .centerCrop()
+                // v229 perf: this grid can hold up to 300 items — decoding
+                // every camera photo at full resolution just to show a
+                // ~120dp thumbnail is the single biggest cost on this screen.
+                // Capping to the actual cell size cuts decode time and
+                // memory dramatically with zero visible quality loss.
+                .override(cellPx, cellPx)
+                .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
                 .into(h.thumb);
         h.checkCircle.setVisibility(View.VISIBLE);
         if (item.selected) {

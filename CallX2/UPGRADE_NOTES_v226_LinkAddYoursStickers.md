@@ -62,3 +62,4 @@ plain quotes. Caught and corrected before packaging by diffing against
 every other sticker type's JSON-building line in the same file, which all
 use single-backslash escaping.
 
+

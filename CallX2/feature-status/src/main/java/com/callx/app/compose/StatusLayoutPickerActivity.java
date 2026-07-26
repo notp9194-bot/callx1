@@ -153,18 +153,39 @@ public class StatusLayoutPickerActivity extends AppCompatActivity {
         gridAdapter = new LayoutMediaGridAdapter(galleryItems, this::onMediaItemToggled);
         gridRecycler.setLayoutManager(new GridLayoutManager(this, 3));
         gridRecycler.setAdapter(gridAdapter);
+        // v229 perf: cell size never changes with content (fixed 3-column,
+        // fixed square cellPx), so RecyclerView can skip re-measuring the
+        // whole layout on every adapter change.
+        gridRecycler.setHasFixedSize(true);
     }
 
+    /**
+     * v229 perf: this used to call gridAdapter.notifyDataSetChanged() on
+     * every single tap — on a folder with hundreds of photos, that rebinds
+     * (and re-decodes, before the Glide cache warms up) every visible cell
+     * for a change that only ever actually touches the tapped item plus, on
+     * deselect, however many already-selected items need their order badge
+     * renumbered. Only those specific positions get invalidated now.
+     */
     private void onMediaItemToggled(LayoutMediaItem item) {
+        int togglePos = galleryItems.indexOf(item);
         if (item.selected) {
             // Deselect
             selectedUris.remove(item.uri);
             item.selected = false;
             item.selectionOrder = 0;
-            // Recompute orders for remaining selections
+            // Recompute orders for remaining selections, invalidating only
+            // the items whose displayed order number actually changed.
             int order = 1;
-            for (LayoutMediaItem mi : galleryItems) {
-                if (mi.selected) mi.selectionOrder = order++;
+            for (int i = 0; i < galleryItems.size(); i++) {
+                LayoutMediaItem mi = galleryItems.get(i);
+                if (mi.selected) {
+                    int newOrder = order++;
+                    if (mi.selectionOrder != newOrder) {
+                        mi.selectionOrder = newOrder;
+                        gridAdapter.notifyItemChanged(i);
+                    }
+                }
             }
         } else {
             // Select
@@ -177,7 +198,7 @@ public class StatusLayoutPickerActivity extends AppCompatActivity {
             item.selected = true;
             item.selectionOrder = selectedUris.size();
         }
-        gridAdapter.notifyDataSetChanged();
+        if (togglePos >= 0) gridAdapter.notifyItemChanged(togglePos);
         refreshNextButton();
     }
 

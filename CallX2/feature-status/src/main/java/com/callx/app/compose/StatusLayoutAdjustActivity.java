@@ -2,7 +2,6 @@ package com.callx.app.compose;
 
 import android.net.Uri;
 import android.os.Bundle;
-import android.view.View;
 import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -10,18 +9,13 @@ import android.widget.Toast;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
-import com.callx.app.conversation.controllers.AttachSheetFolderPicker;
-import com.callx.app.conversation.controllers.RecentMediaLoader;
 import com.callx.app.status.R;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 /**
  * StatusLayoutAdjustActivity — Screen 2 of the WhatsApp-level layout picker
@@ -35,11 +29,22 @@ import java.util.concurrent.Executors;
  * "pick photos" and "arrange them" feels like two distinct, comfortable
  * steps rather than everything happening at once on one crowded screen.
  *
- * The gallery grid here is still editable (same circle-checkbox multi-select,
- * same "Recents ▾" dropdown as screen 1 and the attach sheet) so the user can
- * add/remove/reorder photos without having to back out to screen 1.
+ * BUG FIX: this screen used to also embed a full second gallery grid +
+ * "Recents ▾" dropdown below the preview, letting the user re-pick media
+ * that screen 1 already picked — pure duplication, and it squeezed the
+ * preview into a cramped fixed-height strip. Media selection now lives only
+ * on screen 1; this screen is layout-only — choose a style, pinch/pan-adjust
+ * each photo in a preview that now fills the space the old grid used to eat.
+ * A photo can still be swapped without leaving this screen: long-press any
+ * filled cell for a "Replace with Photo / Replace with Video / Delete" menu
+ * (see {@link #showSlotOptionsMenu}); the "+" on an empty cell still opens
+ * the system picker directly to fill it.
  *
  * v222: New — split out of the old single-screen StatusLayoutPickerActivity.
+ * v228: Removed the duplicate gallery grid/Recents dropdown; added
+ *       long-press replace/delete on preview cells; layout-picker result now
+ *       supports video slots (isVideo is read back from each Uri's real
+ *       MIME type instead of being hardcoded to "image").
  */
 public class StatusLayoutAdjustActivity extends AppCompatActivity {
 
@@ -47,25 +52,16 @@ public class StatusLayoutAdjustActivity extends AppCompatActivity {
 
     // Views
     private StatusLayoutPreviewView previewView;
-    private RecyclerView            gridRecycler;
     private RecyclerView            layoutStyleRecycler;
     private TextView                tvDone;
-    private View                    rowRecents;
-    private TextView                tvRecentsTitle;
-    private View                    rootView;
 
     // State
-    private final List<Uri>             selectedUris = new ArrayList<>();
-    private final List<LayoutMediaItem> galleryItems = new ArrayList<>();
-    private int                    currentStyle   = StatusLayoutPreviewView.STYLE_GRID_2X2;
-    private LayoutMediaGridAdapter gridAdapter;
+    private final List<Uri>        selectedUris = new ArrayList<>();
+    private int                    currentStyle = StatusLayoutPreviewView.STYLE_GRID_2X2;
     private LayoutStyleAdapter     styleAdapter;
-    private String                 currentFilterKey = RecentMediaLoader.FILTER_ALL;
-
-    private final ExecutorService ioExecutor = Executors.newSingleThreadExecutor();
 
     private ActivityResultLauncher<String> addMediaLauncher;
-    private int                            addMediaSlotIndex = -1;
+    private int                            addMediaSlotIndex = -1; // -1 = append (from "+"), else replace that slot
 
     private boolean doneTapped = false;
 
@@ -80,33 +76,28 @@ public class StatusLayoutAdjustActivity extends AppCompatActivity {
         if (incoming != null) {
             for (String s : incoming) selectedUris.add(Uri.parse(s));
         }
+        // v229: previously every selection defaulted to the 4-slot 2×2 grid
+        // regardless of count, so picking 5 or 6 photos on screen 1 silently
+        // hid the extras from the preview (they were still forwarded in the
+        // result though — see the getSlotCount() trim in finishWithResult()
+        // below for the other half of that fix). Default to a style that can
+        // actually show everything the user picked.
+        if (selectedUris.size() >= 6) currentStyle = StatusLayoutPreviewView.STYLE_GRID_6;
+        else if (selectedUris.size() == 5) currentStyle = StatusLayoutPreviewView.STYLE_GRID_5;
 
         bindViews();
         setupToolbar();
         setupPreview();
         setupLayoutStyleRow();
-        setupRecentsDropdown();
-        setupGridRecycler();
         registerLaunchers();
-        loadGalleryImages(currentFilterKey);
         refreshPreview();
-    }
-
-    @Override
-    protected void onDestroy() {
-        super.onDestroy();
-        ioExecutor.shutdown();
     }
 
     // ── View binding ──────────────────────────────────────────────────────
 
     private void bindViews() {
-        rootView            = findViewById(R.id.layout_adjust_root);
         tvDone              = findViewById(R.id.tv_layout_adjust_done);
         previewView         = findViewById(R.id.layout_preview_view);
-        rowRecents          = findViewById(R.id.row_layout_recents);
-        tvRecentsTitle      = findViewById(R.id.tv_layout_recents_title);
-        gridRecycler        = findViewById(R.id.rv_layout_media_grid);
         layoutStyleRecycler = findViewById(R.id.rv_layout_styles);
     }
 
@@ -136,6 +127,54 @@ public class StatusLayoutAdjustActivity extends AppCompatActivity {
             addMediaSlotIndex = slotIndex;
             addMediaLauncher.launch("image/*");
         });
+        previewView.setOnSlotLongPressListener(this::showSlotOptionsMenu);
+    }
+
+    /**
+     * Long-press on a filled preview cell — lets the user swap that one
+     * photo/video or remove it entirely, without leaving this screen or
+     * hunting back through screen 1's gallery grid.
+     */
+    private void showSlotOptionsMenu(int slotIndex) {
+        if (slotIndex < 0 || slotIndex >= selectedUris.size()) return;
+
+        String[] options = {"Replace with Photo", "Replace with Video", "Delete"};
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setItems(options, (dialog, which) -> {
+                    switch (which) {
+                        case 0: // Replace with Photo
+                            addMediaSlotIndex = slotIndex;
+                            addMediaLauncher.launch("image/*");
+                            break;
+                        case 1: // Replace with Video
+                            addMediaSlotIndex = slotIndex;
+                            addMediaLauncher.launch("video/*");
+                            break;
+                        case 2: // Delete
+                            deleteSlotWithUndo(slotIndex);
+                            break;
+                    }
+                })
+                .show();
+    }
+
+    /**
+     * v229: deletes the slot but offers a 4-second Undo via Snackbar instead
+     * of removing it silently — a long-press → Delete is easy to fire by
+     * accident, and re-picking the exact same photo from the gallery again
+     * is more friction than a one-tap undo.
+     */
+    private void deleteSlotWithUndo(int slotIndex) {
+        Uri removed = selectedUris.remove(slotIndex);
+        refreshPreview();
+        com.google.android.material.snackbar.Snackbar
+                .make(previewView, "Photo removed", com.google.android.material.snackbar.Snackbar.LENGTH_LONG)
+                .setAction("UNDO", v -> {
+                    int insertAt = Math.min(slotIndex, selectedUris.size());
+                    selectedUris.add(insertAt, removed);
+                    refreshPreview();
+                })
+                .show();
     }
 
     private void refreshPreview() {
@@ -160,57 +199,7 @@ public class StatusLayoutAdjustActivity extends AppCompatActivity {
         styleAdapter.setSelected(style);
     }
 
-    // ── Recents ▾ dropdown ─────────────────────────────────────────────────
-    // Same popup as screen 1 / the attach sheet — lets the user switch this
-    // screen's grid to a different on-device folder without leaving the
-    // adjust screen.
-
-    private void setupRecentsDropdown() {
-        if (rowRecents == null) return;
-        rowRecents.setOnClickListener(v -> AttachSheetFolderPicker.showUnderAnchor(
-                this, rowRecents, rootView, ioExecutor, currentFilterKey,
-                folder -> {
-                    if (RecentMediaLoader.ACTION_MORE_APPS.equals(folder.filterKey)
-                            || RecentMediaLoader.ACTION_SEE_MORE.equals(folder.filterKey)) {
-                        return;
-                    }
-                    currentFilterKey = folder.filterKey;
-                    if (tvRecentsTitle != null) tvRecentsTitle.setText(folder.name);
-                    loadGalleryImages(currentFilterKey);
-                }));
-    }
-
-    // ── Grid recycler ─────────────────────────────────────────────────────
-
-    private void setupGridRecycler() {
-        gridAdapter = new LayoutMediaGridAdapter(galleryItems, this::onMediaItemToggled);
-        gridRecycler.setLayoutManager(new GridLayoutManager(this, 3));
-        gridRecycler.setAdapter(gridAdapter);
-    }
-
-    private void onMediaItemToggled(LayoutMediaItem item) {
-        if (item.selected) {
-            selectedUris.remove(item.uri);
-            item.selected = false;
-            item.selectionOrder = 0;
-            int order = 1;
-            for (LayoutMediaItem mi : galleryItems) {
-                if (mi.selected) mi.selectionOrder = order++;
-            }
-        } else {
-            if (selectedUris.size() >= MAX_SELECTION) {
-                Toast.makeText(this, "You can choose up to " + MAX_SELECTION + " photos", Toast.LENGTH_SHORT).show();
-                return;
-            }
-            selectedUris.add(item.uri);
-            item.selected = true;
-            item.selectionOrder = selectedUris.size();
-        }
-        gridAdapter.notifyDataSetChanged();
-        refreshPreview();
-    }
-
-    // ── Gallery loading ───────────────────────────────────────────────────
+    // ── Replace/add media (image or video) for a single slot ───────────────
 
     private void registerLaunchers() {
         addMediaLauncher = registerForActivityResult(
@@ -226,32 +215,6 @@ public class StatusLayoutAdjustActivity extends AppCompatActivity {
                 });
     }
 
-    private void loadGalleryImages(String filterKey) {
-        ioExecutor.execute(() -> {
-            List<RecentMediaLoader.Item> raw =
-                    RecentMediaLoader.loadRecentPage(this, 0, 300, filterKey);
-            List<LayoutMediaItem> items = new ArrayList<>();
-            for (RecentMediaLoader.Item it : raw) {
-                if (it.isVideo) continue; // layout picker is photos-only
-                items.add(new LayoutMediaItem(it.uri));
-            }
-            runOnUiThread(() -> {
-                galleryItems.clear();
-                galleryItems.addAll(items);
-                // Pre-mark the photos carried over from screen 1 (or kept across
-                // a folder switch) as selected, in their existing order.
-                int order = 1;
-                for (LayoutMediaItem mi : galleryItems) {
-                    if (selectedUris.contains(mi.uri)) {
-                        mi.selected = true;
-                        mi.selectionOrder = order++;
-                    }
-                }
-                gridAdapter.notifyDataSetChanged();
-            });
-        });
-    }
-
     // ── Done / result ─────────────────────────────────────────────────────
 
     private void finishWithResult() {
@@ -261,11 +224,27 @@ public class StatusLayoutAdjustActivity extends AppCompatActivity {
             return;
         }
 
+        // v229 bug fix: previously this always forwarded every selected Uri
+        // regardless of the chosen style's slot count, so e.g. picking 6
+        // photos but leaving the default 2×2 (4-slot) style meant the last
+        // 2 photos were invisible in the preview yet still included in the
+        // result — a silent count mismatch for whatever renders the final
+        // collage downstream. Trim to exactly what's shown.
+        int slotCount = previewView.getSlotCount();
+        List<Uri> toSend = selectedUris.size() > slotCount
+                ? selectedUris.subList(0, slotCount)
+                : selectedUris;
+        if (selectedUris.size() > slotCount) {
+            Toast.makeText(this,
+                    "Only the first " + slotCount + " photos fit this layout",
+                    Toast.LENGTH_SHORT).show();
+        }
+
         ArrayList<String> uriStrings = new ArrayList<>();
         ArrayList<Integer> videoFlags = new ArrayList<>();
-        for (Uri uri : selectedUris) {
+        for (Uri uri : toSend) {
             uriStrings.add(uri.toString());
-            videoFlags.add(0); // images only in layout picker
+            videoFlags.add(isVideoUri(uri) ? 1 : 0);
         }
 
         android.content.Intent resultIntent = new android.content.Intent();
@@ -274,5 +253,21 @@ public class StatusLayoutAdjustActivity extends AppCompatActivity {
         resultIntent.putExtra(StatusLayoutPickerActivity.EXTRA_RESULT_LAYOUT, currentStyle);
         setResult(RESULT_OK, resultIntent);
         finish();
+    }
+
+    /**
+     * Whether the given Uri points at a video (vs. photo), determined from
+     * its real MIME type rather than tracked separately — a slot can end up
+     * holding a video either from the original screen-1 selection or from a
+     * "Replace with Video" long-press action, so checking the actual content
+     * type here is simpler and can't drift out of sync with how it got there.
+     */
+    private boolean isVideoUri(Uri uri) {
+        try {
+            String type = getContentResolver().getType(uri);
+            return type != null && type.startsWith("video/");
+        } catch (Exception e) {
+            return false;
+        }
     }
 }

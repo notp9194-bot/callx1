@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v229: 2 equal top cells + 3 equal bottom cells (5-photo collage) -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="32dp"
+    android:height="32dp"
+    android:viewportWidth="32"
+    android:viewportHeight="32">
+    <!-- Top-left cell -->
+    <path android:fillColor="#FFFFFF" android:pathData="M2,2 L14,2 L14,13 L2,13 Z"/>
+    <!-- Top-right cell -->
+    <path android:fillColor="#FFFFFF" android:pathData="M18,2 L30,2 L30,13 L18,13 Z"/>
+    <!-- Bottom-left cell -->
+    <path android:fillColor="#FFFFFF" android:pathData="M2,17 L10,17 L10,30 L2,30 Z"/>
+    <!-- Bottom-middle cell -->
+    <path android:fillColor="#FFFFFF" android:pathData="M12,17 L20,17 L20,30 L12,30 Z"/>
+    <!-- Bottom-right cell -->
+    <path android:fillColor="#FFFFFF" android:pathData="M22,17 L30,17 L30,30 L22,30 Z"/>
+</vector>

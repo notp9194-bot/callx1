@@ -7,17 +7,26 @@
     (select screen, then a genuinely separate adjust screen) instead of the
     old behaviour where the preview popped up inline under the same grid.
 
+    BUG FIX: this screen used to duplicate screen 1's whole gallery grid +
+    "Recents ▾" dropdown below the preview — but media is already chosen on
+    screen 1, so that second selection grid was pure redundant clutter (and
+    ate space the preview needed). This screen is layout-only now: pick a
+    style, then pinch/pan-adjust each photo in a preview that finally has
+    room to breathe. Per-slot photo swapping is still possible — long-press
+    any filled cell for a "Replace with Photo / Replace with Video / Delete"
+    menu (see StatusLayoutAdjustActivity#showSlotOptionsMenu), and the "+"
+    on an empty cell still opens the system picker directly.
+
     Structure:
       ┌──────────────────────────────────────────┐
       │  ← toolbar                       Done     │
       ├──────────────────────────────────────────┤
       │  "Choose layout" subtitle                 │
       ├──────────────────────────────────────────┤
-      │  StatusLayoutPreviewView  (top preview)   │
-      ├──────────────────────────────────────────┤
-      │  Recents ▾  (folder selector header)      │
-      ├──────────────────────────────────────────┤
-      │  3-column gallery grid (RecyclerView)     │
+      │                                            │
+      │  StatusLayoutPreviewView  (fills space)   │
+      │  long-press a photo → replace/delete      │
+      │                                            │
       ├──────────────────────────────────────────┤
       │  ────────────────────────────────────── │
       │  [■] [■│■] [■ ■] [■▬] [■│■] [■]  ←6btns│
@@ -94,10 +103,13 @@
             android:paddingTop="10dp"
             android:paddingBottom="12dp"/>
 
-        <!-- ── Layout preview ───────────────────────────────────────────── -->
+        <!-- ── Layout preview — now takes all the space the old gallery
+             grid used to occupy, so pinch/pan photo adjustment has real
+             room instead of being squeezed into a fixed 220dp strip. ── -->
         <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="220dp"
+            android:layout_height="0dp"
+            android:layout_weight="1"
             android:orientation="vertical">
 
             <com.callx.app.compose.StatusLayoutPreviewView
@@ -119,54 +131,11 @@
 
         </LinearLayout>
 
-        <!-- ── Recents header with working folder dropdown ─────────────── -->
-        <LinearLayout
-            android:id="@+id/row_layout_recents"
-            android:layout_width="match_parent"
-            android:layout_height="40dp"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:paddingStart="16dp"
-            android:paddingEnd="16dp"
-            android:clickable="true"
-            android:focusable="true"
-            android:background="?attr/selectableItemBackground">
-
-            <TextView
-                android:id="@+id/tv_layout_recents_title"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Recents"
-                android:textColor="#FFFFFF"
-                android:textSize="14sp"
-                android:textStyle="bold"/>
-
-            <ImageView
-                android:layout_width="14dp"
-                android:layout_height="14dp"
-                android:layout_marginStart="4dp"
-                android:src="@drawable/ic_arrow_right"
-                android:rotation="90"
-                android:tint="#AAAAAA"
-                android:contentDescription="Dropdown"/>
-
-        </LinearLayout>
-
-        <!-- ── Gallery grid ────────────────────────────────────────────── -->
-        <androidx.recyclerview.widget.RecyclerView
-            android:id="@+id/rv_layout_media_grid"
-            android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1"
-            android:clipToPadding="false"
-            android:overScrollMode="never"/>
-
         <!-- ── Divider above layout style row ──────────────────────────── -->
         <View
             android:layout_width="match_parent"
             android:layout_height="1dp"
-            android:background="#2A2A2A"
-            android:layout_marginTop="4dp"/>
+            android:background="#2A2A2A"/>
 
         <!-- ── Layout style selector row ───────────────────────────────── -->
         <androidx.recyclerview.widget.RecyclerView

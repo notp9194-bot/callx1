@@ -13,6 +13,19 @@
     feature-chat already depends on com.google.android.material (which
     ships MaterialCardView) and doesn't otherwise pull in the separate
     androidx.cardview artifact.
+
+    BUG FIX: cardBackgroundColor was "?attr/colorSurface" — resolving that
+    attr requires the inflating Context's theme to actually define it
+    (only Theme.CallX does; several activities in this module, e.g.
+    MediaEditActivity/ChatVideoTrimActivity/ChatImageCropActivity/
+    ChatStickerPickerActivity, are manifest-themed as plain
+    Theme.AppCompat.NoActionBar, which has no colorSurface at all). If this
+    popup is ever inflated against one of those Contexts, MaterialCardView's
+    constructor crashes with UnsupportedOperationException while resolving
+    the attr. Switched to the concrete @color/surface_card resource — same
+    white/black day/night values colorSurface already points to, but
+    resolved directly instead of through the current theme, so this card
+    renders correctly no matter which Activity's Context inflated it.
 -->
 <com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
@@ -20,7 +33,7 @@
     android:layout_height="wrap_content"
     app:cardCornerRadius="18dp"
     app:cardElevation="12dp"
-    app:cardBackgroundColor="?attr/colorSurface"
+    app:cardBackgroundColor="@color/surface_card"
     app:strokeWidth="0dp">
 
     <com.callx.app.conversation.controllers.MaxHeightRecyclerView

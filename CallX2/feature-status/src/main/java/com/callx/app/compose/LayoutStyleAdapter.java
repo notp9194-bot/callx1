@@ -27,6 +27,8 @@ final class LayoutStyleAdapter extends RecyclerView.Adapter<LayoutStyleAdapter.V
             StatusLayoutPreviewView.STYLE_BIG_TOP,
             StatusLayoutPreviewView.STYLE_BIG_RIGHT,
             StatusLayoutPreviewView.STYLE_GRID_3,
+            StatusLayoutPreviewView.STYLE_GRID_5,
+            StatusLayoutPreviewView.STYLE_GRID_6,
     };
 
     private final OnStyleSelected listener;
@@ -68,6 +70,8 @@ final class LayoutStyleAdapter extends RecyclerView.Adapter<LayoutStyleAdapter.V
             case StatusLayoutPreviewView.STYLE_BIG_TOP:   return R.drawable.ic_layout_big_top;
             case StatusLayoutPreviewView.STYLE_BIG_RIGHT: return R.drawable.ic_layout_big_right;
             case StatusLayoutPreviewView.STYLE_GRID_3:    return R.drawable.ic_layout_grid_3;
+            case StatusLayoutPreviewView.STYLE_GRID_5:    return R.drawable.ic_layout_grid_5;
+            case StatusLayoutPreviewView.STYLE_GRID_6:    return R.drawable.ic_layout_grid_6;
             default: return R.drawable.ic_layout_grid_2x2;
         }
     }
