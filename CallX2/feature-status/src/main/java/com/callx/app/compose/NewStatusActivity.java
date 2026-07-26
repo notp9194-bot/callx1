@@ -30,6 +30,7 @@ import com.callx.app.utils.StatusNotificationHelper;
 import com.callx.app.utils.StatusPrivacyManager;
 import com.callx.app.stickers.StatusStickerPickerSheet;
 import com.callx.app.stickers.StatusStickerOverlayView;
+import com.google.android.material.bottomsheet.BottomSheetDialog;
 /**
  * NewStatusActivity v26 — Fully comprehensive status creation + Interactive Stickers.
  *
@@ -98,6 +99,8 @@ public class NewStatusActivity extends AppCompatActivity {
     // Result of the full-screen editor opened from the attach-sheet's "Edit"
     // action — see openStatusAttachSheet()'s onMediaEdit callback.
     private ActivityResultLauncher<Intent>  statusMediaEditLauncher;
+    // v216: Layout picker result launcher — receives selected URIs + layout style
+    private ActivityResultLauncher<Intent>  layoutPickerLauncher;
 
     /** FrameLayout that holds the status preview + sticker overlays */
     private android.widget.FrameLayout stickerOverlayFrame;
@@ -142,9 +145,33 @@ public class NewStatusActivity extends AppCompatActivity {
         setupTextAlignButtons();
         setupTextInput();
         setupStickerOverlayFrame();
+        // v216: Layout picker launcher — receives URIs + layoutStyle from StatusLayoutPickerActivity,
+        //       then forwards to MediaEditActivity for cropping/filters/text before posting.
+        layoutPickerLauncher = registerForActivityResult(
+                new ActivityResultContracts.StartActivityForResult(),
+                result -> {
+                    if (result.getResultCode() != android.app.Activity.RESULT_OK || result.getData() == null) return;
+                    java.util.ArrayList<String> uriStrings = result.getData().getStringArrayListExtra(
+                            StatusLayoutPickerActivity.EXTRA_RESULT_URIS);
+                    java.util.ArrayList<Integer> videoFlagInts = result.getData().getIntegerArrayListExtra(
+                            StatusLayoutPickerActivity.EXTRA_RESULT_IS_VIDEO);
+                    if (uriStrings == null || uriStrings.isEmpty()) return;
+                    // Forward to MediaEditActivity for editing before posting
+                    Intent editIntent = new Intent(this,
+                            com.callx.app.conversation.controllers.MediaEditActivity.class);
+                    editIntent.putStringArrayListExtra(
+                            com.callx.app.conversation.controllers.MediaEditActivity.EXTRA_URIS, uriStrings);
+                    editIntent.putIntegerArrayListExtra(
+                            com.callx.app.conversation.controllers.MediaEditActivity.EXTRA_IS_VIDEO, videoFlagInts);
+                    editIntent.putExtra(com.callx.app.conversation.controllers.MediaEditActivity.EXTRA_CAPTION, "");
+                    editIntent.putExtra(com.callx.app.conversation.controllers.MediaEditActivity.EXTRA_HD, false);
+                    statusMediaEditLauncher.launch(editIntent);
+                });
         restoreDraft();
-        // "Add Photo"/"Add Video" merged into one "Upload" button.
-        binding.btnPickImage.setOnClickListener(v -> showMediaSourceDialog());
+        // v216: "Upload" button now opens the WhatsApp-style "Add status" sheet
+        //       (Text / Music / Layout / Voice / AI Images + Recents grid) instead
+        //       of the old plain Camera/Gallery alert dialog.
+        binding.btnPickImage.setOnClickListener(v -> showStatusAddSheet());
         binding.btnPost.setOnClickListener(v -> post());
         binding.btnDiscardMedia.setOnClickListener(v -> discardMedia());
         // GIF / Sticker button
@@ -288,21 +315,152 @@ public class NewStatusActivity extends AppCompatActivity {
         setSupportActionBar(binding.toolbar);
         binding.toolbar.setNavigationOnClickListener(v -> finish());
     }
-    // ── Media source dialog (gallery or camera) ───────────────────────────
-    // Single "Upload" button now covers both photo and video (previously two
-    // separate buttons/dialogs). Camera still captures a photo directly;
-    // Gallery opens the shared chat attach-sheet instead of a plain picker.
-    private void showMediaSourceDialog() {
-        String[] options = {"Camera", "Gallery", "Cancel"};
+    // ── v216: WhatsApp-style "Add status" bottom sheet ─────────────────────
+    // Replaces the old plain Camera/Gallery dialog. Shows:
+    //   • 5 action chips: Text / Music / Layout / Voice / AI images
+    //   • Recents media grid (reuses AttachSheetRecentMediaBinder)
+    private void showStatusAddSheet() {
+        BottomSheetDialog sheet = new BottomSheetDialog(this);
+        View v = getLayoutInflater().inflate(com.callx.app.status.R.layout.bottom_sheet_status_add, null);
+
+        // Text → switch to text-only mode
+        View btnText = v.findViewById(com.callx.app.status.R.id.status_add_btn_text);
+        if (btnText != null) btnText.setOnClickListener(x -> {
+            sheet.dismiss();
+            // Show text input area (same as typing a text status)
+            if (binding.tilText != null) {
+                binding.tilText.setVisibility(View.VISIBLE);
+                binding.tilText.requestFocus();
+            }
+        });
+
+        // Music → open music sticker picker
+        View btnMusic = v.findViewById(com.callx.app.status.R.id.status_add_btn_music);
+        if (btnMusic != null) btnMusic.setOnClickListener(x -> {
+            sheet.dismiss();
+            openStickerPicker();
+        });
+
+        // Layout → open layout picker activity
+        View btnLayout = v.findViewById(com.callx.app.status.R.id.status_add_btn_layout);
+        if (btnLayout != null) btnLayout.setOnClickListener(x -> {
+            sheet.dismiss();
+            openLayoutPicker();
+        });
+
+        // Voice → record voice note for status
+        View btnVoice = v.findViewById(com.callx.app.status.R.id.status_add_btn_voice);
+        if (btnVoice != null) btnVoice.setOnClickListener(x -> {
+            sheet.dismiss();
+            Intent voiceIntent = new Intent(MediaStore.Audio.Media.RECORD_SOUND_ACTION);
+            if (voiceIntent.resolveActivity(getPackageManager()) != null) {
+                startActivityForResult(voiceIntent, 9022);
+            } else {
+                toast("No audio recorder found on this device");
+            }
+        });
+
+        // AI Images → show AI prompt input
+        View btnAi = v.findViewById(com.callx.app.status.R.id.status_add_btn_ai_images);
+        if (btnAi != null) btnAi.setOnClickListener(x -> {
+            sheet.dismiss();
+            showAiImagePromptDialog();
+        });
+
+        // Recents grid — reuse the same shared attach-sheet binder
+        setupRecentsInStatusAddSheet(sheet, v);
+
+        sheet.setContentView(v);
+        sheet.show();
+    }
+
+    /**
+     * Wires the Recents grid inside the "Add status" sheet to load recent
+     * gallery images and handle tap/select/edit the same as the chat attach sheet.
+     */
+    private void setupRecentsInStatusAddSheet(BottomSheetDialog sheet, View sheetView) {
+        com.callx.app.conversation.controllers.AttachSheetRecentMediaBinder.bind(
+                this, sheet, sheetView, statusAttachMediaExecutor,
+                false, // no view-once toggle for status
+                new com.callx.app.conversation.controllers.AttachSheetRecentMediaBinder.Callbacks() {
+                    @Override public void onCameraTapped() {
+                        sheet.dismiss();
+                        captureFromCamera();
+                    }
+                    @Override public void onMoreAppsRequested() {
+                        sheet.dismiss();
+                        imagePicker.launch("image/*");
+                    }
+                    @Override public void onSeeMoreRequested() {
+                        sheet.dismiss();
+                        imagePicker.launch("image/*");
+                    }
+                    @Override public void onMediaSend(
+                            java.util.List<com.callx.app.conversation.controllers.RecentMediaLoader.Item> items,
+                            String caption, boolean isHD) {
+                        if (items.isEmpty()) return;
+                        sheet.dismiss();
+                        java.util.ArrayList<String> uriStrings = new java.util.ArrayList<>();
+                        java.util.ArrayList<Integer> videoFlags = new java.util.ArrayList<>();
+                        for (com.callx.app.conversation.controllers.RecentMediaLoader.Item item : items) {
+                            uriStrings.add(item.uri.toString());
+                            videoFlags.add(item.isVideo ? 1 : 0);
+                        }
+                        Intent intent = new Intent(NewStatusActivity.this,
+                                com.callx.app.conversation.controllers.MediaEditActivity.class);
+                        intent.putStringArrayListExtra(
+                                com.callx.app.conversation.controllers.MediaEditActivity.EXTRA_URIS, uriStrings);
+                        intent.putIntegerArrayListExtra(
+                                com.callx.app.conversation.controllers.MediaEditActivity.EXTRA_IS_VIDEO, videoFlags);
+                        intent.putExtra(com.callx.app.conversation.controllers.MediaEditActivity.EXTRA_CAPTION, caption);
+                        intent.putExtra(com.callx.app.conversation.controllers.MediaEditActivity.EXTRA_HD, isHD);
+                        statusMediaEditLauncher.launch(intent);
+                    }
+                    @Override public void onMediaEdit(
+                            java.util.List<com.callx.app.conversation.controllers.RecentMediaLoader.Item> items,
+                            String caption, boolean isHD) {
+                        if (items.isEmpty()) return;
+                        sheet.dismiss();
+                        java.util.ArrayList<String> uriStrings = new java.util.ArrayList<>();
+                        java.util.ArrayList<Integer> videoFlags = new java.util.ArrayList<>();
+                        for (com.callx.app.conversation.controllers.RecentMediaLoader.Item item : items) {
+                            uriStrings.add(item.uri.toString());
+                            videoFlags.add(item.isVideo ? 1 : 0);
+                        }
+                        Intent intent = new Intent(NewStatusActivity.this,
+                                com.callx.app.conversation.controllers.MediaEditActivity.class);
+                        intent.putStringArrayListExtra(
+                                com.callx.app.conversation.controllers.MediaEditActivity.EXTRA_URIS, uriStrings);
+                        intent.putIntegerArrayListExtra(
+                                com.callx.app.conversation.controllers.MediaEditActivity.EXTRA_IS_VIDEO, videoFlags);
+                        intent.putExtra(com.callx.app.conversation.controllers.MediaEditActivity.EXTRA_CAPTION, caption);
+                        intent.putExtra(com.callx.app.conversation.controllers.MediaEditActivity.EXTRA_HD, isHD);
+                        statusMediaEditLauncher.launch(intent);
+                    }
+                });
+    }
+
+    /** v216: Opens StatusLayoutPickerActivity to select 1-6 photos + layout style. */
+    private void openLayoutPicker() {
+        Intent intent = new Intent(this, StatusLayoutPickerActivity.class);
+        layoutPickerLauncher.launch(intent);
+    }
+
+    /** v216: AI image prompt dialog — opens text input, result generates an AI image for status. */
+    private void showAiImagePromptDialog() {
+        android.widget.EditText et = new android.widget.EditText(this);
+        et.setHint("Describe the image you want…");
         AlertDialogStyler.showRounded(new androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle("Upload")
-            .setItems(options, (d, w) -> {
-                if (w == 0) {
-                    captureFromCamera();
-                } else if (w == 1) {
-                    openStatusAttachSheet();
+            .setTitle("AI Image for Status")
+            .setView(et)
+            .setPositiveButton("Generate", (d, w) -> {
+                String prompt = et.getText().toString().trim();
+                if (!prompt.isEmpty()) {
+                    toast("AI image generation coming soon…");
                 }
-            }).create());
+            })
+            .setNegativeButton("Cancel", null)
+            .create());
     }
 
     // ── Attach sheet (Gallery) — reuses feature-chat's shared sheet ────────

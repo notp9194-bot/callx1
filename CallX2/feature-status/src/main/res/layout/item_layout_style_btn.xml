@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    item_layout_style_btn.xml — Single layout-style button in the bottom row.
+    Shows an icon representing the layout pattern + a small indicator dot
+    below when selected.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="wrap_content"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:gravity="center"
+    android:paddingStart="12dp"
+    android:paddingEnd="12dp"
+    android:paddingTop="8dp"
+    android:paddingBottom="8dp"
+    android:clickable="true"
+    android:focusable="true"
+    android:background="?attr/selectableItemBackgroundBorderless">
+
+    <!-- Layout pattern icon -->
+    <ImageView
+        android:id="@+id/iv_layout_style_icon"
+        android:layout_width="32dp"
+        android:layout_height="32dp"
+        android:tint="#FFFFFF"
+        android:contentDescription="Layout style"/>
+
+    <!-- Selected indicator dot -->
+    <View
+        android:id="@+id/view_layout_style_selected"
+        android:layout_width="5dp"
+        android:layout_height="5dp"
+        android:layout_marginTop="6dp"
+        android:background="@drawable/bg_circle_green"
+        android:visibility="invisible"/>
+
+</LinearLayout>

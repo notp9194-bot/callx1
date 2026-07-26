@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 2×2 equal grid layout icon -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="32dp"
+    android:height="32dp"
+    android:viewportWidth="32"
+    android:viewportHeight="32">
+    <!-- Top-left cell -->
+    <path android:fillColor="#FFFFFF" android:pathData="M2,2 L14,2 L14,14 L2,14 Z"/>
+    <!-- Top-right cell -->
+    <path android:fillColor="#FFFFFF" android:pathData="M18,2 L30,2 L30,14 L18,14 Z"/>
+    <!-- Bottom-left cell -->
+    <path android:fillColor="#FFFFFF" android:pathData="M2,18 L14,18 L14,30 L2,30 Z"/>
+    <!-- Bottom-right cell -->
+    <path android:fillColor="#FFFFFF" android:pathData="M18,18 L30,18 L30,30 L18,30 Z"/>
+</vector>

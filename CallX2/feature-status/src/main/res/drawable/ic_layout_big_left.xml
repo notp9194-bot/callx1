@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Big left cell + 2 stacked right -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="32dp"
+    android:height="32dp"
+    android:viewportWidth="32"
+    android:viewportHeight="32">
+    <!-- Large left cell -->
+    <path android:fillColor="#FFFFFF" android:pathData="M2,2 L17,2 L17,30 L2,30 Z"/>
+    <!-- Top-right cell -->
+    <path android:fillColor="#FFFFFF" android:pathData="M20,2 L30,2 L30,14 L20,14 Z"/>
+    <!-- Bottom-right cell -->
+    <path android:fillColor="#FFFFFF" android:pathData="M20,18 L30,18 L30,30 L20,30 Z"/>
+</vector>
