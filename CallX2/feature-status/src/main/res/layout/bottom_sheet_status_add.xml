@@ -1,271 +1,206 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    bottom_sheet_status_add.xml — WhatsApp-level "Add Status" bottom sheet.
+    bottom_sheet_status_add.xml — v217 COMBO update.
 
-    Shown when the user taps the "+" / Upload button on the Status tab.
-    Mirrors WhatsApp's story composer sheet exactly:
+    This used to be the whole "Add status" sheet (header + 5 action chips
+    + its own 3-column Recents grid wired through AttachSheetRecentMediaBinder).
+    That Recents grid never actually worked — the binder looks for
+    R.id.recents_grid / R.id.top_content / etc. (see
+    AttachSheetRecentMediaBinder#bind's early-return guard), none of which
+    existed in this layout, so it silently bailed out every time and the
+    grid stayed empty.
 
-      ┌──────────────────────────────────────────────┐
-      │  ── (drag handle)                            │
-      │  [Add status]  (header)                      │
-      │                                              │
-      │  [Text] [Music] [Layout] [Voice] [AI images] │  ← 5 action chips (row 1)
-      │                                              │
-      │  Recents ▾                                   │  ← folder dropdown
-      │  ┌─────┬─────┬─────┐                        │
-      │  │ 📷  │ img │ img │  ← 3-col recent media   │
-      │  │Camera      …   │                         │
-      │  └─────┴─────┴─────┘                        │
-      └──────────────────────────────────────────────┘
+    v217 merges this with the fully-working chat attach sheet instead of
+    fixing this file's own grid: NewStatusActivity#showStatusAddSheet now
+    inflates feature-chat's `bottom_sheet_attach.xml` (same layout
+    ChatMediaController/GroupChatActivity use — recent-media strip, 4-col
+    expandable grid, folder picker, HD toggle, multi-select send bar, Edit)
+    and inserts JUST this file's action-chip row into it, right below the
+    drag handle. So this file is now only the row of 5 chips:
+
+      [Text] [Music] [Layout] [Voice] [AI images]
+
+    — the "Recents" header/grid/RecyclerView below it were removed for
+    good; the shared sheet supplies all of that now.
 -->
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:background="@drawable/bg_bottom_sheet_round">
+    android:orientation="horizontal"
+    android:paddingStart="8dp"
+    android:paddingEnd="8dp"
+    android:paddingTop="4dp"
+    android:paddingBottom="16dp"
+    android:gravity="center_vertical">
 
+    <!-- Text -->
     <LinearLayout
-        android:layout_width="match_parent"
+        android:id="@+id/status_add_btn_text"
+        android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:orientation="vertical">
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp"
+        android:clickable="true"
+        android:focusable="true"
+        android:background="?attr/selectableItemBackgroundBorderless">
 
-        <!-- Drag handle -->
-        <View
-            android:layout_width="36dp"
-            android:layout_height="4dp"
-            android:layout_gravity="center_horizontal"
-            android:layout_marginTop="10dp"
-            android:layout_marginBottom="10dp"
-            android:background="@drawable/bg_drag_handle"/>
-
-        <!-- Sheet header -->
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Add status"
-            android:textColor="#FFFFFF"
-            android:textSize="18sp"
-            android:textStyle="bold"
-            android:gravity="center"
-            android:paddingBottom="16dp"/>
-
-        <!-- ── Action buttons row ──────────────────────────────────────── -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:paddingStart="8dp"
-            android:paddingEnd="8dp"
-            android:paddingBottom="16dp"
-            android:gravity="center_vertical">
-
-            <!-- Text -->
-            <LinearLayout
-                android:id="@+id/status_add_btn_text"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:orientation="vertical"
-                android:gravity="center"
-                android:paddingTop="8dp"
-                android:paddingBottom="8dp"
-                android:clickable="true"
-                android:focusable="true"
-                android:background="?attr/selectableItemBackgroundBorderless">
-
-                <FrameLayout
-                    android:layout_width="52dp"
-                    android:layout_height="52dp"
-                    android:background="@drawable/bg_status_add_chip_dark">
-                    <ImageView
-                        android:layout_width="24dp"
-                        android:layout_height="24dp"
-                        android:layout_gravity="center"
-                        android:src="@drawable/ic_status_btn_text"
-                        android:tint="#FFFFFF"/>
-                </FrameLayout>
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Text"
-                    android:textColor="#FFFFFF"
-                    android:textSize="11sp"
-                    android:layout_marginTop="6dp"/>
-            </LinearLayout>
-
-            <!-- Music -->
-            <LinearLayout
-                android:id="@+id/status_add_btn_music"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:orientation="vertical"
-                android:gravity="center"
-                android:paddingTop="8dp"
-                android:paddingBottom="8dp"
-                android:clickable="true"
-                android:focusable="true"
-                android:background="?attr/selectableItemBackgroundBorderless">
-
-                <FrameLayout
-                    android:layout_width="52dp"
-                    android:layout_height="52dp"
-                    android:background="@drawable/bg_status_add_chip_dark">
-                    <ImageView
-                        android:layout_width="24dp"
-                        android:layout_height="24dp"
-                        android:layout_gravity="center"
-                        android:src="@drawable/ic_status_btn_music"
-                        android:tint="#FFFFFF"/>
-                </FrameLayout>
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Music"
-                    android:textColor="#FFFFFF"
-                    android:textSize="11sp"
-                    android:layout_marginTop="6dp"/>
-            </LinearLayout>
-
-            <!-- Layout -->
-            <LinearLayout
-                android:id="@+id/status_add_btn_layout"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:orientation="vertical"
-                android:gravity="center"
-                android:paddingTop="8dp"
-                android:paddingBottom="8dp"
-                android:clickable="true"
-                android:focusable="true"
-                android:background="?attr/selectableItemBackgroundBorderless">
-
-                <FrameLayout
-                    android:layout_width="52dp"
-                    android:layout_height="52dp"
-                    android:background="@drawable/bg_status_add_chip_dark">
-                    <ImageView
-                        android:layout_width="24dp"
-                        android:layout_height="24dp"
-                        android:layout_gravity="center"
-                        android:src="@drawable/ic_status_btn_layout"
-                        android:tint="#FFFFFF"/>
-                </FrameLayout>
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Layout"
-                    android:textColor="#FFFFFF"
-                    android:textSize="11sp"
-                    android:layout_marginTop="6dp"/>
-            </LinearLayout>
-
-            <!-- Voice -->
-            <LinearLayout
-                android:id="@+id/status_add_btn_voice"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:orientation="vertical"
-                android:gravity="center"
-                android:paddingTop="8dp"
-                android:paddingBottom="8dp"
-                android:clickable="true"
-                android:focusable="true"
-                android:background="?attr/selectableItemBackgroundBorderless">
-
-                <FrameLayout
-                    android:layout_width="52dp"
-                    android:layout_height="52dp"
-                    android:background="@drawable/bg_status_add_chip_dark">
-                    <ImageView
-                        android:layout_width="24dp"
-                        android:layout_height="24dp"
-                        android:layout_gravity="center"
-                        android:src="@drawable/ic_status_btn_voice"
-                        android:tint="#FFFFFF"/>
-                </FrameLayout>
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Voice"
-                    android:textColor="#FFFFFF"
-                    android:textSize="11sp"
-                    android:layout_marginTop="6dp"/>
-            </LinearLayout>
-
-            <!-- AI Images -->
-            <LinearLayout
-                android:id="@+id/status_add_btn_ai_images"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:orientation="vertical"
-                android:gravity="center"
-                android:paddingTop="8dp"
-                android:paddingBottom="8dp"
-                android:clickable="true"
-                android:focusable="true"
-                android:background="?attr/selectableItemBackgroundBorderless">
-
-                <FrameLayout
-                    android:layout_width="52dp"
-                    android:layout_height="52dp"
-                    android:background="@drawable/bg_status_add_chip_dark">
-                    <ImageView
-                        android:layout_width="24dp"
-                        android:layout_height="24dp"
-                        android:layout_gravity="center"
-                        android:src="@drawable/ic_status_btn_ai_images"
-                        android:tint="#FFFFFF"/>
-                </FrameLayout>
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="AI images"
-                    android:textColor="#FFFFFF"
-                    android:textSize="11sp"
-                    android:layout_marginTop="6dp"/>
-            </LinearLayout>
-
-        </LinearLayout>
-
-        <!-- ── Recents header ───────────────────────────────────────────── -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="40dp"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:paddingStart="16dp"
-            android:paddingEnd="16dp">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Recents"
-                android:textColor="#FFFFFF"
-                android:textSize="14sp"
-                android:textStyle="bold"/>
-
+        <FrameLayout
+            android:layout_width="52dp"
+            android:layout_height="52dp"
+            android:background="@drawable/bg_status_add_chip_dark">
             <ImageView
-                android:layout_width="14dp"
-                android:layout_height="14dp"
-                android:layout_marginStart="4dp"
-                android:src="@drawable/ic_arrow_right"
-                android:rotation="90"
-                android:tint="#AAAAAA"
-                android:contentDescription="Folder"/>
-
-        </LinearLayout>
-
-        <!-- ── Recents media grid ───────────────────────────────────────── -->
-        <androidx.recyclerview.widget.RecyclerView
-            android:id="@+id/rv_status_add_recents"
-            android:layout_width="match_parent"
-            android:layout_height="280dp"
-            android:overScrollMode="never"
-            android:clipToPadding="false"/>
-
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:layout_gravity="center"
+                android:src="@drawable/ic_status_btn_text"
+                android:tint="@color/text_primary"/>
+        </FrameLayout>
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Text"
+            android:textColor="@color/text_primary"
+            android:textSize="11sp"
+            android:layout_marginTop="6dp"/>
     </LinearLayout>
 
-</FrameLayout>
+    <!-- Music -->
+    <LinearLayout
+        android:id="@+id/status_add_btn_music"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp"
+        android:clickable="true"
+        android:focusable="true"
+        android:background="?attr/selectableItemBackgroundBorderless">
+
+        <FrameLayout
+            android:layout_width="52dp"
+            android:layout_height="52dp"
+            android:background="@drawable/bg_status_add_chip_dark">
+            <ImageView
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:layout_gravity="center"
+                android:src="@drawable/ic_status_btn_music"
+                android:tint="@color/text_primary"/>
+        </FrameLayout>
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Music"
+            android:textColor="@color/text_primary"
+            android:textSize="11sp"
+            android:layout_marginTop="6dp"/>
+    </LinearLayout>
+
+    <!-- Layout -->
+    <LinearLayout
+        android:id="@+id/status_add_btn_layout"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp"
+        android:clickable="true"
+        android:focusable="true"
+        android:background="?attr/selectableItemBackgroundBorderless">
+
+        <FrameLayout
+            android:layout_width="52dp"
+            android:layout_height="52dp"
+            android:background="@drawable/bg_status_add_chip_dark">
+            <ImageView
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:layout_gravity="center"
+                android:src="@drawable/ic_status_btn_layout"
+                android:tint="@color/text_primary"/>
+        </FrameLayout>
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Layout"
+            android:textColor="@color/text_primary"
+            android:textSize="11sp"
+            android:layout_marginTop="6dp"/>
+    </LinearLayout>
+
+    <!-- Voice -->
+    <LinearLayout
+        android:id="@+id/status_add_btn_voice"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp"
+        android:clickable="true"
+        android:focusable="true"
+        android:background="?attr/selectableItemBackgroundBorderless">
+
+        <FrameLayout
+            android:layout_width="52dp"
+            android:layout_height="52dp"
+            android:background="@drawable/bg_status_add_chip_dark">
+            <ImageView
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:layout_gravity="center"
+                android:src="@drawable/ic_status_btn_voice"
+                android:tint="@color/text_primary"/>
+        </FrameLayout>
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Voice"
+            android:textColor="@color/text_primary"
+            android:textSize="11sp"
+            android:layout_marginTop="6dp"/>
+    </LinearLayout>
+
+    <!-- AI Images -->
+    <LinearLayout
+        android:id="@+id/status_add_btn_ai_images"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp"
+        android:clickable="true"
+        android:focusable="true"
+        android:background="?attr/selectableItemBackgroundBorderless">
+
+        <FrameLayout
+            android:layout_width="52dp"
+            android:layout_height="52dp"
+            android:background="@drawable/bg_status_add_chip_dark">
+            <ImageView
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:layout_gravity="center"
+                android:src="@drawable/ic_status_btn_ai_images"
+                android:tint="@color/text_primary"/>
+        </FrameLayout>
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="AI images"
+            android:textColor="@color/text_primary"
+            android:textSize="11sp"
+            android:layout_marginTop="6dp"/>
+    </LinearLayout>
+
+</LinearLayout>

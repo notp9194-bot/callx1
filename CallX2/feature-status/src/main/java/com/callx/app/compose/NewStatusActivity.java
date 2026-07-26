@@ -97,7 +97,7 @@ public class NewStatusActivity extends AppCompatActivity {
     private ActivityResultLauncher<Uri>     cameraCapture;
     private ActivityResultLauncher<String>  cameraVideoCapture;
     // Result of the full-screen editor opened from the attach-sheet's "Edit"
-    // action — see openStatusAttachSheet()'s onMediaEdit callback.
+    // action — see showStatusAddSheet()'s onMediaEdit callback.
     private ActivityResultLauncher<Intent>  statusMediaEditLauncher;
     // v216: Layout picker result launcher — receives selected URIs + layout style
     private ActivityResultLauncher<Intent>  layoutPickerLauncher;
@@ -315,169 +315,30 @@ public class NewStatusActivity extends AppCompatActivity {
         setSupportActionBar(binding.toolbar);
         binding.toolbar.setNavigationOnClickListener(v -> finish());
     }
-    // ── v216: WhatsApp-style "Add status" bottom sheet ─────────────────────
-    // Replaces the old plain Camera/Gallery dialog. Shows:
-    //   • 5 action chips: Text / Music / Layout / Voice / AI images
-    //   • Recents media grid (reuses AttachSheetRecentMediaBinder)
+    // ── v217: COMBO "Add status" sheet ─────────────────────────────────────
+    // Merges what used to be two separate, half-working sheets into one:
+    //   1. showStatusAddSheet()'s own 5 action chips (Text/Music/Layout/
+    //      Voice/AI images) — kept exactly as before.
+    //   2. The full chat-grade attach sheet (openStatusAttachSheet(), which
+    //      was written but never actually wired to the Upload button) —
+    //      recent-media strip, expandable 4-col grid, folder picker, HD
+    //      toggle, multi-select send bar, Edit-before-post.
+    // Previously the chips lived in their own bottom_sheet_status_add.xml
+    // with a 3-col RecyclerView (rv_status_add_recents) that
+    // AttachSheetRecentMediaBinder could never bind to (it looks for
+    // R.id.recents_grid/top_content, which that layout didn't have — see
+    // the binder's early-return guard), so that grid was silently dead.
+    // Now we inflate feature-chat's real bottom_sheet_attach.xml (the one
+    // the binder actually supports) and inject just the chip row into it.
     private void showStatusAddSheet() {
         BottomSheetDialog sheet = new BottomSheetDialog(this);
-        View v = getLayoutInflater().inflate(com.callx.app.status.R.layout.bottom_sheet_status_add, null);
-
-        // Text → switch to text-only mode
-        View btnText = v.findViewById(com.callx.app.status.R.id.status_add_btn_text);
-        if (btnText != null) btnText.setOnClickListener(x -> {
-            sheet.dismiss();
-            // Show text input area (same as typing a text status)
-            if (binding.tilText != null) {
-                binding.tilText.setVisibility(View.VISIBLE);
-                binding.tilText.requestFocus();
-            }
-        });
-
-        // Music → open music sticker picker
-        View btnMusic = v.findViewById(com.callx.app.status.R.id.status_add_btn_music);
-        if (btnMusic != null) btnMusic.setOnClickListener(x -> {
-            sheet.dismiss();
-            openStickerPicker();
-        });
-
-        // Layout → open layout picker activity
-        View btnLayout = v.findViewById(com.callx.app.status.R.id.status_add_btn_layout);
-        if (btnLayout != null) btnLayout.setOnClickListener(x -> {
-            sheet.dismiss();
-            openLayoutPicker();
-        });
-
-        // Voice → record voice note for status
-        View btnVoice = v.findViewById(com.callx.app.status.R.id.status_add_btn_voice);
-        if (btnVoice != null) btnVoice.setOnClickListener(x -> {
-            sheet.dismiss();
-            Intent voiceIntent = new Intent(MediaStore.Audio.Media.RECORD_SOUND_ACTION);
-            if (voiceIntent.resolveActivity(getPackageManager()) != null) {
-                startActivityForResult(voiceIntent, 9022);
-            } else {
-                toast("No audio recorder found on this device");
-            }
-        });
-
-        // AI Images → show AI prompt input
-        View btnAi = v.findViewById(com.callx.app.status.R.id.status_add_btn_ai_images);
-        if (btnAi != null) btnAi.setOnClickListener(x -> {
-            sheet.dismiss();
-            showAiImagePromptDialog();
-        });
-
-        // Recents grid — reuse the same shared attach-sheet binder
-        setupRecentsInStatusAddSheet(sheet, v);
-
-        sheet.setContentView(v);
-        sheet.show();
-    }
-
-    /**
-     * Wires the Recents grid inside the "Add status" sheet to load recent
-     * gallery images and handle tap/select/edit the same as the chat attach sheet.
-     */
-    private void setupRecentsInStatusAddSheet(BottomSheetDialog sheet, View sheetView) {
-        com.callx.app.conversation.controllers.AttachSheetRecentMediaBinder.bind(
-                this, sheet, sheetView, statusAttachMediaExecutor,
-                false, // no view-once toggle for status
-                new com.callx.app.conversation.controllers.AttachSheetRecentMediaBinder.Callbacks() {
-                    @Override public void onCameraTapped() {
-                        sheet.dismiss();
-                        captureFromCamera();
-                    }
-                    @Override public void onMoreAppsRequested() {
-                        sheet.dismiss();
-                        imagePicker.launch("image/*");
-                    }
-                    @Override public void onSeeMoreRequested() {
-                        sheet.dismiss();
-                        imagePicker.launch("image/*");
-                    }
-                    @Override public void onMediaSend(
-                            java.util.List<com.callx.app.conversation.controllers.RecentMediaLoader.Item> items,
-                            String caption, boolean isHD, boolean isViewOnce) {
-                        if (items.isEmpty()) return;
-                        sheet.dismiss();
-                        java.util.ArrayList<String> uriStrings = new java.util.ArrayList<>();
-                        java.util.ArrayList<Integer> videoFlags = new java.util.ArrayList<>();
-                        for (com.callx.app.conversation.controllers.RecentMediaLoader.Item item : items) {
-                            uriStrings.add(item.uri.toString());
-                            videoFlags.add(item.isVideo ? 1 : 0);
-                        }
-                        Intent intent = new Intent(NewStatusActivity.this,
-                                com.callx.app.conversation.controllers.MediaEditActivity.class);
-                        intent.putStringArrayListExtra(
-                                com.callx.app.conversation.controllers.MediaEditActivity.EXTRA_URIS, uriStrings);
-                        intent.putIntegerArrayListExtra(
-                                com.callx.app.conversation.controllers.MediaEditActivity.EXTRA_IS_VIDEO, videoFlags);
-                        intent.putExtra(com.callx.app.conversation.controllers.MediaEditActivity.EXTRA_CAPTION, caption);
-                        intent.putExtra(com.callx.app.conversation.controllers.MediaEditActivity.EXTRA_HD, isHD);
-                        statusMediaEditLauncher.launch(intent);
-                    }
-                    @Override public void onMediaEdit(
-                            java.util.List<com.callx.app.conversation.controllers.RecentMediaLoader.Item> items,
-                            String caption, boolean isHD) {
-                        if (items.isEmpty()) return;
-                        sheet.dismiss();
-                        java.util.ArrayList<String> uriStrings = new java.util.ArrayList<>();
-                        java.util.ArrayList<Integer> videoFlags = new java.util.ArrayList<>();
-                        for (com.callx.app.conversation.controllers.RecentMediaLoader.Item item : items) {
-                            uriStrings.add(item.uri.toString());
-                            videoFlags.add(item.isVideo ? 1 : 0);
-                        }
-                        Intent intent = new Intent(NewStatusActivity.this,
-                                com.callx.app.conversation.controllers.MediaEditActivity.class);
-                        intent.putStringArrayListExtra(
-                                com.callx.app.conversation.controllers.MediaEditActivity.EXTRA_URIS, uriStrings);
-                        intent.putIntegerArrayListExtra(
-                                com.callx.app.conversation.controllers.MediaEditActivity.EXTRA_IS_VIDEO, videoFlags);
-                        intent.putExtra(com.callx.app.conversation.controllers.MediaEditActivity.EXTRA_CAPTION, caption);
-                        intent.putExtra(com.callx.app.conversation.controllers.MediaEditActivity.EXTRA_HD, isHD);
-                        statusMediaEditLauncher.launch(intent);
-                    }
-                });
-    }
-
-    /** v216: Opens StatusLayoutPickerActivity to select 1-6 photos + layout style. */
-    private void openLayoutPicker() {
-        Intent intent = new Intent(this, StatusLayoutPickerActivity.class);
-        layoutPickerLauncher.launch(intent);
-    }
-
-    /** v216: AI image prompt dialog — opens text input, result generates an AI image for status. */
-    private void showAiImagePromptDialog() {
-        android.widget.EditText et = new android.widget.EditText(this);
-        et.setHint("Describe the image you want…");
-        AlertDialogStyler.showRounded(new androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle("AI Image for Status")
-            .setView(et)
-            .setPositiveButton("Generate", (d, w) -> {
-                String prompt = et.getText().toString().trim();
-                if (!prompt.isEmpty()) {
-                    toast("AI image generation coming soon…");
-                }
-            })
-            .setNegativeButton("Cancel", null)
-            .create());
-    }
-
-    // ── Attach sheet (Gallery) — reuses feature-chat's shared sheet ────────
-    // Same bottom_sheet_attach.xml + AttachSheetRecentMediaBinder that
-    // ChatMediaController (1-1 chat) and GroupChatActivity already share, so
-    // Status gets the same multi-select grid, caption field, Edit action and
-    // view-once toggle instead of a 3rd hand-rolled picker.
-    private final java.util.concurrent.ExecutorService statusAttachMediaExecutor =
-            java.util.concurrent.Executors.newSingleThreadExecutor();
-
-    private void openStatusAttachSheet() {
-        com.google.android.material.bottomsheet.BottomSheetDialog sheet =
-                new com.google.android.material.bottomsheet.BottomSheetDialog(this);
         View v = getLayoutInflater().inflate(com.callx.app.chat.R.layout.bottom_sheet_attach, null);
 
-        // Status has no poll/contact/location/document/payment/event/AI-image
-        // concepts — hide those chips, keep the sheet focused on media.
+        // Status has no poll/contact/location/document/payment/event
+        // concepts, and its own AI-images entry point lives in the chip
+        // row below — hide those chat-only chips from the icon grid so
+        // the sheet stays focused on media, same as the old (unused)
+        // openStatusAttachSheet() did.
         int[] chatOnlyOptionIds = {
                 com.callx.app.chat.R.id.opt_document, com.callx.app.chat.R.id.opt_poll,
                 com.callx.app.chat.R.id.opt_contact, com.callx.app.chat.R.id.opt_location,
@@ -491,6 +352,65 @@ public class NewStatusActivity extends AppCompatActivity {
         View optGallery = v.findViewById(com.callx.app.chat.R.id.opt_gallery);
         if (optGallery != null) optGallery.setOnClickListener(x -> { sheet.dismiss(); imagePicker.launch("image/*"); });
 
+        // Inject the 5-chip action row (Text/Music/Layout/Voice/AI images)
+        // right below the drag handle, above the icon grid/Recents strip —
+        // its height simply folds into top_content's measured height, which
+        // AttachSheetRecentMediaBinder already uses to compute the sheet's
+        // collapsed peekHeight, so no extra plumbing is needed for it to
+        // show correctly in both collapsed and expanded state.
+        View topContentView = v.findViewById(com.callx.app.chat.R.id.top_content);
+        android.view.ViewGroup topContent = topContentView instanceof android.view.ViewGroup
+                ? (android.view.ViewGroup) topContentView : null;
+        View actionRow = getLayoutInflater().inflate(
+                com.callx.app.status.R.layout.bottom_sheet_status_add, topContent, false);
+        if (topContent != null) topContent.addView(actionRow, 1);
+
+        // Text → switch to text-only mode
+        View btnText = actionRow.findViewById(com.callx.app.status.R.id.status_add_btn_text);
+        if (btnText != null) btnText.setOnClickListener(x -> {
+            sheet.dismiss();
+            // Show text input area (same as typing a text status)
+            if (binding.tilText != null) {
+                binding.tilText.setVisibility(View.VISIBLE);
+                binding.tilText.requestFocus();
+            }
+        });
+
+        // Music → open music sticker picker
+        View btnMusic = actionRow.findViewById(com.callx.app.status.R.id.status_add_btn_music);
+        if (btnMusic != null) btnMusic.setOnClickListener(x -> {
+            sheet.dismiss();
+            openStickerPicker();
+        });
+
+        // Layout → open layout picker activity
+        View btnLayout = actionRow.findViewById(com.callx.app.status.R.id.status_add_btn_layout);
+        if (btnLayout != null) btnLayout.setOnClickListener(x -> {
+            sheet.dismiss();
+            openLayoutPicker();
+        });
+
+        // Voice → record voice note for status
+        View btnVoice = actionRow.findViewById(com.callx.app.status.R.id.status_add_btn_voice);
+        if (btnVoice != null) btnVoice.setOnClickListener(x -> {
+            sheet.dismiss();
+            Intent voiceIntent = new Intent(MediaStore.Audio.Media.RECORD_SOUND_ACTION);
+            if (voiceIntent.resolveActivity(getPackageManager()) != null) {
+                startActivityForResult(voiceIntent, 9022);
+            } else {
+                toast("No audio recorder found on this device");
+            }
+        });
+
+        // AI Images → show AI prompt input
+        View btnAi = actionRow.findViewById(com.callx.app.status.R.id.status_add_btn_ai_images);
+        if (btnAi != null) btnAi.setOnClickListener(x -> {
+            sheet.dismiss();
+            showAiImagePromptDialog();
+        });
+
+        // Recents strip + expandable grid — same shared binder ChatMediaController
+        // and GroupChatActivity use, wired to Status's own posting/edit flow.
         com.callx.app.conversation.controllers.AttachSheetRecentMediaBinder.bind(
                 this, sheet, v, statusAttachMediaExecutor,
                 // supportsViewOnce=false — Status doesn't need this toggle
@@ -545,9 +465,42 @@ public class NewStatusActivity extends AppCompatActivity {
                         statusMediaEditLauncher.launch(intent);
                     }
                 });
+
         sheet.setContentView(v);
         sheet.show();
     }
+
+    /** v216: Opens StatusLayoutPickerActivity to select 1-6 photos + layout style. */
+    private void openLayoutPicker() {
+        Intent intent = new Intent(this, StatusLayoutPickerActivity.class);
+        layoutPickerLauncher.launch(intent);
+    }
+
+    /** v216: AI image prompt dialog — opens text input, result generates an AI image for status. */
+    private void showAiImagePromptDialog() {
+        android.widget.EditText et = new android.widget.EditText(this);
+        et.setHint("Describe the image you want…");
+        AlertDialogStyler.showRounded(new androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("AI Image for Status")
+            .setView(et)
+            .setPositiveButton("Generate", (d, w) -> {
+                String prompt = et.getText().toString().trim();
+                if (!prompt.isEmpty()) {
+                    toast("AI image generation coming soon…");
+                }
+            })
+            .setNegativeButton("Cancel", null)
+            .create());
+    }
+
+    // ── Attach sheet (Gallery) — reuses feature-chat's shared sheet ────────
+    // Same bottom_sheet_attach.xml + AttachSheetRecentMediaBinder that
+    // ChatMediaController (1-1 chat) and GroupChatActivity already share, so
+    // Status gets the same multi-select grid, caption field, Edit action and
+    // view-once toggle instead of a 3rd hand-rolled picker.
+    private final java.util.concurrent.ExecutorService statusAttachMediaExecutor =
+            java.util.concurrent.Executors.newSingleThreadExecutor();
+
     // ── Media pickers (gallery) ───────────────────────────────────────────
     private void setupMediaPickers() {
         imagePicker = registerForActivityResult(new ActivityResultContracts.GetContent(), uri -> {
