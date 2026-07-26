@@ -103,6 +103,8 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
     private boolean isPreparing   = false;
     private boolean userSeeking   = false;
     private boolean retried       = false;
+    private boolean triedFallbackUrl = false; // already swapped preview↔full-quality URL once
+    private boolean skipPreviewUrl   = false; // preview URL failed — force full-quality soundUrl
     private boolean miniPlayerActive = false;
 
     private String  creatorUid, creatorName, creatorPhoto;
@@ -556,6 +558,15 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
                 @Override public void onDataChange(@NonNull DataSnapshot snap) {
                     if (isGone()) return;
 
+                    if (!snap.exists()) {
+                        // Tracks picked from Trending Audio's "Music" tab (musicLibrary node)
+                        // don't exist under sounds/ — without this, previewAudioUrl never
+                        // resolves and playback silently falls back to the raw/full-quality
+                        // audioUrl, which the play button isn't guaranteed to stream cleanly.
+                        loadSoundDataFromMusicLibrary();
+                        return;
+                    }
+
                     Long    count    = snap.child("reel_count").getValue(Long.class);
                     Long    rank     = snap.child("trending_rank").getValue(Long.class);
                     Long    saves    = snap.child("total_saves").getValue(Long.class);
@@ -622,6 +633,45 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
                     showShimmer(false);
                     updatePlayButtonState();
                     if (scrollSoundDetail != null) scrollSoundDetail.post(SoundDetailFragment.this::updateFloatingActionsVisibility);
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) {
+                    if (!isGone()) { showShimmer(false); updatePlayButtonState(); }
+                }
+            });
+    }
+
+    /** Fallback source for sounds picked from Trending Audio's Music tab (musicLibrary node). */
+    private void loadSoundDataFromMusicLibrary() {
+        FirebaseUtils.getMusicLibraryRef().child(soundId)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    if (isGone()) { return; }
+
+                    if (soundUrl.isEmpty()) {
+                        String u = snap.child("audioUrl").getValue(String.class);
+                        if (u != null && !u.isEmpty()) soundUrl = u;
+                    }
+                    if (previewAudioUrl.isEmpty()) {
+                        String pu = snap.child("previewAudioUrl").getValue(String.class);
+                        if (pu != null && !pu.isEmpty()) previewAudioUrl = pu;
+                    }
+                    if (coverUrl.isEmpty()) {
+                        String c = snap.child("coverUrl").getValue(String.class);
+                        if (c != null && !c.isEmpty()) { coverUrl = c; loadCoverImage(coverUrl); }
+                    }
+                    if (durationMs <= 0) {
+                        Long d = snap.child("durationMs").getValue(Long.class);
+                        if (d != null && d > 0) {
+                            durationMs = d.intValue();
+                            String s = formatMs(durationMs);
+                            if (tvDuration  != null) tvDuration.setText(s);
+                            if (tvTotalTime != null) tvTotalTime.setText(s);
+                        }
+                    }
+                    if (tvReelCount != null) tvReelCount.setText("0 Reels");
+
+                    showShimmer(false);
+                    updatePlayButtonState();
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) {
                     if (!isGone()) { showShimmer(false); updatePlayButtonState(); }
@@ -1115,7 +1165,8 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
     // ─────────────────────────────────────────────────────────────────────────
 
     private String getPlaybackUrl() {
-        return !previewAudioUrl.isEmpty() ? previewAudioUrl : soundUrl;
+        if (!skipPreviewUrl && !previewAudioUrl.isEmpty()) return previewAudioUrl;
+        return soundUrl;
     }
 
     private void togglePlayPause() {
@@ -1162,8 +1213,17 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         isPlaying = false; isPreparing = false;
         if (btnPlayPause != null) btnPlayPause.setImageResource(R.drawable.ic_play);
         stopWaveAnimation(); stopDiscAnimation(); seekHandler.removeCallbacks(seekUpdateRunnable);
-        if (!retried) { retried = true; mainHandler.postDelayed(this::initAndStartPlayer, 800); }
-        else if (isAdded()) Toast.makeText(requireContext(), "Cannot play this audio", Toast.LENGTH_SHORT).show();
+        if (!retried) {
+            retried = true; mainHandler.postDelayed(this::initAndStartPlayer, 800);
+        } else if (!triedFallbackUrl && !skipPreviewUrl && !previewAudioUrl.isEmpty()
+                && !soundUrl.isEmpty() && !soundUrl.equals(previewAudioUrl)) {
+            // The low-bitrate preview URL failed twice (missing/expired/bad) — fall back to
+            // the full-quality soundUrl so playback still works instead of dead-ending here.
+            triedFallbackUrl = true; skipPreviewUrl = true; retried = false;
+            mainHandler.postDelayed(this::initAndStartPlayer, 300);
+        } else if (isAdded()) {
+            Toast.makeText(requireContext(), "Cannot play this audio", Toast.LENGTH_SHORT).show();
+        }
     }
 
     private void resumePlayback() {

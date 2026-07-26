@@ -30,6 +30,20 @@ public class StatusStickerOverlayView extends LinearLayout {
     private String stickerType;
     private String stickerJson;
 
+    // ── Size control (pinch + Small/Medium/Large buttons in the composer) ──
+    public static final float SCALE_SMALL  = 0.7f;
+    public static final float SCALE_MEDIUM = 1.0f;
+    public static final float SCALE_LARGE  = 1.4f;
+    private static final float SCALE_MIN = 0.5f, SCALE_MAX = 2.0f;
+    private float stickerScale = SCALE_MEDIUM;
+    private OnStickerTappedListener stickerTapListener;
+
+    /** Fired on a plain tap (not a drag/pinch) — composer uses this to show the size buttons. */
+    public interface OnStickerTappedListener { void onTapped(StatusStickerOverlayView sticker); }
+    public void setOnStickerTappedListener(OnStickerTappedListener l) { this.stickerTapListener = l; }
+    public float getStickerScale() { return stickerScale; }
+
+
     // ── Music sticker metadata (links back to the Reels trending-audio track) ──
     private String musicSoundId, musicSong, musicArtist, musicCoverUrl, musicSoundUrl;
 
@@ -214,9 +228,36 @@ public class StatusStickerOverlayView extends LinearLayout {
         }
         v.stickerType = type;
         v.stickerJson = json;
+
+        float savedScale = SCALE_MEDIUM;
+        try { savedScale = Float.parseFloat(jsonStr(json, "scale", "1.0")); } catch (Exception ignored) {}
+        v.applyScale(savedScale);
         return v;
     }
 
+    /** Clamps and applies a new size, both visually and for persistence via {@link #toJsonWithScale()}. */
+    public void applyScale(float scale) {
+        stickerScale = Math.max(SCALE_MIN, Math.min(SCALE_MAX, scale));
+        setScaleX(stickerScale);
+        setScaleY(stickerScale);
+    }
+
+    /** Animated variant used by the Small/Medium/Large preset buttons. */
+    public void animateToScale(float scale) {
+        stickerScale = Math.max(SCALE_MIN, Math.min(SCALE_MAX, scale));
+        animate().scaleX(stickerScale).scaleY(stickerScale).setDuration(150).start();
+    }
+
+    /** The original sticker JSON with the current size baked in — call this at post-time. */
+    public String toJsonWithScale() {
+        try {
+            org.json.JSONObject o = new org.json.JSONObject(stickerJson != null ? stickerJson : "{}");
+            o.put("scale", stickerScale);
+            return o.toString();
+        } catch (Exception e) {
+            return stickerJson != null ? stickerJson : "{}";
+        }
+    }
     // ─── Music sticker ─────────────────────────────────────────────────────
 
     private static StatusStickerOverlayView buildMusic(Context ctx, String json) {
@@ -773,22 +814,61 @@ public class StatusStickerOverlayView extends LinearLayout {
     public void attachDragToParent(final ViewGroup parent) {
         final float[] startTouch = new float[2];
         final float[] startPos   = new float[2];
+        final long[]  downTime   = new long[1];
+        final boolean[] moved    = new boolean[1];
+        final int touchSlop = ViewConfiguration.get(getContext()).getScaledTouchSlop();
+
+        final ScaleGestureDetector scaleDetector = new ScaleGestureDetector(getContext(),
+            new ScaleGestureDetector.SimpleOnScaleGestureListener() {
+                @Override public boolean onScale(ScaleGestureDetector detector) {
+                    applyScale(stickerScale * detector.getScaleFactor());
+                    moved[0] = true;
+                    return true;
+                }
+            });
 
         setOnTouchListener((view, event) -> {
-            switch (event.getAction()) {
+            scaleDetector.onTouchEvent(event);
+
+            switch (event.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN:
                     startTouch[0] = event.getRawX();
                     startTouch[1] = event.getRawY();
                     startPos[0]   = view.getX();
                     startPos[1]   = view.getY();
-                    animate().scaleX(1.05f).scaleY(1.05f).setDuration(80).start();
+                    downTime[0]   = System.currentTimeMillis();
+                    moved[0]      = false;
+                    animate().scaleX(stickerScale * 1.05f).scaleY(stickerScale * 1.05f).setDuration(80).start();
+                    return true;
+                case MotionEvent.ACTION_POINTER_DOWN:
+                    // Second finger just landed — rebase the drag anchor so the sticker
+                    // doesn't jump when we go from 1-finger drag to 2-finger pinch.
+                    startTouch[0] = event.getRawX();
+                    startTouch[1] = event.getRawY();
+                    startPos[0]   = view.getX();
+                    startPos[1]   = view.getY();
+                    moved[0]      = true;
                     return true;
                 case MotionEvent.ACTION_MOVE:
-                    view.setX(startPos[0] + (event.getRawX() - startTouch[0]));
-                    view.setY(startPos[1] + (event.getRawY() - startTouch[1]));
+                    if (event.getPointerCount() == 1 && !scaleDetector.isInProgress()) {
+                        float dx = event.getRawX() - startTouch[0];
+                        float dy = event.getRawY() - startTouch[1];
+                        if (Math.abs(dx) > touchSlop || Math.abs(dy) > touchSlop) moved[0] = true;
+                        view.setX(startPos[0] + dx);
+                        view.setY(startPos[1] + dy);
+                    }
+                    return true;
+                case MotionEvent.ACTION_POINTER_UP:
+                    // One finger lifted but one remains — rebase again for the remaining drag.
+                    startTouch[0] = event.getRawX();
+                    startTouch[1] = event.getRawY();
+                    startPos[0]   = view.getX();
+                    startPos[1]   = view.getY();
                     return true;
                 case MotionEvent.ACTION_UP:
-                    animate().scaleX(1f).scaleY(1f).setDuration(80).start();
+                    animate().scaleX(stickerScale).scaleY(stickerScale).setDuration(80).start();
+                    boolean isTap = !moved[0] && (System.currentTimeMillis() - downTime[0]) < 300;
+                    if (isTap && stickerTapListener != null) stickerTapListener.onTapped(this);
                     return true;
             }
             return false;

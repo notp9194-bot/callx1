@@ -103,6 +103,9 @@ public class NewStatusActivity extends AppCompatActivity {
     private android.widget.FrameLayout stickerOverlayFrame;
     /** JSON array of all added sticker configs (serialised for post metadata) */
     private final java.util.List<String> addedStickerJsons = new java.util.ArrayList<>();
+    /** Small/Medium/Large size-control row shown above whichever sticker was last tapped */
+    private LinearLayout stickerSizeBar;
+    private com.callx.app.stickers.StatusStickerOverlayView selectedSticker;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -205,15 +208,79 @@ public class NewStatusActivity extends AppCompatActivity {
         lp.topMargin = dp * (16 + addedStickerJsons.size() * 12);
         stickerOverlayFrame.addView(stickerView, lp);
 
-        // Enable drag + long-press-remove
+        // Enable drag + pinch-resize + long-press-remove
         stickerView.attachDragToParent(stickerOverlayFrame);
+        stickerView.setOnStickerTappedListener(this::showStickerSizeBar);
+        stickerOverlayFrame.setOnClickListener(v -> hideStickerSizeBar());
 
         // Pop-in animation
         stickerView.setScaleX(0.3f);
         stickerView.setScaleY(0.3f);
         stickerView.setAlpha(0f);
-        stickerView.animate().scaleX(1f).scaleY(1f).alpha(1f).setDuration(300)
+        stickerView.animate().scaleX(stickerView.getStickerScale()).scaleY(stickerView.getStickerScale())
+            .alpha(1f).setDuration(300)
             .setInterpolator(new android.view.animation.OvershootInterpolator(1.3f)).start();
+    }
+
+    /**
+     * Small floating Small/Medium/Large row shown just above a tapped sticker —
+     * the explicit alternative to pinch-to-resize for setting sticker size.
+     */
+    private void showStickerSizeBar(com.callx.app.stickers.StatusStickerOverlayView sticker) {
+        selectedSticker = sticker;
+        int dp = (int) getResources().getDisplayMetrics().density;
+
+        if (stickerSizeBar == null) {
+            stickerSizeBar = new LinearLayout(this);
+            stickerSizeBar.setOrientation(LinearLayout.HORIZONTAL);
+            stickerSizeBar.setGravity(android.view.Gravity.CENTER);
+            android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+            bg.setCornerRadius(dp * 20);
+            bg.setColor(0xDD1A1A1A);
+            stickerSizeBar.setBackground(bg);
+            stickerSizeBar.setPadding(dp * 6, dp * 6, dp * 6, dp * 6);
+
+            String[] labels = {"S", "M", "L"};
+            float[]  scales = {
+                com.callx.app.stickers.StatusStickerOverlayView.SCALE_SMALL,
+                com.callx.app.stickers.StatusStickerOverlayView.SCALE_MEDIUM,
+                com.callx.app.stickers.StatusStickerOverlayView.SCALE_LARGE
+            };
+            for (int i = 0; i < labels.length; i++) {
+                TextView btn = new TextView(this);
+                btn.setText(labels[i]);
+                btn.setTextColor(Color.WHITE);
+                btn.setTextSize(14);
+                btn.setGravity(android.view.Gravity.CENTER);
+                btn.setTypeface(null, android.graphics.Typeface.BOLD);
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp * 40, dp * 40);
+                lp.leftMargin = i == 0 ? 0 : dp * 4;
+                float scale = scales[i];
+                btn.setOnClickListener(v -> {
+                    if (selectedSticker != null) selectedSticker.animateToScale(scale);
+                });
+                stickerSizeBar.addView(btn, lp);
+            }
+            stickerOverlayFrame.addView(stickerSizeBar, new android.widget.FrameLayout.LayoutParams(
+                android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
+                android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
+                android.view.Gravity.TOP | android.view.Gravity.CENTER_HORIZONTAL));
+        }
+
+        stickerSizeBar.setVisibility(View.VISIBLE);
+        stickerSizeBar.bringToFront();
+        // Position just above the tapped sticker (falls back near the top if it doesn't fit).
+        stickerSizeBar.post(() -> {
+            float top = sticker.getY() - stickerSizeBar.getHeight() - dp * 8;
+            ((android.widget.FrameLayout.LayoutParams) stickerSizeBar.getLayoutParams()).topMargin =
+                (int) Math.max(dp * 8, top);
+            stickerSizeBar.requestLayout();
+        });
+    }
+
+    private void hideStickerSizeBar() {
+        selectedSticker = null;
+        if (stickerSizeBar != null) stickerSizeBar.setVisibility(View.GONE);
     }
     @Override protected void onPause() { super.onPause(); saveDraft(); }
     // ── Toolbar ───────────────────────────────────────────────────────────
@@ -675,14 +742,16 @@ public class NewStatusActivity extends AppCompatActivity {
 
     /** Returns a JSON array string of all added sticker configs, or "" if none. */
     private String buildStickersJson() {
-        if (addedStickerJsons.isEmpty()) return "";
-        StringBuilder sb = new StringBuilder("[");
-        for (int i = 0; i < addedStickerJsons.size(); i++) {
-            if (i > 0) sb.append(",");
-            sb.append(addedStickerJsons.get(i));
+        if (stickerOverlayFrame == null) return "";
+        java.util.List<String> jsons = new java.util.ArrayList<>();
+        for (int i = 0; i < stickerOverlayFrame.getChildCount(); i++) {
+            View child = stickerOverlayFrame.getChildAt(i);
+            if (child instanceof com.callx.app.stickers.StatusStickerOverlayView) {
+                jsons.add(((com.callx.app.stickers.StatusStickerOverlayView) child).toJsonWithScale());
+            }
         }
-        sb.append("]");
-        return sb.toString();
+        if (jsons.isEmpty()) return "";
+        return "[" + android.text.TextUtils.join(",", jsons) + "]";
     }
     // ── Post ──────────────────────────────────────────────────────────────
     private void post() {
