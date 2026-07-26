@@ -735,6 +735,10 @@ public class MessagePagingAdapter
          * @param save     true = save, false = unsave.
          */
         default void onSaveMessage(Message m, boolean save) {}
+        /** Called when user chooses "Translate" from the long-press action sheet
+         *  on a text message. Implementor should call the translate API and
+         *  show the result (e.g. a small dialog/snackbar with original + translated text). */
+        default void onTranslate(Message m) {}
     }
 
     // ── Multi-select interface ────────────────────────────────────
@@ -5775,6 +5779,7 @@ public class MessagePagingAdapter
         java.util.List<String> optList = new java.util.ArrayList<>();
         optList.add("Reply");
         optList.add("Copy");
+        if (isTextMsg) optList.add("Translate");
         optList.add(isStarred ? "Unstar" : "Star");
         optList.add(isSaved  ? "Unsave" : "Save");    // Feature 2
         optList.add(isPinned ? "Unpin" : "Pin");
@@ -5793,6 +5798,7 @@ public class MessagePagingAdapter
                         switch (choice) {
                             case "Reply":   actionListener.onReply(m);   break;
                             case "Copy":    actionListener.onCopy(m);    break;
+                            case "Translate": actionListener.onTranslate(m); break;
                             case "Star":    // fall-through
                             case "Unstar":  actionListener.onStar(m);    break;
                             case "Save":    actionListener.onSaveMessage(m, true);  break;  // Feature 2

@@ -202,6 +202,54 @@ app.post("/cloudinary/sign/video", (req, res) => {
 });
 
 // ══════════════════════════════════════════════════════════════════════════════
+// CHAT MESSAGE TRANSLATION — POST /translate
+// Body: { text, target }  (target = 2-letter lang code, e.g. "hi", "en")
+// Response: { translated, detectedLang }
+//
+// Proxies to Google's free (unofficial, no API key / billing) translate
+// endpoint from the SERVER instead of the phone — keeps the client simple
+// and avoids per-device rate-limiting on translate.googleapis.com.
+// This is separate from the Cloudinary "Google Translation" add-on (that
+// one only translates Cloudinary asset tags, not arbitrary chat text).
+// ══════════════════════════════════════════════════════════════════════════════
+app.post("/translate", (req, res) => {
+  const text   = ((req.body && req.body.text)   || "").toString();
+  const target = ((req.body && req.body.target) || "en").toString();
+
+  if (!text.trim()) {
+    return res.status(400).json({ error: "text is required" });
+  }
+
+  const https = require("https");
+  const url = "https://translate.googleapis.com/translate_a/single"
+    + "?client=gtx&sl=auto&dt=t&tl=" + encodeURIComponent(target)
+    + "&q=" + encodeURIComponent(text);
+
+  https.get(url, gRes => {
+    let data = "";
+    gRes.on("data", chunk => { data += chunk; });
+    gRes.on("end", () => {
+      try {
+        const parsed = JSON.parse(data);
+        const segments = parsed[0] || [];
+        const translated = segments.map(seg => seg[0] || "").join("");
+        const detectedLang = parsed[2] || "";
+        if (!translated) {
+          return res.status(502).json({ error: "Empty translation" });
+        }
+        res.json({ translated, detectedLang });
+      } catch (e) {
+        console.error("[translate] parse failed:", e.message);
+        res.status(502).json({ error: "Translate parse failed: " + e.message });
+      }
+    });
+  }).on("error", e => {
+    console.error("[translate] request failed:", e.message);
+    res.status(502).json({ error: "Translate request failed: " + e.message });
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
 // VIDEO COMPRESS — Android v25 server-side compression endpoint
 // POST /compress/video  (multipart/form-data)
 //

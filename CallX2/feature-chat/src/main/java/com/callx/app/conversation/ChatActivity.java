@@ -1805,6 +1805,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             @Override public void onReactionTap(Message m)        { reactionController.showReactedUsers(m); }
             @Override public void onStar(Message m)                { starredController.toggleStar(m); }
             @Override public void onCopy(Message m)                { copyText(m); }
+            @Override public void onTranslate(Message m)           { translateMessage(m); }
             @Override public void onForward(Message m)             { forwardMessage(m); }
             @Override public void onNavigateToOriginal(String mid) { navigateToOriginalMsg(mid, null); }
             @Override public void onNavigateToOriginal(String mid, String senderId) { navigateToOriginalMsg(mid, senderId); }
@@ -3245,6 +3246,70 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             cm.setPrimaryClip(ClipData.newPlainText("message", m.text));
             Toast.makeText(this, "Message copied", Toast.LENGTH_SHORT).show();
         }
+    }
+
+    /**
+     * "Translate" from the long-press action sheet. Target language is the
+     * phone's current locale — translates the message into whatever
+     * language the device UI is set to.
+     */
+    private void translateMessage(Message m) {
+        if (m.text == null || m.text.trim().isEmpty()) return;
+        String targetLang = java.util.Locale.getDefault().getLanguage();
+
+        Toast.makeText(this, "Translating…", Toast.LENGTH_SHORT).show();
+        com.callx.app.utils.MessageTranslator.translate(m.text, targetLang,
+            new com.callx.app.utils.MessageTranslator.Callback() {
+                @Override public void onSuccess(String translatedText, String detectedLang) {
+                    showTranslationDialog(m.text, translatedText);
+                }
+                @Override public void onError(String message) {
+                    Toast.makeText(ChatActivity.this, "Translate failed: " + message, Toast.LENGTH_SHORT).show();
+                }
+            });
+    }
+
+    private void showTranslationDialog(String original, String translated) {
+        android.widget.LinearLayout box = new android.widget.LinearLayout(this);
+        box.setOrientation(android.widget.LinearLayout.VERTICAL);
+        int pad = (int) (20 * getResources().getDisplayMetrics().density);
+        box.setPadding(pad, pad, pad, pad);
+
+        android.widget.TextView tvOriginalLabel = new android.widget.TextView(this);
+        tvOriginalLabel.setText("Original");
+        tvOriginalLabel.setTextColor(0xFF888888);
+        tvOriginalLabel.setTextSize(12);
+        box.addView(tvOriginalLabel);
+
+        android.widget.TextView tvOriginal = new android.widget.TextView(this);
+        tvOriginal.setText(original);
+        tvOriginal.setTextSize(15);
+        tvOriginal.setPadding(0, 4, 0, 20);
+        box.addView(tvOriginal);
+
+        android.widget.TextView tvTranslatedLabel = new android.widget.TextView(this);
+        tvTranslatedLabel.setText("Translated");
+        tvTranslatedLabel.setTextColor(0xFF888888);
+        tvTranslatedLabel.setTextSize(12);
+        box.addView(tvTranslatedLabel);
+
+        android.widget.TextView tvTranslated = new android.widget.TextView(this);
+        tvTranslated.setText(translated);
+        tvTranslated.setTextSize(15);
+        tvTranslated.setTypeface(null, android.graphics.Typeface.BOLD);
+        tvTranslated.setPadding(0, 4, 0, 0);
+        box.addView(tvTranslated);
+
+        android.app.AlertDialog dlg = new android.app.AlertDialog.Builder(this)
+            .setView(box)
+            .setPositiveButton("Copy translation", (d, w) -> {
+                ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                if (cm != null) cm.setPrimaryClip(ClipData.newPlainText("translation", translated));
+                Toast.makeText(this, "Translation copied", Toast.LENGTH_SHORT).show();
+            })
+            .setNegativeButton("Close", null)
+            .create();
+        com.callx.app.utils.AlertDialogStyler.showRounded(dlg);
     }
 
     // ─────────────────────────────────────────────────────────────────────

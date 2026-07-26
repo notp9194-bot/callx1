@@ -254,7 +254,42 @@ public class VideoUploader {
 
     // ── Chunked video upload (5 MB chunks) ────────────────────────────────
 
+    /**
+     * ✅ FIX (401 on reel upload): wraps uploadVideoChunked() with an
+     * automatic fallback. Requesting the "sp_full_hd/m3u8" HLS eager
+     * transform requires Cloudinary's Adaptive Streaming add-on. When that
+     * add-on is NOT enabled on the account, Cloudinary does not silently
+     * drop the eager param — it rejects the entire signed upload with
+     * HTTP 401 (Unauthorized), because the add-on gate is enforced at
+     * auth time, not at transformation time. That took down 100% of reel
+     * uploads even though the video itself was never the problem.
+     *
+     * Fix: if the eager-HLS attempt fails with a 401, retry once with
+     * eager = null (plain signed upload, no HLS manifest requested). This
+     * matches how thumbnails/photos/chat media (which never request eager)
+     * already upload successfully on this same account.
+     */
     private String uploadVideoChunked(File file, String folder, String eager,
+                                      ProgressListener progress, JSONObject[] outLastResponseJson)
+            throws Exception {
+        try {
+            return uploadVideoChunkedInternal(file, folder, eager, progress, outLastResponseJson);
+        } catch (IOException e) {
+            String msg = e.getMessage() != null ? e.getMessage() : "";
+            boolean isEagerRequest = eager != null && !eager.isEmpty();
+            boolean looksLikeAddonAuthReject = msg.contains("(401)");
+            if (isEagerRequest && looksLikeAddonAuthReject) {
+                Log.w(TAG, "Eager HLS upload rejected with 401 (Adaptive Streaming "
+                    + "add-on likely not enabled on this Cloudinary account) — "
+                    + "retrying reel upload without the eager transform.", e);
+                if (progress != null) progress.onProgress(0);
+                return uploadVideoChunkedInternal(file, folder, null, progress, outLastResponseJson);
+            }
+            throw e;
+        }
+    }
+
+    private String uploadVideoChunkedInternal(File file, String folder, String eager,
                                       ProgressListener progress, JSONObject[] outLastResponseJson)
             throws Exception {
         if (file == null || !file.exists() || file.length() == 0)
