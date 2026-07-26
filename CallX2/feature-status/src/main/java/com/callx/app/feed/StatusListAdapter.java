@@ -362,18 +362,26 @@ package com.callx.app.feed;
       }
 
       // ── My-Status ─────────────────────────────────────────────────────────
+      // WhatsApp-level behaviour: the small green "+" badge on the avatar
+      // always adds a new status update — it never disappears just because a
+      // status already exists. Tapping the rest of the row (ring/avatar/text)
+      // opens the viewer for existing status(es). Previously ivAdd was hidden
+      // and left unwired once myStatuses was non-empty, so there was no way
+      // to add a second update — only the first one's viewer ever opened.
       private void bindMyStatus(MyStatusVH h, Context ctx) {
+          h.ivAdd.setVisibility(View.VISIBLE);
+          h.ivAdd.setOnClickListener(v -> { if (onAddStatusClick != null) onAddStatusClick.run(); });
+
           if (myStatuses.isEmpty()) {
               h.ring.setVisibility(View.GONE);
-              h.ivAdd.setVisibility(View.VISIBLE);
               h.tvName.setText("My Status");
               h.tvSub.setText("Tap to add status update");
               h.ivAvatar.setImageResource(R.drawable.ic_person);
+              if (h.ivThumb != null) h.ivThumb.setVisibility(View.GONE);
               h.itemView.setOnClickListener(v -> { if (onAddStatusClick != null) onAddStatusClick.run(); });
           } else {
               StatusItem latest = myStatuses.get(myStatuses.size() - 1);
               h.ring.setVisibility(View.VISIBLE);
-              h.ivAdd.setVisibility(View.GONE);
               h.tvName.setText("My Status");
               String timeSub = timeFmt.format(new java.util.Date(latest.timestamp != null ? latest.timestamp : 0));
               h.tvSub.setText(timeSub + " \u00B7 " + myStatuses.size() + " update"
@@ -605,6 +613,21 @@ package com.callx.app.feed;
                           : c.unseen || c.isMine ? R.drawable.circle_status_unseen : R.drawable.circle_status_seen);
                   h.ring.setAlpha(c.isMuted ? 0.4f : 1f);
                   h.ivAddBadge.setVisibility(c.isMine ? View.VISIBLE : View.GONE);
+              }
+
+              // WhatsApp-level fix: the + badge must always add a new status update,
+              // even after one already exists — previously it was visible but dead,
+              // since the whole card's click always resolved to onMyStatusClick once
+              // hasStatus was true, so there was no way to add a second update.
+              if (c.isMine) {
+                  h.ivAddBadge.setOnClickListener(v -> {
+                      if (onClick != null) {
+                          onClick.accept(new CardItem(true, false, c.ownerUid, c.ownerName,
+                                  c.ownerPhoto, c.thumbUrl, c.bgColor, c.unseen, c.isMuted));
+                      }
+                  });
+              } else {
+                  h.ivAddBadge.setOnClickListener(null);
               }
 
               h.itemView.setOnClickListener(v -> { if (onClick != null) onClick.accept(c); });
