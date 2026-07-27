@@ -144,6 +144,27 @@ public class StatusLayoutPreviewView extends FrameLayout {
         rebuildCells();
     }
 
+    /**
+     * BUG FIX (layout arrangement lost on post): the pinch-zoom/pan a user
+     * dials in per-photo here (v221) used to live only in this view's
+     * in-memory {@link #photoAdjustMap} — nothing downstream (the Adjust
+     * screen's result, then whatever renders the final collage) ever read
+     * it, so the carefully arranged crop always reverted to a plain
+     * auto-center-crop in the actual posted image. Exposed here so
+     * StatusLayoutAdjustActivity can forward it and StatusLayoutComposer can
+     * replicate the exact same matrix math used by {@link #applyPhotoMatrix}
+     * when it flattens the final collage — WYSIWYG between this preview and
+     * the post.
+     *
+     * @return {scale, panX, panY} for uri, or {1f, 0f, 0f} (default/no
+     *         adjustment) if the user never touched that cell.
+     */
+    public float[] getAdjustFor(Uri uri) {
+        PhotoAdjust adjust = photoAdjustMap.get(uri);
+        if (adjust == null) return new float[]{1f, 0f, 0f};
+        return new float[]{adjust.scale, adjust.panX, adjust.panY};
+    }
+
     /** Returns number of media slots for the current layout style. */
     public int getSlotCount() {
         switch (layoutStyle) {

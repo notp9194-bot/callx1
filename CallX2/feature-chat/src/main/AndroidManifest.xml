@@ -10,6 +10,10 @@
         <activity android:name="com.callx.app.group.GroupInfoActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize"/>
+        <activity android:name="com.callx.app.group.GroupMediaViewerActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"
+            android:label="Shared Media"/>
         <activity android:name="com.callx.app.group.GroupSettingsActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize"/>

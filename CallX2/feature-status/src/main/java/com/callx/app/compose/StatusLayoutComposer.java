@@ -38,8 +38,27 @@ public class StatusLayoutComposer {
     private static final int CANVAS_H = 1920;
     private static final int GAP_PX   = 6;
 
-    /** Renders uris (in slot order) into a single JPEG per the given layout style; returns the temp file. */
+    /** Renders uris (in slot order) into a single JPEG per the given layout style; returns the temp file.
+     *  Overload kept for callers with no per-photo adjustment (plain auto-crop per cell). */
     public static File compose(Context context, List<Uri> uris, int style) throws Exception {
+        return compose(context, uris, style, null, null, null);
+    }
+
+    /**
+     * BUG FIX (layout not preserved in the post): previously this always
+     * auto-center-cropped each photo to fill its cell, ignoring any
+     * pinch-zoom/pan the user set on the arrange screen
+     * (StatusLayoutPreviewView's v221 finger-adjust) — so the collage the
+     * user actually arranged never matched what got posted. scales/panXs/
+     * panYs are optional (any/all may be null, meaning "no adjustment for
+     * every photo") parallel arrays aligned index-for-index with uris,
+     * forwarded from StatusLayoutAdjustActivity via
+     * StatusLayoutPreviewView#getAdjustFor — same cover-fit + zoom + pan
+     * math as {@code StatusLayoutPreviewView#applyPhotoMatrix} so the final
+     * flattened image is WYSIWYG with the preview.
+     */
+    public static File compose(Context context, List<Uri> uris, int style,
+                                float[] scales, float[] panXs, float[] panYs) throws Exception {
         List<RectF> rects = slotRects(style, CANVAS_W, CANVAS_H, GAP_PX);
         Bitmap out = Bitmap.createBitmap(CANVAS_W, CANVAS_H, Bitmap.Config.ARGB_8888);
         Canvas canvas = new Canvas(out);
@@ -50,7 +69,10 @@ public class StatusLayoutComposer {
         for (int i = 0; i < count; i++) {
             Bitmap cell = decodeSampled(context, uris.get(i), 720, 1280);
             if (cell == null) continue;
-            drawCenterCrop(canvas, cell, rects.get(i), paint);
+            float scale = (scales != null && i < scales.length) ? scales[i] : 1f;
+            float panX  = (panXs  != null && i < panXs.length)  ? panXs[i]  : 0f;
+            float panY  = (panYs  != null && i < panYs.length)  ? panYs[i]  : 0f;
+            drawAdjustedCrop(canvas, cell, rects.get(i), paint, scale, panX, panY);
             cell.recycle();
         }
 
@@ -62,14 +84,24 @@ public class StatusLayoutComposer {
         return outFile;
     }
 
-    private static void drawCenterCrop(Canvas canvas, Bitmap bmp, RectF rect, Paint paint) {
-        float scale = Math.max(rect.width() / bmp.getWidth(), rect.height() / bmp.getHeight());
-        float dw = bmp.getWidth() * scale;
-        float dh = bmp.getHeight() * scale;
-        float dx = rect.left + (rect.width() - dw) / 2f;
-        float dy = rect.top + (rect.height() - dh) / 2f;
+    /** Same cover-fit + extra-zoom + clamped-pan math as
+     *  StatusLayoutPreviewView#applyPhotoMatrix, just onto a Canvas cell
+     *  instead of an ImageView, so the export matches the preview exactly. */
+    private static void drawAdjustedCrop(Canvas canvas, Bitmap bmp, RectF rect, Paint paint,
+                                          float extraScale, float panX, float panY) {
+        float vw = rect.width(), vh = rect.height();
+        float bw = bmp.getWidth(), bh = bmp.getHeight();
+        float baseScale = Math.max(vw / bw, vh / bh);
+        float scale = baseScale * extraScale;
+        float scaledW = bw * scale, scaledH = bh * scale;
+        float maxPanX = Math.max(0f, (scaledW - vw) / 2f);
+        float maxPanY = Math.max(0f, (scaledH - vh) / 2f);
+
+        float dx = rect.left + (vw - scaledW) / 2f + panX * maxPanX;
+        float dy = rect.top  + (vh - scaledH) / 2f + panY * maxPanY;
+
         Matrix m = new Matrix();
-        m.postScale(scale, scale);
+        m.setScale(scale, scale);
         m.postTranslate(dx, dy);
         int save = canvas.save();
         Path clip = new Path();

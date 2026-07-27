@@ -280,8 +280,12 @@ public class GroupInfoActivity extends AppCompatActivity {
         btnResetLink.setOnClickListener(v -> showResetLinkConfirm());
 
         // View all media
-        findViewById(R.id.tv_view_all_media).setOnClickListener(v ->
-                Toast.makeText(this, "Media viewer — coming soon", Toast.LENGTH_SHORT).show());
+        findViewById(R.id.tv_view_all_media).setOnClickListener(v -> {
+            Intent i = new Intent(this, GroupMediaViewerActivity.class);
+            i.putExtra("groupId", groupId);
+            i.putExtra("groupName", groupName);
+            startActivity(i);
+        });
 
         // Report group
         findViewById(R.id.btn_report_group).setOnClickListener(v -> showReportDialog());
@@ -406,28 +410,45 @@ public class GroupInfoActivity extends AppCompatActivity {
                 members.clear();
                 long onlineMs = com.callx.app.utils.Constants.ONLINE_WINDOW_MS;
                 long now = System.currentTimeMillis();
+                
+                // Fetch all member UIDs first
+                List<String> memberUids = new ArrayList<>();
                 for (DataSnapshot c : snap.getChildren()) {
-                    String uid      = c.getKey();
-                    String name     = c.child("name").getValue(String.class);
-                    String role     = c.child("role").getValue(String.class);
-                    Long   lastSeen = c.child("lastSeen").getValue(Long.class);
-                    String photo    = c.child("photoUrl").getValue(String.class);
-                    String thumb    = c.child("thumbUrl").getValue(String.class);
-                    boolean online  = lastSeen != null && (now - lastSeen) < onlineMs;
-                    members.add(new GroupMemberAdapter.MemberItem(
-                            uid, name != null ? name : "Member",
-                            role != null ? role : "member",
-                            photo, thumb, online, lastSeen));
+                    memberUids.add(c.getKey());
                 }
-                // Sort: creator/admin first, then by name
-                members.sort((a, b) -> {
-                    int ra = "admin".equals(a.role) ? 0 : 1;
-                    int rb = "admin".equals(b.role) ? 0 : 1;
-                    if (ra != rb) return ra - rb;
-                    return a.name.compareToIgnoreCase(b.name);
-                });
-                tvMemberCount.setText(members.size() + " member" + (members.size() == 1 ? "" : "s"));
-                memberAdapter.notifyDataSetChanged();
+                
+                // Now fetch user data for each member to get photoUrl + thumbUrl
+                for (String uid : memberUids) {
+                    DataSnapshot memberSnap = snap.child(uid);
+                    String name     = memberSnap.child("name").getValue(String.class);
+                    String role     = memberSnap.child("role").getValue(String.class);
+                    Long   lastSeen = memberSnap.child("lastSeen").getValue(Long.class);
+                    boolean online  = lastSeen != null && (now - lastSeen) < onlineMs;
+                    
+                    // Fetch user profile to get photoUrl + thumbUrl
+                    FirebaseUtils.getUserRef(uid).addListenerForSingleValueEvent(new ValueEventListener() {
+                        @Override
+                        public void onDataChange(DataSnapshot userSnap) {
+                            if (userSnap.exists()) {
+                                String photo = userSnap.child("photoUrl").getValue(String.class);
+                                String thumb = userSnap.child("thumbUrl").getValue(String.class);
+                                
+                                // Remove old entry if exists
+                                members.removeIf(m -> m.uid.equals(uid));
+                                
+                                // Add with user's photo data
+                                members.add(new GroupMemberAdapter.MemberItem(
+                                        uid, name != null ? name : "Member",
+                                        role != null ? role : "member",
+                                        photo, thumb, online, lastSeen));
+                                
+                                // Re-sort and notify
+                                sortAndUpdateMembers();
+                            }
+                        }
+                        @Override public void onCancelled(DatabaseError e) {}
+                    });
+                }
             }
 
             @Override
@@ -435,55 +456,60 @@ public class GroupInfoActivity extends AppCompatActivity {
         };
         FirebaseUtils.getGroupMembersRef(groupId).addValueEventListener(membersListener);
     }
+    
+    private void sortAndUpdateMembers() {
+        // Sort: creator/admin first, then by name
+        members.sort((a, b) -> {
+            int ra = "admin".equals(a.role) || "creator".equals(a.role) ? 0 : 1;
+            int rb = "admin".equals(b.role) || "creator".equals(b.role) ? 0 : 1;
+            if (ra != rb) return ra - rb;
+            return a.name.compareToIgnoreCase(b.name);
+        });
+        tvMemberCount.setText(members.size() + " member" + (members.size() == 1 ? "" : "s"));
+        memberAdapter.notifyDataSetChanged();
+    }
 
     // ── Firebase: Media messages listener ─────────────────────────────────
     // Current tab: 0=images, 1=videos, 2=files
     private int currentMediaTab = 0;
 
     private void listenMediaMessages() {
-        Query q = FirebaseUtils.getGroupMessagesRef(groupId)
-                .orderByChild("type")
-                .limitToLast(60);
-        mediaListener = new ValueEventListener() {
-            @Override
-            public void onDataChange(DataSnapshot snap) {
-                refreshMediaGrid(currentMediaTab);
-                // Cache all media messages for tab switching
-                mediaUrls.clear();
-                for (DataSnapshot c : snap.getChildren()) {
-                    String type = c.child("type").getValue(String.class);
-                    String url  = c.child("mediaUrl").getValue(String.class);
-                    if ("image".equals(type) && url != null && !url.isEmpty())
-                        mediaUrls.add(url);
-                }
-                mediaAdapter.notifyDataSetChanged();
-            }
-
-            @Override
-            public void onCancelled(DatabaseError e) {}
-        };
-        // Listen to image messages
+        // Show recent images by default (limit to 5 for group info preview)
         FirebaseUtils.getGroupMessagesRef(groupId)
                 .orderByChild("type")
                 .equalTo("image")
-                .limitToLast(30)
-                .addValueEventListener(mediaListener);
+                .limitToLast(5)
+                .addValueEventListener(new ValueEventListener() {
+                    @Override
+                    public void onDataChange(DataSnapshot snap) {
+                        mediaUrls.clear();
+                        for (DataSnapshot c : snap.getChildren()) {
+                            String url = c.child("mediaUrl").getValue(String.class);
+                            if (url != null && !url.isEmpty()) mediaUrls.add(url);
+                        }
+                        mediaAdapter.notifyDataSetChanged();
+                    }
+
+                    @Override
+                    public void onCancelled(DatabaseError e) {}
+                });
     }
 
     private void refreshMediaGrid(int tab) {
         currentMediaTab = tab;
         mediaUrls.clear();
-        // Load different media based on tab — re-query Firebase
+        // Load different media based on tab — re-query Firebase (limit to 5 for preview)
         String mediaType;
         switch (tab) {
             case 1: mediaType = "video"; break;
             case 2: mediaType = "file";  break;
             default: mediaType = "image"; break;
         }
+        
         FirebaseUtils.getGroupMessagesRef(groupId)
                 .orderByChild("type")
                 .equalTo(mediaType)
-                .limitToLast(30)
+                .limitToLast(5)
                 .addListenerForSingleValueEvent(new ValueEventListener() {
                     @Override
                     public void onDataChange(DataSnapshot snap) {

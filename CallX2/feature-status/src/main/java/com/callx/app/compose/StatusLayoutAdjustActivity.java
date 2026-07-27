@@ -242,15 +242,33 @@ public class StatusLayoutAdjustActivity extends AppCompatActivity {
 
         ArrayList<String> uriStrings = new ArrayList<>();
         ArrayList<Integer> videoFlags = new ArrayList<>();
-        for (Uri uri : toSend) {
+        // BUG FIX (layout not preserved in the post): the pinch-zoom/pan the
+        // user just dialed in per-photo (previewView.getAdjustFor()) used to
+        // be dropped here — only the bare Uris + chosen style were forwarded,
+        // so StatusLayoutComposer downstream had no idea how each photo was
+        // actually framed and fell back to its own default crop. Forward the
+        // adjust values in the same order as uriStrings so the composer can
+        // reproduce this exact arrangement.
+        float[] scales = new float[toSend.size()];
+        float[] panXs  = new float[toSend.size()];
+        float[] panYs  = new float[toSend.size()];
+        for (int i = 0; i < toSend.size(); i++) {
+            Uri uri = toSend.get(i);
             uriStrings.add(uri.toString());
             videoFlags.add(isVideoUri(uri) ? 1 : 0);
+            float[] adjust = previewView.getAdjustFor(uri);
+            scales[i] = adjust[0];
+            panXs[i]  = adjust[1];
+            panYs[i]  = adjust[2];
         }
 
         android.content.Intent resultIntent = new android.content.Intent();
         resultIntent.putStringArrayListExtra(StatusLayoutPickerActivity.EXTRA_RESULT_URIS, uriStrings);
         resultIntent.putIntegerArrayListExtra(StatusLayoutPickerActivity.EXTRA_RESULT_IS_VIDEO, videoFlags);
         resultIntent.putExtra(StatusLayoutPickerActivity.EXTRA_RESULT_LAYOUT, currentStyle);
+        resultIntent.putExtra(StatusLayoutPickerActivity.EXTRA_RESULT_SCALE, scales);
+        resultIntent.putExtra(StatusLayoutPickerActivity.EXTRA_RESULT_PAN_X, panXs);
+        resultIntent.putExtra(StatusLayoutPickerActivity.EXTRA_RESULT_PAN_Y, panYs);
         setResult(RESULT_OK, resultIntent);
         finish();
     }

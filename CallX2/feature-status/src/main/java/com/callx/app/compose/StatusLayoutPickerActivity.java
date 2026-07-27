@@ -51,6 +51,13 @@ public class StatusLayoutPickerActivity extends AppCompatActivity {
     public static final String EXTRA_RESULT_URIS       = "layout_result_uris";
     public static final String EXTRA_RESULT_LAYOUT     = "layout_result_style";
     public static final String EXTRA_RESULT_IS_VIDEO   = "layout_result_is_video";
+    // BUG FIX: per-photo pinch-zoom/pan (StatusLayoutPreviewView#getAdjustFor),
+    // parallel float[] arrays aligned index-for-index with EXTRA_RESULT_URIS,
+    // so the exact framing arranged on the adjust screen survives into the
+    // final posted collage instead of reverting to a plain auto-crop.
+    public static final String EXTRA_RESULT_SCALE      = "layout_result_scale";
+    public static final String EXTRA_RESULT_PAN_X      = "layout_result_pan_x";
+    public static final String EXTRA_RESULT_PAN_Y      = "layout_result_pan_y";
 
     static final String EXTRA_INPUT_URIS = "layout_input_uris";
 

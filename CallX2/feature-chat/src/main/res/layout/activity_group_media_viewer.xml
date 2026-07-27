@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/surface_bg">
+
+    <!-- Toolbar -->
+    <androidx.appcompat.widget.Toolbar
+        android:id="@+id/toolbar"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:background="@color/surface_base"
+        android:elevation="4dp"
+        app:contentInsetStart="0dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:id="@+id/tv_title"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Shared Media"
+                android:textColor="@color/text_primary"
+                android:textSize="18sp"
+                android:textStyle="bold"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"/>
+
+        </LinearLayout>
+
+    </androidx.appcompat.widget.Toolbar>
+
+    <!-- Tab Layout for media types -->
+    <com.google.android.material.tabs.TabLayout
+        android:id="@+id/tab_media"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:background="@color/surface_base"
+        app:tabTextColor="@color/text_muted"
+        app:tabSelectedTextColor="@color/text_primary"
+        app:tabIndicatorColor="@color/accent_blue"
+        app:tabIndicatorHeight="3dp"
+        app:tabMode="fixed">
+
+        <com.google.android.material.tabs.TabItem
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Photos"/>
+
+        <com.google.android.material.tabs.TabItem
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Videos"/>
+
+        <com.google.android.material.tabs.TabItem
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Files"/>
+
+    </com.google.android.material.tabs.TabLayout>
+
+    <!-- Media Grid -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/rv_media"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:padding="4dp"
+        android:clipToPadding="false"/>
+
+    <!-- Empty State -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:visibility="gone">
+
+        <ImageView
+            android:id="@+id/iv_no_media"
+            android:layout_width="80dp"
+            android:layout_height="80dp"
+            android:src="@drawable/ic_image"
+            android:tint="@color/text_muted"
+            android:scaleType="centerInside"/>
+
+        <TextView
+            android:id="@+id/tv_no_media"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="No media shared yet"
+            android:textColor="@color/text_muted"
+            android:textSize="16sp"
+            android:layout_marginTop="16dp"/>
+
+    </LinearLayout>
+
+</LinearLayout>

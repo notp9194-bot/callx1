@@ -104,15 +104,10 @@ public class NewStatusActivity extends AppCompatActivity {
     // Result of the full-screen editor opened from the attach-sheet's "Edit"
     // action — see showStatusAddSheet()'s onMediaEdit callback.
     private ActivityResultLauncher<Intent>  statusMediaEditLauncher;
-    // v216: Layout picker result launcher — receives selected URIs + layout style
+    // v216: Layout picker result launcher — receives selected URIs + layout style.
+    // No longer touches statusMediaEditLauncher/MediaEditActivity at all — see
+    // the BUG FIX comment where this is registered, below.
     private ActivityResultLauncher<Intent>  layoutPickerLauncher;
-    // BUG FIX (double/triple post): statusMediaEditLauncher is shared by the
-    // plain multi-select attach-sheet flow (posts each photo as its own
-    // status via postStatusBatch) and the Layout flow (should post ONE
-    // combined collage). These flags tell its callback which one just ran.
-    private boolean pendingEditIsLayout = false;
-    private int     pendingLayoutStyle  = StatusLayoutPreviewView.STYLE_GRID_2X2;
-    private boolean layoutUploadStarted = false;
 
     /** FrameLayout that holds the status preview + sticker overlays */
     private android.widget.FrameLayout stickerOverlayFrame;
@@ -125,18 +120,6 @@ public class NewStatusActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        if (savedInstanceState != null) {
-            // BUG FIX: pendingEditIsLayout/pendingLayoutStyle were plain
-            // instance fields with no saved-state handling. MediaEditActivity
-            // can keep the user busy long enough (multi-photo editing) that
-            // Android reclaims this Activity in the background; on return,
-            // it was recreated fresh with pendingEditIsLayout back to false,
-            // so the composed collage silently fell through to
-            // postStatusBatch() and posted each photo individually again.
-            pendingEditIsLayout = savedInstanceState.getBoolean("pendingEditIsLayout", false);
-            pendingLayoutStyle  = savedInstanceState.getInt("pendingLayoutStyle", StatusLayoutPreviewView.STYLE_GRID_2X2);
-            layoutUploadStarted = savedInstanceState.getBoolean("layoutUploadStarted", false);
-        }
         binding = ActivityNewStatusBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
         setupToolbar();
@@ -160,16 +143,11 @@ public class NewStatusActivity extends AppCompatActivity {
                     String caption = result.getData().getStringExtra(
                             com.callx.app.conversation.controllers.MediaEditActivity.RESULT_CAPTION);
                     String cap = caption == null || caption.isEmpty() ? null : caption;
-                    if (pendingEditIsLayout) {
-                        // BUG FIX: this used to fall through to postStatusBatch()
-                        // below like any plain multi-select, posting each edited
-                        // photo as its own separate status — 2 photos → 2 posts.
-                        // A Layout selection should post ONE combined collage.
-                        pendingEditIsLayout = false;
-                        postLayoutStatus(uris, pendingLayoutStyle, cap);
-                    } else {
-                        postStatusBatch(uris, videoFlags, cap);
-                    }
+                    // Layout no longer routes through MediaEditActivity (see
+                    // layoutPickerLauncher below), so this launcher only ever
+                    // serves the plain multi-select attach-sheet flow now —
+                    // always post each edited photo as its own status.
+                    postStatusBatch(uris, videoFlags, cap);
                 });
         setupBgColorPicker();
         setupFontStylePicker();
@@ -179,36 +157,64 @@ public class NewStatusActivity extends AppCompatActivity {
         setupTextAlignButtons();
         setupTextInput();
         setupStickerOverlayFrame();
-        // v216: Layout picker launcher — receives URIs + layoutStyle from StatusLayoutPickerActivity,
-        //       then forwards to MediaEditActivity for cropping/filters/text before posting.
+        // v216: Layout picker launcher — receives URIs + layoutStyle from StatusLayoutPickerActivity.
+        //
+        // BUG FIX (the actual root cause of "layout badal ke ek-ek photo ho
+        // jata hai / N photos = N status posts"): this used to forward the
+        // picked URIs straight into MediaEditActivity — a generic per-photo
+        // swipe editor with zero concept of a collage. That's exactly why
+        // the arranged layout visibly fell apart into individual swipeable
+        // photos the instant this screen opened, why the pinch/zoom/pan
+        // arrangement never made it into the post (MediaEditActivity strips
+        // it and hands back brand-new baked file:// Uris that don't match
+        // the original Uris the arrangement was keyed by), and — even with
+        // the single-post guard that used to live in this flow (now removed
+        // since it's no longer needed) — why the flow through a screen built
+        // for "edit N separate photos" was fundamentally the wrong detour
+        // for "post one collage". The fix: skip MediaEditActivity for Layout
+        // entirely.
+        // Flatten the collage right here (StatusLayoutComposer, now WYSIWYG
+        // with the arrange screen since it also takes the pinch/zoom/pan
+        // data) and drop it straight into the exact same pickedImage +
+        // showImagePreview() pipeline every normal single-photo status
+        // already uses — so caption, privacy, stickers and the existing
+        // Post button all just work, and post() only ever uploads ONE file.
         layoutPickerLauncher = registerForActivityResult(
                 new ActivityResultContracts.StartActivityForResult(),
                 result -> {
                     if (result.getResultCode() != android.app.Activity.RESULT_OK || result.getData() == null) return;
                     java.util.ArrayList<String> uriStrings = result.getData().getStringArrayListExtra(
                             StatusLayoutPickerActivity.EXTRA_RESULT_URIS);
-                    java.util.ArrayList<Integer> videoFlagInts = result.getData().getIntegerArrayListExtra(
-                            StatusLayoutPickerActivity.EXTRA_RESULT_IS_VIDEO);
                     if (uriStrings == null || uriStrings.isEmpty()) return;
-                    // BUG FIX: EXTRA_RESULT_LAYOUT (the style the user actually
-                    // chose in StatusLayoutAdjustActivity) used to be read
-                    // nowhere — it was dropped on the floor here, so the app
-                    // had no way to know "this came from Layout, post it as
-                    // one collage" vs. a plain multi-select. Capture it now.
-                    pendingLayoutStyle = result.getData().getIntExtra(
+                    int layoutStyle = result.getData().getIntExtra(
                             StatusLayoutPickerActivity.EXTRA_RESULT_LAYOUT,
                             StatusLayoutPreviewView.STYLE_GRID_2X2);
-                    pendingEditIsLayout = true;
-                    // Forward to MediaEditActivity for editing before posting
-                    Intent editIntent = new Intent(this,
-                            com.callx.app.conversation.controllers.MediaEditActivity.class);
-                    editIntent.putStringArrayListExtra(
-                            com.callx.app.conversation.controllers.MediaEditActivity.EXTRA_URIS, uriStrings);
-                    editIntent.putIntegerArrayListExtra(
-                            com.callx.app.conversation.controllers.MediaEditActivity.EXTRA_IS_VIDEO, videoFlagInts);
-                    editIntent.putExtra(com.callx.app.conversation.controllers.MediaEditActivity.EXTRA_CAPTION, "");
-                    editIntent.putExtra(com.callx.app.conversation.controllers.MediaEditActivity.EXTRA_HD, false);
-                    statusMediaEditLauncher.launch(editIntent);
+                    float[] scales = result.getData().getFloatArrayExtra(StatusLayoutPickerActivity.EXTRA_RESULT_SCALE);
+                    float[] panXs  = result.getData().getFloatArrayExtra(StatusLayoutPickerActivity.EXTRA_RESULT_PAN_X);
+                    float[] panYs  = result.getData().getFloatArrayExtra(StatusLayoutPickerActivity.EXTRA_RESULT_PAN_Y);
+
+                    java.util.List<Uri> uris = new java.util.ArrayList<>();
+                    for (String s : uriStrings) uris.add(Uri.parse(s));
+
+                    setPosting(true);
+                    setHint("Creating layout…");
+                    new Thread(() -> {
+                        try {
+                            java.io.File composed = StatusLayoutComposer.compose(
+                                    this, uris, layoutStyle, scales, panXs, panYs);
+                            runOnUiThread(() -> {
+                                setPosting(false);
+                                pickedImage = Uri.fromFile(composed);
+                                pickedVideo = null;
+                                showImagePreview(pickedImage);
+                            });
+                        } catch (Exception e) {
+                            runOnUiThread(() -> {
+                                setPosting(false);
+                                toast("Failed to build layout: " + e.getMessage());
+                            });
+                        }
+                    }).start();
                 });
         restoreDraft();
         applyPrefillStickerIfAny();
@@ -565,7 +571,6 @@ public class NewStatusActivity extends AppCompatActivity {
                                 com.callx.app.conversation.controllers.MediaEditActivity.EXTRA_IS_VIDEO, videoFlags);
                         intent.putExtra(com.callx.app.conversation.controllers.MediaEditActivity.EXTRA_CAPTION, caption);
                         intent.putExtra(com.callx.app.conversation.controllers.MediaEditActivity.EXTRA_HD, isHD);
-                        pendingEditIsLayout = false;
                         statusMediaEditLauncher.launch(intent);
                     }
                 });
@@ -1136,77 +1141,6 @@ public class NewStatusActivity extends AppCompatActivity {
                 toast("Failed to post: " + e.getMessage());
             });
     }
-    @Override
-    protected void onSaveInstanceState(@NonNull Bundle outState) {
-        super.onSaveInstanceState(outState);
-        outState.putBoolean("pendingEditIsLayout", pendingEditIsLayout);
-        outState.putInt("pendingLayoutStyle", pendingLayoutStyle);
-        outState.putBoolean("layoutUploadStarted", layoutUploadStarted);
-    }
-
-    // ── Layout post (Start-layout collage) ──────────────────────────────────
-    // BUG FIX: previously the Layout flow shared postStatusBatch() with the
-    // plain multi-select attach sheet, so N picked photos posted as N
-    // separate statuses instead of the single arranged collage. This renders
-    // the chosen layout style into one flattened image (StatusLayoutComposer)
-    // and uploads/saves it as one status, same as a normal photo post.
-    private void postLayoutStatus(java.util.List<Uri> uris, int layoutStyle, String caption) {
-        if (uris == null || uris.isEmpty()) return;
-        if (layoutUploadStarted) return;
-        layoutUploadStarted = true;
-        setPosting(true);
-        setHint("Creating layout…");
-        new Thread(() -> {
-            try {
-                java.io.File composed = StatusLayoutComposer.compose(this, uris, layoutStyle);
-                runOnUiThread(() -> uploadLayoutComposite(composed, caption));
-            } catch (Exception e) {
-                runOnUiThread(() -> {
-                    setPosting(false);
-                    layoutUploadStarted = false;
-                    toast("Failed to build layout: " + e.getMessage());
-                });
-            }
-        }).start();
-    }
-
-    private void uploadLayoutComposite(java.io.File composed, String caption) {
-        setHint("Uploading layout…");
-        String uid  = FirebaseAuth.getInstance().getCurrentUser().getUid();
-        String name = FirebaseUtils.getCurrentName();
-        FirebaseUtils.getUserRef(uid).addListenerForSingleValueEvent(new ValueEventListener() {
-            @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                String thumb = snap.child("thumbUrl").getValue(String.class);
-                String full  = snap.child("photoUrl").getValue(String.class);
-                String photo = (thumb != null && !thumb.isEmpty()) ? thumb : (full != null ? full : safePhoto());
-                uploadComposedFile(composed, caption, uid, name, photo);
-            }
-            @Override public void onCancelled(@NonNull DatabaseError e) {
-                uploadComposedFile(composed, caption, uid, name, safePhoto());
-            }
-        });
-    }
-
-    private void uploadComposedFile(java.io.File composed, String caption, String uid, String name, String photo) {
-        CloudinaryUploader.upload(this, Uri.fromFile(composed), "callx/status", "image",
-            new CloudinaryUploader.UploadCallback() {
-                @Override public void onSuccess(CloudinaryUploader.Result r) {
-                    runOnUiThread(() -> {
-                        composed.delete();
-                        saveStatus("image", r.secureUrl, null, "", caption, uid, name, photo);
-                    });
-                }
-                @Override public void onError(String err) {
-                    runOnUiThread(() -> {
-                        composed.delete();
-                        setPosting(false);
-                        layoutUploadStarted = false;
-                        toast(err != null ? err : "Upload failed, try again");
-                    });
-                }
-            });
-    }
-
     // ── Batch post (attach-sheet multi-select) ─────────────────────────────
     // Posts each selected item from the attach-sheet as its own status entry
     // (same as WhatsApp posting several picked photos back-to-back), sharing
