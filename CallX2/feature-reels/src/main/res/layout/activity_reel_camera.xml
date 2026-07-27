@@ -1,16 +1,36 @@
 <?xml version="1.0" encoding="utf-8"?>
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<!--
+    activity_reel_camera.xml — v2: CoordinatorLayout root so the
+    camera-media bottom sheet (layout_camera_media_sheet) can be driven
+    by BottomSheetBehavior.  Everything above the sheet is unchanged from v1.
+-->
+<androidx.coordinatorlayout.widget.CoordinatorLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="#000000">
 
-    <!-- Camera Preview -->
+    <!-- Camera Preview — fills the screen; the sheet slides over it -->
     <androidx.camera.view.PreviewView
         android:id="@+id/preview_view"
         android:layout_width="match_parent"
         android:layout_height="match_parent"/>
 
-    <!-- Top controls -->
+    <!-- Filter / effect colour overlay (GONE until a filter is applied) -->
+    <View
+        android:id="@+id/filter_overlay_view"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone"/>
+
+    <!-- Live text / sticker overlay root — transparent, receives touch for dragging -->
+    <FrameLayout
+        android:id="@+id/overlay_root"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"/>
+
+    <!-- ── Top controls ──────────────────────────────────────────────── -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -52,7 +72,7 @@
             android:contentDescription="Flip camera"/>
     </LinearLayout>
 
-    <!-- Timer chips -->
+    <!-- ── Timer chips ───────────────────────────────────────────────── -->
     <LinearLayout
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
@@ -95,8 +115,111 @@
             android:background="@drawable/bg_speed_chip"/>
     </LinearLayout>
 
-    <!-- Bottom controls -->
+    <!-- ── Right-side tool buttons ───────────────────────────────────── -->
     <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_vertical|end"
+        android:orientation="vertical"
+        android:gravity="center_horizontal"
+        android:paddingEnd="10dp">
+
+        <ImageButton android:id="@+id/btn_camera_effects"
+            android:layout_width="44dp" android:layout_height="44dp"
+            android:src="@drawable/ic_sparkle"
+            android:tint="#FFD700"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Effects"
+            android:layout_marginBottom="2dp"/>
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="Effects" android:textColor="#CCFFFFFF" android:textSize="10sp"
+            android:layout_marginBottom="10dp"/>
+
+        <ImageButton android:id="@+id/btn_camera_filters"
+            android:layout_width="44dp" android:layout_height="44dp"
+            android:src="@drawable/ic_filter"
+            android:tint="#A855F7"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Filters"
+            android:layout_marginBottom="2dp"/>
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="Filters" android:textColor="#CCFFFFFF" android:textSize="10sp"
+            android:layout_marginBottom="10dp"/>
+
+        <ImageButton android:id="@+id/btn_camera_text"
+            android:layout_width="44dp" android:layout_height="44dp"
+            android:src="@drawable/ic_emoji"
+            android:tint="#FFFFFF"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Text"
+            android:layout_marginBottom="2dp"/>
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="Text" android:textColor="#CCFFFFFF" android:textSize="10sp"
+            android:layout_marginBottom="10dp"/>
+
+        <ImageButton android:id="@+id/btn_camera_stickers"
+            android:layout_width="44dp" android:layout_height="44dp"
+            android:src="@drawable/ic_emoji"
+            android:tint="#FFD60A"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Stickers"
+            android:layout_marginBottom="2dp"/>
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="Stickers" android:textColor="#CCFFFFFF" android:textSize="10sp"
+            android:layout_marginBottom="10dp"/>
+
+        <ImageButton android:id="@+id/btn_camera_speed"
+            android:layout_width="44dp" android:layout_height="44dp"
+            android:src="@drawable/ic_speed"
+            android:tint="#FFD700"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Speed"
+            android:layout_marginBottom="2dp"/>
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="Speed" android:textColor="#CCFFFFFF" android:textSize="10sp"
+            android:layout_marginBottom="10dp"/>
+
+        <ImageButton android:id="@+id/btn_camera_music"
+            android:layout_width="44dp" android:layout_height="44dp"
+            android:src="@drawable/ic_music"
+            android:tint="#00E5FF"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Music"
+            android:layout_marginBottom="2dp"/>
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="Music" android:textColor="#CCFFFFFF" android:textSize="10sp"
+            android:layout_marginBottom="10dp"/>
+
+        <ImageButton android:id="@+id/btn_camera_multiclip"
+            android:layout_width="44dp" android:layout_height="44dp"
+            android:src="@drawable/ic_gallery"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:tint="@color/white"
+            android:contentDescription="Multi Clip"
+            android:layout_marginBottom="2dp"/>
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="Multi" android:textColor="#CCFFFFFF" android:textSize="10sp"
+            android:layout_marginBottom="10dp"/>
+
+        <ImageButton android:id="@+id/btn_camera_drafts"
+            android:layout_width="44dp" android:layout_height="44dp"
+            android:src="@drawable/ic_bookmark"
+            android:tint="#00C6FF"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Drafts"
+            android:layout_marginBottom="2dp"/>
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="Drafts" android:textColor="#CCFFFFFF" android:textSize="10sp"/>
+    </LinearLayout>
+
+    <!-- ── Bottom camera controls (record row + mode tabs) ───────────── -->
+    <!--
+        id=camera_controls_bar — hidden (alpha→0) when the media sheet
+        expands past ~40% so the record button/tabs don't compete with the
+        full gallery grid.
+    -->
+    <LinearLayout
+        android:id="@+id/camera_controls_bar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
@@ -106,7 +229,7 @@
         android:paddingTop="12dp"
         android:background="#44000000">
 
-        <!-- Timer display -->
+        <!-- Timer label -->
         <TextView
             android:id="@+id/tv_record_timer"
             android:layout_width="wrap_content"
@@ -141,106 +264,98 @@
             android:textSize="12sp"
             android:layout_marginBottom="16dp"/>
 
-        <!-- Record button -->
-        <ImageButton
-            android:id="@+id/btn_record"
-            android:layout_width="80dp"
-            android:layout_height="80dp"
-            android:src="@drawable/ic_camera"
-            android:background="@drawable/circle_primary"
-            android:tint="@color/white"
-            android:padding="16dp"
-            android:contentDescription="Record"/>
+        <!-- Record button row -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center">
+
+            <ImageButton
+                android:id="@+id/btn_gallery_shortcut"
+                android:layout_width="52dp"
+                android:layout_height="52dp"
+                android:src="@drawable/ic_gallery"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:tint="@color/white"
+                android:contentDescription="Gallery"
+                android:layout_marginEnd="24dp"/>
+
+            <!-- Record / capture button -->
+            <ImageButton
+                android:id="@+id/btn_record"
+                android:layout_width="80dp"
+                android:layout_height="80dp"
+                android:src="@drawable/ic_camera"
+                android:background="@drawable/circle_primary"
+                android:tint="@color/white"
+                android:padding="16dp"
+                android:contentDescription="Record"/>
+
+            <ImageButton
+                android:id="@+id/btn_flip_camera_bottom"
+                android:layout_width="52dp"
+                android:layout_height="52dp"
+                android:src="@drawable/ic_flip_camera"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:tint="@color/white"
+                android:contentDescription="Flip"
+                android:layout_marginStart="24dp"/>
+        </LinearLayout>
+
+        <!-- Mode tabs (Video / Photo / Video note) -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center"
+            android:layout_marginTop="16dp">
+
+            <TextView
+                android:id="@+id/tab_video"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Video"
+                android:textColor="#AAFFFFFF"
+                android:textSize="14sp"
+                android:layout_marginEnd="24dp"
+                android:paddingBottom="4dp"/>
+
+            <TextView
+                android:id="@+id/tab_photo"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Photo"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:layout_marginEnd="24dp"
+                android:paddingBottom="4dp"/>
+
+            <TextView
+                android:id="@+id/tab_video_note"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Video note"
+                android:textColor="#AAFFFFFF"
+                android:textSize="14sp"
+                android:paddingBottom="4dp"/>
+        </LinearLayout>
     </LinearLayout>
 
+    <!-- ═══════════════════════════════════════════════════════════════════
+         CAMERA MEDIA BOTTOM SHEET
+         Collapsed: drag handle + horizontal recent-media strip
+                    (~90dp peek, sits above the controls bar).
+         Expanded : full-screen gallery grid (Recents header + 4-col grid)
+                    slides up over the camera preview, same look as the
+                    chat attach sheet's expanded state.
+         ═══════════════════════════════════════════════════════════════════ -->
+    <include
+        layout="@layout/layout_camera_media_sheet"
+        android:id="@+id/camera_media_sheet_root"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        app:layout_behavior="com.google.android.material.bottomsheet.BottomSheetBehavior"/>
 
-    <!-- Right-side tool buttons -->
-    <LinearLayout
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="center_vertical|end"
-        android:orientation="vertical"
-        android:gravity="center_horizontal"
-        android:paddingEnd="10dp">
-
-        <ImageButton android:id="@+id/btn_camera_effects"
-            android:layout_width="44dp" android:layout_height="44dp"
-            android:src="@drawable/ic_sparkle"
-            android:tint="#FFD700"
-            android:background="?attr/selectableItemBackgroundBorderless" android:contentDescription="Effects"
-            android:layout_marginBottom="2dp"/>
-        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-            android:text="Effects" android:textColor="#CCFFFFFF" android:textSize="10sp"
-            android:layout_marginBottom="10dp"/>
-
-        <ImageButton android:id="@+id/btn_camera_filters"
-            android:layout_width="44dp" android:layout_height="44dp"
-            android:src="@drawable/ic_filter"
-            android:tint="#A855F7"
-            android:background="?attr/selectableItemBackgroundBorderless" android:contentDescription="Filters"
-            android:layout_marginBottom="2dp"/>
-        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-            android:text="Filters" android:textColor="#CCFFFFFF" android:textSize="10sp"
-            android:layout_marginBottom="10dp"/>
-
-        <ImageButton android:id="@+id/btn_camera_text"
-            android:layout_width="44dp" android:layout_height="44dp"
-            android:src="@drawable/ic_emoji"
-            android:tint="#FFFFFF"
-            android:background="?attr/selectableItemBackgroundBorderless" android:contentDescription="Text"
-            android:layout_marginBottom="2dp"/>
-        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-            android:text="Text" android:textColor="#CCFFFFFF" android:textSize="10sp"
-            android:layout_marginBottom="10dp"/>
-
-        <ImageButton android:id="@+id/btn_camera_stickers"
-            android:layout_width="44dp" android:layout_height="44dp"
-            android:src="@drawable/ic_emoji"
-            android:tint="#FFD60A"
-            android:background="?attr/selectableItemBackgroundBorderless" android:contentDescription="Stickers"
-            android:layout_marginBottom="2dp"/>
-        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-            android:text="Stickers" android:textColor="#CCFFFFFF" android:textSize="10sp"
-            android:layout_marginBottom="10dp"/>
-
-        <ImageButton android:id="@+id/btn_camera_speed"
-            android:layout_width="44dp" android:layout_height="44dp"
-            android:src="@drawable/ic_speed"
-            android:tint="#FFD700"
-            android:background="?attr/selectableItemBackgroundBorderless" android:contentDescription="Speed"
-            android:layout_marginBottom="2dp"/>
-        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-            android:text="Speed" android:textColor="#CCFFFFFF" android:textSize="10sp"
-            android:layout_marginBottom="10dp"/>
-
-        <ImageButton android:id="@+id/btn_camera_music"
-            android:layout_width="44dp" android:layout_height="44dp"
-            android:src="@drawable/ic_music"
-            android:tint="#00E5FF"
-            android:background="?attr/selectableItemBackgroundBorderless" android:contentDescription="Music"
-            android:layout_marginBottom="2dp"/>
-        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-            android:text="Music" android:textColor="#CCFFFFFF" android:textSize="10sp"
-            android:layout_marginBottom="10dp"/>
-
-        <ImageButton android:id="@+id/btn_camera_multiclip"
-            android:layout_width="44dp" android:layout_height="44dp"
-            android:src="@drawable/ic_gallery"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:tint="@color/white" android:contentDescription="Multi Clip"
-            android:layout_marginBottom="2dp"/>
-        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-            android:text="Multi" android:textColor="#CCFFFFFF" android:textSize="10sp"
-            android:layout_marginBottom="10dp"/>
-
-        <ImageButton android:id="@+id/btn_camera_drafts"
-            android:layout_width="44dp" android:layout_height="44dp"
-            android:src="@drawable/ic_bookmark"
-            android:tint="#00C6FF"
-            android:background="?attr/selectableItemBackgroundBorderless" android:contentDescription="Drafts"
-            android:layout_marginBottom="2dp"/>
-        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-            android:text="Drafts" android:textColor="#CCFFFFFF" android:textSize="10sp"/>
-    </LinearLayout>
-
-</FrameLayout>
+</androidx.coordinatorlayout.widget.CoordinatorLayout>

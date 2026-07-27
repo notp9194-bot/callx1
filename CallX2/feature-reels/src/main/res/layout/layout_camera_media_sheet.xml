@@ -1,0 +1,182 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    layout_camera_media_sheet.xml
+    ─────────────────────────────
+    Camera-screen recent-media bottom sheet.
+
+    States driven by BottomSheetBehavior (see CameraMediaSheetController):
+
+    COLLAPSED (peek ≈ 90 dp):
+      • drag_handle visible
+      • strip_container visible  → horizontal RecyclerView of recent thumbnails
+      • expanded_panel GONE
+
+    EXPANDED:
+      • drag_handle visible
+      • strip_container fades OUT  (alpha → 0 as slide offset 0→FADE_END)
+      • expanded_panel fades IN    (alpha  0→1 over same fraction)
+         → close button + "Recents" dropdown + 4-column grid
+-->
+<androidx.core.widget.NestedScrollView
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/cms_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true"
+    android:background="#E6000000">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical">
+
+        <!-- ── Drag handle ──────────────────────────────────────────── -->
+        <View
+            android:id="@+id/cms_drag_handle"
+            android:layout_width="36dp"
+            android:layout_height="4dp"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginTop="10dp"
+            android:layout_marginBottom="8dp"
+            android:background="@drawable/bg_drag_handle"
+            android:layout_marginStart="auto"
+            android:layout_marginEnd="auto"/>
+
+        <!-- ── Collapsed strip ──────────────────────────────────────── -->
+        <!--
+            strip_container — the only thing visible at peek height.
+            A horizontal RecyclerView of recent media thumbnails.
+            Height is fixed at 72 dp (square thumbnails).
+        -->
+        <FrameLayout
+            android:id="@+id/cms_strip_container"
+            android:layout_width="match_parent"
+            android:layout_height="72dp">
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/cms_strip_rv"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:orientation="horizontal"
+                android:scrollbars="none"
+                android:clipToPadding="false"
+                android:paddingStart="4dp"
+                android:paddingEnd="4dp"/>
+
+        </FrameLayout>
+
+        <!-- ── Expanded panel ───────────────────────────────────────── -->
+        <!--
+            Starts GONE + alpha=0, crossfades in as the sheet is dragged up
+            (see CameraMediaSheetController#applySlideOffset).
+        -->
+        <LinearLayout
+            android:id="@+id/cms_expanded_panel"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="vertical"
+            android:visibility="gone"
+            android:alpha="0">
+
+            <!-- Header row: close + "Recents" title -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingStart="12dp"
+                android:paddingEnd="16dp"
+                android:paddingTop="4dp"
+                android:paddingBottom="12dp">
+
+                <ImageView
+                    android:id="@+id/cms_btn_close"
+                    android:layout_width="32dp"
+                    android:layout_height="32dp"
+                    android:src="@drawable/ic_close"
+                    android:tint="#FFFFFF"
+                    android:padding="4dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="Close gallery"/>
+
+                <!-- Recents ▾ dropdown row (folder picker) -->
+                <LinearLayout
+                    android:id="@+id/cms_recents_dropdown"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginStart="16dp"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:background="?attr/selectableItemBackground"
+                    android:paddingTop="4dp"
+                    android:paddingBottom="4dp"
+                    android:paddingStart="4dp"
+                    android:paddingEnd="4dp">
+
+                    <TextView
+                        android:id="@+id/cms_recents_title"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Recents"
+                        android:textColor="#FFFFFF"
+                        android:textSize="17sp"
+                        android:textStyle="bold"/>
+
+                    <ImageView
+                        android:layout_width="18dp"
+                        android:layout_height="18dp"
+                        android:layout_marginStart="4dp"
+                        android:src="@drawable/ic_arrow_drop_down"
+                        android:tint="#FFFFFF"
+                        android:contentDescription=""/>
+                </LinearLayout>
+
+                <!-- HD toggle chip -->
+                <TextView
+                    android:id="@+id/cms_hd_toggle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="HD"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:paddingStart="10dp"
+                    android:paddingEnd="10dp"
+                    android:paddingTop="4dp"
+                    android:paddingBottom="4dp"
+                    android:layout_marginStart="8dp"
+                    android:background="@drawable/bg_hd_toggle_inactive"
+                    android:clickable="true"
+                    android:focusable="true"/>
+            </LinearLayout>
+
+            <!-- 4-column Recents grid -->
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/cms_grid_rv"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:nestedScrollingEnabled="true"
+                android:scrollbars="none"
+                android:clipToPadding="false"
+                android:paddingBottom="16dp"/>
+
+            <!-- Empty state — shown when permission denied or no media -->
+            <TextView
+                android:id="@+id/cms_empty_text"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="No recent photos or videos"
+                android:textColor="#88FFFFFF"
+                android:textSize="14sp"
+                android:gravity="center"
+                android:padding="32dp"
+                android:visibility="gone"/>
+
+        </LinearLayout>
+
+    </LinearLayout>
+
+</androidx.core.widget.NestedScrollView>

@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    item_camera_strip_thumb.xml
+    Horizontal-strip cell: square thumbnail + optional video-duration badge.
+    Width is fixed at 72dp by the LinearLayoutManager in CameraMediaSheetController.
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="72dp"
+    android:layout_height="72dp"
+    android:layout_marginStart="2dp"
+    android:layout_marginEnd="2dp">
+
+    <ImageView
+        android:id="@+id/strip_thumb"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="centerCrop"
+        android:background="#2A2A2A"/>
+
+    <!-- Video duration badge (bottom-right) — GONE for photos -->
+    <TextView
+        android:id="@+id/strip_duration"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|end"
+        android:layout_margin="4dp"
+        android:background="@drawable/bg_video_duration_pill"
+        android:paddingStart="5dp"
+        android:paddingEnd="5dp"
+        android:paddingTop="1dp"
+        android:paddingBottom="1dp"
+        android:textColor="#FFFFFF"
+        android:textSize="10sp"
+        android:visibility="gone"/>
+
+</FrameLayout>

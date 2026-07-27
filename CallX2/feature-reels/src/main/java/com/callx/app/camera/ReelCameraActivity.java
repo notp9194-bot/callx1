@@ -186,6 +186,9 @@ public class ReelCameraActivity extends AppCompatActivity {
     private FrameLayout rootOverlay;
     private View        filterOverlayView;
 
+    // ── Camera recent-media bottom sheet ───────────────────────────────────
+    private CameraMediaSheetController mediaSheetController;
+
     // ── Filter / effect state ──────────────────────────────────────────────
     private String filterName       = "";
     private float  filterBrightness = 0f;
@@ -258,10 +261,59 @@ public class ReelCameraActivity extends AppCompatActivity {
         // use-case work identically for both flows; only the destination after
         // capture differs — see finishPhotoCapture().
         addPhotoVideoToggle();
+        // ── Camera recent-media sheet (swipe-up gallery) ──────────────────
+        setupCameraMediaSheet();
         if (allPermissionsGranted()) {
             startCamera();
         } else {
             ActivityCompat.requestPermissions(this, REQUIRED_PERMISSIONS, REQ_PERMISSIONS);
+        }
+    }
+
+    /**
+     * Sets up the recent-media bottom sheet embedded in the camera screen.
+     *
+     * Collapsed state : horizontal strip of recent thumbnails above the controls.
+     * Expanded state  : full 4-column gallery grid (swipe-up → smooth crossfade).
+     * Tapping a thumbnail opens it in the reel editor / upload flow.
+     */
+    private void setupCameraMediaSheet() {
+        mediaSheetController = new CameraMediaSheetController(this, (uri, isVideo) -> {
+            openEditorForGalleryUri(uri, isVideo);
+        });
+        mediaSheetController.setup();
+    }
+
+    /**
+     * Opens a gallery media item (picked from the camera-screen recent strip or
+     * expanded grid) in the appropriate reel editor.
+     *
+     * Videos → ReelEditorActivity (same flow as a recorded clip).
+     * Images → ReelUploadActivity's photo-slideshow pipeline.
+     */
+    private void openEditorForGalleryUri(android.net.Uri uri, boolean isVideo) {
+        if (isVideo) {
+            // Forward into the video editor — convert uri to a path string the
+            // existing editor expects. ReelEditorActivity accepts content:// URIs
+            // via EXTRA_VIDEO_URI since Android Q (scoped storage).
+            Intent intent = new Intent(this, ReelEditorActivity.class);
+            intent.putExtra(ReelEditorActivity.EXTRA_VIDEO_URI, uri.toString());
+            if (!preSelectedSoundId.isEmpty())     intent.putExtra("selected_sound_id",     preSelectedSoundId);
+            if (!preSelectedSoundTitle.isEmpty())  intent.putExtra("selected_sound_title",  preSelectedSoundTitle);
+            if (!preSelectedSoundUrl.isEmpty())    intent.putExtra("selected_sound_url",    preSelectedSoundUrl);
+            if (!preSelectedSoundCover.isEmpty())  intent.putExtra("selected_sound_cover",  preSelectedSoundCover);
+            if (!preSelectedSoundArtist.isEmpty()) intent.putExtra("selected_sound_artist", preSelectedSoundArtist);
+            startActivity(intent);
+        } else {
+            // Forward into the photo editor (same as a camera-captured photo).
+            Intent intent = new Intent(this, com.callx.app.upload.ReelUploadActivity.class);
+            intent.putExtra(com.callx.app.upload.ReelUploadActivity.EXTRA_CAMERA_PHOTO_PATH, uri.toString());
+            if (!preSelectedSoundId.isEmpty())     intent.putExtra("selected_sound_id",     preSelectedSoundId);
+            if (!preSelectedSoundTitle.isEmpty())  intent.putExtra("selected_sound_title",  preSelectedSoundTitle);
+            if (!preSelectedSoundUrl.isEmpty())    intent.putExtra("selected_sound_url",    preSelectedSoundUrl);
+            if (!preSelectedSoundCover.isEmpty())  intent.putExtra("selected_sound_cover",  preSelectedSoundCover);
+            if (!preSelectedSoundArtist.isEmpty()) intent.putExtra("selected_sound_artist", preSelectedSoundArtist);
+            startActivity(intent);
         }
     }
 
@@ -287,17 +339,19 @@ public class ReelCameraActivity extends AppCompatActivity {
         btnCameraText      = findViewById(R.id.btn_camera_text);
         btnCameraStickers  = findViewById(R.id.btn_camera_stickers);
 
-        // Inject a transparent overlay FrameLayout above the camera preview
-        // so we can layer live text / sticker / filter views over the feed.
-        ViewGroup parent = (ViewGroup) previewView.getParent();
-        if (parent instanceof FrameLayout) {
-            rootOverlay = (FrameLayout) parent;
+        // Use the overlay FrameLayout and filter view declared in the XML layout.
+        // (The old approach dynamically injected a FrameLayout child of the root;
+        // the new CoordinatorLayout-based layout has them as direct children with
+        // explicit IDs, so we just look them up.)
+        rootOverlay       = findViewById(R.id.overlay_root);
+        filterOverlayView = findViewById(R.id.filter_overlay_view);
+        if (filterOverlayView == null && rootOverlay != null) {
+            // Fallback: create programmatically if the ID is missing (older layout).
             filterOverlayView = new View(this);
             filterOverlayView.setBackgroundColor(0x00000000);
             filterOverlayView.setVisibility(View.GONE);
             filterOverlayView.setClickable(false);
-            // Insert directly above PreviewView (index 1), below all UI controls
-            rootOverlay.addView(filterOverlayView, 1, new FrameLayout.LayoutParams(
+            rootOverlay.addView(filterOverlayView, 0, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT));
         }
@@ -364,6 +418,27 @@ public class ReelCameraActivity extends AppCompatActivity {
         chip15s.setOnClickListener(v -> { if (!isRecording) selectDurationChip(15); });
         chip30s.setOnClickListener(v -> { if (!isRecording) selectDurationChip(30); });
         chip60s.setOnClickListener(v -> { if (!isRecording) selectDurationChip(60); });
+
+        // ── New bottom-bar buttons (in camera_controls_bar) ───────────────
+        // Gallery shortcut — opens the media sheet fully expanded
+        android.widget.ImageButton btnGalleryShortcut = findViewById(R.id.btn_gallery_shortcut);
+        if (btnGalleryShortcut != null) {
+            btnGalleryShortcut.setOnClickListener(v -> {
+                // Expand the media sheet so the user can browse the full gallery
+                View sheetRoot = findViewById(R.id.cms_root);
+                if (sheetRoot != null) {
+                    com.google.android.material.bottomsheet.BottomSheetBehavior<View> bsb =
+                            com.google.android.material.bottomsheet.BottomSheetBehavior.from(sheetRoot);
+                    bsb.setState(com.google.android.material.bottomsheet.BottomSheetBehavior.STATE_EXPANDED);
+                }
+            });
+        }
+
+        // Bottom-bar flip button (mirrors the top-bar flip button)
+        android.widget.ImageButton btnFlipBottom = findViewById(R.id.btn_flip_camera_bottom);
+        if (btnFlipBottom != null) {
+            btnFlipBottom.setOnClickListener(v -> flipCamera());
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -1423,5 +1498,6 @@ public class ReelCameraActivity extends AppCompatActivity {
         if (activeRecording != null) activeRecording.stop();
         stopSoundPreview();
         cameraExecutor.shutdown();
+        if (mediaSheetController != null) mediaSheetController.shutdown();
     }
 }
