@@ -17,6 +17,13 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.graphics.Color;
 import android.graphics.Typeface;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
+import android.graphics.ColorMatrix;
+import android.graphics.ColorMatrixColorFilter;
+import android.graphics.Matrix;
+import android.graphics.Paint;
 import android.widget.FrameLayout;
 import android.widget.ImageButton;
 import android.widget.ProgressBar;
@@ -28,6 +35,8 @@ import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.camera.core.Camera;
 import androidx.camera.core.CameraSelector;
+import androidx.camera.core.ImageCapture;
+import androidx.camera.core.ImageCaptureException;
 import androidx.camera.core.Preview;
 import androidx.camera.lifecycle.ProcessCameraProvider;
 import androidx.camera.video.FileOutputOptions;
@@ -85,6 +94,12 @@ public class ReelCameraActivity extends AppCompatActivity {
 
     private static final String TAG = "ReelCameraActivity";
     public  static final String EXTRA_VIDEO_URI = "video_uri";
+    // NEW: set true when this camera is opened from Status's "Add Status" flow
+    // (instead of the Reels tab's own + / Create button) — see
+    // NewStatusActivity.openReelCamera(). When set, the finished recording is
+    // handed back to Status (via ReelEditorActivity's own result) instead of
+    // continuing on into ReelUploadActivity.
+    public  static final String EXTRA_TARGET_STATUS = "target_status";
     private static final int    REQ_PERMISSIONS = 210;
 
     // ── Request codes ─────────────────────────────────────────────────────
@@ -97,6 +112,18 @@ public class ReelCameraActivity extends AppCompatActivity {
     // Codes 400–499 are reserved for editing existing text overlays by index:
     //   editCode = 400 + overlayIndex
     private static final int REQ_TEXT_EDIT_BASE = 400;
+    // NEW: launches ReelEditorActivity for result only when targetStatus — lets
+    // the finished/edited video bubble straight back up to NewStatusActivity.
+    private static final int REQ_EDITOR_FOR_STATUS = 550;
+
+    // NEW: true when opened from Status's camera tap (see EXTRA_TARGET_STATUS above).
+    private boolean targetStatus = false;
+    // NEW: photo capture support — only surfaced when targetStatus (Reels stays video-only).
+    private ImageCapture imageCapture;
+    private boolean photoMode = false;
+    private TextView btnPhotoVideoToggle;
+    /** Tracks live sticker overlay views so a status photo capture can bake them in. */
+    private final List<View> stickerLiveViews = new ArrayList<>();
 
     // ─────────────────────────────────────────────────────────────────────
     //  Inner data class — holds all properties of one text overlay
@@ -225,6 +252,8 @@ public class ReelCameraActivity extends AppCompatActivity {
         setupTimerChips();
         setupClickListeners();
         readSoundExtras();
+        targetStatus = getIntent() != null && getIntent().getBooleanExtra(EXTRA_TARGET_STATUS, false);
+        if (targetStatus) addPhotoVideoToggle();
         if (allPermissionsGranted()) {
             startCamera();
         } else {
@@ -417,11 +446,12 @@ public class ReelCameraActivity extends AppCompatActivity {
             .setQualitySelector(QualitySelector.from(Quality.HD))
             .build();
         videoCapture = VideoCapture.withOutput(recorder);
+        imageCapture = new ImageCapture.Builder().build();
 
         cameraProvider.unbindAll();
         try {
             camera = cameraProvider.bindToLifecycle(
-                this, cameraSelector, preview, videoCapture);
+                this, cameraSelector, preview, videoCapture, imageCapture);
             updateFlashIcon();
         } catch (Exception e) {
             Log.e(TAG, "Use case binding failed", e);
@@ -430,7 +460,159 @@ public class ReelCameraActivity extends AppCompatActivity {
     }
 
     // ─────────────────────────────────────────────────────────────────────
+    // ── Photo capture (NEW — Status flow only) ─────────────────────────────
+    /**
+     * Small "📷 Photo / 🎥 Video" pill added above the shutter button, only
+     * when this camera was opened from Status (targetStatus). Reels itself
+     * stays video-only — this doesn't touch the normal Reels camera UI at all.
+     */
+    private void addPhotoVideoToggle() {
+        if (rootOverlay == null) return;
+        btnPhotoVideoToggle = new TextView(this);
+        int dp = (int) getResources().getDisplayMetrics().density;
+        btnPhotoVideoToggle.setText("🎥 Video  |  📷 Photo");
+        btnPhotoVideoToggle.setTextColor(Color.WHITE);
+        btnPhotoVideoToggle.setTextSize(13);
+        btnPhotoVideoToggle.setPadding(16 * dp, 8 * dp, 16 * dp, 8 * dp);
+        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+        bg.setColor(0x99000000);
+        bg.setCornerRadius(20 * dp);
+        btnPhotoVideoToggle.setBackground(bg);
+
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT);
+        lp.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
+        lp.bottomMargin = 140 * dp;
+        rootOverlay.addView(btnPhotoVideoToggle, lp);
+
+        btnPhotoVideoToggle.setOnClickListener(v -> {
+            photoMode = !photoMode;
+            btnPhotoVideoToggle.setText(photoMode ? "📷 Photo  |  🎥 Video" : "🎥 Video  |  📷 Photo");
+            Toast.makeText(this, photoMode ? "Photo mode — tap shutter to capture" : "Video mode — tap to record",
+                Toast.LENGTH_SHORT).show();
+        });
+    }
+
+    private void capturePhoto() {
+        if (imageCapture == null) return;
+        File outFile = new File(getCacheDir(), "status_photo_" + System.currentTimeMillis() + ".jpg");
+        ImageCapture.OutputFileOptions options = new ImageCapture.OutputFileOptions.Builder(outFile).build();
+        btnRecord.setEnabled(false);
+        imageCapture.takePicture(options, ContextCompat.getMainExecutor(this),
+            new ImageCapture.OnImageSavedCallback() {
+                @Override public void onImageSaved(@NonNull ImageCapture.OutputFileResults outputFileResults) {
+                    if (isFinishing() || isDestroyed()) return;
+                    btnRecord.setEnabled(true);
+                    finishPhotoCapture(outFile.getAbsolutePath());
+                }
+                @Override public void onError(@NonNull ImageCaptureException exception) {
+                    if (isFinishing() || isDestroyed()) return;
+                    btnRecord.setEnabled(true);
+                    Toast.makeText(ReelCameraActivity.this,
+                        "Photo capture failed: " + exception.getMessage(), Toast.LENGTH_SHORT).show();
+                }
+            });
+    }
+
+    /**
+     * Bakes the currently selected filter (brightness/contrast/saturation)
+     * and any live text/sticker overlays onto the captured photo, then hands
+     * the finished JPEG straight back to NewStatusActivity — mirroring what
+     * proceedToUpload()/finishForStatusResult() do for video.
+     */
+    private void finishPhotoCapture(String path) {
+        try {
+            Bitmap photo = BitmapFactory.decodeFile(path);
+            if (photo == null) {
+                Toast.makeText(this, "Couldn't read captured photo", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            // Front camera preview is mirrored — mirror the saved file back so
+            // the final photo matches what the person actually saw/posed for.
+            if (lensFacing == CameraSelector.LENS_FACING_FRONT) {
+                Matrix m = new Matrix();
+                m.preScale(-1f, 1f);
+                photo = Bitmap.createBitmap(photo, 0, 0, photo.getWidth(), photo.getHeight(), m, true);
+            }
+
+            boolean hasFilter = filterName != null && !filterName.isEmpty() && !filterName.equals("Normal");
+            if (hasFilter) {
+                photo = applyFilterToBitmap(photo, filterBrightness, filterContrast, filterSaturation);
+            }
+            if (!stickerLiveViews.isEmpty() || !textOverlayList.isEmpty()) {
+                photo = bakeOverlaysOntoBitmap(photo);
+            }
+
+            java.io.FileOutputStream fos = new java.io.FileOutputStream(path);
+            photo.compress(Bitmap.CompressFormat.JPEG, 92, fos);
+            fos.close();
+        } catch (Exception e) {
+            Log.e(TAG, "Photo bake failed, sending original capture", e);
+        }
+
+        String textOverlay = "";
+        if (!textOverlayList.isEmpty()) textOverlay = textOverlayList.get(0).text;
+
+        Intent result = new Intent();
+        result.putExtra("photo_uri",    path);
+        result.putExtra("is_photo",     true);
+        result.putExtra("text_overlay", textOverlay);
+        if (!preSelectedSoundId.isEmpty())    result.putExtra("selected_sound_id",    preSelectedSoundId);
+        if (!preSelectedSoundTitle.isEmpty()) result.putExtra("selected_sound_title", preSelectedSoundTitle);
+        if (!preSelectedSoundUrl.isEmpty())   result.putExtra("selected_sound_url",   preSelectedSoundUrl);
+        setResult(RESULT_OK, result);
+        finish();
+    }
+
+    /** Real pixel-level bake using the same brightness/contrast/saturation params as the live filter buttons. */
+    private Bitmap applyFilterToBitmap(Bitmap src, float brightness, float contrast, float saturation) {
+        Bitmap out = src.copy(Bitmap.Config.ARGB_8888, true);
+        Canvas canvas = new Canvas(out);
+        Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+
+        ColorMatrix satMatrix = new ColorMatrix();
+        satMatrix.setSaturation(saturation);
+
+        float c = contrast;
+        float translate = (-0.5f * c + 0.5f + (brightness / 255f)) * 255f;
+        ColorMatrix contrastBrightness = new ColorMatrix(new float[]{
+            c, 0, 0, 0, translate,
+            0, c, 0, 0, translate,
+            0, 0, c, 0, translate,
+            0, 0, 0, 1, 0
+        });
+        satMatrix.postConcat(contrastBrightness);
+
+        paint.setColorFilter(new ColorMatrixColorFilter(satMatrix));
+        canvas.drawBitmap(src, 0, 0, paint);
+        return out;
+    }
+
+    /** Draws every live text/sticker overlay view onto the photo, scaled from preview-space to photo-space. */
+    private Bitmap bakeOverlaysOntoBitmap(Bitmap src) {
+        if (rootOverlay == null || rootOverlay.getWidth() == 0 || rootOverlay.getHeight() == 0) return src;
+        Bitmap out = src.copy(Bitmap.Config.ARGB_8888, true);
+        Canvas canvas = new Canvas(out);
+        float scaleX = (float) out.getWidth()  / rootOverlay.getWidth();
+        float scaleY = (float) out.getHeight() / rootOverlay.getHeight();
+
+        List<View> allOverlays = new ArrayList<>(stickerLiveViews);
+        for (TextOverlayData td : textOverlayList) {
+            if (td.liveView != null) allOverlays.add(td.liveView);
+        }
+        for (View v : allOverlays) {
+            if (v == null || v.getWidth() == 0 || v.getHeight() == 0) continue;
+            canvas.save();
+            canvas.translate(v.getX() * scaleX, v.getY() * scaleY);
+            canvas.scale(scaleX, scaleY);
+            v.draw(canvas);
+            canvas.restore();
+        }
+        return out;
+    }
+
     private void toggleRecording() {
+        if (photoMode) { capturePhoto(); return; }
         if (isRecording) stopRecording();
         else             startRecording();
     }
@@ -594,7 +776,14 @@ public class ReelCameraActivity extends AppCompatActivity {
             intent.putExtra(ReelEditorActivity.EXTRA_PRESET_STICKERS_JSON, arr.toString());
         }
 
-        startActivity(intent);
+        if (targetStatus) {
+            // Status flow: forward the flag so the editor sends its final
+            // result back here instead of opening ReelUploadActivity.
+            intent.putExtra(EXTRA_TARGET_STATUS, true);
+            startActivityForResult(intent, REQ_EDITOR_FOR_STATUS);
+        } else {
+            startActivity(intent);
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -835,6 +1024,7 @@ public class ReelCameraActivity extends AppCompatActivity {
         lp.leftMargin = rootOverlay.getWidth()  / 4;
         lp.topMargin  = rootOverlay.getHeight() / 3;
         rootOverlay.addView(overlayView, lp);
+        stickerLiveViews.add(overlayView);
 
         overlayView.setOnTouchListener(new View.OnTouchListener() {
             float dX, dY;
@@ -917,6 +1107,18 @@ public class ReelCameraActivity extends AppCompatActivity {
     protected void onActivityResult(int requestCode, int resultCode,
                                     @Nullable Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+
+        // ── Editor finished (Status flow) — bubble the final video + all
+        // baked-in filter/effect/sticker/text/sound data straight back up
+        // to NewStatusActivity instead of continuing into ReelUploadActivity ──
+        if (requestCode == REQ_EDITOR_FOR_STATUS) {
+            if (resultCode == RESULT_OK && data != null) {
+                setResult(RESULT_OK, data);
+                finish();
+            }
+            // Cancelled → user backed out of the editor, stay on the camera screen.
+            return;
+        }
 
         // ── Effects ───────────────────────────────────────────────────────
         if (requestCode == REQ_EFFECTS && resultCode == RESULT_OK && data != null) {

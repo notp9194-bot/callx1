@@ -88,6 +88,10 @@ public class ReelEditorActivity extends AppCompatActivity {
     public static final String EXTRA_PRESET_EFFECT_BEAUTY     = "preset_effect_beauty";
     /** Recording speed carried from ReelCameraActivity → ReelSpeedControlActivity result */
     public static final String EXTRA_PRESET_SPEED             = "preset_speed";
+    /** NEW: forwarded from ReelCameraActivity when opened from Status's "Add Status"
+     *  camera flow — routes the final "Next" tap back to Status (setResult) instead
+     *  of on into ReelUploadActivity. Must match ReelCameraActivity.EXTRA_TARGET_STATUS. */
+    public static final String EXTRA_TARGET_STATUS            = "target_status";
 
     private static final int REQ_FILTERS     = 401;
     private static final int REQ_STICKERS    = 402;
@@ -198,6 +202,9 @@ public class ReelEditorActivity extends AppCompatActivity {
     // Thumbnail
     private String thumbnailPath    = "";
     private long   thumbnailFrameMs = 0;
+    // NEW: true when this editor session was opened from Status's camera flow —
+    // see EXTRA_TARGET_STATUS / proceedToUploadInternal().
+    private boolean targetStatus = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -206,6 +213,7 @@ public class ReelEditorActivity extends AppCompatActivity {
 
         videoUriStr = getIntent().getStringExtra(EXTRA_VIDEO_URI);
         isFilePath  = getIntent().getBooleanExtra(EXTRA_IS_FILE_PATH, true);
+        targetStatus = getIntent().getBooleanExtra(EXTRA_TARGET_STATUS, false);
 
         isDuet         = getIntent().getBooleanExtra(EXTRA_IS_DUET, false);
         duetOriginalId = nvl(getIntent().getStringExtra(EXTRA_DUET_ORIGINAL_ID));
@@ -1369,6 +1377,16 @@ public class ReelEditorActivity extends AppCompatActivity {
             && tvTextPreview.getVisibility() == View.VISIBLE)
             ? tvTextPreview.getText().toString() : "";
 
+        // NEW: Status flow — hand the finished (already filter/overlay-baked,
+        // if applicable) video straight back to NewStatusActivity via setResult
+        // instead of opening ReelUploadActivity. All the camera/editor features
+        // the person used (speed, filters, effects, stickers, text, sound pick)
+        // are carried across in the result extras below.
+        if (targetStatus) {
+            finishForStatusResult(textOverlay);
+            return;
+        }
+
         Intent intent = new Intent(this, ReelUploadActivity.class);
         intent.putExtra(ReelUploadActivity.EXTRA_VIDEO_URI,    videoUriStr);
         intent.putExtra(ReelUploadActivity.EXTRA_IS_FILE_PATH, isFilePath);
@@ -1462,6 +1480,34 @@ public class ReelEditorActivity extends AppCompatActivity {
         }
 
         startActivity(intent);
+    }
+
+    /**
+     * NEW: Status flow terminus — packages the finished video (already
+     * hard-baked with filter/sticker/text pixels if runHardBakeExport ran)
+     * plus every other camera/editor feature the person used, and hands it
+     * back to NewStatusActivity as an activity result. Mirrors
+     * proceedToUploadInternal()'s extras so nothing the person picked in the
+     * camera/editor gets silently dropped — Status decides what to do with
+     * each piece (video preview, caption prefill, music sticker, etc).
+     */
+    private void finishForStatusResult(String textOverlay) {
+        Intent result = new Intent();
+        result.putExtra("video_uri",     videoUriStr);
+        result.putExtra("is_file_path",  isFilePath);
+        result.putExtra("text_overlay",  textOverlay);
+
+        if (!preSelectedSoundId.isEmpty())    result.putExtra("selected_sound_id",    preSelectedSoundId);
+        if (!preSelectedSoundTitle.isEmpty()) result.putExtra("selected_sound_title", preSelectedSoundTitle);
+        if (!preSelectedSoundUrl.isEmpty())   result.putExtra("selected_sound_url",   preSelectedSoundUrl);
+
+        if (!filterName.isEmpty())   result.putExtra("filter_name",   filterName);
+        if (!stickerJson.isEmpty())  result.putExtra("sticker_json",  stickerJson);
+        if (cameraSpeed != 1.0f)     result.putExtra("camera_speed",  cameraSpeed);
+        if (!thumbnailPath.isEmpty())result.putExtra("thumbnail_path", thumbnailPath);
+
+        setResult(RESULT_OK, result);
+        finish();
     }
 
     // ── Utility ───────────────────────────────────────────────────────────

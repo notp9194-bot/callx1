@@ -105,6 +105,13 @@ public class NewStatusActivity extends AppCompatActivity {
     private ActivityResultLauncher<String>  videoPicker;
     private ActivityResultLauncher<Uri>     cameraCapture;
     private ActivityResultLauncher<String>  cameraVideoCapture;
+    // NEW: launches feature-reels' ReelCameraActivity (the same rich camera
+    // used by the Reels tab's + / Create button — filters, effects, speed,
+    // stickers, text, trending audio) and receives the finished video back.
+    // Launched via class-name Intent (no compile dependency — feature-status
+    // cannot depend on feature-reels since feature-reels already depends on
+    // feature-status).
+    private ActivityResultLauncher<Intent>  reelCameraLauncher;
     // Result of the full-screen editor opened from the attach-sheet's "Edit"
     // action — see showStatusAddSheet()'s onMediaEdit callback.
     private ActivityResultLauncher<Intent>  statusMediaEditLauncher;
@@ -135,6 +142,9 @@ public class NewStatusActivity extends AppCompatActivity {
         setupToolbar();
         setupMediaPickers();
         setupCameraCapture();
+        reelCameraLauncher = registerForActivityResult(
+                new ActivityResultContracts.StartActivityForResult(),
+                this::handleReelCameraResult);
         statusMediaEditLauncher = registerForActivityResult(
                 new ActivityResultContracts.StartActivityForResult(),
                 result -> {
@@ -598,7 +608,7 @@ public class NewStatusActivity extends AppCompatActivity {
                 new com.callx.app.conversation.controllers.AttachSheetRecentMediaBinder.Callbacks() {
                     @Override public void onCameraTapped() {
                         sheet.dismiss();
-                        captureFromCamera();
+                        openReelCamera();
                     }
                     @Override public void onMoreAppsRequested() {
                         sheet.dismiss();
@@ -759,6 +769,89 @@ public class NewStatusActivity extends AppCompatActivity {
             toast("Camera error: " + e.getMessage());
         }
     }
+
+    // ── Reels camera (NEW) — same camera as Reels tab's + / Create button ──
+    /**
+     * Opens feature-reels' ReelCameraActivity — the full-feature camera
+     * (filters, effects, speed control, stickers, text overlays, trending
+     * audio, drafts, multi-clip) instead of the plain photo-only system
+     * camera. Launched by class name (no compile-time module dependency)
+     * since feature-status can't depend on feature-reels.
+     *
+     * The camera → editor chain is told target_status=true, which makes it
+     * hand the finished video back here as an activity result (see
+     * ReelCameraActivity / ReelEditorActivity) instead of continuing on
+     * into the Reels upload/post flow.
+     */
+    private void openReelCamera() {
+        try {
+            Intent intent = new Intent();
+            intent.setClassName(getPackageName(), "com.callx.app.camera.ReelCameraActivity");
+            intent.putExtra("target_status", true);
+            if (intent.resolveActivity(getPackageManager()) == null) {
+                // Reels module not present on this build — fall back to the plain camera.
+                captureFromCamera();
+                return;
+            }
+            reelCameraLauncher.launch(intent);
+        } catch (Exception e) {
+            toast("Camera error: " + e.getMessage());
+            captureFromCamera();
+        }
+    }
+
+    /** Handles the result bubbled back from ReelCameraActivity → ReelEditorActivity. */
+    private void handleReelCameraResult(androidx.activity.result.ActivityResult result) {
+        if (result.getResultCode() != RESULT_OK || result.getData() == null) return;
+        Intent data = result.getData();
+
+        // NEW: Photo mode — ReelCameraActivity bakes the filter/overlays itself
+        // and returns the JPEG directly (no video editor in the loop).
+        boolean isPhoto = data.getBooleanExtra("is_photo", false);
+        String photoUriStr = data.getStringExtra("photo_uri");
+        if (isPhoto && photoUriStr != null && !photoUriStr.isEmpty()) {
+            Uri photoUri = Uri.fromFile(new java.io.File(photoUriStr));
+            String caption = data.getStringExtra("text_overlay");
+            showSinglePickedPreview(photoUri, false, caption);
+            attachMusicStickerIfAny(data);
+            return;
+        }
+
+        String videoUriStr = data.getStringExtra("video_uri");
+        if (videoUriStr == null || videoUriStr.isEmpty()) return;
+        boolean isFilePath  = data.getBooleanExtra("is_file_path", true);
+        Uri videoUri = isFilePath
+                ? Uri.fromFile(new java.io.File(videoUriStr))
+                : Uri.parse(videoUriStr);
+
+        String caption = data.getStringExtra("text_overlay");
+        showSinglePickedPreview(videoUri, true, caption);
+        attachMusicStickerIfAny(data);
+    }
+
+    /**
+     * If a trending-audio sound was picked in the camera, attach it as a
+     * Music sticker on the status preview — same sticker/JSON format used
+     * by StatusStickerPickerSheet's own "🎵 Music" option.
+     */
+    private void attachMusicStickerIfAny(Intent data) {
+        String soundTitle = data.getStringExtra("selected_sound_title");
+        if (soundTitle == null || soundTitle.isEmpty()) return;
+        String soundId  = data.getStringExtra("selected_sound_id");
+        String soundUrl = data.getStringExtra("selected_sound_url");
+        try {
+            org.json.JSONObject musicJson = new org.json.JSONObject();
+            musicJson.put("type",     "music");
+            musicJson.put("song",     soundTitle);
+            musicJson.put("artist",   "");
+            musicJson.put("soundId",  soundId  != null ? soundId  : "");
+            musicJson.put("soundUrl", soundUrl != null ? soundUrl : "");
+            String json = musicJson.toString();
+            addedStickerJsons.add(json);
+            addStickerOverlay(json);
+        } catch (Exception ignored) {}
+    }
+
     private void captureVideoFromCamera() {
         if (!hasCameraPermission()) { requestCameraPermission(); return; }
         Intent intent = new Intent(MediaStore.ACTION_VIDEO_CAPTURE);
