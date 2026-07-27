@@ -1639,6 +1639,14 @@ public class UserReelsActivity extends AppCompatActivity
         List<ReelModel> data = activeTabData();
         int reelIdx = adapter.hasPinned() ? adapterPos - 1 : adapterPos;
 
+        // Long-pressing the pinned reel tile (adapter position 0) has no
+        // matching entry in `data` (reelIdx would be -1), so it used to
+        // fall through to enterMultiSelectMode() instead of offering an
+        // unpin option. Route it to the same options sheet directly.
+        if (isSelf && activeTab == TAB_REELS && adapter.hasPinned() && adapterPos == 0 && pinnedReel != null) {
+            showAnalyticsSheet(pinnedReel, adapterPos);
+            return;
+        }
         if (isSelf && activeTab == TAB_REELS && reelIdx >= 0 && reelIdx < data.size()) {
             showAnalyticsSheet(data.get(reelIdx), adapterPos);
             return;
@@ -1652,14 +1660,15 @@ public class UserReelsActivity extends AppCompatActivity
     // ── Analytics sheet (Feature 15) ──────────────────────────────────────
 
     private void showAnalyticsSheet(ReelModel reel, int adapterPos) {
+        boolean isPinned = pinnedReel != null && reel.reelId != null && reel.reelId.equals(pinnedReel.reelId);
         AlertDialogStyler.showRounded(new AlertDialog.Builder(this)
             .setTitle("Reel Options")
-            .setItems(new String[]{"View Insights", "Pin Reel", "Share", "Delete"}, (d, which) -> {
+            .setItems(new String[]{"View Insights", isPinned ? "Unpin Reel" : "Pin Reel", "Share", "Delete"}, (d, which) -> {
                 switch (which) {
                     case 0:
                         ReelAnalyticsBottomSheet.newInstance(reel)
                             .show(getSupportFragmentManager(), "analytics"); break;
-                    case 1: pinReel(reel.reelId); break;
+                    case 1: if (isPinned) unpinReel(); else pinReel(reel.reelId); break;
                     case 2: shareProfile(); break;
                     case 3: confirmDeleteSingleReel(reel); break;
                 }

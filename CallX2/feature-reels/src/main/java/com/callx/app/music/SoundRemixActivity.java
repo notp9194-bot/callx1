@@ -74,6 +74,11 @@ public class SoundRemixActivity extends AppCompatActivity {
     private int volumeA      = 80; // percent
     private int volumeB      = 80;
 
+    // ── Advanced blend settings ─────────────────────────────────────────────
+    private int   fadeInMs         = 0;
+    private int   fadeOutMs        = 1000;
+    private float pitchSemitonesB  = 0f;
+
     // ── Views ─────────────────────────────────────────────────────────────────
     private ImageButton btnBack;
     private TextView    tvSoundAName, tvSoundBName, tvBlendLabel, tvStatus;
@@ -82,6 +87,20 @@ public class SoundRemixActivity extends AppCompatActivity {
     private Button      btnCreateRemix;
     private ProgressBar pbRemix;
     private EditText    etRemixTitle;
+
+    // ── Advanced controls ────────────────────────────────────────────────────
+    private ImageButton btnPreviewA, btnPreviewB;
+    private View        btnSwap;
+    private SeekBar     sbFadeIn, sbFadeOut, sbPitchB;
+    private TextView    tvFadeInLabel, tvFadeOutLabel, tvPitchLabel;
+    private android.widget.Switch swNormalize;
+
+    // ── Preview playback (audition Sound A / B before mixing) ─────────────────
+    private android.media.MediaPlayer previewPlayer;
+    private int previewingTrack = 0; // 0 = none, 1 = A, 2 = B
+
+    // ── Processing guard (block back navigation mid-mix) ──────────────────────
+    private boolean isProcessing = false;
 
     // ── Threading (download fallback only; AudioMixHelper has its own executor) ──
     private final ExecutorService executor    = Executors.newSingleThreadExecutor();
@@ -119,8 +138,19 @@ public class SoundRemixActivity extends AppCompatActivity {
         pbRemix        = findViewById(R.id.pb_remix);
         etRemixTitle   = findViewById(R.id.et_remix_title);
 
+        btnPreviewA    = findViewById(R.id.btn_preview_a);
+        btnPreviewB    = findViewById(R.id.btn_preview_b);
+        btnSwap        = findViewById(R.id.btn_remix_swap);
+        sbFadeIn       = findViewById(R.id.sb_remix_fade_in);
+        sbFadeOut      = findViewById(R.id.sb_remix_fade_out);
+        sbPitchB       = findViewById(R.id.sb_remix_pitch_b);
+        tvFadeInLabel  = findViewById(R.id.tv_remix_fade_in_label);
+        tvFadeOutLabel = findViewById(R.id.tv_remix_fade_out_label);
+        tvPitchLabel   = findViewById(R.id.tv_remix_pitch_label);
+        swNormalize    = findViewById(R.id.sw_remix_normalize);
+
         // Toolbar
-        if (btnBack != null) btnBack.setOnClickListener(v -> finish());
+        if (btnBack != null) btnBack.setOnClickListener(v -> confirmBackOrFinish());
 
         // Sound A label
         if (tvSoundAName != null)
@@ -132,6 +162,20 @@ public class SoundRemixActivity extends AppCompatActivity {
             btnPickSoundB.setOnClickListener(v ->
                 startActivityForResult(
                     new Intent(this, ReelTrendingAudioActivity.class), REQ_PICK_SOUND_B));
+
+        // ── Preview A / B (audition before mixing) ─────────────────────────
+        if (btnPreviewA != null) btnPreviewA.setOnClickListener(v -> togglePreview(1, soundAUrl));
+        if (btnPreviewB != null) {
+            btnPreviewB.setEnabled(false);
+            btnPreviewB.setAlpha(0.4f);
+            btnPreviewB.setOnClickListener(v -> togglePreview(2, soundBUrl));
+        }
+
+        // ── Swap A ⇄ B ───────────────────────────────────────────────────────
+        if (btnSwap != null) btnSwap.setOnClickListener(v -> swapSounds());
+
+        // ── Create button starts disabled — needs Sound B first ────────────
+        if (btnCreateRemix != null) btnCreateRemix.setEnabled(false);
 
         // Blend slider: 0=all A, 100=all B
         if (sbBlend != null) {
@@ -154,6 +198,26 @@ public class SoundRemixActivity extends AppCompatActivity {
             sbVolB.setProgress(volumeB);
             sbVolB.setOnSeekBarChangeListener(simpleSeekBar(p -> volumeB = p));
         }
+
+        // ── Advanced: fade-in / fade-out (ms) ───────────────────────────────
+        if (sbFadeIn != null) {
+            sbFadeIn.setMax(3000);
+            sbFadeIn.setProgress(fadeInMs);
+            sbFadeIn.setOnSeekBarChangeListener(simpleSeekBar(p -> { fadeInMs = p; updateFadeLabels(); }));
+        }
+        if (sbFadeOut != null) {
+            sbFadeOut.setMax(3000);
+            sbFadeOut.setProgress(fadeOutMs);
+            sbFadeOut.setOnSeekBarChangeListener(simpleSeekBar(p -> { fadeOutMs = p; updateFadeLabels(); }));
+        }
+        // ── Advanced: pitch shift for Sound B — seekbar 0..24 maps to -12..+12 semitones ──
+        if (sbPitchB != null) {
+            sbPitchB.setMax(24);
+            sbPitchB.setProgress(12);
+            sbPitchB.setOnSeekBarChangeListener(simpleSeekBar(p -> { pitchSemitonesB = p - 12; updatePitchLabel(); }));
+        }
+        updateFadeLabels();
+        updatePitchLabel();
 
         updateBlendLabel();
         refreshRemixTitle();
@@ -187,9 +251,20 @@ public class SoundRemixActivity extends AppCompatActivity {
     protected void onActivityResult(int req, int res, Intent data) {
         super.onActivityResult(req, res, data);
         if (req == REQ_PICK_SOUND_B && res == RESULT_OK && data != null) {
-            soundBId     = nvl(data.getStringExtra(ReelTrendingAudioActivity.RESULT_AUDIO_ID));
+            String pickedId    = nvl(data.getStringExtra(ReelTrendingAudioActivity.RESULT_AUDIO_ID));
+            String pickedUrl   = nvl(data.getStringExtra(ReelTrendingAudioActivity.RESULT_AUDIO_URL));
+
+            // ── Guard: same sound picked for both A and B doesn't make a real remix ──
+            boolean sameAsA = (!pickedId.isEmpty() && pickedId.equals(soundAId))
+                            || (!pickedUrl.isEmpty() && pickedUrl.equals(soundAUrl));
+            if (sameAsA) {
+                Toast.makeText(this, "Pick a different sound for B", Toast.LENGTH_SHORT).show();
+                return;
+            }
+
+            soundBId     = pickedId;
+            soundBUrl    = pickedUrl;
             soundBTitle  = nvl(data.getStringExtra(ReelTrendingAudioActivity.RESULT_AUDIO_TITLE));
-            soundBUrl    = nvl(data.getStringExtra(ReelTrendingAudioActivity.RESULT_AUDIO_URL));
             soundBCover  = nvl(data.getStringExtra(ReelTrendingAudioActivity.RESULT_COVER_URL));
             soundBArtist = nvl(data.getStringExtra(ReelTrendingAudioActivity.RESULT_AUDIO_ARTIST));
 
@@ -197,10 +272,111 @@ public class SoundRemixActivity extends AppCompatActivity {
                 tvSoundBName.setText(soundBTitle.isEmpty() ? "Sound B" : soundBTitle);
             refreshRemixTitle();
 
-            // Auto-enable Create button & clear old status
+            // Auto-enable Create + preview B now that Sound B is valid; clear old status
             if (btnCreateRemix != null) btnCreateRemix.setEnabled(true);
+            if (btnPreviewB != null) { btnPreviewB.setEnabled(true); btnPreviewB.setAlpha(1f); }
             if (tvStatus != null) tvStatus.setText("");
         }
+    }
+
+    // ── Swap A ⇄ B ──────────────────────────────────────────────────────────
+
+    /** ✅ Advanced feature: instantly swap which sound is "A" and which is "B",
+     *  including their volumes — quick way to compare both blend directions. */
+    private void swapSounds() {
+        if (soundBUrl.isEmpty()) {
+            Toast.makeText(this, "Pick Sound B first", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        stopPreview();
+        String tId = soundAId, tTitle = soundATitle, tUrl = soundAUrl, tCover = soundACover, tArtist = soundAArtist;
+        soundAId = soundBId; soundATitle = soundBTitle; soundAUrl = soundBUrl; soundACover = soundBCover; soundAArtist = soundBArtist;
+        soundBId = tId; soundBTitle = tTitle; soundBUrl = tUrl; soundBCover = tCover; soundBArtist = tArtist;
+
+        int tVol = volumeA; volumeA = volumeB; volumeB = tVol;
+        if (sbVolA != null) sbVolA.setProgress(volumeA);
+        if (sbVolB != null) sbVolB.setProgress(volumeB);
+
+        if (tvSoundAName != null) tvSoundAName.setText(soundATitle.isEmpty() ? "Sound A" : soundATitle);
+        if (tvSoundBName != null) tvSoundBName.setText(soundBTitle.isEmpty() ? "Sound B" : soundBTitle);
+        refreshRemixTitle();
+    }
+
+    // ── Preview playback (audition Sound A / B before creating the remix) ────
+
+    /** Toggles preview playback for the given track (1=A, 2=B). Stops any other preview first. */
+    private void togglePreview(int track, String url) {
+        if (url == null || url.isEmpty()) {
+            Toast.makeText(this, "Audio not available", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (previewingTrack == track) { stopPreview(); return; }
+        stopPreview();
+        try {
+            previewPlayer = new android.media.MediaPlayer();
+            previewPlayer.setAudioAttributes(new android.media.AudioAttributes.Builder()
+                .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+                .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC).build());
+            previewPlayer.setDataSource(url);
+            previewPlayer.setOnPreparedListener(mp -> {
+                mp.start();
+                previewingTrack = track;
+                updatePreviewIcons();
+            });
+            previewPlayer.setOnCompletionListener(mp -> stopPreview());
+            previewPlayer.setOnErrorListener((mp, what, extra) -> { stopPreview(); return true; });
+            previewPlayer.prepareAsync();
+        } catch (Exception e) {
+            Toast.makeText(this, "Cannot preview this sound", Toast.LENGTH_SHORT).show();
+            stopPreview();
+        }
+    }
+
+    private void stopPreview() {
+        if (previewPlayer != null) {
+            try { previewPlayer.release(); } catch (Exception ignored) {}
+            previewPlayer = null;
+        }
+        previewingTrack = 0;
+        updatePreviewIcons();
+    }
+
+    private void updatePreviewIcons() {
+        if (btnPreviewA != null)
+            btnPreviewA.setImageResource(previewingTrack == 1 ? R.drawable.ic_pause : R.drawable.ic_play);
+        if (btnPreviewB != null)
+            btnPreviewB.setImageResource(previewingTrack == 2 ? R.drawable.ic_pause : R.drawable.ic_play);
+    }
+
+    // ── Advanced labels ───────────────────────────────────────────────────────
+
+    private void updateFadeLabels() {
+        if (tvFadeInLabel  != null) tvFadeInLabel.setText(String.format(Locale.US, "Fade In: %.1fs", fadeInMs  / 1000f));
+        if (tvFadeOutLabel != null) tvFadeOutLabel.setText(String.format(Locale.US, "Fade Out: %.1fs", fadeOutMs / 1000f));
+    }
+
+    private void updatePitchLabel() {
+        if (tvPitchLabel == null) return;
+        String sign = pitchSemitonesB > 0 ? "+" : "";
+        tvPitchLabel.setText("Pitch Shift (Sound B): " + sign + (int) pitchSemitonesB + " st");
+    }
+
+    // ── Back navigation guard ───────────────────────────────────────────────
+
+    /** ✅ Advanced fix: prevents losing an in-progress mix by leaving mid-way. */
+    private void confirmBackOrFinish() {
+        if (!isProcessing) { stopPreview(); finish(); return; }
+        AlertDialogStyler.showRounded(new androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Cancel remix?")
+            .setMessage("Your remix is still being created. Leaving now will cancel it.")
+            .setPositiveButton("Leave", (d, w) -> { stopPreview(); finish(); })
+            .setNegativeButton("Keep waiting", null)
+            .create());
+    }
+
+    @Override
+    public void onBackPressed() {
+        confirmBackOrFinish();
     }
 
     // ── Create Remix ─────────────────────────────────────────────────────────
@@ -226,6 +402,8 @@ public class SoundRemixActivity extends AppCompatActivity {
             return;
         }
 
+        stopPreview();
+
         String rawTitle = etRemixTitle != null
             ? etRemixTitle.getText().toString().trim() : "";
         final String finalTitle = rawTitle.isEmpty()
@@ -240,8 +418,10 @@ public class SoundRemixActivity extends AppCompatActivity {
         final float bWeight = blendPercent / 100f;
         final float effectiveVolA = aWeight * (volumeA / 100f);
         final float effectiveVolB = bWeight * (volumeB / 100f);
+        final boolean normalize = swNormalize != null && swNormalize.isChecked();
 
         // ── UI → loading state ───────────────────────────────────────────────
+        isProcessing = true;
         setUiEnabled(false);
         if (pbRemix != null) pbRemix.setVisibility(View.VISIBLE);
         setStatus("Downloading and blending sounds…");
@@ -251,7 +431,8 @@ public class SoundRemixActivity extends AppCompatActivity {
             this,
             soundAUrl, effectiveVolA,   // Sound A URL + volume
             soundBUrl, effectiveVolB,   // Sound B URL + volume
-            1000,                       // 1-second fade-out at end
+            fadeInMs, fadeOutMs,        // advanced: user-adjustable fade in/out
+            pitchSemitonesB, normalize, // advanced: pitch shift on B + normalize
             new AudioMixHelper.MixCallback() {
 
                 @Override
@@ -272,6 +453,7 @@ public class SoundRemixActivity extends AppCompatActivity {
                 @Override
                 public void onError(Exception e) {
                     // Already on main thread
+                    isProcessing = false;
                     setUiEnabled(true);
                     if (pbRemix != null) pbRemix.setVisibility(View.GONE);
                     String msg = e.getMessage() != null ? e.getMessage() : "Unknown error";
@@ -291,6 +473,7 @@ public class SoundRemixActivity extends AppCompatActivity {
             myUid  = FirebaseUtils.getCurrentUid();
             myName = nvl(FirebaseUtils.getCurrentName());
         } catch (Exception e) {
+            isProcessing = false;
             setUiEnabled(true);
             if (pbRemix != null) pbRemix.setVisibility(View.GONE);
             setStatus("Not signed in. Please log in and try again.");
@@ -346,6 +529,7 @@ public class SoundRemixActivity extends AppCompatActivity {
                     FirebaseUtils.db().getReference("sounds").child(finalId).updateChildren(snd);
 
                     // ── Cleanup & navigate ──────────────────────────────────
+                    isProcessing = false;
                     if (pbRemix != null) pbRemix.setVisibility(View.GONE);
                     setUiEnabled(true);
                     // Delete the local mixed file now that upload is done
@@ -366,6 +550,7 @@ public class SoundRemixActivity extends AppCompatActivity {
                 })
             )
             .addOnFailureListener(e -> {
+                isProcessing = false;
                 if (pbRemix != null) pbRemix.setVisibility(View.GONE);
                 setUiEnabled(true);
                 setStatus("Upload failed: " + e.getMessage());
@@ -377,11 +562,18 @@ public class SoundRemixActivity extends AppCompatActivity {
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     private void setUiEnabled(boolean enabled) {
-        if (btnCreateRemix != null) btnCreateRemix.setEnabled(enabled);
+        if (btnCreateRemix != null) btnCreateRemix.setEnabled(enabled && !soundBUrl.isEmpty());
         if (btnPickSoundB  != null) btnPickSoundB.setEnabled(enabled);
         if (sbBlend != null) sbBlend.setEnabled(enabled);
         if (sbVolA  != null) sbVolA.setEnabled(enabled);
         if (sbVolB  != null) sbVolB.setEnabled(enabled);
+        if (btnPreviewA != null) btnPreviewA.setEnabled(enabled);
+        if (btnPreviewB != null) btnPreviewB.setEnabled(enabled && !soundBUrl.isEmpty());
+        if (btnSwap != null) btnSwap.setEnabled(enabled);
+        if (sbFadeIn  != null) sbFadeIn.setEnabled(enabled);
+        if (sbFadeOut != null) sbFadeOut.setEnabled(enabled);
+        if (sbPitchB  != null) sbPitchB.setEnabled(enabled);
+        if (swNormalize != null) swNormalize.setEnabled(enabled);
     }
 
     private void setStatus(String msg) {
@@ -400,9 +592,16 @@ public class SoundRemixActivity extends AppCompatActivity {
     }
 
     @Override
+    protected void onPause() {
+        super.onPause();
+        stopPreview();
+    }
+
+    @Override
     protected void onDestroy() {
         executor.shutdownNow();
         mainHandler.removeCallbacksAndMessages(null);
+        stopPreview();
         super.onDestroy();
     }
 

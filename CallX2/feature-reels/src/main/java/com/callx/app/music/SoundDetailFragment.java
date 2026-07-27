@@ -1109,10 +1109,12 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         }
         popup.setOnMenuItemClickListener(item -> {
             switch (item.getItemId()) {
+                case 1: confirmReportSound(); return true;
                 case 2: { Intent i = new Intent(requireContext(), SoundPlaylistActivity.class);
                     i.putExtra("sound_id", soundId); i.putExtra("sound_title", soundTitle);
                     i.putExtra("sound_url", soundUrl); startActivity(i); return true; }
-                case 3: shareSound(); return true;
+                case 3: copySoundLink(); return true;
+                case 4: markNotInterested(); return true;
                 case 5: { Intent i = new Intent(requireContext(), SoundUploadActivity.class);
                     i.putExtra("sound_id", soundId); i.putExtra("sound_title", soundTitle);
                     startActivity(i); return true; }
@@ -1132,6 +1134,52 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
             }
         });
         popup.show();
+    }
+
+    /** ✅ FIX: "Report sound" used to be a silent no-op — now asks for a reason
+     *  and writes the report to Firebase under sound_reports/{soundId}. */
+    private void confirmReportSound() {
+        if (isGone() || soundId.isEmpty()) return;
+        String[] reasons = {"Copyright violation", "Inappropriate content", "Spam or misleading", "Other"};
+        AlertDialogStyler.showRounded(new androidx.appcompat.app.AlertDialog.Builder(requireContext())
+            .setTitle("Report sound")
+            .setItems(reasons, (d, which) -> submitSoundReport(reasons[which]))
+            .setNegativeButton("Cancel", null)
+            .create());
+    }
+
+    private void submitSoundReport(String reason) {
+        String uid = null;
+        try { uid = FirebaseUtils.getCurrentUid(); } catch (Exception ignored) {}
+        if (uid == null) { if (isAdded()) Toast.makeText(requireContext(), "Please sign in to report", Toast.LENGTH_SHORT).show(); return; }
+        java.util.Map<String, Object> report = new java.util.HashMap<>();
+        report.put("reportedBy", uid);
+        report.put("reason", reason);
+        report.put("soundId", soundId);
+        report.put("timestamp", System.currentTimeMillis());
+        FirebaseUtils.db().getReference("sound_reports").child(soundId).push().setValue(report);
+        if (isAdded()) Toast.makeText(requireContext(), "Report submitted. Thank you.", Toast.LENGTH_SHORT).show();
+    }
+
+    /** ✅ FIX: "Copy link" was previously wired to shareSound() (opened the
+     *  share sheet instead of actually copying anything to the clipboard). */
+    private void copySoundLink() {
+        if (isGone() || soundId.isEmpty()) return;
+        String link = com.callx.app.utils.Constants.DEEP_LINK_BASE_URL + "/sound/" + soundId;
+        android.content.ClipboardManager cm =
+            (android.content.ClipboardManager) requireContext().getSystemService(android.content.Context.CLIPBOARD_SERVICE);
+        if (cm != null) cm.setPrimaryClip(android.content.ClipData.newPlainText("Sound link", link));
+        if (isAdded()) Toast.makeText(requireContext(), "Link copied", Toast.LENGTH_SHORT).show();
+    }
+
+    /** ✅ FIX: "Not interested" used to be a silent no-op — now records the
+     *  preference so recommendation surfaces (trending/related) can respect it. */
+    private void markNotInterested() {
+        String uid = null;
+        try { uid = FirebaseUtils.getCurrentUid(); } catch (Exception ignored) {}
+        if (uid == null || soundId.isEmpty()) return;
+        FirebaseUtils.getUserRef(uid).child("sound_not_interested").child(soundId).setValue(System.currentTimeMillis());
+        if (isAdded()) Toast.makeText(requireContext(), "You won't see this sound as often", Toast.LENGTH_SHORT).show();
     }
 
     // ─────────────────────────────────────────────────────────────────────────

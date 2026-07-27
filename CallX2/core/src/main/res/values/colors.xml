@@ -85,4 +85,11 @@
     <color name="colorTextSecondary">@color/text_secondary</color>
     <color name="colorError">@color/action_danger</color>
     <color name="colorPrimary">@color/brand_primary</color>
+
+    <!-- Added: referenced by feature-chat activity_group_media_viewer.xml
+         (toolbar/tab background + tab indicator) but was missing, causing
+         AAPT resource-linking failures. surface_base aliases the existing
+         card surface color; accent_blue reuses the read-tick blue. -->
+    <color name="surface_base">@color/surface_card</color>
+    <color name="accent_blue">@color/tick_read_blue</color>
 </resources>

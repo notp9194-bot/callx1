@@ -178,6 +178,30 @@ public class AudioMixHelper {
             String urlB, float volB,
             int fadeOutMs,
             MixCallback callback) {
+        // Legacy 6-arg entry point — delegate to the advanced version with
+        // no fade-in, no pitch shift, and normalize off (unchanged behaviour).
+        mixTwoAudioFiles(context, urlA, volA, urlB, volB, 0, fadeOutMs, 0f, false, callback);
+    }
+
+    /**
+     * ✅ Advanced Sound Remix — same audio-only blend pipeline as above, plus:
+     *  • fadeInMs        — fade-in applied to the start of the mixed output
+     *  • pitchSemitonesB — pitch-shifts Sound B only (creative "chipmunk / slowed" effect)
+     *  • normalize       — peak-normalizes the final mix to ~95% of full scale,
+     *                       useful when one of the two source tracks is much quieter
+     *
+     * @param fadeInMs        Length of fade-in applied to the mixed output (0 = none)
+     * @param fadeOutMs       Length of fade-out applied to the mixed output (0 = none)
+     * @param pitchSemitonesB Pitch shift for Sound B only, in semitones (-12..+12, 0 = none)
+     * @param normalize       Whether to peak-normalize the mixed output before encoding
+     */
+    public static void mixTwoAudioFiles(
+            Context context,
+            String urlA, float volA,
+            String urlB, float volB,
+            int fadeInMs, int fadeOutMs,
+            float pitchSemitonesB, boolean normalize,
+            MixCallback callback) {
 
         executor.execute(() -> {
             File fileA = null, fileB = null;
@@ -192,11 +216,16 @@ public class AudioMixHelper {
                 // ── 2. Extract PCM from each audio file ───────────────────────
                 // extractPcmFromFile handles: stereo→mono, rate-resampling to 44100
                 short[] pcmA = extractPcmFromFile(fileA.getAbsolutePath(), Integer.MAX_VALUE, 0);
-                mainHandler.post(() -> callback.onProgress(50));
+                mainHandler.post(() -> callback.onProgress(45));
                 short[] pcmB = extractPcmFromFile(fileB.getAbsolutePath(), Integer.MAX_VALUE, 0);
-                mainHandler.post(() -> callback.onProgress(65));
+                mainHandler.post(() -> callback.onProgress(58));
 
-                // ── 3. Match lengths (loop shorter to match longer) ───────────
+                // ── 3. Optional pitch shift on B — done BEFORE length-matching
+                //    since resampling changes the sample count. ────────────────
+                if (Math.abs(pitchSemitonesB) > 0.01f) pcmB = pitchShiftPcm(pcmB, pitchSemitonesB);
+                mainHandler.post(() -> callback.onProgress(63));
+
+                // ── 4. Match lengths (loop shorter to match longer) ───────────
                 int targetLen = Math.max(pcmA.length, pcmB.length);
                 if (targetLen == 0) throw new Exception("Both audio files appear to be empty");
                 if (pcmA.length < targetLen) pcmA = loopPcm(pcmA, targetLen);
@@ -206,15 +235,18 @@ public class AudioMixHelper {
                 else if (pcmB.length > targetLen)
                     pcmB = java.util.Arrays.copyOf(pcmB, targetLen);
 
-                // ── 4. Mix ────────────────────────────────────────────────────
+                // ── 5. Mix ────────────────────────────────────────────────────
                 // Treat A as "mic" and B as "music" (null voiceover)
                 short[] mixed = mixPcm(pcmA, volA, pcmB, volB, null, 0f);
 
-                // ── 5. Fade-out (optional) ────────────────────────────────────
-                if (fadeOutMs > 0) mixed = applyFades(mixed, 44100, 0, fadeOutMs);
+                // ── 6. Normalize (optional) ────────────────────────────────────
+                if (normalize) mixed = normalizePcm(mixed);
+
+                // ── 7. Fade in/out (optional) ──────────────────────────────────
+                if (fadeInMs > 0 || fadeOutMs > 0) mixed = applyFades(mixed, 44100, fadeInMs, fadeOutMs);
                 mainHandler.post(() -> callback.onProgress(78));
 
-                // ── 6. Encode to audio-only MP4 (no video muxing) ────────────
+                // ── 8. Encode to audio-only MP4 (no video muxing) ────────────
                 //    encodePcmToAac already wraps the AAC in a MediaMuxer MP4 container,
                 //    so the output is a valid playable audio-only .mp4 file.
                 String outPath = new File(context.getCacheDir(),
