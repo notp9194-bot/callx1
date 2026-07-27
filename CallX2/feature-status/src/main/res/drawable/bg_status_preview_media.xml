@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    v238: background for iv_preview on the New Status compose screen.
+
+    iv_preview switched from scaleType "centerCrop" (cropped the photo to
+    fill a small 240dp box) to "fitCenter" in a much taller box, so the WHOLE
+    photo/video frame is always visible, uncropped — matching the fix already
+    applied to the full-screen status viewer. A plain black rounded rect
+    behind it fills the leftover letterbox space (top/bottom or sides,
+    depending on the media's aspect ratio) the same way WhatsApp's own
+    preview does, instead of showing the light card surface color through
+    the gaps.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <solid android:color="#000000"/>
+    <corners android:radius="20dp"/>
+</shape>

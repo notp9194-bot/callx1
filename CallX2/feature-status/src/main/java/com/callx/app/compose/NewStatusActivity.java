@@ -138,6 +138,27 @@ public class NewStatusActivity extends AppCompatActivity {
                     java.util.ArrayList<String> uriStrings = result.getData().getStringArrayListExtra(
                             com.callx.app.conversation.controllers.MediaEditActivity.RESULT_URIS);
                     if (uriStrings == null || uriStrings.isEmpty()) return;
+                    String caption = result.getData().getStringExtra(
+                            com.callx.app.conversation.controllers.MediaEditActivity.RESULT_CAPTION);
+                    String cap = caption == null || caption.isEmpty() ? null : caption;
+                    // v238 BUG FIX: editing a single photo/video from the attach
+                    // sheet used to auto-upload + post it immediately
+                    // (postStatusBatch) the moment MediaEditActivity returned —
+                    // with no preview, no chance to set privacy/expiry/stickers,
+                    // unlike every other single-media entry point on this screen
+                    // (gallery pick, camera, layout). A single edited item now
+                    // goes through that exact same pickedImage/pickedVideo +
+                    // showImagePreview()/showVideoPreview() pipeline instead, so
+                    // Post is still one manual tap on this screen — same as the
+                    // layout flow. Multi-item edits (2+) keep posting as a batch,
+                    // same as before.
+                    if (uriStrings.size() == 1) {
+                        Uri u = Uri.parse(uriStrings.get(0));
+                        String mime = getContentResolver().getType(u);
+                        boolean isVideo = mime != null && mime.startsWith("video");
+                        showSinglePickedPreview(u, isVideo, cap);
+                        return;
+                    }
                     java.util.List<Uri> uris = new java.util.ArrayList<>();
                     java.util.List<Boolean> videoFlags = new java.util.ArrayList<>();
                     for (String s : uriStrings) {
@@ -146,13 +167,10 @@ public class NewStatusActivity extends AppCompatActivity {
                         String mime = getContentResolver().getType(u);
                         videoFlags.add(mime != null && mime.startsWith("video"));
                     }
-                    String caption = result.getData().getStringExtra(
-                            com.callx.app.conversation.controllers.MediaEditActivity.RESULT_CAPTION);
-                    String cap = caption == null || caption.isEmpty() ? null : caption;
                     // Layout no longer routes through MediaEditActivity (see
-                    // layoutPickerLauncher below), so this launcher only ever
-                    // serves the plain multi-select attach-sheet flow now —
-                    // always post each edited photo as its own status.
+                    // layoutPickerLauncher below), so multi-item results here are
+                    // always the plain multi-select attach-sheet flow — post each
+                    // edited photo as its own status.
                     postStatusBatch(uris, videoFlags, cap);
                 });
         setupBgColorPicker();
@@ -586,13 +604,29 @@ public class NewStatusActivity extends AppCompatActivity {
                             String caption, boolean isHD, boolean isViewOnce) {
                         if (items.isEmpty()) return;
                         sheet.dismiss();
+                        String cap = caption == null || caption.isEmpty() ? null : caption;
+                        // v238 BUG FIX: picking a single photo/video in the attach
+                        // sheet and tapping "Send" used to upload + post it
+                        // straight away (postStatusBatch) with zero chance to see
+                        // it, add a caption, change privacy/expiry, or add
+                        // stickers first — unlike every other single-media entry
+                        // point (gallery pick, camera capture, layout) which all
+                        // land back on THIS screen's own preview + Post button
+                        // first. Route single selections through that same
+                        // preview pipeline instead, so Post is still one manual
+                        // tap on this screen — same as the layout flow.
+                        if (items.size() == 1) {
+                            com.callx.app.conversation.controllers.RecentMediaLoader.Item item = items.get(0);
+                            showSinglePickedPreview(item.uri, item.isVideo, cap);
+                            return;
+                        }
                         java.util.List<Uri> uris = new java.util.ArrayList<>();
                         java.util.List<Boolean> videoFlags = new java.util.ArrayList<>();
                         for (com.callx.app.conversation.controllers.RecentMediaLoader.Item item : items) {
                             uris.add(item.uri);
                             videoFlags.add(item.isVideo);
                         }
-                        postStatusBatch(uris, videoFlags, caption == null || caption.isEmpty() ? null : caption);
+                        postStatusBatch(uris, videoFlags, cap);
                     }
                     @Override public void onMediaEdit(
                             java.util.List<com.callx.app.conversation.controllers.RecentMediaLoader.Item> items,
@@ -995,13 +1029,36 @@ public class NewStatusActivity extends AppCompatActivity {
         getSharedPreferences(PREFS_DRAFT, MODE_PRIVATE).edit().remove(KEY_DRAFT).apply();
     }
     // ── Media preview helpers ─────────────────────────────────────────────
+    /**
+     * v238: Common landing spot for any single photo/video coming from the
+     * attach sheet's "Send" or "Edit" chips — mirrors exactly what gallery
+     * pick, camera capture, and the layout flow already do: set
+     * pickedImage/pickedVideo, show the preview, optionally seed the
+     * caption box, and leave posting to the person's own tap on Post.
+     */
+    private void showSinglePickedPreview(Uri uri, boolean isVideo, String caption) {
+        if (isVideo) {
+            pickedVideo = uri; pickedImage = null;
+            showVideoPreview(uri);
+        } else {
+            pickedImage = uri; pickedVideo = null;
+            showImagePreview(uri);
+        }
+        if (caption != null && !caption.isEmpty() && binding.etCaption != null) {
+            binding.etCaption.setText(caption);
+        }
+    }
     private void showImagePreview(Uri uri) {
         binding.ivPreview.setVisibility(View.VISIBLE);
         binding.ivVideoHint.setVisibility(View.GONE);
         binding.btnDiscardMedia.setVisibility(View.VISIBLE);
         // Also show the overlay frame (so stickers are visible over the image)
         if (stickerOverlayFrame != null) stickerOverlayFrame.setVisibility(View.VISIBLE);
-        Glide.with(this).load(uri).centerCrop().override(480, 853).into(binding.ivPreview);
+        // v238 BUG FIX: .centerCrop() here forcibly cropped the bitmap itself
+        // regardless of the ImageView's own scaleType — switched to
+        // .fitCenter() so the full photo/layout collage is always visible,
+        // matching the taller fitCenter box in the layout.
+        Glide.with(this).load(uri).fitCenter().into(binding.ivPreview);
         binding.captionGroup.setVisibility(View.VISIBLE);
         hideBgColorPicker();
     }
@@ -1010,7 +1067,7 @@ public class NewStatusActivity extends AppCompatActivity {
         binding.ivVideoHint.setVisibility(View.VISIBLE);
         binding.btnDiscardMedia.setVisibility(View.VISIBLE);
         if (stickerOverlayFrame != null) stickerOverlayFrame.setVisibility(View.VISIBLE);
-        Glide.with(this).load(uri).centerCrop().override(480, 853).into(binding.ivPreview);
+        Glide.with(this).load(uri).fitCenter().into(binding.ivPreview);
         binding.captionGroup.setVisibility(View.VISIBLE);
         hideBgColorPicker();
     }

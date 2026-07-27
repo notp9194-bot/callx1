@@ -6,11 +6,22 @@
       android:background="@color/black">
 
       <!-- Full-screen content layers -->
+      <!-- WhatsApp-style backdrop: a blurred, darkened, cropped copy of the
+           same image fills the whole screen behind the actual photo, which
+           is shown with fitCenter (never cropped) on top of it. See
+           StatusViewerActivity#showImageStatusFromUrl() / StatusBlurTransformation. -->
+      <ImageView
+          android:id="@+id/iv_status_bg"
+          android:layout_width="match_parent"
+          android:layout_height="match_parent"
+          android:scaleType="centerCrop"
+          android:visibility="gone"/>
+
       <ImageView
           android:id="@+id/iv_status"
           android:layout_width="match_parent"
           android:layout_height="match_parent"
-          android:scaleType="centerCrop"
+          android:scaleType="fitCenter"
           android:visibility="gone"/>
 
       <androidx.media3.ui.PlayerView

@@ -341,6 +341,17 @@ import com.callx.app.utils.AlertDialogStyler;
       }
       private void showImageStatusFromUrl(String url, String caption) {
           binding.ivStatus.setVisibility(View.VISIBLE);
+          binding.ivStatusBg.setVisibility(View.VISIBLE);
+          // WhatsApp-style: full photo, never cropped (fitCenter, set in
+          // XML) + a blurred/darkened cropped copy of the same photo filling
+          // the screen behind it, instead of hard-cropping the real photo.
+          Glide.with(this).load(url)
+               .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
+               .apply(new com.bumptech.glide.request.RequestOptions()
+                       .transform(new com.bumptech.glide.load.resource.bitmap.CenterCrop(),
+                               new StatusBlurTransformation(20)))
+               .placeholder(android.R.drawable.screen_background_dark)
+               .into(binding.ivStatusBg);
           Glide.with(this).load(url)
                .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
                .placeholder(android.R.drawable.screen_background_dark)
@@ -407,6 +418,7 @@ import com.callx.app.utils.AlertDialogStyler;
       private void hideAllContent() {
           binding.flTextStatus.setVisibility(View.GONE);
           binding.ivStatus.setVisibility(View.GONE);
+          binding.ivStatusBg.setVisibility(View.GONE);
           binding.playerView.setVisibility(View.GONE);
           binding.tvCaption.setVisibility(View.GONE);
           // FIX: was findViewWithTag("tv_location_tag") — always null — now binding ref

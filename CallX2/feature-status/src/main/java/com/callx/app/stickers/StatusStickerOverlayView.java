@@ -1448,6 +1448,18 @@ public class StatusStickerOverlayView extends LinearLayout {
 
             switch (event.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN:
+                    // BUG FIX (whole preview screen scrolling while dragging a
+                    // sticker): the compose/preview screen's media area sits
+                    // inside a NestedScrollView. Returning true from this
+                    // listener only tells Android THIS view handled the
+                    // touch — it does nothing to stop the ScrollView ancestor
+                    // from also intercepting the same finger-move as a
+                    // vertical scroll gesture, which is exactly what was
+                    // happening: dragging a sticker up/down/left/right
+                    // dragged the whole screen with it. Explicitly disallow
+                    // any ancestor from intercepting for as long as this
+                    // finger (or these fingers) are down on the sticker.
+                    if (view.getParent() != null) view.getParent().requestDisallowInterceptTouchEvent(true);
                     startTouch[0] = event.getRawX();
                     startTouch[1] = event.getRawY();
                     startPos[0]   = view.getX();
@@ -1459,6 +1471,7 @@ public class StatusStickerOverlayView extends LinearLayout {
                 case MotionEvent.ACTION_POINTER_DOWN:
                     // Second finger just landed — rebase the drag anchor so the sticker
                     // doesn't jump when we go from 1-finger drag to 2-finger pinch.
+                    if (view.getParent() != null) view.getParent().requestDisallowInterceptTouchEvent(true);
                     startTouch[0] = event.getRawX();
                     startTouch[1] = event.getRawY();
                     startPos[0]   = view.getX();
@@ -1466,6 +1479,11 @@ public class StatusStickerOverlayView extends LinearLayout {
                     moved[0]      = true;
                     return true;
                 case MotionEvent.ACTION_MOVE:
+                    // Keep re-asserting this every move: some ScrollView/
+                    // RecyclerView ancestors re-arm their own interception on
+                    // each new touch sequence, so a single ACTION_DOWN call
+                    // isn't always enough for the whole drag.
+                    if (view.getParent() != null) view.getParent().requestDisallowInterceptTouchEvent(true);
                     if (event.getPointerCount() == 1 && !scaleDetector.isInProgress()) {
                         float dx = event.getRawX() - startTouch[0];
                         float dy = event.getRawY() - startTouch[1];
@@ -1482,9 +1500,18 @@ public class StatusStickerOverlayView extends LinearLayout {
                     startPos[1]   = view.getY();
                     return true;
                 case MotionEvent.ACTION_UP:
+                    // Gesture is fully done — let the parent scroll normally again.
+                    if (view.getParent() != null) view.getParent().requestDisallowInterceptTouchEvent(false);
                     animate().scaleX(stickerScale).scaleY(stickerScale).setDuration(80).start();
                     boolean isTap = !moved[0] && (System.currentTimeMillis() - downTime[0]) < 300;
                     if (isTap && stickerTapListener != null) stickerTapListener.onTapped(this);
+                    return true;
+                case MotionEvent.ACTION_CANCEL:
+                    // Interrupted (e.g. a system gesture stole it) — always
+                    // restore normal scrolling rather than leaving it stuck
+                    // disallowed for the rest of the screen's lifetime.
+                    if (view.getParent() != null) view.getParent().requestDisallowInterceptTouchEvent(false);
+                    animate().scaleX(stickerScale).scaleY(stickerScale).setDuration(80).start();
                     return true;
             }
             return false;

@@ -412,13 +412,22 @@
                 android:id="@+id/media_preview_frame">
 
                 <!-- Actual media preview image -->
+                <!-- v238 BUG FIX: this used to be a fixed 240dp box with
+                     scaleType "centerCrop" — tiny, and cropped the photo/
+                     layout collage so the person couldn't actually see what
+                     they were about to post. Now it's much taller (420dp)
+                     with "fitCenter" so the FULL frame is always visible,
+                     uncropped, same as the fix already applied to the
+                     full-screen status viewer — bg_status_preview_media
+                     fills any letterbox space with black instead of the
+                     light card color showing through. -->
                 <ImageView
                     android:id="@+id/iv_preview"
                     android:layout_width="match_parent"
-                    android:layout_height="240dp"
-                    android:scaleType="centerCrop"
+                    android:layout_height="420dp"
+                    android:scaleType="fitCenter"
                     android:visibility="gone"
-                    android:background="@drawable/card_rounded"/>
+                    android:background="@drawable/bg_status_preview_media"/>
 
                 <!-- Video play-hint icon -->
                 <ImageView
