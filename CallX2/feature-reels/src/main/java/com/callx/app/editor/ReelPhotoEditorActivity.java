@@ -40,6 +40,8 @@ import com.bumptech.glide.request.RequestOptions;
 import com.callx.app.feed.ReelBlurTransformation;
 import com.callx.app.feed.ReelPhotoSlideshowAdapter;
 import com.callx.app.reels.R;
+import com.callx.app.stickers.StatusStickerPickerSheet;
+import com.callx.app.stickers.StatusStickerOverlayView;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -48,7 +50,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * ReelPhotoEditorActivity ── Per-Photo Editor v5
+ * ReelPhotoEditorActivity ── Per-Photo Editor v6
  * ══════════════════════════════════════════════════════════════════
  *
  * Full-screen editor for a single photo in a photo_slideshow reel.
@@ -58,7 +60,8 @@ import java.util.List;
  *   • Live colour filter preview (16 filters via ReelPhotoSlideshowAdapter)
  *   • Visual effect overlay (vignette / grain / glitch / neon_glow / chrome / etc.)
  *   • Per-photo caption: multi-line text, font style (bold/italic), colour, size
- *   • Sticker/emoji picker row: adds emoji as draggable overlays
+ *   • Full sticker sheet (music, poll, quiz, countdown, mention, hashtag, link) via StatusStickerPickerSheet
+ *   • Quick emoji overlay row for fast emoji additions
  *   • Rotation in 90° steps (CW)
  *   • Brightness / contrast / saturation sliders (baked into saved result)
  *   • Ken Burns direction selector (tl_br / tr_bl / center_out / bottom_up / random)
@@ -103,6 +106,16 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
     public static final String EXTRA_ROTATION       = "photo_editor_rotation";
     public static final String EXTRA_APPLY_ALL      = "photo_editor_apply_all";
 
+    // ── Pre-selected sound from the Reels camera screen ─────────────────────
+    // When the user picks a track on the camera screen and then takes a photo,
+    // ReelUploadActivity forwards these so the editing screen can auto-attach
+    // the chosen track as a Music sticker — same experience as the video flow.
+    public static final String EXTRA_PRESET_SOUND_ID     = "photo_preset_sound_id";
+    public static final String EXTRA_PRESET_SOUND_TITLE  = "photo_preset_sound_title";
+    public static final String EXTRA_PRESET_SOUND_ARTIST = "photo_preset_sound_artist";
+    public static final String EXTRA_PRESET_SOUND_URL    = "photo_preset_sound_url";
+    public static final String EXTRA_PRESET_SOUND_COVER  = "photo_preset_sound_cover";
+
     /**
      * Convenience launcher — builds the Intent and calls startActivityForResult.
      * Pass "" or null for any optional metadata field to use defaults.
@@ -130,6 +143,44 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
         if (rotation    != 0f)                             i.putExtra(EXTRA_ROTATION,      rotation);
         caller.startActivityForResult(i, requestCode);
     }
+
+    /**
+     * Extended launcher — same as {@link #start} but also bundles a pre-selected
+     * sound so the editor can auto-attach a Music sticker on open. Called by
+     * ReelUploadActivity when the user arrives via the camera photo flow and had
+     * already picked a track on the camera screen.
+     */
+    public static void startWithSound(android.app.Activity caller,
+                                      String photoUriStr, int index, int total,
+                                      String filter, String effect,
+                                      String caption, String captionStyle,
+                                      String stickers, String kbDir,
+                                      int durationMs, float rotation,
+                                      String soundId, String soundTitle,
+                                      String soundArtist, String soundUrl,
+                                      String soundCover,
+                                      int requestCode) {
+        android.content.Intent i = new android.content.Intent(caller, ReelPhotoEditorActivity.class);
+        i.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        i.putExtra(EXTRA_PHOTO_URI,   photoUriStr);
+        i.putExtra(EXTRA_PHOTO_INDEX, index);
+        i.putExtra(EXTRA_PHOTO_COUNT, total);
+        if (filter       != null && !filter.isEmpty())       i.putExtra(EXTRA_FILTER,        filter);
+        if (effect       != null && !effect.isEmpty())       i.putExtra(EXTRA_EFFECT,        effect);
+        if (caption      != null && !caption.isEmpty())      i.putExtra(EXTRA_CAPTION,       caption);
+        if (captionStyle != null && !captionStyle.isEmpty()) i.putExtra(EXTRA_CAPTION_STYLE, captionStyle);
+        if (stickers     != null && !stickers.isEmpty())     i.putExtra(EXTRA_STICKERS,      stickers);
+        if (kbDir        != null && !kbDir.isEmpty())        i.putExtra(EXTRA_KB_DIRECTION,  kbDir);
+        if (durationMs   > 0)                                i.putExtra(EXTRA_DURATION_MS,   durationMs);
+        if (rotation     != 0f)                              i.putExtra(EXTRA_ROTATION,      rotation);
+        if (soundId      != null && !soundId.isEmpty())      i.putExtra(EXTRA_PRESET_SOUND_ID,     soundId);
+        if (soundTitle   != null && !soundTitle.isEmpty())   i.putExtra(EXTRA_PRESET_SOUND_TITLE,  soundTitle);
+        if (soundArtist  != null && !soundArtist.isEmpty())  i.putExtra(EXTRA_PRESET_SOUND_ARTIST, soundArtist);
+        if (soundUrl     != null && !soundUrl.isEmpty())     i.putExtra(EXTRA_PRESET_SOUND_URL,    soundUrl);
+        if (soundCover   != null && !soundCover.isEmpty())   i.putExtra(EXTRA_PRESET_SOUND_COVER,  soundCover);
+        caller.startActivityForResult(i, requestCode);
+    }
+
 
     // ── Filter / effect options ────────────────────────────────────────────────
 
@@ -234,6 +285,16 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
     private float   saturation        = 1f;   // 0f to 3f
 
     private final List<View> stickerViews = new ArrayList<>();
+    /** Tracks full interactive sticker views (StatusStickerOverlayView) added via the sticker sheet. */
+    private final List<StatusStickerOverlayView> fullStickerViews = new ArrayList<>();
+    private View btnAddFullSticker;
+
+    // ── Pre-selected sound forwarded from the Reels camera ───────────────────
+    private String presetSoundId     = "";
+    private String presetSoundTitle  = "";
+    private String presetSoundArtist = "";
+    private String presetSoundUrl    = "";
+    private String presetSoundCover  = "";
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -256,6 +317,13 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
         durationMs       = getIntent().getIntExtra(EXTRA_DURATION_MS, 3000);
         rotation         = getIntent().getFloatExtra(EXTRA_ROTATION, 0f);
 
+        // Pre-selected sound from camera screen
+        presetSoundId     = nvl(getIntent().getStringExtra(EXTRA_PRESET_SOUND_ID),     "");
+        presetSoundTitle  = nvl(getIntent().getStringExtra(EXTRA_PRESET_SOUND_TITLE),  "");
+        presetSoundArtist = nvl(getIntent().getStringExtra(EXTRA_PRESET_SOUND_ARTIST), "");
+        presetSoundUrl    = nvl(getIntent().getStringExtra(EXTRA_PRESET_SOUND_URL),    "");
+        presetSoundCover  = nvl(getIntent().getStringExtra(EXTRA_PRESET_SOUND_COVER),  "");
+
         bindViews();
         loadPreviewImage();
         applyCurrentState();
@@ -268,6 +336,14 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
         setupDurationSlider();
         setupListeners();
         showPanel(panelFilters, tabFilters);
+
+        // Auto-attach a Music sticker if the camera had a track pre-selected.
+        // Delayed by one frame so flStickerLayer has measured its dimensions.
+        if (!presetSoundTitle.isEmpty()) {
+            if (flStickerLayer != null) {
+                flStickerLayer.post(() -> attachPresetMusicSticker());
+            }
+        }
         updatePhotoLabel();
     }
 
@@ -304,6 +380,7 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
         llCaptionColorPicker = findViewById(R.id.ll_caption_color_picker);
 
         llEmojiRow       = findViewById(R.id.ll_emoji_row);
+        btnAddFullSticker = findViewById(R.id.btn_add_full_sticker);
 
         sbBrightness     = findViewById(R.id.sb_brightness);
         sbContrast       = findViewById(R.id.sb_contrast);
@@ -515,7 +592,89 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
             captionSizeSp, captionBold, captionItalic);
     }
 
-    // ── Emoji sticker row ─────────────────────────────────────────────────────
+    // ── Full sticker picker (opens StatusStickerPickerSheet from core) ─────────
+
+    /**
+     * Auto-attaches a Music sticker using the sound that was already selected on
+     * the Reels camera screen. Called once from onCreate when presetSoundTitle is
+     * non-empty — gives the user an instant, visible music card on the photo so
+     * they can reposition it before posting, exactly like the Status flow.
+     */
+    private void attachPresetMusicSticker() {
+        if (flStickerLayer == null || presetSoundTitle.isEmpty()) return;
+        String json = "{\"type\":\"music\""
+            + ",\"song\":\"" + presetSoundTitle.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+            + ",\"artist\":\"" + presetSoundArtist.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+            + ",\"albumArt\":\"" + presetSoundCover + "\""
+            + ",\"soundId\":\"" + presetSoundId + "\""
+            + ",\"soundUrl\":\"" + presetSoundUrl + "\""
+            + "}";
+        StatusStickerOverlayView sv = StatusStickerOverlayView.fromJson(this, json);
+        int dp = (int) getResources().getDisplayMetrics().density;
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+            Math.min(flStickerLayer.getWidth() > 0 ? flStickerLayer.getWidth() - dp * 32 : dp * 260, dp * 260),
+            FrameLayout.LayoutParams.WRAP_CONTENT);
+        lp.gravity = android.view.Gravity.TOP | android.view.Gravity.CENTER_HORIZONTAL;
+        lp.topMargin = dp * 30;
+        sv.setLayoutParams(lp);
+        flStickerLayer.addView(sv);
+        fullStickerViews.add(sv);
+        sv.attachDragToParent(flStickerLayer);
+        sv.setOnLongClickListener(v -> {
+            flStickerLayer.removeView(sv);
+            fullStickerViews.remove(sv);
+            rebuildStickerJson();
+            return true;
+        });
+        rebuildStickerJson();
+        Toast.makeText(this, "🎵 Music sticker attached! Drag to reposition.", Toast.LENGTH_SHORT).show();
+    }
+
+    /** Opens the full sticker sheet — same Music/Poll/Quiz/Countdown flow as Status. */
+    private void openFullStickerPicker() {
+        StatusStickerPickerSheet.show(this, result -> {
+            if (flStickerLayer == null) return;
+            StatusStickerOverlayView sv = StatusStickerOverlayView.fromJson(this, result.json);
+            int dp = (int) getResources().getDisplayMetrics().density;
+            FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+                Math.min(flStickerLayer.getWidth() > 0 ? flStickerLayer.getWidth() - dp * 32 : dp * 260, dp * 260),
+                FrameLayout.LayoutParams.WRAP_CONTENT);
+            lp.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
+            lp.topMargin = dp * (30 + fullStickerViews.size() * 20);
+            sv.setLayoutParams(lp);
+            flStickerLayer.addView(sv);
+            fullStickerViews.add(sv);
+            sv.attachDragToParent(flStickerLayer);
+            // Long-press to remove
+            sv.setOnLongClickListener(v -> {
+                flStickerLayer.removeView(sv);
+                fullStickerViews.remove(sv);
+                rebuildStickerJson();
+                return true;
+            });
+            rebuildStickerJson();
+            Toast.makeText(this, getStickerLabel(result.type) + " added! Drag to reposition.", Toast.LENGTH_SHORT).show();
+        });
+    }
+
+    private String getStickerLabel(String type) {
+        if (type == null) return "✨ Sticker";
+        switch (type) {
+            case "music":     return "🎵 Music sticker";
+            case "countdown": return "⏳ Countdown";
+            case "quiz":      return "🧠 Quiz sticker";
+            case "question":  return "💬 Question box";
+            case "poll":      return "🗳️ Poll sticker";
+            case "slider":    return "🎚️ Slider sticker";
+            case "mention":   return "👤 Mention sticker";
+            case "hashtag":   return "#️⃣ Hashtag sticker";
+            case "link":      return "🔗 Link sticker";
+            case "addyours":  return "➕ Add Yours sticker";
+            default:          return "✨ Sticker";
+        }
+    }
+
+    // ── Emoji sticker row (quick emoji overlays) ──────────────────────────────
 
     private void populateEmojiRow() {
         if (llEmojiRow == null) return;
@@ -606,6 +765,7 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
         if (flStickerLayer == null) { stickerJson = "[]"; return; }
         StringBuilder sb = new StringBuilder("[");
         int added = 0;
+        // 1. Emoji stickers (plain TextView draggable overlays)
         for (int i = 0; i < flStickerLayer.getChildCount(); i++) {
             View child = flStickerLayer.getChildAt(i);
             if (!(child instanceof TextView)) continue;
@@ -617,6 +777,22 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
             if (added > 0) sb.append(',');
             sb.append(String.format("{\"type\":\"emoji\",\"value\":\"%s\",\"x\":%.3f,\"y\":%.3f,\"scale\":%.2f,\"rotation\":%.1f}",
                 val, xFrac, yFrac, child.getScaleX(), child.getRotation()));
+            added++;
+        }
+        // 2. Full interactive stickers added via StatusStickerPickerSheet (music, poll, quiz…)
+        for (StatusStickerOverlayView sv : fullStickerViews) {
+            if (sv.getParent() == null) continue;
+            String json = sv.toJsonWithScale();
+            if (json == null || json.isEmpty()) continue;
+            // Inject normalised position ratios so the viewer can restore exact placement
+            if (flStickerLayer.getWidth() > 0 && json.startsWith("{") && json.endsWith("}")) {
+                float xFrac = (sv.getX() + sv.getWidth() / 2f) / flStickerLayer.getWidth();
+                float yFrac = (sv.getY() + sv.getHeight() / 2f) / flStickerLayer.getHeight();
+                json = json.substring(0, json.length() - 1)
+                    + String.format(",\"posXRatio\":%.3f,\"posYRatio\":%.3f}", xFrac, yFrac);
+            }
+            if (added > 0) sb.append(',');
+            sb.append(json);
             added++;
         }
         sb.append(']');
@@ -831,6 +1007,21 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
         }
     }
 
+    // ── Activity result forwarding ──────────────────────────────────────────
+
+    /**
+     * Explicit override so super.onActivityResult() is always called, which
+     * causes AppCompatActivity's FragmentManager to forward the result to any
+     * hosted fragment (e.g. StatusStickerPickerSheet) that called
+     * Fragment.startActivityForResult() — most importantly for the Music
+     * sticker's ReelTrendingAudioActivity picker.
+     */
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode,
+                                    @Nullable android.content.Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+    }
+
     // ── Listeners ─────────────────────────────────────────────────────────────
 
     private void setupListeners() {
@@ -838,6 +1029,7 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
         if (tabEffects  != null) tabEffects.setOnClickListener(v -> showPanel(panelEffects,  tabEffects));
         if (tabCaption  != null) tabCaption.setOnClickListener(v -> showPanel(panelCaption,  tabCaption));
         if (tabStickers != null) tabStickers.setOnClickListener(v -> showPanel(panelStickers, tabStickers));
+        if (btnAddFullSticker != null) btnAddFullSticker.setOnClickListener(v -> openFullStickerPicker());
         if (tabAdjust   != null) tabAdjust.setOnClickListener(v -> showPanel(panelAdjust,    tabAdjust));
 
         if (btnRotate != null) btnRotate.setOnClickListener(v -> {

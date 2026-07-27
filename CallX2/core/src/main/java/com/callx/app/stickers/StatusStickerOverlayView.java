@@ -389,11 +389,40 @@ public class StatusStickerOverlayView extends LinearLayout {
         v.stickerType = type;
         v.stickerJson = json;
 
+        // BUG FIX: this used to read the saved scale with jsonStr(), a helper
+        // that only matches QUOTED string values ("key":"value"). toJsonWithScale()
+        // writes scale as a bare JSON number (o.put("scale", floatValue) →
+        // "scale":1.2, no quotes), so jsonStr() could never find it and silently
+        // fell back to the "1.0" default every time — every sticker reopened (or
+        // reloaded in the viewer) reset to medium size regardless of what the
+        // user pinched it to before posting. Use the numeric-aware jsonNum().
         float savedScale = SCALE_MEDIUM;
-        try { savedScale = Float.parseFloat(jsonStr(json, "scale", "1.0")); } catch (Exception ignored) {}
+        try { savedScale = Float.parseFloat(jsonNum(json, "scale", "1.0")); } catch (Exception ignored) {}
         v.applyScale(savedScale);
+
+        // Saved finger-adjusted position (posXRatio/posYRatio, 0..1 relative to
+        // the parent frame) baked in by toJsonWithScale() at post-time. -1 means
+        // this sticker JSON has no saved position (e.g. a legacy status posted
+        // before this fix) — callers should fall back to their own default
+        // placement in that case, via hasSavedPosition().
+        try {
+            v.savedPosXRatio = Float.parseFloat(jsonNum(json, "posXRatio", "-1"));
+            v.savedPosYRatio = Float.parseFloat(jsonNum(json, "posYRatio", "-1"));
+        } catch (Exception ignored) {
+            v.savedPosXRatio = -1f;
+            v.savedPosYRatio = -1f;
+        }
         return v;
     }
+
+    // ── Saved position (where the user's finger left it in the composer) ────
+    private float savedPosXRatio = -1f, savedPosYRatio = -1f;
+    /** True if this sticker was posted with a finger-adjusted position saved. */
+    public boolean hasSavedPosition() { return savedPosXRatio >= 0f && savedPosYRatio >= 0f; }
+    /** X position as a 0..1 ratio of the parent frame's width. Only valid if {@link #hasSavedPosition()}. */
+    public float getSavedPosXRatio() { return savedPosXRatio; }
+    /** Y position as a 0..1 ratio of the parent frame's height. Only valid if {@link #hasSavedPosition()}. */
+    public float getSavedPosYRatio() { return savedPosYRatio; }
 
     /** Clamps and applies a new size, both visually and for persistence via {@link #toJsonWithScale()}. */
     public void applyScale(float scale) {
@@ -408,11 +437,26 @@ public class StatusStickerOverlayView extends LinearLayout {
         animate().scaleX(stickerScale).scaleY(stickerScale).setDuration(150).start();
     }
 
-    /** The original sticker JSON with the current size baked in — call this at post-time. */
+    /**
+     * The original sticker JSON with the current size AND the current
+     * finger-dragged position baked in — call this at post-time (after the
+     * user has finished dragging/pinching it on the compose preview) so the
+     * exact same size/position shows up again when the status is viewed.
+     * Position is saved as a 0..1 ratio of the parent frame's width/height
+     * (not raw pixels) so it still lines up correctly even if the viewer's
+     * overlay frame ends up a different size than the composer's.
+     */
     public String toJsonWithScale() {
         try {
             org.json.JSONObject o = new org.json.JSONObject(stickerJson != null ? stickerJson : "{}");
             o.put("scale", stickerScale);
+            if (getParent() instanceof View) {
+                View parent = (View) getParent();
+                if (parent.getWidth() > 0 && parent.getHeight() > 0) {
+                    o.put("posXRatio", getX() / parent.getWidth());
+                    o.put("posYRatio", getY() / parent.getHeight());
+                }
+            }
             return o.toString();
         } catch (Exception e) {
             return stickerJson != null ? stickerJson : "{}";
@@ -1535,6 +1579,30 @@ public class StatusStickerOverlayView extends LinearLayout {
             int end = json.indexOf("\"", start);
             if (end < 0) return def;
             return json.substring(start, end).replace("\\\"","\"");
+        } catch (Exception e) { return def; }
+    }
+
+    /**
+     * Like {@link #jsonStr}, but for bare numeric JSON values (e.g. "scale":1.2,
+     * "posXRatio":0.35) which are written WITHOUT surrounding quotes — jsonStr's
+     * quote-delimited search never matches those and would always fall through
+     * to the default.
+     */
+    private static String jsonNum(String json, String key, String def) {
+        try {
+            String search = "\"" + key + "\":";
+            int start = json.indexOf(search);
+            if (start < 0) return def;
+            start += search.length();
+            int end = start;
+            while (end < json.length() && (Character.isDigit(json.charAt(end))
+                    || json.charAt(end) == '-' || json.charAt(end) == '.'
+                    || json.charAt(end) == 'e' || json.charAt(end) == 'E'
+                    || json.charAt(end) == '+')) {
+                end++;
+            }
+            if (end == start) return def;
+            return json.substring(start, end);
         } catch (Exception e) { return def; }
     }
 

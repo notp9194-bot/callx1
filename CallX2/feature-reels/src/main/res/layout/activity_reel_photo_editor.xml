@@ -293,25 +293,44 @@
         </HorizontalScrollView>
     </LinearLayout>
 
-    <!-- STICKERS panel -->
-    <HorizontalScrollView
+    <!-- STICKERS panel v2: full sticker sheet button + quick emoji row -->
+    <LinearLayout
         android:id="@+id/panel_stickers"
         android:layout_width="match_parent"
-        android:layout_height="70dp"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
         android:background="#222222"
-        android:scrollbars="none"
-        android:visibility="gone"
-        android:paddingStart="8dp"
-        android:paddingEnd="8dp"
-        android:gravity="center_vertical">
+        android:visibility="gone">
 
-        <LinearLayout
-            android:id="@+id/ll_emoji_row"
-            android:layout_width="wrap_content"
-            android:layout_height="match_parent"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"/>
-    </HorizontalScrollView>
+        <!-- Opens StatusStickerPickerSheet (Music · Poll · Quiz · Countdown · Mention · Hashtag · Link) -->
+        <TextView
+            android:id="@+id/btn_add_full_sticker"
+            android:layout_width="match_parent"
+            android:layout_height="46dp"
+            android:text="✨  Add Sticker  (Music · Poll · Quiz · Countdown · more)"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp"
+            android:gravity="center"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="#2C2C2C"/>
+
+        <!-- Quick emoji overlays -->
+        <HorizontalScrollView
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:scrollbars="none"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp">
+
+            <LinearLayout
+                android:id="@+id/ll_emoji_row"
+                android:layout_width="wrap_content"
+                android:layout_height="match_parent"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"/>
+        </HorizontalScrollView>
+    </LinearLayout>
 
     <!-- ADJUST panel -->
     <LinearLayout

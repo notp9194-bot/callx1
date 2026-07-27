@@ -11,7 +11,6 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
-import com.callx.app.status.R;
 
 /**
  * StatusStickerPickerSheet — Instagram-style sticker picker for Status/Stories.

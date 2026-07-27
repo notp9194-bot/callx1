@@ -816,10 +816,30 @@ public class ReelUploadActivity extends AppCompatActivity {
             btnPostReel.setEnabled(true);
             // Immediately open the full photo editor so the camera → edit
             // handoff feels the same as the video flow's ReelEditorActivity.
+            // If the user had already picked a track on the camera screen, pass
+            // it so the editor auto-attaches a Music sticker on open.
             photoEditIndex = 0;
-            com.callx.app.editor.ReelPhotoEditorActivity.start(
-                this, photoUri.toString(), 0, 1,
-                "", "", "", "", "", "", 0, 0f, REQ_PHOTO_EDIT);
+            String camSoundId     = i.getStringExtra("selected_sound_id");
+            String camSoundTitle  = i.getStringExtra("selected_sound_title");
+            String camSoundArtist = i.getStringExtra("selected_sound_artist");
+            String camSoundUrl    = i.getStringExtra("selected_sound_url");
+            String camSoundCover  = i.getStringExtra("selected_sound_cover");
+            boolean hasPresetSound = camSoundTitle != null && !camSoundTitle.isEmpty();
+            if (hasPresetSound) {
+                com.callx.app.editor.ReelPhotoEditorActivity.startWithSound(
+                    this, photoUri.toString(), 0, 1,
+                    "", "", "", "", "", "", 0, 0f,
+                    camSoundId   != null ? camSoundId   : "",
+                    camSoundTitle,
+                    camSoundArtist != null ? camSoundArtist : "",
+                    camSoundUrl  != null ? camSoundUrl  : "",
+                    camSoundCover!= null ? camSoundCover: "",
+                    REQ_PHOTO_EDIT);
+            } else {
+                com.callx.app.editor.ReelPhotoEditorActivity.start(
+                    this, photoUri.toString(), 0, 1,
+                    "", "", "", "", "", "", 0, 0f, REQ_PHOTO_EDIT);
+            }
             return;
         }
 

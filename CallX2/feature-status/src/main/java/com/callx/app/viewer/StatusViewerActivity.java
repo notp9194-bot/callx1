@@ -440,12 +440,27 @@ import com.callx.app.utils.AlertDialogStyler;
                   String stickerJson = arr.getJSONObject(i).toString();
                   StatusStickerOverlayView sticker = StatusStickerOverlayView.fromJson(this, stickerJson);
 
+                  // Frame may not have been measured yet on the very first status
+                  // shown — fall back to screen size so the ratio math below still
+                  // lines the sticker up correctly instead of pinning it at (0,0).
+                  int frameW = binding.flStickerOverlay.getWidth() > 0
+                          ? binding.flStickerOverlay.getWidth() : getResources().getDisplayMetrics().widthPixels;
+                  int frameH = binding.flStickerOverlay.getHeight() > 0
+                          ? binding.flStickerOverlay.getHeight() : getResources().getDisplayMetrics().heightPixels;
+
                   FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
-                          Math.min(binding.flStickerOverlay.getWidth() > 0
-                                  ? binding.flStickerOverlay.getWidth() - dp * 32 : dp * 280, dp * 280),
+                          Math.min(frameW - dp * 32, dp * 280),
                           FrameLayout.LayoutParams.WRAP_CONTENT,
-                          Gravity.TOP | Gravity.CENTER_HORIZONTAL);
-                  lp.topMargin = dp * (140 + i * 90); // below header chrome; stacks if multiple stickers
+                          sticker.hasSavedPosition() ? Gravity.TOP | Gravity.START : Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+                  if (sticker.hasSavedPosition()) {
+                      // Poster dragged/pinched this sticker to a specific spot in the
+                      // composer — reproduce that exact spot here instead of the
+                      // generic stacked layout below.
+                      lp.leftMargin = (int) (sticker.getSavedPosXRatio() * frameW);
+                      lp.topMargin  = (int) (sticker.getSavedPosYRatio() * frameH);
+                  } else {
+                      lp.topMargin = dp * (140 + i * 90); // legacy sticker with no saved position: stack as before
+                  }
                   binding.flStickerOverlay.addView(sticker, lp);
 
                   if ("question".equals(sticker.getStickerType())
