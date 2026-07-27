@@ -72,6 +72,10 @@ public class StatusItem {
     public Long    expiresAt;
     public int     expiryHours;      // 1/3/6/12/24/48/72 — default 24
 
+    // ── Scheduling (v27) ─────────────────────────────────────────────
+    /** > 0 if this status is scheduled for future auto-publish; 0 once live. */
+    public long    scheduledAt;
+
     // ── State ────────────────────────────────────────────────────────
     public Boolean deleted;
 
@@ -231,6 +235,7 @@ public class StatusItem {
         if (timestamp != null)        m.put("timestamp", timestamp);
         if (expiresAt != null)        m.put("expiresAt", expiresAt);
         if (expiryHours != 0)         m.put("expiryHours", expiryHours);
+        if (scheduledAt != 0)         m.put("scheduledAt", scheduledAt);
         if (deleted != null)          m.put("deleted", deleted);
         if (privacy != null)          m.put("privacy", privacy);
         if (privacyList != null)      m.put("privacyList", privacyList);

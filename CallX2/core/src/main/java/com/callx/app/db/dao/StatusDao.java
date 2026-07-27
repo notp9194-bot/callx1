@@ -14,13 +14,33 @@ public interface StatusDao {
 
     // ── Live queries ──────────────────────────────────────────────────────
 
-    /** Active (non-expired) statuses as LiveData — for StatusViewModel. */
-    @Query("SELECT * FROM statuses WHERE (expiresAt IS NULL OR expiresAt > :now) AND (deleted IS NULL OR deleted = 0) ORDER BY timestamp DESC")
+    /** Active (non-expired) statuses as LiveData — for StatusViewModel. Excludes not-yet-published scheduled statuses. */
+    @Query("SELECT * FROM statuses WHERE (expiresAt IS NULL OR expiresAt > :now) AND (deleted IS NULL OR deleted = 0) AND scheduledAt = 0 ORDER BY timestamp DESC")
     LiveData<List<StatusEntity>> getActiveStatusesLive(long now);
 
-    /** Statuses by owner — for "My Status" row. */
-    @Query("SELECT * FROM statuses WHERE ownerUid = :ownerUid AND (deleted IS NULL OR deleted = 0) ORDER BY timestamp ASC")
+    /** Statuses by owner — for "My Status" row. Excludes not-yet-published scheduled statuses. */
+    @Query("SELECT * FROM statuses WHERE ownerUid = :ownerUid AND (deleted IS NULL OR deleted = 0) AND scheduledAt = 0 ORDER BY timestamp ASC")
     LiveData<List<StatusEntity>> getStatusesByOwner(String ownerUid);
+
+    /** Scheduled (not yet published) statuses for a given owner — for the "Scheduled statuses" screen. */
+    @Query("SELECT * FROM statuses WHERE ownerUid = :ownerUid AND scheduledAt > 0 AND (deleted IS NULL OR deleted = 0) ORDER BY scheduledAt ASC")
+    LiveData<List<StatusEntity>> getScheduledStatuses(String ownerUid);
+
+    /** Scheduled statuses whose time has arrived — used by the publish worker. */
+    @Query("SELECT * FROM statuses WHERE scheduledAt > 0 AND scheduledAt <= :now AND (deleted IS NULL OR deleted = 0)")
+    List<StatusEntity> getStatusesDueForPublishing(long now);
+
+    /** Fetch a single status by id (sync) — used by the publish worker / schedule actions. */
+    @Query("SELECT * FROM statuses WHERE id = :statusId LIMIT 1")
+    StatusEntity getStatusByIdSync(String statusId);
+
+    /** Flip a scheduled status live: clear scheduledAt, stamp the real publish time. */
+    @Query("UPDATE statuses SET scheduledAt = 0, timestamp = :publishedAt WHERE id = :statusId")
+    void publishScheduledStatus(String statusId, long publishedAt);
+
+    /** Cancel/remove a scheduled status outright (hard delete — it never went live). */
+    @Query("DELETE FROM statuses WHERE id = :statusId")
+    void deleteScheduledStatus(String statusId);
 
     // ── Sync queries ──────────────────────────────────────────────────────
 

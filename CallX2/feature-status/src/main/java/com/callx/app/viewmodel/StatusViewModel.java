@@ -35,16 +35,23 @@ public class StatusViewModel extends AndroidViewModel {
     /** My own statuses — drives the "My Status" row. */
     public final LiveData<List<StatusEntity>> myStatuses;
 
+    /** My scheduled (not yet published) statuses — drives the "Scheduled statuses" screen. */
+    public final LiveData<List<StatusEntity>> scheduledStatuses;
+
     private final MutableLiveData<Boolean> _loading = new MutableLiveData<>(false);
     public final LiveData<Boolean> loading = _loading;
+
+    private final MutableLiveData<String> _toastMessage = new MutableLiveData<>();
+    public final LiveData<String> toastMessage = _toastMessage;
 
     public StatusViewModel(@NonNull Application app) {
         super(app);
         repo  = StatusRepository.getInstance(app);
         myUid = FirebaseUtils.getCurrentUid();
 
-        activeStatuses = repo.getActiveStatuses();
-        myStatuses     = repo.getMyStatuses(myUid);
+        activeStatuses    = repo.getActiveStatuses();
+        myStatuses        = repo.getMyStatuses(myUid);
+        scheduledStatuses = repo.getScheduledStatuses(myUid);
     }
 
     // ── Lifecycle hooks ───────────────────────────────────────────────────
@@ -68,6 +75,26 @@ public class StatusViewModel extends AndroidViewModel {
     public void deleteMyStatus(String statusId, Result cb) {
         if (myUid == null || myUid.isEmpty()) return;
         repo.deleteStatus(myUid, statusId, ok -> { if (cb != null) cb.onDone(ok); });
+    }
+
+    // ── Scheduling ───────────────────────────────────────────────────────
+
+    /** Refresh scheduled statuses from Firebase (e.g. when opening the Scheduled screen). */
+    public void refreshScheduled() {
+        if (myUid == null || myUid.isEmpty()) return;
+        repo.syncScheduledStatuses(myUid);
+    }
+
+    public void publishScheduledStatus(String statusId) {
+        if (myUid == null || myUid.isEmpty()) return;
+        repo.publishScheduledStatus(myUid, statusId, ok ->
+            _toastMessage.postValue(ok ? "Status published." : "Failed to publish."));
+    }
+
+    public void deleteScheduledStatus(String statusId) {
+        if (myUid == null || myUid.isEmpty()) return;
+        repo.deleteScheduledStatus(myUid, statusId, ok ->
+            _toastMessage.postValue(ok ? "Scheduled status deleted." : "Failed."));
     }
 
     // ── Seen tracking ─────────────────────────────────────────────────────

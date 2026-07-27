@@ -238,6 +238,11 @@ public class FirebaseUtils {
                    .child("reactions").child(reactorUid);
     }
 
+    /** Scheduled statuses (not yet published): statusScheduled/{ownerUid}/{statusId} */
+    public static DatabaseReference getUserStatusScheduledRef(String ownerUid) {
+        return db().getReference("statusScheduled").child(ownerUid);
+    }
+
     public static DatabaseReference getStatusHighlightsRef(String ownerUid) {
         return db().getReference("statusHighlights").child(ownerUid);
     }

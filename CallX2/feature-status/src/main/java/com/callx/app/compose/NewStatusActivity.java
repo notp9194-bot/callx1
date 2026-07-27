@@ -94,6 +94,10 @@ public class NewStatusActivity extends AppCompatActivity {
     private int    selectedExpiryHours = 24;
     private boolean isCloseFriends    = false;
     private String  selectedTextAlign  = "center";
+    // ── Scheduling (v27) ────────────────────────────────────────────────
+    // > 0 when the user picked "Schedule" instead of posting immediately —
+    // read once by saveStatus()/saveBatchStatus() and reset after use.
+    private long    pendingScheduledAt = 0;
     // Link preview state
     private String detectedLinkUrl;
     private StatusLinkPreviewHelper.LinkPreview fetchedPreview;
@@ -283,6 +287,11 @@ public class NewStatusActivity extends AppCompatActivity {
         //       of the old plain Camera/Gallery alert dialog.
         binding.btnPickImage.setOnClickListener(v -> showStatusAddSheet());
         binding.btnPost.setOnClickListener(v -> post());
+        // Long-press "Post" to schedule this status for later instead of
+        // posting it immediately — mirrors the WhatsApp/Instagram pattern of
+        // holding the send button for extra options.
+        binding.btnPost.setOnLongClickListener(v -> { showScheduleDialog(); return true; });
+        androidx.appcompat.widget.TooltipCompat.setTooltipText(binding.btnPost, "Hold to schedule for later");
         binding.btnDiscardMedia.setOnClickListener(v -> discardMedia());
         // GIF / Sticker button
         View btnGif = binding.getRoot().findViewWithTag("btn_gif");
@@ -1249,6 +1258,31 @@ public class NewStatusActivity extends AppCompatActivity {
             item.linkImageUrl    = fetchedPreview.imageUrl;
             item.linkDomain      = fetchedPreview.domain;
         }
+        // ── Scheduled post? Route to statusScheduled instead of going live now ──
+        if (pendingScheduledAt > 0) {
+            long scheduledAt = pendingScheduledAt;
+            pendingScheduledAt = 0;
+            item.scheduledAt = scheduledAt;
+            item.timestamp   = scheduledAt;
+            // Expiry must count down from the actual publish time, not from
+            // "now" (composition time) — otherwise a status scheduled a day
+            // out with a 24h expiry would already be dead on arrival.
+            item.expiresAt = scheduledAt + (long) selectedExpiryHours * 3_600_000L;
+            com.callx.app.repository.StatusRepository.getInstance(this)
+                .scheduleStatus(item, scheduledAt, ok -> runOnUiThread(() -> {
+                    if (ok) {
+                        clearDraft();
+                        String fmt = new java.text.SimpleDateFormat("MMM d, h:mm a", Locale.getDefault())
+                            .format(new Date(scheduledAt));
+                        toast("Status scheduled for " + fmt);
+                        finish();
+                    } else {
+                        setPosting(false);
+                        toast("Failed to schedule status");
+                    }
+                }));
+            return;
+        }
         ref.setValue(item.toMap())
             .addOnSuccessListener(u -> {
                 clearDraft();
@@ -1296,7 +1330,14 @@ public class NewStatusActivity extends AppCompatActivity {
     private void postNextBatchItem() {
         if (pendingBatchUris == null || pendingBatchIndex >= pendingBatchUris.size()) {
             setPosting(false);
-            toast("Status posted!");
+            if (pendingScheduledAt > 0) {
+                String fmt = new java.text.SimpleDateFormat("MMM d, h:mm a", Locale.getDefault())
+                    .format(new Date(pendingScheduledAt));
+                toast("Statuses scheduled for " + fmt);
+                pendingScheduledAt = 0;
+            } else {
+                toast("Status posted!");
+            }
             finish();
             return;
         }
@@ -1393,6 +1434,20 @@ public class NewStatusActivity extends AppCompatActivity {
         item.timestamp      = now;
         item.expiresAt      = StatusCustomExpiryHelper.computeExpiresAt(selectedExpiryHours);
         item.deleted        = false;
+        // ── Scheduled post? Route to statusScheduled instead of going live now ──
+        if (pendingScheduledAt > 0) {
+            long scheduledAt = pendingScheduledAt;
+            item.scheduledAt = scheduledAt;
+            item.timestamp   = scheduledAt;
+            item.expiresAt   = scheduledAt + (long) selectedExpiryHours * 3_600_000L;
+            com.callx.app.repository.StatusRepository.getInstance(this)
+                .scheduleStatus(item, scheduledAt, ok -> runOnUiThread(() -> {
+                    pendingBatchIndex++;
+                    if (!ok) toast("Failed to schedule item " + pendingBatchIndex);
+                    postNextBatchItem();
+                }));
+            return;
+        }
         ref.setValue(item.toMap())
             .addOnSuccessListener(u -> {
                 StatusNotificationHelper.scheduleStatusExpiryReminder(this, item.id, item.expiresAt);
@@ -1404,6 +1459,51 @@ public class NewStatusActivity extends AppCompatActivity {
                 pendingBatchIndex++;
                 postNextBatchItem();
             });
+    }
+
+    // ── Scheduling ────────────────────────────────────────────────────────
+
+    /**
+     * Long-press on "Post" → pick a future date, then a time → stash it in
+     * pendingScheduledAt and run the normal post() flow, which now detects
+     * the pending schedule and routes the write to statusScheduled instead
+     * of the live status tree (see saveStatus()/saveBatchStatus()).
+     */
+    private void showScheduleDialog() {
+        Calendar now = Calendar.getInstance();
+        Calendar picked = Calendar.getInstance();
+
+        android.app.DatePickerDialog dateDialog = new android.app.DatePickerDialog(
+            this,
+            (view, year, month, dayOfMonth) -> {
+                picked.set(Calendar.YEAR, year);
+                picked.set(Calendar.MONTH, month);
+                picked.set(Calendar.DAY_OF_MONTH, dayOfMonth);
+
+                android.app.TimePickerDialog timeDialog = new android.app.TimePickerDialog(
+                    this,
+                    (timeView, hourOfDay, minute) -> {
+                        picked.set(Calendar.HOUR_OF_DAY, hourOfDay);
+                        picked.set(Calendar.MINUTE, minute);
+                        picked.set(Calendar.SECOND, 0);
+                        picked.set(Calendar.MILLISECOND, 0);
+
+                        if (picked.getTimeInMillis() <= System.currentTimeMillis()) {
+                            toast("Pick a time in the future");
+                            return;
+                        }
+                        pendingScheduledAt = picked.getTimeInMillis();
+                        String fmt = new java.text.SimpleDateFormat("MMM d, h:mm a", Locale.getDefault())
+                            .format(new Date(pendingScheduledAt));
+                        toast("Will be scheduled for " + fmt);
+                        post();
+                    },
+                    now.get(Calendar.HOUR_OF_DAY), now.get(Calendar.MINUTE), false);
+                timeDialog.show();
+            },
+            now.get(Calendar.YEAR), now.get(Calendar.MONTH), now.get(Calendar.DAY_OF_MONTH));
+        dateDialog.getDatePicker().setMinDate(System.currentTimeMillis() - 1000);
+        dateDialog.show();
     }
 
     // ── UI helpers ────────────────────────────────────────────────────────

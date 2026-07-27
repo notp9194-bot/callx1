@@ -66,6 +66,11 @@ public class StatusRepository {
         return dao.getStatusesByOwner(myUid);
     }
 
+    /** My scheduled (not yet published) statuses — for the "Scheduled statuses" screen. */
+    public LiveData<List<StatusEntity>> getScheduledStatuses(String myUid) {
+        return dao.getScheduledStatuses(myUid);
+    }
+
     // ── WRITE — Post status ───────────────────────────────────────────────
 
     public interface Result { void onDone(boolean success); }
@@ -97,6 +102,83 @@ public class StatusRepository {
         executor.execute(() -> dao.pruneExpired(0)); // prune everything first
         FirebaseUtils.getUserStatusRef(ownerUid).child(statusId)
             .removeValue((e, ref) -> {
+                if (cb != null) mainHandler.post(() -> cb.onDone(e == null));
+            });
+    }
+
+    // ── WRITE — Scheduled status posting ────────────────────────────────
+
+    /**
+     * Schedule a status for future auto-publish: write it to the
+     * statusScheduled/{ownerUid}/{id} Firebase branch (kept out of the
+     * live "status" tree so nobody sees it early), then cache it locally
+     * in Room (scheduledAt > 0) so the "Scheduled statuses" screen and the
+     * publish worker can find it — same pattern as channel scheduled posts.
+     */
+    public void scheduleStatus(StatusItem item, long scheduledAt, Result cb) {
+        if (item.ownerUid == null || item.ownerUid.isEmpty() || scheduledAt <= 0) {
+            if (cb != null) mainHandler.post(() -> cb.onDone(false));
+            return;
+        }
+        item.scheduledAt = scheduledAt;
+        item.timestamp   = scheduledAt; // will read correctly once published
+
+        StatusEntity entity = itemToEntity(item);
+        executor.execute(() -> dao.insertStatuses(java.util.Collections.singletonList(entity)));
+
+        FirebaseUtils.getUserStatusScheduledRef(item.ownerUid).child(item.id)
+            .setValue(item.toMap(), (e, ref) -> {
+                if (cb != null) mainHandler.post(() -> cb.onDone(e == null));
+            });
+    }
+
+    /**
+     * Publish a scheduled status right now: move it from statusScheduled →
+     * status on Firebase, and flip it live in Room.
+     */
+    public void publishScheduledStatus(String ownerUid, String statusId, Result cb) {
+        long now = System.currentTimeMillis();
+        executor.execute(() -> {
+            StatusEntity entity = dao.getStatusByIdSync(statusId);
+            if (entity == null) { mainHandler.post(() -> { if (cb != null) cb.onDone(false); }); return; }
+
+            java.util.Map<String, Object> updates = new java.util.HashMap<>();
+            updates.put("statusScheduled/" + ownerUid + "/" + statusId, null);
+            updates.put("status/" + ownerUid + "/" + statusId + "/scheduledAt", 0);
+            updates.put("status/" + ownerUid + "/" + statusId + "/timestamp", now);
+
+            // Re-read the scheduled node so the full item (media/text/privacy/etc.)
+            // is copied into the live "status" tree, not just patched in place —
+            // Firebase multi-path updates don't move a subtree on their own.
+            FirebaseUtils.getUserStatusScheduledRef(ownerUid).child(statusId)
+                .addListenerForSingleValueEvent(new ValueEventListener() {
+                    @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                        StatusItem item = snap.getValue(StatusItem.class);
+                        if (item == null) item = entityToItem(entity);
+                        item.scheduledAt = 0;
+                        item.timestamp   = now;
+                        java.util.Map<String, Object> finalUpdates = new java.util.HashMap<>();
+                        finalUpdates.put("status/" + ownerUid + "/" + statusId, item.toMap());
+                        finalUpdates.put("statusScheduled/" + ownerUid + "/" + statusId, null);
+                        FirebaseUtils.db().getReference().updateChildren(finalUpdates, (e, ref) ->
+                            mainHandler.post(() -> { if (cb != null) cb.onDone(e == null); }));
+                    }
+                    @Override public void onCancelled(@NonNull DatabaseError e) {
+                        mainHandler.post(() -> { if (cb != null) cb.onDone(false); });
+                    }
+                });
+
+            dao.publishScheduledStatus(statusId, now);
+        });
+    }
+
+    /**
+     * Cancel/delete a scheduled status before it goes live.
+     */
+    public void deleteScheduledStatus(String ownerUid, String statusId, Result cb) {
+        FirebaseUtils.getUserStatusScheduledRef(ownerUid).child(statusId)
+            .removeValue((e, ref) -> {
+                if (e == null) executor.execute(() -> dao.deleteScheduledStatus(statusId));
                 if (cb != null) mainHandler.post(() -> cb.onDone(e == null));
             });
     }
@@ -154,6 +236,33 @@ public class StatusRepository {
         FirebaseUtils.getStatusReactionRef(ownerUid, statusId, reactorUid).setValue(emoji);
     }
 
+    // ── Sync — scheduled statuses ───────────────────────────────────────
+
+    /**
+     * Pull my own scheduled statuses from Firebase into Room. Call from
+     * StatusViewModel on startup / whenever the Scheduled screen is opened
+     * so a status scheduled on another device still shows up here.
+     */
+    public void syncScheduledStatuses(String myUid) {
+        if (myUid == null || myUid.isEmpty()) return;
+        FirebaseUtils.getUserStatusScheduledRef(myUid)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    List<StatusEntity> toInsert = new ArrayList<>();
+                    for (DataSnapshot ds : snap.getChildren()) {
+                        StatusItem item = ds.getValue(StatusItem.class);
+                        if (item == null) continue;
+                        item.ownerUid = myUid;
+                        if (item.id == null) item.id = ds.getKey();
+                        toInsert.add(itemToEntity(item));
+                    }
+                    if (!toInsert.isEmpty())
+                        executor.execute(() -> dao.insertStatuses(toInsert));
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) {}
+            });
+    }
+
     // ── Converter ─────────────────────────────────────────────────────────
 
     private StatusEntity itemToEntity(StatusItem si) {
@@ -172,6 +281,27 @@ public class StatusRepository {
         e.timestamp   = si.timestamp;
         e.expiresAt   = si.expiresAt;
         e.deleted     = si.deleted;
+        e.scheduledAt = si.scheduledAt;
         return e;
+    }
+
+    private StatusItem entityToItem(StatusEntity e) {
+        StatusItem si    = new StatusItem();
+        si.id             = e.id;
+        si.ownerUid       = e.ownerUid;
+        si.ownerName      = e.ownerName;
+        si.ownerPhoto     = e.ownerPhoto;
+        si.type           = e.type;
+        si.text           = e.text;
+        si.mediaUrl       = e.mediaUrl;
+        si.thumbnailUrl   = e.thumbnailUrl;
+        si.bgColor        = e.bgColor;
+        si.fontStyle      = e.fontStyle;
+        si.textColor      = e.textColor;
+        si.timestamp      = e.timestamp;
+        si.expiresAt      = e.expiresAt;
+        si.deleted        = e.deleted;
+        si.scheduledAt    = e.scheduledAt;
+        return si;
     }
 }

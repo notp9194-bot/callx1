@@ -37,6 +37,7 @@ public class StatusEntity {
     public Long   expiresAt;
     public Boolean deleted;
     public long   syncedAt;
+    public long   scheduledAt;   // v27: > 0 if scheduled for future auto-publish
 
     public StatusEntity() {
         this.syncedAt = System.currentTimeMillis();

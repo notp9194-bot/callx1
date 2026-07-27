@@ -91,4 +91,19 @@
         android:contentDescription="Archive"
         android:visibility="visible"/>
 
+    <!-- Scheduled statuses shortcut: sits right next to the Archive icon -->
+    <ImageButton
+        android:id="@+id/btn_status_scheduled"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:layout_gravity="bottom|start"
+        android:layout_marginStart="64dp"
+        android:layout_margin="16dp"
+        android:src="@drawable/ic_schedule"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:padding="8dp"
+        android:tint="?attr/colorOnSurfaceVariant"
+        android:contentDescription="Scheduled statuses"
+        android:visibility="visible"/>
+
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

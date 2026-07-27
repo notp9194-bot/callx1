@@ -175,6 +175,12 @@ public class StatusFragment extends BaseFragment {
                 startActivity(new Intent(requireContext(),
                     com.callx.app.archive.StatusArchiveActivity.class)));
 
+        View btnScheduled = v.findViewById(R.id.btn_status_scheduled);
+        if (btnScheduled != null)
+            btnScheduled.setOnClickListener(x ->
+                startActivity(new Intent(requireContext(),
+                    com.callx.app.compose.StatusScheduledActivity.class)));
+
         return v;
     }
 

@@ -201,6 +201,12 @@
             android:theme="@style/Theme.CallX"
             android:exported="false"/>
 
+        <!-- Scheduled statuses: list, publish now, delete / cancel -->
+        <activity
+            android:name="com.callx.app.compose.StatusScheduledActivity"
+            android:theme="@style/Theme.CallX"
+            android:exported="false"/>
+
         <!-- v216: Multi-photo layout picker — WhatsApp-style story layout selector.
              Select up to 6 photos → MediaEditActivity.
              v222: Split into two real screens — this is now the pure

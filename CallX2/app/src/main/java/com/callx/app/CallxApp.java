@@ -202,6 +202,9 @@ public class CallxApp extends Application {
         // Must run at startup so posts scheduled before the last app kill are
         // published promptly — not just when the user opens the composer.
         com.callx.app.channel.ChannelScheduledPostWorker.schedulePeriodicWork(this);
+        // ✅ Status scheduled posts: auto-publish overdue scheduled statuses
+        // every 15 min, same cadence/pattern as the channel worker above.
+        com.callx.app.services.StatusScheduledPostWorker.schedulePeriodicWork(this);
 
         // Activity lifecycle + AppLock wiring — must be main thread
         com.callx.app.utils.PresenceManager.getInstance().init(this);
