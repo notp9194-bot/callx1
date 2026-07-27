@@ -105,9 +105,15 @@ public class NewStatusActivity extends AppCompatActivity {
     // action — see showStatusAddSheet()'s onMediaEdit callback.
     private ActivityResultLauncher<Intent>  statusMediaEditLauncher;
     // v216: Layout picker result launcher — receives selected URIs + layout style.
-    // No longer touches statusMediaEditLauncher/MediaEditActivity at all — see
-    // the BUG FIX comment where this is registered, below.
     private ActivityResultLauncher<Intent>  layoutPickerLauncher;
+    // v237: Receives the result of editing the flattened layout collage in
+    // MediaEditActivity — see openLayoutEditor()/its registration below.
+    // Kept completely separate from statusMediaEditLauncher (which still
+    // serves the plain multi-select attach-sheet "N separate photos" flow
+    // via postStatusBatch) so the single-collage layout flow can never
+    // accidentally get routed into the batch poster, and so a single
+    // composed collage can never turn back into N individual photos.
+    private ActivityResultLauncher<Intent>  layoutMediaEditLauncher;
 
     /** FrameLayout that holds the status preview + sticker overlays */
     private android.widget.FrameLayout stickerOverlayFrame;
@@ -159,7 +165,7 @@ public class NewStatusActivity extends AppCompatActivity {
         setupStickerOverlayFrame();
         // v216: Layout picker launcher — receives URIs + layoutStyle from StatusLayoutPickerActivity.
         //
-        // BUG FIX (the actual root cause of "layout badal ke ek-ek photo ho
+        // BUG FIX (the original root cause of "layout badal ke ek-ek photo ho
         // jata hai / N photos = N status posts"): this used to forward the
         // picked URIs straight into MediaEditActivity — a generic per-photo
         // swipe editor with zero concept of a collage. That's exactly why
@@ -167,18 +173,28 @@ public class NewStatusActivity extends AppCompatActivity {
         // photos the instant this screen opened, why the pinch/zoom/pan
         // arrangement never made it into the post (MediaEditActivity strips
         // it and hands back brand-new baked file:// Uris that don't match
-        // the original Uris the arrangement was keyed by), and — even with
-        // the single-post guard that used to live in this flow (now removed
-        // since it's no longer needed) — why the flow through a screen built
-        // for "edit N separate photos" was fundamentally the wrong detour
-        // for "post one collage". The fix: skip MediaEditActivity for Layout
-        // entirely.
-        // Flatten the collage right here (StatusLayoutComposer, now WYSIWYG
-        // with the arrange screen since it also takes the pinch/zoom/pan
-        // data) and drop it straight into the exact same pickedImage +
-        // showImagePreview() pipeline every normal single-photo status
-        // already uses — so caption, privacy, stickers and the existing
-        // Post button all just work, and post() only ever uploads ONE file.
+        // the original Uris the arrangement was keyed by), and why the flow
+        // through a screen built for "edit N separate photos" was
+        // fundamentally the wrong detour for "post one collage".
+        //
+        // v237: the fix is NOT to skip MediaEditActivity — the person wants
+        // to be able to edit the chosen layout too. The fix is to flatten
+        // the collage FIRST (StatusLayoutComposer, WYSIWYG with the arrange
+        // screen since it also takes the pinch/zoom/pan data) so there is
+        // exactly ONE baked image file, and only THEN send that single file
+        // into MediaEditActivity as a one-item list (see openLayoutEditor()
+        // below). Because MediaEditActivity only ever sees one item:
+        //   - there is nothing left for it to swipe between → the layout
+        //     can never visibly fall apart into individual photos again,
+        //   - its own "delete" action already refuses to delete the last
+        //     remaining item, so the collage can't be discarded down to zero
+        //     images either,
+        //   - it can only ever return that same one edited image back out,
+        //     so post() still only ever uploads ONE file.
+        // The edited collage is then routed into the exact same pickedImage
+        // + showImagePreview() pipeline every normal single-photo status
+        // already uses, exactly as before — caption, privacy, stickers and
+        // the existing Post button all just keep working unchanged.
         layoutPickerLauncher = registerForActivityResult(
                 new ActivityResultContracts.StartActivityForResult(),
                 result -> {
@@ -202,11 +218,11 @@ public class NewStatusActivity extends AppCompatActivity {
                         try {
                             java.io.File composed = StatusLayoutComposer.compose(
                                     this, uris, layoutStyle, scales, panXs, panYs);
+                            Uri composedUri = androidx.core.content.FileProvider.getUriForFile(
+                                    this, getPackageName() + ".fileprovider", composed);
                             runOnUiThread(() -> {
                                 setPosting(false);
-                                pickedImage = Uri.fromFile(composed);
-                                pickedVideo = null;
-                                showImagePreview(pickedImage);
+                                openLayoutEditor(composedUri);
                             });
                         } catch (Exception e) {
                             runOnUiThread(() -> {
@@ -215,6 +231,32 @@ public class NewStatusActivity extends AppCompatActivity {
                             });
                         }
                     }).start();
+                });
+        // v237: MediaEditActivity result for the single flattened layout
+        // collage — see openLayoutEditor(). Always exactly one URI in/out,
+        // so this never touches postStatusBatch: it drops the (possibly
+        // edited) collage into the normal single-image preview instead,
+        // same as every other single-photo status.
+        layoutMediaEditLauncher = registerForActivityResult(
+                new ActivityResultContracts.StartActivityForResult(),
+                result -> {
+                    if (result.getResultCode() != android.app.Activity.RESULT_OK || result.getData() == null) return;
+                    java.util.ArrayList<String> uriStrings = result.getData().getStringArrayListExtra(
+                            com.callx.app.conversation.controllers.MediaEditActivity.RESULT_URIS);
+                    if (uriStrings == null || uriStrings.isEmpty()) return;
+                    // Only one item was ever sent in, and MediaEditActivity's own
+                    // "delete" guard refuses to delete the last remaining item, so
+                    // there will always be exactly one URI here — the edited (or
+                    // untouched) layout collage, never split back into pieces.
+                    Uri editedCollage = Uri.parse(uriStrings.get(0));
+                    pickedImage = editedCollage;
+                    pickedVideo = null;
+                    showImagePreview(pickedImage);
+                    String editedCaption = result.getData().getStringExtra(
+                            com.callx.app.conversation.controllers.MediaEditActivity.RESULT_CAPTION);
+                    if (editedCaption != null && !editedCaption.isEmpty() && binding.etCaption != null) {
+                        binding.etCaption.setText(editedCaption);
+                    }
                 });
         restoreDraft();
         applyPrefillStickerIfAny();
@@ -583,6 +625,27 @@ public class NewStatusActivity extends AppCompatActivity {
     private void openLayoutPicker() {
         Intent intent = new Intent(this, StatusLayoutPickerActivity.class);
         layoutPickerLauncher.launch(intent);
+    }
+
+    /**
+     * v237: Opens MediaEditActivity on the single already-flattened layout
+     * collage file, so the person can crop/filter/draw/add text on their
+     * chosen layout exactly like any other status photo — as ONE image,
+     * never as the individual photos it was built from.
+     */
+    private void openLayoutEditor(Uri composedCollageUri) {
+        java.util.ArrayList<String> uriStrings = new java.util.ArrayList<>();
+        uriStrings.add(composedCollageUri.toString());
+        java.util.ArrayList<Integer> videoFlags = new java.util.ArrayList<>();
+        videoFlags.add(0); // the collage is always a flattened image, never a video
+
+        Intent intent = new Intent(this, com.callx.app.conversation.controllers.MediaEditActivity.class);
+        intent.putStringArrayListExtra(
+                com.callx.app.conversation.controllers.MediaEditActivity.EXTRA_URIS, uriStrings);
+        intent.putIntegerArrayListExtra(
+                com.callx.app.conversation.controllers.MediaEditActivity.EXTRA_IS_VIDEO, videoFlags);
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        layoutMediaEditLauncher.launch(intent);
     }
 
     /** v216: AI image prompt dialog — opens text input, result generates an AI image for status. */

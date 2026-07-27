@@ -98,7 +98,10 @@
             app:civ_border_color="@android:color/white"
             android:src="@drawable/ic_person"/>
 
-        <!-- Add (+) badge, shown only on own "add status" tile -->
+        <!-- Add (+) badge, shown only on own "add status" tile.
+             Its own tap target is small (17dp), but fl_avatar (48dp, below)
+             now shares the same "always add" click behaviour, so tapping
+             anywhere on the avatar/badge corner reliably starts a new status. -->
         <ImageView
             android:id="@+id/iv_card_add"
             android:layout_width="17dp"

@@ -619,15 +619,25 @@ package com.callx.app.feed;
               // even after one already exists — previously it was visible but dead,
               // since the whole card's click always resolved to onMyStatusClick once
               // hasStatus was true, so there was no way to add a second update.
+              //
+              // ✅ FIX: the + badge alone is only 17dp — too small to tap reliably.
+              // The avatar/ring container (fl_avatar, 48dp) now shares the same
+              // "always add" behaviour, so tapping the avatar OR the plus badge
+              // both start a new status. Tapping the rest of the card (background,
+              // name, ring edge outside the avatar circle) still opens the viewer
+              // when a status already exists.
               if (c.isMine) {
-                  h.ivAddBadge.setOnClickListener(v -> {
+                  View.OnClickListener addClick = v -> {
                       if (onClick != null) {
                           onClick.accept(new CardItem(true, false, c.ownerUid, c.ownerName,
                                   c.ownerPhoto, c.thumbUrl, c.bgColor, c.unseen, c.isMuted));
                       }
-                  });
+                  };
+                  h.ivAddBadge.setOnClickListener(addClick);
+                  if (h.flAvatar != null) h.flAvatar.setOnClickListener(addClick);
               } else {
                   h.ivAddBadge.setOnClickListener(null);
+                  if (h.flAvatar != null) h.flAvatar.setOnClickListener(null);
               }
 
               h.itemView.setOnClickListener(v -> { if (onClick != null) onClick.accept(c); });
@@ -639,6 +649,7 @@ package com.callx.app.feed;
           static class VH extends RecyclerView.ViewHolder {
               ImageView ivBg, ring, ivAddBadge;
               CircleImageView ivAvatar;
+              View flAvatar;
               TextView tvName;
               VH(View v) {
                   super(v);
@@ -646,6 +657,7 @@ package com.callx.app.feed;
                   ring       = v.findViewById(R.id.ring);
                   ivAvatar   = v.findViewById(R.id.iv_card_avatar);
                   ivAddBadge = v.findViewById(R.id.iv_card_add);
+                  flAvatar   = v.findViewById(R.id.fl_avatar);
                   tvName     = v.findViewById(R.id.tv_card_name);
               }
           }
