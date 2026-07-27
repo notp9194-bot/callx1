@@ -38,9 +38,7 @@
             android:layout_gravity="center_horizontal"
             android:layout_marginTop="10dp"
             android:layout_marginBottom="8dp"
-            android:background="@drawable/bg_drag_handle"
-            android:layout_marginStart="auto"
-            android:layout_marginEnd="auto"/>
+            android:background="@drawable/bg_drag_handle"/>
 
         <!-- ── Collapsed strip ──────────────────────────────────────── -->
         <!--

@@ -353,7 +353,6 @@
          ═══════════════════════════════════════════════════════════════════ -->
     <include
         layout="@layout/layout_camera_media_sheet"
-        android:id="@+id/camera_media_sheet_root"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         app:layout_behavior="com.google.android.material.bottomsheet.BottomSheetBehavior"/>
