@@ -198,6 +198,12 @@ public class MainActivity extends AppCompatActivity
         binding.viewPager.setOffscreenPageLimit(1);
         // Bottom nav tap par instant switch (no scroll animation) — WhatsApp jaisa
         binding.viewPager.setUserInputEnabled(true);
+        // FIX: multi-photo reel ke left/right swipe se tab switch ho jaata tha —
+        // Reels feature (different module) is deterministic backstop ke through
+        // is pager ka swipe on/off karta hai jab tak koi multi-photo reel screen
+        // par visible hai. See ReelTabSwipeLock for the full explanation.
+        com.callx.app.utils.ReelTabSwipeLock.setController(
+            enabled -> binding.viewPager.setUserInputEnabled(enabled));
         binding.viewPager.registerOnPageChangeCallback(new ViewPager2.OnPageChangeCallback() {
             @Override public void onPageSelected(int position) {
                 int[] ids = {
@@ -509,6 +515,10 @@ public class MainActivity extends AppCompatActivity
     }
 
     @Override protected void onDestroy() {
+        // FIX: detach so a destroyed Activity's binding.viewPager can't be
+        // touched by a stray lock()/unlock() call from a Reels fragment
+        // still finishing off its own lifecycle.
+        com.callx.app.utils.ReelTabSwipeLock.setController(null);
         // Clean up any active docked reel player to release the ExoPlayer surface
         if (dockedPlayer != null) {
             dockedPlayer.dismiss(false);

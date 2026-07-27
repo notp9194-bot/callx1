@@ -208,7 +208,7 @@
              its own StatusLayoutAdjustActivity screen below. -->
         <activity
             android:name="com.callx.app.compose.StatusLayoutPickerActivity"
-            android:theme="@style/Theme.AppCompat.NoActionBar"
+            android:theme="@style/Theme.CallX.NoActionBar"
             android:screenOrientation="portrait"
             android:windowSoftInputMode="adjustResize"
             android:exported="false"/>
@@ -219,7 +219,7 @@
              selection screen. -->
         <activity
             android:name="com.callx.app.compose.StatusLayoutAdjustActivity"
-            android:theme="@style/Theme.AppCompat.NoActionBar"
+            android:theme="@style/Theme.CallX.NoActionBar"
             android:screenOrientation="portrait"
             android:windowSoftInputMode="adjustResize"
             android:exported="false"/>

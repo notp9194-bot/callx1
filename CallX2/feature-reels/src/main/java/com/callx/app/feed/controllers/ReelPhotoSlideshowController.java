@@ -76,6 +76,13 @@ public class ReelPhotoSlideshowController {
 
     public boolean isPhotoMode() { return isPhotoMode; }
 
+    /** True when the current reel is a photo slideshow with 2+ photos —
+     *  i.e. when left/right swipe actually has something to navigate,
+     *  which is exactly when the outer tab pager's swipe must stay locked. */
+    public boolean hasMultiplePhotos() {
+        return isPhotoMode && photoUrls != null && photoUrls.size() > 1;
+    }
+
     // ── Setup photo mode ─────────────────────────────────────────────────
 
     public void setupPhotoMode() {

@@ -270,6 +270,10 @@ public class ReelPlayerFragment extends Fragment
 
     @Override
     public void onDestroyView() {
+        // Defensive: if this reel's view is torn down (e.g. ViewPager2
+        // offscreenPageLimit recycling) while it still thought it was the
+        // visible one, don't leave the outer tab pager's swipe stuck off.
+        if (isVisible) com.callx.app.utils.ReelTabSwipeLock.unlock();
         playerController.stopProgressTracking();
         playerController.releasePlayer();
         socialController.removeFirebaseListeners();
@@ -358,6 +362,18 @@ public class ReelPlayerFragment extends Fragment
      * effect without needing a tap.
      */
     private void applyVisibleState(boolean visible) {
+        // FIX: lock the outer (Chats/Status/Reels/Calls) tab pager's swipe
+        // for exactly as long as a multi-photo reel is the one visible on
+        // screen — this is the deterministic backstop to
+        // ReelPhotoSlideshowController's requestDisallowInterceptTouchEvent
+        // fix, so a left/right photo swipe can never fall through and
+        // change tabs. See ReelTabSwipeLock for the full explanation.
+        if (visible && photoController.hasMultiplePhotos()) {
+            com.callx.app.utils.ReelTabSwipeLock.lock();
+        } else {
+            com.callx.app.utils.ReelTabSwipeLock.unlock();
+        }
+
         if (visible) {
             playerController.startPlayback();
             uiController.startDiscAnimation();
@@ -472,6 +488,7 @@ public class ReelPlayerFragment extends Fragment
     @Override public boolean isFollowing()         { return socialController.isFollowing(); }
     @Override public boolean isFollowCheckLoaded() { return socialController.isFollowCheckLoaded(); }
     @Override public boolean isPhotoMode()         { return photoController.isPhotoMode(); }
+    @Override public boolean hasMultiplePhotos()   { return photoController.hasMultiplePhotos(); }
     @Override public boolean isMuted()             { return playerController.isMuted(); }
     @Override public int     getSpeedIndex()       { return playerController.getSpeedIndex(); }
     @Override public String[] getSpeedLabels()     { return SPEED_LABELS; }

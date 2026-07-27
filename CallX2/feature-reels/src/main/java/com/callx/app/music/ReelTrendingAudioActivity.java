@@ -431,14 +431,14 @@ public class ReelTrendingAudioActivity extends AppCompatActivity {
     private void previewAudio(Audio audio) {
         if (audio.id.equals(playingId)) { stopPreview(); return; }
         stopPreview();
-        if (audio.audioUrl == null || audio.audioUrl.isEmpty()) {
-            Toast.makeText(this, "Preview not available for demo tracks", Toast.LENGTH_SHORT).show(); return;
+        if (audio.previewAudioUrl == null || audio.previewAudioUrl.isEmpty()) {
+            Toast.makeText(this, "Preview not available for this sound", Toast.LENGTH_SHORT).show(); return;
         }
         playingId = audio.id;
         adapter.setPlayingId(playingId); adapter.notifyDataSetChanged();
         try {
             mediaPlayer = new MediaPlayer();
-            mediaPlayer.setDataSource(audio.audioUrl);
+            mediaPlayer.setDataSource(audio.previewAudioUrl);
             mediaPlayer.prepareAsync();
             mediaPlayer.setOnPreparedListener(mp -> mp.start());
             mediaPlayer.setOnCompletionListener(mp -> stopPreview());
@@ -584,6 +584,8 @@ public class ReelTrendingAudioActivity extends AppCompatActivity {
 
             boolean playing = a.id != null && a.id.equals(playingId);
             h.btnPreview.setImageResource(playing ? R.drawable.ic_pause : R.drawable.ic_play);
+            boolean hasPreview = a.previewAudioUrl != null && !a.previewAudioUrl.isEmpty();
+            h.btnPreview.setAlpha(hasPreview ? 1f : 0.4f);
             boolean saved = a.id != null && savedIds.contains(a.id);
             h.btnSave.setImageResource(saved ? R.drawable.ic_bookmark_filled : R.drawable.ic_bookmark);
 

@@ -1170,6 +1170,7 @@ public class HomeFragment extends Fragment {
 
             // Double-tap to like on slideshow
             photoPager.setOnTouchListener(new View.OnTouchListener() {
+                private float downX = 0f, downY = 0f;
                 private final GestureDetector gd = new GestureDetector(requireContext(),
                     new GestureDetector.SimpleOnGestureListener() {
                         @Override public boolean onDoubleTap(MotionEvent e) {
@@ -1190,6 +1191,29 @@ public class HomeFragment extends Fragment {
                         }
                     });
                 @Override public boolean onTouch(View v, MotionEvent event) {
+                    // FIX: same nested-ViewPager2 tab-switch bug as the Reels
+                    // player's photo slideshow — a multi-photo post here sits
+                    // inside this same horizontal tab-switch pager, so claim
+                    // horizontal drags immediately instead of letting the tab
+                    // pager steal them mid-swipe.
+                    switch (event.getActionMasked()) {
+                        case MotionEvent.ACTION_DOWN:
+                            downX = event.getRawX();
+                            downY = event.getRawY();
+                            if (photoList.size() > 1) v.getParent().requestDisallowInterceptTouchEvent(true);
+                            break;
+                        case MotionEvent.ACTION_MOVE:
+                            float dx = Math.abs(event.getRawX() - downX);
+                            float dy = Math.abs(event.getRawY() - downY);
+                            if (photoList.size() > 1 && dx >= dy) {
+                                v.getParent().requestDisallowInterceptTouchEvent(true);
+                            }
+                            break;
+                        case MotionEvent.ACTION_UP:
+                        case MotionEvent.ACTION_CANCEL:
+                            v.getParent().requestDisallowInterceptTouchEvent(false);
+                            break;
+                    }
                     return gd.onTouchEvent(event);
                 }
             });

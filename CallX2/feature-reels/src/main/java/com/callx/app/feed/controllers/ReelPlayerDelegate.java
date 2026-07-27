@@ -41,6 +41,7 @@ public interface ReelPlayerDelegate {
     boolean isFollowing();
     boolean isFollowCheckLoaded();
     boolean isPhotoMode();
+    boolean hasMultiplePhotos();
     boolean isMuted();
     int getSpeedIndex();
     String[] getSpeedLabels();
