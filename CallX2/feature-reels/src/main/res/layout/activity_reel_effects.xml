@@ -69,9 +69,7 @@
         android:layout_height="0dp"
         android:layout_weight="1"
         android:scaleType="centerCrop"
-        android:background="#1A1A1A"
-        android:src="@drawable/ic_reel_camera"
-            android:tint="#FF416C"/>
+        android:background="#111"/>
 
     <!-- Effect strip -->
     <TextView

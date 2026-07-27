@@ -101,6 +101,11 @@ public class ReelUploadActivity extends AppCompatActivity {
     // async Firebase patch in registerOrLinkSound().
     public static final String EXTRA_SOUND_COVER  = "selected_sound_cover";
     public static final String EXTRA_SOUND_ARTIST = "selected_sound_artist";
+    // ✅ NEW: local file path of a photo captured via ReelCameraActivity's
+    // Reels "+" flow (photo mode). When present, ReelUploadActivity switches
+    // straight into photo mode with this single photo pre-loaded and opens
+    // the full ReelPhotoEditorActivity tool set immediately.
+    public static final String EXTRA_CAMERA_PHOTO_PATH = "camera_photo_path";
     // Fix 4 & 6 & 8: duet metadata
     public static final String EXTRA_IS_DUET          = "upload_is_duet";
     public static final String EXTRA_DUET_ORIGINAL_ID = "upload_duet_original_id";
@@ -794,6 +799,29 @@ public class ReelUploadActivity extends AppCompatActivity {
         mixNormalize      = i.getBooleanExtra("mix_normalize",     false);
         musicStartMs      = i.getIntExtra("music_start_ms",       0);
         musicEndMs        = i.getIntExtra("music_end_ms",          0);
+
+        // ── NEW: Camera-captured single photo (Reels camera "+" → Photo mode) ──
+        // Reuses the exact same photo pipeline (selectedPhotoUris, per-photo
+        // metadata lists, ReelPhotoEditorActivity via REQ_PHOTO_EDIT) that the
+        // gallery "Pick Photos" flow already uses, so every photo editing tool
+        // (filters, effects, caption, stickers, rotation, adjust, Ken Burns,
+        // duration) works identically for camera-shot photos.
+        String cameraPhotoPath = i.getStringExtra(EXTRA_CAMERA_PHOTO_PATH);
+        if (cameraPhotoPath != null && !cameraPhotoPath.isEmpty()) {
+            switchToPhotoMode();
+            Uri photoUri = Uri.fromFile(new java.io.File(cameraPhotoPath));
+            selectedPhotoUris.add(photoUri);
+            addPhotoPreviewThumbnail(photoUri, 0);
+            updatePhotoCountLabel();
+            btnPostReel.setEnabled(true);
+            // Immediately open the full photo editor so the camera → edit
+            // handoff feels the same as the video flow's ReelEditorActivity.
+            photoEditIndex = 0;
+            com.callx.app.editor.ReelPhotoEditorActivity.start(
+                this, photoUri.toString(), 0, 1,
+                "", "", "", "", "", "", 0, 0f, REQ_PHOTO_EDIT);
+            return;
+        }
 
         // ── If no video URI, stop here (gallery flow: user picks video later) ──
         String videoUriStr = i.getStringExtra(EXTRA_VIDEO_URI);

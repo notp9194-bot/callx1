@@ -43,6 +43,17 @@ public class ReelEffectsActivity extends AppCompatActivity {
     public static final String RESULT_BEAUTY_LEVEL = "result_effect_beauty";
     public static final String RESULT_STICKER_ID   = "result_sticker_id";
 
+    // ✅ NEW: live camera frame snapshot shown as the preview (was a static
+    // placeholder camera icon before — this makes the effect grade visible
+    // on what the camera is actually seeing, same as ReelFiltersActivity).
+    public static final String EXTRA_THUMBNAIL_URI     = "effects_thumb_uri";
+    /** Optional: pre-select this effect + sliders when re-opening (re-edit flow). */
+    public static final String EXTRA_CURRENT_EFFECT     = "current_effect";
+    public static final String EXTRA_CURRENT_BRIGHTNESS = "current_effect_brightness";
+    public static final String EXTRA_CURRENT_CONTRAST   = "current_effect_contrast";
+    public static final String EXTRA_CURRENT_SATURATION = "current_effect_saturation";
+    public static final String EXTRA_CURRENT_BEAUTY     = "current_effect_beauty";
+
     private static final String[] EFFECT_NAMES = {
         "Normal", "Vivid", "Fade", "Warm", "Cool", "Drama",
         "Vintage", "Mono", "Noir", "Juno", "Lark", "Clarendon",
@@ -75,7 +86,46 @@ public class ReelEffectsActivity extends AppCompatActivity {
         buildEffectStrip();
         buildStickerStrip();
         setupSliders();
+        restoreCurrentEffect(); // ✅ pre-select previously chosen effect + slider values
         setupClickListeners();
+        loadThumbnail();        // ✅ show the actual live camera frame, not a placeholder icon
+    }
+
+    /** Loads the camera frame snapshot passed by ReelCameraActivity as the preview image. */
+    private void loadThumbnail() {
+        String uriStr = getIntent().getStringExtra(EXTRA_THUMBNAIL_URI);
+        if (uriStr != null && !uriStr.isEmpty()) {
+            try {
+                ivLivePreview.setImageTintList(null); // clear any static XML tint first
+                ivLivePreview.setImageURI(android.net.Uri.parse(uriStr));
+                applyColorMatrix(); // re-apply the current effect grade onto the real frame
+            } catch (Exception ignored) {}
+        }
+    }
+
+    /**
+     * If the caller already had an effect selected (e.g. camera re-open),
+     * restore it so the user continues from where they left off instead of
+     * always landing on "Normal".
+     */
+    private void restoreCurrentEffect() {
+        Intent i = getIntent();
+        String cur = i.getStringExtra(EXTRA_CURRENT_EFFECT);
+        if (cur != null && !cur.isEmpty() && !cur.equals("Normal")) {
+            float b  = i.getFloatExtra(EXTRA_CURRENT_BRIGHTNESS, 0f);
+            float c  = i.getFloatExtra(EXTRA_CURRENT_CONTRAST,   1f);
+            float s  = i.getFloatExtra(EXTRA_CURRENT_SATURATION, 1f);
+            float bv = i.getFloatExtra(EXTRA_CURRENT_BEAUTY,     0f);
+            sbBrightness.setProgress(Math.round(b / 80f * 100f + 100f));
+            sbContrast  .setProgress(Math.round(c * 100f));
+            sbSaturation.setProgress(Math.round(s * 100f));
+            sbBeauty    .setProgress(Math.round(bv * 100f));
+            brightness  = b; contrast = c; saturation = s; beautyLevel = bv;
+            selectedEffect = cur;
+            if (tvEffectName != null) tvEffectName.setText(cur);
+            applyColorMatrix();
+            if (rvEffects.getAdapter() != null) rvEffects.getAdapter().notifyDataSetChanged();
+        }
     }
 
     private void bindViews() {

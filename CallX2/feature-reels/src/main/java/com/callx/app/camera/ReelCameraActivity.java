@@ -253,7 +253,11 @@ public class ReelCameraActivity extends AppCompatActivity {
         setupClickListeners();
         readSoundExtras();
         targetStatus = getIntent() != null && getIntent().getBooleanExtra(EXTRA_TARGET_STATUS, false);
-        if (targetStatus) addPhotoVideoToggle();
+        // ✅ NEW: Photo capture is now a first-class part of the Reels camera too
+        // (previously gated behind targetStatus only). The toggle + imageCapture
+        // use-case work identically for both flows; only the destination after
+        // capture differs — see finishPhotoCapture().
+        addPhotoVideoToggle();
         if (allPermissionsGranted()) {
             startCamera();
         } else {
@@ -322,8 +326,7 @@ public class ReelCameraActivity extends AppCompatActivity {
         btnFlash.setOnClickListener(v -> toggleFlash());
 
         if (btnEffects != null)
-            btnEffects.setOnClickListener(v ->
-                startActivityForResult(new Intent(this, ReelEffectsActivity.class), REQ_EFFECTS));
+            btnEffects.setOnClickListener(v -> launchEffectsActivity());
 
         if (btnCameraFilters != null)
             btnCameraFilters.setOnClickListener(v -> launchFiltersActivity());
@@ -539,6 +542,16 @@ public class ReelCameraActivity extends AppCompatActivity {
             if (hasFilter) {
                 photo = applyFilterToBitmap(photo, filterBrightness, filterContrast, filterSaturation);
             }
+            // ✅ NEW: bake the selected EFFECT (from ReelEffectsActivity) too — previously
+            // only the FILTER was baked into captured photos, so an effect chosen on the
+            // camera screen silently never reached the photo. Video already carries this
+            // through as an EXTRA_PRESET_EFFECT_* to the editor; photos have no separate
+            // editor step for it, so we bake it here the same way the filter is baked.
+            boolean hasEffect = effectName != null && !effectName.isEmpty()
+                && !effectName.equals("None") && !effectName.equals("Normal");
+            if (hasEffect) {
+                photo = applyFilterToBitmap(photo, effectBrightness, effectContrast, effectSaturation);
+            }
             if (!stickerLiveViews.isEmpty() || !textOverlayList.isEmpty()) {
                 photo = bakeOverlaysOntoBitmap(photo);
             }
@@ -550,18 +563,42 @@ public class ReelCameraActivity extends AppCompatActivity {
             Log.e(TAG, "Photo bake failed, sending original capture", e);
         }
 
-        String textOverlay = "";
-        if (!textOverlayList.isEmpty()) textOverlay = textOverlayList.get(0).text;
+        if (targetStatus) {
+            // Status flow — unchanged: hand the finished photo straight back to
+            // NewStatusActivity via setResult, exactly as before.
+            String textOverlay = "";
+            if (!textOverlayList.isEmpty()) textOverlay = textOverlayList.get(0).text;
 
-        Intent result = new Intent();
-        result.putExtra("photo_uri",    path);
-        result.putExtra("is_photo",     true);
-        result.putExtra("text_overlay", textOverlay);
-        if (!preSelectedSoundId.isEmpty())    result.putExtra("selected_sound_id",    preSelectedSoundId);
-        if (!preSelectedSoundTitle.isEmpty()) result.putExtra("selected_sound_title", preSelectedSoundTitle);
-        if (!preSelectedSoundUrl.isEmpty())   result.putExtra("selected_sound_url",   preSelectedSoundUrl);
-        setResult(RESULT_OK, result);
-        finish();
+            Intent result = new Intent();
+            result.putExtra("photo_uri",    path);
+            result.putExtra("is_photo",     true);
+            result.putExtra("text_overlay", textOverlay);
+            if (!preSelectedSoundId.isEmpty())    result.putExtra("selected_sound_id",    preSelectedSoundId);
+            if (!preSelectedSoundTitle.isEmpty()) result.putExtra("selected_sound_title", preSelectedSoundTitle);
+            if (!preSelectedSoundUrl.isEmpty())   result.putExtra("selected_sound_url",   preSelectedSoundUrl);
+            setResult(RESULT_OK, result);
+            finish();
+        } else {
+            // ✅ NEW: Reels "+" camera flow — route the captured photo into
+            // ReelUploadActivity's existing photo-slideshow pipeline (single photo),
+            // which immediately opens ReelPhotoEditorActivity so ALL photo editing
+            // tools (filters, effects, caption, stickers, rotation, brightness/
+            // contrast/saturation, Ken Burns, duration) are available — mirroring
+            // what launchEditorWithFile()/ReelEditorActivity already does for video.
+            proceedToPhotoUpload(path);
+        }
+    }
+
+    /** Forwards a camera-captured photo (Reels flow) into ReelUploadActivity's photo pipeline. */
+    private void proceedToPhotoUpload(String path) {
+        Intent intent = new Intent(this, com.callx.app.upload.ReelUploadActivity.class);
+        intent.putExtra(com.callx.app.upload.ReelUploadActivity.EXTRA_CAMERA_PHOTO_PATH, path);
+        if (!preSelectedSoundId.isEmpty())     intent.putExtra("selected_sound_id",     preSelectedSoundId);
+        if (!preSelectedSoundTitle.isEmpty())  intent.putExtra("selected_sound_title",  preSelectedSoundTitle);
+        if (!preSelectedSoundUrl.isEmpty())    intent.putExtra("selected_sound_url",    preSelectedSoundUrl);
+        if (!preSelectedSoundCover.isEmpty())  intent.putExtra("selected_sound_cover",  preSelectedSoundCover);
+        if (!preSelectedSoundArtist.isEmpty()) intent.putExtra("selected_sound_artist", preSelectedSoundArtist);
+        startActivity(intent);
     }
 
     /** Real pixel-level bake using the same brightness/contrast/saturation params as the live filter buttons. */
@@ -1071,6 +1108,38 @@ public class ReelCameraActivity extends AppCompatActivity {
             filterOverlayView.setBackgroundColor(overlayColor);
             filterOverlayView.setVisibility(View.VISIBLE);
         }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    //  Effects activity launch (with live camera frame as thumbnail)
+    // ─────────────────────────────────────────────────────────────────────
+    // ✅ FIX: Effects previously opened with no camera frame at all, so the
+    // screen showed a static placeholder camera icon instead of what the
+    // camera was actually seeing. Now mirrors launchFiltersActivity() below.
+    private void launchEffectsActivity() {
+        Intent i = new Intent(this, ReelEffectsActivity.class);
+        try {
+            android.graphics.Bitmap bmp = previewView.getBitmap();
+            if (bmp != null) {
+                java.io.File thumbFile =
+                    new java.io.File(getCacheDir(), "effects_thumb_preview.jpg");
+                java.io.FileOutputStream fos = new java.io.FileOutputStream(thumbFile);
+                bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, fos);
+                fos.close();
+                i.putExtra(ReelEffectsActivity.EXTRA_THUMBNAIL_URI,
+                    android.net.Uri.fromFile(thumbFile).toString());
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Could not capture effects preview thumbnail: " + e.getMessage());
+        }
+        if (effectName != null && !effectName.isEmpty()) {
+            i.putExtra(ReelEffectsActivity.EXTRA_CURRENT_EFFECT,     effectName);
+            i.putExtra(ReelEffectsActivity.EXTRA_CURRENT_BRIGHTNESS, effectBrightness);
+            i.putExtra(ReelEffectsActivity.EXTRA_CURRENT_CONTRAST,   effectContrast);
+            i.putExtra(ReelEffectsActivity.EXTRA_CURRENT_SATURATION, effectSaturation);
+            i.putExtra(ReelEffectsActivity.EXTRA_CURRENT_BEAUTY,     effectBeauty);
+        }
+        startActivityForResult(i, REQ_EFFECTS);
     }
 
     // ─────────────────────────────────────────────────────────────────────
