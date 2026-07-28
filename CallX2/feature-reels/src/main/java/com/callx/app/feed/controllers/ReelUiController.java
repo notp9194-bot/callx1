@@ -101,6 +101,14 @@ public class ReelUiController {
         this.fragmentView = root;
         ivOwnerAvatar      = root.findViewById(R.id.iv_owner_avatar);
         ivOwnerStoryRing   = root.findViewById(R.id.iv_owner_story_ring);
+        // FIX v39: seamless gradient ring — replaces story_ring_insta_gradient.xml's
+        // 3-stop XML sweep gradient which had a visible seam (see
+        // StoryRingGradientDrawable doc for details).
+        if (ivOwnerStoryRing != null) {
+            ivOwnerStoryRing.setBackground(
+                    com.callx.app.utils.StoryRingGradientDrawable.withStrokeDp(2.5f,
+                            root.getResources().getDisplayMetrics().density));
+        }
         tvOwnerName        = root.findViewById(R.id.tv_owner_name);
         tvCaption          = root.findViewById(R.id.tv_caption);
         tvMusicName        = root.findViewById(R.id.tv_music_name);

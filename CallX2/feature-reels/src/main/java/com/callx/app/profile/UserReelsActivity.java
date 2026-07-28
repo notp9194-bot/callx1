@@ -249,6 +249,14 @@ public class UserReelsActivity extends AppCompatActivity
         ivAvatar             = findViewById(R.id.iv_avatar);
         ivVerified           = findViewById(R.id.iv_verified);
         viewStoryRing        = findViewById(R.id.view_story_ring);
+        // FIX v39: seamless gradient ring — replaces bg_story_ring.xml's 3-stop
+        // XML sweep gradient which had a visible seam (see
+        // StoryRingGradientDrawable doc for details).
+        if (viewStoryRing != null) {
+            viewStoryRing.setBackground(
+                    com.callx.app.utils.StoryRingGradientDrawable.withStrokeDp(3f,
+                            getResources().getDisplayMetrics().density));
+        }
         tvName               = findViewById(R.id.tv_name);
         tvDisplayName        = findViewById(R.id.tv_display_name);
         tvReelCount          = findViewById(R.id.tv_reel_count);

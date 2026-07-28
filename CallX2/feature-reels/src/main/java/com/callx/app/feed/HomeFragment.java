@@ -652,6 +652,14 @@ public class HomeFragment extends Fragment {
 
             // ★ Instagram-style: gradient ring for ALL stories that have unseen content
             ImageView ivGradientRing = storyView.findViewById(R.id.iv_reel_story_gradient_ring);
+            // FIX v39: story_ring_insta_gradient.xml had a visible seam (XML sweep
+            // gradient only supports 3 stops, doesn't loop back cleanly) — swapped
+            // for the seamless StoryRingGradientDrawable used across the app.
+            if (ivGradientRing != null) {
+                ivGradientRing.setImageDrawable(
+                        com.callx.app.utils.StoryRingGradientDrawable.withStrokeDp(3f,
+                                getResources().getDisplayMetrics().density));
+            }
 
             if (entry.hasUnseen || entry.hasReelStory) {
                 // Gradient pink/orange ring — same as Instagram, for any unseen story
@@ -885,6 +893,14 @@ public class HomeFragment extends Fragment {
             .inflate(R.layout.item_home_feed_post, containerFeed, false);
 
         CircleImageView avatar    = card.findViewById(R.id.iv_post_avatar);
+        // FIX v39: seamless gradient ring (see StoryRingGradientDrawable doc for why
+        // the old story_ring_insta_gradient.xml background had a visible seam).
+        ImageView ivPostStoryRing = card.findViewById(R.id.iv_post_story_ring);
+        if (ivPostStoryRing != null) {
+            ivPostStoryRing.setBackground(
+                    com.callx.app.utils.StoryRingGradientDrawable.withStrokeDp(2.5f,
+                            getResources().getDisplayMetrics().density));
+        }
         TextView tvOwner          = card.findViewById(R.id.tv_post_owner);
         TextView tvTime           = card.findViewById(R.id.tv_post_time);
         TextView tvAudio          = card.findViewById(R.id.tv_post_audio);

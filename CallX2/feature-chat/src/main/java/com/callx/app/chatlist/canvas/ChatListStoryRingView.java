@@ -1,12 +1,14 @@
 package com.callx.app.chatlist.canvas;
 
 import android.content.Context;
+import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.RectF;
-import android.graphics.SweepGradient;
 import android.util.AttributeSet;
 import android.view.View;
+
+import com.callx.app.utils.StoryRingBitmapCache;
 
 /**
  * ChatListStoryRingView — v83 Instagram-exact gradient ring.
@@ -16,11 +18,18 @@ import android.view.View;
  * SEEN   → muted grey stroke (#CBD5E1)
  * NONE   → nothing drawn
  *
- * Uses SweepGradient (rotated -90° so gradient starts at top) for the
- * Instagram story ring appearance. The gradient colors match:
- *   #833AB4 (purple) → #FD1D1D (red-pink) → #FCAF45 (orange/yellow)
- *
  * PERF: setState() is a no-op when the state is unchanged.
+ *
+ * v40 PERF PASS: shared SweepGradient via StoryRingShaderCache instead of
+ * allocating a new one per bind.
+ *
+ * v41 PERF PASS (bitmap blit): UNSEEN no longer strokes a live shader at
+ * all. {@link StoryRingBitmapCache} pre-rasterizes the gradient ring to a
+ * shared bitmap once per size; onDraw() now does a single
+ * {@code drawBitmap} texture blit for the gradient case — zero per-pixel
+ * shader evaluation on every frame while the chat list scrolls/flings, no
+ * matter how many rings are on screen. SEEN state stays a plain flat-color
+ * stroke (already trivially cheap, no shader involved either way).
  */
 public class ChatListStoryRingView extends View {
 
@@ -31,36 +40,22 @@ public class ChatListStoryRingView extends View {
     private static final float STROKE_DP = 3f;
     private static final float INSET_DP  = 2f;
 
-    private final Paint ringPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final RectF oval      = new RectF();
+    private final Paint ringPaint   = new Paint(Paint.ANTI_ALIAS_FLAG); // SEEN flat stroke
+    private final Paint bitmapPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG); // UNSEEN blit
+    private final RectF oval        = new RectF();
 
     private final float strokePx;
     private final float insetPx;
 
     private int state = STATE_NONE;
 
-    // Instagram gradient colors (purple → red-pink → orange/yellow)
-    private static final int[] INSTA_GRADIENT_COLORS = {
-        0xFF833AB4, // purple (top)
-        0xFFc13584, // magenta
-        0xFFe1306c, // hot pink
-        0xFFfd1d1d, // red-pink
-        0xFFf77737, // orange
-        0xFFfcaf45, // orange-yellow (bottom-right)
-        0xFFffdc80, // light yellow
-        0xFFfcaf45, // back orange-yellow
-        0xFFf77737, // orange
-        0xFFfd1d1d, // red-pink
-        0xFFe1306c, // hot pink
-        0xFFc13584, // magenta
-        0xFF833AB4  // purple (close loop)
-    };
-
     private static final int COLOR_SEEN = 0xFFCBD5E1;
+    private static final int COLOR_UNSEEN_FALLBACK = 0xFF833AB4; // used only if bitmap blit isn't safe
 
-    // Whether we need to rebuild the gradient shader (on size change)
-    private boolean gradientDirty = true;
+    // Whether the cached ring bitmap needs to be re-fetched (on size/state change)
+    private boolean ringDirty = true;
     private int lastW = 0, lastH = 0;
+    private Bitmap ringBitmap;
 
     public ChatListStoryRingView(Context ctx) {
         this(ctx, null);
@@ -74,7 +69,7 @@ public class ChatListStoryRingView extends View {
 
         ringPaint.setStyle(Paint.Style.STROKE);
         ringPaint.setStrokeWidth(strokePx);
-        ringPaint.setColor(0xFF833AB4); // initial color before shader applied
+        ringPaint.setColor(COLOR_SEEN); // overwritten to gradient-purple fallback when UNSEEN, see refreshRing()
     }
 
     /**
@@ -84,7 +79,7 @@ public class ChatListStoryRingView extends View {
     public void setState(int newState) {
         if (newState == state) return;
         state = newState;
-        gradientDirty = true;
+        ringDirty = true;
         invalidate();
     }
 
@@ -94,7 +89,7 @@ public class ChatListStoryRingView extends View {
     protected void onSizeChanged(int w, int h, int oldw, int oldh) {
         super.onSizeChanged(w, h, oldw, oldh);
         if (w != lastW || h != lastH) {
-            gradientDirty = true;
+            ringDirty = true;
             lastW = w;
             lastH = h;
         }
@@ -109,32 +104,46 @@ public class ChatListStoryRingView extends View {
         int h = getHeight();
         if (w <= 0 || h <= 0) return;
 
-        if (gradientDirty) {
-            rebuildShader(w, h);
-            gradientDirty = false;
+        if (ringDirty) {
+            refreshRing(w, h);
+            ringDirty = false;
         }
 
-        float half = strokePx / 2f;
-        oval.set(insetPx + half, insetPx + half,
-                 w - insetPx - half, h - insetPx - half);
-        canvas.drawOval(oval, ringPaint);
+        if (state == STATE_UNSEEN) {
+            boolean safeToBlit = ringBitmap != null && !ringBitmap.isRecycled()
+                    && (canvas.isHardwareAccelerated()
+                        || ringBitmap.getConfig() != Bitmap.Config.HARDWARE);
+            if (safeToBlit) {
+                // Fast path: plain texture blit, no shader math per pixel.
+                canvas.drawBitmap(ringBitmap, insetPx, insetPx, bitmapPaint);
+            } else {
+                // Rare fallback: HARDWARE bitmap on a non-accelerated canvas
+                // (would throw), or bitmap cache OOM'd.
+                float half = strokePx / 2f;
+                oval.set(insetPx + half, insetPx + half,
+                         w - insetPx - half, h - insetPx - half);
+                canvas.drawOval(oval, ringPaint);
+            }
+        } else {
+            // SEEN → flat grey stroke, already cheap, no bitmap needed.
+            float half = strokePx / 2f;
+            oval.set(insetPx + half, insetPx + half,
+                     w - insetPx - half, h - insetPx - half);
+            canvas.drawOval(oval, ringPaint);
+        }
     }
 
-    private void rebuildShader(int w, int h) {
+    private void refreshRing(int w, int h) {
         if (state == STATE_UNSEEN) {
-            float cx = w / 2f;
-            float cy = h / 2f;
-            // SweepGradient centered on the view — rotated so it starts at top
-            // canvas.save/rotate is needed for rotation; we handle it via matrix
-            SweepGradient sg = new SweepGradient(cx, cy, INSTA_GRADIENT_COLORS, null);
-            // Rotate -90° so gradient starts at top (12 o'clock position) like Instagram
-            android.graphics.Matrix matrix = new android.graphics.Matrix();
-            matrix.postRotate(-90, cx, cy);
-            sg.setLocalMatrix(matrix);
-            ringPaint.setShader(sg);
+            int ringW = Math.round(w - 2 * insetPx);
+            int ringH = Math.round(h - 2 * insetPx);
+            // Shared, pre-rasterized bitmap — built once per distinct size
+            // across the whole app, reused on every bind/recycle from here
+            // on (cache lookup only, zero draw-time shader work on scroll).
+            ringBitmap = StoryRingBitmapCache.get(ringW, ringH, strokePx);
+            ringPaint.setColor(COLOR_UNSEEN_FALLBACK); // only used if blit isn't safe
         } else {
-            // STATE_SEEN → plain grey, no shader
-            ringPaint.setShader(null);
+            ringBitmap = null;
             ringPaint.setColor(COLOR_SEEN);
         }
     }

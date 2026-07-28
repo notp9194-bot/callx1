@@ -172,11 +172,15 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
         boolean hasStory = c.uid != null && (scm.hasUnseen(c.uid) || scm.hasStatus(c.uid));
 
         if (h.ivStoryRing != null && c.uid != null) {
+            // FIX v39: seamless gradient ring (story_ring_insta_gradient.xml had a
+            // visible seam — see StoryRingGradientDrawable doc).
             if (scm.hasUnseen(c.uid)) {
-                h.ivStoryRing.setBackgroundResource(R.drawable.story_ring_insta_gradient);
+                h.ivStoryRing.setBackground(com.callx.app.utils.StoryRingGradientDrawable
+                        .withStrokeDp(2.5f, ctx.getResources().getDisplayMetrics().density));
                 h.ivStoryRing.setVisibility(android.view.View.VISIBLE);
             } else if (scm.hasStatus(c.uid)) {
-                h.ivStoryRing.setBackgroundResource(R.drawable.story_ring_insta_gradient);
+                h.ivStoryRing.setBackground(com.callx.app.utils.StoryRingGradientDrawable
+                        .withStrokeDp(2.5f, ctx.getResources().getDisplayMetrics().density));
                 h.ivStoryRing.setVisibility(android.view.View.VISIBLE);
             } else {
                 h.ivStoryRing.setVisibility(android.view.View.GONE);
