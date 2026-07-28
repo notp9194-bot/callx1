@@ -162,7 +162,7 @@
         android:layout_marginTop="52dp"
         android:background="?attr/colorSurface"
         android:elevation="0dp"
-        app:liftOnScroll="false">
+        app:liftOnScroll="true">
 
         <!-- ── CHILD 1: Collapsible profile header (scrolls up and disappears) ── -->
         <LinearLayout

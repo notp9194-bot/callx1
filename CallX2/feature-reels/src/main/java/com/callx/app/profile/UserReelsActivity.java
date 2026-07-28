@@ -24,6 +24,7 @@ import androidx.media3.ui.PlayerView;
 import com.google.android.material.appbar.AppBarLayout;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
+import androidx.core.view.ViewCompat;
 import com.google.android.material.tabs.TabLayout;
 
 import com.bumptech.glide.Glide;
@@ -234,6 +235,10 @@ public class UserReelsActivity extends AppCompatActivity
     private View            btnRepostSection;
     private View            btnSeriesSection;
     private com.google.android.material.appbar.AppBarLayout appBarLayout;
+    // Lets the plain (non-scrollable) layoutEmpty view participate in the same
+    // CoordinatorLayout nested-scroll chain that rvReels uses natively — see
+    // setupSwipeBetweenTabs() / the touch listener below for why this is needed.
+    private androidx.core.view.NestedScrollingChildHelper emptyStateScrollHelper;
 
       // ── Filter chips state ─────────────────────────────────────────────
       private static final int FILTER_ALL    = 0;
@@ -384,6 +389,27 @@ public class UserReelsActivity extends AppCompatActivity
         tvFollowers          = findViewById(R.id.tv_followers);
         tvFollowing          = findViewById(R.id.tv_following);
         tvBio                = findViewById(R.id.tv_bio);
+        // FIX: tv_bio was clickable in XML (and its comment said "tap to
+        // expand") but no click listener actually existed anywhere — tapping
+        // the bio did nothing. Wiring it up now. Also guards against the
+        // layout "jump" this kind of toggle usually causes inside an
+        // AppBarLayout header with scroll|exitUntilCollapsed: instead of an
+        // abrupt requestLayout(), androidx.transition.TransitionManager
+        // animates the height change over a couple of frames, and it runs
+        // on the AppBarLayout itself so the collapsed/expanded scroll offset
+        // is recalculated smoothly against the new content height rather
+        // than snapping.
+        if (tvBio != null) {
+            tvBio.setOnClickListener(v -> {
+                android.view.ViewGroup transitionRoot =
+                        appBarLayout != null ? appBarLayout : (android.view.ViewGroup) tvBio.getParent();
+                androidx.transition.TransitionManager.beginDelayedTransition(
+                        transitionRoot, new androidx.transition.AutoTransition().setDuration(180));
+                boolean isExpanded = tvBio.getMaxLines() != 3;
+                tvBio.setMaxLines(isExpanded ? 3 : Integer.MAX_VALUE);
+                tvBio.setEllipsize(isExpanded ? android.text.TextUtils.TruncateAt.END : null);
+            });
+        }
         tvMutualFollowers    = findViewById(R.id.tv_mutual_followers);
         layoutMutualFollowers= findViewById(R.id.layout_mutual_followers);
         ivMutual1            = findViewById(R.id.iv_mutual_1);
@@ -751,6 +777,13 @@ public class UserReelsActivity extends AppCompatActivity
             @Override public void onTabSelected(TabLayout.Tab tab) {
                 activeTab = tab.getPosition();
                 exitMultiSelectMode();
+                // FIX: previously the header's collapsed/expanded scroll
+                // state just carried over across tabs — scroll down on
+                // Reels to collapse the header, switch to Liked, and it's
+                // still collapsed there even though Liked hasn't been
+                // scrolled at all. Instagram resets the header on every tab
+                // change; do the same here so each tab always starts fresh.
+                if (appBarLayout != null) appBarLayout.setExpanded(true, true);
                 boolean isSeries = (activeTab == TAB_SERIES);
                 if (rvSeries != null) rvSeries.setVisibility(isSeries ? android.view.View.VISIBLE : android.view.View.GONE);
                 if (rvReels  != null) rvReels.setVisibility(isSeries  ? android.view.View.GONE   : android.view.View.VISIBLE);
@@ -1032,11 +1065,91 @@ public class UserReelsActivity extends AppCompatActivity
         // This is still safe for any CTA buttons inside the empty state: a
         // touch that starts on a child is routed straight to that child by
         // Android before it ever reaches this parent-level listener.
+        //
+        // BUG FIX: the block above only ever handled horizontal (left/right)
+        // flings for tab switching. Vertical (up/down) drags were swallowed
+        // here and never reached the CoordinatorLayout, so on any tab with
+        // zero items (Liked/Saved/Reposts/Series with no content) the profile
+        // header could not collapse or re-expand and the screen felt "stuck" —
+        // up/down scroll appeared completely dead. rvReels doesn't have this
+        // problem because RecyclerView is a NestedScrollingChild by default
+        // and drives the AppBarLayout's collapse via CoordinatorLayout's
+        // native nested-scroll chain. layoutEmpty is a plain View, so it
+        // never participated in that chain. Fix: manually dispatch vertical
+        // drag deltas through a NestedScrollingChildHelper, exactly the way a
+        // NestedScrollingChild would, so empty tabs scroll (collapse/expand
+        // the header) just like the grid does.
+        // BUG FIX 5 of 5: the block above only ever tracked drag deltas
+        // (ACTION_MOVE), never fling velocity. A quick flick on an empty tab
+        // would move the header a tiny bit and then just stop dead the
+        // moment the finger lifts — no momentum — unlike rvReels, which gets
+        // fling handling for free from RecyclerView. Track velocity with a
+        // VelocityTracker and dispatch it as a nested fling on ACTION_UP so
+        // empty tabs get the same throw/momentum feel as the grid.
         if (layoutEmpty != null) {
             final android.view.GestureDetector emptyStateDetector =
                     createTabSwipeGestureDetector(swipeThresholdPx, swipeVelocityPx);
+            emptyStateScrollHelper = new androidx.core.view.NestedScrollingChildHelper(layoutEmpty);
+            emptyStateScrollHelper.setNestedScrollingEnabled(true);
+
+            final int[] lastY = {0};
+            final int[] consumed = new int[2];
+            final int[] offsetInWindow = new int[2];
+            final android.view.VelocityTracker[] velocityTracker = {null};
+
             layoutEmpty.setOnTouchListener((v, e) -> {
                 emptyStateDetector.onTouchEvent(e);
+
+                switch (e.getActionMasked()) {
+                    case MotionEvent.ACTION_DOWN:
+                        lastY[0] = (int) (e.getRawY() + 0.5f);
+                        emptyStateScrollHelper.startNestedScroll(
+                                ViewCompat.SCROLL_AXIS_VERTICAL, ViewCompat.TYPE_TOUCH);
+                        velocityTracker[0] = android.view.VelocityTracker.obtain();
+                        velocityTracker[0].addMovement(e);
+                        break;
+
+                    case MotionEvent.ACTION_MOVE: {
+                        if (velocityTracker[0] != null) velocityTracker[0].addMovement(e);
+                        int y = (int) (e.getRawY() + 0.5f);
+                        int dy = lastY[0] - y; // positive dy == finger moving up
+                        lastY[0] = y;
+                        consumed[0] = 0;
+                        consumed[1] = 0;
+
+                        // Let the AppBarLayout (via CoordinatorLayout) consume the
+                        // scroll first — this is what actually collapses/expands
+                        // the header — same order RecyclerView uses internally.
+                        if (emptyStateScrollHelper.dispatchNestedPreScroll(
+                                dy, 0, consumed, offsetInWindow, ViewCompat.TYPE_TOUCH)) {
+                            lastY[0] -= consumed[1];
+                        }
+                        emptyStateScrollHelper.dispatchNestedScroll(
+                                0, consumed[1], 0, dy - consumed[1],
+                                offsetInWindow, ViewCompat.TYPE_TOUCH);
+                        break;
+                    }
+
+                    case MotionEvent.ACTION_UP:
+                    case MotionEvent.ACTION_CANCEL: {
+                        if (velocityTracker[0] != null && e.getActionMasked() == MotionEvent.ACTION_UP) {
+                            velocityTracker[0].addMovement(e);
+                            velocityTracker[0].computeCurrentVelocity(1000);
+                            // Screen-space Y velocity is inverted relative to
+                            // "upward scroll" dy convention used above.
+                            float flingVelocityY = -velocityTracker[0].getYVelocity();
+                            if (!emptyStateScrollHelper.dispatchNestedPreFling(0, flingVelocityY)) {
+                                emptyStateScrollHelper.dispatchNestedFling(0, flingVelocityY, true);
+                            }
+                        }
+                        if (velocityTracker[0] != null) {
+                            velocityTracker[0].recycle();
+                            velocityTracker[0] = null;
+                        }
+                        emptyStateScrollHelper.stopNestedScroll(ViewCompat.TYPE_TOUCH);
+                        break;
+                    }
+                }
                 return true;
             });
         }
@@ -1395,6 +1508,26 @@ public class UserReelsActivity extends AppCompatActivity
         rvHighlights.setItemViewCacheSize(6);
         rvHighlights.setItemAnimator(null);
         rvHighlights.setNestedScrollingEnabled(false);
+        // FIX: with layoutEmpty and the header both now actively
+        // participating in vertical nested scrolling, be explicit that this
+        // row's horizontal drags must never be stolen by an ancestor's
+        // vertical scroll — RecyclerView normally figures this out itself
+        // via onInterceptTouchEvent, but stating it here removes any
+        // ambiguity for whoever adds a vertical gesture (e.g. long-press
+        // drag-to-reorder) to this row later.
+        rvHighlights.setOnTouchListener((v, e) -> {
+            switch (e.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN:
+                case MotionEvent.ACTION_MOVE:
+                    v.getParent().requestDisallowInterceptTouchEvent(true);
+                    break;
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_CANCEL:
+                    v.getParent().requestDisallowInterceptTouchEvent(false);
+                    break;
+            }
+            return false; // let RecyclerView still handle the event normally
+        });
 
         java.util.List<HighlightsRowAdapter.HighlightAlbum> adapterItems = new java.util.ArrayList<>();
         if (isSelf) adapterItems.add(HighlightsRowAdapter.HighlightAlbum.newButton()); // "+" first
