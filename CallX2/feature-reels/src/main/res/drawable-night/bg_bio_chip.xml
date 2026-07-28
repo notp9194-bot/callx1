@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    bg_bio_chip.xml — DARK MODE
+    Mirrors bg_bio_chip.xml (light) in white so the bio chip strip stays
+    visible against a dark surface instead of disappearing.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#0FFFFFFF"/>
+    <stroke android:width="0.75dp" android:color="#26FFFFFF"/>
+    <corners android:radius="16dp"/>
+</shape>

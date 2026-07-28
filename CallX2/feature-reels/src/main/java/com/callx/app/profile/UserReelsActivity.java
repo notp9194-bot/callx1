@@ -109,6 +109,10 @@ public class UserReelsActivity extends AppCompatActivity
     // rainbow color picker, long-press on either pill state). Null = default
     // theme-aware bg_song_pill.xml / drawable-night styling.
     private String          profileSongStripColorHex = null;
+    // Bio-links chip strip (hsv_bio_links) custom accent color — same
+    // long-press rainbow picker pattern as the profile-song strip, persisted
+    // to reels/users/{targetUid}/profileBioStripColor.
+    private String          profileBioStripColorHex = null;
     private TextView        tvEmptyTitle, tvEmptySubtitle;
     private Button          btnFollow;
     private Button          btnMessageCta;
@@ -3136,6 +3140,7 @@ public class UserReelsActivity extends AppCompatActivity
                         : "https://x.com/" + twitter.replace("@", "");
                     links.add(new String[]{"✗", twLabel, twUrl});
                 }
+                profileBioStripColorHex = snap.child("profileBioStripColor").getValue(String.class);
                 buildBioChips(links);
 
                 // ── Profile song pill ────────────────────────────────────────────
@@ -3253,8 +3258,31 @@ public class UserReelsActivity extends AppCompatActivity
     // ── Bio chip row ─────────────────────────────────────────────────────
 
     /**
+     * Resolve a theme attribute (e.g. android.R.attr.textColorPrimary or
+     * a custom ?attr/colorOnSurface) to its actual color for the current
+     * light/dark theme, so programmatically-built views stay theme-aware.
+     */
+    private int resolveAttrColor(int attrResId, int fallback) {
+        android.util.TypedValue tv = new android.util.TypedValue();
+        if (getTheme().resolveAttribute(attrResId, tv, true)) {
+            if (tv.type >= android.util.TypedValue.TYPE_FIRST_COLOR_INT
+                    && tv.type <= android.util.TypedValue.TYPE_LAST_COLOR_INT) {
+                return tv.data;
+            } else if (tv.resourceId != 0) {
+                try { return androidx.core.content.ContextCompat.getColor(this, tv.resourceId); }
+                catch (Exception ignored) {}
+            }
+        }
+        return fallback;
+    }
+
+    /**
      * Build compact chip row in hsv_bio_links (Screenshot 2 style).
-     * Each chip: rounded border pill with icon + label, all in one scrollable row.
+     * Each chip: thin premium pill (theme-aware bg_bio_chip.xml /
+     * drawable-night/bg_bio_chip.xml) with icon + label, all in one
+     * scrollable row. isSelf → long-press any chip opens the shared
+     * rainbow color picker to recolor the whole strip; others still get
+     * a copy-link long-press.
      * @param links list of {iconEmoji, displayLabel, clickUrl}
      */
     private void buildBioChips(java.util.List<String[]> links) {
@@ -3266,10 +3294,11 @@ public class UserReelsActivity extends AppCompatActivity
         }
         hsvBioLinks.setVisibility(View.VISIBLE);
         float density = getResources().getDisplayMetrics().density;
-        int hPad  = (int)(12 * density);
-        int vPad  = (int)(7  * density);
+        // Thin, premium pill — matches the profile-song strip's compact feel.
+        int hPad  = (int)(10 * density);
+        int vPad  = (int)(5  * density);
         int mEnd  = (int)(8  * density);
-        int corner= (int)(20 * density);
+        int textColor = resolveAttrColor(android.R.attr.textColorPrimary, 0xFF222222);
 
         for (String[] link : links) {
             String emoji   = link[0];
@@ -3286,22 +3315,20 @@ public class UserReelsActivity extends AppCompatActivity
             chip.setPadding(hPad, vPad, hPad, vPad);
             chip.setText(emoji + "  " + label);
             chip.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 12f);
-            chip.setTextColor(0xFF222222);
+            chip.setTextColor(textColor);
             chip.setSingleLine(true);
             chip.setMaxEms(12);
             chip.setEllipsize(android.text.TextUtils.TruncateAt.END);
 
-            // Rounded border background
-            android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
-            bg.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
-            bg.setCornerRadius(corner);
-            bg.setColor(0xFFF5F5F5);
-            bg.setStroke((int)(1 * density), 0xFFCCCCCC);
-            chip.setBackground(bg);
+            // Theme-aware premium hairline pill background (recolorable below
+            // via applyBioStripAccentColor when a custom accent is picked).
+            android.graphics.drawable.Drawable bg =
+                androidx.core.content.ContextCompat.getDrawable(this, R.drawable.bg_bio_chip);
+            chip.setBackground(bg != null ? bg.getConstantState().newDrawable().mutate() : null);
+            chip.setClickable(true);
+            chip.setFocusable(true);
 
             if (url != null && !url.isEmpty()) {
-                chip.setClickable(true);
-                chip.setFocusable(true);
                 chip.setOnClickListener(v -> {
                     try {
                         startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)));
@@ -3309,6 +3336,16 @@ public class UserReelsActivity extends AppCompatActivity
                         Toast.makeText(this, "Cannot open link", Toast.LENGTH_SHORT).show();
                     }
                 });
+            }
+            if (isSelf) {
+                // Owner: long-press anywhere on the strip recolors it (same
+                // shared rainbow box as the profile-song strip).
+                chip.setOnLongClickListener(v -> {
+                    openBioStripColorPicker();
+                    return true;
+                });
+            } else if (url != null && !url.isEmpty()) {
+                // Viewer: long-press still copies the link.
                 chip.setOnLongClickListener(v -> {
                     android.content.ClipboardManager cm =
                         (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
@@ -3319,6 +3356,59 @@ public class UserReelsActivity extends AppCompatActivity
             }
             llBioChips.addView(chip);
         }
+        // Re-apply any previously picked accent color to the freshly built chips.
+        applyBioStripAccentColor(profileBioStripColorHex);
+    }
+
+    /**
+     * Applies (or clears) the custom accent color on every chip in the bio
+     * links strip — same "common rainbow box" treatment as the profile-song
+     * pill. Null/empty hex falls back to the default theme-aware
+     * bg_bio_chip.xml / drawable-night/bg_bio_chip.xml drawables.
+     */
+    private void applyBioStripAccentColor(String hex) {
+        if (llBioChips == null) return;
+        android.graphics.drawable.Drawable template;
+        if (hex != null && !hex.isEmpty()) {
+            try {
+                int color = android.graphics.Color.parseColor(hex);
+                android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
+                gd.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
+                gd.setCornerRadius(16f * getResources().getDisplayMetrics().density);
+                gd.setStroke(Math.round(1f * getResources().getDisplayMetrics().density), color);
+                gd.setColor((0x22 << 24) | (color & 0x00FFFFFF));
+                template = gd;
+            } catch (Exception e) {
+                template = androidx.core.content.ContextCompat.getDrawable(this, R.drawable.bg_bio_chip);
+            }
+        } else {
+            template = androidx.core.content.ContextCompat.getDrawable(this, R.drawable.bg_bio_chip);
+        }
+        for (int i = 0; i < llBioChips.getChildCount(); i++) {
+            View child = llBioChips.getChildAt(i);
+            child.setBackground(template != null
+                ? template.getConstantState().newDrawable().mutate() : null);
+        }
+    }
+
+    /**
+     * Long-press entry point (isSelf only) — opens the shared rainbow color
+     * picker (core module) and persists the chosen color to
+     * reels/users/{targetUid}/profileBioStripColor.
+     */
+    private void openBioStripColorPicker() {
+        if (!isSelf || targetUid == null) return;
+        com.callx.app.utils.RainbowStripColorPickerBottomSheet.show(
+                this, "Bio Strip Color", profileBioStripColorHex,
+                profileBioStripColorHex != null && !profileBioStripColorHex.isEmpty(),
+                colorHex -> {
+                    profileBioStripColorHex = colorHex;
+                    com.google.firebase.database.FirebaseDatabase.getInstance()
+                        .getReference("reels/users").child(targetUid)
+                        .child("profileBioStripColor")
+                        .setValue(colorHex);
+                    applyBioStripAccentColor(colorHex);
+                });
     }
 
     // ── Social link helper ──────────────────────────────────────────────
