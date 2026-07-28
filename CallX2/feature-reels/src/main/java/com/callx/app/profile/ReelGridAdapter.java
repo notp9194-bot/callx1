@@ -18,7 +18,9 @@ package com.callx.app.profile;
   import androidx.recyclerview.widget.RecyclerView;
   import com.bumptech.glide.Glide;
   import com.bumptech.glide.RequestManager;
+  import com.bumptech.glide.load.DecodeFormat;
   import com.bumptech.glide.load.engine.DiskCacheStrategy;
+  import com.bumptech.glide.request.RequestOptions;
   import com.facebook.shimmer.ShimmerFrameLayout;
   import com.callx.app.reels.R;
   import com.callx.app.models.ReelModel;
@@ -64,6 +66,24 @@ package com.callx.app.profile;
       // scrolling; cache by hash string so a re-bound cell reuses the bitmap
       // instead of re-running the cosine reconstruction each time.
       private static final LruCache<String, Bitmap> blurHashCache = new LruCache<>(64);
+
+      // ── ULTRA: shared Glide RequestOptions ─────────────────────────────
+      // Built once and reused for every grid/pinned bind instead of chaining
+      // .centerCrop()/.diskCacheStrategy() fresh each time. Two concrete wins
+      // beyond avoiding repeated builder calls:
+      //   1) PREFER_RGB_565 — these thumbs are opaque rectangles (centerCrop,
+      //      no transparency), so the 16-bit-per-pixel RGB_565 decode format
+      //      is visually identical here but HALVES the bitmap's in-memory
+      //      footprint vs. the default ARGB_8888. Less bitmap memory means
+      //      fewer/lighter GCs while fast-scrolling a media-heavy grid.
+      //   2) dontAnimate() — skips Glide's default crossfade TransitionDrawable
+      //      per image load, cutting a per-bind allocation + a few frames of
+      //      extra compositing that add up across a 3-column grid.
+      private static final RequestOptions GRID_OPTIONS = new RequestOptions()
+              .diskCacheStrategy(DiskCacheStrategy.ALL)
+              .format(DecodeFormat.PREFER_RGB_565)
+              .centerCrop()
+              .dontAnimate();
 
       public interface OnItemClickListener       { void onItemClick(int position); }
       public interface LongPressListener         { void onLongPress(int position); }
@@ -220,10 +240,8 @@ package com.callx.app.profile;
               Drawable blurPlaceholder = blurHashPlaceholder(r.blurHash);
               glideRequests
                       .load(gridUrl)
-                      .thumbnail(glideRequests.load(blurUrl)
-                              .diskCacheStrategy(DiskCacheStrategy.ALL))
-                      .diskCacheStrategy(DiskCacheStrategy.ALL)
-                      .centerCrop()
+                      .thumbnail(glideRequests.load(blurUrl).apply(GRID_OPTIONS))
+                      .apply(GRID_OPTIONS)
                       .placeholder(blurPlaceholder != null ? blurPlaceholder : context.getDrawable(R.drawable.ic_reels))
                       .into(h.ivThumb);
           } else h.ivThumb.setImageResource(R.drawable.ic_reels);
@@ -262,10 +280,8 @@ package com.callx.app.profile;
               Drawable blurPlaceholder = blurHashPlaceholder(pinnedReel.blurHash);
               glideRequests
                       .load(pinnedUrl)
-                      .thumbnail(glideRequests.load(blurUrl)
-                              .diskCacheStrategy(DiskCacheStrategy.ALL))
-                      .diskCacheStrategy(DiskCacheStrategy.ALL)
-                      .centerCrop()
+                      .thumbnail(glideRequests.load(blurUrl).apply(GRID_OPTIONS))
+                      .apply(GRID_OPTIONS)
                       .placeholder(blurPlaceholder != null ? blurPlaceholder : context.getDrawable(R.drawable.ic_reels))
                       .into(h.ivThumb);
           } else h.ivThumb.setImageResource(R.drawable.ic_reels);
@@ -332,10 +348,7 @@ package com.callx.app.profile;
               String thumb = displayList.get(idx).thumbUrl;
               if (thumb == null || thumb.isEmpty()) continue;
               String preloadUrl = CloudinaryUploader.deriveThumbUrl(thumb, gridThumbSize, "webp");
-              glideRequests
-                      .load(preloadUrl)
-                      .diskCacheStrategy(DiskCacheStrategy.ALL)
-                      .preload();
+              glideRequests.load(preloadUrl).apply(GRID_OPTIONS).preload();
           }
       }
       @Override public void onViewDetachedFromWindow(@NonNull RecyclerView.ViewHolder holder) {

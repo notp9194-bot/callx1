@@ -258,6 +258,14 @@
             android:name="com.callx.app.highlights.StatusHighlightsActivity"
             android:theme="@style/Theme.CallX"
             android:exported="false"/>
+
+        <!-- "New Highlight" flow — select statuses (live + archived) then
+             create/add to an album. Opened from the "+" button on the
+             Highlights row (Status tab and UserReelsActivity profile header). -->
+        <activity
+            android:name="com.callx.app.highlights.CreateHighlightActivity"
+            android:theme="@style/Theme.CallX"
+            android:exported="false"/>
     </application>
 
 </manifest>

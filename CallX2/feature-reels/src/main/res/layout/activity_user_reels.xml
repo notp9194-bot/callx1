@@ -822,11 +822,19 @@
                  Tap → play all stories in album. Long-press (self) → rename / delete.
                  Positioned below the Video Call / X / YouTube action button row.
             -->
-            <HorizontalScrollView
+            <!-- PERF FIX: previously a HorizontalScrollView wrapping a
+                 wrap_content-width RecyclerView — that forces the RecyclerView
+                 to inflate/measure EVERY item up front (to compute its total
+                 wrap_content width), so it never actually recycled off-screen
+                 rows. Instagram's highlights row is a plain horizontal
+                 RecyclerView with match_parent width doing its own scrolling
+                 — items are lazily inflated/bound only as they enter the
+                 viewport (+ a small prefetch window), and recycled once they
+                 scroll off. This container now only handles padding/visibility. -->
+            <FrameLayout
                 android:id="@+id/hsv_highlights"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:scrollbars="none"
                 android:paddingStart="4dp"
                 android:paddingEnd="4dp"
                 android:paddingBottom="4dp"
@@ -834,13 +842,13 @@
 
                 <androidx.recyclerview.widget.RecyclerView
                     android:id="@+id/rv_highlights"
-                    android:layout_width="wrap_content"
+                    android:layout_width="match_parent"
                     android:layout_height="110dp"
                     android:orientation="horizontal"
                     android:nestedScrollingEnabled="false"
                     android:overScrollMode="never"/>
 
-            </HorizontalScrollView>
+            </FrameLayout>
 
             <!-- Thin divider below highlights (only shown when highlights visible) -->
             <View android:id="@+id/divider_highlights"

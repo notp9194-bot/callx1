@@ -123,7 +123,7 @@ public class UserReelsActivity extends AppCompatActivity
 
     // ── Story Highlights ──────────────────────────────────────────────────
     private androidx.recyclerview.widget.RecyclerView rvHighlights;
-    private android.widget.HorizontalScrollView       hsvHighlights;
+    private android.view.View                         hsvHighlights;
     private android.view.View                         dividerHighlights;
     private HighlightsRowAdapter                      highlightsAdapter;
     private final java.util.List<HighlightsRowAdapter.HighlightAlbum> highlightAlbums = new java.util.ArrayList<>();
@@ -229,7 +229,11 @@ public class UserReelsActivity extends AppCompatActivity
         loadReelGridFromRoom(); // Offline-first: Room se instant load (reels grid — advance #6)
         loadUserProfile();
         setupHighlights();
-        loadHighlights();
+        // Deferred one frame: header + reel grid are the critical first
+        // paint, highlights are secondary (Instagram loads its highlights
+        // row after the core profile content, not blocking it).
+        if (rvHighlights != null) rvHighlights.post(this::loadHighlights);
+        else loadHighlights();
         if (isSelf) {
             // Advance #3 — one-time, battery/network-friendly backfill of
             // BlurHash for reels posted before that feature shipped.
@@ -401,7 +405,22 @@ public class UserReelsActivity extends AppCompatActivity
         // no NestedScrollView wrapper), so it scrolls normally on its own and
         // drives AppBarLayout's collapse natively via nested scrolling.
         rvReels.setNestedScrollingEnabled(true);
-        rvReels.setHasFixedSize(false);
+        // ULTRA: rv_reels is match_parent width / 0dp+weight=1 height in the
+        // layout — its own bounds never depend on adapter content, so
+        // RecyclerView can skip the extra measure pass hasFixedSize(false)
+        // otherwise triggers on every adapter change.
+        rvReels.setHasFixedSize(true);
+        // ULTRA: default ItemAnimator fades every insert/remove/change (e.g.
+        // the silent top-insert on resume, filter re-sort, pagination
+        // append) — that's extra per-frame alpha compositing across up to
+        // 3 grid columns for no real UX benefit on a photo/video grid.
+        // Instagram's own grid doesn't animate cell changes either.
+        rvReels.setItemAnimator(null);
+        // ULTRA: cache more off-screen ViewHolders so fast flings and
+        // tab-switch scroll-to-top reuse already-bound views instead of
+        // re-inflating/re-binding (default cache size is 2).
+        rvReels.setItemViewCacheSize(12);
+        gridLayoutManager.setInitialPrefetchItemCount(9);
         setupSwipeBetweenTabs();
 
         // Instagram-style CTA buttons visible only for other users
@@ -972,20 +991,28 @@ public class UserReelsActivity extends AppCompatActivity
      */
     private void setupHighlights() {
         if (rvHighlights == null) return;
-        rvHighlights.setLayoutManager(new androidx.recyclerview.widget.LinearLayoutManager(
-                this, androidx.recyclerview.widget.LinearLayoutManager.HORIZONTAL, false));
-        rvHighlights.setHasFixedSize(false);
+        androidx.recyclerview.widget.LinearLayoutManager lm =
+                new androidx.recyclerview.widget.LinearLayoutManager(
+                        this, androidx.recyclerview.widget.LinearLayoutManager.HORIZONTAL, false);
+        // Now that the row is match_parent width (no longer nested in a
+        // HorizontalScrollView — see activity_user_reels.xml), RecyclerView
+        // actually recycles off-screen items. Ask LayoutManager to warm a
+        // few extra items just past the visible edge before they're needed,
+        // same idea as Instagram's highlights row prefetch.
+        lm.setInitialPrefetchItemCount(4);
+        rvHighlights.setLayoutManager(lm);
+        // The row's own height/width no longer depend on adapter content
+        // (match_parent width, fixed 110dp height), so RecyclerView can skip
+        // re-measuring itself on every adapter change.
+        rvHighlights.setHasFixedSize(true);
+        rvHighlights.setItemViewCacheSize(6);
+        rvHighlights.setItemAnimator(null);
         rvHighlights.setNestedScrollingEnabled(false);
-        rebuildHighlightsAdapter();
-    }
 
-    /** Rebuild and attach a fresh adapter from the current highlightAlbums list. */
-    private void rebuildHighlightsAdapter() {
         java.util.List<HighlightsRowAdapter.HighlightAlbum> adapterItems = new java.util.ArrayList<>();
         if (isSelf) adapterItems.add(HighlightsRowAdapter.HighlightAlbum.newButton()); // "+" first
-        adapterItems.addAll(highlightAlbums);
 
-        highlightsAdapter = new HighlightsRowAdapter(adapterItems, isSelf,
+        highlightsAdapter = new HighlightsRowAdapter(this, adapterItems, isSelf,
                 new HighlightsRowAdapter.Listener() {
 
             @Override public void onAlbumClicked(HighlightsRowAdapter.HighlightAlbum album) {
@@ -997,10 +1024,25 @@ public class UserReelsActivity extends AppCompatActivity
             }
 
             @Override public void onNewClicked() {
-                openManageHighlights();
+                openCreateHighlight();
             }
         });
-        if (rvHighlights != null) rvHighlights.setAdapter(highlightsAdapter);
+        rvHighlights.setAdapter(highlightsAdapter);
+    }
+
+    /**
+     * Push the current highlightAlbums list into the already-attached
+     * adapter via DiffUtil (see HighlightsRowAdapter.submitAlbums) instead
+     * of building a brand-new adapter + calling setAdapter() again — that
+     * used to throw away the RecyclerView's recycled view pool and re-fetch
+     * every cover image even for albums that hadn't changed.
+     */
+    private void rebuildHighlightsAdapter() {
+        if (highlightsAdapter == null) { setupHighlights(); return; }
+        java.util.List<HighlightsRowAdapter.HighlightAlbum> adapterItems = new java.util.ArrayList<>();
+        if (isSelf) adapterItems.add(HighlightsRowAdapter.HighlightAlbum.newButton()); // "+" first
+        adapterItems.addAll(highlightAlbums);
+        highlightsAdapter.submitAlbums(adapterItems);
     }
 
     /**
@@ -1121,6 +1163,24 @@ public class UserReelsActivity extends AppCompatActivity
             startActivity(i);
         } catch (ClassNotFoundException ex) {
             Toast.makeText(this, album.albumName, Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    /**
+     * Open CreateHighlightActivity — the Instagram-style "New Highlight" flow:
+     * pick from your own statuses (live + archived), then choose an existing
+     * album or create a new one (with optional custom ring color). Same flow
+     * as the Status tab's "Add to Highlight", just reached from the "+" on
+     * this profile's Highlights row instead of from the status viewer.
+     * Uses Class.forName to avoid a hard cross-module dependency on feature-status.
+     */
+    private void openCreateHighlight() {
+        try {
+            Class<?> cls = Class.forName("com.callx.app.highlights.CreateHighlightActivity");
+            android.content.Intent i = new android.content.Intent(this, cls);
+            startActivity(i);
+        } catch (ClassNotFoundException | android.content.ActivityNotFoundException ex) {
+            Toast.makeText(this, "Highlights not available", Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -3281,6 +3341,10 @@ public class UserReelsActivity extends AppCompatActivity
         loadAvatarAndStartAnimation();
         if (!isFirstResume && isSelf && activeTab == TAB_REELS) {
             silentRefreshReels();
+        }
+        if (!isFirstResume && isSelf) {
+            // Picks up any album just created/added-to via CreateHighlightActivity.
+            loadHighlights();
         }
         isFirstResume = false;
     }

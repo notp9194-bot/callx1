@@ -32,6 +32,18 @@ import androidx.annotation.Nullable;
  * stroke) combo — same perf approach as {@link StoryRingBitmapCache} — so
  * repeat binds in the highlights row are a plain bitmap blit, not a fresh
  * shader evaluation.
+ *
+ * PERF PASS ("ulta advance" — same pass already done for the default story
+ * ring in {@link StoryRingBitmapCache}): on API 26+ the rasterized bitmap is
+ * upgraded once to {@link Bitmap.Config#HARDWARE}, so it lives directly in
+ * GPU memory and every subsequent blit (every row bind during a fling of the
+ * Highlights row) skips the CPU→GPU texture upload a software bitmap needs.
+ * draw() mirrors {@link StoryRingGradientDrawable}'s canvas checks so a
+ * HARDWARE bitmap is never handed to a non-hardware-accelerated canvas
+ * (which would throw) — it falls back to the flat-stroke paint instead.
+ * On API 23-25 (this app's minSdk) HARDWARE bitmaps aren't available, so the
+ * ARGB_8888 bitmap is kept as-is — same visual result, just without the
+ * extra GPU-residency win on very old devices.
  */
 public final class HighlightRingDrawable extends Drawable {
 
@@ -81,11 +93,18 @@ public final class HighlightRingDrawable extends Drawable {
         Rect bounds = getBounds();
         if (bounds.width() <= 0 || bounds.height() <= 0) return;
 
-        if (ringBitmap != null && !ringBitmap.isRecycled()) {
+        if (ringBitmap != null && !ringBitmap.isRecycled() && canvas.isHardwareAccelerated()) {
+            // Fast path: plain texture blit, no shader math per pixel — and
+            // if the bitmap is HARDWARE-config, no CPU→GPU upload either.
+            canvas.drawBitmap(ringBitmap, bounds.left, bounds.top, bitmapPaint);
+        } else if (ringBitmap != null && !ringBitmap.isRecycled()
+                && ringBitmap.getConfig() != Bitmap.Config.HARDWARE) {
+            // Non-accelerated canvas but bitmap is safe (software) to draw.
             canvas.drawBitmap(ringBitmap, bounds.left, bounds.top, bitmapPaint);
         } else {
-            // Fallback: flat stroke in the base color so the ring never
-            // silently disappears (e.g. bitmap cache OOM).
+            // Rare fallback: HARDWARE bitmap on a non-accelerated canvas
+            // (drawing it would throw), or bitmap cache OOM'd — draw a flat
+            // stroke so the ring never silently disappears or crashes.
             float half = strokePx / 2f;
             RectF oval = new RectF(bounds.left + half, bounds.top + half,
                                     bounds.right - half, bounds.bottom - half);
@@ -154,8 +173,28 @@ public final class HighlightRingDrawable extends Drawable {
             RectF oval = new RectF(half, half, w - half, h - half);
             canvas.drawOval(oval, paint);
 
-            CACHE.put(key, bmp);
-            return bmp;
+            Bitmap finalBitmap = bmp;
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                // Upload once to GPU memory so every subsequent blit of this
+                // ring (every scroll/bind of every row using this exact
+                // color+mode+size+stroke) skips the normal CPU→GPU texture
+                // upload a software bitmap needs each time. Same "ulta
+                // advance" hardware-bitmap pass already applied to
+                // StoryRingBitmapCache — kept as a best-effort upgrade so a
+                // failure on odd devices just keeps the software bitmap.
+                try {
+                    Bitmap hw = bmp.copy(Bitmap.Config.HARDWARE, false);
+                    if (hw != null) {
+                        bmp.recycle();
+                        finalBitmap = hw;
+                    }
+                } catch (Throwable ignored) {
+                    // Keep software bitmap as-is.
+                }
+            }
+
+            CACHE.put(key, finalBitmap);
+            return finalBitmap;
         }
 
         /** Seamless (palindrome) sweep gradient built purely from shades of

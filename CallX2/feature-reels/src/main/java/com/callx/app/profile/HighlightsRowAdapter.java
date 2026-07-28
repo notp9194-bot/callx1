@@ -14,12 +14,20 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
+import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.RecyclerView;
 import com.bumptech.glide.Glide;
+import com.bumptech.glide.RequestManager;
+import com.bumptech.glide.load.engine.DiskCacheStrategy;
 import com.bumptech.glide.load.resource.bitmap.CircleCrop;
+import com.bumptech.glide.request.RequestOptions;
 import com.callx.app.reels.R;
+import com.callx.app.utils.CloudinaryUploader;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * HighlightsRowAdapter — Instagram-style horizontal Highlights row.
@@ -84,15 +92,78 @@ public class HighlightsRowAdapter
         void onNewClicked();
     }
 
+    // Right-sized cover: circle is 62dp — at 3x density that's ~186px, so
+    // 160px is already sharp with zero visible detail loss, vs. the old
+    // hardcoded .override(480, 853) which pulled a full portrait-sized
+    // image just to show inside a small circle (Instagram-style "load only
+    // what the cell can actually show", same approach as the reel grid).
+    private static final int COVER_SIZE      = 160;
+    // Tiny/heavily-compressed variant of the same cover shown via Glide's
+    // thumbnail() request while the real cover loads — blur-up instead of
+    // a blank flash, same trick used in the reel grid (ReelGridAdapter).
+    private static final int BLUR_COVER_SIZE = 16;
+    // How many upcoming highlight covers to warm into Glide's disk cache
+    // while the earlier ones are still on screen, so scrolling the row
+    // never shows a fetch pause.
+    private static final int PRELOAD_AHEAD   = 4;
+
+    // Shared, reusable options for cover loads — CircleCrop is stateless so
+    // it's safe to reuse across every bind/preload instead of allocating a
+    // fresh transform object each time. Kept at ARGB_8888 (Glide's default)
+    // deliberately: CircleCrop needs an alpha channel to mask outside the
+    // circle, so RGB_565 (used in ReelGridAdapter for opaque rectangular
+    // thumbs) would corrupt the circular edge here — dontAnimate() is the
+    // safe win for this shape (skips the crossfade TransitionDrawable).
+    private static final RequestOptions COVER_OPTIONS = new RequestOptions()
+            .diskCacheStrategy(DiskCacheStrategy.ALL)
+            .transform(new CircleCrop())
+            .dontAnimate();
+
     // ── Fields ─────────────────────────────────────────────────────────
     private final List<HighlightAlbum> items;
     private final boolean              isSelf;
     private final Listener             listener;
+    // Built once and reused for every bind/preload instead of calling
+    // Glide.with(ctx) fresh per item — avoids repeated RequestManager
+    // lookups while scrolling.
+    private final RequestManager       glideRequests;
 
-    public HighlightsRowAdapter(List<HighlightAlbum> items, boolean isSelf, Listener listener) {
+    public HighlightsRowAdapter(Context ctx, List<HighlightAlbum> items, boolean isSelf, Listener listener) {
+        this.glideRequests = Glide.with(ctx);
         this.items    = items;
         this.isSelf   = isSelf;
         this.listener = listener;
+    }
+
+    /**
+     * Instagram-style incremental update: instead of the caller building a
+     * brand-new adapter + calling RecyclerView.setAdapter() on every reload
+     * (which used to force a full teardown/rebind of every row, including
+     * re-fetching covers that hadn't actually changed), diff against the
+     * currently-bound list and dispatch minimal notify calls. Unaffected
+     * rows are left untouched — their Glide requests/bitmaps aren't redone.
+     */
+    public void submitAlbums(List<HighlightAlbum> newItems) {
+        List<HighlightAlbum> old = new ArrayList<>(items);
+        DiffUtil.DiffResult result = DiffUtil.calculateDiff(new DiffUtil.Callback() {
+            @Override public int getOldListSize() { return old.size(); }
+            @Override public int getNewListSize() { return newItems.size(); }
+            @Override public boolean areItemsTheSame(int oldPos, int newPos) {
+                return Objects.equals(old.get(oldPos).albumId, newItems.get(newPos).albumId);
+            }
+            @Override public boolean areContentsTheSame(int oldPos, int newPos) {
+                HighlightAlbum a = old.get(oldPos), b = newItems.get(newPos);
+                return Objects.equals(a.albumName, b.albumName)
+                        && Objects.equals(a.coverUrl, b.coverUrl)
+                        && Objects.equals(a.coverBgColor, b.coverBgColor)
+                        && Objects.equals(a.ringColor, b.ringColor)
+                        && Objects.equals(a.ringMode, b.ringMode)
+                        && a.itemCount == b.itemCount;
+            }
+        });
+        items.clear();
+        items.addAll(newItems);
+        result.dispatchUpdatesTo(this);
     }
 
     // ── RecyclerView ───────────────────────────────────────────────────
@@ -163,7 +234,7 @@ public class HighlightsRowAdapter
         ringGap.setLayoutParams(gapLp);
         GradientDrawable gapBg = new GradientDrawable();
         gapBg.setShape(GradientDrawable.OVAL);
-        gapBg.setColor(Color.WHITE);
+        gapBg.setColor(resolveSurfaceColor(ctx));
         ringGap.setBackground(gapBg);
         ringFrame.addView(ringGap);
 
@@ -253,15 +324,19 @@ public class HighlightsRowAdapter
         h.ivCover.setPadding(0, 0, 0, 0);
         h.ivCover.clearColorFilter();
 
-        // Cover photo / fallback color
+        // Cover photo / fallback color — right-sized to the 62dp circle
+        // (COVER_SIZE) instead of a full portrait frame, with a tiny blur-up
+        // thumbnail shown while the real cover loads (Instagram-style).
         if (album.coverUrl != null && !album.coverUrl.isEmpty()) {
             GradientDrawable placeholder = oval(safeColor(album.coverBgColor, "#6C5CE7"));
-            Glide.with(ctx)
-                 .load(album.coverUrl)
-                 .transform(new CircleCrop())
+            String coverUrl = CloudinaryUploader.deriveThumbUrl(album.coverUrl, COVER_SIZE, "webp");
+            String blurUrl  = CloudinaryUploader.deriveThumbUrl(album.coverUrl, BLUR_COVER_SIZE, "webp");
+            glideRequests
+                 .load(coverUrl)
+                 .thumbnail(glideRequests.load(blurUrl).apply(COVER_OPTIONS))
+                 .apply(COVER_OPTIONS)
                  .placeholder(placeholder)
                  .error(placeholder)
-                 .override(480, 853)
                  .into(h.ivCover);
         } else {
             h.ivCover.setImageDrawable(null);
@@ -285,6 +360,26 @@ public class HighlightsRowAdapter
             });
         } else {
             h.root.setOnLongClickListener(null);
+        }
+    }
+
+    // ── Preload-ahead ─────────────────────────────────────────────────
+
+    @Override
+    public void onViewAttachedToWindow(@NonNull HVH holder) {
+        super.onViewAttachedToWindow(holder);
+        preloadAhead(holder.getAdapterPosition());
+    }
+
+    /** Warms Glide's disk cache for the next few highlight covers past fromPosition. */
+    private void preloadAhead(int fromPosition) {
+        if (fromPosition < 0) return;
+        int end = Math.min(fromPosition + PRELOAD_AHEAD, items.size() - 1);
+        for (int pos = fromPosition + 1; pos <= end; pos++) {
+            HighlightAlbum album = items.get(pos);
+            if (album == null || album.isNew || album.coverUrl == null || album.coverUrl.isEmpty()) continue;
+            String preloadUrl = CloudinaryUploader.deriveThumbUrl(album.coverUrl, COVER_SIZE, "webp");
+            glideRequests.load(preloadUrl).apply(COVER_OPTIONS).preload();
         }
     }
 
@@ -325,6 +420,27 @@ public class HighlightsRowAdapter
     private static int safeColor(String hex, String fallback) {
         try { return Color.parseColor(hex); } catch (Exception e) {
             try { return Color.parseColor(fallback); } catch (Exception e2) { return 0xFF6C5CE7; }
+        }
+    }
+
+    /**
+     * Resolves ?attr/colorSurface from the current theme — white in light
+     * mode, the app's dark surface color in dark mode (values-night/colors.xml
+     * overrides colorSurface app-wide). This is the same approach already used
+     * for the top-left profile avatar's ring gap (civ_border_color=
+     * "?attr/colorSurface" in activity_user_reels.xml) — this ring's white
+     * spacer was hardcoded to Color.WHITE instead, which is why it stayed
+     * white even in dark mode. Falls back to white if the attribute can't be
+     * resolved for any reason.
+     */
+    private static int resolveSurfaceColor(Context ctx) {
+        try {
+            android.util.TypedValue tv = new android.util.TypedValue();
+            ctx.getTheme().resolveAttribute(com.google.android.material.R.attr.colorSurface, tv, true);
+            if (tv.resourceId != 0) return ctx.getResources().getColor(tv.resourceId, ctx.getTheme());
+            return tv.data;
+        } catch (Exception e) {
+            return Color.WHITE;
         }
     }
 
