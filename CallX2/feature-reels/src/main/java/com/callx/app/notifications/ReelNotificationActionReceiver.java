@@ -52,6 +52,7 @@ public class ReelNotificationActionReceiver extends BroadcastReceiver {
         // ── Like Reel ──────────────────────────────────────────────────
         if (ACTION_LIKE_REEL.equals(action) && reelId != null) {
             FirebaseUtils.getReelLikesRef(reelId).child(myUid).setValue(true);
+            FirebaseUtils.getReelLikedByUserRef(myUid).child(reelId).setValue(System.currentTimeMillis());
             FirebaseUtils.getReelsRef().child(reelId).child("likeCount")
                 .setValue(com.google.firebase.database.ServerValue.increment(1));
             if (nm != null) nm.cancel(notifId);

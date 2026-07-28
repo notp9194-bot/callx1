@@ -202,11 +202,13 @@ public class ReelSocialController {
 
         DatabaseReference likeRef  = FirebaseUtils.getReelLikesRef(reel.reelId).child(myUid);
         DatabaseReference countRef = FirebaseUtils.getReelsRef().child(reel.reelId).child("likesCount");
+        DatabaseReference likedByUserRef = FirebaseUtils.getReelLikedByUserRef(myUid).child(reel.reelId);
 
         if (isLiked) {
             isLiked = false;
             if (btnLike != null) btnLike.setImageResource(R.drawable.ic_heart);
             likeRef.removeValue();
+            likedByUserRef.removeValue();
             countRef.runTransaction(new Transaction.Handler() {
                 @NonNull @Override public Transaction.Result doTransaction(@NonNull MutableData d) {
                     Integer c = d.getValue(Integer.class);
@@ -219,6 +221,7 @@ public class ReelSocialController {
             isLiked = true;
             if (btnLike != null) btnLike.setImageResource(R.drawable.ic_heart_filled);
             likeRef.setValue(true);
+            likedByUserRef.setValue(System.currentTimeMillis());
             countRef.runTransaction(new Transaction.Handler() {
                 @NonNull @Override public Transaction.Result doTransaction(@NonNull MutableData d) {
                     Integer c = d.getValue(Integer.class);

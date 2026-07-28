@@ -1023,12 +1023,21 @@ public class UserReelsActivity extends AppCompatActivity
         // stuck on the first empty tab and couldn't go further. Attach the same
         // fling detection to layoutEmpty as a plain touch listener so swiping keeps
         // working through empty tabs too.
+        //
+        // NOTE: layoutEmpty is a plain (non-clickable) LinearLayout. Returning
+        // false from ACTION_DOWN here meant the view was never registered as a
+        // touch target, so ACTION_MOVE/ACTION_UP never reached it afterwards —
+        // the GestureDetector only ever saw the DOWN event and could never
+        // detect a fling. Returning true keeps the full gesture flowing to us.
+        // This is still safe for any CTA buttons inside the empty state: a
+        // touch that starts on a child is routed straight to that child by
+        // Android before it ever reaches this parent-level listener.
         if (layoutEmpty != null) {
             final android.view.GestureDetector emptyStateDetector =
                     createTabSwipeGestureDetector(swipeThresholdPx, swipeVelocityPx);
             layoutEmpty.setOnTouchListener((v, e) -> {
                 emptyStateDetector.onTouchEvent(e);
-                return false; // don't swallow taps on any CTA buttons inside the empty state
+                return true;
             });
         }
     }
