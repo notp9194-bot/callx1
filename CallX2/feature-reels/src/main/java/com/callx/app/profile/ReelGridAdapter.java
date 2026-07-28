@@ -99,7 +99,7 @@ package com.callx.app.profile;
       // Built ONCE and reused for every bind instead of calling
       // Glide.with(...) fresh per row, which was the bigger cost.
       private final RequestManager             glideRequests;
-      private final List<ReelModel>            reels;        // full source list
+      private List<ReelModel>                  reels;        // current tab's source list
       private List<ReelModel>                  displayList;  // filtered view
       private final OnItemClickListener        clickListener;
       private final LongPressListener          longPressListener;
@@ -188,6 +188,27 @@ package com.callx.app.profile;
           } catch (Exception e) {
               return wifiSize; // safe default — don't break the grid over a connectivity check failure
           }
+      }
+
+      /**
+       * BUG FIX — Liked/Saved/Repost/Series tabs were showing the wrong
+       * reels: this adapter is a single shared instance across all grid
+       * tabs (Reels/Liked/Saved/Repost), but it was only ever constructed
+       * ONCE with whichever list was active at that moment (the Reels tab's
+       * list, since that's the default tab). Switching tabs only called
+       * notifyDataSetChanged() — it never told the adapter to look at a
+       * DIFFERENT list — so every tab kept rendering the Reels tab's data.
+       *
+       * Call this whenever the active tab changes (before notifying) so the
+       * adapter always points at THAT tab's own backing list
+       * (reelsTabData / likedTabData / savedTabData / repostsTabData).
+       * Also resets any active filter, since a filter chip selection from
+       * one tab must never carry over and hide items on another tab.
+       */
+      public void setDataList(List<ReelModel> newReels) {
+          this.reels = newReels;
+          this.displayList = newReels;
+          notifyDataSetChanged();
       }
 
       /** Called by filter chips to show a subset. Pass null to show all. */

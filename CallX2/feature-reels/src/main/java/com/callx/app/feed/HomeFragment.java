@@ -185,6 +185,17 @@ public class HomeFragment extends Fragment {
         return v;
     }
 
+    /**
+     * Clears just the top story row and rebuilds it. loadStories() only
+     * APPENDS story avatars — calling it directly (without clearing first)
+     * would duplicate every avatar on each resume/observer refresh, so this
+     * wrapper is what onResume() and storyRingObserver actually call.
+     */
+    private void refreshStoryRow() {
+        clearStoriesKeepAddButton();
+        loadStories();
+    }
+
     private void bindViews(View v) {
         swipeRefresh              = v.findViewById(R.id.swipe_refresh_home);
         containerStories          = v.findViewById(R.id.container_stories);
@@ -405,19 +416,54 @@ public class HomeFragment extends Fragment {
 
     // ── Lifecycle ─────────────────────────────────────────────────────────
 
+    private boolean isFirstResume = true;
+
     @Override public void onResume() {
         super.onResume();
         if (feedPlayer != null) {
             if (currentPlayingIndex >= 0) feedPlayer.play();
             else if (!feedCards.isEmpty()) scrollHandler.postDelayed(this::playMostVisibleCard, 300);
         }
+        // ★ INSTAGRAM-LEVEL FIX: previously the top story row was only ever
+        // built once (onCreateView) or on pull-to-refresh — so viewing a
+        // story elsewhere in the app (StatusViewerActivity, a reel_story
+        // via the reels player, etc.) and coming back to Home never
+        // updated the ring here; it silently stayed on the old gradient
+        // until the user manually pulled to refresh or left/reopened the
+        // app. Re-running loadStories() on every resume keeps it in sync.
+        // (Skip the very first resume — onCreateView's loadAllSections()
+        // already just built it; refreshing again here would just be a
+        // redundant clear+reload flash on initial screen open.)
+        if (isFirstResume) isFirstResume = false;
+        else refreshStoryRow();
+        // Also listen live while Home is on-screen: the moment ANY screen
+        // marks a story seen, statusSeen/{myUid} changes in Firebase and
+        // StatusCacheManager's real-time listener fires this observer —
+        // so the ring updates immediately, without even needing to leave
+        // and come back to Home. Same shared cache/pattern already used
+        // by StatusFragment, ChatListAdapter, CallHistoryAdapter, etc.
+        if (getContext() != null) {
+            com.callx.app.cache.StatusCacheManager.getInstance(requireContext())
+                .addObserver(storyRingObserver);
+        }
     }
+
+    // ★ Fires whenever StatusCacheManager's status/seen data changes anywhere
+    // in the app (e.g. a story was just viewed) — refreshes just the top
+    // story row so its ring (gradient vs. gray) is always current.
+    private final com.callx.app.cache.StatusCacheManager.StatusDataObserver storyRingObserver = () -> {
+        if (isAdded() && getActivity() != null) getActivity().runOnUiThread(this::refreshStoryRow);
+    };
 
     @Override public void onPause() {
         super.onPause();
         if (feedPlayer != null) feedPlayer.pause();
         // Don't waste bandwidth preloading cards the user can't see right now.
         if (videoPreloader != null) videoPreloader.cancelAll();
+        if (getContext() != null) {
+            com.callx.app.cache.StatusCacheManager.getInstance(requireContext())
+                .removeObserver(storyRingObserver);
+        }
     }
 
     @Override public void onDestroyView() {
@@ -608,7 +654,6 @@ public class HomeFragment extends Fragment {
                         boolean allSeen   = true;
                         Set<String> mySeenForOwner = seenMap.containsKey(uid) ? seenMap.get(uid) : new HashSet<>();
 
-                        boolean hasReelStory = false;
                         for (DataSnapshot s : statusSnap.getChildren()) {
                             Long ts = s.child("timestamp").getValue(Long.class);
                             if (ts == null || ts <= cutoff) continue;
@@ -616,13 +661,16 @@ public class HomeFragment extends Fragment {
                             if (mySeenForOwner == null || !mySeenForOwner.contains(s.getKey())) {
                                 allSeen = false; // at least one unseen
                             }
-                            // ★ Check for reel_story type — triggers gradient ring
-                            String type = s.child("type").getValue(String.class);
-                            if ("reel_story".equals(type)) hasReelStory = true;
                         }
 
                         if (hasActive) {
-                            collected.add(new StoryEntry(uid, name, photo, !allSeen, hasReelStory));
+                            // ★ INSTAGRAM FIX: gradient ring is driven purely by
+                            // "has this been seen" — a story used to keep its
+                            // gradient forever once it was tagged "reel_story",
+                            // even after the viewer had already watched it. Now
+                            // it's just unseen-state, same as every other story
+                            // type — matches Instagram's actual behavior.
+                            collected.add(new StoryEntry(uid, name, photo, !allSeen, false));
                         }
                         collectStoryEntries(uids, index + 1, seenMap, collected);
                     }
@@ -661,7 +709,7 @@ public class HomeFragment extends Fragment {
                                 getResources().getDisplayMetrics().density));
             }
 
-            if (entry.hasUnseen || entry.hasReelStory) {
+            if (entry.hasUnseen) {
                 // Gradient pink/orange ring — same as Instagram, for any unseen story
                 if (ivGradientRing != null) ivGradientRing.setVisibility(View.VISIBLE);
                 avatar.setBorderColor(0xFFFFFFFF);

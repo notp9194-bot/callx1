@@ -109,10 +109,24 @@ public class UserReelsActivity extends AppCompatActivity
     // rainbow color picker, long-press on either pill state). Null = default
     // theme-aware bg_song_pill.xml / drawable-night styling.
     private String          profileSongStripColorHex = null;
-    // Bio-links chip strip (hsv_bio_links) custom accent color — same
-    // long-press rainbow picker pattern as the profile-song strip, persisted
-    // to reels/users/{targetUid}/profileBioStripColor.
-    private String          profileBioStripColorHex = null;
+    // Bio-links chip strip (hsv_bio_links) custom accent colors — each chip
+    // (website / instagram / youtube / twitter) now keeps its OWN color,
+    // long-press picked via the same shared rainbow picker as the
+    // profile-song strip. Keyed by a stable "chip type" string and persisted
+    // to reels/users/{targetUid}/profileBioChipColors/{type}.
+    // (Old field kept only to read a legacy single-color value written by
+    // earlier app versions, so upgrading users don't lose their pick — it
+    // is used purely as a one-time fallback default and is never written
+    // to again.)
+    private String          profileBioStripColorHex = null; // legacy fallback only
+    private java.util.Map<String, String> profileBioChipColorsMap = new java.util.HashMap<>();
+    // Grid tabs (Reels/Liked/Saved/Repost/Series) + thumbnail grid-line
+    // accent color — same long-press rainbow picker pattern as the bio
+    // strip. Persisted to reels/users/{targetUid}/gridAccentColor. Colors
+    // both the active tab (indicator + icon tint) AND the grid's thumbnail
+    // separator lines (which are really just rvReels's background showing
+    // through the 1dp item gaps — see WhiteGridDecoration).
+    private String          gridAccentColorHex = null;
     private TextView        tvEmptyTitle, tvEmptySubtitle;
     private Button          btnFollow;
     private Button          btnMessageCta;
@@ -629,7 +643,12 @@ public class UserReelsActivity extends AppCompatActivity
                 boolean isSeries = (activeTab == TAB_SERIES);
                 if (rvSeries != null) rvSeries.setVisibility(isSeries ? android.view.View.VISIBLE : android.view.View.GONE);
                 if (rvReels  != null) rvReels.setVisibility(isSeries  ? android.view.View.GONE   : android.view.View.VISIBLE);
-                if (!isSeries) adapter.notifyDataSetChanged();
+                // BUG FIX: the adapter is one shared instance across the
+                // Reels/Liked/Saved/Repost tabs, so it must be re-pointed at
+                // THIS tab's own backing list every time the tab changes —
+                // otherwise it keeps showing whichever list it was last
+                // pointed at (e.g. Liked/Saved/Repost all showing Reels).
+                if (!isSeries) adapter.setDataList(activeTabData());
                 if (isSeries ? seriesTabData.isEmpty() : activeTabData().isEmpty()) loadCurrentTab(true);
                 else { refreshEmptyState(); updateViewAllButton(); }
             }
@@ -644,6 +663,90 @@ public class UserReelsActivity extends AppCompatActivity
                 }
             }
         });
+
+        // Owner-only: long-press ANY tab to recolor the active-tab indicator/
+        // icon AND the grid's thumbnail separator lines — same shared rainbow
+        // picker flow as the bio strip chips.
+        if (isSelf) {
+            for (int i = 0; i < tabLayout.getTabCount(); i++) {
+                TabLayout.Tab t = tabLayout.getTabAt(i);
+                if (t == null) continue;
+                android.view.View anchor = tabAnchorView(t);
+                if (anchor != null) {
+                    anchor.setOnLongClickListener(v -> {
+                        openGridAccentColorPicker();
+                        return true;
+                    });
+                }
+            }
+        }
+    }
+
+    /**
+     * Applies (or clears) the custom accent color across BOTH the grid tabs
+     * and the grid's thumbnail separator lines:
+     *  - Active tab's indicator + icon tint → the picked color (this is
+     *    what keeps the active tab "colourful" instead of plain
+     *    black/white).
+     *  - rvReels's background → the picked color, which is what actually
+     *    shows through the 1dp gaps WhiteGridDecoration leaves between
+     *    thumbnails (those gaps have never drawn their own color — they
+     *    just reveal whatever's behind them).
+     * Null/empty hex resets both back to the original theme-aware defaults.
+     */
+    private void applyGridAccentColor(String hex) {
+        int defaultIndicatorColor =
+                resolveAttrColor(com.google.android.material.R.attr.colorOnSurface, 0xFF111111);
+        if (hex != null && !hex.isEmpty()) {
+            try {
+                int color = android.graphics.Color.parseColor(hex);
+                gridAccentColorHex = hex;
+                if (tabLayout != null) {
+                    tabLayout.setSelectedTabIndicatorColor(color);
+                    // Unselected tabs keep the same "dimmed" treatment the
+                    // default XML selector used (~65% alpha), just tinted
+                    // with the picked color instead of colorOnSurface.
+                    int dimmed = (0xA6 << 24) | (color & 0x00FFFFFF);
+                    tabLayout.setTabIconTint(new android.content.res.ColorStateList(
+                            new int[][]{ {android.R.attr.state_selected}, {} },
+                            new int[]{ color, dimmed }));
+                }
+                if (rvReels != null) rvReels.setBackgroundColor(color);
+                return;
+            } catch (Exception e) {
+                gridAccentColorHex = null; // fall through to default below
+            }
+        }
+        gridAccentColorHex = null;
+        if (tabLayout != null) {
+            tabLayout.setSelectedTabIndicatorColor(defaultIndicatorColor);
+            tabLayout.setTabIconTint(
+                    androidx.core.content.ContextCompat.getColorStateList(this, R.color.tab_icon_tint_selector));
+        }
+        if (rvReels != null) {
+            rvReels.setBackgroundColor(
+                    androidx.core.content.ContextCompat.getColor(this, R.color.reel_grid_gutter));
+        }
+    }
+
+    /**
+     * Long-press entry point (isSelf only) — opens the shared rainbow color
+     * picker pre-filled with the current grid accent color, and on pick,
+     * persists it to reels/users/{targetUid}/gridAccentColor and applies it
+     * to both the tabs and the grid lines.
+     */
+    private void openGridAccentColorPicker() {
+        if (!isSelf || targetUid == null) return;
+        com.callx.app.utils.RainbowStripColorPickerBottomSheet.show(
+                this, "Grid Accent Color", gridAccentColorHex,
+                gridAccentColorHex != null && !gridAccentColorHex.isEmpty(),
+                colorHex -> {
+                    com.google.firebase.database.FirebaseDatabase.getInstance()
+                        .getReference("reels/users").child(targetUid)
+                        .child("gridAccentColor")
+                        .setValue(colorHex);
+                    applyGridAccentColor(colorHex);
+                });
     }
 
     private List<ReelModel> activeTabData() {
@@ -3119,29 +3222,49 @@ public class UserReelsActivity extends AppCompatActivity
                     tvBio.setVisibility(bio != null && !bio.isEmpty() ? View.VISIBLE : View.GONE);
                 }
 
-                // Website / social links from Reels profile — build compact chip row
+                // Website / social links from Reels profile — build compact chip row.
+                // 4th element = stable "chip type" key (website/instagram/youtube/
+                // twitter), used to look up & persist THIS chip's own color —
+                // independent of the others and independent of list position.
                 java.util.List<String[]> links = new java.util.ArrayList<>();
                 if (!isEmpty(website)) {
                     String websiteUrl = website.startsWith("http") ? website : "https://" + website;
-                    links.add(new String[]{"📞", website, websiteUrl});
+                    links.add(new String[]{"📞", website, websiteUrl, "website"});
                 }
                 if (!isEmpty(instagram)) {
                     String igLabel = instagram.startsWith("@") ? instagram : "@" + instagram;
                     String igUrl = instagram.startsWith("http") ? instagram
                         : "https://instagram.com/" + instagram.replace("@", "");
-                    links.add(new String[]{"📷", igLabel, igUrl});
+                    links.add(new String[]{"📷", igLabel, igUrl, "instagram"});
                 }
                 if (!isEmpty(youtube)) {
-                    links.add(new String[]{"▶", youtube, youtube});
+                    links.add(new String[]{"▶", youtube, youtube, "youtube"});
                 }
                 if (!isEmpty(twitter)) {
                     String twLabel = twitter.startsWith("@") ? twitter : "@" + twitter;
                     String twUrl = twitter.startsWith("http") ? twitter
                         : "https://x.com/" + twitter.replace("@", "");
-                    links.add(new String[]{"✗", twLabel, twUrl});
+                    links.add(new String[]{"✗", twLabel, twUrl, "twitter"});
                 }
+
+                // Legacy single-color value (pre-fix app versions) — used ONLY
+                // as a one-time fallback default for chips that don't yet have
+                // their own per-type color saved. Never written to again.
                 profileBioStripColorHex = snap.child("profileBioStripColor").getValue(String.class);
+
+                // New per-chip color map: reels/users/{uid}/profileBioChipColors/{type}
+                profileBioChipColorsMap.clear();
+                DataSnapshot chipColorsSnap = snap.child("profileBioChipColors");
+                for (DataSnapshot c : chipColorsSnap.getChildren()) {
+                    String hex = c.getValue(String.class);
+                    if (hex != null && !hex.isEmpty()) profileBioChipColorsMap.put(c.getKey(), hex);
+                }
+
                 buildBioChips(links);
+
+                // Grid tabs + thumbnail grid-line accent color
+                gridAccentColorHex = snap.child("gridAccentColor").getValue(String.class);
+                applyGridAccentColor(gridAccentColorHex);
 
                 // ── Profile song pill ────────────────────────────────────────────
                 // Read profileSong from the same snapshot (already loaded)
@@ -3280,10 +3403,11 @@ public class UserReelsActivity extends AppCompatActivity
      * Build compact chip row in hsv_bio_links (Screenshot 2 style).
      * Each chip: thin premium pill (theme-aware bg_bio_chip.xml /
      * drawable-night/bg_bio_chip.xml) with icon + label, all in one
-     * scrollable row. isSelf → long-press any chip opens the shared
-     * rainbow color picker to recolor the whole strip; others still get
-     * a copy-link long-press.
-     * @param links list of {iconEmoji, displayLabel, clickUrl}
+     * scrollable row. isSelf → long-press an INDIVIDUAL chip opens the
+     * shared rainbow color picker to recolor JUST that chip (each chip
+     * keeps its own color, tracked by its stable "type" key); others still
+     * get a copy-link long-press.
+     * @param links list of {iconEmoji, displayLabel, clickUrl, chipTypeKey}
      */
     private void buildBioChips(java.util.List<String[]> links) {
         if (llBioChips == null || hsvBioLinks == null) return;
@@ -3304,6 +3428,7 @@ public class UserReelsActivity extends AppCompatActivity
             String emoji   = link[0];
             String label   = link[1];
             String url     = link[2];
+            String typeKey = link[3];
 
             android.widget.TextView chip = new android.widget.TextView(this);
             android.widget.LinearLayout.LayoutParams lp =
@@ -3320,11 +3445,12 @@ public class UserReelsActivity extends AppCompatActivity
             chip.setMaxEms(12);
             chip.setEllipsize(android.text.TextUtils.TruncateAt.END);
 
-            // Theme-aware premium hairline pill background (recolorable below
-            // via applyBioStripAccentColor when a custom accent is picked).
-            android.graphics.drawable.Drawable bg =
-                androidx.core.content.ContextCompat.getDrawable(this, R.drawable.bg_bio_chip);
-            chip.setBackground(bg != null ? bg.getConstantState().newDrawable().mutate() : null);
+            // Starting background — this chip's OWN saved color if it has
+            // one, else the legacy single color (one-time fallback for
+            // upgrading users), else the default theme-aware pill.
+            String initialHex = profileBioChipColorsMap.get(typeKey);
+            if (initialHex == null) initialHex = profileBioStripColorHex;
+            chip.setBackground(buildChipDrawable(initialHex));
             chip.setClickable(true);
             chip.setFocusable(true);
 
@@ -3338,10 +3464,9 @@ public class UserReelsActivity extends AppCompatActivity
                 });
             }
             if (isSelf) {
-                // Owner: long-press anywhere on the strip recolors it (same
-                // shared rainbow box as the profile-song strip).
+                // Owner: long-press THIS chip recolors only THIS chip.
                 chip.setOnLongClickListener(v -> {
-                    openBioStripColorPicker();
+                    openBioStripColorPicker(typeKey, (android.widget.TextView) v);
                     return true;
                 });
             } else if (url != null && !url.isEmpty()) {
@@ -3356,19 +3481,16 @@ public class UserReelsActivity extends AppCompatActivity
             }
             llBioChips.addView(chip);
         }
-        // Re-apply any previously picked accent color to the freshly built chips.
-        applyBioStripAccentColor(profileBioStripColorHex);
     }
 
     /**
-     * Applies (or clears) the custom accent color on every chip in the bio
-     * links strip — same "common rainbow box" treatment as the profile-song
-     * pill. Null/empty hex falls back to the default theme-aware
-     * bg_bio_chip.xml / drawable-night/bg_bio_chip.xml drawables.
+     * Builds the pill background drawable for a single chip from a hex
+     * color (or the default theme-aware bg_bio_chip.xml when hex is
+     * null/empty/invalid). Always returns a fresh mutable drawable instance
+     * — never shared between chips — so recoloring one chip can never leak
+     * onto another.
      */
-    private void applyBioStripAccentColor(String hex) {
-        if (llBioChips == null) return;
-        android.graphics.drawable.Drawable template;
+    private android.graphics.drawable.Drawable buildChipDrawable(String hex) {
         if (hex != null && !hex.isEmpty()) {
             try {
                 int color = android.graphics.Color.parseColor(hex);
@@ -3377,37 +3499,47 @@ public class UserReelsActivity extends AppCompatActivity
                 gd.setCornerRadius(16f * getResources().getDisplayMetrics().density);
                 gd.setStroke(Math.round(1f * getResources().getDisplayMetrics().density), color);
                 gd.setColor((0x22 << 24) | (color & 0x00FFFFFF));
-                template = gd;
+                return gd;
             } catch (Exception e) {
-                template = androidx.core.content.ContextCompat.getDrawable(this, R.drawable.bg_bio_chip);
+                // fall through to default below
             }
-        } else {
-            template = androidx.core.content.ContextCompat.getDrawable(this, R.drawable.bg_bio_chip);
         }
-        for (int i = 0; i < llBioChips.getChildCount(); i++) {
-            View child = llBioChips.getChildAt(i);
-            child.setBackground(template != null
-                ? template.getConstantState().newDrawable().mutate() : null);
-        }
+        android.graphics.drawable.Drawable def =
+            androidx.core.content.ContextCompat.getDrawable(this, R.drawable.bg_bio_chip);
+        return def != null ? def.getConstantState().newDrawable().mutate() : null;
+    }
+
+    /**
+     * Applies a color to exactly ONE chip view (identified by the view
+     * itself, already resolved from the long-press callback) — sibling
+     * chips are never touched.
+     */
+    private void applyChipAccentColor(android.widget.TextView chip, String hex) {
+        if (chip == null) return;
+        chip.setBackground(buildChipDrawable(hex));
     }
 
     /**
      * Long-press entry point (isSelf only) — opens the shared rainbow color
-     * picker (core module) and persists the chosen color to
-     * reels/users/{targetUid}/profileBioStripColor.
+     * picker (core module) pre-filled with THIS chip's current color, and
+     * on pick, persists it under this chip's own type key
+     * (reels/users/{targetUid}/profileBioChipColors/{typeKey}) and recolors
+     * ONLY this one chip. Other chips keep whatever color (or default)
+     * they already had.
      */
-    private void openBioStripColorPicker() {
+    private void openBioStripColorPicker(String typeKey, android.widget.TextView chipView) {
         if (!isSelf || targetUid == null) return;
+        String currentHex = profileBioChipColorsMap.get(typeKey);
         com.callx.app.utils.RainbowStripColorPickerBottomSheet.show(
-                this, "Bio Strip Color", profileBioStripColorHex,
-                profileBioStripColorHex != null && !profileBioStripColorHex.isEmpty(),
+                this, "Bio Strip Color", currentHex,
+                currentHex != null && !currentHex.isEmpty(),
                 colorHex -> {
-                    profileBioStripColorHex = colorHex;
+                    profileBioChipColorsMap.put(typeKey, colorHex);
                     com.google.firebase.database.FirebaseDatabase.getInstance()
                         .getReference("reels/users").child(targetUid)
-                        .child("profileBioStripColor")
+                        .child("profileBioChipColors").child(typeKey)
                         .setValue(colorHex);
-                    applyBioStripAccentColor(colorHex);
+                    applyChipAccentColor(chipView, colorHex);
                 });
     }
 
