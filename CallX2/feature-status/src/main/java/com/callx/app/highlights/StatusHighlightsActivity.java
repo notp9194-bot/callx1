@@ -15,16 +15,31 @@ import com.callx.app.viewer.StatusViewerActivity;
 import com.callx.app.utils.StatusHighlightManager;
 /**
  * StatusHighlightsActivity — Browse highlights albums.
- * Shows album list; tap album → view statuses in that album.
- * Long-press album → delete/rename.
+ * Shows album list; tap album → opens the album in the story viewer (permanent,
+ * Instagram-style — works even after the original stories expired).
+ * Long-press album → opens the Highlight settings sheet (rename / cover / delete).
+ *
+ * v39: FIX — tapping an album used to reopen the OWNER's live status feed
+ *      (StatusViewerActivity with just ownerUid/name), completely ignoring the
+ *      album itself. Now passes StatusViewerActivity.EXTRA_HIGHLIGHT_ALBUM_ID so
+ *      the viewer loads the permanent album copies instead.
+ * v39: NEW — long-press now opens StatusHighlightSettingsBottomSheet (rename,
+ *      change cover, delete) instead of an inline delete-only AlertDialog —
+ *      this is the "highlight editing & settings" system that was missing.
+ * v39: NEW — reads statusHighlightMeta/{ownerUid}/{albumId} for a custom name
+ *      / cover set via the settings sheet, falling back to the first item's
+ *      thumbnail/name as before when no meta exists yet.
  */
 public class StatusHighlightsActivity extends AppCompatActivity {
     private RecyclerView rv;
     private TextView tvEmpty;
     private ProgressBar progress;
     private final Map<String, List<StatusItem>> albumMap = new LinkedHashMap<>();
+    private final Map<String, String> albumNameOverride = new HashMap<>();
+    private final Map<String, String> albumCoverOverride = new HashMap<>();
     private AlbumAdapter adapter;
     private String ownerUid;
+    private boolean isOwner;
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -55,7 +70,17 @@ public class StatusHighlightsActivity extends AppCompatActivity {
         if (ownerUid == null) {
             try { ownerUid = FirebaseUtils.getCurrentUid(); } catch (Exception e) { finish(); return; }
         }
+        String myUid = null;
+        try { myUid = FirebaseUtils.getCurrentUid(); } catch (Exception ignored) { }
+        isOwner = myUid != null && myUid.equals(ownerUid);
         loadHighlights();
+    }
+    @Override
+    protected void onResume() {
+        super.onResume();
+        // Refresh in case a rename/cover/delete happened in the settings sheet
+        // or inside the highlight viewer (rename/set-cover/delete-album options).
+        if (adapter != null) loadHighlights();
     }
     private void loadHighlights() {
         StatusHighlightManager.getHighlightsRef(ownerUid)
@@ -75,10 +100,31 @@ public class StatusHighlightsActivity extends AppCompatActivity {
                     }
                     adapter.notifyDataSetChanged();
                     tvEmpty.setVisibility(albumMap.isEmpty() ? View.VISIBLE : View.GONE);
+                    loadAlbumMetaOverrides();
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) {
                     progress.setVisibility(View.GONE);
                 }
+            });
+    }
+    /** Pulls custom name/cover set via the settings sheet, if any. */
+    private void loadAlbumMetaOverrides() {
+        FirebaseUtils.db().getReference("statusHighlightMeta").child(ownerUid)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    albumNameOverride.clear();
+                    albumCoverOverride.clear();
+                    for (DataSnapshot metaSnap : snap.getChildren()) {
+                        String albumId = metaSnap.getKey();
+                        if (albumId == null) continue;
+                        String name = metaSnap.child("name").getValue(String.class);
+                        String cover = metaSnap.child("coverUrl").getValue(String.class);
+                        if (name != null && !name.isEmpty()) albumNameOverride.put(albumId, name);
+                        if (cover != null && !cover.isEmpty()) albumCoverOverride.put(albumId, cover);
+                    }
+                    adapter.notifyDataSetChanged();
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) { }
             });
     }
     class AlbumAdapter extends RecyclerView.Adapter<AlbumAdapter.VH> {
@@ -97,8 +143,12 @@ public class StatusHighlightsActivity extends AppCompatActivity {
             List<StatusItem> list = albumMap.get(albumId);
             if (list == null || list.isEmpty()) return;
             StatusItem cover = list.get(0);
-            String albumName = cover.highlightAlbumName != null ? cover.highlightAlbumName : albumId;
-            String url = cover.thumbnailUrl != null ? cover.thumbnailUrl : cover.mediaUrl;
+            String albumName = albumNameOverride.containsKey(albumId)
+                    ? albumNameOverride.get(albumId)
+                    : (cover.highlightAlbumName != null ? cover.highlightAlbumName : albumId);
+            String url = albumCoverOverride.containsKey(albumId)
+                    ? albumCoverOverride.get(albumId)
+                    : (cover.thumbnailUrl != null ? cover.thumbnailUrl : cover.mediaUrl);
             if (url != null && !url.isEmpty()) Glide.with(h.iv).load(url).centerCrop().override(480, 853).into(h.iv);
             else if (cover.bgColor != null) h.iv.setBackgroundColor(android.graphics.Color.parseColor(cover.bgColor));
             h.tvName.setText(albumName);
@@ -107,21 +157,17 @@ public class StatusHighlightsActivity extends AppCompatActivity {
                 android.content.Intent i = new android.content.Intent(StatusHighlightsActivity.this, StatusViewerActivity.class);
                 i.putExtra(StatusViewerActivity.EXTRA_OWNER_UID, ownerUid);
                 i.putExtra(StatusViewerActivity.EXTRA_OWNER_NAME, albumName);
+                i.putExtra(StatusViewerActivity.EXTRA_HIGHLIGHT_ALBUM_ID, albumId);
                 startActivity(i);
             });
-            h.itemView.setOnLongClickListener(v -> {
-                AlertDialogStyler.showRounded(new androidx.appcompat.app.AlertDialog.Builder(StatusHighlightsActivity.this)
-                    .setTitle(albumName)
-                    .setItems(new String[]{"Delete album", "Cancel"}, (d, w2) -> {
-                        if (w2 == 0) {
-                            StatusHighlightManager.getAlbumRef(ownerUid, albumId).removeValue();
-                            albumMap.remove(albumId);
-                            notifyDataSetChanged();
-                            tvEmpty.setVisibility(albumMap.isEmpty() ? View.VISIBLE : View.GONE);
-                        }
-                    }).create());
-                return true;
-            });
+            if (isOwner) {
+                h.itemView.setOnLongClickListener(v -> {
+                    StatusHighlightSettingsBottomSheet.show(StatusHighlightsActivity.this,
+                            ownerUid, albumId, albumName, list,
+                            () -> loadHighlights());
+                    return true;
+                });
+            }
         }
         @Override public int getItemCount() { return albumMap.size(); }
         class VH extends RecyclerView.ViewHolder {

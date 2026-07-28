@@ -99,8 +99,13 @@ public class StatusItem {
 
     // ── Highlights / Archive ─────────────────────────────────────────
     public boolean isHighlighted;
+    /** Most-recently-added-to album — kept for backward compat / quick display. */
     public String  highlightAlbumId;
     public String  highlightAlbumName;
+    /** All albums (Instagram-style: a status can live in multiple highlight albums).
+     *  Map<albumId, true> — Firebase-friendly instead of a List (no read-modify-write races
+     *  when adding/removing a single album membership). */
+    public Map<String, Boolean> highlightAlbumIds;
     public boolean isArchived;
     public Long    archivedAt;
 
@@ -247,6 +252,7 @@ public class StatusItem {
         m.put("isHighlighted",        isHighlighted);
         if (highlightAlbumId != null) m.put("highlightAlbumId", highlightAlbumId);
         if (highlightAlbumName != null) m.put("highlightAlbumName", highlightAlbumName);
+        if (highlightAlbumIds != null) m.put("highlightAlbumIds", highlightAlbumIds);
         m.put("isArchived",           isArchived);
         if (archivedAt != null)       m.put("archivedAt", archivedAt);
         if (forwardCount != 0)        m.put("forwardCount", forwardCount);

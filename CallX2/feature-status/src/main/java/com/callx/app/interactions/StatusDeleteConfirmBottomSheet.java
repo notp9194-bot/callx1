@@ -5,16 +5,26 @@ import android.view.*;
 import android.widget.*;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
 /**
- * StatusDeleteConfirmBottomSheet v25 — Proper delete confirmation sheet.
- * FIX: Was a plain AlertDialog — now a visually clear BottomSheet.
- * Shows: status thumbnail preview (if available), warning text, cancel + delete buttons.
+ * StatusDeleteConfirmBottomSheet v39 — Delete confirmation sheet.
+ *
+ * v25: Was a plain AlertDialog — became a visually clear BottomSheet.
+ * v39: When the status/story is inside one or more Highlight albums, this now
+ *      shows TWO distinct choices instead of one, Instagram-style:
+ *        1) "Delete Status Only"                — removes the live status/story,
+ *           the Highlight album copy is left untouched (stays permanent).
+ *        2) "Delete & Remove from Highlights"    — removes the live status AND
+ *           removes it from every Highlight album it belongs to.
+ *      If the status isn't in any Highlight, the sheet falls back to the
+ *      original single "Delete Status" button.
  */
 public class StatusDeleteConfirmBottomSheet {
     public interface OnConfirmListener {
-        void onConfirmed();
+        /** @param alsoRemoveFromHighlights true if the user chose to also strip
+         *                                  this status out of its Highlight album(s). */
+        void onConfirmed(boolean alsoRemoveFromHighlights);
     }
     public static void show(Context ctx, String statusType, String previewUrl,
-                            OnConfirmListener listener) {
+                            boolean isInHighlights, OnConfirmListener listener) {
         BottomSheetDialog sheet = new BottomSheetDialog(ctx);
         LinearLayout root = new LinearLayout(ctx);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -37,31 +47,77 @@ public class StatusDeleteConfirmBottomSheet {
         root.addView(title);
         // Subtitle
         TextView sub = new TextView(ctx);
-        sub.setText("This status will be permanently removed and\nno one will be able to see it anymore.");
+        sub.setText(isInHighlights
+                ? "This status is saved in your Highlights.\nChoose what you'd like to delete."
+                : "This status will be permanently removed and\nno one will be able to see it anymore.");
         sub.setTextSize(14);
         sub.setTextColor(Color.GRAY);
         sub.setGravity(android.view.Gravity.CENTER);
         sub.setPadding(0, 0, 0, dp(ctx, 28));
         root.addView(sub);
-        // Delete button (red)
-        Button deleteBtn = new Button(ctx);
-        deleteBtn.setText("Delete Status");
-        deleteBtn.setTextColor(Color.WHITE);
-        deleteBtn.setTextSize(15);
-        android.graphics.drawable.GradientDrawable delBg =
-            new android.graphics.drawable.GradientDrawable();
-        delBg.setColor(Color.parseColor("#E53935"));
-        delBg.setCornerRadius(dp(ctx, 12));
-        deleteBtn.setBackground(delBg);
-        LinearLayout.LayoutParams delLp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(ctx, 52));
-        delLp.bottomMargin = dp(ctx, 10);
-        deleteBtn.setLayoutParams(delLp);
-        deleteBtn.setOnClickListener(v -> {
-            sheet.dismiss();
-            if (listener != null) listener.onConfirmed();
-        });
-        root.addView(deleteBtn);
+
+        if (isInHighlights) {
+            // Option 1: Delete status only — Highlight copy stays permanent.
+            Button deleteOnlyBtn = new Button(ctx);
+            deleteOnlyBtn.setText("Delete Status Only");
+            deleteOnlyBtn.setTextColor(Color.WHITE);
+            deleteOnlyBtn.setTextSize(15);
+            android.graphics.drawable.GradientDrawable onlyBg =
+                new android.graphics.drawable.GradientDrawable();
+            onlyBg.setColor(Color.parseColor("#E53935"));
+            onlyBg.setCornerRadius(dp(ctx, 12));
+            deleteOnlyBtn.setBackground(onlyBg);
+            LinearLayout.LayoutParams onlyLp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, dp(ctx, 52));
+            onlyLp.bottomMargin = dp(ctx, 10);
+            deleteOnlyBtn.setLayoutParams(onlyLp);
+            deleteOnlyBtn.setOnClickListener(v -> {
+                sheet.dismiss();
+                if (listener != null) listener.onConfirmed(false);
+            });
+            root.addView(deleteOnlyBtn);
+
+            // Option 2: Delete + remove from Highlights too.
+            Button deleteAllBtn = new Button(ctx);
+            deleteAllBtn.setText("Delete & Remove from Highlights");
+            deleteAllBtn.setTextColor(Color.WHITE);
+            deleteAllBtn.setTextSize(14);
+            android.graphics.drawable.GradientDrawable allBg =
+                new android.graphics.drawable.GradientDrawable();
+            allBg.setColor(Color.parseColor("#B71C1C"));
+            allBg.setCornerRadius(dp(ctx, 12));
+            deleteAllBtn.setBackground(allBg);
+            LinearLayout.LayoutParams allLp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, dp(ctx, 52));
+            allLp.bottomMargin = dp(ctx, 10);
+            deleteAllBtn.setLayoutParams(allLp);
+            deleteAllBtn.setOnClickListener(v -> {
+                sheet.dismiss();
+                if (listener != null) listener.onConfirmed(true);
+            });
+            root.addView(deleteAllBtn);
+        } else {
+            // Single option — status was never added to any Highlight.
+            Button deleteBtn = new Button(ctx);
+            deleteBtn.setText("Delete Status");
+            deleteBtn.setTextColor(Color.WHITE);
+            deleteBtn.setTextSize(15);
+            android.graphics.drawable.GradientDrawable delBg =
+                new android.graphics.drawable.GradientDrawable();
+            delBg.setColor(Color.parseColor("#E53935"));
+            delBg.setCornerRadius(dp(ctx, 12));
+            deleteBtn.setBackground(delBg);
+            LinearLayout.LayoutParams delLp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, dp(ctx, 52));
+            delLp.bottomMargin = dp(ctx, 10);
+            deleteBtn.setLayoutParams(delLp);
+            deleteBtn.setOnClickListener(v -> {
+                sheet.dismiss();
+                if (listener != null) listener.onConfirmed(false);
+            });
+            root.addView(deleteBtn);
+        }
+
         // Cancel button (outlined)
         Button cancelBtn = new Button(ctx);
         cancelBtn.setText("Cancel");

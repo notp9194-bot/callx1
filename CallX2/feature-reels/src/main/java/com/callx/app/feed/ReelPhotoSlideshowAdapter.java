@@ -43,6 +43,7 @@ import com.bumptech.glide.load.DataSource;
 import com.bumptech.glide.load.engine.DiskCacheStrategy;
 import com.bumptech.glide.load.engine.GlideException;
 import com.bumptech.glide.request.RequestListener;
+import com.callx.app.stickers.StatusStickerOverlayView;
 import com.bumptech.glide.request.RequestOptions;
 import com.bumptech.glide.request.target.Target;
 import com.bumptech.glide.load.resource.bitmap.CenterCrop;
@@ -714,8 +715,22 @@ public class ReelPhotoSlideshowAdapter
     }
 
     private void addStickerView(String obj, FrameLayout container, int position) {
+        String type = extractJsonStr(obj, "type", "emoji");
+
+        // Full interactive stickers (music/quiz/poll/slider/countdown/mention/
+        // hashtag/link/addyours) are produced by the shared core sticker sheet
+        // (StatusStickerPickerSheet) and serialised via StatusStickerOverlayView,
+        // not the simple {type:"emoji", value, x, y} shape below. They were
+        // previously silently dropped here because "value" is never present
+        // on them, so they never rendered in the Reels feed even though they
+        // saved fine and show correctly in Status. Build them the same way
+        // StatusViewerActivity does, using the baked-in posXRatio/posYRatio.
+        if (!"emoji".equals(type)) {
+            addFullStickerView(obj, container);
+            return;
+        }
+
         try {
-            String type  = extractJsonStr(obj, "type",  "emoji");
             String value = extractJsonStr(obj, "value", "");
             float  xFrac = extractJsonFloat(obj, "x",   0.5f);
             float  yFrac = extractJsonFloat(obj, "y",   0.5f);
@@ -748,6 +763,40 @@ public class ReelPhotoSlideshowAdapter
             });
 
             if (editMode) makeDraggable(tv, container, position);
+        } catch (Exception ignored) {}
+    }
+
+    /**
+     * Renders a full interactive sticker (music/quiz/poll/slider/countdown/
+     * mention/hashtag/link/addyours) using the same core widget and position
+     * logic as StatusViewerActivity.renderStickers(), so a sticker attached in
+     * the Reels photo editor looks and sits exactly the same as it does on
+     * Status. Falls back to a stacked default position for legacy stickers
+     * saved without posXRatio/posYRatio.
+     */
+    private void addFullStickerView(String obj, FrameLayout container) {
+        try {
+            StatusStickerOverlayView sticker = StatusStickerOverlayView.fromJson(container.getContext(), obj);
+            sticker.setTag(TAG_STICKER_VIEW);
+
+            int dp = (int) container.getContext().getResources().getDisplayMetrics().density;
+            int frameW = container.getWidth() > 0
+                    ? container.getWidth() : container.getContext().getResources().getDisplayMetrics().widthPixels;
+            int frameH = container.getHeight() > 0
+                    ? container.getHeight() : container.getContext().getResources().getDisplayMetrics().heightPixels;
+
+            FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+                    Math.min(frameW - dp * 32, dp * 280),
+                    FrameLayout.LayoutParams.WRAP_CONTENT,
+                    sticker.hasSavedPosition() ? android.view.Gravity.TOP | android.view.Gravity.START
+                                                : android.view.Gravity.TOP | android.view.Gravity.CENTER_HORIZONTAL);
+            if (sticker.hasSavedPosition()) {
+                lp.leftMargin = (int) (sticker.getSavedPosXRatio() * frameW);
+                lp.topMargin  = (int) (sticker.getSavedPosYRatio() * frameH);
+            } else {
+                lp.topMargin = dp * 140;
+            }
+            container.addView(sticker, lp);
         } catch (Exception ignored) {}
     }
 

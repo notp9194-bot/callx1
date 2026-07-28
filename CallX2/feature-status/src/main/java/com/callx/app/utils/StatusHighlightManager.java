@@ -1,31 +1,74 @@
 package com.callx.app.utils;
 import com.callx.app.models.StatusItem;
+import com.google.firebase.database.DataSnapshot;
+import com.google.firebase.database.DatabaseError;
 import com.google.firebase.database.DatabaseReference;
 import com.google.firebase.database.ServerValue;
+import com.google.firebase.database.ValueEventListener;
+import androidx.annotation.NonNull;
 import java.util.HashMap;
 import java.util.Map;
+
 /**
  * StatusHighlightManager — Add expired/active statuses to Highlights albums.
- * Firebase path: statusHighlights/{ownerUid}/{albumId}/{statusId}
- * Also supports archive: statusArchive/{ownerUid}/{statusId}
+ * Firebase paths:
+ *   statusHighlights/{ownerUid}/{albumId}/{statusId}   — per-album copy of the status (permanent)
+ *   statusHighlightMeta/{ownerUid}/{albumId}           — album settings: name, cover
+ *   statusArchive/{ownerUid}/{statusId}                — archive (unrelated feature)
+ *
+ * v39 — Instagram-style highlight system:
+ *  - A status added to a highlight keeps living in the album forever, even after
+ *    the original status/story expires (StatusFragment / StatusViewerActivity's
+ *    live-feed loader filters by expiresAt, but nothing here ever does — this
+ *    is what makes the album "permanent").
+ *  - The ORIGINAL live status doc (status/{ownerUid}/{statusId}) is now also kept
+ *    in sync (isHighlighted / highlightAlbumId / highlightAlbumIds) so the owner's
+ *    delete-confirmation flow can correctly detect "this status is inside N
+ *    highlight album(s)" and offer the "delete + remove from highlights too" choice.
+ *  - Albums now support rename + custom cover + delete (statusHighlightMeta),
+ *    closing the previously-missing "highlight editing & settings" gap.
  */
 public final class StatusHighlightManager {
     private StatusHighlightManager() {}
-    // ── Highlights ────────────────────────────────────────────────────────
+
+    // ── Highlights: add / remove single item ────────────────────────────────
     public static void addToHighlight(String ownerUid, StatusItem item,
                                       String albumId, String albumName) {
         if (ownerUid == null || item == null || albumId == null) return;
-        DatabaseReference ref = FirebaseUtils.db()
+        final String statusId = item.id != null ? item.id
+                : FirebaseUtils.db().getReference().push().getKey();
+        // 1) Write the permanent per-album copy.
+        DatabaseReference albumItemRef = FirebaseUtils.db()
             .getReference("statusHighlights")
             .child(ownerUid)
             .child(albumId)
-            .child(item.id != null ? item.id : FirebaseUtils.db().getReference().push().getKey());
+            .child(statusId);
         Map<String, Object> data = new HashMap<>(item.toMap());
         data.put("isHighlighted",     true);
         data.put("highlightAlbumId",  albumId);
         data.put("highlightAlbumName", albumName);
-        ref.setValue(data);
+        Map<String, Object> albumIds = item.highlightAlbumIds != null
+                ? new HashMap<>(item.highlightAlbumIds) : new HashMap<>();
+        albumIds.put(albumId, true);
+        data.put("highlightAlbumIds", albumIds);
+        albumItemRef.setValue(data);
+        // 2) Keep the ORIGINAL live status doc in sync so we can tell later
+        //    (e.g. on delete) that this status belongs to highlight album(s).
+        if (statusId != null) {
+            Map<String, Object> originalUpdate = new HashMap<>();
+            originalUpdate.put("isHighlighted", true);
+            originalUpdate.put("highlightAlbumId", albumId);
+            originalUpdate.put("highlightAlbumName", albumName);
+            originalUpdate.put("highlightAlbumIds/" + albumId, true);
+            FirebaseUtils.getStatusRef().child(ownerUid).child(statusId)
+                .updateChildren(originalUpdate);
+        }
+        // 3) Ensure album meta exists (name at minimum), without clobbering
+        //    an existing custom cover if one was already set.
+        getAlbumMetaRef(ownerUid, albumId).child("name").setValue(albumName);
+        getAlbumMetaRef(ownerUid, albumId).child("updatedAt").setValue(ServerValue.TIMESTAMP);
     }
+
     public static void removeFromHighlight(String ownerUid, String albumId, String statusId) {
         if (ownerUid == null || albumId == null || statusId == null) return;
         FirebaseUtils.db()
@@ -34,7 +77,48 @@ public final class StatusHighlightManager {
             .child(albumId)
             .child(statusId)
             .removeValue();
+        // Clean the membership flag on the original live status (if it still exists).
+        DatabaseReference originalRef = FirebaseUtils.getStatusRef().child(ownerUid).child(statusId);
+        originalRef.child("highlightAlbumIds").child(albumId).removeValue();
+        // Recompute isHighlighted based on remaining memberships (best-effort).
+        originalRef.child("highlightAlbumIds").addListenerForSingleValueEvent(new ValueEventListener() {
+            @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                if (!snap.exists() || snap.getChildrenCount() == 0) {
+                    Map<String, Object> clear = new HashMap<>();
+                    clear.put("isHighlighted", false);
+                    originalRef.updateChildren(clear);
+                }
+            }
+            @Override public void onCancelled(@NonNull DatabaseError e) { }
+        });
     }
+
+    /** Removes this status from EVERY highlight album it belongs to (used by
+     *  the "Delete & remove from Highlights" option in the delete-confirm sheet). */
+    public static void removeStatusFromAllHighlights(String ownerUid, StatusItem item) {
+        if (ownerUid == null || item == null || item.id == null) return;
+        if (item.highlightAlbumIds != null && !item.highlightAlbumIds.isEmpty()) {
+            for (String albumId : item.highlightAlbumIds.keySet()) {
+                removeFromHighlight(ownerUid, albumId, item.id);
+            }
+            return;
+        }
+        // Fallback: item wasn't carrying the map (e.g. loaded before sync existed) —
+        // scan all albums once and remove any match.
+        final String statusId = item.id;
+        getHighlightsRef(ownerUid).addListenerForSingleValueEvent(new ValueEventListener() {
+            @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                for (DataSnapshot albumSnap : snap.getChildren()) {
+                    String albumId = albumSnap.getKey();
+                    if (albumId != null && albumSnap.hasChild(statusId)) {
+                        removeFromHighlight(ownerUid, albumId, statusId);
+                    }
+                }
+            }
+            @Override public void onCancelled(@NonNull DatabaseError e) { }
+        });
+    }
+
     public static DatabaseReference getHighlightsRef(String ownerUid) {
         return FirebaseUtils.db()
             .getReference("statusHighlights")
@@ -46,6 +130,79 @@ public final class StatusHighlightManager {
             .child(ownerUid)
             .child(albumId);
     }
+
+    // ── Album settings (rename / cover / delete) ────────────────────────────
+    public static DatabaseReference getAlbumMetaRef(String ownerUid, String albumId) {
+        return FirebaseUtils.db()
+            .getReference("statusHighlightMeta")
+            .child(ownerUid)
+            .child(albumId);
+    }
+
+    /** Renames the album: updates the meta name + every item copy's highlightAlbumName
+     *  (so the name stays correct wherever it's read from). */
+    public static void renameAlbum(String ownerUid, String albumId, String newName) {
+        if (ownerUid == null || albumId == null || newName == null || newName.trim().isEmpty()) return;
+        final String name = newName.trim();
+        getAlbumMetaRef(ownerUid, albumId).child("name").setValue(name);
+        getAlbumRef(ownerUid, albumId).addListenerForSingleValueEvent(new ValueEventListener() {
+            @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                Map<String, Object> multiUpdate = new HashMap<>();
+                for (DataSnapshot itemSnap : snap.getChildren()) {
+                    String statusId = itemSnap.getKey();
+                    if (statusId == null) continue;
+                    multiUpdate.put(statusId + "/highlightAlbumName", name);
+                    // Also fix up the original live doc if its "most recent album" pointer matches.
+                    FirebaseUtils.getStatusRef().child(ownerUid).child(statusId)
+                        .child("highlightAlbumId").addListenerForSingleValueEvent(new ValueEventListener() {
+                            @Override public void onDataChange(@NonNull DataSnapshot idSnap) {
+                                if (albumId.equals(idSnap.getValue(String.class))) {
+                                    FirebaseUtils.getStatusRef().child(ownerUid).child(statusId)
+                                        .child("highlightAlbumName").setValue(name);
+                                }
+                            }
+                            @Override public void onCancelled(@NonNull DatabaseError e) { }
+                        });
+                }
+                if (!multiUpdate.isEmpty()) getAlbumRef(ownerUid, albumId).updateChildren(multiUpdate);
+            }
+            @Override public void onCancelled(@NonNull DatabaseError e) { }
+        });
+    }
+
+    /** Sets a specific status item (already inside the album) as the album cover. */
+    public static void setAlbumCover(String ownerUid, String albumId, String coverStatusId, String coverUrl) {
+        if (ownerUid == null || albumId == null) return;
+        Map<String, Object> meta = new HashMap<>();
+        meta.put("coverStatusId", coverStatusId);
+        meta.put("coverUrl", coverUrl != null ? coverUrl : "");
+        meta.put("updatedAt", ServerValue.TIMESTAMP);
+        getAlbumMetaRef(ownerUid, albumId).updateChildren(meta);
+    }
+
+    /** Deletes the whole album: clears membership flags on every original live status,
+     *  then removes the album's items and its settings/meta. */
+    public static void deleteAlbum(String ownerUid, String albumId) {
+        if (ownerUid == null || albumId == null) return;
+        getAlbumRef(ownerUid, albumId).addListenerForSingleValueEvent(new ValueEventListener() {
+            @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                for (DataSnapshot itemSnap : snap.getChildren()) {
+                    String statusId = itemSnap.getKey();
+                    if (statusId == null) continue;
+                    DatabaseReference originalRef = FirebaseUtils.getStatusRef()
+                        .child(ownerUid).child(statusId);
+                    originalRef.child("highlightAlbumIds").child(albumId).removeValue();
+                }
+                getAlbumRef(ownerUid, albumId).removeValue();
+                getAlbumMetaRef(ownerUid, albumId).removeValue();
+            }
+            @Override public void onCancelled(@NonNull DatabaseError e) {
+                getAlbumRef(ownerUid, albumId).removeValue();
+                getAlbumMetaRef(ownerUid, albumId).removeValue();
+            }
+        });
+    }
+
     // ── Archive ───────────────────────────────────────────────────────────
     public static void archiveStatus(String ownerUid, StatusItem item) {
         if (ownerUid == null || item == null) return;

@@ -69,6 +69,13 @@ import com.callx.app.utils.AlertDialogStyler;
        *  that was replied/reacted to (WhatsApp jumps to that specific
        *  story, not just the owner's oldest active one). */
       public static final String EXTRA_TARGET_STATUS_ID = "targetStatusId";
+      /** v39 — When set, the viewer loads this owner's Highlight ALBUM
+       *  (statusHighlights/{ownerUid}/{albumId}) instead of their live status
+       *  feed, and never filters by expiresAt — highlight items are permanent,
+       *  Instagram-style, even after the original story expired/was deleted. */
+      public static final String EXTRA_HIGHLIGHT_ALBUM_ID = "highlightAlbumId";
+      private String highlightAlbumId;
+      private boolean isHighlightMode;
       private String targetStatusId;
       private ActivityStatusViewerBinding binding;
       private final List<StatusItem> items         = new ArrayList<>();
@@ -97,6 +104,8 @@ import com.callx.app.utils.AlertDialogStyler;
           ownerUid  = getIntent().getStringExtra(EXTRA_OWNER_UID);
           ownerName = getIntent().getStringExtra(EXTRA_OWNER_NAME);
           targetStatusId = getIntent().getStringExtra(EXTRA_TARGET_STATUS_ID);
+          highlightAlbumId = getIntent().getStringExtra(EXTRA_HIGHLIGHT_ALBUM_ID);
+          isHighlightMode = highlightAlbumId != null && !highlightAlbumId.isEmpty();
           if (ownerUid == null) { finish(); return; }
           try { myUid = FirebaseUtils.getCurrentUid(); } catch (Exception e) { myUid = null; }
           setupSwipeDownGesture();
@@ -143,6 +152,7 @@ import com.callx.app.utils.AlertDialogStyler;
       }
       // ── Load ──────────────────────────────────────────────────────────────
       private void load(String uid) {
+          if (isHighlightMode) { loadHighlightAlbum(uid); return; }
           FirebaseUtils.getStatusRef().child(uid)
               .addListenerForSingleValueEvent(new ValueEventListener() {
                   @Override public void onDataChange(@NonNull DataSnapshot snap) {
@@ -190,6 +200,40 @@ import com.callx.app.utils.AlertDialogStyler;
                       buildSegmentBars();
                       showCurrent();
                       // FIX: show download+forward for viewer, hide for owner
+                      boolean isOwner = myUid != null && myUid.equals(ownerUid);
+                      binding.btnDownload.setVisibility(isOwner ? View.GONE : View.VISIBLE);
+                      binding.btnForward.setVisibility(isOwner ? View.GONE : View.VISIBLE);
+                  }
+                  @Override public void onCancelled(@NonNull DatabaseError e) { finish(); }
+              });
+      }
+      /** v39 — Loads a Highlight album's permanent copies. Deliberately does NOT
+       *  filter by expiresAt: once a status is in a Highlight it stays visible
+       *  forever, exactly like Instagram, regardless of whether the original
+       *  story already expired. */
+      private void loadHighlightAlbum(String uid) {
+          StatusHighlightManager.getAlbumRef(uid, highlightAlbumId)
+              .addListenerForSingleValueEvent(new ValueEventListener() {
+                  @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                      for (DataSnapshot c : snap.getChildren()) {
+                          StatusItem s = c.getValue(StatusItem.class);
+                          if (s == null) continue;
+                          items.add(s);
+                      }
+                      if (items.isEmpty()) {
+                          Toast.makeText(StatusViewerActivity.this,
+                                  "This highlight is empty", Toast.LENGTH_SHORT).show();
+                          finish(); return;
+                      }
+                      items.sort((a, b) -> Long.compare(
+                              a.timestamp == null ? 0 : a.timestamp,
+                              b.timestamp == null ? 0 : b.timestamp));
+                      StatusItem first = items.get(0);
+                      if (first.ownerPhoto != null && !first.ownerPhoto.isEmpty())
+                          Glide.with(StatusViewerActivity.this).load(first.ownerPhoto)
+                               .circleCrop().into(binding.ivOwner);
+                      buildSegmentBars();
+                      showCurrent();
                       boolean isOwner = myUid != null && myUid.equals(ownerUid);
                       binding.btnDownload.setVisibility(isOwner ? View.GONE : View.VISIBLE);
                       binding.btnForward.setVisibility(isOwner ? View.GONE : View.VISIBLE);
@@ -995,6 +1039,7 @@ import com.callx.app.utils.AlertDialogStyler;
       }
       /** FIX v26: "Who viewed this" added as first option (was completely missing from owner menu) */
       private void showOwnerMoreMenu() {
+          if (isHighlightMode) { showHighlightOwnerMoreMenu(); return; }
           StatusItem current = idx < items.size() ? items.get(idx) : null;
           String[] opts = {"Who viewed this", "Delete this status", "Archive status", "Add to Highlights", "Analytics", "Cancel"};
           AlertDialogStyler.showRounded(new AlertDialog.Builder(this)
@@ -1006,10 +1051,16 @@ import com.callx.app.utils.AlertDialogStyler;
                       } else resumeProgress();
                   } else if (w == 1 && current != null && current.id != null) {
                       String previewUrl = current.thumbnailUrl != null ? current.thumbnailUrl : current.mediaUrl;
-                      StatusDeleteConfirmBottomSheet.show(this, current.type, previewUrl, () -> {
+                      boolean inHighlights = current.isHighlighted
+                              || (current.highlightAlbumIds != null && !current.highlightAlbumIds.isEmpty());
+                      StatusDeleteConfirmBottomSheet.show(this, current.type, previewUrl, inHighlights, alsoRemoveFromHighlights -> {
+                          if (alsoRemoveFromHighlights) {
+                              StatusHighlightManager.removeStatusFromAllHighlights(ownerUid, current);
+                          }
                           StatusSeenTracker.deleteStatus(ownerUid, current.id);
                           items.remove(idx);
-                          Toast.makeText(this, "Deleted", Toast.LENGTH_SHORT).show();
+                          Toast.makeText(this, alsoRemoveFromHighlights
+                                  ? "Deleted & removed from Highlights" : "Deleted", Toast.LENGTH_SHORT).show();
                           if (items.isEmpty()) { finish(); return; }
                           idx = Math.min(idx, items.size() - 1);
                           buildSegmentBars(); stopProgress(); showCurrent();
@@ -1026,6 +1077,77 @@ import com.callx.app.utils.AlertDialogStyler;
                       resumeProgress();
                   }
               })
+              .setOnCancelListener(d -> resumeProgress())
+              .create());
+      }
+      /** v39 — Owner's "..." menu while browsing INSIDE a Highlight album.
+       *  Replaces the normal delete/archive/add-to-highlight set with
+       *  highlight-specific actions: remove just this item, rename the
+       *  album, or delete the whole album — the previously-missing
+       *  "Highlight editing & settings" system. */
+      private void showHighlightOwnerMoreMenu() {
+          StatusItem current = idx < items.size() ? items.get(idx) : null;
+          String[] opts = {"Who viewed this", "Remove from Highlight", "Rename Highlight",
+                  "Set as Cover", "Delete Entire Highlight", "Cancel"};
+          AlertDialogStyler.showRounded(new AlertDialog.Builder(this)
+              .setItems(opts, (d, w) -> {
+                  if (w == 0) {
+                      if (current != null) StatusSeenByBottomSheet.show(this, current, this::resumeProgress);
+                      else resumeProgress();
+                  } else if (w == 1 && current != null && current.id != null) {
+                      StatusHighlightManager.removeFromHighlight(ownerUid, highlightAlbumId, current.id);
+                      items.remove(idx);
+                      Toast.makeText(this, "Removed from Highlight", Toast.LENGTH_SHORT).show();
+                      if (items.isEmpty()) { finish(); return; }
+                      idx = Math.min(idx, items.size() - 1);
+                      buildSegmentBars(); stopProgress(); showCurrent();
+                  } else if (w == 2) {
+                      promptRenameHighlightAlbum();
+                  } else if (w == 3 && current != null) {
+                      String coverUrl = current.thumbnailUrl != null ? current.thumbnailUrl : current.mediaUrl;
+                      StatusHighlightManager.setAlbumCover(ownerUid, highlightAlbumId, current.id, coverUrl);
+                      Toast.makeText(this, "Cover updated \u2713", Toast.LENGTH_SHORT).show();
+                      resumeProgress();
+                  } else if (w == 4) {
+                      confirmDeleteHighlightAlbum();
+                  } else {
+                      resumeProgress();
+                  }
+              })
+              .setOnCancelListener(d -> resumeProgress())
+              .create());
+      }
+      private void promptRenameHighlightAlbum() {
+          EditText input = new EditText(this);
+          input.setText(ownerName);
+          input.setSelection(input.getText() != null ? input.getText().length() : 0);
+          AlertDialogStyler.showRounded(new AlertDialog.Builder(this)
+              .setTitle("Rename Highlight")
+              .setView(input)
+              .setPositiveButton("Save", (d, w) -> {
+                  String newName = input.getText() != null ? input.getText().toString().trim() : "";
+                  if (!newName.isEmpty()) {
+                      StatusHighlightManager.renameAlbum(ownerUid, highlightAlbumId, newName);
+                      ownerName = newName;
+                      binding.tvOwner.setText(ownerName);
+                      Toast.makeText(this, "Renamed \u2713", Toast.LENGTH_SHORT).show();
+                  }
+                  resumeProgress();
+              })
+              .setNegativeButton("Cancel", (d, w) -> resumeProgress())
+              .setOnCancelListener(d -> resumeProgress())
+              .create());
+      }
+      private void confirmDeleteHighlightAlbum() {
+          AlertDialogStyler.showRounded(new AlertDialog.Builder(this)
+              .setTitle("Delete this Highlight?")
+              .setMessage("All statuses in \"" + ownerName + "\" will be removed from Highlights. The original stories (if still active) won't be affected.")
+              .setPositiveButton("Delete", (d, w) -> {
+                  StatusHighlightManager.deleteAlbum(ownerUid, highlightAlbumId);
+                  Toast.makeText(this, "Highlight deleted", Toast.LENGTH_SHORT).show();
+                  finish();
+              })
+              .setNegativeButton("Cancel", (d, w) -> resumeProgress())
               .setOnCancelListener(d -> resumeProgress())
               .create());
       }
@@ -1108,6 +1230,7 @@ import com.callx.app.utils.AlertDialogStyler;
       }
       /** FIX v26: was findViewWithTag("tv_expiry_label") → null, now binding.tvExpiryLabel */
       private void updateExpiryLabel(StatusItem s) {
+          if (isHighlightMode) { binding.tvExpiryLabel.setVisibility(View.GONE); return; }
           if (s.expiresAt != null) {
               long diffMs = s.expiresAt - System.currentTimeMillis();
               if (diffMs > 0) {
