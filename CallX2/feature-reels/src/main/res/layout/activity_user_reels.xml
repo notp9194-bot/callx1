@@ -84,8 +84,14 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="52dp"
         android:background="?attr/colorSurface"
-        android:elevation="0dp"
-        app:liftOnScroll="true">
+        android:elevation="0dp">
+        <!-- NOTE: app:liftOnScroll removed — it dynamically raised this
+             AppBarLayout's elevation above the fixed nav bar's (0dp) while
+             scrolling, which flips the z-order (Android stacks by elevation
+             first, XML/draw order only as a tiebreaker) and made the
+             collapsing header intermittently draw ON TOP of the nav bar
+             (the "blinking" bug — correct one frame, header-over-nav the
+             next, depending on the lifted/unlifted elevation state). -->
 
         <!-- ── CHILD 1: Collapsible profile header (scrolls up and disappears) ── -->
         <LinearLayout
@@ -857,7 +863,7 @@
         android:paddingStart="4dp"
         android:paddingEnd="4dp"
         android:background="?attr/colorSurface"
-        android:elevation="0dp"
+        android:elevation="8dp"
         android:layout_gravity="top">
 
         <ImageButton android:id="@+id/btn_back"
