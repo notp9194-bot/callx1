@@ -87,6 +87,11 @@ public class UserReelsActivity extends AppCompatActivity
     private CircleImageView ivAvatar;
     private ImageView       ivVerified;
     private View            viewStoryRing;
+    // Story-ring reveal animation state (fixes v42-era infinite blink; see
+    // handleStoryRingVisibility()/playStoryRingReveal()).
+    private final Handler   storyRingHandler = new Handler(Looper.getMainLooper());
+    private Runnable        storyRingRevealRunnable;
+    private android.animation.ValueAnimator storyRingRevealAnimator;
     private TextView        tvName, tvDisplayName, tvReelCount, tvFollowers, tvFollowing, tvBio;
     private TextView        tvMutualFollowers;
     private LinearLayout    layoutMutualFollowers;
@@ -805,25 +810,117 @@ public class UserReelsActivity extends AppCompatActivity
 
     private void checkActiveStory() {
         long cutoff = System.currentTimeMillis() - 24 * 60 * 60 * 1000L;
+        // limitToLast(1) instead of limitToFirst(1): also gives us the
+        // NEWEST active story's timestamp in the same query, so we can tell
+        // whether this is a story the viewer hasn't seen this profile
+        // screen since — needed for the first-time reveal below.
         FirebaseUtils.getUserStatusRef(targetUid)
-            .orderByChild("timestamp").startAt((double) cutoff).limitToFirst(1)
+            .orderByChild("timestamp").startAt((double) cutoff).limitToLast(1)
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                    showStoryRing(snap.exists() && snap.getChildrenCount() > 0);
+                    boolean hasActive = snap.exists() && snap.getChildrenCount() > 0;
+                    long latestTs = 0L;
+                    if (hasActive) {
+                        for (DataSnapshot child : snap.getChildren()) {
+                            Long ts = child.child("timestamp").getValue(Long.class);
+                            if (ts != null && ts > latestTs) latestTs = ts;
+                        }
+                    }
+                    handleStoryRingVisibility(hasActive, latestTs);
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) {}
             });
     }
 
-    private void showStoryRing(boolean show) {
+    /**
+     * Decides whether to (a) hide the ring, (b) show the normal static ring
+     * immediately, or (c) play the one-time reveal sweep first.
+     *
+     * (c) only happens the FIRST time this viewer opens this profile screen
+     * after {@code latestStoryTs} was posted — tracked per target user in
+     * SharedPreferences so re-opening the same profile later just shows the
+     * plain static ring, no repeat animation.
+     */
+    private void handleStoryRingVisibility(boolean show, long latestStoryTs) {
         if (isFinishing() || isDestroyed() || viewStoryRing == null) return;
-        viewStoryRing.setVisibility(show ? View.VISIBLE : View.GONE);
-        if (show) {
-            ObjectAnimator pulse = ObjectAnimator.ofFloat(viewStoryRing, "alpha", 0.6f, 1f);
-            pulse.setDuration(900);
-            pulse.setRepeatCount(ObjectAnimator.INFINITE);
-            pulse.setRepeatMode(ObjectAnimator.REVERSE);
-            pulse.start();
+        cancelStoryRingReveal();
+
+        if (!show) {
+            viewStoryRing.setVisibility(View.GONE);
+            return;
+        }
+
+        android.content.SharedPreferences prefs =
+            getSharedPreferences("story_ring_prefs", MODE_PRIVATE);
+        String prefKey = "last_seen_story_ts_" + targetUid;
+        long lastSeenTs = prefs.getLong(prefKey, 0L);
+
+        if (latestStoryTs > 0 && latestStoryTs > lastSeenTs) {
+            playStoryRingReveal(latestStoryTs, prefKey, prefs);
+        } else {
+            showStoryRingStatic();
+        }
+    }
+
+    /**
+     * Ring stays hidden for 1s, then sweeps in clockwise from a single point
+     * to a full circle over 2s (smooth, one revolution), then settles into
+     * the normal fixed gradient ring — exactly once per new story per
+     * viewer, then remembered via SharedPreferences.
+     */
+    private void playStoryRingReveal(long latestStoryTs, String prefKey,
+                                      android.content.SharedPreferences prefs) {
+        viewStoryRing.setBackground(null);
+        viewStoryRing.setVisibility(View.INVISIBLE);
+
+        storyRingRevealRunnable = () -> {
+            if (isFinishing() || isDestroyed() || viewStoryRing == null) return;
+
+            com.callx.app.utils.StoryRingRevealDrawable revealDrawable =
+                new com.callx.app.utils.StoryRingRevealDrawable(dpToPx(3f));
+            viewStoryRing.setBackground(revealDrawable);
+            viewStoryRing.setVisibility(View.VISIBLE);
+
+            storyRingRevealAnimator = android.animation.ValueAnimator.ofFloat(0f, 360f);
+            storyRingRevealAnimator.setDuration(2000);
+            storyRingRevealAnimator.setInterpolator(new android.view.animation.LinearInterpolator());
+            storyRingRevealAnimator.addUpdateListener(anim ->
+                revealDrawable.setSweepDegrees((float) anim.getAnimatedValue()));
+            storyRingRevealAnimator.addListener(new android.animation.AnimatorListenerAdapter() {
+                private boolean wasCancelled = false;
+                @Override public void onAnimationCancel(android.animation.Animator animation) {
+                    wasCancelled = true;
+                }
+                @Override public void onAnimationEnd(android.animation.Animator animation) {
+                    if (wasCancelled) return; // interrupted (e.g. activity closing) — don't mark as seen
+                    // Full circle done — hand off to the normal, cheap,
+                    // permanently-static ring. No pulsing, no blinking.
+                    showStoryRingStatic();
+                    prefs.edit().putLong(prefKey, latestStoryTs).apply();
+                }
+            });
+            storyRingRevealAnimator.start();
+        };
+        storyRingHandler.postDelayed(storyRingRevealRunnable, 1000);
+    }
+
+    /** Normal steady state: fixed seamless gradient ring, no animation at all. */
+    private void showStoryRingStatic() {
+        if (isFinishing() || isDestroyed() || viewStoryRing == null) return;
+        viewStoryRing.setBackground(
+                com.callx.app.utils.StoryRingGradientDrawable.withStrokeDp(3f,
+                        getResources().getDisplayMetrics().density));
+        viewStoryRing.setVisibility(View.VISIBLE);
+    }
+
+    private void cancelStoryRingReveal() {
+        if (storyRingRevealRunnable != null) {
+            storyRingHandler.removeCallbacks(storyRingRevealRunnable);
+            storyRingRevealRunnable = null;
+        }
+        if (storyRingRevealAnimator != null) {
+            storyRingRevealAnimator.cancel();
+            storyRingRevealAnimator = null;
         }
     }
 
@@ -3157,6 +3254,7 @@ public class UserReelsActivity extends AppCompatActivity
         super.onDestroy();
         dismissPreviewDialog();
         stopAvatarAnimation();
+        cancelStoryRingReveal();
         dbExecutor.shutdown();
         // Remove persistent Firebase listeners to avoid memory/network leaks
         if (reelCountLiveListener != null && targetUid != null) {
