@@ -306,9 +306,24 @@ public class UserReelsActivity extends AppCompatActivity
             verticalScrollEnabled = enabled;
         }
 
+        // BUG FIX (header wasn't collapsing / tab strip wasn't pinning below
+        // the nav bar): RecyclerView only enters the nested-scroll path that
+        // drives AppBarLayout's collapse when its LayoutManager reports
+        // canScrollVertically() == true. Stock GridLayoutManager bases that
+        // purely on whether ITS OWN content overflows the RecyclerView's
+        // viewport — with a short grid (few reels), super.canScrollVertically()
+        // is false, so RecyclerView never starts a nested scroll at all and
+        // the drag never reaches CoordinatorLayout/AppBarLayout. Same root
+        // cause as the empty-tab case already patched via
+        // emptyStateScrollHelper, just for 1+ items instead of 0. Always
+        // reporting true here (still gated by verticalScrollEnabled, which
+        // the horizontal swipe-between-tabs logic flips off mid-drag) makes
+        // RecyclerView always offer the drag to the AppBarLayout first via
+        // dispatchNestedPreScroll — matching Instagram's behavior on sparse
+        // profiles.
         @Override
         public boolean canScrollVertically() {
-            return verticalScrollEnabled && super.canScrollVertically();
+            return verticalScrollEnabled;
         }
     }
 
