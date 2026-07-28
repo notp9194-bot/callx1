@@ -1052,8 +1052,10 @@ public class UserReelsActivity extends AppCompatActivity
 
     private void setupSwipeBetweenTabs() {
         final float touchSlopPx = android.view.ViewConfiguration.get(this).getScaledTouchSlop();
-        final float swipeThresholdPx = 60 * getResources().getDisplayMetrics().density;
-        final float swipeVelocityPx  = 200 * getResources().getDisplayMetrics().density; // px/sec min fling speed
+        // ADVANCED SWIPE: lowered from 60dp/200dp so a light, short flick
+        // switches tabs instead of needing a big deliberate drag.
+        final float swipeThresholdPx = 24 * getResources().getDisplayMetrics().density;
+        final float swipeVelocityPx  = 80 * getResources().getDisplayMetrics().density; // px/sec min fling speed
 
         // One GestureDetector PER view (state must not be shared between rv_reels / rv_series / layout_empty).
         RecyclerView.OnItemTouchListener reelsListener =
@@ -1563,6 +1565,19 @@ public class UserReelsActivity extends AppCompatActivity
             }
         });
         rvHighlights.setAdapter(highlightsAdapter);
+
+        // ADVANCE SWIPE: a plain RecyclerView only scrolls exactly as far as
+        // the finger physically drags — a light/short flick barely moves it.
+        // Amplify the fling velocity so a small swipe carries the row
+        // noticeably further, same spirit as the tab-switch swipe tuning.
+        final float highlightsFlingBoost = 2.2f;
+        rvHighlights.setOnFlingListener(new androidx.recyclerview.widget.RecyclerView.OnFlingListener() {
+            @Override
+            public boolean onFling(int velocityX, int velocityY) {
+                rvHighlights.fling((int) (velocityX * highlightsFlingBoost), 0);
+                return true;
+            }
+        });
     }
 
     /**
