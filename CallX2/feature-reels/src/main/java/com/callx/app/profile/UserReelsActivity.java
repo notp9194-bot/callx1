@@ -1057,6 +1057,8 @@ public class UserReelsActivity extends AppCompatActivity
                     if (dividerHighlights != null) dividerHighlights.setVisibility(hasContent ? android.view.View.VISIBLE : android.view.View.GONE);
                     rebuildHighlightsAdapter();
                 });
+
+                loadHighlightRingOverrides();
             }
 
             @Override public void onCancelled(@androidx.annotation.NonNull com.google.firebase.database.DatabaseError e) {
@@ -1069,6 +1071,40 @@ public class UserReelsActivity extends AppCompatActivity
                 }
             }
         });
+    }
+
+    /**
+     * Pulls the custom ring color/mode (if any) set per-album via
+     * StatusHighlightSettingsBottomSheet / StatusAddToHighlightBottomSheet's
+     * ring color picker, from statusHighlightMeta/{targetUid}/{albumId}, and
+     * merges it into the already-loaded highlightAlbums so the row shows the
+     * user's chosen ring instead of the default gradient.
+     */
+    private void loadHighlightRingOverrides() {
+        if (targetUid == null) return;
+        com.google.firebase.database.FirebaseDatabase.getInstance()
+            .getReference("statusHighlightMeta")
+            .child(targetUid)
+            .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
+                @Override
+                public void onDataChange(@androidx.annotation.NonNull com.google.firebase.database.DataSnapshot snap) {
+                    if (!snap.exists()) return;
+                    boolean changed = false;
+                    for (HighlightsRowAdapter.HighlightAlbum album : highlightAlbums) {
+                        com.google.firebase.database.DataSnapshot metaSnap = snap.child(album.albumId);
+                        if (!metaSnap.exists()) continue;
+                        String ringColor = metaSnap.child("ringColor").getValue(String.class);
+                        String ringMode  = metaSnap.child("ringMode").getValue(String.class);
+                        if (ringColor != null && !ringColor.isEmpty()) {
+                            album.ringColor = ringColor;
+                            album.ringMode  = ringMode;
+                            changed = true;
+                        }
+                    }
+                    if (changed) runOnUiThread(() -> rebuildHighlightsAdapter());
+                }
+                @Override public void onCancelled(@androidx.annotation.NonNull com.google.firebase.database.DatabaseError e) { }
+            });
     }
 
     /**

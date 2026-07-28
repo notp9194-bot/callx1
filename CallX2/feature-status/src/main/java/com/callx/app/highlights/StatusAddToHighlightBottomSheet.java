@@ -88,6 +88,28 @@ public class StatusAddToHighlightBottomSheet {
                 LinearLayout.LayoutParams.WRAP_CONTENT);
         addLp.setMarginStart(dp(ctx, 8));
         addBtn.setLayoutParams(addLp);
+
+        // Ring color chooser for the new album — null/null keeps the default
+        // app-wide multi-color gradient ring.
+        String[] pickedRingColor = { null };
+        String[] pickedRingMode  = { null };
+        TextView ringColorRow = new TextView(ctx);
+        ringColorRow.setText("\uD83C\uDFA8  Ring color: Default");
+        ringColorRow.setTextSize(13);
+        ringColorRow.setTextColor(Color.parseColor("#6200EE"));
+        ringColorRow.setPadding(0, dp(ctx, 10), 0, dp(ctx, 10));
+        ringColorRow.setOnClickListener(v ->
+            HighlightRingColorPickerBottomSheet.show(ctx, pickedRingColor[0], pickedRingMode[0],
+                    pickedRingColor[0] != null, (colorHex, mode) -> {
+                        pickedRingColor[0] = colorHex;
+                        pickedRingMode[0]  = mode;
+                        ringColorRow.setText(colorHex == null
+                                ? "\uD83C\uDFA8  Ring color: Default"
+                                : "\uD83C\uDFA8  Ring color: " + colorHex
+                                    + (com.callx.app.utils.HighlightRingDrawable.MODE_DOMINANT.equals(mode) ? " (dominant)" : " (solid)"));
+                    }));
+        root.addView(ringColorRow);
+
         addBtn.setOnClickListener(v -> {
             String album = etName.getText() != null ? etName.getText().toString().trim() : "";
             if (album.isEmpty()) {
@@ -96,6 +118,9 @@ public class StatusAddToHighlightBottomSheet {
             }
             String albumId = album.toLowerCase(Locale.getDefault()).replace(" ", "_");
             StatusHighlightManager.addToHighlight(ownerUid, item, albumId, album);
+            if (pickedRingColor[0] != null) {
+                StatusHighlightManager.setAlbumRingStyle(ownerUid, albumId, pickedRingColor[0], pickedRingMode[0]);
+            }
             if (listener != null) listener.onAdded(album);
             sheet.dismiss();
         });

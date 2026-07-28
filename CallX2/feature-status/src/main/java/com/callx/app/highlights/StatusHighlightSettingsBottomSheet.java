@@ -48,6 +48,10 @@ public class StatusHighlightSettingsBottomSheet {
             sheet.dismiss();
             showCoverPicker(ctx, ownerUid, albumId, items, listener);
         }));
+        root.addView(rowItem(ctx, "\uD83C\uDFA8", "Ring Color", v -> {
+            sheet.dismiss();
+            showRingColorPicker(ctx, ownerUid, albumId, listener);
+        }));
         root.addView(rowItem(ctx, "\uD83D\uDDD1\uFE0F", "Delete Highlight", v -> {
             sheet.dismiss();
             confirmDelete(ctx, ownerUid, albumId, albumName, listener);
@@ -139,6 +143,36 @@ public class StatusHighlightSettingsBottomSheet {
                 LinearLayout.LayoutParams.MATCH_PARENT, dp(ctx, 360)));
         picker.setContentView(root);
         picker.show();
+    }
+
+    private static void showRingColorPicker(Context ctx, String ownerUid, String albumId,
+                                            OnChangedListener listener) {
+        StatusHighlightManager.getAlbumMetaRef(ownerUid, albumId)
+            .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
+                @Override public void onDataChange(@androidx.annotation.NonNull com.google.firebase.database.DataSnapshot snap) {
+                    String currentColor = snap.child("ringColor").getValue(String.class);
+                    String currentMode  = snap.child("ringMode").getValue(String.class);
+                    HighlightRingColorPickerBottomSheet.show(ctx, currentColor, currentMode,
+                            currentColor != null && !currentColor.isEmpty(),
+                            (colorHex, mode) -> {
+                                if (colorHex == null) {
+                                    StatusHighlightManager.clearAlbumRingStyle(ownerUid, albumId);
+                                } else {
+                                    StatusHighlightManager.setAlbumRingStyle(ownerUid, albumId, colorHex, mode);
+                                }
+                                if (listener != null) listener.onChanged();
+                            });
+                }
+                @Override public void onCancelled(@androidx.annotation.NonNull com.google.firebase.database.DatabaseError e) {
+                    HighlightRingColorPickerBottomSheet.show(ctx, null, null, false,
+                            (colorHex, mode) -> {
+                                if (colorHex != null) {
+                                    StatusHighlightManager.setAlbumRingStyle(ownerUid, albumId, colorHex, mode);
+                                    if (listener != null) listener.onChanged();
+                                }
+                            });
+                }
+            });
     }
 
     private static void confirmDelete(Context ctx, String ownerUid, String albumId,

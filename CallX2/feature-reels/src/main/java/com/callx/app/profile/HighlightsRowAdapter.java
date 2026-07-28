@@ -46,6 +46,15 @@ public class HighlightsRowAdapter
         public int     itemCount;
         public boolean isNew;         // "+" placeholder item
 
+        /** User-chosen ring color (e.g. "#FF3B5C") — null means the default
+         *  app-wide multi-color gradient ring. Set from
+         *  statusHighlightMeta/{uid}/{albumId}/ringColor. */
+        public String  ringColor;
+        /** {@link com.callx.app.utils.HighlightRingDrawable#MODE_SOLID} or
+         *  {@link com.callx.app.utils.HighlightRingDrawable#MODE_DOMINANT};
+         *  only meaningful when ringColor is non-null. */
+        public String  ringMode;
+
         /** Normal album */
         public HighlightAlbum(String albumId, String albumName,
                                String coverUrl, String coverBgColor, int itemCount) {
@@ -217,9 +226,26 @@ public class HighlightsRowAdapter
     private void bindAlbum(HVH h, HighlightAlbum album, int position) {
         Context ctx = ctx(h);
 
-        // Ring color — gradient (all highlights show active ring for now)
+        // Ring color — user's custom color (solid or dominant-gradient) if the
+        // album has one set (statusHighlightMeta/{uid}/{albumId}/ringColor+ringMode),
+        // otherwise the default app-wide seamless gradient ring.
+        // FIX: bg_highlight_ring_active.xml used Android's XML sweep <gradient>,
+        // which only supports 3 stops (start/center/end) and does NOT loop back
+        // cleanly — it leaves a visible seam where endColor meets startColor.
+        // Swapped for the same seamless StoryRingGradientDrawable used app-wide
+        // (home story row, reel comments, profile top ring) — palindrome color
+        // stops blend back into themselves with zero seam.
         try {
-            h.ringBg.setBackground(ctx.getDrawable(R.drawable.bg_highlight_ring_active));
+            float density = ctx.getResources().getDisplayMetrics().density;
+            if (album.ringColor != null && !album.ringColor.isEmpty()) {
+                int customColor = safeColor(album.ringColor, "#DD2A7B");
+                h.ringBg.setBackground(
+                        com.callx.app.utils.HighlightRingDrawable.withStrokeDp(
+                                customColor, album.ringMode, 4f, density));
+            } else {
+                h.ringBg.setBackground(
+                        com.callx.app.utils.StoryRingGradientDrawable.withStrokeDp(4f, density));
+            }
         } catch (Exception e) {
             h.ringBg.setBackgroundColor(Color.parseColor("#DD2A7B"));
         }

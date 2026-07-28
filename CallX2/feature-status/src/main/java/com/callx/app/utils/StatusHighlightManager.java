@@ -180,6 +180,26 @@ public final class StatusHighlightManager {
         getAlbumMetaRef(ownerUid, albumId).updateChildren(meta);
     }
 
+    /** Sets a custom ring color/mode for the album (used by the highlights row
+     *  gradient ring in the profile). {@code mode} is either
+     *  {@link com.callx.app.utils.HighlightRingDrawable#MODE_SOLID} or
+     *  {@link com.callx.app.utils.HighlightRingDrawable#MODE_DOMINANT}. */
+    public static void setAlbumRingStyle(String ownerUid, String albumId, String colorHex, String mode) {
+        if (ownerUid == null || albumId == null || colorHex == null || mode == null) return;
+        Map<String, Object> meta = new HashMap<>();
+        meta.put("ringColor", colorHex);
+        meta.put("ringMode", mode);
+        meta.put("updatedAt", ServerValue.TIMESTAMP);
+        getAlbumMetaRef(ownerUid, albumId).updateChildren(meta);
+    }
+
+    /** Resets the album back to the default app-wide multi-color ring. */
+    public static void clearAlbumRingStyle(String ownerUid, String albumId) {
+        if (ownerUid == null || albumId == null) return;
+        getAlbumMetaRef(ownerUid, albumId).child("ringColor").removeValue();
+        getAlbumMetaRef(ownerUid, albumId).child("ringMode").removeValue();
+    }
+
     /** Deletes the whole album: clears membership flags on every original live status,
      *  then removes the album's items and its settings/meta. */
     public static void deleteAlbum(String ownerUid, String albumId) {
