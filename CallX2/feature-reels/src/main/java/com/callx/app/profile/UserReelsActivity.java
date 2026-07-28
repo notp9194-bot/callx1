@@ -3480,7 +3480,7 @@ public class UserReelsActivity extends AppCompatActivity
                 // PERF (ultra): defer until the main thread is fully idle —
                 // stronger guarantee than post() that this never competes
                 // with the first frame (see runWhenMainThreadIdle above).
-                runWhenMainThreadIdle(this::applyGridAccentColorForActiveTab);
+                runWhenMainThreadIdle(UserReelsActivity.this::applyGridAccentColorForActiveTab);
 
                 // ── Profile song pill ────────────────────────────────────────────
                 // Read profileSong from the same snapshot (already loaded)
