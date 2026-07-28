@@ -137,7 +137,54 @@ public class UserReelsActivity extends AppCompatActivity
     private String          legacyGridAccentColorHex = null;
     private static final String[] GRID_TAB_KEYS =
             { "reels", "liked", "saved", "repost", "series" };
-    private java.util.Map<String, String> gridAccentColorsMap = new java.util.HashMap<>();
+    // PERF: plain fixed-size array instead of a HashMap<String,String> —
+    // only 5 tabs ever exist, so an array index is a direct memory read
+    // with zero hashing/boxing, vs a HashMap lookup (hash the key, walk a
+    // bucket, unbox). Indexed 1:1 with GRID_TAB_KEYS / the tab position
+    // constants (TAB_REELS=0 … TAB_SERIES=4).
+    private final String[] gridAccentColorsByTab = new String[GRID_TAB_KEYS.length];
+    // One-time reverse lookup (Firebase child keys → array index) built
+    // once as a static map — used only while parsing the profile snapshot,
+    // never on the tab-switch hot path.
+    private static final java.util.Map<String, Integer> GRID_TAB_KEY_TO_INDEX;
+    static {
+        java.util.Map<String, Integer> m = new java.util.HashMap<>();
+        for (int i = 0; i < GRID_TAB_KEYS.length; i++) m.put(GRID_TAB_KEYS[i], i);
+        GRID_TAB_KEY_TO_INDEX = java.util.Collections.unmodifiableMap(m);
+    }
+    // Cached tab-strip child views (position → anchor View) — resolved
+    // ONCE lazily instead of walking tabLayout.getChildAt(0) + casting on
+    // every long-press-listener setup AND every filter-popup anchor lookup.
+    private android.view.View[] tabAnchorViewsCache = null;
+    // ── Perf: grid accent color is applied on EVERY tab switch (including
+    // fast swipes/reselects), so the hot path below is optimized to do the
+    // minimum possible work per switch:
+    //  - hex→int parsing is memoized (Color.parseColor is not free — no
+    //    reason to re-parse the same hex string every time a tab is
+    //    revisited).
+    //  - the per-color ColorStateList used for tab icon tint is memoized
+    //    too, so switching back to a previously-seen color reuses the same
+    //    object instead of allocating a new int[][]/ColorStateList.
+    //  - the default (no-custom-color) indicator color + tint list are
+    //    resolved ONCE and cached, instead of re-querying the theme/
+    //    resources on every single tab switch.
+    //  - the actual native calls (setSelectedTabIndicatorColor,
+    //    setTabIconTint, setBackgroundColor) are skipped entirely when the
+    //    value to apply is identical to what's already applied — this is
+    //    what actually keeps tab-switch/swipe scrolling smooth, since each
+    //    of those calls forces an invalidate + redraw.
+    private final java.util.Map<String, Integer> gridColorParseCache = new java.util.HashMap<>();
+    private final android.util.SparseArray<android.content.res.ColorStateList> gridTabIconTintCache = new android.util.SparseArray<>();
+    private Integer gridDefaultIndicatorColorCached = null;
+    private android.content.res.ColorStateList gridDefaultTabIconTintCached = null;
+    private int gridDefaultGutterColorCached = 0;
+    private boolean gridDefaultGutterColorResolved = false;
+    // Last-applied-state trackers (Integer so "not yet applied" == null is
+    // distinguishable from any real color, incl. black/0).
+    private Integer lastAppliedIndicatorColor = null;
+    private android.content.res.ColorStateList lastAppliedTabIconTint = null;
+    private Integer lastAppliedRvReelsBgColor = null;
+    private Integer lastAppliedRvSeriesBgColor = null;
     private TextView        tvEmptyTitle, tvEmptySubtitle;
     private Button          btnFollow;
     private Button          btnMessageCta;
@@ -539,15 +586,24 @@ public class UserReelsActivity extends AppCompatActivity
           }
       }
 
-      /** Resolve the tappable view for a given TabLayout tab position (used as popup anchor). */
+      /** Resolve the tappable view for a given TabLayout tab position (used as popup anchor). Cached after first resolve. */
       private android.view.View tabAnchorView(TabLayout.Tab tab) {
+          int pos = tab.getPosition();
+          if (tabAnchorViewsCache == null) {
+              tabAnchorViewsCache = new android.view.View[tabLayout.getTabCount()];
+          }
+          if (pos >= 0 && pos < tabAnchorViewsCache.length && tabAnchorViewsCache[pos] != null) {
+              return tabAnchorViewsCache[pos];
+          }
+          android.view.View resolved = tabLayout;
           try {
               android.view.ViewGroup strip = (android.view.ViewGroup) tabLayout.getChildAt(0);
-              if (strip != null && tab.getPosition() < strip.getChildCount()) {
-                  return strip.getChildAt(tab.getPosition());
+              if (strip != null && pos < strip.getChildCount()) {
+                  resolved = strip.getChildAt(pos);
               }
           } catch (Exception ignored) {}
-          return tabLayout;
+          if (pos >= 0 && pos < tabAnchorViewsCache.length) tabAnchorViewsCache[pos] = resolved;
+          return resolved;
       }
 
       /**
@@ -646,6 +702,17 @@ public class UserReelsActivity extends AppCompatActivity
       // ── Tabs ──────────────────────────────────────────────────────────────
 
     private void setupTabs() {
+        // PERF (ultra): tiny helper used below to defer non-critical grid-
+        // color work until the main thread's message queue is COMPLETELY
+        // empty — a stronger guarantee than View.post(), which only queues
+        // the work after whatever is *currently* queued (which can still
+        // land inside the same burst of work that produces the first
+        // frame, e.g. if input/layout messages are already pending). An
+        // IdleHandler only fires once there is truly nothing left for the
+        // main thread to do, which in practice means the first frame has
+        // already been measured, laid out, drawn, AND handed off to
+        // SurfaceFlinger — so this work can never compete with the pixels
+        // the user is waiting to see.
         if (tabLayout == null) return;
         tabLayout.addOnTabSelectedListener(new TabLayout.OnTabSelectedListener() {
             @Override public void onTabSelected(TabLayout.Tab tab) {
@@ -681,18 +748,49 @@ public class UserReelsActivity extends AppCompatActivity
         // Owner-only: long-press a tab to recolor JUST THAT tab's indicator/
         // icon AND the grid's thumbnail separator lines — each tab keeps its
         // own color independently (same per-item pattern as the bio chips).
+        // PERF: deferred via post() instead of running inline inside
+        // onCreate's setupTabs() call — wiring 5 long-click listeners is
+        // cheap on its own, but every non-essential piece of work pulled
+        // out of the synchronous onCreate path is one less thing competing
+        // with the very first measure/layout/draw pass, so the screen's
+        // first frame goes up sooner. The listeners are only needed once
+        // the user can actually interact with the tabs, which is always
+        // after that first frame anyway.
         if (isSelf) {
-            for (int i = 0; i < tabLayout.getTabCount(); i++) {
-                TabLayout.Tab t = tabLayout.getTabAt(i);
-                if (t == null) continue;
-                final int tabPos = i;
-                android.view.View anchor = tabAnchorView(t);
-                if (anchor != null) {
-                    anchor.setOnLongClickListener(v -> {
-                        openGridAccentColorPicker(tabPos);
-                        return true;
-                    });
-                }
+            runWhenMainThreadIdle(this::wireGridTabLongPressListeners);
+        }
+    }
+
+    /**
+     * PERF (ultra): runs {@code r} only once the main thread's message
+     * queue is completely idle — i.e. only AFTER the first frame has
+     * actually been measured/laid-out/drawn and handed to the system to
+     * present, not merely "queued after whatever is currently pending"
+     * like {@code View.post()}. Used for grid-tab-color work that has zero
+     * urgency (long-press listeners, re-tinting after a Firebase fetch)
+     * so it can never contend with the frame the user is waiting to see.
+     * Runs at most once per call (IdleHandler removes itself via the
+     * {@code false} return).
+     */
+    private static void runWhenMainThreadIdle(Runnable r) {
+        android.os.Looper.myQueue().addIdleHandler(() -> {
+            r.run();
+            return false;
+        });
+    }
+
+    private void wireGridTabLongPressListeners() {
+        if (tabLayout == null) return;
+        for (int i = 0; i < tabLayout.getTabCount(); i++) {
+            TabLayout.Tab t = tabLayout.getTabAt(i);
+            if (t == null) continue;
+            final int tabPos = i;
+            android.view.View anchor = tabAnchorView(t);
+            if (anchor != null) {
+                anchor.setOnLongClickListener(v -> {
+                    openGridAccentColorPicker(tabPos);
+                    return true;
+                });
             }
         }
     }
@@ -712,10 +810,61 @@ public class UserReelsActivity extends AppCompatActivity
      * now it's per-tab instead of one color shared by all tabs.
      */
     private void applyGridAccentColorForActiveTab() {
-        String key = gridTabKey(activeTab);
-        String hex = key != null ? gridAccentColorsMap.get(key) : null;
+        String hex = (activeTab >= 0 && activeTab < gridAccentColorsByTab.length)
+                ? gridAccentColorsByTab[activeTab] : null;
         if (hex == null && activeTab == TAB_REELS) hex = legacyGridAccentColorHex; // one-time fallback
         applyGridAccentColor(hex);
+    }
+
+    /** Memoized hex→int parse — avoids re-parsing the same color string on every tab revisit. */
+    private Integer parseGridColorCached(String hex) {
+        if (hex == null || hex.isEmpty()) return null;
+        Integer cached = gridColorParseCache.get(hex);
+        if (cached != null) return cached;
+        try {
+            int c = android.graphics.Color.parseColor(hex);
+            gridColorParseCache.put(hex, c);
+            return c;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** Memoized per-color tab-icon-tint ColorStateList (selected=color, unselected=~65% alpha of color). */
+    private android.content.res.ColorStateList tabIconTintFor(int color) {
+        android.content.res.ColorStateList cached = gridTabIconTintCache.get(color);
+        if (cached != null) return cached;
+        int dimmed = (0xA6 << 24) | (color & 0x00FFFFFF);
+        android.content.res.ColorStateList csl = new android.content.res.ColorStateList(
+                new int[][]{ {android.R.attr.state_selected}, {} },
+                new int[]{ color, dimmed });
+        gridTabIconTintCache.put(color, csl);
+        return csl;
+    }
+
+    private int getGridDefaultIndicatorColor() {
+        if (gridDefaultIndicatorColorCached == null) {
+            gridDefaultIndicatorColorCached =
+                    resolveAttrColor(com.google.android.material.R.attr.colorOnSurface, 0xFF111111);
+        }
+        return gridDefaultIndicatorColorCached;
+    }
+
+    private android.content.res.ColorStateList getGridDefaultTabIconTint() {
+        if (gridDefaultTabIconTintCached == null) {
+            gridDefaultTabIconTintCached =
+                    androidx.core.content.ContextCompat.getColorStateList(this, R.color.tab_icon_tint_selector);
+        }
+        return gridDefaultTabIconTintCached;
+    }
+
+    private int getGridDefaultGutterColor() {
+        if (!gridDefaultGutterColorResolved) {
+            gridDefaultGutterColorCached =
+                    androidx.core.content.ContextCompat.getColor(this, R.color.reel_grid_gutter);
+            gridDefaultGutterColorResolved = true;
+        }
+        return gridDefaultGutterColorCached;
     }
 
     /**
@@ -735,38 +884,41 @@ public class UserReelsActivity extends AppCompatActivity
      * TabLayout only has one indicator color at a time) — each tab's own
      * color is re-applied automatically whenever that tab becomes active,
      * via {@link #applyGridAccentColorForActiveTab()}.
+     *
+     * PERF: every value here is resolved through a cache, and every native
+     * setter (setSelectedTabIndicatorColor / setTabIconTint /
+     * setBackgroundColor) is skipped if the target is already showing that
+     * exact value. This matters because this method runs on every single
+     * tab switch/swipe/reselect — without the guards, fast swiping across
+     * tabs would force a fresh indicator recolor + icon tint allocation +
+     * RecyclerView background invalidate on every frame of the swipe.
      */
     private void applyGridAccentColor(String hex) {
-        int defaultIndicatorColor =
-                resolveAttrColor(com.google.android.material.R.attr.colorOnSurface, 0xFF111111);
-        android.view.View activeGrid = (activeTab == TAB_SERIES) ? rvSeries : rvReels;
-        if (hex != null && !hex.isEmpty()) {
-            try {
-                int color = android.graphics.Color.parseColor(hex);
-                if (tabLayout != null) {
-                    tabLayout.setSelectedTabIndicatorColor(color);
-                    // Unselected tabs keep the same "dimmed" treatment the
-                    // default XML selector used (~65% alpha), just tinted
-                    // with the picked color instead of colorOnSurface.
-                    int dimmed = (0xA6 << 24) | (color & 0x00FFFFFF);
-                    tabLayout.setTabIconTint(new android.content.res.ColorStateList(
-                            new int[][]{ {android.R.attr.state_selected}, {} },
-                            new int[]{ color, dimmed }));
-                }
-                if (activeGrid != null) activeGrid.setBackgroundColor(color);
-                return;
-            } catch (Exception e) {
-                // fall through to default below
+        Integer parsed = parseGridColorCached(hex);
+        int indicatorColor = parsed != null ? parsed : getGridDefaultIndicatorColor();
+        android.content.res.ColorStateList tint = parsed != null ? tabIconTintFor(parsed) : getGridDefaultTabIconTint();
+        int bgColor = parsed != null ? parsed : getGridDefaultGutterColor();
+
+        if (tabLayout != null) {
+            if (lastAppliedIndicatorColor == null || lastAppliedIndicatorColor != indicatorColor) {
+                tabLayout.setSelectedTabIndicatorColor(indicatorColor);
+                lastAppliedIndicatorColor = indicatorColor;
+            }
+            if (lastAppliedTabIconTint != tint) {
+                tabLayout.setTabIconTint(tint);
+                lastAppliedTabIconTint = tint;
             }
         }
-        if (tabLayout != null) {
-            tabLayout.setSelectedTabIndicatorColor(defaultIndicatorColor);
-            tabLayout.setTabIconTint(
-                    androidx.core.content.ContextCompat.getColorStateList(this, R.color.tab_icon_tint_selector));
-        }
+
+        boolean isSeries = (activeTab == TAB_SERIES);
+        android.view.View activeGrid = isSeries ? rvSeries : rvReels;
         if (activeGrid != null) {
-            activeGrid.setBackgroundColor(
-                    androidx.core.content.ContextCompat.getColor(this, R.color.reel_grid_gutter));
+            Integer lastBg = isSeries ? lastAppliedRvSeriesBgColor : lastAppliedRvReelsBgColor;
+            if (lastBg == null || lastBg != bgColor) {
+                activeGrid.setBackgroundColor(bgColor);
+                if (isSeries) lastAppliedRvSeriesBgColor = bgColor;
+                else          lastAppliedRvReelsBgColor  = bgColor;
+            }
         }
     }
 
@@ -783,14 +935,14 @@ public class UserReelsActivity extends AppCompatActivity
         if (!isSelf || targetUid == null) return;
         String key = gridTabKey(tabPos);
         if (key == null) return;
-        String currentHex = gridAccentColorsMap.get(key);
+        String currentHex = gridAccentColorsByTab[tabPos];
         if (currentHex == null && tabPos == TAB_REELS) currentHex = legacyGridAccentColorHex;
         final String fCurrentHex = currentHex;
         com.callx.app.utils.RainbowStripColorPickerBottomSheet.show(
                 this, "Grid Accent Color", fCurrentHex,
                 fCurrentHex != null && !fCurrentHex.isEmpty(),
                 colorHex -> {
-                    gridAccentColorsMap.put(key, colorHex);
+                    gridAccentColorsByTab[tabPos] = colorHex;
                     com.google.firebase.database.FirebaseDatabase.getInstance()
                         .getReference("reels/users").child(targetUid)
                         .child("gridAccentColors").child(key)
@@ -3312,18 +3464,23 @@ public class UserReelsActivity extends AppCompatActivity
 
                 buildBioChips(links);
 
-                // Grid tabs + thumbnail grid-line accent color — per-tab map.
+                // Grid tabs + thumbnail grid-line accent color — per-tab
+                // array (see gridAccentColorsByTab / GRID_TAB_KEY_TO_INDEX).
                 // Legacy single-color value (pre-fix app versions) — used ONLY
                 // as a one-time fallback default for the Reels tab if it
                 // doesn't yet have its own per-tab color saved.
                 legacyGridAccentColorHex = snap.child("gridAccentColor").getValue(String.class);
-                gridAccentColorsMap.clear();
+                java.util.Arrays.fill(gridAccentColorsByTab, null);
                 DataSnapshot gridColorsSnap = snap.child("gridAccentColors");
                 for (DataSnapshot g : gridColorsSnap.getChildren()) {
                     String hex = g.getValue(String.class);
-                    if (hex != null && !hex.isEmpty()) gridAccentColorsMap.put(g.getKey(), hex);
+                    Integer idx = GRID_TAB_KEY_TO_INDEX.get(g.getKey());
+                    if (hex != null && !hex.isEmpty() && idx != null) gridAccentColorsByTab[idx] = hex;
                 }
-                applyGridAccentColorForActiveTab();
+                // PERF (ultra): defer until the main thread is fully idle —
+                // stronger guarantee than post() that this never competes
+                // with the first frame (see runWhenMainThreadIdle above).
+                runWhenMainThreadIdle(this::applyGridAccentColorForActiveTab);
 
                 // ── Profile song pill ────────────────────────────────────────────
                 // Read profileSong from the same snapshot (already loaded)
