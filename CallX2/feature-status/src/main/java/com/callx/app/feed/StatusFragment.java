@@ -398,16 +398,59 @@ public class StatusFragment extends BaseFragment {
     }
 
     private void loadHighlights() {
+        // v49 FIX: this used to read a "title" field straight off
+        // statusHighlights/{uid}/{albumId} — but albums only ever hold
+        // {statusId: item} children there, so "title" was always null and
+        // this strip silently stayed empty. Album name/cover/ring color live
+        // in statusHighlightMeta/{uid}/{albumId} (name, coverUrl, ringColor,
+        // ringMode) — read that instead, using statusHighlights only to know
+        // which album IDs exist and to fall back to the first item's name/thumb
+        // when no meta doc was written yet.
         highlightsListener = new ValueEventListener() {
-            @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                List<StatusListAdapter.HighlightAlbum> albums = new ArrayList<>();
-                for (DataSnapshot child : snap.getChildren()) {
-                    String title    = child.child("title").getValue(String.class);
-                    String coverUrl = child.child("coverUrl").getValue(String.class);
-                    if (title != null) albums.add(new StatusListAdapter.HighlightAlbum(title, coverUrl));
+            @Override public void onDataChange(@NonNull DataSnapshot albumsSnap) {
+                List<String> albumIds = new ArrayList<>();
+                Map<String, String> fallbackName = new HashMap<>();
+                Map<String, String> fallbackCover = new HashMap<>();
+                for (DataSnapshot albumSnap : albumsSnap.getChildren()) {
+                    String albumId = albumSnap.getKey();
+                    if (albumId == null || albumSnap.getChildrenCount() == 0) continue;
+                    albumIds.add(albumId);
+                    DataSnapshot firstItem = albumSnap.getChildren().iterator().hasNext()
+                            ? albumSnap.getChildren().iterator().next() : null;
+                    if (firstItem != null) {
+                        String n = firstItem.child("highlightAlbumName").getValue(String.class);
+                        String tu = firstItem.child("thumbnailUrl").getValue(String.class);
+                        String mu = firstItem.child("mediaUrl").getValue(String.class);
+                        if (n != null) fallbackName.put(albumId, n);
+                        fallbackCover.put(albumId, (tu != null && !tu.isEmpty()) ? tu : mu);
+                    }
                 }
-                if (getActivity() != null)
-                    getActivity().runOnUiThread(() -> statusAdapter.updateHighlights(albums));
+                if (albumIds.isEmpty()) {
+                    if (getActivity() != null)
+                        getActivity().runOnUiThread(() -> statusAdapter.updateHighlights(new ArrayList<>()));
+                    return;
+                }
+                FirebaseUtils.db().getReference("statusHighlightMeta").child(myUid())
+                    .addListenerForSingleValueEvent(new ValueEventListener() {
+                        @Override public void onDataChange(@NonNull DataSnapshot metaSnap) {
+                            List<StatusListAdapter.HighlightAlbum> albums = new ArrayList<>();
+                            for (String albumId : albumIds) {
+                                DataSnapshot meta = metaSnap.child(albumId);
+                                String name = meta.child("name").getValue(String.class);
+                                if (name == null || name.isEmpty()) name = fallbackName.get(albumId);
+                                if (name == null || name.isEmpty()) name = albumId;
+                                String coverUrl = meta.child("coverUrl").getValue(String.class);
+                                if (coverUrl == null || coverUrl.isEmpty()) coverUrl = fallbackCover.get(albumId);
+                                String ringColor = meta.child("ringColor").getValue(String.class);
+                                String ringMode  = meta.child("ringMode").getValue(String.class);
+                                albums.add(new StatusListAdapter.HighlightAlbum(
+                                        albumId, name, coverUrl, ringColor, ringMode));
+                            }
+                            if (getActivity() != null)
+                                getActivity().runOnUiThread(() -> statusAdapter.updateHighlights(albums));
+                        }
+                        @Override public void onCancelled(@NonNull DatabaseError e) {}
+                    });
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         };

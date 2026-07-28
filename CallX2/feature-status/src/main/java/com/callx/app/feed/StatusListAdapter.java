@@ -42,10 +42,20 @@ package com.callx.app.feed;
 
       // ── Highlight album model ─────────────────────────────────────────────
       public static class HighlightAlbum {
+          public final String albumId;
           public final String title;
           public final String coverUrl;
-          public HighlightAlbum(String title, String coverUrl) {
-              this.title = title; this.coverUrl = coverUrl;
+          /** Custom ring color (hex) set via HighlightRingColorPickerBottomSheet,
+           *  or null/empty to use the default app-wide StoryRingGradientDrawable. */
+          public final String ringColor;
+          /** {@link com.callx.app.utils.HighlightRingDrawable#MODE_SOLID} or
+           *  {@link com.callx.app.utils.HighlightRingDrawable#MODE_DOMINANT};
+           *  only meaningful when ringColor is non-null. */
+          public final String ringMode;
+          public HighlightAlbum(String albumId, String title, String coverUrl,
+                                 String ringColor, String ringMode) {
+              this.albumId = albumId; this.title = title; this.coverUrl = coverUrl;
+              this.ringColor = ringColor; this.ringMode = ringMode;
           }
       }
 
@@ -547,16 +557,37 @@ package com.callx.app.feed;
           }
           @Override public void onBindViewHolder(@NonNull VH h, int pos) {
               HighlightAlbum a = albums.get(pos);
+              Context ctx = h.itemView.getContext();
               h.tvTitle.setText(a.title);
               if (a.coverUrl != null && !a.coverUrl.isEmpty())
                   Glide.with(h.ivCover).load(a.coverUrl).circleCrop().override(96, 96).into(h.ivCover);
+              // Ring: the color/gradient the user picked for this highlight, or —
+              // when they never chose one — the same default app-wide gradient ring
+              // used for live stories, instead of a static "seen" overlay.
+              float density = ctx.getResources().getDisplayMetrics().density;
+              if (a.ringColor != null && !a.ringColor.isEmpty()) {
+                  int customColor;
+                  try { customColor = android.graphics.Color.parseColor(a.ringColor); }
+                  catch (Exception e) { customColor = android.graphics.Color.parseColor("#DD2A7B"); }
+                  h.ivRing.setBackground(com.callx.app.utils.HighlightRingDrawable
+                          .withStrokeDp(customColor, a.ringMode, 2.5f, density));
+              } else {
+                  h.ivRing.setBackground(com.callx.app.utils.StoryRingGradientDrawable
+                          .withStrokeDp(2.5f, density));
+              }
               h.itemView.setOnClickListener(v -> onClick.accept(a));
           }
           @Override public int getItemCount() { return albums.size(); }
           static class VH extends RecyclerView.ViewHolder {
               CircleImageView ivCover;
+              ImageView ivRing;
               TextView tvTitle;
-              VH(View v) { super(v); ivCover = v.findViewById(R.id.iv_highlight_cover); tvTitle = v.findViewById(R.id.tv_highlight_title); }
+              VH(View v) {
+                  super(v);
+                  ivCover = v.findViewById(R.id.iv_highlight_cover);
+                  ivRing  = v.findViewById(R.id.iv_highlight_ring);
+                  tvTitle = v.findViewById(R.id.tv_highlight_title);
+              }
           }
       }
 

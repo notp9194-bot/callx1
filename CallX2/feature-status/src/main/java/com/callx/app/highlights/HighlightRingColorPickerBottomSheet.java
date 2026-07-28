@@ -25,9 +25,13 @@ import com.callx.app.utils.HighlightRingDrawable;
  *   "Solid Color"       (HighlightRingDrawable.MODE_SOLID)    — the ring is
  *                        exactly the picked color, flat, no blending.
  *   "Dominant Gradient" (HighlightRingDrawable.MODE_DOMINANT) — a gradient
- *                        ring where the picked color dominates (shades of
- *                        the same color, dark → base → light → base → dark)
- *                        instead of the fixed app-wide rainbow ring.
+ *                        ring that mixes rainbow hue accents in, while the
+ *                        picked color still covers most of the ring.
+ *
+ * Color can be picked two ways: from the quick preset swatch grid, or from
+ * the RainbowColorPickerView box below it — the whole box is a rainbow
+ * (hue left→right, white→hue→black top→bottom) and tapping any point
+ * applies that exact color, deselecting the swatch grid.
  *
  * Used from:
  *   - StatusAddToHighlightBottomSheet (choosing a color while creating a new
@@ -131,24 +135,26 @@ public class HighlightRingColorPickerBottomSheet {
         };
         refreshModeButtons[0].run();
 
+        // ── Color swatch grid ───────────────────────────────────────────
+        TextView swatchLabel = new TextView(ctx);
+        swatchLabel.setText(selectedDominant[0] ? "Dominant Color" : "Color");
+        swatchLabel.setTextSize(13);
+        swatchLabel.setTypeface(null, android.graphics.Typeface.BOLD);
+        swatchLabel.setPadding(0, 0, 0, dp(ctx, 8));
+        root.addView(swatchLabel);
+
         btnSolid.setOnClickListener(v -> {
             selectedDominant[0] = false;
+            swatchLabel.setText("Color");
             refreshModeButtons[0].run();
             refreshPreview[0].run();
         });
         btnDominant.setOnClickListener(v -> {
             selectedDominant[0] = true;
+            swatchLabel.setText("Dominant Color");
             refreshModeButtons[0].run();
             refreshPreview[0].run();
         });
-
-        // ── Color swatch grid ───────────────────────────────────────────
-        TextView swatchLabel = new TextView(ctx);
-        swatchLabel.setText("Color");
-        swatchLabel.setTextSize(13);
-        swatchLabel.setTypeface(null, android.graphics.Typeface.BOLD);
-        swatchLabel.setPadding(0, 0, 0, dp(ctx, 8));
-        root.addView(swatchLabel);
 
         RecyclerView rvColors = new RecyclerView(ctx);
         rvColors.setLayoutManager(new GridLayoutManager(ctx, 6));
@@ -160,8 +166,33 @@ public class HighlightRingColorPickerBottomSheet {
         rvColors.setAdapter(swatchAdapter);
         LinearLayout.LayoutParams rvLp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        rvLp.bottomMargin = dp(ctx, 20);
+        rvLp.bottomMargin = dp(ctx, 12);
         root.addView(rvColors, rvLp);
+
+        // ── Rainbow "point anywhere" box — pick ANY color, not just presets ──
+        TextView rainbowLabel = new TextView(ctx);
+        rainbowLabel.setText("Or tap anywhere for any color");
+        rainbowLabel.setTextSize(12);
+        rainbowLabel.setTextColor(Color.GRAY);
+        rainbowLabel.setPadding(0, 0, 0, dp(ctx, 8));
+        root.addView(rainbowLabel);
+
+        RainbowColorPickerView rainbowPicker = new RainbowColorPickerView(ctx);
+        GradientDrawable rainbowClip = new GradientDrawable();
+        rainbowClip.setCornerRadius(dp(ctx, 10));
+        rainbowClip.setColor(Color.BLACK);
+        rainbowPicker.setBackground(rainbowClip);
+        rainbowPicker.setClipToOutline(true);
+        LinearLayout.LayoutParams rainbowLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(ctx, 130));
+        rainbowLp.bottomMargin = dp(ctx, 20);
+        root.addView(rainbowPicker, rainbowLp);
+        rainbowPicker.post(() -> rainbowPicker.setInitialColor(selectedColor[0]));
+        rainbowPicker.setOnColorPickListener(color -> {
+            selectedColor[0] = color;
+            swatchAdapter.setSelectedColor(-1); // deselect presets — an exact custom color is now chosen
+            refreshPreview[0].run();
+        });
 
         // ── Actions ─────────────────────────────────────────────────────
         Button apply = new Button(ctx);
@@ -241,6 +272,16 @@ public class HighlightRingColorPickerBottomSheet {
         }
 
         @Override public int getItemCount() { return colors.length; }
+
+        /** Sets the highlighted swatch, or clears it entirely when {@code pos}
+         *  is -1 (used when the user picks an exact color from the rainbow
+         *  box instead of a preset). */
+        void setSelectedColor(int pos) {
+            int prev = selectedPos;
+            selectedPos = pos;
+            if (prev >= 0) notifyItemChanged(prev);
+            if (pos >= 0) notifyItemChanged(pos);
+        }
 
         static class VH extends RecyclerView.ViewHolder {
             final View swatch;

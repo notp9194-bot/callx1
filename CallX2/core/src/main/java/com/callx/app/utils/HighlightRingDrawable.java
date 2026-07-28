@@ -21,11 +21,11 @@ import androidx.annotation.Nullable;
  *
  *   MODE_SOLID    → flat stroke in the exact color the user chose. No shader
  *                   at all, so there's zero risk of a gradient seam.
- *   MODE_DOMINANT → a seamless sweep gradient built entirely from shades of
- *                   the chosen color (dark → base → light → base → dark), so
- *                   the picked color is dominant across the whole ring while
- *                   still reading as a "gradient ring" rather than a flat one.
- *                   Same palindrome trick as StoryRingGradientDrawable
+ *   MODE_DOMINANT → a seamless sweep gradient that mixes rainbow hue accents
+ *                   into the ring, while the chosen ("dominant") color still
+ *                   covers most of it — other colors are visibly present,
+ *                   but the dominant one clearly reads as the ring's main
+ *                   color. Same palindrome trick as StoryRingGradientDrawable
  *                   (first color == last color) keeps the loop seamless.
  *
  * Rasterized to a small shared bitmap once per distinct (mode, color, size,
@@ -197,20 +197,32 @@ public final class HighlightRingDrawable extends Drawable {
             return finalBitmap;
         }
 
-        /** Seamless (palindrome) sweep gradient built purely from shades of
-         *  {@code baseColor} — dark → base → light → base → dark — so the
-         *  user's chosen color dominates the whole ring. */
+        /** Seamless (palindrome) sweep gradient that mixes full rainbow hues
+         *  into the ring, while the user's chosen ("dominant") color still
+         *  covers most of it: the ring is divided into equal slices around
+         *  the circle, and within each slice the dominant color holds a wide
+         *  plateau with only a brief rainbow-hue accent — so other colors
+         *  are visibly present, but the dominant one clearly reads as the
+         *  ring's main color. */
         private static SweepGradient buildDominantShader(int w, int h, int baseColor) {
-            float[] hsv = new float[3];
-            Color.colorToHSV(baseColor, hsv);
+            int[] accentHues = { 0, 40, 80, 150, 210, 270, 320 }; // red..magenta spread
+            int n = accentHues.length;
 
-            float[] darkHsv  = {hsv[0], hsv[1], clamp(hsv[2] * 0.55f)};
-            float[] lightHsv = {hsv[0], Math.max(0f, hsv[1] * 0.65f), clamp(hsv[2] * 1.25f + 0.1f)};
-            int dark  = Color.HSVToColor(darkHsv);
-            int light = Color.HSVToColor(lightHsv);
+            int[] colors = new int[1 + n * 2 + 1];
+            float[] positions = new float[colors.length];
+            int idx = 0;
+            colors[idx] = baseColor; positions[idx] = 0f; idx++;
+            for (int i = 0; i < n; i++) {
+                float sliceStart = (float) i / n;
+                float sliceSize = 1f / n;
+                float accentPos = sliceStart + sliceSize * 0.55f; // accent appears well into the slice
+                float returnPos = sliceStart + sliceSize * 0.72f; // short blip, then back to dominant
 
-            int[] colors = { dark, baseColor, light, baseColor, dark };
-            float[] positions = { 0f, 0.28f, 0.5f, 0.72f, 1f };
+                int accent = Color.HSVToColor(new float[]{ accentHues[i], 0.85f, 0.95f });
+                colors[idx] = accent; positions[idx] = accentPos; idx++;
+                colors[idx] = baseColor; positions[idx] = returnPos; idx++;
+            }
+            colors[idx] = baseColor; positions[idx] = 1f;
 
             float cx = w / 2f;
             float cy = h / 2f;
@@ -220,7 +232,5 @@ public final class HighlightRingDrawable extends Drawable {
             sg.setLocalMatrix(matrix);
             return sg;
         }
-
-        private static float clamp(float v) { return Math.max(0f, Math.min(1f, v)); }
     }
 }
