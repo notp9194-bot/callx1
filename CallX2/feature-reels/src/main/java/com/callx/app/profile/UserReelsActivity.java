@@ -122,11 +122,22 @@ public class UserReelsActivity extends AppCompatActivity
     private java.util.Map<String, String> profileBioChipColorsMap = new java.util.HashMap<>();
     // Grid tabs (Reels/Liked/Saved/Repost/Series) + thumbnail grid-line
     // accent color — same long-press rainbow picker pattern as the bio
-    // strip. Persisted to reels/users/{targetUid}/gridAccentColor. Colors
-    // both the active tab (indicator + icon tint) AND the grid's thumbnail
-    // separator lines (which are really just rvReels's background showing
-    // through the 1dp item gaps — see WhiteGridDecoration).
-    private String          gridAccentColorHex = null;
+    // chips: EACH tab now keeps its OWN color (not one shared color for
+    // all tabs). Keyed by a stable "tab key" string (see GRID_TAB_KEYS)
+    // and persisted to reels/users/{targetUid}/gridAccentColors/{tabKey}.
+    // When a tab is active, its own saved color (or default if none) is
+    // applied to: that tab's indicator + icon tint, AND the grid's
+    // thumbnail separator lines for whichever RecyclerView is showing
+    // (rvReels for Reels/Liked/Saved/Repost, rvSeries for Series) — those
+    // "lines" are really just the RecyclerView's background showing
+    // through the 1dp item gaps (see WhiteGridDecoration).
+    // (Legacy field kept only to read a one-time fallback default written
+    // by earlier app versions under the old single "gridAccentColor" key
+    // — used only for the Reels tab if it has no per-tab color yet.)
+    private String          legacyGridAccentColorHex = null;
+    private static final String[] GRID_TAB_KEYS =
+            { "reels", "liked", "saved", "repost", "series" };
+    private java.util.Map<String, String> gridAccentColorsMap = new java.util.HashMap<>();
     private TextView        tvEmptyTitle, tvEmptySubtitle;
     private Button          btnFollow;
     private Button          btnMessageCta;
@@ -651,6 +662,9 @@ public class UserReelsActivity extends AppCompatActivity
                 if (!isSeries) adapter.setDataList(activeTabData());
                 if (isSeries ? seriesTabData.isEmpty() : activeTabData().isEmpty()) loadCurrentTab(true);
                 else { refreshEmptyState(); updateViewAllButton(); }
+                // Each tab keeps its OWN accent color — re-apply whichever
+                // color (or default) belongs to the tab we just switched to.
+                applyGridAccentColorForActiveTab();
             }
             @Override public void onTabUnselected(TabLayout.Tab tab) {}
             @Override public void onTabReselected(TabLayout.Tab tab) {
@@ -664,17 +678,18 @@ public class UserReelsActivity extends AppCompatActivity
             }
         });
 
-        // Owner-only: long-press ANY tab to recolor the active-tab indicator/
-        // icon AND the grid's thumbnail separator lines — same shared rainbow
-        // picker flow as the bio strip chips.
+        // Owner-only: long-press a tab to recolor JUST THAT tab's indicator/
+        // icon AND the grid's thumbnail separator lines — each tab keeps its
+        // own color independently (same per-item pattern as the bio chips).
         if (isSelf) {
             for (int i = 0; i < tabLayout.getTabCount(); i++) {
                 TabLayout.Tab t = tabLayout.getTabAt(i);
                 if (t == null) continue;
+                final int tabPos = i;
                 android.view.View anchor = tabAnchorView(t);
                 if (anchor != null) {
                     anchor.setOnLongClickListener(v -> {
-                        openGridAccentColorPicker();
+                        openGridAccentColorPicker(tabPos);
                         return true;
                     });
                 }
@@ -682,25 +697,52 @@ public class UserReelsActivity extends AppCompatActivity
         }
     }
 
+    /** Returns the tab key string ("reels"/"liked"/"saved"/"repost"/"series") for a tab position, or null if out of range. */
+    private String gridTabKey(int tabPos) {
+        if (tabPos < 0 || tabPos >= GRID_TAB_KEYS.length) return null;
+        return GRID_TAB_KEYS[tabPos];
+    }
+
     /**
-     * Applies (or clears) the custom accent color across BOTH the grid tabs
-     * and the grid's thumbnail separator lines:
+     * Looks up the currently ACTIVE tab's own saved color (falling back to
+     * the legacy single color for the Reels tab only, for users upgrading
+     * from the old shared-color version), then applies it to that tab's
+     * indicator/icon tint AND the currently-visible grid's background —
+     * exactly like {@link #applyGridAccentColor(String)} used to, except
+     * now it's per-tab instead of one color shared by all tabs.
+     */
+    private void applyGridAccentColorForActiveTab() {
+        String key = gridTabKey(activeTab);
+        String hex = key != null ? gridAccentColorsMap.get(key) : null;
+        if (hex == null && activeTab == TAB_REELS) hex = legacyGridAccentColorHex; // one-time fallback
+        applyGridAccentColor(hex);
+    }
+
+    /**
+     * Applies (or clears) the custom accent color for whichever tab is
+     * CURRENTLY active, across BOTH that tab's indicator/icon and the
+     * grid's thumbnail separator lines:
      *  - Active tab's indicator + icon tint → the picked color (this is
      *    what keeps the active tab "colourful" instead of plain
      *    black/white).
-     *  - rvReels's background → the picked color, which is what actually
-     *    shows through the 1dp gaps WhiteGridDecoration leaves between
-     *    thumbnails (those gaps have never drawn their own color — they
-     *    just reveal whatever's behind them).
+     *  - The visible grid's background (rvSeries for the Series tab,
+     *    rvReels for every other tab) → the picked color, which is what
+     *    actually shows through the 1dp gaps WhiteGridDecoration leaves
+     *    between thumbnails (those gaps have never drawn their own color
+     *    — they just reveal whatever's behind them).
      * Null/empty hex resets both back to the original theme-aware defaults.
+     * Note: this only ever touches the ACTIVE tab's indicator/icon (a
+     * TabLayout only has one indicator color at a time) — each tab's own
+     * color is re-applied automatically whenever that tab becomes active,
+     * via {@link #applyGridAccentColorForActiveTab()}.
      */
     private void applyGridAccentColor(String hex) {
         int defaultIndicatorColor =
                 resolveAttrColor(com.google.android.material.R.attr.colorOnSurface, 0xFF111111);
+        android.view.View activeGrid = (activeTab == TAB_SERIES) ? rvSeries : rvReels;
         if (hex != null && !hex.isEmpty()) {
             try {
                 int color = android.graphics.Color.parseColor(hex);
-                gridAccentColorHex = hex;
                 if (tabLayout != null) {
                     tabLayout.setSelectedTabIndicatorColor(color);
                     // Unselected tabs keep the same "dimmed" treatment the
@@ -711,41 +753,49 @@ public class UserReelsActivity extends AppCompatActivity
                             new int[][]{ {android.R.attr.state_selected}, {} },
                             new int[]{ color, dimmed }));
                 }
-                if (rvReels != null) rvReels.setBackgroundColor(color);
+                if (activeGrid != null) activeGrid.setBackgroundColor(color);
                 return;
             } catch (Exception e) {
-                gridAccentColorHex = null; // fall through to default below
+                // fall through to default below
             }
         }
-        gridAccentColorHex = null;
         if (tabLayout != null) {
             tabLayout.setSelectedTabIndicatorColor(defaultIndicatorColor);
             tabLayout.setTabIconTint(
                     androidx.core.content.ContextCompat.getColorStateList(this, R.color.tab_icon_tint_selector));
         }
-        if (rvReels != null) {
-            rvReels.setBackgroundColor(
+        if (activeGrid != null) {
+            activeGrid.setBackgroundColor(
                     androidx.core.content.ContextCompat.getColor(this, R.color.reel_grid_gutter));
         }
     }
 
     /**
      * Long-press entry point (isSelf only) — opens the shared rainbow color
-     * picker pre-filled with the current grid accent color, and on pick,
-     * persists it to reels/users/{targetUid}/gridAccentColor and applies it
-     * to both the tabs and the grid lines.
+     * picker pre-filled with THIS tab's current color, and on pick,
+     * persists it under this tab's own key
+     * (reels/users/{targetUid}/gridAccentColors/{tabKey}) and — if this tab
+     * is the one currently active — applies it immediately. Other tabs keep
+     * whatever color (or default) they already had; picking a color for one
+     * tab never touches any other tab's color.
      */
-    private void openGridAccentColorPicker() {
+    private void openGridAccentColorPicker(int tabPos) {
         if (!isSelf || targetUid == null) return;
+        String key = gridTabKey(tabPos);
+        if (key == null) return;
+        String currentHex = gridAccentColorsMap.get(key);
+        if (currentHex == null && tabPos == TAB_REELS) currentHex = legacyGridAccentColorHex;
+        final String fCurrentHex = currentHex;
         com.callx.app.utils.RainbowStripColorPickerBottomSheet.show(
-                this, "Grid Accent Color", gridAccentColorHex,
-                gridAccentColorHex != null && !gridAccentColorHex.isEmpty(),
+                this, "Grid Accent Color", fCurrentHex,
+                fCurrentHex != null && !fCurrentHex.isEmpty(),
                 colorHex -> {
+                    gridAccentColorsMap.put(key, colorHex);
                     com.google.firebase.database.FirebaseDatabase.getInstance()
                         .getReference("reels/users").child(targetUid)
-                        .child("gridAccentColor")
+                        .child("gridAccentColors").child(key)
                         .setValue(colorHex);
-                    applyGridAccentColor(colorHex);
+                    if (tabPos == activeTab) applyGridAccentColor(colorHex);
                 });
     }
 
@@ -3262,9 +3312,18 @@ public class UserReelsActivity extends AppCompatActivity
 
                 buildBioChips(links);
 
-                // Grid tabs + thumbnail grid-line accent color
-                gridAccentColorHex = snap.child("gridAccentColor").getValue(String.class);
-                applyGridAccentColor(gridAccentColorHex);
+                // Grid tabs + thumbnail grid-line accent color — per-tab map.
+                // Legacy single-color value (pre-fix app versions) — used ONLY
+                // as a one-time fallback default for the Reels tab if it
+                // doesn't yet have its own per-tab color saved.
+                legacyGridAccentColorHex = snap.child("gridAccentColor").getValue(String.class);
+                gridAccentColorsMap.clear();
+                DataSnapshot gridColorsSnap = snap.child("gridAccentColors");
+                for (DataSnapshot g : gridColorsSnap.getChildren()) {
+                    String hex = g.getValue(String.class);
+                    if (hex != null && !hex.isEmpty()) gridAccentColorsMap.put(g.getKey(), hex);
+                }
+                applyGridAccentColorForActiveTab();
 
                 // ── Profile song pill ────────────────────────────────────────────
                 // Read profileSong from the same snapshot (already loaded)
