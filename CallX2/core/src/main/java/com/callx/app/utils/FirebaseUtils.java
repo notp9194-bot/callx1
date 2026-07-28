@@ -158,9 +158,15 @@ public class FirebaseUtils {
         return db().getReference("reelReactions").child(reelId);
     }
 
-    /** Reels a user has reposted (profile "reposts" tab index): reelRepostsByUser/{uid}/{reelId} */
+    /**
+     * Reels a user has reposted (profile "reposts" tab index): userReposts/{uid}/{reelId}
+     * NOTE: all repost-write paths (RepostWithCaptionActivity, RepostQuoteActivity,
+     * ReelSocialController, HomeFragment, ReelRepostWorker) write to "userReposts" — this
+     * used to point at a different, never-written "reelRepostsByUser" node, which is why
+     * the profile grid's Repost tab stayed empty even after reposting.
+     */
     public static DatabaseReference getReelRepostsByUserRef(String uid) {
-        return db().getReference("reelRepostsByUser").child(uid);
+        return db().getReference("userReposts").child(uid);
     }
 
     /** Per-reel saved-by index: reelSavesIndex/{reelId}/{uid} = true */
