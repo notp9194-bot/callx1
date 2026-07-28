@@ -105,6 +105,10 @@ public class UserReelsActivity extends AppCompatActivity
     private View            layoutProfileSong;
     private TextView        tvProfileSongName;
     private View            layoutAddSongStub;   // isSelf + no song → "Add a song" stub
+    // Custom accent color for the profile-song strip (picked via the shared
+    // rainbow color picker, long-press on either pill state). Null = default
+    // theme-aware bg_song_pill.xml / drawable-night styling.
+    private String          profileSongStripColorHex = null;
     private TextView        tvEmptyTitle, tvEmptySubtitle;
     private Button          btnFollow;
     private Button          btnMessageCta;
@@ -3003,6 +3007,68 @@ public class UserReelsActivity extends AppCompatActivity
     }
 
     // ── Firebase se aaya data → Room mein save karo ──────────────────────
+    // ── Profile-song strip: custom accent color + remove ────────────────────
+
+    /**
+     * Applies (or clears) the custom accent color on both strip states —
+     * the filled profile-song pill and the empty "Add a song" stub — so
+     * whichever one is visible always reflects the user's picked color.
+     * Null/empty hex falls back to the default theme-aware bg_song_pill.xml
+     * (light) / drawable-night/bg_song_pill.xml (dark) drawables.
+     */
+    private void applyStripAccentColor(String hex) {
+        android.graphics.drawable.Drawable bg;
+        if (hex != null && !hex.isEmpty()) {
+            try {
+                int color = android.graphics.Color.parseColor(hex);
+                android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
+                gd.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
+                gd.setCornerRadius(20f * getResources().getDisplayMetrics().density);
+                gd.setStroke(Math.round(1f * getResources().getDisplayMetrics().density), color);
+                // Faint tint of the picked color as fill, same "premium hairline
+                // pill" feel as the default drawable, just recolored.
+                gd.setColor((0x22 << 24) | (color & 0x00FFFFFF));
+                bg = gd;
+            } catch (Exception e) {
+                bg = androidx.core.content.ContextCompat.getDrawable(this, R.drawable.bg_song_pill);
+            }
+        } else {
+            bg = androidx.core.content.ContextCompat.getDrawable(this, R.drawable.bg_song_pill);
+        }
+        if (layoutProfileSong  != null) layoutProfileSong.setBackground(bg);
+        if (layoutAddSongStub  != null) layoutAddSongStub.setBackground(bg != null ? bg.getConstantState().newDrawable().mutate() : null);
+    }
+
+    /**
+     * Long-press entry point (isSelf only, both strip states) — opens the
+     * shared "common rainbow box" picker (core module, reused from the
+     * highlight ring color picker) and persists the chosen color to
+     * reels/users/{targetUid}/profileSongStripColor.
+     */
+    private void openStripColorPicker() {
+        if (!isSelf || targetUid == null) return;
+        com.callx.app.utils.RainbowStripColorPickerBottomSheet.show(
+                this, "Strip Color", profileSongStripColorHex,
+                profileSongStripColorHex != null && !profileSongStripColorHex.isEmpty(),
+                colorHex -> {
+                    profileSongStripColorHex = colorHex;
+                    com.google.firebase.database.FirebaseDatabase.getInstance()
+                        .getReference("reels/users").child(targetUid)
+                        .child("profileSongStripColor")
+                        .setValue(colorHex);
+                    applyStripAccentColor(colorHex);
+                });
+    }
+
+    /** Remove-song entry point from the Open/Replace/Remove tap menu (isSelf only). */
+    private void removeProfileSong() {
+        if (!isSelf || targetUid == null) return;
+        com.google.firebase.database.FirebaseDatabase.getInstance()
+            .getReference("reels/users").child(targetUid)
+            .child("profileSong")
+            .removeValue();
+    }
+
     private void saveToRoom(String name, String photo, String thumb, String bio) {
         if (targetUid == null) return;
         dbExecutor.execute(() -> {
@@ -3082,6 +3148,10 @@ public class UserReelsActivity extends AppCompatActivity
                 String songUrl    = songSnap.child("soundUrl").getValue(String.class);
                 Long   songDurMs  = songSnap.child("durationMs").getValue(Long.class);
 
+                // Custom strip accent color (long-press picked, shared rainbow box)
+                profileSongStripColorHex = snap.child("profileSongStripColor").getValue(String.class);
+                applyStripAccentColor(profileSongStripColorHex);
+
                 if (layoutProfileSong != null && songTitle != null && !songTitle.isEmpty()) {
                     // Build display text: "▷ Title - Artist"
                     String displayText = songTitle;
@@ -3098,7 +3168,7 @@ public class UserReelsActivity extends AppCompatActivity
                     final String fSoundUrl  = songUrl    != null ? songUrl    : "";
                     final int    fDurMs     = songDurMs  != null ? songDurMs.intValue() : 0;
 
-                    layoutProfileSong.setOnClickListener(v -> {
+                    Runnable openSoundDetail = () -> {
                         // Instagram-style: SoundDetailActivity ka exact content
                         // BottomSheetDialogFragment mein — fullscreen slide-up sheet
                         com.callx.app.music.SoundDetailSheetFragment sheet =
@@ -3106,7 +3176,36 @@ public class UserReelsActivity extends AppCompatActivity
                                 fSongId, fSongTitle, fArtist,
                                 fCoverUrl, fSoundUrl, fDurMs);
                         sheet.show(UserReelsActivity.this.getSupportFragmentManager(), "sound_detail_full");
-                    });
+                    };
+
+                    if (isSelf) {
+                        // isSelf: tap → Open / Replace / Remove menu
+                        layoutProfileSong.setOnClickListener(v -> {
+                            PopupMenu menu = new PopupMenu(UserReelsActivity.this, v);
+                            menu.getMenu().add(0, 1, 0, "Open Song");
+                            menu.getMenu().add(0, 2, 1, "Replace Song");
+                            menu.getMenu().add(0, 3, 2, "Remove Song");
+                            menu.setOnMenuItemClickListener(item -> {
+                                if (item.getItemId() == 1) {
+                                    openSoundDetail.run();
+                                } else if (item.getItemId() == 2) {
+                                    startActivity(new Intent(UserReelsActivity.this,
+                                        com.callx.app.music.ReelTrendingAudioActivity.class));
+                                } else if (item.getItemId() == 3) {
+                                    removeProfileSong();
+                                }
+                                return true;
+                            });
+                            menu.show();
+                        });
+                        layoutProfileSong.setOnLongClickListener(v -> {
+                            openStripColorPicker();
+                            return true;
+                        });
+                    } else {
+                        layoutProfileSong.setOnClickListener(v -> openSoundDetail.run());
+                        layoutProfileSong.setOnLongClickListener(null);
+                    }
                 } else {
                     // No song set
                     if (layoutProfileSong  != null) layoutProfileSong.setVisibility(View.GONE);
@@ -3120,9 +3219,14 @@ public class UserReelsActivity extends AppCompatActivity
                                     com.callx.app.music.ReelTrendingAudioActivity.class);
                                 startActivity(i);
                             });
+                            layoutAddSongStub.setOnLongClickListener(v -> {
+                                openStripColorPicker();
+                                return true;
+                            });
                         }
                     }
                 }
+
 
                 // FIX: Room mein save karo — next time offline instantly dikhega
                 saveToRoom(name, photo, photoThumb, bio);

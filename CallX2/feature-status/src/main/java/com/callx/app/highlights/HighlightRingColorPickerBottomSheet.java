@@ -17,6 +17,10 @@ import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.callx.app.utils.HighlightRingDrawable;
+// RainbowColorPickerView now lives in :core as a shared "common rainbow box" —
+// feature-reels' UserReelsActivity strip color pickers reuse the exact same
+// view instead of each module keeping its own copy.
+import com.callx.app.utils.RainbowColorPickerView;
 
 /**
  * HighlightRingColorPickerBottomSheet — lets the user pick a custom ring

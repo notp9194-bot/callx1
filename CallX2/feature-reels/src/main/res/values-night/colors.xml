@@ -31,4 +31,7 @@
     <color name="blue_accent">#00C6FF</color>
     <color name="icon_tint">#AAFFFFFF</color>
     <color name="gray_light">#444444</color>
+
+    <!-- Reel grid gutter — black in dark mode, Instagram-style. -->
+    <color name="reel_grid_gutter">#000000</color>
 </resources>

@@ -31,4 +31,10 @@
     <color name="blue_accent">#00C6FF</color>
     <color name="icon_tint">#AAFFFFFF</color>
     <color name="gray_light">#CCCCCC</color>
+
+    <!-- Reel grid gutter (the 1dp padding gap between grid thumbnails on
+         UserReelsActivity) — white in light mode, black in dark mode
+         (values-night/colors.xml), Instagram-style. Was hardcoded #FFFFFF
+         before, which stayed white even in dark mode. -->
+    <color name="reel_grid_gutter">#FFFFFF</color>
 </resources>

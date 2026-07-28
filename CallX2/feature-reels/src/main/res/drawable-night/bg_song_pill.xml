@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    bg_song_pill.xml — DARK MODE
+    Same premium thin-pill treatment as the light variant, mirrored in white
+    so the strip stays "thodi visible" against a dark surface instead of
+    disappearing (previous version used a black-only 20% stroke here, which
+    was invisible in dark mode).
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#0FFFFFFF"/>
+    <stroke android:width="0.75dp" android:color="#26FFFFFF"/>
+    <corners android:radius="20dp"/>
+</shape>

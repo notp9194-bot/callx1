@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    tab_icon_tint_selector.xml — icon tint for the Reels/Liked/Saved/Repost/
+    Series tab row above the grid.
+
+    Both states resolve through ?attr/colorOnSurface, which is already the
+    app's theme-correct black-in-light / white-in-dark text color (see
+    themes.xml -> colorOnSurface -> @color/text_primary). Selected icons get
+    it at full strength; unselected icons get the same color dimmed via
+    android:alpha, so unselected tabs still read "more white" in dark mode
+    and "more black" in light mode than the previous un-tinted icons, just
+    slightly less prominent than the active tab.
+-->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:color="?attr/colorOnSurface" android:state_selected="true"/>
+    <item android:color="?attr/colorOnSurface" android:alpha="0.65"/>
+</selector>

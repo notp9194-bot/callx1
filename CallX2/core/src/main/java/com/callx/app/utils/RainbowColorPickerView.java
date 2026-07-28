@@ -1,4 +1,4 @@
-package com.callx.app.highlights;
+package com.callx.app.utils;
 
 import android.content.Context;
 import android.graphics.Canvas;

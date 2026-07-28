@@ -371,11 +371,15 @@
 
             <!-- ── Instagram-style Profile Song pill (Screenshot 1 / 2 style) ──
                  Hidden by default. UserReelsActivity shows it when the user has
-                 a profileSong set. Click → SoundDetailBottomSheet (Screenshot 3/4). -->
+                 a profileSong set. Tap → SoundDetailBottomSheet (Screenshot 3/4).
+                 Long-press (isSelf) → common rainbow color picker to recolor
+                 the strip; tap also offers Replace/Remove for isSelf.
+                 Thin, premium pill: 26dp tall, theme-aware hairline border via
+                 bg_song_pill.xml / drawable-night/bg_song_pill.xml. -->
             <LinearLayout
                 android:id="@+id/layout_profile_song"
                 android:layout_width="wrap_content"
-                android:layout_height="32dp"
+                android:layout_height="26dp"
                 android:orientation="horizontal"
                 android:gravity="center_vertical"
                 android:paddingStart="12dp"
@@ -411,11 +415,13 @@
             </LinearLayout>
 
             <!-- ── isSelf: empty song stub pill — tap to add a song ──
-                 Shown only when isSelf == true AND no profileSong is set yet. -->
+                 Shown only when isSelf == true AND no profileSong is set yet.
+                 Long-press → common rainbow color picker to recolor the strip
+                 ahead of time, same as the filled-in profile-song pill. -->
             <LinearLayout
                 android:id="@+id/layout_add_song_stub"
                 android:layout_width="wrap_content"
-                android:layout_height="32dp"
+                android:layout_height="26dp"
                 android:orientation="horizontal"
                 android:gravity="center_vertical"
                 android:paddingStart="12dp"
@@ -671,8 +677,8 @@
                             <androidx.appcompat.widget.AppCompatImageButton android:id="@+id/btn_open_youtube"
                                 android:layout_width="40dp" android:layout_height="40dp"
                                 android:src="@drawable/ic_youtube"
-                                android:background="@drawable/bg_social_youtube_btn"
-                                android:tint="@color/white"
+                                android:background="@drawable/bg_circle_action"
+                                android:tint="#FF0000"
                                 android:padding="10dp"
                                 android:contentDescription="View YouTube Channel"/>
                             <de.hdodenhof.circleimageview.CircleImageView
@@ -797,8 +803,8 @@
                             <ImageButton
                                 android:layout_width="44dp" android:layout_height="44dp"
                                 android:src="@drawable/ic_youtube"
-                                android:background="@drawable/bg_social_youtube_btn"
-                                android:tint="@color/white"
+                                android:background="@drawable/bg_circle_action"
+                                android:tint="#FF0000"
                                 android:contentDescription="View YouTube Channel" android:padding="12dp"/>
                             <de.hdodenhof.circleimageview.CircleImageView
                                 android:layout_width="22dp" android:layout_height="22dp"
@@ -884,6 +890,7 @@
             app:tabTextColor="?attr/colorOnSurfaceVariant"
             app:tabIndicatorColor="?attr/colorOnSurface"
             app:tabIndicatorHeight="1dp"
+            app:tabIconTint="@color/tab_icon_tint_selector"
             app:tabPaddingStart="-1dp"
             app:tabPaddingEnd="-1dp">
 
@@ -957,7 +964,7 @@
 
   <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/rv_reels"
-                android:background="#FFFFFF"
+                android:background="@color/reel_grid_gutter"
                 android:nestedScrollingEnabled="true"
                 android:layout_width="match_parent"
                 android:layout_height="0dp"

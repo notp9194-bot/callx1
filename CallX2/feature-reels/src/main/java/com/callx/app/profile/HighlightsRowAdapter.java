@@ -277,13 +277,20 @@ public class HighlightsRowAdapter
         // Ring → dashed gray
         h.ringBg.setBackground(ctx(h).getDrawable(R.drawable.bg_highlight_ring_seen));
 
-        // Cover → light circle with "+"
+        // Cover → circle with "+". In dark mode the old #F0F0F0 circle stayed
+        // a near-white blob (wrong — the request is for it to read as a dark
+        // chip like the rest of dark-mode UI), so flip it: dark mode = black
+        // circle + white plus icon, light mode = unchanged light circle +
+        // dark plus icon.
+        boolean isNightMode = (ctx(h).getResources().getConfiguration().uiMode
+                & android.content.res.Configuration.UI_MODE_NIGHT_MASK)
+                == android.content.res.Configuration.UI_MODE_NIGHT_YES;
         GradientDrawable newBg = new GradientDrawable();
         newBg.setShape(GradientDrawable.OVAL);
-        newBg.setColor(Color.parseColor("#F0F0F0"));
+        newBg.setColor(isNightMode ? Color.parseColor("#000000") : Color.parseColor("#F0F0F0"));
         h.ivCover.setBackground(newBg);
         h.ivCover.setImageResource(android.R.drawable.ic_input_add);
-        h.ivCover.setColorFilter(Color.parseColor("#555555"));
+        h.ivCover.setColorFilter(isNightMode ? Color.parseColor("#FFFFFF") : Color.parseColor("#555555"));
         h.ivCover.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
         h.ivCover.setPadding(dp(ctx(h), 14), dp(ctx(h), 14), dp(ctx(h), 14), dp(ctx(h), 14));
 
