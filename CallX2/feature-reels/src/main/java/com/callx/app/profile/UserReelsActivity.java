@@ -120,6 +120,10 @@ public class UserReelsActivity extends AppCompatActivity
     // to again.)
     private String          profileBioStripColorHex = null; // legacy fallback only
     private java.util.Map<String, String> profileBioChipColorsMap = new java.util.HashMap<>();
+    // Last links list passed to buildBioChips() — cached so "Default Colour"
+    // (More menu) can rebuild the chip row after clearing colors without
+    // needing a fresh Firebase read.
+    private java.util.List<String[]> lastBioLinks = new java.util.ArrayList<>();
     // Grid tabs (Reels/Liked/Saved/Repost/Series) + thumbnail grid-line
     // accent color — same long-press rainbow picker pattern as the bio
     // chips: EACH tab now keeps its OWN color (not one shared color for
@@ -273,7 +277,35 @@ public class UserReelsActivity extends AppCompatActivity
     private ReelModel         pinnedReel = null;
     private Dialog            previewDialog;
     private ExoPlayer         previewPlayer;
-    private GridLayoutManager gridLayoutManager;
+    private SwipeAwareGridLayoutManager gridLayoutManager;
+    // Series-tab grid also needs to disable its own vertical scroll while a
+    // horizontal tab-swipe is in progress (see SwipeAwareGridLayoutManager).
+    private SwipeAwareGridLayoutManager seriesLayoutManager;
+
+    /**
+     * GridLayoutManager variant whose vertical scrolling can be switched off
+     * on demand. Used to hard-stop the grid's own down/up scrolling for the
+     * duration of a left/right tab-swipe gesture, so the vertical scroll
+     * (and the AppBarLayout/CoordinatorLayout nested-scroll header collapse
+     * it drives) can never fight the horizontal swipe for the same touch
+     * stream — see buildSwipeListener()/setupSwipeBetweenTabs().
+     */
+    private static class SwipeAwareGridLayoutManager extends GridLayoutManager {
+        private volatile boolean verticalScrollEnabled = true;
+
+        SwipeAwareGridLayoutManager(android.content.Context context, int spanCount) {
+            super(context, spanCount);
+        }
+
+        void setVerticalScrollEnabled(boolean enabled) {
+            verticalScrollEnabled = enabled;
+        }
+
+        @Override
+        public boolean canScrollVertically() {
+            return verticalScrollEnabled && super.canScrollVertically();
+        }
+    }
 
     // ── Lifecycle ─────────────────────────────────────────────────────────
 
@@ -460,7 +492,8 @@ public class UserReelsActivity extends AppCompatActivity
         // Series tab setup
         seriesAdapter = new UserSeriesGridAdapter(this);
         if (rvSeries != null) {
-            rvSeries.setLayoutManager(new GridLayoutManager(this, 2));
+            seriesLayoutManager = new SwipeAwareGridLayoutManager(this, 2);
+            rvSeries.setLayoutManager(seriesLayoutManager);
             rvSeries.setAdapter(seriesAdapter);
             seriesAdapter.setOnSeriesClickListener(series -> {
                 Intent si = new Intent(this, com.callx.app.social.DuetSeriesActivity.class);
@@ -470,7 +503,7 @@ public class UserReelsActivity extends AppCompatActivity
         }
         adapter.setShowViewsOverlay(isSelf);
 
-        gridLayoutManager = new GridLayoutManager(this, 3);
+        gridLayoutManager = new SwipeAwareGridLayoutManager(this, 3);
         gridLayoutManager.setSpanSizeLookup(new GridLayoutManager.SpanSizeLookup() {
             @Override public int getSpanSize(int position) {
                 return adapter.getItemViewType(position) == ReelGridAdapter.TYPE_PINNED ? 3 : 1;
@@ -976,9 +1009,9 @@ public class UserReelsActivity extends AppCompatActivity
 
         // One GestureDetector PER view (state must not be shared between rv_reels / rv_series / layout_empty).
         RecyclerView.OnItemTouchListener reelsListener =
-                buildSwipeListener(rvReels, touchSlopPx, swipeThresholdPx, swipeVelocityPx);
+                buildSwipeListener(rvReels, gridLayoutManager, touchSlopPx, swipeThresholdPx, swipeVelocityPx);
         RecyclerView.OnItemTouchListener seriesListener =
-                buildSwipeListener(rvSeries, touchSlopPx, swipeThresholdPx, swipeVelocityPx);
+                buildSwipeListener(rvSeries, seriesLayoutManager, touchSlopPx, swipeThresholdPx, swipeVelocityPx);
 
         if (rvReels  != null && reelsListener  != null) rvReels.addOnItemTouchListener(reelsListener);
         if (rvSeries != null && seriesListener != null) rvSeries.addOnItemTouchListener(seriesListener);
@@ -1024,7 +1057,8 @@ public class UserReelsActivity extends AppCompatActivity
     }
 
     private RecyclerView.OnItemTouchListener buildSwipeListener(
-            final RecyclerView rv, final float touchSlopPx, final float swipeThresholdPx, final float swipeVelocityPx) {
+            final RecyclerView rv, final SwipeAwareGridLayoutManager lm,
+            final float touchSlopPx, final float swipeThresholdPx, final float swipeVelocityPx) {
         if (rv == null) return null;
 
         final android.view.GestureDetector gestureDetector =
@@ -1033,27 +1067,56 @@ public class UserReelsActivity extends AppCompatActivity
         return new RecyclerView.OnItemTouchListener() {
             private float downX, downY;
             private boolean draggingHorizontally = false;
+            // Once the gesture is resolved as vertical, don't keep re-checking
+            // every move event — leave the grid's normal scroll alone until
+            // finger lift.
+            private boolean resolvedVertical = false;
+
+            private void unlockVerticalScroll() {
+                if (lm != null) lm.setVerticalScrollEnabled(true);
+            }
 
             @Override
             public boolean onInterceptTouchEvent(@NonNull RecyclerView recyclerView, @NonNull MotionEvent e) {
                 gestureDetector.onTouchEvent(e);
                 switch (e.getActionMasked()) {
                     case MotionEvent.ACTION_DOWN:
-                        downX = e.getX(); downY = e.getY(); draggingHorizontally = false;
+                        downX = e.getX(); downY = e.getY();
+                        draggingHorizontally = false;
+                        resolvedVertical = false;
+                        unlockVerticalScroll();
                         break;
                     case MotionEvent.ACTION_MOVE:
+                        if (resolvedVertical) break;
                         float dx = e.getX() - downX, dy = e.getY() - downY;
-                        if (!draggingHorizontally && Math.abs(dx) > touchSlopPx && Math.abs(dx) > Math.abs(dy)) {
-                            draggingHorizontally = true;
-                            // Stop the AppBarLayout/CoordinatorLayout from stealing the
-                            // gesture mid-swipe so the fling always reaches onFling().
-                            android.view.ViewParent p = recyclerView.getParent();
-                            if (p != null) p.requestDisallowInterceptTouchEvent(true);
+                        if (!draggingHorizontally) {
+                            boolean movedEnough = Math.abs(dx) > touchSlopPx || Math.abs(dy) > touchSlopPx;
+                            if (movedEnough) {
+                                if (Math.abs(dx) > Math.abs(dy)) {
+                                    // Horizontal intent: lock the grid's own vertical
+                                    // scroll (and the header collapse it drives via
+                                    // nested scrolling) OFF right now, in the same
+                                    // event pass that RecyclerView itself would use
+                                    // to decide whether to start a vertical drag —
+                                    // this is what removes the scroll/swipe conflict
+                                    // instead of just racing it.
+                                    draggingHorizontally = true;
+                                    if (lm != null) lm.setVerticalScrollEnabled(false);
+                                    android.view.ViewParent p = recyclerView.getParent();
+                                    if (p != null) p.requestDisallowInterceptTouchEvent(true);
+                                } else {
+                                    // Vertical intent: leave scrolling enabled and stop
+                                    // evaluating direction for the rest of this gesture.
+                                    resolvedVertical = true;
+                                }
+                            }
                         }
                         return draggingHorizontally;
                     case MotionEvent.ACTION_UP:
                     case MotionEvent.ACTION_CANCEL:
                         draggingHorizontally = false;
+                        resolvedVertical = false;
+                        unlockVerticalScroll();
                         android.view.ViewParent parent = recyclerView.getParent();
                         if (parent != null) parent.requestDisallowInterceptTouchEvent(false);
                         break;
@@ -1067,6 +1130,8 @@ public class UserReelsActivity extends AppCompatActivity
                 if (e.getActionMasked() == MotionEvent.ACTION_UP
                         || e.getActionMasked() == MotionEvent.ACTION_CANCEL) {
                     draggingHorizontally = false;
+                    resolvedVertical = false;
+                    unlockVerticalScroll();
                     android.view.ViewParent parent = recyclerView.getParent();
                     if (parent != null) parent.requestDisallowInterceptTouchEvent(false);
                 }
@@ -3354,6 +3419,44 @@ public class UserReelsActivity extends AppCompatActivity
      * highlight ring color picker) and persists the chosen color to
      * reels/users/{targetUid}/profileSongStripColor.
      */
+    /**
+     * "Default Colour" (More menu, isSelf only) — clears every custom accent
+     * color on this profile in one go: the bio-chip colors (per-chip AND
+     * the legacy shared one), the grid-tab colors (per-tab AND the legacy
+     * shared one), and the profile-song strip color. Removes each node from
+     * Firebase (reels/users/{targetUid}/...) and re-applies the default,
+     * theme-aware styling to the already-visible views immediately, without
+     * needing a fresh profile reload.
+     */
+    private void resetAllColorsToDefault() {
+        if (!isSelf || targetUid == null) return;
+
+        // Local state
+        profileBioChipColorsMap.clear();
+        profileBioStripColorHex = null;
+        java.util.Arrays.fill(gridAccentColorsByTab, null);
+        legacyGridAccentColorHex = null;
+        profileSongStripColorHex = null;
+
+        // Firebase — remove the custom-color nodes so they fall back to
+        // default the next time the profile is loaded too.
+        com.google.firebase.database.DatabaseReference userRef =
+            com.google.firebase.database.FirebaseDatabase.getInstance()
+                .getReference("reels/users").child(targetUid);
+        userRef.child("profileBioChipColors").removeValue();
+        userRef.child("profileBioStripColor").removeValue();
+        userRef.child("gridAccentColors").removeValue();
+        userRef.child("gridAccentColor").removeValue();
+        userRef.child("profileSongStripColor").removeValue();
+
+        // Re-render the already-visible views with default styling.
+        buildBioChips(lastBioLinks);
+        applyGridAccentColorForActiveTab();
+        applyStripAccentColor(null);
+
+        Toast.makeText(this, "Colours reset to default", Toast.LENGTH_SHORT).show();
+    }
+
     private void openStripColorPicker() {
         if (!isSelf || targetUid == null) return;
         com.callx.app.utils.RainbowStripColorPickerBottomSheet.show(
@@ -3462,6 +3565,7 @@ public class UserReelsActivity extends AppCompatActivity
                     if (hex != null && !hex.isEmpty()) profileBioChipColorsMap.put(c.getKey(), hex);
                 }
 
+                lastBioLinks = links;
                 buildBioChips(links);
 
                 // Grid tabs + thumbnail grid-line accent color — per-tab
@@ -3823,6 +3927,7 @@ public class UserReelsActivity extends AppCompatActivity
                 dockedEnabled ? "Docked Reel Player: ON (tap to turn off)"
                               : "Docked Reel Player: OFF (tap to turn on)");
             if (isSelf)  menu.getMenu().add(0, 6, 0, "🗑️ Delete All Reels");
+            if (isSelf)  menu.getMenu().add(0, 9, 0, "Default Colour");
             if (!isSelf) menu.getMenu().add(0, 3, 0, "Report User");
             if (!isSelf) menu.getMenu().add(0, 7, 0, "About this account");
             menu.setOnMenuItemClickListener(item -> {
@@ -3838,6 +3943,7 @@ public class UserReelsActivity extends AppCompatActivity
                     case 5: startActivity(new Intent(this, ReelCreatorDashboardActivity.class)); break;
                     case 6: deleteAllReels(); break;
                     case 7: openAboutAccount(); break;
+                    case 9: resetAllColorsToDefault(); break;
                     case 8: {
                         boolean newState = !com.callx.app.docked.DockedPlayerSettings.isEnabled(this);
                         com.callx.app.docked.DockedPlayerSettings.setEnabled(this, newState);

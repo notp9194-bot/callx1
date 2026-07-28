@@ -271,23 +271,33 @@ public class ReelEditProfileActivity extends AppCompatActivity {
     private void performSave(String name, String handle, String bio,
                              String category, String website,
                              String instagram, String twitter, String youtube) {
-        Map<String, Object> updates = new HashMap<>();
-        updates.put("displayName",      name);
-        updates.put("handle",           handle);
-        updates.put("bio",              bio);
-        updates.put("category",         category);
-        updates.put("website",          website);
-        updates.put("instagramHandle",  instagram);
-        updates.put("twitterHandle",    twitter);
-        updates.put("youtubeChannelUrl",youtube);
-        updates.put("photoUrl",         pendingPhoto);
-        updates.put("thumbUrl",         pendingThumb);
-        updates.put("bannerUrl",        pendingBanner);
-        updates.put("updatedAt",        System.currentTimeMillis());
+        // BUG FIX: previously this built a nested Map and put it at the
+        // single key "reels/users/{myUid}", then called updateChildren() on
+        // the ROOT reference. Firebase's multi-path update() treats that as
+        // a SET (full replace) of everything AT that path — not a merge —
+        // so any sibling fields already sitting under reels/users/{myUid}
+        // that weren't part of this map (profileSongStripColor,
+        // profileBioChipColors/*, gridAccentColors/*, profileBioStripColor,
+        // etc.) were being silently wiped back to default on every bio/
+        // profile save. Fix: flatten each field to its own full path
+        // ("reels/users/{myUid}/bio", ...) so updateChildren() performs a
+        // real per-leaf merge and leaves every other child untouched.
+        String base = "reels/users/" + myUid + "/";
+        Map<String, Object> rootUpdates = new HashMap<>();
+        rootUpdates.put(base + "displayName",       name);
+        rootUpdates.put(base + "handle",            handle);
+        rootUpdates.put(base + "bio",               bio);
+        rootUpdates.put(base + "category",          category);
+        rootUpdates.put(base + "website",           website);
+        rootUpdates.put(base + "instagramHandle",   instagram);
+        rootUpdates.put(base + "twitterHandle",     twitter);
+        rootUpdates.put(base + "youtubeChannelUrl", youtube);
+        rootUpdates.put(base + "photoUrl",          pendingPhoto);
+        rootUpdates.put(base + "thumbUrl",          pendingThumb);
+        rootUpdates.put(base + "bannerUrl",         pendingBanner);
+        rootUpdates.put(base + "updatedAt",         System.currentTimeMillis());
 
         // If handle changed: update handle index too
-        Map<String, Object> rootUpdates = new HashMap<>();
-        rootUpdates.put("reels/users/" + myUid, updates);
         if (!handle.equals(currentHandle)) {
             // Remove old handle index
             if (!currentHandle.isEmpty())
