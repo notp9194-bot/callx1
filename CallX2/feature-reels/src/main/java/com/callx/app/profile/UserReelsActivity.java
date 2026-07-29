@@ -125,6 +125,7 @@ public class UserReelsActivity extends AppCompatActivity
     private android.view.ViewGroup layoutProfileSong;
     private TextView        tvProfileSongName;
     private android.view.ViewGroup layoutAddSongStub;   // isSelf + no song → "Add a song" stub
+    private View            layoutSongHeartBurst;       // tap-on-pill heart burst (💕💕), Instagram-style
     // Custom accent color for the profile-song strip (picked via the shared
     // rainbow color picker, long-press on either pill state). Null = default
     // theme-aware bg_song_pill.xml / drawable-night styling.
@@ -509,6 +510,7 @@ public class UserReelsActivity extends AppCompatActivity
         layoutProfileSong = findViewById(R.id.layout_profile_song);
         tvProfileSongName = findViewById(R.id.tv_profile_song_name);
         layoutAddSongStub = findViewById(R.id.layout_add_song_stub);
+        layoutSongHeartBurst = findViewById(R.id.layout_song_heart_burst);
         btnMessageCta     = findViewById(R.id.btn_message_cta);
         btnCtaCall       = findViewById(R.id.btn_cta_call);
         layoutInstagramCta = findViewById(R.id.layout_instagram_cta);
@@ -3668,6 +3670,39 @@ public class UserReelsActivity extends AppCompatActivity
         }
     }
 
+    /** Instagram-style tap reaction on the profile-song pill: two small
+     *  hearts (💕💕) fade + float up briefly over the avatar, then fade
+     *  back out. Purely decorative — no state is persisted. Safe to call
+     *  repeatedly; any in-flight animation is cancelled and restarted. */
+    private void playSongHeartBurst() {
+        if (layoutSongHeartBurst == null) return;
+        layoutSongHeartBurst.animate().cancel();
+        layoutSongHeartBurst.setVisibility(View.VISIBLE);
+        layoutSongHeartBurst.setAlpha(0f);
+        layoutSongHeartBurst.setScaleX(0.6f);
+        layoutSongHeartBurst.setScaleY(0.6f);
+        layoutSongHeartBurst.setTranslationY(0f);
+        layoutSongHeartBurst.animate()
+            .alpha(1f).scaleX(1f).scaleY(1f).translationY(-14f)
+            .setDuration(220)
+            .withEndAction(() -> {
+                if (layoutSongHeartBurst == null) return;
+                layoutSongHeartBurst.animate()
+                    .alpha(0f).translationY(-30f)
+                    .setStartDelay(350)
+                    .setDuration(280)
+                    .withEndAction(() -> {
+                        if (layoutSongHeartBurst == null) return;
+                        layoutSongHeartBurst.setVisibility(View.GONE);
+                        layoutSongHeartBurst.setTranslationY(0f);
+                        layoutSongHeartBurst.setScaleX(1f);
+                        layoutSongHeartBurst.setScaleY(1f);
+                    })
+                    .start();
+            })
+            .start();
+    }
+
     /** Tints a badge's icon + text to match a custom accent color, or resets
      *  both back to the theme-aware ?attr/colorOnSurface default (null). */
     private void applyBadgeContentColor(android.view.ViewGroup badge, Integer colorOrNull) {
@@ -3897,6 +3932,7 @@ public class UserReelsActivity extends AppCompatActivity
                     if (isSelf) {
                         // isSelf: tap → Open / Replace / Remove menu
                         layoutProfileSong.setOnClickListener(v -> {
+                            playSongHeartBurst();
                             PopupMenu menu = new PopupMenu(UserReelsActivity.this, v);
                             menu.getMenu().add(0, 1, 0, "Open Song");
                             menu.getMenu().add(0, 2, 1, "Replace Song");
@@ -3918,7 +3954,10 @@ public class UserReelsActivity extends AppCompatActivity
                         // (see setupMoreMenu()) — no longer a long-press here.
                         layoutProfileSong.setOnLongClickListener(null);
                     } else {
-                        layoutProfileSong.setOnClickListener(v -> openSoundDetail.run());
+                        layoutProfileSong.setOnClickListener(v -> {
+                            playSongHeartBurst();
+                            openSoundDetail.run();
+                        });
                         layoutProfileSong.setOnLongClickListener(null);
                     }
                 } else {

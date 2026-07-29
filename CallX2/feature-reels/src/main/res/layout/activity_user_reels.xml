@@ -145,37 +145,37 @@
                     <LinearLayout
                         android:id="@+id/layout_profile_song"
                         android:layout_width="wrap_content"
-                        android:layout_height="20dp"
+                        android:layout_height="26dp"
                         android:layout_gravity="top|start"
-                        android:layout_marginStart="-6dp"
-                        android:layout_marginTop="-6dp"
+                        android:layout_marginStart="-10dp"
+                        android:layout_marginTop="-8dp"
                         android:orientation="horizontal"
                         android:gravity="center_vertical"
-                        android:paddingStart="7dp"
-                        android:paddingEnd="9dp"
+                        android:paddingStart="9dp"
+                        android:paddingEnd="11dp"
                         android:background="@drawable/bg_profile_song_badge"
-                        android:elevation="3dp"
+                        android:elevation="4dp"
                         android:clickable="true"
                         android:focusable="true"
                         android:foreground="?attr/selectableItemBackground"
                         android:visibility="gone">
 
                         <ImageView
-                            android:layout_width="10dp"
-                            android:layout_height="10dp"
-                            android:src="@drawable/ic_music"
+                            android:layout_width="13dp"
+                            android:layout_height="13dp"
+                            android:src="@drawable/ic_audio_wave"
                             android:tint="?attr/colorOnSurface"
-                            android:layout_marginEnd="4dp"
+                            android:layout_marginEnd="5dp"
                             android:contentDescription="Now playing"/>
 
                         <TextView
                             android:id="@+id/tv_profile_song_name"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:textSize="9sp"
+                            android:textSize="11sp"
                             android:textColor="?attr/colorOnSurface"
                             android:fontFamily="sans-serif-medium"
-                            android:maxWidth="90dp"
+                            android:maxWidth="108dp"
                             android:maxLines="1"
                             android:ellipsize="marquee"
                             android:singleLine="true"
@@ -188,36 +188,68 @@
                     <LinearLayout
                         android:id="@+id/layout_add_song_stub"
                         android:layout_width="wrap_content"
-                        android:layout_height="20dp"
+                        android:layout_height="26dp"
                         android:layout_gravity="top|start"
-                        android:layout_marginStart="-6dp"
-                        android:layout_marginTop="-6dp"
+                        android:layout_marginStart="-10dp"
+                        android:layout_marginTop="-8dp"
                         android:orientation="horizontal"
                         android:gravity="center_vertical"
-                        android:paddingStart="7dp"
-                        android:paddingEnd="9dp"
+                        android:paddingStart="9dp"
+                        android:paddingEnd="11dp"
                         android:background="@drawable/bg_profile_song_badge"
-                        android:elevation="3dp"
+                        android:elevation="4dp"
                         android:clickable="true"
                         android:focusable="true"
                         android:foreground="?attr/selectableItemBackground"
                         android:visibility="gone">
 
                         <ImageView
-                            android:layout_width="10dp"
-                            android:layout_height="10dp"
-                            android:src="@drawable/ic_music"
+                            android:layout_width="13dp"
+                            android:layout_height="13dp"
+                            android:src="@drawable/ic_audio_wave"
                             android:tint="?attr/colorOnSurface"
-                            android:layout_marginEnd="4dp"
+                            android:layout_marginEnd="5dp"
                             android:contentDescription="Add song"/>
 
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="Add a song"
-                            android:textSize="9sp"
+                            android:textSize="11sp"
                             android:textColor="?attr/colorOnSurface"
                             android:fontFamily="sans-serif"/>
+                    </LinearLayout>
+
+                    <!-- ── Tap-on-pill heart burst (💕💕) — Instagram-style
+                         reaction shown briefly over the avatar when the
+                         song pill is tapped. Starts hidden/transparent;
+                         playSongHeartBurst() in UserReelsActivity animates
+                         it in and back out again. Not a permanent badge. -->
+                    <LinearLayout
+                        android:id="@+id/layout_song_heart_burst"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="top|start"
+                        android:layout_marginStart="4dp"
+                        android:layout_marginTop="18dp"
+                        android:orientation="horizontal"
+                        android:elevation="5dp"
+                        android:alpha="0"
+                        android:visibility="gone"
+                        android:importantForAccessibility="no">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="💕"
+                            android:textSize="15sp"/>
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="1dp"
+                            android:text="💕"
+                            android:textSize="15sp"/>
                     </LinearLayout>
                 </FrameLayout>
 
