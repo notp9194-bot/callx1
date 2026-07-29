@@ -863,8 +863,20 @@
         android:paddingStart="4dp"
         android:paddingEnd="4dp"
         android:background="?attr/colorSurface"
-        android:elevation="8dp"
+        android:elevation="0dp"
         android:layout_gravity="top">
+        <!-- BUG FIX: this used to carry android:elevation="8dp". A flat
+             opaque LinearLayout with elevation gets Android's automatic
+             rectangular drop-shadow drawn just below its bottom edge — a
+             soft-to-dark horizontal band across the full width, sitting
+             right where the collapsing header (avatar/bio/highlights)
+             scrolls up underneath this fixed nav bar. That shadow band is
+             the "horizontal black patti" — bio/highlights visibly scroll
+             INTO it as they pass under the toolbar. Dropped the elevation
+             (0dp, no shadow) and added a 1px flat divider below instead —
+             same visual separation, no shadow bleed, matches the flat
+             toolbar look used elsewhere in the app (chat, feed, etc). -->
+
 
         <ImageButton android:id="@+id/btn_back"
             android:layout_width="48dp" android:layout_height="48dp"
@@ -930,6 +942,15 @@
                 android:contentDescription="More options"
                 android:padding="9dp"/>
         </LinearLayout>
+
+    <View
+        android:id="@+id/view_top_nav_divider"
+        android:layout_width="match_parent"
+        android:layout_height="1px"
+        android:layout_gravity="top"
+        android:layout_marginTop="52dp"
+        android:background="?attr/colorOutline"
+        android:alpha="0.25"/>
 
     <!-- ═══════════════════════════════════════════════════════════════════
          Main scroll area — RecyclerView (with AppBarLayout coordination)
