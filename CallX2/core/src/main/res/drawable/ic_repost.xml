@@ -1,25 +1,35 @@
 <?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="28dp" android:height="28dp"
-    android:viewportWidth="24" android:viewportHeight="24">
-    <!--
-        Single-line repost icon:
-        A single rounded rectangle with one arrowhead — like a "share forward" arrow.
-        Goes: left rail down → bottom curve → right rail up → arrowhead at top-right.
-        This is visually a single-line design (one continuous stroke, one arrow tip).
-    -->
+    android:width="28dp"
+    android:height="28dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
     <path
         android:fillColor="@android:color/transparent"
-        android:pathData="M6,17 L6,9 C6,7.895 6.895,7 8,7 L18,7 L15,4 M18,7 L15,10"
-        android:strokeColor="#A855F7"
-        android:strokeWidth="1.0"
+        android:pathData="M17,1l4,4l-4,4"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.8"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"/>
     <path
         android:fillColor="@android:color/transparent"
-        android:pathData="M18,7 L18,15 C18,16.105 17.105,17 16,17 L6,17 L9,20 M6,17 L9,14"
-        android:strokeColor="#A855F7"
-        android:strokeWidth="1.0"
+        android:pathData="M3,11V9a4,4 0,0 1,4,-4h14"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"/>
+    <path
+        android:fillColor="@android:color/transparent"
+        android:pathData="M7,23l-4,-4l4,-4"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"/>
+    <path
+        android:fillColor="@android:color/transparent"
+        android:pathData="M21,13v2a4,4 0,0 1,-4,4H3"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.8"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"/>
 </vector>
