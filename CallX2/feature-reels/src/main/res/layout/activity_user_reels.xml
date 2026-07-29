@@ -149,7 +149,7 @@
                         <TextView android:id="@+id/tv_display_name"
                             android:layout_width="0dp" android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:gravity="center_horizontal"
+                            android:gravity="start"
                             android:text="username"
                             android:textSize="14sp"
                             android:fontFamily="sans-serif-bold"
@@ -167,14 +167,14 @@
                     <LinearLayout
                         android:layout_width="match_parent" android:layout_height="wrap_content"
                         android:orientation="horizontal"
-                        android:gravity="center">
+                        android:gravity="start">
 
                         <!-- Reels count -->
                         <LinearLayout
                             android:layout_width="0dp" android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:orientation="vertical"
-                            android:gravity="center">
+                            android:gravity="start">
                             <TextView android:id="@+id/tv_reel_count"
                                 android:layout_width="wrap_content" android:layout_height="wrap_content"
                                 android:text="0"
@@ -192,7 +192,7 @@
                             android:layout_width="0dp" android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:orientation="vertical"
-                            android:gravity="center"
+                            android:gravity="start"
                             android:clickable="true" android:focusable="true"
                             android:foreground="?attr/selectableItemBackground">
                             <TextView android:id="@+id/tv_followers"
@@ -212,7 +212,7 @@
                             android:layout_width="0dp" android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:orientation="vertical"
-                            android:gravity="center"
+                            android:gravity="start"
                             android:clickable="true" android:focusable="true"
                             android:foreground="?attr/selectableItemBackground">
                             <TextView android:id="@+id/tv_following"
