@@ -122,10 +122,9 @@ public class UserReelsActivity extends AppCompatActivity
     private android.widget.HorizontalScrollView hsvBioLinks;
     private LinearLayout    llBioChips;
     // ── Profile Song pill (Instagram-style) ───────────────────────────────────
-    private android.view.ViewGroup layoutProfileSong;
+    private View            layoutProfileSong;
     private TextView        tvProfileSongName;
-    private android.view.ViewGroup layoutAddSongStub;   // isSelf + no song → "Add a song" stub
-    private View            layoutSongHeartBurst;       // tap-on-pill heart burst (💕💕), Instagram-style
+    private View            layoutAddSongStub;   // isSelf + no song → "Add a song" stub
     // Custom accent color for the profile-song strip (picked via the shared
     // rainbow color picker, long-press on either pill state). Null = default
     // theme-aware bg_song_pill.xml / drawable-night styling.
@@ -510,7 +509,6 @@ public class UserReelsActivity extends AppCompatActivity
         layoutProfileSong = findViewById(R.id.layout_profile_song);
         tvProfileSongName = findViewById(R.id.tv_profile_song_name);
         layoutAddSongStub = findViewById(R.id.layout_add_song_stub);
-        layoutSongHeartBurst = findViewById(R.id.layout_song_heart_burst);
         btnMessageCta     = findViewById(R.id.btn_message_cta);
         btnCtaCall       = findViewById(R.id.btn_cta_call);
         layoutInstagramCta = findViewById(R.id.layout_instagram_cta);
@@ -3637,82 +3635,25 @@ public class UserReelsActivity extends AppCompatActivity
      */
     private void applyStripAccentColor(String hex) {
         android.graphics.drawable.Drawable bg;
-        Integer contentColor = null; // null → leave XML's default ?attr/colorOnSurface
         if (hex != null && !hex.isEmpty()) {
             try {
                 int color = android.graphics.Color.parseColor(hex);
                 android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
                 gd.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
                 gd.setCornerRadius(20f * getResources().getDisplayMetrics().density);
-                gd.setStroke(Math.round(0.75f * getResources().getDisplayMetrics().density), 0x14000000);
-                // Badge now overlaps the avatar photo (Instagram-style),
-                // so the fill must be fully opaque to stay readable —
-                // no more faint 13%-alpha tint like the old under-bio strip.
-                gd.setColor(color);
+                gd.setStroke(Math.round(1f * getResources().getDisplayMetrics().density), color);
+                // Faint tint of the picked color as fill, same "premium hairline
+                // pill" feel as the default drawable, just recolored.
+                gd.setColor((0x22 << 24) | (color & 0x00FFFFFF));
                 bg = gd;
-                // Auto-pick black/white text+icon based on picked color's
-                // luminance so it stays legible against any accent.
-                contentColor = (android.graphics.Color.luminance(color) > 0.5)
-                    ? 0xFF111111 : 0xFFFFFFFF;
             } catch (Exception e) {
-                bg = androidx.core.content.ContextCompat.getDrawable(this, R.drawable.bg_profile_song_badge);
+                bg = androidx.core.content.ContextCompat.getDrawable(this, R.drawable.bg_song_pill);
             }
         } else {
-            bg = androidx.core.content.ContextCompat.getDrawable(this, R.drawable.bg_profile_song_badge);
+            bg = androidx.core.content.ContextCompat.getDrawable(this, R.drawable.bg_song_pill);
         }
-        if (layoutProfileSong != null) {
-            layoutProfileSong.setBackground(bg);
-            applyBadgeContentColor(layoutProfileSong, contentColor);
-        }
-        if (layoutAddSongStub != null) {
-            layoutAddSongStub.setBackground(bg != null ? bg.getConstantState().newDrawable().mutate() : null);
-            applyBadgeContentColor(layoutAddSongStub, contentColor);
-        }
-    }
-
-    /** Instagram-style tap reaction on the profile-song pill: two small
-     *  hearts (💕💕) fade + float up briefly over the avatar, then fade
-     *  back out. Purely decorative — no state is persisted. Safe to call
-     *  repeatedly; any in-flight animation is cancelled and restarted. */
-    private void playSongHeartBurst() {
-        if (layoutSongHeartBurst == null) return;
-        layoutSongHeartBurst.animate().cancel();
-        layoutSongHeartBurst.setVisibility(View.VISIBLE);
-        layoutSongHeartBurst.setAlpha(0f);
-        layoutSongHeartBurst.setScaleX(0.6f);
-        layoutSongHeartBurst.setScaleY(0.6f);
-        layoutSongHeartBurst.setTranslationY(0f);
-        layoutSongHeartBurst.animate()
-            .alpha(1f).scaleX(1f).scaleY(1f).translationY(-14f)
-            .setDuration(220)
-            .withEndAction(() -> {
-                if (layoutSongHeartBurst == null) return;
-                layoutSongHeartBurst.animate()
-                    .alpha(0f).translationY(-30f)
-                    .setStartDelay(350)
-                    .setDuration(280)
-                    .withEndAction(() -> {
-                        if (layoutSongHeartBurst == null) return;
-                        layoutSongHeartBurst.setVisibility(View.GONE);
-                        layoutSongHeartBurst.setTranslationY(0f);
-                        layoutSongHeartBurst.setScaleX(1f);
-                        layoutSongHeartBurst.setScaleY(1f);
-                    })
-                    .start();
-            })
-            .start();
-    }
-
-    /** Tints a badge's icon + text to match a custom accent color, or resets
-     *  both back to the theme-aware ?attr/colorOnSurface default (null). */
-    private void applyBadgeContentColor(android.view.ViewGroup badge, Integer colorOrNull) {
-        int resolved = colorOrNull != null ? colorOrNull
-            : resolveAttrColor(android.R.attr.textColorPrimary, 0xFF222222);
-        for (int i = 0; i < badge.getChildCount(); i++) {
-            android.view.View child = badge.getChildAt(i);
-            if (child instanceof ImageView) ((ImageView) child).setColorFilter(resolved);
-            else if (child instanceof TextView) ((TextView) child).setTextColor(resolved);
-        }
+        if (layoutProfileSong  != null) layoutProfileSong.setBackground(bg);
+        if (layoutAddSongStub  != null) layoutAddSongStub.setBackground(bg != null ? bg.getConstantState().newDrawable().mutate() : null);
     }
 
     /**
@@ -3908,7 +3849,6 @@ public class UserReelsActivity extends AppCompatActivity
                     if (songArtist != null && !songArtist.isEmpty())
                         displayText = songTitle + "...";
                     tvProfileSongName.setText(displayText);
-                    tvProfileSongName.setSelected(true); // marquee needs isSelected=true
                     layoutProfileSong.setVisibility(View.VISIBLE);
 
                     // Capture finals for lambda
@@ -3932,7 +3872,6 @@ public class UserReelsActivity extends AppCompatActivity
                     if (isSelf) {
                         // isSelf: tap → Open / Replace / Remove menu
                         layoutProfileSong.setOnClickListener(v -> {
-                            playSongHeartBurst();
                             PopupMenu menu = new PopupMenu(UserReelsActivity.this, v);
                             menu.getMenu().add(0, 1, 0, "Open Song");
                             menu.getMenu().add(0, 2, 1, "Replace Song");
@@ -3954,10 +3893,7 @@ public class UserReelsActivity extends AppCompatActivity
                         // (see setupMoreMenu()) — no longer a long-press here.
                         layoutProfileSong.setOnLongClickListener(null);
                     } else {
-                        layoutProfileSong.setOnClickListener(v -> {
-                            playSongHeartBurst();
-                            openSoundDetail.run();
-                        });
+                        layoutProfileSong.setOnClickListener(v -> openSoundDetail.run());
                         layoutProfileSong.setOnLongClickListener(null);
                     }
                 } else {
