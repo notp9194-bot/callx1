@@ -169,6 +169,25 @@ public class FirebaseUtils {
         return db().getReference("userReposts").child(uid);
     }
 
+    /**
+     * Reels a user has duetted (profile "duet" tab index): userDuetReels/{uid}/{reelId} = timestamp.
+     * {reelId} is the NEW duet reel the user recorded/published (owned reel), written from
+     * ReelUploadActivity right after the duet reel itself is published to "reels"/"reelsByUser".
+     */
+    public static DatabaseReference getUserDuetReelsRef(String uid) {
+        return db().getReference("userDuetReels").child(uid);
+    }
+
+    /**
+     * Reels a user is part of via a Collab Repost (profile "collab repost" tab index):
+     * userCollabRepostReels/{uid}/{reelId} = timestamp. Written for BOTH the initiator and the
+     * collaborator when a collab repost invite is accepted (see CollabRepostAcceptActivity),
+     * since {reelId} — the joint collab reel — already lives on both users' reelsByUser index.
+     */
+    public static DatabaseReference getUserCollabRepostReelsRef(String uid) {
+        return db().getReference("userCollabRepostReels").child(uid);
+    }
+
     /** Per-reel saved-by index: reelSavesIndex/{reelId}/{uid} = true */
     public static DatabaseReference getReelSavesIndexRef(String reelId) {
         return db().getReference("reelSavesIndex").child(reelId);

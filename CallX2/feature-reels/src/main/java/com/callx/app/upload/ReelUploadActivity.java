@@ -2189,6 +2189,14 @@ public class ReelUploadActivity extends AppCompatActivity {
                                 .child("duetCount")
                                 .setValue(ServerValue.increment(1));
 
+                            // Profile "Duet" grid tab index — mirrors userReposts, but keyed
+                            // by the NEW duet reel (owned by the duet creator) rather than the
+                            // original, since this reel already lives on the creator's own
+                            // reelsByUser index — see UserReelsActivity's TAB_DUET.
+                            FirebaseUtils.getUserDuetReelsRef(myUid)
+                                .child(finalReelId)
+                                .setValue(System.currentTimeMillis());
+
                             // ✅ FIXED: Full notification pipeline (FCM + in-app + queue fallback)
                             // Fires only AFTER reel is confirmed published to Firebase.
                             // DuetNotificationWorker → PushNotify.notifyReelDuet()

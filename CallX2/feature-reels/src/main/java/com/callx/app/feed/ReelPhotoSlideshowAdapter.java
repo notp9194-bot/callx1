@@ -52,7 +52,6 @@ import com.bumptech.glide.request.target.Target;
 import com.bumptech.glide.load.resource.bitmap.CenterCrop;
 import com.callx.app.interactions.ReelStickerReplyHelper;
 import com.callx.app.models.ReelModel;
-import com.callx.app.music.SoundDetailActivity;
 import com.callx.app.reels.R;
 import com.callx.app.utils.FirebaseUtils;
 import com.google.firebase.database.DataSnapshot;
@@ -861,17 +860,22 @@ public class ReelPhotoSlideshowAdapter
             });
         }
 
+        // FIX: this used to launch the full-screen SoundDetailActivity. Status's
+        // music sticker opens SoundDetailSheetFragment as a bottom sheet instead —
+        // this now matches that, using the app's FragmentActivity host to show it.
         if ("music".equals(stickerType) && sticker.isMusicLinkedToReelSound()) {
             sticker.setOnClickListener(v -> {
-                try {
-                    Intent intent = new Intent(ctx, SoundDetailActivity.class);
-                    intent.putExtra(SoundDetailActivity.EXTRA_SOUND_ID,    sticker.getMusicSoundId());
-                    intent.putExtra(SoundDetailActivity.EXTRA_SOUND_TITLE, sticker.getMusicSong());
-                    intent.putExtra(SoundDetailActivity.EXTRA_ARTIST,      sticker.getMusicArtist());
-                    intent.putExtra(SoundDetailActivity.EXTRA_SOUND_URL,   sticker.getMusicSoundUrl());
-                    intent.putExtra(SoundDetailActivity.EXTRA_COVER_URL,   sticker.getMusicCoverUrl());
-                    ctx.startActivity(intent);
-                } catch (Exception ignored) {}
+                androidx.fragment.app.FragmentActivity activity = activityOf(ctx);
+                if (activity == null) return;
+                com.callx.app.music.SoundDetailSheetFragment sheet =
+                        com.callx.app.music.SoundDetailSheetFragment.newInstance(
+                                sticker.getMusicSoundId(),
+                                sticker.getMusicSong(),
+                                sticker.getMusicArtist(),
+                                sticker.getMusicCoverUrl(),
+                                sticker.getMusicSoundUrl(),
+                                0);
+                sheet.show(activity.getSupportFragmentManager(), "sound_detail_full");
             });
         }
 
@@ -950,6 +954,38 @@ public class ReelPhotoSlideshowAdapter
                 catch (Exception ignored) {}
             });
         }
+
+        // FIX: ➕ Add Yours sticker had no tap handler at all — taps did nothing.
+        // Reels has no chain-prefill composer extra (unlike Status's
+        // NewStatusActivity.EXTRA_PREFILL_STICKER_JSON), so this opens the same
+        // plain camera-first "make a reel" entry point every other in-app
+        // "use this sound"/"participate" action uses, with a toast naming whose
+        // prompt is being continued.
+        if ("addyours".equals(stickerType) && !isOwner) {
+            sticker.setOnClickListener(v -> {
+                String prompt = sticker.getAddYoursPrompt();
+                if (prompt == null || prompt.isEmpty()) return;
+                String origin = sticker.getAddYoursOriginName();
+                android.widget.Toast.makeText(ctx,
+                        "Adding to " + (origin != null && !origin.isEmpty() ? origin : "their") + "'s prompt",
+                        android.widget.Toast.LENGTH_SHORT).show();
+                try {
+                    ctx.startActivity(new Intent(ctx, com.callx.app.camera.ReelCameraActivity.class));
+                } catch (Exception ignored) {}
+            });
+        }
+    }
+
+    /** Unwraps a View's Context down to its hosting FragmentActivity, or null if none. */
+    @Nullable
+    private static androidx.fragment.app.FragmentActivity activityOf(Context ctx) {
+        while (ctx instanceof android.content.ContextWrapper) {
+            if (ctx instanceof androidx.fragment.app.FragmentActivity) {
+                return (androidx.fragment.app.FragmentActivity) ctx;
+            }
+            ctx = ((android.content.ContextWrapper) ctx).getBaseContext();
+        }
+        return null;
     }
 
     /** Reads all votes on a reel's 🗳️ Poll sticker and reveals the live A/B percentage split. */

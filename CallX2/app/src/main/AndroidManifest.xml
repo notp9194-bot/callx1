@@ -81,18 +81,22 @@
                 <category android:name="android.intent.category.DEFAULT"/>
             </intent-filter>
 
-            <!-- ── Android App Links (Verified Links like WhatsApp) ──
-                 Server pe assetlinks.json live hai:
-                 https://callx-server.onrender.com/.well-known/assetlinks.json
-                 SHA-256: 92:31:CD:9F:90:15:45:54:3B:92:D8:21:FC:6E:1F:DC:
-                          D5:40:8B:F0:69:04:96:85:BD:30:99:50:1A:EB:5D:03  -->
-            <intent-filter android:autoVerify="true">
-                <action android:name="android.intent.action.VIEW"/>
-                <category android:name="android.intent.category.DEFAULT"/>
-                <category android:name="android.intent.category.BROWSABLE"/>
-                <data android:scheme="https"
-                      android:host="callx-server.onrender.com"/>
-            </intent-filter>
+            <!-- Android App Links (https://callx-server.onrender.com/*) are handled
+                 EXCLUSIVELY by DeepLinkRouterActivity (see its manifest entry below),
+                 which parses the URI path and routes /reel/{id} → SingleReelPlayerActivity,
+                 /u/{uid} → ProfileActivity, etc., then forwards bare app-section links
+                 (e.g. /reels, /chats) back here via an internal "open_tab" extra — see
+                 handleDeepLinkIntent() below.
+                 This activity used to ALSO declare the same autoVerify https+host
+                 intent-filter with no path restriction. MainActivity never parses
+                 intent.getData() itself (only reads the "open_tab" extra), so whenever
+                 Android resolved a shared reel-link tap to THIS activity instead of
+                 DeepLinkRouterActivity — an unpredictable outcome once two activities in
+                 the same app declare an identical, unqualified data pattern — the tap
+                 silently did nothing: no crash, no reel, just the app coming to the
+                 foreground. This is what made reel cards shared in chat stop opening on
+                 tap. Removed; DeepLinkRouterActivity is now the single, unambiguous
+                 handler for every https://callx-server.onrender.com/* link. -->
         </activity>
         <activity android:name=".activities.ChatActivity"     android:exported="false"
             android:resizeableActivity="true"

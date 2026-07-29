@@ -56,12 +56,28 @@ final class SeenBubbleRenderer {
             canvas.drawOval(host.seenAvatarRect, host.seenAvatarPlaceholderPaint);
         }
 
-        // ── Card ──
+        // ── Card (MODERNIZE: folded top-right corner / "dog-ear" instead of
+        // a plain 4-corner rounded card — reads as a folded note/bookmark) ──
         float r = MessageBubbleCanvasView.SEEN_CARD_CORNER_DP * host.density;
-        host.seenCardBgPaint.setColor(host.seenIsReel ? MessageBubbleCanvasView.SEEN_REEL_BG_COLOR : MessageBubbleCanvasView.SEEN_STATUS_BG_COLOR);
-        canvas.save();
+        float fold = Math.min(MessageBubbleCanvasView.SEEN_CARD_FOLD_DP * host.density,
+                Math.min(host.seenCardRect.width(), host.seenCardRect.height()) * 0.4f);
+        int bgColor = host.seenIsReel ? MessageBubbleCanvasView.SEEN_REEL_BG_COLOR : MessageBubbleCanvasView.SEEN_STATUS_BG_COLOR;
+        host.seenCardBgPaint.setColor(bgColor);
+
+        // Base shape: normal round-rect on all 4 corners, then subtract a
+        // triangular notch from the top-right corner (Path.Op.DIFFERENCE) to
+        // create the folded-corner silhouette.
+        android.graphics.Path basePath = new android.graphics.Path();
+        basePath.addRoundRect(host.seenCardRect, r, r, android.graphics.Path.Direction.CW);
+        android.graphics.Path notchPath = new android.graphics.Path();
+        notchPath.moveTo(host.seenCardRect.right - fold, host.seenCardRect.top - 1f);
+        notchPath.lineTo(host.seenCardRect.right + 1f, host.seenCardRect.top - 1f);
+        notchPath.lineTo(host.seenCardRect.right + 1f, host.seenCardRect.top + fold);
+        notchPath.close();
         android.graphics.Path clipPath = new android.graphics.Path();
-        clipPath.addRoundRect(host.seenCardRect, r, r, android.graphics.Path.Direction.CW);
+        clipPath.op(basePath, notchPath, android.graphics.Path.Op.DIFFERENCE);
+
+        canvas.save();
         canvas.clipPath(clipPath);
         canvas.drawRect(host.seenCardRect, host.seenCardBgPaint);
 

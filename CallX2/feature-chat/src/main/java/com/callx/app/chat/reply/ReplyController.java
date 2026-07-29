@@ -33,7 +33,19 @@ public class ReplyController {
     }
 
     // Feature flags
-    public static boolean ENABLE_UNDO = true;
+    // WHATSAPP-STYLE FIX: this used to default to true, which routed every
+    // swipe-to-reply through a 2-SECOND PENDING_UNDO delay (see
+    // scheduleUndoTimeout/UNDO_TIMEOUT_MS below) before activateReply() —
+    // and therefore ChatActivity.activateReplyDirect() — ever ran. That's
+    // the actual cause of "swipe reply karte hain to turant keyboard nahi
+    // khulta / reply preview dikhne mein time leta hai": the keyboard-open
+    // and reply-bar-show logic in activateReplyDirect() were never slow,
+    // they simply weren't being CALLED until 2s after the swipe. WhatsApp
+    // has no such delay — swiping a bubble shows the reply bar and opens
+    // the keyboard immediately, with no intermediate "Replying to X… UNDO"
+    // snackbar step. Disabling this makes onSwipeReply() call
+    // activateReply() synchronously, matching that instant behavior.
+    public static boolean ENABLE_UNDO = false;
     private static final long UNDO_TIMEOUT_MS = 2000L;
 
     private State   state   = State.IDLE;

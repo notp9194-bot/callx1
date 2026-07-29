@@ -18,7 +18,6 @@ import androidx.fragment.app.FragmentManager;
 import androidx.media3.common.util.UnstableApi;
 import com.callx.app.interactions.ReelStickerReplyHelper;
 import com.callx.app.models.ReelModel;
-import com.callx.app.music.SoundDetailActivity;
 import com.callx.app.reels.R;
 import com.callx.app.stickers.StatusStickerOverlayView;
 import com.callx.app.utils.FirebaseUtils;
@@ -845,17 +844,20 @@ public class ReelPlayerFragment extends Fragment
             });
         }
 
+        // FIX: this used to launch the full-screen SoundDetailActivity. Status's
+        // music sticker opens SoundDetailSheetFragment as a bottom sheet instead —
+        // this now matches that, using this fragment's own child FragmentManager.
         if ("music".equals(stickerType) && sticker.isMusicLinkedToReelSound()) {
             sticker.setOnClickListener(v -> {
-                try {
-                    Intent intent = new Intent(ctx, SoundDetailActivity.class);
-                    intent.putExtra(SoundDetailActivity.EXTRA_SOUND_ID,    sticker.getMusicSoundId());
-                    intent.putExtra(SoundDetailActivity.EXTRA_SOUND_TITLE, sticker.getMusicSong());
-                    intent.putExtra(SoundDetailActivity.EXTRA_ARTIST,      sticker.getMusicArtist());
-                    intent.putExtra(SoundDetailActivity.EXTRA_SOUND_URL,   sticker.getMusicSoundUrl());
-                    intent.putExtra(SoundDetailActivity.EXTRA_COVER_URL,   sticker.getMusicCoverUrl());
-                    ctx.startActivity(intent);
-                } catch (Exception ignored) {}
+                com.callx.app.music.SoundDetailSheetFragment sheet =
+                        com.callx.app.music.SoundDetailSheetFragment.newInstance(
+                                sticker.getMusicSoundId(),
+                                sticker.getMusicSong(),
+                                sticker.getMusicArtist(),
+                                sticker.getMusicCoverUrl(),
+                                sticker.getMusicSoundUrl(),
+                                0);
+                sheet.show(getChildFragmentManager(), "sound_detail_full");
             });
         }
 
@@ -945,6 +947,26 @@ public class ReelPlayerFragment extends Fragment
                 if (url == null || url.isEmpty()) return;
                 try { ctx.startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))); }
                 catch (Exception ignored) {}
+            });
+        }
+
+        // FIX: ➕ Add Yours sticker had no tap handler at all — taps did nothing.
+        // Reels has no chain-prefill composer extra (unlike Status's
+        // NewStatusActivity.EXTRA_PREFILL_STICKER_JSON), so this opens the same
+        // plain camera-first "make a reel" entry point every other in-app
+        // "use this sound"/"participate" action uses, with a toast naming whose
+        // prompt is being continued.
+        if ("addyours".equals(stickerType) && !isOwner) {
+            sticker.setOnClickListener(v -> {
+                String prompt = sticker.getAddYoursPrompt();
+                if (prompt == null || prompt.isEmpty()) return;
+                String origin = sticker.getAddYoursOriginName();
+                android.widget.Toast.makeText(ctx,
+                        "Adding to " + (origin != null && !origin.isEmpty() ? origin : "their") + "'s prompt",
+                        android.widget.Toast.LENGTH_SHORT).show();
+                try {
+                    ctx.startActivity(new Intent(ctx, com.callx.app.camera.ReelCameraActivity.class));
+                } catch (Exception ignored) {}
             });
         }
     }

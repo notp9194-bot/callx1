@@ -425,7 +425,30 @@ public class ReelSocialController {
         DatabaseReference viewRef = FirebaseUtils.getReelViewsRef(reel.reelId).child(myUid);
         viewRef.addListenerForSingleValueEvent(new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot s) {
-                if (s.exists()) return;
+                // BUG FIX: writeReelSeenToChat() used to live INSIDE the
+                // "if (s.exists()) return;" branch below — so it only ever
+                // fired on the viewer's very first-ever view of this reelId.
+                // reelViews/{reelId}/{myUid} is a permanent marker (never
+                // cleared), so every subsequent rewatch — recordView() fires
+                // again each time the reel becomes visible, see
+                // ReelPlayerFragment.applyVisibleState — hit s.exists()==true
+                // and returned before ever reaching ReelSeenTracker. Net
+                // effect: the "🎬 Watched your reel" chat bubble could only
+                // ever fire once per viewer per reel, ever — and not at all
+                // if that one-time view happened before the contacts/chat
+                // relationship existed yet (ReelSeenTracker's own gate would
+                // silently skip it, burning the only chance for good).
+                // ReelSeenTracker already owns a 1-hour-per-reel dedup
+                // (reelSeenDedup/{viewerUid}/{reelId}) specifically so
+                // rewatches CAN re-bubble after that window — that logic was
+                // simply unreachable. Fix: call it unconditionally on every
+                // recordView(), outside the exists() gate, and let
+                // ReelSeenTracker's own dedup decide if this rewatch bubbles.
+                com.callx.app.utils.ReelSeenTracker.writeReelSeenToChat(
+                    reel.uid, reel.reelId,
+                    reel.thumbUrl != null ? reel.thumbUrl : reel.thumbnailUrl);
+
+                if (s.exists()) return; // viewsCount / watch-history already recorded once — skip below
                 viewRef.setValue(true);
                 FirebaseUtils.getReelsRef().child(reel.reelId).child("viewsCount")
                     .runTransaction(new Transaction.Handler() {
@@ -439,9 +462,6 @@ public class ReelSocialController {
                 FirebaseUtils.getReelWatchHistoryRef(myUid).child(reel.reelId)
                     .setValue(System.currentTimeMillis());
                 FirebaseUtils.getReelWatchProgressRef(myUid).child(reel.reelId).setValue(0);
-                com.callx.app.utils.ReelSeenTracker.writeReelSeenToChat(
-                    reel.uid, reel.reelId,
-                    reel.thumbUrl != null ? reel.thumbUrl : reel.thumbnailUrl);
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         });

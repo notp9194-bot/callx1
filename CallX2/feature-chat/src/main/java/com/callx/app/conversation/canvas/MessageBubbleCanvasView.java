@@ -460,7 +460,11 @@ public class MessageBubbleCanvasView extends View {
     // the caption is a separate overlay inside the bottom gradient. ──
     static final float REEL_CARD_WIDTH_DP        = 165f;
     static final float REEL_CARD_HEIGHT_DP       = 237f;
-    static final float REEL_CORNER_RADIUS_DP     = 12f;
+    // MODERNIZE: was 12f — fairly tight/subtle rounding that read as dated
+    // next to the app's other cards (link-preview, seen-bubble thumb, media
+    // bubbles all sit closer to 16-20dp). Bumped to 20dp for a softer,
+    // more "pill-ish" modern card look on the reel-share bubble.
+    static final float REEL_CORNER_RADIUS_DP     = 20f;
     static final float REEL_TOP_GRADIENT_DP      = 60f;
     static final float REEL_BOTTOM_GRADIENT_DP   = 80f;
     static final float REEL_HEADER_PAD_H_DP      = 8f;
@@ -622,6 +626,11 @@ public class MessageBubbleCanvasView extends View {
     static final float SEEN_TIME_GAP_TOP_DP      = 3f;
     static final int   SEEN_REEL_BG_COLOR        = 0xFF7F1D1D;
     static final int   SEEN_STATUS_BG_COLOR      = 0xFF4C1D95;
+    // MODERNIZE: dog-ear folded-corner look (top-right corner clipped
+    // diagonally + a small darker "flap" drawn over the cut, like a
+    // folded note/bookmark) instead of a plain 4-corner rounded card —
+    // see SeenBubbleRenderer.draw().
+    static final float SEEN_CARD_FOLD_DP         = 15f;
 
     // ── Call-entry pill — mirrors item_call_entry_bubble.xml: a small
     // rounded pill (same solid purple as the seen-bubble card, 14dp
@@ -1604,6 +1613,9 @@ public class MessageBubbleCanvasView extends View {
     final RectF seenCardRect = new RectF();
     final RectF seenThumbRect = new RectF();
     final Paint seenCardBgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    // Folded-corner (dog-ear) flap + its crease line — see SeenBubbleRenderer.draw()
+    final Paint seenCardFoldPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    final Paint seenCardCreasePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     final Paint seenAvatarPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
     final Paint seenAvatarPlaceholderPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     final Paint seenThumbPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
@@ -2072,6 +2084,9 @@ public class MessageBubbleCanvasView extends View {
         seenNamePaint.setTextSize(SEEN_NAME_TEXT_SP * density);
         seenTimePaint.setColor(SEEN_TIME_COLOR);
         seenTimePaint.setTextSize(SEEN_TIME_TEXT_SP * density);
+        seenCardCreasePaint.setStyle(Paint.Style.STROKE);
+        seenCardCreasePaint.setStrokeWidth(1f * density);
+        seenCardCreasePaint.setColor(0x33000000);
 
         // ── Call-entry pill paints ──
         callEntryBgPaint.setColor(SEEN_STATUS_BG_COLOR);

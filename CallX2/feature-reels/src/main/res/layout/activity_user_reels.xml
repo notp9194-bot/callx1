@@ -823,7 +823,7 @@
             app:tabPaddingStart="-1dp"
             app:tabPaddingEnd="-1dp">
 
-            <!-- Icon-only tabs — Instagram style: Reels | Liked | Saved | Repost | Series -->
+            <!-- Icon-only tabs — Instagram style: Reels | Repost | Duet | Collab Repost | Series -->
             <com.google.android.material.tabs.TabItem
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
@@ -833,6 +833,16 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:icon="@drawable/ic_repost"/>
+
+            <com.google.android.material.tabs.TabItem
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:icon="@drawable/ic_video_call"/>
+
+            <com.google.android.material.tabs.TabItem
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:icon="@drawable/ic_group"/>
 
             <com.google.android.material.tabs.TabItem
                 android:layout_width="wrap_content"

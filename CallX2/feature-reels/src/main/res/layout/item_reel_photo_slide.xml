@@ -9,11 +9,23 @@
       1. iv_photo_slide          – main photo (fitCenter — never cropped)
       2. v_effect_overlay        – full-bleed shader overlay (vignette / grain / glitch / etc.)
       3. v_color_filter_overlay  – semi-transparent colour tint for live filter preview
-      4. ll_sticker_layer        – FrameLayout for programmatically added emoji/text stickers
-      5. view_zoom_touch         – transparent hit-target for pinch-zoom & double-tap gestures
+      4. view_zoom_touch         – transparent hit-target for pinch-zoom & double-tap gestures
+      5. ll_sticker_layer        – FrameLayout for interactive/emoji/text stickers
       6. v_top_gradient_scrim    – gradient at top for story bar readability
       7. v_bottom_gradient_scrim – deep Instagram-style bottom gradient scrim
       8. tv_photo_caption        – per-photo animated caption card at the bottom
+
+      FIX: ll_sticker_layer used to sit BELOW view_zoom_touch (old order
+      4/5 swapped). view_zoom_touch is a full-bleed transparent View whose
+      OnTouchListener (ReelPhotoSlideshowAdapter#attachGestures) always
+      returns true, so with it on top it swallowed every touch — including
+      taps on a music/poll/quiz/slider/countdown/mention/hashtag/link/
+      add-yours sticker — before they ever reached the sticker view
+      underneath. Moving ll_sticker_layer ABOVE view_zoom_touch fixes this:
+      a tap on a sticker now dispatches to that (clickable) sticker view
+      first and is consumed there, while a tap anywhere else on the photo
+      falls through the (non-clickable) sticker layer to view_zoom_touch
+      exactly as before, so pinch-zoom/double-tap/long-press stay unaffected.
 -->
 <FrameLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
@@ -58,14 +70,7 @@
         android:visibility="gone"
         android:clickable="false"/>
 
-    <!-- ── 4. Sticker layer (emoji, drawn text, GIF stickers) ────────────── -->
-    <FrameLayout
-        android:id="@+id/ll_sticker_layer"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:clickable="false"/>
-
-    <!-- ── 5. Zoom gesture hit-target (covers full slide, below caption UI) -->
+    <!-- ── 4. Zoom gesture hit-target (covers full slide, below sticker layer) -->
     <View
         android:id="@+id/view_zoom_touch"
         android:layout_width="match_parent"
@@ -73,6 +78,16 @@
         android:background="@android:color/transparent"
         android:clickable="true"
         android:focusable="false"/>
+
+    <!-- ── 5. Sticker layer (emoji, drawn text, GIF + interactive stickers) ──
+         Sits ABOVE view_zoom_touch so taps land on a clickable sticker
+         first; any tap missing every sticker falls through to the
+         zoom-touch view underneath for pinch/pan/double-tap as before. -->
+    <FrameLayout
+        android:id="@+id/ll_sticker_layer"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:clickable="false"/>
 
     <!-- ── 6. Top gradient scrim — keeps story progress readable ──────────
          120dp tall, fades from dark at top to transparent at ~40% height. -->

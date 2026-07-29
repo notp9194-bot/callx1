@@ -86,12 +86,18 @@ public class UserReelsActivity extends AppCompatActivity
     // constants are kept only for AllReelsFullActivity's own EXTRA_TAB values.
     private static final int TAB_REPOST = 3;
     private static final int TAB_SERIES = 4;
+    // New grid tabs: reels a user has duetted (own duet reels), and reels
+    // published via an accepted Collab Repost invite (see TAB_REPOST for the
+    // repost tab this pairs with).
+    private static final int TAB_DUET          = 5;
+    private static final int TAB_COLLAB_REPOST = 6;
 
-    // Visible tab STRIP position (0,1,2 — what tab.getPosition() returns for
-    // the 3 remaining tabs: Reels, Repost, Series) → internal data constant
-    // above. Needed because the strip no longer has 5 tabs in constant order,
-    // so position and data-constant are no longer the same number.
-    private static final int[] VISIBLE_TAB_DATA = { TAB_REELS, TAB_REPOST, TAB_SERIES };
+    // Visible tab STRIP position (0..4 — what tab.getPosition() returns for
+    // the 5 tabs: Reels, Repost, Duet, Collab Repost, Series) → internal data
+    // constant above. Needed because the strip no longer has tabs in constant
+    // order, so position and data-constant are no longer the same number.
+    private static final int[] VISIBLE_TAB_DATA =
+            { TAB_REELS, TAB_REPOST, TAB_DUET, TAB_COLLAB_REPOST, TAB_SERIES };
     // Current tab strip position (0..2) — separate from `activeTab`, which
     // holds the DATA constant (0/3/4). Used to compute swipe-left/right's
     // next/previous tab.
@@ -154,7 +160,7 @@ public class UserReelsActivity extends AppCompatActivity
     // — used only for the Reels tab if it has no per-tab color yet.)
     private String          legacyGridAccentColorHex = null;
     private static final String[] GRID_TAB_KEYS =
-            { "reels", "liked", "saved", "repost", "series" };
+            { "reels", "liked", "saved", "repost", "series", "duet", "collab_repost" };
     // PERF: plain fixed-size array instead of a HashMap<String,String> —
     // only 5 tabs ever exist, so an array index is a direct memory read
     // with zero hashing/boxing, vs a HashMap lookup (hash the key, walk a
@@ -276,14 +282,18 @@ public class UserReelsActivity extends AppCompatActivity
     private final List<ReelModel> likedTabData   = new ArrayList<>();
     private final List<ReelModel> savedTabData   = new ArrayList<>();
     private final List<ReelModel> repostsTabData = new ArrayList<>();
+    private final List<ReelModel> duetTabData         = new ArrayList<>();
+    private final List<ReelModel> collabRepostTabData = new ArrayList<>();
     private final Set<String>     selectedReelIds = new HashSet<>();
       private final java.util.List<DuetSeriesModel> seriesTabData = new ArrayList<>();
       private boolean seriesLoaded = false;
 
     private String  reelsLastKey = null, likedLastKey = null,
-                    savedLastKey = null, repostsLastKey = null;
+                    savedLastKey = null, repostsLastKey = null,
+                    duetLastKey = null, collabRepostLastKey = null;
     private boolean reelsHasMore = true, likedHasMore = true,
-                    savedHasMore = true, repostsHasMore = true;
+                    savedHasMore = true, repostsHasMore = true,
+                    duetHasMore = true, collabRepostHasMore = true;
     private boolean isLoadingMore = false;
 
     // ── Realtime update helpers (self only) ───────────────────────────────
@@ -383,6 +393,10 @@ public class UserReelsActivity extends AppCompatActivity
             // Advance #3 — one-time, battery/network-friendly backfill of
             // BlurHash for reels posted before that feature shipped.
             com.callx.app.workers.BlurHashBackfillWorker.enqueueFor(getApplicationContext(), targetUid);
+            // One-time backfill of the new Duet/Collab Repost grid tab
+            // indexes for reels posted before those tabs shipped — see
+            // DuetCollabIndexBackfillWorker.
+            com.callx.app.workers.DuetCollabIndexBackfillWorker.enqueueFor(getApplicationContext(), targetUid);
         }
         loadFollowState();
         loadVerifiedStatus();
@@ -657,6 +671,8 @@ public class UserReelsActivity extends AppCompatActivity
             case TAB_LIKED:  return likedHasMore;
             case TAB_SAVED:  return savedHasMore;
             case TAB_REPOST: return repostsHasMore;
+            case TAB_DUET:   return duetHasMore;
+            case TAB_COLLAB_REPOST: return collabRepostHasMore;
             case TAB_SERIES: return false;
             default:         return reelsHasMore;
         }
@@ -1044,6 +1060,8 @@ public class UserReelsActivity extends AppCompatActivity
             case TAB_LIKED:  return likedTabData;
             case TAB_SAVED:  return savedTabData;
             case TAB_REPOST: return repostsTabData;
+            case TAB_DUET:   return duetTabData;
+            case TAB_COLLAB_REPOST: return collabRepostTabData;
             default:         return reelsTabData;
         }
     }
@@ -2070,6 +2088,8 @@ public class UserReelsActivity extends AppCompatActivity
             case TAB_LIKED:  loadLikedReels(refresh);    break;
             case TAB_SAVED:  loadSavedReels(refresh);    break;
             case TAB_REPOST: loadRepostedReels(refresh); break;
+            case TAB_DUET:   loadDuetReels(refresh);     break;
+            case TAB_COLLAB_REPOST: loadCollabRepostReels(refresh); break;
             case TAB_SERIES: loadSeriesTab(refresh);     break;
             default:         loadUserReels(refresh);     break;
         }
@@ -2218,6 +2238,45 @@ public class UserReelsActivity extends AppCompatActivity
         });
     }
 
+    /** Duet tab — reels this user has duetted, indexed at userDuetReels/{uid} (see FirebaseUtils). */
+    private void loadDuetReels(boolean refresh) {
+        if (isLoadingMore && !refresh) return;
+        isLoadingMore = true;
+        if (refresh) { duetLastKey = null; duetHasMore = true; duetTabData.clear(); showSkeleton(); }
+        Query q = buildQuery(FirebaseUtils.getUserDuetReelsRef(targetUid), duetLastKey);
+        q.addListenerForSingleValueEvent(new ValueEventListener() {
+            @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                if (isFinishing() || isDestroyed()) return;
+                if (snap.getChildrenCount() < PAGE_SIZE) duetHasMore = false;
+                if (snap.getChildrenCount() == 0) { finishLoading(refresh, TAB_DUET); return; }
+                List<String> ids = extractIds(snap);
+                if (!ids.isEmpty()) duetLastKey = ids.get(ids.size() - 1);
+                fetchAndAppend(ids, duetTabData, refresh, TAB_DUET);
+            }
+            @Override public void onCancelled(@NonNull DatabaseError e) { finishLoading(refresh, TAB_DUET); }
+        });
+    }
+
+    /** Collab Repost tab — reels published via an accepted Collab Repost invite, indexed at
+     *  userCollabRepostReels/{uid} (see FirebaseUtils). */
+    private void loadCollabRepostReels(boolean refresh) {
+        if (isLoadingMore && !refresh) return;
+        isLoadingMore = true;
+        if (refresh) { collabRepostLastKey = null; collabRepostHasMore = true; collabRepostTabData.clear(); showSkeleton(); }
+        Query q = buildQuery(FirebaseUtils.getUserCollabRepostReelsRef(targetUid), collabRepostLastKey);
+        q.addListenerForSingleValueEvent(new ValueEventListener() {
+            @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                if (isFinishing() || isDestroyed()) return;
+                if (snap.getChildrenCount() < PAGE_SIZE) collabRepostHasMore = false;
+                if (snap.getChildrenCount() == 0) { finishLoading(refresh, TAB_COLLAB_REPOST); return; }
+                List<String> ids = extractIds(snap);
+                if (!ids.isEmpty()) collabRepostLastKey = ids.get(ids.size() - 1);
+                fetchAndAppend(ids, collabRepostTabData, refresh, TAB_COLLAB_REPOST);
+            }
+            @Override public void onCancelled(@NonNull DatabaseError e) { finishLoading(refresh, TAB_COLLAB_REPOST); }
+        });
+    }
+
     private Query buildQuery(DatabaseReference ref, String lastKey) {
         return lastKey == null
             ? ref.orderByKey().limitToLast(PAGE_SIZE)
@@ -2251,7 +2310,17 @@ public class UserReelsActivity extends AppCompatActivity
                 .addListenerForSingleValueEvent(new ValueEventListener() {
                     @Override public void onDataChange(@NonNull DataSnapshot snap) {
                         if (!isFinishing() && !isDestroyed()) {
-                            ReelModel r = snap.getValue(ReelModel.class);
+                            ReelModel r = null;
+                            try {
+                                r = snap.getValue(ReelModel.class);
+                            } catch (Exception ex) {
+                                // A single record with a field-type mismatch (e.g. an old/
+                                // new schema clash) used to throw here and silently stall
+                                // this whole batch forever, since `remaining[0]` never got
+                                // decremented for it — the tab looked permanently empty even
+                                // though the userReposts/userDuetReels/etc. index entry was
+                                // correct. Skip just this one record instead.
+                            }
                             if (r != null) fetched.add(r);
                         }
                         if (--remaining[0] == 0) {
@@ -2293,6 +2362,8 @@ public class UserReelsActivity extends AppCompatActivity
             case TAB_LIKED:  return likedTabData;
             case TAB_SAVED:  return savedTabData;
             case TAB_REPOST: return repostsTabData;
+            case TAB_DUET:   return duetTabData;
+            case TAB_COLLAB_REPOST: return collabRepostTabData;
             default:         return reelsTabData;
         }
     }
@@ -2344,6 +2415,12 @@ public class UserReelsActivity extends AppCompatActivity
             case TAB_REPOST:
                 tvEmptyTitle.setText("No Reposts");
                 if (tvEmptySubtitle != null) tvEmptySubtitle.setText("Reposted reels will appear here."); break;
+            case TAB_DUET:
+                tvEmptyTitle.setText("No Duets");
+                if (tvEmptySubtitle != null) tvEmptySubtitle.setText("Duets this creator posts will appear here."); break;
+            case TAB_COLLAB_REPOST:
+                tvEmptyTitle.setText("No Collab Reposts");
+                if (tvEmptySubtitle != null) tvEmptySubtitle.setText("Collab reposts will appear here."); break;
             default:
                 tvEmptyTitle.setText("No Reels Yet");
                 if (tvEmptySubtitle != null) tvEmptySubtitle.setText("This creator hasn't posted any reels yet.");

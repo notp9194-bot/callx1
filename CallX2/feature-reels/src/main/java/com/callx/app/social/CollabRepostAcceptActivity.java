@@ -551,6 +551,12 @@ public class CollabRepostAcceptActivity extends AppCompatActivity {
         // 3. Appears on collaborator's profile
         updates.put("reelsByUser/" + myUid + "/" + newReelId, true);
 
+        // 3b. Profile "Collab Repost" grid tab index — written for BOTH sides, since
+        //     the joint collab reel already lives on both users' reelsByUser above.
+        //     See UserReelsActivity's TAB_COLLAB_REPOST / FirebaseUtils.getUserCollabRepostReelsRef.
+        updates.put("userCollabRepostReels/" + initiatorUid + "/" + newReelId, now);
+        updates.put("userCollabRepostReels/" + myUid + "/" + newReelId, now);
+
         // 4. Update collab invite status
         updates.put("collabRepostInvites/" + myUid + "/" + collabRepostId + "/status",      "accepted");
         updates.put("collabRepostInvites/" + myUid + "/" + collabRepostId + "/collabReelId", newReelId);
