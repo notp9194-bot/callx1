@@ -123,7 +123,6 @@ public class UserReelsActivity extends AppCompatActivity
     private LinearLayout    llBioChips;
     // ── Profile Song pill (Instagram-style) ───────────────────────────────────
     private View            layoutProfileSong;
-    private View            layoutSongPillBubble;
     private TextView        tvProfileSongName;
     private View            layoutAddSongStub;   // isSelf + no song → "Add a song" stub
     // Custom accent color for the profile-song strip (picked via the shared
@@ -508,7 +507,6 @@ public class UserReelsActivity extends AppCompatActivity
         hsvBioLinks       = findViewById(R.id.hsv_bio_links);
         llBioChips        = findViewById(R.id.ll_bio_chips);
         layoutProfileSong = findViewById(R.id.layout_profile_song);
-        layoutSongPillBubble = findViewById(R.id.layout_song_pill_bubble);
         tvProfileSongName = findViewById(R.id.tv_profile_song_name);
         layoutAddSongStub = findViewById(R.id.layout_add_song_stub);
         btnMessageCta     = findViewById(R.id.btn_message_cta);
@@ -3637,25 +3635,49 @@ public class UserReelsActivity extends AppCompatActivity
      */
     private void applyStripAccentColor(String hex) {
         android.graphics.drawable.Drawable bg;
+        Integer contentColor = null; // null → leave XML's default ?attr/colorOnSurface
         if (hex != null && !hex.isEmpty()) {
             try {
                 int color = android.graphics.Color.parseColor(hex);
                 android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
                 gd.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
                 gd.setCornerRadius(20f * getResources().getDisplayMetrics().density);
-                gd.setStroke(Math.round(1f * getResources().getDisplayMetrics().density), color);
-                // Faint tint of the picked color as fill, same "premium hairline
-                // pill" feel as the default drawable, just recolored.
-                gd.setColor((0x22 << 24) | (color & 0x00FFFFFF));
+                gd.setStroke(Math.round(0.75f * getResources().getDisplayMetrics().density), 0x14000000);
+                // Badge now overlaps the avatar photo (Instagram-style),
+                // so the fill must be fully opaque to stay readable —
+                // no more faint 13%-alpha tint like the old under-bio strip.
+                gd.setColor(color);
                 bg = gd;
+                // Auto-pick black/white text+icon based on picked color's
+                // luminance so it stays legible against any accent.
+                contentColor = (android.graphics.Color.luminance(color) > 0.5)
+                    ? 0xFF111111 : 0xFFFFFFFF;
             } catch (Exception e) {
-                bg = androidx.core.content.ContextCompat.getDrawable(this, R.drawable.bg_song_pill);
+                bg = androidx.core.content.ContextCompat.getDrawable(this, R.drawable.bg_profile_song_badge);
             }
         } else {
-            bg = androidx.core.content.ContextCompat.getDrawable(this, R.drawable.bg_song_pill);
+            bg = androidx.core.content.ContextCompat.getDrawable(this, R.drawable.bg_profile_song_badge);
         }
-        if (layoutSongPillBubble != null) layoutSongPillBubble.setBackground(bg);
-        if (layoutAddSongStub  != null) layoutAddSongStub.setBackground(bg != null ? bg.getConstantState().newDrawable().mutate() : null);
+        if (layoutProfileSong != null) {
+            layoutProfileSong.setBackground(bg);
+            applyBadgeContentColor(layoutProfileSong, contentColor);
+        }
+        if (layoutAddSongStub != null) {
+            layoutAddSongStub.setBackground(bg != null ? bg.getConstantState().newDrawable().mutate() : null);
+            applyBadgeContentColor(layoutAddSongStub, contentColor);
+        }
+    }
+
+    /** Tints a badge's icon + text to match a custom accent color, or resets
+     *  both back to the theme-aware ?attr/colorOnSurface default (null). */
+    private void applyBadgeContentColor(android.view.ViewGroup badge, Integer colorOrNull) {
+        int resolved = colorOrNull != null ? colorOrNull
+            : resolveAttrColor(android.R.attr.textColorPrimary, 0xFF222222);
+        for (int i = 0; i < badge.getChildCount(); i++) {
+            android.view.View child = badge.getChildAt(i);
+            if (child instanceof ImageView) ((ImageView) child).setColorFilter(resolved);
+            else if (child instanceof TextView) ((TextView) child).setTextColor(resolved);
+        }
     }
 
     /**
@@ -3851,6 +3873,7 @@ public class UserReelsActivity extends AppCompatActivity
                     if (songArtist != null && !songArtist.isEmpty())
                         displayText = songTitle + "...";
                     tvProfileSongName.setText(displayText);
+                    tvProfileSongName.setSelected(true); // marquee needs isSelected=true
                     layoutProfileSong.setVisibility(View.VISIBLE);
 
                     // Capture finals for lambda

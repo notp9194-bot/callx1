@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    bg_profile_song_badge.xml — DARK MODE
+    Same opaque Instagram-style avatar badge, mirrored for dark surfaces.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#FF2A2A2A"/>
+    <stroke android:width="0.75dp" android:color="#26FFFFFF"/>
+    <corners android:radius="20dp"/>
+</shape>

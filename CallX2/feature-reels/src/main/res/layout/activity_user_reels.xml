@@ -110,8 +110,13 @@
                 android:paddingStart="16dp" android:paddingEnd="16dp"
                 android:paddingTop="12dp" android:paddingBottom="8dp">
 
-                <!-- Avatar with story ring + online indicator -->
-                <FrameLayout android:layout_width="90dp" android:layout_height="90dp">
+                <!-- Avatar with story ring + online indicator.
+                     clipChildren=false so the Instagram-style audio badge
+                     below can poke up-and-out over the top-left of the
+                     circle (Screenshot 3 reference) instead of being cut
+                     off at the FrameLayout's own bounds. -->
+                <FrameLayout android:layout_width="90dp" android:layout_height="90dp"
+                    android:clipChildren="false">
 
                     <View android:id="@+id/view_story_ring"
                         android:layout_width="90dp" android:layout_height="90dp"
@@ -131,6 +136,89 @@
                         android:layout_gravity="bottom|end"
                         android:layout_marginEnd="2dp" android:layout_marginBottom="2dp"
                         android:background="@drawable/bg_online_indicator"/>
+
+                    <!-- ── Instagram-style audio badge (Screenshot 3) ──
+                         Overlaps the top-left of the avatar circle instead
+                         of sitting as a strip under the bio. Same Firebase
+                         data (profileSong) + click/long-press behavior as
+                         before — only the position/visual size changed. -->
+                    <LinearLayout
+                        android:id="@+id/layout_profile_song"
+                        android:layout_width="wrap_content"
+                        android:layout_height="20dp"
+                        android:layout_gravity="top|start"
+                        android:layout_marginStart="-6dp"
+                        android:layout_marginTop="-6dp"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:paddingStart="7dp"
+                        android:paddingEnd="9dp"
+                        android:background="@drawable/bg_profile_song_badge"
+                        android:elevation="3dp"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:foreground="?attr/selectableItemBackground"
+                        android:visibility="gone">
+
+                        <ImageView
+                            android:layout_width="10dp"
+                            android:layout_height="10dp"
+                            android:src="@drawable/ic_music"
+                            android:tint="?attr/colorOnSurface"
+                            android:layout_marginEnd="4dp"
+                            android:contentDescription="Now playing"/>
+
+                        <TextView
+                            android:id="@+id/tv_profile_song_name"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:textSize="9sp"
+                            android:textColor="?attr/colorOnSurface"
+                            android:fontFamily="sans-serif-medium"
+                            android:maxWidth="90dp"
+                            android:maxLines="1"
+                            android:ellipsize="marquee"
+                            android:singleLine="true"
+                            android:marqueeRepeatLimit="marquee_forever"
+                            android:focusableInTouchMode="true"
+                            android:text="Song name..."/>
+                    </LinearLayout>
+
+                    <!-- ── isSelf: empty audio badge stub — tap to add a song ── -->
+                    <LinearLayout
+                        android:id="@+id/layout_add_song_stub"
+                        android:layout_width="wrap_content"
+                        android:layout_height="20dp"
+                        android:layout_gravity="top|start"
+                        android:layout_marginStart="-6dp"
+                        android:layout_marginTop="-6dp"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:paddingStart="7dp"
+                        android:paddingEnd="9dp"
+                        android:background="@drawable/bg_profile_song_badge"
+                        android:elevation="3dp"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:foreground="?attr/selectableItemBackground"
+                        android:visibility="gone">
+
+                        <ImageView
+                            android:layout_width="10dp"
+                            android:layout_height="10dp"
+                            android:src="@drawable/ic_music"
+                            android:tint="?attr/colorOnSurface"
+                            android:layout_marginEnd="4dp"
+                            android:contentDescription="Add song"/>
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Add a song"
+                            android:textSize="9sp"
+                            android:textColor="?attr/colorOnSurface"
+                            android:fontFamily="sans-serif"/>
+                    </LinearLayout>
                 </FrameLayout>
 
                 <!-- Right column: display name (Instagram-style, above stats) + Stats row -->
@@ -312,111 +400,13 @@
                     android:gravity="center_vertical"/>
             </HorizontalScrollView>
 
-            <!-- ── Instagram-style Profile Song pill (Screenshot 1 / 2 style) ──
-                 Hidden by default. UserReelsActivity shows it when the user has
-                 a profileSong set. Tap → SoundDetailBottomSheet (Screenshot 3/4).
-                 Long-press (isSelf) → common rainbow color picker to recolor
-                 the strip; tap also offers Replace/Remove for isSelf.
-                 Thin, premium pill: 26dp tall, theme-aware hairline border via
-                 bg_song_pill.xml / drawable-night/bg_song_pill.xml. -->
-            <RelativeLayout
-                android:id="@+id/layout_profile_song"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="16dp"
-                android:layout_marginTop="6dp"
-                android:layout_marginBottom="4dp"
-                android:clickable="true"
-                android:focusable="true"
-                android:foreground="?attr/selectableItemBackground"
-                android:visibility="gone">
-
-                <!-- Floating pill bubble: music note + song text -->
-                <LinearLayout
-                    android:id="@+id/layout_song_pill_bubble"
-                    android:layout_width="wrap_content"
-                    android:layout_height="26dp"
-                    android:layout_alignParentTop="true"
-                    android:layout_centerHorizontal="true"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:paddingStart="10dp"
-                    android:paddingEnd="12dp"
-                    android:background="@drawable/bg_song_pill"
-                    android:elevation="3dp">
-
-                    <ImageView
-                        android:layout_width="12dp"
-                        android:layout_height="12dp"
-                        android:src="@drawable/ic_music"
-                        android:tint="?attr/colorOnSurface"
-                        android:layout_marginEnd="5dp"
-                        android:contentDescription="Now playing"/>
-
-                    <TextView
-                        android:id="@+id/tv_profile_song_name"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:textSize="11sp"
-                        android:textColor="?attr/colorOnSurface"
-                        android:fontFamily="sans-serif-medium"
-                        android:maxWidth="160dp"
-                        android:maxLines="1"
-                        android:ellipsize="end"
-                        android:text="Song name..."/>
-                </LinearLayout>
-
-                <!-- Small circular avatar, overlapping just below the pill -->
-                <de.hdodenhof.circleimageview.CircleImageView
-                    android:id="@+id/iv_profile_song_cover"
-                    android:layout_width="36dp"
-                    android:layout_height="36dp"
-                    android:layout_below="@id/layout_song_pill_bubble"
-                    android:layout_centerHorizontal="true"
-                    android:layout_marginTop="-6dp"
-                    android:src="@drawable/ic_person"
-                    app:civ_border_width="2dp"
-                    app:civ_border_color="?attr/colorSurface"/>
-
-            </RelativeLayout>
-
-            <!-- ── isSelf: empty song stub pill — tap to add a song ──
-                 Shown only when isSelf == true AND no profileSong is set yet.
-                 Long-press → common rainbow color picker to recolor the strip
-                 ahead of time, same as the filled-in profile-song pill. -->
-            <LinearLayout
-                android:id="@+id/layout_add_song_stub"
-                android:layout_width="wrap_content"
-                android:layout_height="26dp"
-                android:orientation="horizontal"
-                android:gravity="center_vertical"
-                android:paddingStart="12dp"
-                android:paddingEnd="14dp"
-                android:layout_marginStart="16dp"
-                android:layout_marginTop="6dp"
-                android:layout_marginBottom="4dp"
-                android:background="@drawable/bg_song_pill"
-                android:clickable="true"
-                android:focusable="true"
-                android:foreground="?attr/selectableItemBackground"
-                android:visibility="gone">
-
-                <ImageView
-                    android:layout_width="13dp"
-                    android:layout_height="13dp"
-                    android:src="@drawable/ic_music"
-                    android:tint="?attr/colorOnSurfaceVariant"
-                    android:layout_marginEnd="5dp"
-                    android:contentDescription="Add song"/>
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Add a song"
-                    android:textSize="12.5sp"
-                    android:textColor="?attr/colorOnSurfaceVariant"
-                    android:fontFamily="sans-serif"/>
-            </LinearLayout>
+            <!-- NOTE: the profile-song pill / "Add a song" stub used to live
+                 here as a strip under the bio (Screenshot 1 style). It has
+                 been moved up into the avatar's FrameLayout as a small
+                 Instagram-style badge that overlaps the top-left of the
+                 avatar circle (Screenshot 3 style) — see layout_profile_song
+                 / layout_add_song_stub inside the avatar block above. IDs
+                 are unchanged so all existing Java binding still works. -->
 
             <!-- Hidden legacy link views — kept for Java binding compatibility -->
             <LinearLayout android:id="@+id/layout_phone"
