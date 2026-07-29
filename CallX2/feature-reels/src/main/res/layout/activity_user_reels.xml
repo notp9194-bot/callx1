@@ -319,43 +319,66 @@
                  the strip; tap also offers Replace/Remove for isSelf.
                  Thin, premium pill: 26dp tall, theme-aware hairline border via
                  bg_song_pill.xml / drawable-night/bg_song_pill.xml. -->
-            <LinearLayout
+            <RelativeLayout
                 android:id="@+id/layout_profile_song"
                 android:layout_width="wrap_content"
-                android:layout_height="26dp"
-                android:orientation="horizontal"
-                android:gravity="center_vertical"
-                android:paddingStart="12dp"
-                android:paddingEnd="14dp"
+                android:layout_height="wrap_content"
                 android:layout_marginStart="16dp"
                 android:layout_marginTop="6dp"
                 android:layout_marginBottom="4dp"
-                android:background="@drawable/bg_song_pill"
                 android:clickable="true"
                 android:focusable="true"
                 android:foreground="?attr/selectableItemBackground"
                 android:visibility="gone">
 
-                <ImageView
-                    android:layout_width="14dp"
-                    android:layout_height="14dp"
-                    android:src="@drawable/ic_play"
-                    android:tint="?attr/colorOnSurface"
-                    android:layout_marginEnd="6dp"
-                    android:contentDescription="Now playing"/>
-
-                <TextView
-                    android:id="@+id/tv_profile_song_name"
+                <!-- Floating pill bubble: music note + song text -->
+                <LinearLayout
+                    android:id="@+id/layout_song_pill_bubble"
                     android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:textSize="12.5sp"
-                    android:textColor="?attr/colorOnSurface"
-                    android:fontFamily="sans-serif-medium"
-                    android:maxWidth="220dp"
-                    android:maxLines="1"
-                    android:ellipsize="end"
-                    android:text="Song name..."/>
-            </LinearLayout>
+                    android:layout_height="26dp"
+                    android:layout_alignParentTop="true"
+                    android:layout_centerHorizontal="true"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:paddingStart="10dp"
+                    android:paddingEnd="12dp"
+                    android:background="@drawable/bg_song_pill"
+                    android:elevation="3dp">
+
+                    <ImageView
+                        android:layout_width="12dp"
+                        android:layout_height="12dp"
+                        android:src="@drawable/ic_music"
+                        android:tint="?attr/colorOnSurface"
+                        android:layout_marginEnd="5dp"
+                        android:contentDescription="Now playing"/>
+
+                    <TextView
+                        android:id="@+id/tv_profile_song_name"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textSize="11sp"
+                        android:textColor="?attr/colorOnSurface"
+                        android:fontFamily="sans-serif-medium"
+                        android:maxWidth="160dp"
+                        android:maxLines="1"
+                        android:ellipsize="end"
+                        android:text="Song name..."/>
+                </LinearLayout>
+
+                <!-- Small circular avatar, overlapping just below the pill -->
+                <de.hdodenhof.circleimageview.CircleImageView
+                    android:id="@+id/iv_profile_song_cover"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:layout_below="@id/layout_song_pill_bubble"
+                    android:layout_centerHorizontal="true"
+                    android:layout_marginTop="-6dp"
+                    android:src="@drawable/ic_person"
+                    app:civ_border_width="2dp"
+                    app:civ_border_color="?attr/colorSurface"/>
+
+            </RelativeLayout>
 
             <!-- ── isSelf: empty song stub pill — tap to add a song ──
                  Shown only when isSelf == true AND no profileSong is set yet.

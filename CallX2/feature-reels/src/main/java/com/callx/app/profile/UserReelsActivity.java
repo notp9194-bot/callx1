@@ -123,6 +123,7 @@ public class UserReelsActivity extends AppCompatActivity
     private LinearLayout    llBioChips;
     // ── Profile Song pill (Instagram-style) ───────────────────────────────────
     private View            layoutProfileSong;
+    private View            layoutSongPillBubble;
     private TextView        tvProfileSongName;
     private View            layoutAddSongStub;   // isSelf + no song → "Add a song" stub
     // Custom accent color for the profile-song strip (picked via the shared
@@ -507,6 +508,7 @@ public class UserReelsActivity extends AppCompatActivity
         hsvBioLinks       = findViewById(R.id.hsv_bio_links);
         llBioChips        = findViewById(R.id.ll_bio_chips);
         layoutProfileSong = findViewById(R.id.layout_profile_song);
+        layoutSongPillBubble = findViewById(R.id.layout_song_pill_bubble);
         tvProfileSongName = findViewById(R.id.tv_profile_song_name);
         layoutAddSongStub = findViewById(R.id.layout_add_song_stub);
         btnMessageCta     = findViewById(R.id.btn_message_cta);
@@ -3652,7 +3654,7 @@ public class UserReelsActivity extends AppCompatActivity
         } else {
             bg = androidx.core.content.ContextCompat.getDrawable(this, R.drawable.bg_song_pill);
         }
-        if (layoutProfileSong  != null) layoutProfileSong.setBackground(bg);
+        if (layoutSongPillBubble != null) layoutSongPillBubble.setBackground(bg);
         if (layoutAddSongStub  != null) layoutAddSongStub.setBackground(bg != null ? bg.getConstantState().newDrawable().mutate() : null);
     }
 
