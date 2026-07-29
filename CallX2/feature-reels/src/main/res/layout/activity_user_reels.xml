@@ -789,12 +789,12 @@
             <View android:id="@+id/divider_highlights"
                 android:layout_width="match_parent"
                 android:layout_height="0.5dp"
-                android:background="@color/divider"
+                android:background="@android:color/transparent"
                 android:visibility="gone"/>
 
             <!-- Divider -->
             <View android:layout_width="match_parent" android:layout_height="0.5dp"
-                android:background="@color/divider"
+                android:background="@android:color/transparent"
                 android:layout_marginTop="4dp"/>
 
             <!-- Hidden stub views keep old Java references alive -->
@@ -817,7 +817,7 @@
             app:tabGravity="fill"
             app:tabSelectedTextColor="?attr/colorOnSurface"
             app:tabTextColor="?attr/colorOnSurfaceVariant"
-            app:tabIndicatorColor="?attr/colorOnSurface"
+            app:tabIndicatorColor="@android:color/transparent"
             app:tabIndicatorHeight="1dp"
             app:tabIconTint="@color/tab_icon_tint_selector"
             app:tabPaddingStart="-1dp"
