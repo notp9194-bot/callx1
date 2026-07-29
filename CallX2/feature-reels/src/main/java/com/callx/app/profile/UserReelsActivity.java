@@ -122,9 +122,9 @@ public class UserReelsActivity extends AppCompatActivity
     private android.widget.HorizontalScrollView hsvBioLinks;
     private LinearLayout    llBioChips;
     // ── Profile Song pill (Instagram-style) ───────────────────────────────────
-    private View            layoutProfileSong;
+    private android.view.ViewGroup layoutProfileSong;
     private TextView        tvProfileSongName;
-    private View            layoutAddSongStub;   // isSelf + no song → "Add a song" stub
+    private android.view.ViewGroup layoutAddSongStub;   // isSelf + no song → "Add a song" stub
     // Custom accent color for the profile-song strip (picked via the shared
     // rainbow color picker, long-press on either pill state). Null = default
     // theme-aware bg_song_pill.xml / drawable-night styling.
