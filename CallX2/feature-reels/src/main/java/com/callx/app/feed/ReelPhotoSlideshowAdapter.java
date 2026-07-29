@@ -5,7 +5,9 @@ import android.animation.AnimatorListenerAdapter;
 import android.animation.AnimatorSet;
 import android.animation.ObjectAnimator;
 import android.animation.ValueAnimator;
+import android.app.AlertDialog;
 import android.content.Context;
+import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -28,6 +30,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.animation.AccelerateDecelerateInterpolator;
 import android.view.animation.DecelerateInterpolator;
+import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -47,8 +50,14 @@ import com.callx.app.stickers.StatusStickerOverlayView;
 import com.bumptech.glide.request.RequestOptions;
 import com.bumptech.glide.request.target.Target;
 import com.bumptech.glide.load.resource.bitmap.CenterCrop;
+import com.callx.app.interactions.ReelStickerReplyHelper;
 import com.callx.app.models.ReelModel;
+import com.callx.app.music.SoundDetailActivity;
 import com.callx.app.reels.R;
+import com.callx.app.utils.FirebaseUtils;
+import com.google.firebase.database.DataSnapshot;
+import com.google.firebase.database.DatabaseError;
+import com.google.firebase.database.ValueEventListener;
 
 import java.util.List;
 import java.util.Random;
@@ -698,7 +707,7 @@ public class ReelPhotoSlideshowAdapter
         if (inner.isEmpty()) return;
 
         // Split by top-level objects
-        int depth = 0, start = 0;
+        int depth = 0, start = 0, stickerIdx = 0;
         for (int i = 0; i < inner.length(); i++) {
             char c = inner.charAt(i);
             if (c == '{') depth++;
@@ -706,7 +715,8 @@ public class ReelPhotoSlideshowAdapter
                 depth--;
                 if (depth == 0) {
                     String obj = inner.substring(start, i + 1);
-                    addStickerView(obj, container, position);
+                    addStickerView(obj, container, position, stickerIdx);
+                    stickerIdx++;
                     start = i + 1;
                     while (start < inner.length() && (inner.charAt(start) == ',')) start++;
                 }
@@ -714,7 +724,7 @@ public class ReelPhotoSlideshowAdapter
         }
     }
 
-    private void addStickerView(String obj, FrameLayout container, int position) {
+    private void addStickerView(String obj, FrameLayout container, int position, int stickerIdx) {
         String type = extractJsonStr(obj, "type", "emoji");
 
         // Full interactive stickers (music/quiz/poll/slider/countdown/mention/
@@ -726,7 +736,7 @@ public class ReelPhotoSlideshowAdapter
         // saved fine and show correctly in Status. Build them the same way
         // StatusViewerActivity does, using the baked-in posXRatio/posYRatio.
         if (!"emoji".equals(type)) {
-            addFullStickerView(obj, container);
+            addFullStickerView(obj, container, position, stickerIdx);
             return;
         }
 
@@ -774,7 +784,7 @@ public class ReelPhotoSlideshowAdapter
      * Status. Falls back to a stacked default position for legacy stickers
      * saved without posXRatio/posYRatio.
      */
-    private void addFullStickerView(String obj, FrameLayout container) {
+    private void addFullStickerView(String obj, FrameLayout container, int photoPosition, int stickerIdx) {
         try {
             StatusStickerOverlayView sticker = StatusStickerOverlayView.fromJson(container.getContext(), obj);
             sticker.setTag(TAG_STICKER_VIEW);
@@ -797,7 +807,219 @@ public class ReelPhotoSlideshowAdapter
                 lp.topMargin = dp * 140;
             }
             container.addView(sticker, lp);
+
+            if (!editMode) wireStickerInteractivity(sticker, photoPosition, stickerIdx);
         } catch (Exception ignored) {}
+    }
+
+    /**
+     * Wires tap-to-answer/vote/subscribe behaviour on a rendered interactive
+     * sticker, mirroring StatusViewerActivity#renderStickers — quiz answers,
+     * countdown "remind me" subscriptions, poll votes and slider responses
+     * are persisted under FirebaseUtils.getReelSticker*Ref (keyed by reelId +
+     * a "photoPosition_stickerIndex" key) and a DM is sent to the reel owner,
+     * via ReelStickerReplyHelper. Only active in the viewing feed — the
+     * editor passes editMode=true and skips this so stickers stay simple
+     * drag targets while composing.
+     */
+    private void wireStickerInteractivity(StatusStickerOverlayView sticker, int photoPosition, int stickerIdx) {
+        String myUid    = FirebaseUtils.getCurrentUid();
+        String ownerUid = reelModel.uid;
+        String reelId    = reelModel.reelId;
+        if (myUid == null || ownerUid == null || reelId == null) return;
+        boolean isOwner  = myUid.equals(ownerUid);
+        String ownerName = reelModel.ownerName;
+        String reelThumb = reelModel.effectiveThumbUrl();
+        String stickerKey = ReelStickerReplyHelper.stickerKey(photoPosition, stickerIdx);
+        String stickerType = sticker.getStickerType();
+        Context ctx = sticker.getContext();
+
+        if ("question".equals(stickerType) && !isOwner) {
+            sticker.setOnClickListener(v -> showQuestionReplyDialog(ctx, sticker, ownerUid, ownerName, reelId, reelThumb));
+        }
+
+        if ("quiz".equals(stickerType) && !isOwner) {
+            FirebaseUtils.getReelStickerQuizVoteRef(reelId, stickerKey, myUid)
+                    .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(DataSnapshot snap) {
+                    if (snap.exists()) {
+                        Long prevSelected = snap.child("selectedIndex").getValue(Long.class);
+                        if (prevSelected != null) sticker.revealQuizAnswer(prevSelected.intValue());
+                    } else {
+                        sticker.setOnQuizOptionSelectedListener(selectedIndex -> {
+                            List<String> opts = sticker.getQuizOptions();
+                            String selectedText = opts != null && selectedIndex < opts.size()
+                                    ? opts.get(selectedIndex) : "";
+                            boolean isCorrect = selectedIndex == sticker.getQuizCorrectIndex();
+                            sticker.revealQuizAnswer(selectedIndex);
+                            ReelStickerReplyHelper.sendQuizAnswer(myUid, ownerUid, ownerName, reelId, reelThumb,
+                                    stickerKey, sticker.getQuizQuestion(), selectedText, selectedIndex, isCorrect);
+                        });
+                    }
+                }
+                @Override public void onCancelled(DatabaseError e) {}
+            });
+        }
+
+        if ("music".equals(stickerType) && sticker.isMusicLinkedToReelSound()) {
+            sticker.setOnClickListener(v -> {
+                try {
+                    Intent intent = new Intent(ctx, SoundDetailActivity.class);
+                    intent.putExtra(SoundDetailActivity.EXTRA_SOUND_ID,    sticker.getMusicSoundId());
+                    intent.putExtra(SoundDetailActivity.EXTRA_SOUND_TITLE, sticker.getMusicSong());
+                    intent.putExtra(SoundDetailActivity.EXTRA_ARTIST,      sticker.getMusicArtist());
+                    intent.putExtra(SoundDetailActivity.EXTRA_SOUND_URL,   sticker.getMusicSoundUrl());
+                    intent.putExtra(SoundDetailActivity.EXTRA_COVER_URL,   sticker.getMusicCoverUrl());
+                    ctx.startActivity(intent);
+                } catch (Exception ignored) {}
+            });
+        }
+
+        if ("countdown".equals(stickerType) && !isOwner) {
+            FirebaseUtils.getReelStickerCountdownSubscriberRef(reelId, stickerKey, myUid)
+                    .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(DataSnapshot snap) {
+                    if (snap.exists()) sticker.setCountdownSubscribed(true);
+                    sticker.setOnCountdownSubscribeToggleListener(nowSubscribed -> {
+                        if (nowSubscribed) {
+                            ReelStickerReplyHelper.sendCountdownSubscription(myUid, ownerUid, ownerName,
+                                    reelId, reelThumb, stickerKey, sticker.getCountdownLabel());
+                        } else {
+                            ReelStickerReplyHelper.unsubscribeCountdown(reelId, stickerKey, myUid);
+                        }
+                    });
+                }
+                @Override public void onCancelled(DatabaseError e) {}
+            });
+        }
+
+        if ("poll".equals(stickerType) && !isOwner) {
+            FirebaseUtils.getReelStickerPollVoteRef(reelId, stickerKey, myUid)
+                    .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(DataSnapshot snap) {
+                    if (snap.exists()) {
+                        String prevOption = snap.child("option").getValue(String.class);
+                        revealPollWithCounts(sticker, reelId, stickerKey, prevOption);
+                    } else {
+                        sticker.setOnPollOptionSelectedListener(selectedOption -> {
+                            String selectedText = "A".equals(selectedOption)
+                                    ? sticker.getPollOptionA() : sticker.getPollOptionB();
+                            ReelStickerReplyHelper.sendPollVote(myUid, ownerUid, ownerName, reelId, reelThumb,
+                                    stickerKey, sticker.getPollQuestion(), selectedOption, selectedText);
+                            revealPollWithCounts(sticker, reelId, stickerKey, selectedOption);
+                        });
+                    }
+                }
+                @Override public void onCancelled(DatabaseError e) {}
+            });
+        }
+
+        if ("slider".equals(stickerType) && !isOwner) {
+            FirebaseUtils.getReelStickerSliderResponseRef(reelId, stickerKey, myUid)
+                    .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(DataSnapshot snap) {
+                    if (snap.exists()) {
+                        Long prevValue = snap.child("value").getValue(Long.class);
+                        int myVal = prevValue != null ? prevValue.intValue() : 50;
+                        revealSliderWithAverage(sticker, reelId, stickerKey, myVal);
+                    } else {
+                        sticker.setOnSliderValueSubmittedListener(value -> {
+                            ReelStickerReplyHelper.sendSliderResponse(myUid, ownerUid, ownerName, reelId, reelThumb,
+                                    stickerKey, sticker.getSliderQuestion(), sticker.getSliderEmoji(), value);
+                            revealSliderWithAverage(sticker, reelId, stickerKey, value);
+                        });
+                    }
+                }
+                @Override public void onCancelled(DatabaseError e) {}
+            });
+        }
+
+        if ("mention".equals(stickerType)) {
+            sticker.setOnClickListener(v -> openMentionProfile(ctx, sticker.getMentionUsername()));
+        }
+
+        if ("hashtag".equals(stickerType)) {
+            sticker.setOnClickListener(v -> openHashtagFeed(ctx, sticker.getHashtagTag()));
+        }
+
+        if ("link".equals(stickerType)) {
+            sticker.setOnClickListener(v -> {
+                String url = sticker.getLinkUrl();
+                if (url == null || url.isEmpty()) return;
+                try { ctx.startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))); }
+                catch (Exception ignored) {}
+            });
+        }
+    }
+
+    /** Reads all votes on a reel's 🗳️ Poll sticker and reveals the live A/B percentage split. */
+    private void revealPollWithCounts(StatusStickerOverlayView sticker, String reelId, String stickerKey, String myOption) {
+        ReelStickerReplyHelper.readPollCounts(reelId, stickerKey, (countA, countB) ->
+                sticker.revealPollResult(myOption, countA, countB));
+    }
+
+    /** Reads all responses on a reel's 🎚️ Slider sticker and reveals the live average. */
+    private void revealSliderWithAverage(StatusStickerOverlayView sticker, String reelId, String stickerKey, int myValue) {
+        ReelStickerReplyHelper.readSliderAverage(reelId, stickerKey, myValue, avg ->
+                sticker.revealSliderAverage(myValue, avg));
+    }
+
+    /** Opens the tapped user's profile — same reflection-based lookup Status uses for its 👤 Mention sticker. */
+    private void openMentionProfile(Context ctx, String username) {
+        if (username == null || username.isEmpty()) return;
+        com.google.firebase.database.FirebaseDatabase.getInstance()
+                .getReference("users").orderByChild("username").equalTo(username).limitToFirst(1)
+                .addListenerForSingleValueEvent(new ValueEventListener() {
+            @Override public void onDataChange(DataSnapshot snap) {
+                if (!snap.exists()) return;
+                DataSnapshot userSnap = snap.getChildren().iterator().next();
+                String uid = userSnap.getKey();
+                String name = userSnap.child("name").getValue(String.class);
+                if (name == null || name.isEmpty()) name = username;
+                String photo = userSnap.child("profileImage").getValue(String.class);
+                if (photo == null || photo.isEmpty()) photo = userSnap.child("photoUrl").getValue(String.class);
+                try {
+                    Class<?> profileCls = Class.forName("com.callx.app.activities.UserProfileActivity");
+                    Intent intent = new Intent(ctx, profileCls);
+                    intent.putExtra("uid", uid);
+                    intent.putExtra("name", name);
+                    if (photo != null) intent.putExtra("photo", photo);
+                    ctx.startActivity(intent);
+                } catch (Exception ignored) {}
+            }
+            @Override public void onCancelled(DatabaseError e) {}
+        });
+    }
+
+    /** Opens the tapped topic's hashtag feed — same reflection-based lookup Status uses for its # Hashtag sticker. */
+    private void openHashtagFeed(Context ctx, String tag) {
+        if (tag == null || tag.isEmpty()) return;
+        try {
+            Class<?> hashtagCls = Class.forName("com.callx.app.search.XHashtagActivity");
+            Intent intent = new Intent(ctx, hashtagCls);
+            intent.putExtra("hashtag", tag);
+            ctx.startActivity(intent);
+        } catch (Exception ignored) {}
+    }
+
+    /** Lightweight reply prompt for a 💬 Question sticker — Reels has no equivalent of Status's full-screen reply sheet, so a plain AlertDialog input covers the same "type an answer, it DMs the owner" flow. */
+    private void showQuestionReplyDialog(Context ctx, StatusStickerOverlayView sticker,
+                                          String ownerUid, String ownerName, String reelId, String reelThumb) {
+        String prompt = sticker.getQuestionPrompt();
+        EditText input = new EditText(ctx);
+        input.setHint("Type your answer…");
+        int pad = (int) (16 * ctx.getResources().getDisplayMetrics().density);
+        input.setPadding(pad, pad, pad, pad);
+        new AlertDialog.Builder(ctx)
+                .setTitle(prompt != null ? prompt : "Ask me anything!")
+                .setView(input)
+                .setPositiveButton("Send", (d, w) -> {
+                    String myUid = FirebaseUtils.getCurrentUid();
+                    ReelStickerReplyHelper.sendQuestionReply(myUid, ownerUid, ownerName, reelId, reelThumb,
+                            prompt, input.getText().toString());
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
     }
 
     private void makeDraggable(View view, ViewGroup parent, int adapterPos) {

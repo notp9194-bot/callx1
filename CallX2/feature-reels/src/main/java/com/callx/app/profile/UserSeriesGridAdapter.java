@@ -10,6 +10,10 @@ package com.callx.app.profile;
   import androidx.recyclerview.widget.RecyclerView;
 
   import com.bumptech.glide.Glide;
+  import com.bumptech.glide.RequestManager;
+  import com.bumptech.glide.load.DecodeFormat;
+  import com.bumptech.glide.load.engine.DiskCacheStrategy;
+  import com.bumptech.glide.request.RequestOptions;
   import com.callx.app.models.DuetSeriesModel;
   import com.callx.app.reels.R;
 
@@ -33,11 +37,25 @@ package com.callx.app.profile;
           void onSeriesClick(DuetSeriesModel series);
       }
 
+      // ULTRA (parity with ReelGridAdapter): one shared RequestManager +
+      // RequestOptions built once instead of Glide.with(ctx) fresh per bind.
+      // RGB_565 halves per-bitmap memory for these opaque centerCrop covers,
+      // dontAnimate() skips the default crossfade drawable per bind.
+      private static final RequestOptions COVER_OPTIONS = new RequestOptions()
+              .diskCacheStrategy(DiskCacheStrategy.ALL)
+              .format(DecodeFormat.PREFER_RGB_565)
+              .centerCrop()
+              .dontAnimate();
+
       private final Context ctx;
+      private final RequestManager glideRequests;
       private final List<DuetSeriesModel> items = new ArrayList<>();
       private OnSeriesClickListener listener;
 
-      public UserSeriesGridAdapter(Context ctx) { this.ctx = ctx; }
+      public UserSeriesGridAdapter(Context ctx) {
+          this.ctx = ctx;
+          this.glideRequests = Glide.with(ctx);
+      }
 
       public void setOnSeriesClickListener(OnSeriesClickListener l) { this.listener = l; }
 
@@ -75,9 +93,9 @@ package com.callx.app.profile;
           h.tvNewBadge.setVisibility(ageMs < 72 * 3600_000L ? View.VISIBLE : View.GONE);
 
           if (s.coverThumbUrl != null && !s.coverThumbUrl.isEmpty()) {
-              Glide.with(ctx)
+              glideRequests
                    .load(s.coverThumbUrl)
-                   .centerCrop()
+                   .apply(COVER_OPTIONS)
                    .placeholder(R.color.brand_primary)
                    .override(480, 853)
                    .into(h.ivCover);

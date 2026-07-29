@@ -34,6 +34,20 @@
         android:scaleType="centerCrop"
         android:contentDescription="Reel thumbnail"/>
 
+    <!-- ── Interactive sticker overlay layer (VIDEO reels) ──────────────────
+         Renders reel.stickerJson (music/poll/quiz/countdown/slider/question/
+         mention/hashtag/link) as live StatusStickerOverlayView widgets, same
+         role as ll_sticker_layer in item_reel_photo_slide.xml for photo
+         reels. Populated by ReelPlayerFragment.renderVideoStickers() —
+         empty/GONE for reels with no stickers or for photo_slideshow reels
+         (which render their stickers per-photo inside vp_photos instead).
+    -->
+    <FrameLayout
+        android:id="@+id/fl_video_sticker_layer"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:clipChildren="false"/>
+
     <!-- ── Story-style photo progress bar ───────────────────────────────────
          N thin animated segments at the very top, one per photo.
          Each active segment fills left→right over photoDurationMs ms.

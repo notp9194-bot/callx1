@@ -221,6 +221,15 @@ public class ReelUploadActivity extends AppCompatActivity {
     private float  mixVoiceoverVol  = 1.0f;
     private String mixedVideoPath   = null; // set after AudioMixHelper finishes
 
+    /**
+     * Interactive sticker JSON array for a VIDEO reel, forwarded from
+     * ReelEditorActivity's "sticker_json" extra (StatusStickerPickerSheet
+     * output). Saved verbatim to ReelModel#stickerJson on upload — these are
+     * NOT baked into the video pixels, so they stay tappable/votable in the
+     * feed exactly like the photo-slideshow reel and Status flows.
+     */
+    private String videoStickerJson = "";
+
     // ✅ NEW: True when ReelCameraActivity already replaced mic audio at recording time.
     // If true, skip AudioMixHelper in handlePostReel() to avoid double-mixing.
     private boolean audioAlreadyReplaced  = false;
@@ -867,6 +876,13 @@ public class ReelUploadActivity extends AppCompatActivity {
         String musicName = i.getStringExtra(EXTRA_MUSIC_NAME);
         if (musicName != null && !musicName.isEmpty() && etMusic != null) {
             etMusic.setText(musicName);
+        }
+
+        // Interactive stickers (music/poll/quiz/countdown/slider/question/…) from
+        // ReelEditorActivity's full sticker sheet — kept live, not baked into pixels.
+        String stickerJsonExtra = i.getStringExtra("sticker_json");
+        if (stickerJsonExtra != null && !stickerJsonExtra.isEmpty()) {
+            videoStickerJson = stickerJsonExtra;
         }
 
         // Fix 4 & 6 & 8: read duet metadata
@@ -2075,6 +2091,10 @@ public class ReelUploadActivity extends AppCompatActivity {
                 // that read raced/failed.
                 if (!a.preSelectedSoundCover.isEmpty()) reel.musicCoverUrl = a.preSelectedSoundCover;
                 if (!a.currentSoundArtist.isEmpty())    reel.musicArtist   = a.currentSoundArtist;
+                // Interactive stickers (music/poll/quiz/countdown/slider/question/…)
+                // from ReelEditorActivity's full sticker sheet — saved as live overlay
+                // data, same as photoStickerJsonList, NOT baked into the video pixels.
+                if (!a.videoStickerJson.isEmpty()) reel.stickerJson = a.videoStickerJson;
                 if (result != null) {
                     reel.compressionSummary = result.compressionSummary();
                     reel.savingsPercent     = result.savingsPercent();

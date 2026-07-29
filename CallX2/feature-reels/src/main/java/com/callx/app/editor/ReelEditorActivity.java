@@ -46,8 +46,12 @@ import com.callx.app.editor.ReelTransitionsActivity;
 import com.callx.app.editor.ReelVoiceEffectsActivity;
 import com.callx.app.editor.ReelAudioMixerActivity;
 import com.callx.app.editor.ReelThumbnailPickerActivity;
+import com.callx.app.stickers.StatusStickerPickerSheet;
+import com.callx.app.stickers.StatusStickerOverlayView;
 
 import java.io.File;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * ReelEditorActivity v13 — Full visual apply of all editing tools.
@@ -169,7 +173,19 @@ public class ReelEditorActivity extends AppCompatActivity {
     private float  filterSaturation = 1f;
     private float  filterBeauty     = 0f;
     // Stickers (list of all added stickers, each is a draggable TextView in the FrameLayout)
-    private String stickerJson = "";
+    private String stickerJson = "[]";
+    /**
+     * Full interactive stickers (music/quiz/poll/slider/countdown/mention/hashtag/
+     * link/addyours) added via the shared StatusStickerPickerSheet — same widget +
+     * sheet the Status and photo-slideshow reel editors use. Unlike the old
+     * ReelStickerPickerActivity card system, these are kept LIVE (never baked into
+     * the video pixels — ReelVideoExportEngine's baking only ever consumed the
+     * "value" field plain emoji/text stickers have, so these were already implicitly
+     * excluded from hard-baking) and forwarded as ReelModel#stickerJson so
+     * ReelPlayerFragment can render them as tappable overlays at playback time,
+     * wired through ReelStickerReplyHelper exactly like the photo-slideshow feed.
+     */
+    private final List<StatusStickerOverlayView> fullStickerViews = new ArrayList<>();
     // Subtitles
     private String  subtitlesJson     = "";
     private boolean subtitlesEnabled  = false;
@@ -520,9 +536,99 @@ public class ReelEditorActivity extends AppCompatActivity {
     }
 
     /**
+     * Opens the full sticker sheet — same Music/Poll/Quiz/Countdown/Mention/
+     * Hashtag/Link flow Status and the photo-slideshow reel editor use. Unlike
+     * the retired card-based interactive stickers, these render with
+     * StatusStickerOverlayView so ReelPlayerFragment can wire real tap-to-vote/
+     * answer/subscribe behaviour at playback — the same widget, the same JSON,
+     * the same ReelStickerReplyHelper flow the photo feed already has.
+     */
+    private void openFullStickerPicker() {
+        StatusStickerPickerSheet.show(this, result -> {
+            ViewGroup parent = (ViewGroup) playerView.getParent();
+            if (!(parent instanceof FrameLayout)) return;
+            FrameLayout fl = (FrameLayout) parent;
+
+            StatusStickerOverlayView sv = StatusStickerOverlayView.fromJson(this, result.json);
+            int dp = (int) getResources().getDisplayMetrics().density;
+            FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+                Math.min(fl.getWidth() > 0 ? fl.getWidth() - dp * 32 : dp * 260, dp * 260),
+                FrameLayout.LayoutParams.WRAP_CONTENT);
+            lp.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
+            lp.topMargin = dp * (30 + fullStickerViews.size() * 20);
+            sv.setLayoutParams(lp);
+            fl.addView(sv);
+            fullStickerViews.add(sv);
+            sv.attachDragToParent(fl);
+            // Long-press to remove, same gesture as the emoji stickers below
+            sv.setOnLongClickListener(v -> {
+                fl.removeView(sv);
+                fullStickerViews.remove(sv);
+                rebuildFullStickerJson(fl);
+                return true;
+            });
+            rebuildFullStickerJson(fl);
+
+            if (btnToolStickers != null) btnToolStickers.setColorFilter(
+                android.graphics.Color.argb(200, 255, 215, 0)); // gold tint = active
+            updateBadge("sticker", getFullStickerLabel(result.type));
+            Toast.makeText(this, getFullStickerLabel(result.type) + " added! Drag to reposition.", Toast.LENGTH_SHORT).show();
+        });
+    }
+
+    private String getFullStickerLabel(String type) {
+        if (type == null) return "✨ Sticker";
+        switch (type) {
+            case "music":     return "🎵 Music sticker";
+            case "countdown": return "⏳ Countdown";
+            case "quiz":      return "🧠 Quiz sticker";
+            case "question":  return "💬 Question box";
+            case "poll":      return "🗳️ Poll sticker";
+            case "slider":    return "🎚️ Slider sticker";
+            case "mention":   return "👤 Mention sticker";
+            case "hashtag":   return "#️⃣ Hashtag sticker";
+            case "link":      return "🔗 Link sticker";
+            case "addyours":  return "➕ Add Yours sticker";
+            default:          return "✨ Sticker";
+        }
+    }
+
+    /**
+     * Rebuilds {@link #stickerJson} as a JSON array of all StatusStickerOverlayView
+     * stickers currently on the video frame, baking in each one's normalised
+     * posXRatio/posYRatio so ReelPlayerFragment can restore exact placement —
+     * mirrors ReelPhotoEditorActivity#rebuildStickerJson.
+     */
+    private void rebuildFullStickerJson(FrameLayout fl) {
+        StringBuilder sb = new StringBuilder("[");
+        int added = 0;
+        for (StatusStickerOverlayView sv : fullStickerViews) {
+            if (sv.getParent() == null) continue;
+            String json = sv.toJsonWithScale();
+            if (json == null || json.isEmpty()) continue;
+            if (fl.getWidth() > 0 && json.startsWith("{") && json.endsWith("}")) {
+                float xFrac = (sv.getX() + sv.getWidth() / 2f) / fl.getWidth();
+                float yFrac = (sv.getY() + sv.getHeight() / 2f) / fl.getHeight();
+                json = json.substring(0, json.length() - 1)
+                    + String.format(java.util.Locale.US, ",\"posXRatio\":%.3f,\"posYRatio\":%.3f}", xFrac, yFrac);
+            }
+            if (added > 0) sb.append(',');
+            sb.append(json);
+            added++;
+        }
+        sb.append(']');
+        stickerJson = sb.toString();
+    }
+
+    /**
      * Render an interactive sticker (Poll / Quiz / Slider / Question) as a styled
      * card overlay on the video FrameLayout. The card is draggable and long-press removes it.
+     * @deprecated retained only for the legacy pre-record camera preset sticker
+     * (see EXTRA_PRESET_STICKERS_JSON in onCreate) — the main sticker button now
+     * opens {@link #openFullStickerPicker()} instead, which produces real
+     * interactive StatusStickerOverlayView stickers.
      */
+    @Deprecated
     @android.annotation.SuppressLint("ClickableViewAccessibility")
     private void addInteractiveStickerOverlay(FrameLayout fl, String json, int dp) {
         // Parse fields from JSON
@@ -1048,8 +1154,7 @@ public class ReelEditorActivity extends AppCompatActivity {
             startActivityForResult(i, REQ_FILTERS);
         });
 
-        if (btnToolStickers != null) btnToolStickers.setOnClickListener(v ->
-            startActivityForResult(new Intent(this, ReelStickerPickerActivity.class), REQ_STICKERS));
+        if (btnToolStickers != null) btnToolStickers.setOnClickListener(v -> openFullStickerPicker());
 
         if (btnToolSubtitles != null) btnToolSubtitles.setOnClickListener(v -> {
             Intent i = new Intent(this, ReelSubtitlesActivity.class);
@@ -1121,17 +1226,6 @@ public class ReelEditorActivity extends AppCompatActivity {
                 break;
             }
 
-            case REQ_STICKERS: {
-                String sJson = data.getStringExtra(ReelStickerPickerActivity.RESULT_STICKER_JSON);
-                if (sJson != null && !sJson.isEmpty()) {
-                    stickerJson = sJson;
-                    // ✅ VISUALLY APPLY — add draggable sticker on video frame
-                    addStickerOverlay(sJson);
-                    if (btnToolStickers != null) btnToolStickers.setColorFilter(
-                        android.graphics.Color.argb(200, 255, 215, 0)); // gold tint = active
-                }
-                break;
-            }
 
             case REQ_SUBTITLES: {
                 String subs = data.getStringExtra(ReelSubtitlesActivity.RESULT_SUBTITLES_JSON);

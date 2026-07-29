@@ -319,6 +319,52 @@ public class FirebaseUtils {
                    .child("stickerSliderResponses").child(String.valueOf(stickerIndex));
     }
 
+    // ── Reel interactive stickers (photo-slideshow) ─────────────────────────
+    // Mirrors the status/{ownerUid}/{statusId}/stickerXxx/{stickerIndex}/{uid} shape
+    // above, keyed by reelId instead of ownerUid+statusId. stickerKey combines the
+    // photo position and the sticker's index within that photo's array (e.g. "2_0")
+    // since ReelModel.photoStickerJsonList is one array PER PHOTO — a plain
+    // stickerIndex alone would collide between stickers on different photos of the
+    // same reel.
+
+    /** Ref for a single viewer's answer to a 🧠 Quiz sticker on a reel. */
+    public static DatabaseReference getReelStickerQuizVoteRef(String reelId, String stickerKey,
+                                                                String voterUid) {
+        return db().getReference("reelStickerVotes").child(reelId)
+                   .child(stickerKey).child(voterUid);
+    }
+
+    /** Ref for a single viewer's "🔔 Remind me" subscription to a ⏳ Countdown sticker on a reel. */
+    public static DatabaseReference getReelStickerCountdownSubscriberRef(String reelId, String stickerKey,
+                                                                          String viewerUid) {
+        return db().getReference("reelStickerSubscribers").child(reelId)
+                   .child(stickerKey).child(viewerUid);
+    }
+
+    /** Ref for a single viewer's vote on a 🗳️ Poll sticker on a reel. */
+    public static DatabaseReference getReelStickerPollVoteRef(String reelId, String stickerKey,
+                                                                String voterUid) {
+        return db().getReference("reelStickerPollVotes").child(reelId)
+                   .child(stickerKey).child(voterUid);
+    }
+
+    /** Ref for ALL votes on a 🗳️ Poll sticker on a reel — used for the live A/B split. */
+    public static DatabaseReference getReelStickerPollVotesRef(String reelId, String stickerKey) {
+        return db().getReference("reelStickerPollVotes").child(reelId).child(stickerKey);
+    }
+
+    /** Ref for a single viewer's response to a 🎚️ Slider sticker on a reel. */
+    public static DatabaseReference getReelStickerSliderResponseRef(String reelId, String stickerKey,
+                                                                      String voterUid) {
+        return db().getReference("reelStickerSliderResponses").child(reelId)
+                   .child(stickerKey).child(voterUid);
+    }
+
+    /** Ref for ALL responses to a 🎚️ Slider sticker on a reel — used for the live average. */
+    public static DatabaseReference getReelStickerSliderResponsesRef(String reelId, String stickerKey) {
+        return db().getReference("reelStickerSliderResponses").child(reelId).child(stickerKey);
+    }
+
     // ── Channels ──────────────────────────────────────────────────────────────
 
     /** Root channel metadata: channels/{channelId}/ */

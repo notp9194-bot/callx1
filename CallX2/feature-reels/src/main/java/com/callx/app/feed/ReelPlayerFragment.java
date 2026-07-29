@@ -2,18 +2,25 @@ package com.callx.app.feed;
 
 import android.app.Activity;
 import android.content.Context;
+import android.content.Intent;
+import android.app.AlertDialog;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.EditText;
+import android.widget.FrameLayout;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.DialogFragment;
 import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentManager;
 import androidx.media3.common.util.UnstableApi;
+import com.callx.app.interactions.ReelStickerReplyHelper;
 import com.callx.app.models.ReelModel;
+import com.callx.app.music.SoundDetailActivity;
 import com.callx.app.reels.R;
+import com.callx.app.stickers.StatusStickerOverlayView;
 import com.callx.app.utils.FirebaseUtils;
 import com.callx.app.feed.controllers.ReelPlayerDelegate;
 import com.callx.app.feed.controllers.ReelPlayerController;
@@ -24,8 +31,12 @@ import com.callx.app.feed.controllers.ReelPhotoSlideshowController;
 import com.callx.app.feed.controllers.ReelUiController;
 import com.callx.app.social.ReelMoreBottomSheet;
 import com.callx.app.comments.ReelCommentsBottomSheet;
+import com.google.firebase.database.DataSnapshot;
+import com.google.firebase.database.DatabaseError;
+import com.google.firebase.database.ValueEventListener;
 
 import java.util.ArrayList;
+import java.util.List;
 
 /**
  * ReelPlayerFragment — Full-screen single-reel player.
@@ -102,6 +113,7 @@ public class ReelPlayerFragment extends Fragment
         args.putString("series_title",        reel.seriesTitle         != null ? reel.seriesTitle         : "");
         args.putInt   ("series_episode_num",  reel.seriesEpisodeNumber);
         args.putString("media_type", reel.mediaType != null ? reel.mediaType : "video");
+        args.putString("sticker_json", reel.stickerJsonForVideo());
         if (reel.photoUrls != null && !reel.photoUrls.isEmpty()) {
             args.putStringArrayList("photo_urls", new ArrayList<>(reel.photoUrls));
         }
@@ -170,6 +182,7 @@ public class ReelPlayerFragment extends Fragment
             reel.seriesTitle         = getArguments().getString("series_title",        "");
             reel.seriesEpisodeNumber = getArguments().getInt   ("series_episode_num",  0);
             reel.mediaType       = getArguments().getString("media_type",        "video");
+            reel.stickerJson     = getArguments().getString("sticker_json",      "[]");
             reel.photoUrls       = getArguments().getStringArrayList("photo_urls");
             reel.photoDurationMs = getArguments().getInt("photo_duration_ms",    3000);
             reel.photoFilter         = getArguments().getString("photo_filter",         "normal");
@@ -217,6 +230,14 @@ public class ReelPlayerFragment extends Fragment
         // Detect photo mode and setup accordingly
         if (reel != null && reel.isPhotoSlideshow()) {
             photoController.setupPhotoMode();
+        } else if (reel != null) {
+            // Video reel: render any interactive stickers (music/poll/quiz/
+            // countdown/slider/question/mention/hashtag/link) added via the
+            // full sticker sheet in ReelEditorActivity — same live, tappable
+            // widgets the photo-slideshow feed uses, wired through
+            // ReelStickerReplyHelper. Photo-slideshow reels instead render
+            // their per-photo stickers inside vp_photos (unaffected here).
+            renderVideoStickers(v);
         }
 
         // Populate static UI
@@ -718,5 +739,258 @@ public class ReelPlayerFragment extends Fragment
     @Override
     public void onCommentsSheetVideoTap() {
         playerController.toggleMute();
+    }
+
+    // ── Interactive stickers for VIDEO reels ────────────────────────────────
+    // Mirrors ReelPhotoSlideshowAdapter#addFullStickerView/#wireStickerInteractivity
+    // for photo-slideshow reels: same StatusStickerOverlayView widget, same
+    // FirebaseUtils.getReelSticker*Ref nodes, same ReelStickerReplyHelper DM flow —
+    // just rendered once into fl_video_sticker_layer instead of per photo page.
+
+    private void renderVideoStickers(View root) {
+        if (reel == null || reel.stickerJson == null) return;
+        FrameLayout layer = root.findViewById(R.id.fl_video_sticker_layer);
+        if (layer == null) return;
+        layer.removeAllViews();
+
+        String json = reel.stickerJsonForVideo();
+        if (json.isEmpty() || json.equals("[]")) return;
+
+        String inner = json.trim();
+        if (inner.startsWith("[")) inner = inner.substring(1);
+        if (inner.endsWith("]")) inner = inner.substring(0, inner.length() - 1);
+        inner = inner.trim();
+        if (inner.isEmpty()) return;
+
+        int depth = 0, start = 0, idx = 0;
+        for (int i = 0; i < inner.length(); i++) {
+            char c = inner.charAt(i);
+            if (c == '{') depth++;
+            else if (c == '}') {
+                depth--;
+                if (depth == 0) {
+                    String obj = inner.substring(start, i + 1);
+                    addVideoStickerView(obj, layer, idx);
+                    idx++;
+                    start = i + 1;
+                    while (start < inner.length() && inner.charAt(start) == ',') start++;
+                }
+            }
+        }
+    }
+
+    private void addVideoStickerView(String obj, FrameLayout layer, int stickerIdx) {
+        try {
+            StatusStickerOverlayView sticker = StatusStickerOverlayView.fromJson(layer.getContext(), obj);
+
+            int dp = (int) layer.getContext().getResources().getDisplayMetrics().density;
+            int frameW = layer.getWidth() > 0
+                    ? layer.getWidth() : layer.getContext().getResources().getDisplayMetrics().widthPixels;
+            int frameH = layer.getHeight() > 0
+                    ? layer.getHeight() : layer.getContext().getResources().getDisplayMetrics().heightPixels;
+
+            FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+                    Math.min(frameW - dp * 32, dp * 280),
+                    FrameLayout.LayoutParams.WRAP_CONTENT,
+                    sticker.hasSavedPosition() ? android.view.Gravity.TOP | android.view.Gravity.START
+                                                : android.view.Gravity.TOP | android.view.Gravity.CENTER_HORIZONTAL);
+            if (sticker.hasSavedPosition()) {
+                lp.leftMargin = (int) (sticker.getSavedPosXRatio() * frameW);
+                lp.topMargin  = (int) (sticker.getSavedPosYRatio() * frameH);
+            } else {
+                lp.topMargin = dp * 140;
+            }
+            layer.addView(sticker, lp);
+
+            wireVideoStickerInteractivity(sticker, stickerIdx);
+        } catch (Exception ignored) {}
+    }
+
+    private void wireVideoStickerInteractivity(StatusStickerOverlayView sticker, int stickerIdx) {
+        String myUid    = FirebaseUtils.getCurrentUid();
+        String ownerUid = reel.uid;
+        String reelId    = reel.reelId;
+        if (myUid == null || ownerUid == null || reelId == null) return;
+        boolean isOwner  = myUid.equals(ownerUid);
+        String ownerName = reel.ownerName;
+        String reelThumb = reel.effectiveThumbUrl();
+        String stickerKey = ReelStickerReplyHelper.videoStickerKey(stickerIdx);
+        String stickerType = sticker.getStickerType();
+        Context ctx = sticker.getContext();
+
+        if ("question".equals(stickerType) && !isOwner) {
+            sticker.setOnClickListener(v -> showVideoQuestionReplyDialog(ctx, sticker, ownerUid, ownerName, reelId, reelThumb));
+        }
+
+        if ("quiz".equals(stickerType) && !isOwner) {
+            FirebaseUtils.getReelStickerQuizVoteRef(reelId, stickerKey, myUid)
+                    .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(DataSnapshot snap) {
+                    if (snap.exists()) {
+                        Long prevSelected = snap.child("selectedIndex").getValue(Long.class);
+                        if (prevSelected != null) sticker.revealQuizAnswer(prevSelected.intValue());
+                    } else {
+                        sticker.setOnQuizOptionSelectedListener(selectedIndex -> {
+                            List<String> opts = sticker.getQuizOptions();
+                            String selectedText = opts != null && selectedIndex < opts.size()
+                                    ? opts.get(selectedIndex) : "";
+                            boolean isCorrect = selectedIndex == sticker.getQuizCorrectIndex();
+                            sticker.revealQuizAnswer(selectedIndex);
+                            ReelStickerReplyHelper.sendQuizAnswer(myUid, ownerUid, ownerName, reelId, reelThumb,
+                                    stickerKey, sticker.getQuizQuestion(), selectedText, selectedIndex, isCorrect);
+                        });
+                    }
+                }
+                @Override public void onCancelled(DatabaseError e) {}
+            });
+        }
+
+        if ("music".equals(stickerType) && sticker.isMusicLinkedToReelSound()) {
+            sticker.setOnClickListener(v -> {
+                try {
+                    Intent intent = new Intent(ctx, SoundDetailActivity.class);
+                    intent.putExtra(SoundDetailActivity.EXTRA_SOUND_ID,    sticker.getMusicSoundId());
+                    intent.putExtra(SoundDetailActivity.EXTRA_SOUND_TITLE, sticker.getMusicSong());
+                    intent.putExtra(SoundDetailActivity.EXTRA_ARTIST,      sticker.getMusicArtist());
+                    intent.putExtra(SoundDetailActivity.EXTRA_SOUND_URL,   sticker.getMusicSoundUrl());
+                    intent.putExtra(SoundDetailActivity.EXTRA_COVER_URL,   sticker.getMusicCoverUrl());
+                    ctx.startActivity(intent);
+                } catch (Exception ignored) {}
+            });
+        }
+
+        if ("countdown".equals(stickerType) && !isOwner) {
+            FirebaseUtils.getReelStickerCountdownSubscriberRef(reelId, stickerKey, myUid)
+                    .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(DataSnapshot snap) {
+                    if (snap.exists()) sticker.setCountdownSubscribed(true);
+                    sticker.setOnCountdownSubscribeToggleListener(nowSubscribed -> {
+                        if (nowSubscribed) {
+                            ReelStickerReplyHelper.sendCountdownSubscription(myUid, ownerUid, ownerName,
+                                    reelId, reelThumb, stickerKey, sticker.getCountdownLabel());
+                        } else {
+                            ReelStickerReplyHelper.unsubscribeCountdown(reelId, stickerKey, myUid);
+                        }
+                    });
+                }
+                @Override public void onCancelled(DatabaseError e) {}
+            });
+        }
+
+        if ("poll".equals(stickerType) && !isOwner) {
+            FirebaseUtils.getReelStickerPollVoteRef(reelId, stickerKey, myUid)
+                    .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(DataSnapshot snap) {
+                    if (snap.exists()) {
+                        String prevOption = snap.child("option").getValue(String.class);
+                        ReelStickerReplyHelper.readPollCounts(reelId, stickerKey, (countA, countB) ->
+                                sticker.revealPollResult(prevOption, countA, countB));
+                    } else {
+                        sticker.setOnPollOptionSelectedListener(selectedOption -> {
+                            String selectedText = "A".equals(selectedOption)
+                                    ? sticker.getPollOptionA() : sticker.getPollOptionB();
+                            ReelStickerReplyHelper.sendPollVote(myUid, ownerUid, ownerName, reelId, reelThumb,
+                                    stickerKey, sticker.getPollQuestion(), selectedOption, selectedText);
+                            ReelStickerReplyHelper.readPollCounts(reelId, stickerKey, (countA, countB) ->
+                                    sticker.revealPollResult(selectedOption, countA, countB));
+                        });
+                    }
+                }
+                @Override public void onCancelled(DatabaseError e) {}
+            });
+        }
+
+        if ("slider".equals(stickerType) && !isOwner) {
+            FirebaseUtils.getReelStickerSliderResponseRef(reelId, stickerKey, myUid)
+                    .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(DataSnapshot snap) {
+                    if (snap.exists()) {
+                        Long prevValue = snap.child("value").getValue(Long.class);
+                        int myVal = prevValue != null ? prevValue.intValue() : 50;
+                        ReelStickerReplyHelper.readSliderAverage(reelId, stickerKey, myVal, avg ->
+                                sticker.revealSliderAverage(myVal, avg));
+                    } else {
+                        sticker.setOnSliderValueSubmittedListener(value -> {
+                            ReelStickerReplyHelper.sendSliderResponse(myUid, ownerUid, ownerName, reelId, reelThumb,
+                                    stickerKey, sticker.getSliderQuestion(), sticker.getSliderEmoji(), value);
+                            ReelStickerReplyHelper.readSliderAverage(reelId, stickerKey, value, avg ->
+                                    sticker.revealSliderAverage(value, avg));
+                        });
+                    }
+                }
+                @Override public void onCancelled(DatabaseError e) {}
+            });
+        }
+
+        if ("mention".equals(stickerType)) {
+            sticker.setOnClickListener(v -> openVideoMentionProfile(ctx, sticker.getMentionUsername()));
+        }
+
+        if ("hashtag".equals(stickerType)) {
+            sticker.setOnClickListener(v -> {
+                String tag = sticker.getHashtagTag();
+                if (tag == null || tag.isEmpty()) return;
+                try {
+                    Class<?> hashtagCls = Class.forName("com.callx.app.search.XHashtagActivity");
+                    Intent intent = new Intent(ctx, hashtagCls);
+                    intent.putExtra("hashtag", tag);
+                    ctx.startActivity(intent);
+                } catch (Exception ignored) {}
+            });
+        }
+
+        if ("link".equals(stickerType)) {
+            sticker.setOnClickListener(v -> {
+                String url = sticker.getLinkUrl();
+                if (url == null || url.isEmpty()) return;
+                try { ctx.startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))); }
+                catch (Exception ignored) {}
+            });
+        }
+    }
+
+    private void openVideoMentionProfile(Context ctx, String username) {
+        if (username == null || username.isEmpty()) return;
+        com.google.firebase.database.FirebaseDatabase.getInstance()
+                .getReference("users").orderByChild("username").equalTo(username).limitToFirst(1)
+                .addListenerForSingleValueEvent(new ValueEventListener() {
+            @Override public void onDataChange(DataSnapshot snap) {
+                if (!snap.exists()) return;
+                DataSnapshot userSnap = snap.getChildren().iterator().next();
+                String uid = userSnap.getKey();
+                String name = userSnap.child("name").getValue(String.class);
+                if (name == null || name.isEmpty()) name = username;
+                String photo = userSnap.child("profileImage").getValue(String.class);
+                if (photo == null || photo.isEmpty()) photo = userSnap.child("photoUrl").getValue(String.class);
+                try {
+                    Class<?> profileCls = Class.forName("com.callx.app.activities.UserProfileActivity");
+                    Intent intent = new Intent(ctx, profileCls);
+                    intent.putExtra("uid", uid);
+                    intent.putExtra("name", name);
+                    if (photo != null) intent.putExtra("photo", photo);
+                    ctx.startActivity(intent);
+                } catch (Exception ignored) {}
+            }
+            @Override public void onCancelled(DatabaseError e) {}
+        });
+    }
+
+    private void showVideoQuestionReplyDialog(Context ctx, StatusStickerOverlayView sticker,
+                                               String ownerUid, String ownerName, String reelId, String reelThumb) {
+        String prompt = sticker.getQuestionPrompt();
+        EditText input = new EditText(ctx);
+        input.setHint("Type your answer…");
+        int pad = (int) (16 * ctx.getResources().getDisplayMetrics().density);
+        input.setPadding(pad, pad, pad, pad);
+        new AlertDialog.Builder(ctx)
+                .setTitle(prompt != null ? prompt : "Ask me anything!")
+                .setView(input)
+                .setPositiveButton("Send", (d, w) -> {
+                    String myUid = FirebaseUtils.getCurrentUid();
+                    ReelStickerReplyHelper.sendQuestionReply(myUid, ownerUid, ownerName, reelId, reelThumb,
+                            prompt, input.getText().toString());
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
     }
 }

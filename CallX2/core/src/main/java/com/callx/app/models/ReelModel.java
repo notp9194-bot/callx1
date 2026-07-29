@@ -106,6 +106,25 @@ public class ReelModel {
      */
     public java.util.List<String> mentionedUids;
 
+    /**
+     * Interactive sticker overlay JSON array for VIDEO reels (mediaType="video"),
+     * in the same shape StatusStickerOverlayView.fromJson()/toJsonWithScale() reads
+     * and writes — e.g. [{"type":"poll",...,"posXRatio":0.5,"posYRatio":0.3}, ...].
+     * Written by ReelEditorActivity via StatusStickerPickerSheet (same sheet Status
+     * and photo-slideshow reels use) and rendered as live, tappable overlays by
+     * ReelPlayerFragment instead of being burned into the video pixels — mirrors
+     * photoStickerJsonList below, just reel-wide instead of per-photo since a video
+     * reel has no photo index. Empty/"[]" for reels with no stickers or posted
+     * before this feature shipped.
+     */
+    public String stickerJson = "[]";
+
+    /** Returns {@link #stickerJson}, defaulting to an empty array for legacy reels. */
+    @com.google.firebase.database.Exclude
+    public String stickerJsonForVideo() {
+        return (stickerJson != null && !stickerJson.isEmpty()) ? stickerJson : "[]";
+    }
+
     // ══════════════════════════════════════════════════════════════════════════
     // ── Photo Slideshow fields ─ Ultra-Advanced v5 ───────────────────────────
     // ══════════════════════════════════════════════════════════════════════════

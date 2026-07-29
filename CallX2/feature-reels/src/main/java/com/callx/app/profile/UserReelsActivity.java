@@ -80,9 +80,22 @@ public class UserReelsActivity extends AppCompatActivity
     private static final int TAB_REELS  = 0;
     private static final int TAB_LIKED  = 1;
     private static final int TAB_SAVED  = 2;
-    // These tab constants are kept for internal data methods — no longer shown as tabs
+    // Liked/Saved are no longer shown as tabs in the strip — moved into the
+    // 3-dot menu (see setupMoreMenu()), which opens them directly in
+    // AllReelsFullActivity instead of switching this screen's grid. These
+    // constants are kept only for AllReelsFullActivity's own EXTRA_TAB values.
     private static final int TAB_REPOST = 3;
     private static final int TAB_SERIES = 4;
+
+    // Visible tab STRIP position (0,1,2 — what tab.getPosition() returns for
+    // the 3 remaining tabs: Reels, Repost, Series) → internal data constant
+    // above. Needed because the strip no longer has 5 tabs in constant order,
+    // so position and data-constant are no longer the same number.
+    private static final int[] VISIBLE_TAB_DATA = { TAB_REELS, TAB_REPOST, TAB_SERIES };
+    // Current tab strip position (0..2) — separate from `activeTab`, which
+    // holds the DATA constant (0/3/4). Used to compute swipe-left/right's
+    // next/previous tab.
+    private int activeTabPosition = 0;
 
     // Views
     private CircleImageView ivAvatar;
@@ -536,6 +549,15 @@ public class UserReelsActivity extends AppCompatActivity
             seriesLayoutManager = new SwipeAwareGridLayoutManager(this, 2);
             rvSeries.setLayoutManager(seriesLayoutManager);
             rvSeries.setAdapter(seriesAdapter);
+            // ULTRA (parity with rv_reels): same reasoning as below — fixed
+            // bounds (match_parent, doesn't depend on adapter content), no
+            // per-cell animation needed for a photo/video grid, and a larger
+            // off-screen ViewHolder cache so switching into/out of this tab
+            // and fast-scrolling reuse bound views instead of re-inflating.
+            rvSeries.setHasFixedSize(true);
+            rvSeries.setItemAnimator(null);
+            rvSeries.setItemViewCacheSize(12);
+            seriesLayoutManager.setInitialPrefetchItemCount(6);
             seriesAdapter.setOnSeriesClickListener(series -> {
                 Intent si = new Intent(this, com.callx.app.social.DuetSeriesActivity.class);
                 si.putExtra(com.callx.app.social.DuetSeriesActivity.EXTRA_SERIES_ID, series.seriesId);
@@ -790,7 +812,8 @@ public class UserReelsActivity extends AppCompatActivity
         if (tabLayout == null) return;
         tabLayout.addOnTabSelectedListener(new TabLayout.OnTabSelectedListener() {
             @Override public void onTabSelected(TabLayout.Tab tab) {
-                activeTab = tab.getPosition();
+                activeTabPosition = tab.getPosition();
+                activeTab = VISIBLE_TAB_DATA[activeTabPosition];
                 exitMultiSelectMode();
                 // FIX: previously the header's collapsed/expanded scroll
                 // state just carried over across tabs — scroll down on
@@ -837,9 +860,9 @@ public class UserReelsActivity extends AppCompatActivity
         // first frame goes up sooner. The listeners are only needed once
         // the user can actually interact with the tabs, which is always
         // after that first frame anyway.
-        if (isSelf) {
-            runWhenMainThreadIdle(this::wireGridTabLongPressListeners);
-        }
+        // Grid tab color picker moved to the 3-dot menu only (see
+        // setupMoreMenu() → "Grid Color", applies to the currently active
+        // tab) — no longer wired as a long-press here.
     }
 
     /**
@@ -858,22 +881,6 @@ public class UserReelsActivity extends AppCompatActivity
             r.run();
             return false;
         });
-    }
-
-    private void wireGridTabLongPressListeners() {
-        if (tabLayout == null) return;
-        for (int i = 0; i < tabLayout.getTabCount(); i++) {
-            TabLayout.Tab t = tabLayout.getTabAt(i);
-            if (t == null) continue;
-            final int tabPos = i;
-            android.view.View anchor = tabAnchorView(t);
-            if (anchor != null) {
-                anchor.setOnLongClickListener(v -> {
-                    openGridAccentColorPicker(tabPos);
-                    return true;
-                });
-            }
-        }
     }
 
     /** Returns the tab key string ("reels"/"liked"/"saved"/"repost"/"series") for a tab position, or null if out of range. */
@@ -1041,10 +1048,10 @@ public class UserReelsActivity extends AppCompatActivity
         }
     }
 
-    // ── Swipe left/right on the grid to switch tabs (mirrors the 5 icon tabs) ──
+    // ── Swipe left/right on the grid to switch tabs (mirrors Reels/Repost/Duet) ──
 
     private void switchToTab(int newPos) {
-        if (newPos < TAB_REELS || newPos > TAB_SERIES) return; // out of range — no-op at edges
+        if (newPos < 0 || newPos >= VISIBLE_TAB_DATA.length) return; // out of range — no-op at edges
         if (tabLayout == null) return;
         TabLayout.Tab t = tabLayout.getTabAt(newPos);
         if (t != null) t.select();
@@ -1187,7 +1194,7 @@ public class UserReelsActivity extends AppCompatActivity
                                 && Math.abs(velocityX) > swipeVelocityPx) {
                             // Swipe left (finger moves right→left) → next tab.
                             // Swipe right (finger moves left→right) → previous tab.
-                            switchToTab(dx < 0 ? activeTab + 1 : activeTab - 1);
+                            switchToTab(dx < 0 ? activeTabPosition + 1 : activeTabPosition - 1);
                             return true;
                         }
                         return false;
@@ -1565,19 +1572,6 @@ public class UserReelsActivity extends AppCompatActivity
             }
         });
         rvHighlights.setAdapter(highlightsAdapter);
-
-        // ADVANCE SWIPE: a plain RecyclerView only scrolls exactly as far as
-        // the finger physically drags — a light/short flick barely moves it.
-        // Amplify the fling velocity so a small swipe carries the row
-        // noticeably further, same spirit as the tab-switch swipe tuning.
-        final float highlightsFlingBoost = 2.2f;
-        rvHighlights.setOnFlingListener(new androidx.recyclerview.widget.RecyclerView.OnFlingListener() {
-            @Override
-            public boolean onFling(int velocityX, int velocityY) {
-                rvHighlights.fling((int) (velocityX * highlightsFlingBoost), 0);
-                return true;
-            }
-        });
     }
 
     /**
@@ -3818,10 +3812,9 @@ public class UserReelsActivity extends AppCompatActivity
                             });
                             menu.show();
                         });
-                        layoutProfileSong.setOnLongClickListener(v -> {
-                            openStripColorPicker();
-                            return true;
-                        });
+                        // Strip color picker moved to the 3-dot menu only
+                        // (see setupMoreMenu()) — no longer a long-press here.
+                        layoutProfileSong.setOnLongClickListener(null);
                     } else {
                         layoutProfileSong.setOnClickListener(v -> openSoundDetail.run());
                         layoutProfileSong.setOnLongClickListener(null);
@@ -3839,10 +3832,8 @@ public class UserReelsActivity extends AppCompatActivity
                                     com.callx.app.music.ReelTrendingAudioActivity.class);
                                 startActivity(i);
                             });
-                            layoutAddSongStub.setOnLongClickListener(v -> {
-                                openStripColorPicker();
-                                return true;
-                            });
+                            // Strip color picker moved to the 3-dot menu only.
+                            layoutAddSongStub.setOnLongClickListener(null);
                         }
                     }
                 }
@@ -3955,12 +3946,11 @@ public class UserReelsActivity extends AppCompatActivity
                     }
                 });
             }
+            chip.setTag(typeKey);
             if (isSelf) {
-                // Owner: long-press THIS chip recolors only THIS chip.
-                chip.setOnLongClickListener(v -> {
-                    openBioStripColorPicker(typeKey, (android.widget.TextView) v);
-                    return true;
-                });
+                // Strip color picker moved to the 3-dot menu only
+                // (see setupMoreMenu() → openBioStripColorMenuEntry()).
+                chip.setOnLongClickListener(null);
             } else if (url != null && !url.isEmpty()) {
                 // Viewer: long-press still copies the link.
                 chip.setOnLongClickListener(v -> {
@@ -4025,7 +4015,12 @@ public class UserReelsActivity extends AppCompatActivity
         com.callx.app.utils.RainbowStripColorPickerBottomSheet.show(
                 this, "Bio Strip Color", currentHex,
                 currentHex != null && !currentHex.isEmpty(),
-                colorHex -> {
+                true, "bio strips",
+                (colorHex, applyToAll) -> {
+                    if (applyToAll) {
+                        applyBioStripColorToAll(colorHex);
+                        return;
+                    }
                     profileBioChipColorsMap.put(typeKey, colorHex);
                     com.google.firebase.database.FirebaseDatabase.getInstance()
                         .getReference("reels/users").child(targetUid)
@@ -4033,6 +4028,69 @@ public class UserReelsActivity extends AppCompatActivity
                         .setValue(colorHex);
                     applyChipAccentColor(chipView, colorHex);
                 });
+    }
+
+    /**
+     * Applies one color to EVERY visible bio chip at once (the "Apply to
+     * all bio strips" checkbox) — sets the shared fallback color and clears
+     * every chip's individual override so they all pick it up.
+     */
+    private void applyBioStripColorToAll(String hex) {
+        if (targetUid == null) return;
+        profileBioStripColorHex = hex;
+        profileBioChipColorsMap.clear();
+        if (llBioChips != null) {
+            for (int i = 0; i < llBioChips.getChildCount(); i++) {
+                android.view.View child = llBioChips.getChildAt(i);
+                if (child instanceof android.widget.TextView) {
+                    applyChipAccentColor((android.widget.TextView) child, hex);
+                }
+            }
+        }
+        com.google.firebase.database.DatabaseReference userRef =
+            com.google.firebase.database.FirebaseDatabase.getInstance()
+                .getReference("reels/users").child(targetUid);
+        if (hex != null) userRef.child("profileBioStripColor").setValue(hex);
+        else userRef.child("profileBioStripColor").removeValue();
+        userRef.child("profileBioChipColors").removeValue(); // clear all per-chip overrides
+    }
+
+    /**
+     * Entry point from the 3-dot menu ("🌈 Bio Strip Color") — the direct
+     * long-press-per-chip trigger was removed, so if there's more than one
+     * bio chip currently shown, ask which one to color first (with "Apply
+     * to all" still available inside that picker).
+     */
+    private void openBioStripColorMenuEntry() {
+        if (llBioChips == null || llBioChips.getChildCount() == 0) {
+            Toast.makeText(this, "No bio strips to color yet", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (llBioChips.getChildCount() == 1) {
+            android.view.View only = llBioChips.getChildAt(0);
+            if (only instanceof android.widget.TextView && only.getTag() instanceof String) {
+                openBioStripColorPicker((String) only.getTag(), (android.widget.TextView) only);
+            }
+            return;
+        }
+        List<String> labels = new ArrayList<>();
+        List<android.widget.TextView> chipViews = new ArrayList<>();
+        for (int i = 0; i < llBioChips.getChildCount(); i++) {
+            android.view.View c = llBioChips.getChildAt(i);
+            if (c instanceof android.widget.TextView) {
+                labels.add(((android.widget.TextView) c).getText().toString());
+                chipViews.add((android.widget.TextView) c);
+            }
+        }
+        AlertDialogStyler.showRounded(new AlertDialog.Builder(this)
+            .setTitle("Pick a bio strip to color")
+            .setItems(labels.toArray(new String[0]), (dialog, which) -> {
+                android.widget.TextView chosen = chipViews.get(which);
+                String typeKey = (String) chosen.getTag();
+                openBioStripColorPicker(typeKey, chosen);
+            })
+            .setNegativeButton("Cancel", null)
+            .create());
     }
 
     // ── Social link helper ──────────────────────────────────────────────
@@ -4092,6 +4150,12 @@ public class UserReelsActivity extends AppCompatActivity
             PopupMenu menu = new PopupMenu(this, btnMore);
             menu.getMenu().add(0, 1, 0, "Share Profile");
             menu.getMenu().add(0, 2, 0, "Copy Profile Link");
+            // Liked/Saved moved out of the tab strip (which now shows just
+            // Reels/Repost/Duet, Instagram-style) and into here — opens
+            // straight into AllReelsFullActivity instead of switching this
+            // screen's grid.
+            menu.getMenu().add(0, 10, 0, "❤️ Liked Reels");
+            menu.getMenu().add(0, 11, 0, "🔖 Saved Reels");
             if (isSelf)  menu.getMenu().add(0, 5, 0, "Creator Dashboard");
             if (isSelf && pinnedReel != null) menu.getMenu().add(0, 4, 0, "Remove Pinned Reel");
             boolean dockedEnabled = com.callx.app.docked.DockedPlayerSettings.isEnabled(this);
@@ -4099,6 +4163,12 @@ public class UserReelsActivity extends AppCompatActivity
                 dockedEnabled ? "Docked Reel Player: ON (tap to turn off)"
                               : "Docked Reel Player: OFF (tap to turn on)");
             if (isSelf)  menu.getMenu().add(0, 6, 0, "🗑️ Delete All Reels");
+            // Color-customization entry points — previously triggered by
+            // long-pressing the grid tab / song strip / bio chips directly;
+            // now only reachable from here (single gated entry point).
+            if (isSelf)  menu.getMenu().add(0, 12, 0, "🎨 Grid Color");
+            if (isSelf)  menu.getMenu().add(0, 13, 0, "🎵 Song Strip Color");
+            if (isSelf)  menu.getMenu().add(0, 14, 0, "🌈 Bio Strip Color");
             if (isSelf)  menu.getMenu().add(0, 9, 0, "Default Colour");
             if (!isSelf) menu.getMenu().add(0, 3, 0, "Report User");
             if (!isSelf) menu.getMenu().add(0, 7, 0, "About this account");
@@ -4116,6 +4186,11 @@ public class UserReelsActivity extends AppCompatActivity
                     case 6: deleteAllReels(); break;
                     case 7: openAboutAccount(); break;
                     case 9: resetAllColorsToDefault(); break;
+                    case 12: openGridAccentColorPicker(activeTab); break;
+                    case 13: openStripColorPicker(); break;
+                    case 14: openBioStripColorMenuEntry(); break;
+                    case 10: openLikedOrSavedFullScreen(1); break; // AllReelsFullActivity.TAB_LIKED
+                    case 11: openLikedOrSavedFullScreen(2); break; // AllReelsFullActivity.TAB_SAVED
                     case 8: {
                         boolean newState = !com.callx.app.docked.DockedPlayerSettings.isEnabled(this);
                         com.callx.app.docked.DockedPlayerSettings.setEnabled(this, newState);
@@ -4129,6 +4204,16 @@ public class UserReelsActivity extends AppCompatActivity
             });
             menu.show();
         });
+    }
+
+    /** Opens Liked/Saved reels full-screen (they're no longer tabs on this screen). */
+    private void openLikedOrSavedFullScreen(int allReelsFullActivityTabConstant) {
+        Intent i = new Intent(this, AllReelsFullActivity.class);
+        i.putExtra(AllReelsFullActivity.EXTRA_UID,   targetUid);
+        i.putExtra(AllReelsFullActivity.EXTRA_NAME,  targetName  != null ? targetName  : "");
+        i.putExtra(AllReelsFullActivity.EXTRA_PHOTO, targetPhoto != null ? targetPhoto : "");
+        i.putExtra(AllReelsFullActivity.EXTRA_TAB,   allReelsFullActivityTabConstant);
+        startActivity(i);
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────

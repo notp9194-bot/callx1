@@ -29,8 +29,28 @@ public class RainbowStripColorPickerBottomSheet {
         void onPicked(@Nullable String colorHex);
     }
 
+    /** Like {@link OnPickListener} but also reports whether "Apply to all" was checked. */
+    public interface OnPickListenerScoped {
+        /** colorHex is null when the user chose "Use default". */
+        void onPicked(@Nullable String colorHex, boolean applyToAll);
+    }
+
     public static void show(Context ctx, String title, @Nullable String currentColorHex,
                              boolean allowReset, OnPickListener listener) {
+        show(ctx, title, currentColorHex, allowReset, false, null,
+                (colorHex, applyToAll) -> { if (listener != null) listener.onPicked(colorHex); });
+    }
+
+    /**
+     * @param showApplyAllOption when true, adds an "Apply to all {applyAllLabel}" checkbox
+     *                            above the Apply button; its final state is passed back via
+     *                            {@link OnPickListenerScoped#onPicked}.
+     * @param applyAllLabel      plural noun shown in the checkbox text (e.g. "bio strips");
+     *                            ignored when showApplyAllOption is false.
+     */
+    public static void show(Context ctx, String title, @Nullable String currentColorHex,
+                             boolean allowReset, boolean showApplyAllOption,
+                             @Nullable String applyAllLabel, OnPickListenerScoped listener) {
         BottomSheetDialog sheet = new BottomSheetDialog(ctx);
         LinearLayout root = new LinearLayout(ctx);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -70,9 +90,23 @@ public class RainbowStripColorPickerBottomSheet {
         Button apply = new Button(ctx);
         apply.setText("Apply");
         apply.setAllCaps(false);
+
+        android.widget.CheckBox applyAllCheck = null;
+        if (showApplyAllOption) {
+            applyAllCheck = new android.widget.CheckBox(ctx);
+            applyAllCheck.setText("Apply to all " + (applyAllLabel != null ? applyAllLabel : "strips"));
+            applyAllCheck.setTextSize(13);
+            LinearLayout.LayoutParams checkLp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            checkLp.bottomMargin = dp(ctx, 8);
+            root.addView(applyAllCheck, checkLp);
+        }
+        final android.widget.CheckBox fApplyAllCheck = applyAllCheck;
+
         apply.setOnClickListener(v -> {
             String hex = String.format("#%06X", (0xFFFFFF & selectedColor[0]));
-            if (listener != null) listener.onPicked(hex);
+            boolean applyToAll = fApplyAllCheck != null && fApplyAllCheck.isChecked();
+            if (listener != null) listener.onPicked(hex, applyToAll);
             sheet.dismiss();
         });
         root.addView(apply);
@@ -85,7 +119,8 @@ public class RainbowStripColorPickerBottomSheet {
             reset.setTextColor(Color.parseColor("#6200EE"));
             reset.setPadding(0, dp(ctx, 14), 0, 0);
             reset.setOnClickListener(v -> {
-                if (listener != null) listener.onPicked(null);
+                boolean applyToAll = fApplyAllCheck != null && fApplyAllCheck.isChecked();
+                if (listener != null) listener.onPicked(null, applyToAll);
                 sheet.dismiss();
             });
             root.addView(reset);
