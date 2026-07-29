@@ -1,25 +1,28 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Text "Aa" icon for text overlay tool -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
-
-    <!-- Big "A" -->
     <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M4,18 L8.5,6 L10,6 L14.5,18 L12.8,18 L11.6,14.5 L6.9,14.5 L5.7,18 Z
-                          M7.4,13 L11.1,13 L9.25,7.8 Z"/>
-
-    <!-- Small "a" -->
+        android:fillColor="@android:color/transparent"
+        android:pathData="M4,7V4h16v3"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"/>
     <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M16,11.5 C16.8,10.8 17.8,10.5 18.8,10.8 C19.8,11 20.3,11.8 20.3,12.8
-                          L20.3,18 L18.8,18 L18.8,17.2 C18.3,17.8 17.6,18.1 16.8,18.1
-                          C15.5,18.1 14.7,17.3 14.7,16.2 C14.7,14.9 15.6,14.2 17.1,14.2
-                          L18.8,14.2 L18.8,13.8 C18.8,13.1 18.4,12.7 17.7,12.7
-                          C17.1,12.7 16.5,12.9 16,13.3 Z
-                          M18.8,15.3 L17.3,15.3 C16.7,15.3 16.3,15.6 16.3,16.2
-                          C16.3,16.7 16.7,17 17.3,17 C18,17 18.5,16.6 18.8,16 Z"/>
+        android:fillColor="@android:color/transparent"
+        android:pathData="M9,20h6"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"/>
+    <path
+        android:fillColor="@android:color/transparent"
+        android:pathData="M12,4v16"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"/>
 </vector>

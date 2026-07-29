@@ -1,13 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="22dp"
     android:height="22dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
-  <!--
-    Forward arrow — RIGHT direction (>>)
-    Standard Android "forward/share" icon path
-  -->
-  <path
-      android:fillColor="@color/forward_icon_tint"
-      android:pathData="M14,6L20,12L14,18V14.1C9.9,14.55 7.1,16.05 5,19C6,14 9,9 14,8V6Z"/>
+    <path
+        android:fillColor="@android:color/transparent"
+        android:pathData="M15,14l5,-5l-5,-5"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"/>
+    <path
+        android:fillColor="@android:color/transparent"
+        android:pathData="M20,9H9.5A5.5,5.5 0,0 0,4,14.5V16"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"/>
 </vector>

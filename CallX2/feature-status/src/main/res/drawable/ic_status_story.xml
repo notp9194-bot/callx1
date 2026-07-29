@@ -4,12 +4,18 @@
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
-    <!-- Simple camera/story icon -->
     <path
-        android:fillColor="#FF888888"
-        android:pathData="M12,2C6.48,2 2,6.48 2,12s4.48,10 10,10 10,-4.48 10,-10S17.52,2 12,2zm-1,14H9V8h2v8zm4,0h-2V8h2v8z"/>
-    <!-- Play triangle -->
+        android:fillColor="@android:color/transparent"
+        android:pathData="M12,2a10,10 0,1 0,0.01,0z"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"/>
     <path
-        android:fillColor="#FFFFFFFF"
-        android:pathData="M8,5v14l11,-7z"/>
+        android:fillColor="@android:color/transparent"
+        android:pathData="M10,8l6,4l-6,4z"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"/>
 </vector>
