@@ -54,6 +54,7 @@ public class ReelPhotoSlideshowController {
     private Runnable          photoAdvanceRunnable;
     private ObjectAnimator    storySegmentAnimator;
     private android.view.ScaleGestureDetector pinchDetector;
+    private ReelPhotoSlideshowAdapter photoAdapter;
 
     public ReelPhotoSlideshowController(ReelPlayerDelegate delegate) {
         this.delegate = delegate;
@@ -118,7 +119,25 @@ public class ReelPhotoSlideshowController {
         // Adapter
         ReelPhotoSlideshowAdapter adapter = new ReelPhotoSlideshowAdapter(reel);
         adapter.setGlobalFilter(reel.photoFilter != null ? reel.photoFilter : "normal");
+        // Sticker tap-to-zoom gate reuses this same pause/resume path as long-press.
+        adapter.setPhotoInteractionListener(new ReelPhotoSlideshowAdapter.PhotoInteractionListener() {
+            @Override public void onLongPressStateChanged(boolean isPaused) {
+                if (isPaused) {
+                    photoSlideshowPaused = true;
+                    stopPhotoSlideshow();
+                    if (storySegmentAnimator != null) storySegmentAnimator.pause();
+                    if (tvPauseBadge != null) tvPauseBadge.setVisibility(View.GONE); // sticker zoom has its own scrim; skip the ⏸ badge
+                } else {
+                    photoSlideshowPaused = false;
+                    if (storySegmentAnimator != null) storySegmentAnimator.resume();
+                    startPhotoSlideshow();
+                }
+            }
+            @Override public void onPhotoSwipedByUser(int newIndex) {}
+            @Override public void onAutoAdvanceTick(int fromIndex) {}
+        });
         vpPhotos.setAdapter(adapter);
+        photoAdapter = adapter;
 
         // ── Instagram-level swipe sensitivity ─────────────────────────────
         // Reduce the touch slop on ViewPager2's internal RecyclerView so that
@@ -532,6 +551,12 @@ public class ReelPhotoSlideshowController {
             }
         };
         photoHandler.postDelayed(photoAdvanceRunnable, photoDurationMs);
+    }
+
+    /** Called by the fragment's onResume() — shrinks back a sticker left zoomed
+     *  when the viewer navigated off to an external profile/hashtag/link/sheet. */
+    public void settleAnyZoomedSticker() {
+        if (photoAdapter != null) photoAdapter.settleAnyZoomedSticker();
     }
 
     public void stopPhotoSlideshow() {

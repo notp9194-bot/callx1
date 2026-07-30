@@ -127,6 +127,11 @@ public class ReelPhotoSlideshowAdapter
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
+    // ── Viewer "tap to zoom, react to return" gate (mirrors StatusViewerActivity) ──
+    // At most one sticker can be zoomed in at a time across the whole photo pager.
+    @Nullable private StatusStickerOverlayView zoomedSticker;
+    @Nullable private PhotoVH                  zoomedVH;
+
     // ── Constructor ───────────────────────────────────────────────────────────
 
     public ReelPhotoSlideshowAdapter(@NonNull ReelModel reelModel) {
@@ -271,6 +276,8 @@ public class ReelPhotoSlideshowAdapter
         h.vCaptionGradient.setVisibility(View.GONE);
         stopBreathingPulse(h);
         h.llStickerLayer.removeAllViews();
+        h.stickerZoomScrim = null; // just got removed along with everything else above
+        if (zoomedVH == h) { zoomedVH = null; zoomedSticker = null; }
     }
 
     @Override
@@ -694,10 +701,10 @@ public class ReelPhotoSlideshowAdapter
         h.llStickerLayer.removeAllViews();
         if (stickerJson == null || stickerJson.isEmpty() || stickerJson.equals("[]")) return;
         // Parse minimal JSON array: [{"type":"emoji","value":"🔥","x":0.5,"y":0.3,"scale":1.2}, ...]
-        parseStickerArray(stickerJson, h.llStickerLayer, position);
+        parseStickerArray(h, stickerJson, h.llStickerLayer, position);
     }
 
-    private void parseStickerArray(String json, FrameLayout container, int position) {
+    private void parseStickerArray(@NonNull PhotoVH h, String json, FrameLayout container, int position) {
         // Strip outer brackets
         String inner = json.trim();
         if (inner.startsWith("[")) inner = inner.substring(1);
@@ -714,7 +721,7 @@ public class ReelPhotoSlideshowAdapter
                 depth--;
                 if (depth == 0) {
                     String obj = inner.substring(start, i + 1);
-                    addStickerView(obj, container, position, stickerIdx);
+                    addStickerView(h, obj, container, position, stickerIdx);
                     stickerIdx++;
                     start = i + 1;
                     while (start < inner.length() && (inner.charAt(start) == ',')) start++;
@@ -723,7 +730,7 @@ public class ReelPhotoSlideshowAdapter
         }
     }
 
-    private void addStickerView(String obj, FrameLayout container, int position, int stickerIdx) {
+    private void addStickerView(@NonNull PhotoVH h, String obj, FrameLayout container, int position, int stickerIdx) {
         String type = extractJsonStr(obj, "type", "emoji");
 
         // Full interactive stickers (music/quiz/poll/slider/countdown/mention/
@@ -735,7 +742,7 @@ public class ReelPhotoSlideshowAdapter
         // saved fine and show correctly in Status. Build them the same way
         // StatusViewerActivity does, using the baked-in posXRatio/posYRatio.
         if (!"emoji".equals(type)) {
-            addFullStickerView(obj, container, position, stickerIdx);
+            addFullStickerView(h, obj, container, position, stickerIdx);
             return;
         }
 
@@ -783,7 +790,7 @@ public class ReelPhotoSlideshowAdapter
      * Status. Falls back to a stacked default position for legacy stickers
      * saved without posXRatio/posYRatio.
      */
-    private void addFullStickerView(String obj, FrameLayout container, int photoPosition, int stickerIdx) {
+    private void addFullStickerView(@NonNull PhotoVH h, String obj, FrameLayout container, int photoPosition, int stickerIdx) {
         try {
             StatusStickerOverlayView sticker = StatusStickerOverlayView.fromJson(container.getContext(), obj);
             sticker.setTag(TAG_STICKER_VIEW);
@@ -807,7 +814,7 @@ public class ReelPhotoSlideshowAdapter
             }
             container.addView(sticker, lp);
 
-            if (!editMode) wireStickerInteractivity(sticker, photoPosition, stickerIdx);
+            if (!editMode) wireStickerInteractivity(h, sticker, photoPosition, stickerIdx);
         } catch (Exception ignored) {}
     }
 
@@ -821,7 +828,7 @@ public class ReelPhotoSlideshowAdapter
      * editor passes editMode=true and skips this so stickers stay simple
      * drag targets while composing.
      */
-    private void wireStickerInteractivity(StatusStickerOverlayView sticker, int photoPosition, int stickerIdx) {
+    private void wireStickerInteractivity(@NonNull PhotoVH h, StatusStickerOverlayView sticker, int photoPosition, int stickerIdx) {
         String myUid    = FirebaseUtils.getCurrentUid();
         String ownerUid = reelModel.uid;
         String reelId    = reelModel.reelId;
@@ -834,7 +841,8 @@ public class ReelPhotoSlideshowAdapter
         Context ctx = sticker.getContext();
 
         if ("question".equals(stickerType) && !isOwner) {
-            sticker.setOnClickListener(v -> showQuestionReplyDialog(ctx, sticker, ownerUid, ownerName, reelId, reelThumb));
+            armStickerZoomGate(h, sticker, () ->
+                    showQuestionReplyDialog(h, sticker, ctx, ownerUid, ownerName, reelId, reelThumb));
         }
 
         if ("quiz".equals(stickerType) && !isOwner) {
@@ -845,6 +853,7 @@ public class ReelPhotoSlideshowAdapter
                         Long prevSelected = snap.child("selectedIndex").getValue(Long.class);
                         if (prevSelected != null) sticker.revealQuizAnswer(prevSelected.intValue());
                     } else {
+                        armStickerZoomGate(h, sticker);
                         sticker.setOnQuizOptionSelectedListener(selectedIndex -> {
                             List<String> opts = sticker.getQuizOptions();
                             String selectedText = opts != null && selectedIndex < opts.size()
@@ -853,6 +862,8 @@ public class ReelPhotoSlideshowAdapter
                             sticker.revealQuizAnswer(selectedIndex);
                             ReelStickerReplyHelper.sendQuizAnswer(myUid, ownerUid, ownerName, reelId, reelThumb,
                                     stickerKey, sticker.getQuizQuestion(), selectedText, selectedIndex, isCorrect);
+                            // Give the viewer a beat to see the ✓/✗ reveal, then shrink back and resume.
+                            mainHandler.postDelayed(() -> settleStickerReaction(h, sticker), 1200);
                         });
                     }
                 }
@@ -864,9 +875,9 @@ public class ReelPhotoSlideshowAdapter
         // music sticker opens SoundDetailSheetFragment as a bottom sheet instead —
         // this now matches that, using the app's FragmentActivity host to show it.
         if ("music".equals(stickerType) && sticker.isMusicLinkedToReelSound()) {
-            sticker.setOnClickListener(v -> {
+            armStickerZoomGate(h, sticker, () -> {
                 androidx.fragment.app.FragmentActivity activity = activityOf(ctx);
-                if (activity == null) return;
+                if (activity == null) { settleStickerReaction(h, sticker); return; }
                 com.callx.app.music.SoundDetailSheetFragment sheet =
                         com.callx.app.music.SoundDetailSheetFragment.newInstance(
                                 sticker.getMusicSoundId(),
@@ -876,6 +887,12 @@ public class ReelPhotoSlideshowAdapter
                                 sticker.getMusicSoundUrl(),
                                 0);
                 sheet.show(activity.getSupportFragmentManager(), "sound_detail_full");
+                activity.getSupportFragmentManager().executePendingTransactions();
+                if (sheet.getDialog() != null) {
+                    sheet.getDialog().setOnDismissListener(d -> settleStickerReaction(h, sticker));
+                } else {
+                    settleStickerReaction(h, sticker); // defensive fallback if dialog never attached
+                }
             });
         }
 
@@ -884,6 +901,7 @@ public class ReelPhotoSlideshowAdapter
                     .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(DataSnapshot snap) {
                     if (snap.exists()) sticker.setCountdownSubscribed(true);
+                    armStickerZoomGate(h, sticker);
                     sticker.setOnCountdownSubscribeToggleListener(nowSubscribed -> {
                         if (nowSubscribed) {
                             ReelStickerReplyHelper.sendCountdownSubscription(myUid, ownerUid, ownerName,
@@ -891,6 +909,8 @@ public class ReelPhotoSlideshowAdapter
                         } else {
                             ReelStickerReplyHelper.unsubscribeCountdown(reelId, stickerKey, myUid);
                         }
+                        // Give the viewer a beat to see the bell toggle, then shrink back and resume.
+                        mainHandler.postDelayed(() -> settleStickerReaction(h, sticker), 500);
                     });
                 }
                 @Override public void onCancelled(DatabaseError e) {}
@@ -905,12 +925,15 @@ public class ReelPhotoSlideshowAdapter
                         String prevOption = snap.child("option").getValue(String.class);
                         revealPollWithCounts(sticker, reelId, stickerKey, prevOption);
                     } else {
+                        armStickerZoomGate(h, sticker);
                         sticker.setOnPollOptionSelectedListener(selectedOption -> {
                             String selectedText = "A".equals(selectedOption)
                                     ? sticker.getPollOptionA() : sticker.getPollOptionB();
                             ReelStickerReplyHelper.sendPollVote(myUid, ownerUid, ownerName, reelId, reelThumb,
                                     stickerKey, sticker.getPollQuestion(), selectedOption, selectedText);
                             revealPollWithCounts(sticker, reelId, stickerKey, selectedOption);
+                            // Give the viewer a beat to see the % split, then shrink back and resume.
+                            mainHandler.postDelayed(() -> settleStickerReaction(h, sticker), 1200);
                         });
                     }
                 }
@@ -927,10 +950,13 @@ public class ReelPhotoSlideshowAdapter
                         int myVal = prevValue != null ? prevValue.intValue() : 50;
                         revealSliderWithAverage(sticker, reelId, stickerKey, myVal);
                     } else {
+                        armStickerZoomGate(h, sticker);
                         sticker.setOnSliderValueSubmittedListener(value -> {
                             ReelStickerReplyHelper.sendSliderResponse(myUid, ownerUid, ownerName, reelId, reelThumb,
                                     stickerKey, sticker.getSliderQuestion(), sticker.getSliderEmoji(), value);
                             revealSliderWithAverage(sticker, reelId, stickerKey, value);
+                            // Give the viewer a beat to see the average, then shrink back and resume.
+                            mainHandler.postDelayed(() -> settleStickerReaction(h, sticker), 1200);
                         });
                     }
                 }
@@ -939,19 +965,20 @@ public class ReelPhotoSlideshowAdapter
         }
 
         if ("mention".equals(stickerType)) {
-            sticker.setOnClickListener(v -> openMentionProfile(ctx, sticker.getMentionUsername()));
+            armStickerZoomGate(h, sticker, () -> openMentionProfile(ctx, sticker.getMentionUsername()));
         }
 
         if ("hashtag".equals(stickerType)) {
-            sticker.setOnClickListener(v -> openHashtagFeed(ctx, sticker.getHashtagTag()));
+            armStickerZoomGate(h, sticker, () -> openHashtagFeed(ctx, sticker.getHashtagTag()));
         }
 
         if ("link".equals(stickerType)) {
-            sticker.setOnClickListener(v -> {
+            armStickerZoomGate(h, sticker, () -> {
                 String url = sticker.getLinkUrl();
-                if (url == null || url.isEmpty()) return;
-                try { ctx.startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))); }
-                catch (Exception ignored) {}
+                if (url != null && !url.isEmpty()) {
+                    try { ctx.startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))); }
+                    catch (Exception ignored) {}
+                }
             });
         }
 
@@ -962,7 +989,7 @@ public class ReelPhotoSlideshowAdapter
         // "use this sound"/"participate" action uses, with a toast naming whose
         // prompt is being continued.
         if ("addyours".equals(stickerType) && !isOwner) {
-            sticker.setOnClickListener(v -> {
+            armStickerZoomGate(h, sticker, () -> {
                 String prompt = sticker.getAddYoursPrompt();
                 if (prompt == null || prompt.isEmpty()) return;
                 String origin = sticker.getAddYoursOriginName();
@@ -974,6 +1001,74 @@ public class ReelPhotoSlideshowAdapter
                 } catch (Exception ignored) {}
             });
         }
+    }
+
+    // ── Viewer "tap to zoom, react to return" gate for photo-reel stickers ─────
+    // Mirrors StatusViewerActivity#armStickerZoomGate/settleStickerReaction: a
+    // viewer's first tap enlarges the sticker front-and-centre over a dim scrim
+    // and pauses the photo slideshow (timer + story-segment bar) for as long as
+    // it stays enlarged; whatever counts as the "reaction" for that sticker type
+    // shrinks it back to its dropped spot and resumes the slideshow.
+
+    private void armStickerZoomGate(@NonNull PhotoVH h, StatusStickerOverlayView sticker) {
+        armStickerZoomGate(h, sticker, null);
+    }
+
+    /** @param afterZoomed for one-shot stickers (question/music/mention/hashtag/
+     *  link/addyours): fired once the zoom-in animation finishes. Pass null for
+     *  stickers with their own live listener (quiz/poll/slider/countdown) that
+     *  arms the viewer's next tap on the real option once zoomed in. */
+    private void armStickerZoomGate(@NonNull PhotoVH h, StatusStickerOverlayView sticker, @Nullable Runnable afterZoomed) {
+        sticker.armViewerZoomGate(() -> {
+            if (listener != null) listener.onLongPressStateChanged(true); // reuses the slideshow's existing pause path
+            showStickerZoomScrim(h);
+            zoomedVH = h;
+            zoomedSticker = sticker;
+            sticker.zoomToFront(h.llStickerLayer, afterZoomed);
+        });
+    }
+
+    private void settleStickerReaction(@NonNull PhotoVH h, StatusStickerOverlayView sticker) {
+        hideStickerZoomScrim(h);
+        if (zoomedVH == h) { zoomedVH = null; zoomedSticker = null; }
+        sticker.restoreFromZoom(() -> {
+            if (listener != null) listener.onLongPressStateChanged(false); // resumes the slideshow
+        });
+    }
+
+    /** Called by the host fragment's onResume() — settles a sticker left zoomed
+     *  in when the viewer navigated off to an external profile/hashtag/link/sheet
+     *  and has now come back. No-op if nothing is currently zoomed. */
+    public void settleAnyZoomedSticker() {
+        if (zoomedVH != null && zoomedSticker != null) settleStickerReaction(zoomedVH, zoomedSticker);
+    }
+
+    // ── Dim backdrop behind a zoomed-in photo-reel sticker ──────────────────
+    private void showStickerZoomScrim(@NonNull PhotoVH h) {
+        if (h.stickerZoomScrim != null) return;
+        View scrim = new View(h.itemView.getContext());
+        scrim.setBackgroundColor(0xCC000000);
+        scrim.setAlpha(0f);
+        scrim.setClickable(true); // swallow taps outside the zoomed sticker
+        scrim.setOnClickListener(v -> {
+            if (zoomedVH == h && zoomedSticker != null) settleStickerReaction(h, zoomedSticker);
+        });
+        h.llStickerLayer.addView(scrim, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        // Bring the whole sticker layer (scrim + sticker together) above the
+        // top/bottom gradients and caption so the dim covers the full photo.
+        ((ViewGroup) h.itemView).bringChildToFront(h.llStickerLayer);
+        h.itemView.invalidate();
+        scrim.animate().alpha(1f).setDuration(200).start();
+        h.stickerZoomScrim = scrim;
+    }
+
+    private void hideStickerZoomScrim(@NonNull PhotoVH h) {
+        if (h.stickerZoomScrim == null) return;
+        final View scrim = h.stickerZoomScrim;
+        h.stickerZoomScrim = null;
+        scrim.animate().alpha(0f).setDuration(180)
+                .withEndAction(() -> h.llStickerLayer.removeView(scrim)).start();
     }
 
     /** Unwraps a View's Context down to its hosting FragmentActivity, or null if none. */
@@ -1039,7 +1134,7 @@ public class ReelPhotoSlideshowAdapter
     }
 
     /** Lightweight reply prompt for a 💬 Question sticker — Reels has no equivalent of Status's full-screen reply sheet, so a plain AlertDialog input covers the same "type an answer, it DMs the owner" flow. */
-    private void showQuestionReplyDialog(Context ctx, StatusStickerOverlayView sticker,
+    private void showQuestionReplyDialog(@NonNull PhotoVH h, StatusStickerOverlayView sticker, Context ctx,
                                           String ownerUid, String ownerName, String reelId, String reelThumb) {
         String prompt = sticker.getQuestionPrompt();
         EditText input = new EditText(ctx);
@@ -1055,6 +1150,7 @@ public class ReelPhotoSlideshowAdapter
                             prompt, input.getText().toString());
                 })
                 .setNegativeButton("Cancel", null)
+                .setOnDismissListener(d -> settleStickerReaction(h, sticker)) // Send, Cancel, or outside-tap all shrink it back
                 .show();
     }
 
@@ -1552,6 +1648,8 @@ public class ReelPhotoSlideshowAdapter
         final TextView    tvCaption;
         final View        vCaptionGradient;
         @Nullable ValueAnimator pulseAnimator;
+        /** Dim backdrop shown behind a tap-to-zoom sticker (mirrors StatusViewerActivity's stickerZoomScrim). */
+        @Nullable View stickerZoomScrim;
 
         PhotoVH(@NonNull View itemView) {
             super(itemView);

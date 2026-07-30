@@ -5,6 +5,8 @@ import android.content.Context;
 import android.content.Intent;
 import android.app.AlertDialog;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -269,6 +271,17 @@ public class ReelPlayerFragment extends Fragment
         }
 
         return v;
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        // Photo-reel stickers (mention/hashtag/link/music/add-yours) can hand off
+        // to an external profile/hashtag/browser/sheet — settle it back to its
+        // dropped spot and resume the slideshow now that the viewer is back.
+        photoController.settleAnyZoomedSticker();
+        // Same hand-off case for VIDEO-reel stickers — settle it back and resume playback.
+        settleAnyZoomedVideoSticker();
     }
 
     @Override
@@ -746,11 +759,26 @@ public class ReelPlayerFragment extends Fragment
     // FirebaseUtils.getReelSticker*Ref nodes, same ReelStickerReplyHelper DM flow —
     // just rendered once into fl_video_sticker_layer instead of per photo page.
 
+    // ── Viewer "tap to zoom, react to return" gate for VIDEO-reel stickers ───
+    // Mirrors StatusViewerActivity#armStickerZoomGate/settleStickerReaction and
+    // ReelPhotoSlideshowAdapter's copy of the same: a viewer's first tap
+    // enlarges the sticker front-and-centre over a dim scrim and pauses the
+    // video (playerController.pausePlayback()) for as long as it stays
+    // enlarged; whatever counts as the "reaction" for that sticker type
+    // shrinks it back to its dropped spot and resumes playback.
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    @Nullable private FrameLayout videoStickerLayer;
+    @Nullable private StatusStickerOverlayView zoomedVideoSticker;
+    @Nullable private View videoStickerZoomScrim;
+
     private void renderVideoStickers(View root) {
         if (reel == null || reel.stickerJson == null) return;
         FrameLayout layer = root.findViewById(R.id.fl_video_sticker_layer);
         if (layer == null) return;
         layer.removeAllViews();
+        videoStickerLayer = layer;
+        videoStickerZoomScrim = null; // just got removed along with everything else above
+        zoomedVideoSticker = null;
 
         String json = reel.stickerJsonForVideo();
         if (json.isEmpty() || json.equals("[]")) return;
@@ -818,7 +846,8 @@ public class ReelPlayerFragment extends Fragment
         Context ctx = sticker.getContext();
 
         if ("question".equals(stickerType) && !isOwner) {
-            sticker.setOnClickListener(v -> showVideoQuestionReplyDialog(ctx, sticker, ownerUid, ownerName, reelId, reelThumb));
+            armVideoStickerZoomGate(sticker, () ->
+                    showVideoQuestionReplyDialog(ctx, sticker, ownerUid, ownerName, reelId, reelThumb));
         }
 
         if ("quiz".equals(stickerType) && !isOwner) {
@@ -829,6 +858,7 @@ public class ReelPlayerFragment extends Fragment
                         Long prevSelected = snap.child("selectedIndex").getValue(Long.class);
                         if (prevSelected != null) sticker.revealQuizAnswer(prevSelected.intValue());
                     } else {
+                        armVideoStickerZoomGate(sticker);
                         sticker.setOnQuizOptionSelectedListener(selectedIndex -> {
                             List<String> opts = sticker.getQuizOptions();
                             String selectedText = opts != null && selectedIndex < opts.size()
@@ -837,6 +867,8 @@ public class ReelPlayerFragment extends Fragment
                             sticker.revealQuizAnswer(selectedIndex);
                             ReelStickerReplyHelper.sendQuizAnswer(myUid, ownerUid, ownerName, reelId, reelThumb,
                                     stickerKey, sticker.getQuizQuestion(), selectedText, selectedIndex, isCorrect);
+                            // Give the viewer a beat to see the ✓/✗ reveal, then shrink back and resume.
+                            mainHandler.postDelayed(() -> settleVideoStickerReaction(sticker), 1200);
                         });
                     }
                 }
@@ -848,7 +880,7 @@ public class ReelPlayerFragment extends Fragment
         // music sticker opens SoundDetailSheetFragment as a bottom sheet instead —
         // this now matches that, using this fragment's own child FragmentManager.
         if ("music".equals(stickerType) && sticker.isMusicLinkedToReelSound()) {
-            sticker.setOnClickListener(v -> {
+            armVideoStickerZoomGate(sticker, () -> {
                 com.callx.app.music.SoundDetailSheetFragment sheet =
                         com.callx.app.music.SoundDetailSheetFragment.newInstance(
                                 sticker.getMusicSoundId(),
@@ -858,6 +890,12 @@ public class ReelPlayerFragment extends Fragment
                                 sticker.getMusicSoundUrl(),
                                 0);
                 sheet.show(getChildFragmentManager(), "sound_detail_full");
+                getChildFragmentManager().executePendingTransactions();
+                if (sheet.getDialog() != null) {
+                    sheet.getDialog().setOnDismissListener(d -> settleVideoStickerReaction(sticker));
+                } else {
+                    settleVideoStickerReaction(sticker); // defensive fallback if dialog never attached
+                }
             });
         }
 
@@ -866,6 +904,7 @@ public class ReelPlayerFragment extends Fragment
                     .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(DataSnapshot snap) {
                     if (snap.exists()) sticker.setCountdownSubscribed(true);
+                    armVideoStickerZoomGate(sticker);
                     sticker.setOnCountdownSubscribeToggleListener(nowSubscribed -> {
                         if (nowSubscribed) {
                             ReelStickerReplyHelper.sendCountdownSubscription(myUid, ownerUid, ownerName,
@@ -873,6 +912,8 @@ public class ReelPlayerFragment extends Fragment
                         } else {
                             ReelStickerReplyHelper.unsubscribeCountdown(reelId, stickerKey, myUid);
                         }
+                        // Give the viewer a beat to see the bell toggle, then shrink back and resume.
+                        mainHandler.postDelayed(() -> settleVideoStickerReaction(sticker), 500);
                     });
                 }
                 @Override public void onCancelled(DatabaseError e) {}
@@ -888,6 +929,7 @@ public class ReelPlayerFragment extends Fragment
                         ReelStickerReplyHelper.readPollCounts(reelId, stickerKey, (countA, countB) ->
                                 sticker.revealPollResult(prevOption, countA, countB));
                     } else {
+                        armVideoStickerZoomGate(sticker);
                         sticker.setOnPollOptionSelectedListener(selectedOption -> {
                             String selectedText = "A".equals(selectedOption)
                                     ? sticker.getPollOptionA() : sticker.getPollOptionB();
@@ -895,6 +937,8 @@ public class ReelPlayerFragment extends Fragment
                                     stickerKey, sticker.getPollQuestion(), selectedOption, selectedText);
                             ReelStickerReplyHelper.readPollCounts(reelId, stickerKey, (countA, countB) ->
                                     sticker.revealPollResult(selectedOption, countA, countB));
+                            // Give the viewer a beat to see the % split, then shrink back and resume.
+                            mainHandler.postDelayed(() -> settleVideoStickerReaction(sticker), 1200);
                         });
                     }
                 }
@@ -912,11 +956,14 @@ public class ReelPlayerFragment extends Fragment
                         ReelStickerReplyHelper.readSliderAverage(reelId, stickerKey, myVal, avg ->
                                 sticker.revealSliderAverage(myVal, avg));
                     } else {
+                        armVideoStickerZoomGate(sticker);
                         sticker.setOnSliderValueSubmittedListener(value -> {
                             ReelStickerReplyHelper.sendSliderResponse(myUid, ownerUid, ownerName, reelId, reelThumb,
                                     stickerKey, sticker.getSliderQuestion(), sticker.getSliderEmoji(), value);
                             ReelStickerReplyHelper.readSliderAverage(reelId, stickerKey, value, avg ->
                                     sticker.revealSliderAverage(value, avg));
+                            // Give the viewer a beat to see the average, then shrink back and resume.
+                            mainHandler.postDelayed(() -> settleVideoStickerReaction(sticker), 1200);
                         });
                     }
                 }
@@ -925,11 +972,11 @@ public class ReelPlayerFragment extends Fragment
         }
 
         if ("mention".equals(stickerType)) {
-            sticker.setOnClickListener(v -> openVideoMentionProfile(ctx, sticker.getMentionUsername()));
+            armVideoStickerZoomGate(sticker, () -> openVideoMentionProfile(ctx, sticker.getMentionUsername()));
         }
 
         if ("hashtag".equals(stickerType)) {
-            sticker.setOnClickListener(v -> {
+            armVideoStickerZoomGate(sticker, () -> {
                 String tag = sticker.getHashtagTag();
                 if (tag == null || tag.isEmpty()) return;
                 try {
@@ -942,7 +989,7 @@ public class ReelPlayerFragment extends Fragment
         }
 
         if ("link".equals(stickerType)) {
-            sticker.setOnClickListener(v -> {
+            armVideoStickerZoomGate(sticker, () -> {
                 String url = sticker.getLinkUrl();
                 if (url == null || url.isEmpty()) return;
                 try { ctx.startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))); }
@@ -957,7 +1004,7 @@ public class ReelPlayerFragment extends Fragment
         // "use this sound"/"participate" action uses, with a toast naming whose
         // prompt is being continued.
         if ("addyours".equals(stickerType) && !isOwner) {
-            sticker.setOnClickListener(v -> {
+            armVideoStickerZoomGate(sticker, () -> {
                 String prompt = sticker.getAddYoursPrompt();
                 if (prompt == null || prompt.isEmpty()) return;
                 String origin = sticker.getAddYoursOriginName();
@@ -969,6 +1016,64 @@ public class ReelPlayerFragment extends Fragment
                 } catch (Exception ignored) {}
             });
         }
+    }
+
+    /** @param afterZoomed for one-shot stickers (question/music/mention/hashtag/
+     *  link/addyours): fired once the zoom-in animation finishes. Pass null (via
+     *  the no-arg overload) for stickers with their own live listener
+     *  (quiz/poll/slider/countdown) that arms the viewer's next tap on the real
+     *  option once zoomed in. */
+    private void armVideoStickerZoomGate(StatusStickerOverlayView sticker) {
+        armVideoStickerZoomGate(sticker, null);
+    }
+
+    private void armVideoStickerZoomGate(StatusStickerOverlayView sticker, @Nullable Runnable afterZoomed) {
+        sticker.armViewerZoomGate(() -> {
+            if (videoStickerLayer == null) return;
+            playerController.pausePlayback();
+            showVideoStickerZoomScrim();
+            zoomedVideoSticker = sticker;
+            sticker.zoomToFront(videoStickerLayer, afterZoomed);
+        });
+    }
+
+    private void settleVideoStickerReaction(StatusStickerOverlayView sticker) {
+        hideVideoStickerZoomScrim();
+        if (zoomedVideoSticker == sticker) zoomedVideoSticker = null;
+        sticker.restoreFromZoom(() -> playerController.resumePlayback());
+    }
+
+    /** Called from onResume() — settles a video sticker left zoomed in when the
+     *  viewer navigated off to an external profile/hashtag/link/sheet and has
+     *  now come back. No-op if nothing is currently zoomed. */
+    private void settleAnyZoomedVideoSticker() {
+        if (zoomedVideoSticker != null) settleVideoStickerReaction(zoomedVideoSticker);
+    }
+
+    // ── Dim backdrop behind a zoomed-in video-reel sticker ───────────────────
+    private void showVideoStickerZoomScrim() {
+        if (videoStickerLayer == null || videoStickerZoomScrim != null) return;
+        View scrim = new View(videoStickerLayer.getContext());
+        scrim.setBackgroundColor(0xCC000000);
+        scrim.setAlpha(0f);
+        scrim.setClickable(true); // swallow taps outside the zoomed sticker
+        scrim.setOnClickListener(v -> {
+            if (zoomedVideoSticker != null) settleVideoStickerReaction(zoomedVideoSticker);
+        });
+        videoStickerLayer.addView(scrim, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        videoStickerLayer.invalidate();
+        scrim.animate().alpha(1f).setDuration(200).start();
+        videoStickerZoomScrim = scrim;
+    }
+
+    private void hideVideoStickerZoomScrim() {
+        if (videoStickerZoomScrim == null) return;
+        final View scrim = videoStickerZoomScrim;
+        videoStickerZoomScrim = null;
+        scrim.animate().alpha(0f).setDuration(180)
+                .withEndAction(() -> { if (videoStickerLayer != null) videoStickerLayer.removeView(scrim); })
+                .start();
     }
 
     private void openVideoMentionProfile(Context ctx, String username) {
@@ -1013,6 +1118,7 @@ public class ReelPlayerFragment extends Fragment
                             prompt, input.getText().toString());
                 })
                 .setNegativeButton("Cancel", null)
+                .setOnDismissListener(d -> settleVideoStickerReaction(sticker)) // Send, Cancel, or outside-tap all shrink it back
                 .show();
     }
 }
