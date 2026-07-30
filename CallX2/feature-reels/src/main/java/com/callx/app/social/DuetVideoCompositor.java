@@ -422,12 +422,19 @@ public class DuetVideoCompositor {
     private float renderBubbleX = -0.55f;
     private float renderBubbleY = -0.72f;
 
+    // Gap between the two panels, matched to the 10dp preview gap
+    // (10dp @ ~3x density ≈ 30px on the 1080-wide/1920-tall output canvas).
+    private static final float PANEL_GAP_PX    = 30f;
+    private static final float PANEL_RADIUS_PX  = 54f; // ≈18dp @3x, matches bg_duet_panel_rounded
+
     private void renderFrame(int layout) {
         switch (layout) {
-            case 1: // TOP-BOTTOM
-                drawRect(texCam,  matCam,  -1f,  0f,  1f,  1f);
-                drawRect(texOrig, matOrig, -1f, -1f,  1f,  0f);
+            case 1: { // TOP-BOTTOM
+                float gapNdc = (PANEL_GAP_PX / 2f) / (OUT_H / 2f);
+                drawRectRounded(texCam,  matCam,  -1f, gapNdc,  1f, 1f, PANEL_RADIUS_PX);
+                drawRectRounded(texOrig, matOrig, -1f, -1f, 1f, -gapNdc, PANEL_RADIUS_PX);
                 break;
+            }
             case 2: // PiP
                 drawRect(texCam,  matCam,  -1f, -1f,  1f,  1f);
                 drawRect(texOrig, matOrig,  0.45f, -1f, 1f, -0.35f);
@@ -438,10 +445,12 @@ public class DuetVideoCompositor {
                 // Camera face in a circular bubble (radius ~0.28 NDC = ~150px on 1080px wide)
                 drawCircleBubble(texCam, matCam, renderBubbleX, renderBubbleY, 0.28f);
                 break;
-            default: // SIDE-BY-SIDE
-                drawRect(texCam,  matCam,  -1f, -1f,  0f,  1f);
-                drawRect(texOrig, matOrig,  0f, -1f,  1f,  1f);
+            default: { // SIDE-BY-SIDE
+                float gapNdc = (PANEL_GAP_PX / 2f) / (OUT_W / 2f);
+                drawRectRounded(texCam,  matCam,  -1f, -1f, -gapNdc, 1f, PANEL_RADIUS_PX);
+                drawRectRounded(texOrig, matOrig,  gapNdc, -1f,  1f, 1f, PANEL_RADIUS_PX);
                 break;
+            }
         }
     }
 
@@ -479,6 +488,44 @@ public class DuetVideoCompositor {
         quadBuf.position(2);
         GLES20.glEnableVertexAttribArray(bTexCoord);
         GLES20.glVertexAttribPointer(bTexCoord, 2, GLES20.GL_FLOAT, false, 16, quadBuf);
+
+        GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);
+    }
+
+    private void drawRectRounded(int texId, float[] texMatrix,
+                                  float x0, float y0, float x1, float y1,
+                                  float cornerRadiusPx) {
+        if (glRoundedProgram < 0) return;
+        GLES20.glUseProgram(glRoundedProgram);
+
+        float scaleX = (x1 - x0) * 0.5f;
+        float scaleY = (y1 - y0) * 0.5f;
+        float transX = (x0 + x1) * 0.5f;
+        float transY = (y0 + y1) * 0.5f;
+
+        float[] mvp = new float[16];
+        Matrix.setIdentityM(mvp, 0);
+        Matrix.translateM(mvp, 0, transX, transY, 0f);
+        Matrix.scaleM(mvp, 0, scaleX, scaleY, 1f);
+
+        GLES20.glUniformMatrix4fv(rMVP,       1, false, mvp,       0);
+        GLES20.glUniformMatrix4fv(rTexMatrix, 1, false, texMatrix, 0);
+
+        float halfWidthPx  = scaleX * OUT_W;
+        float halfHeightPx = scaleY * OUT_H;
+        GLES20.glUniform2f(rHalfSizePx, halfWidthPx, halfHeightPx);
+        GLES20.glUniform1f(rRadiusPx, cornerRadiusPx);
+
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
+        GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, texId);
+        GLES20.glUniform1i(rTexture, 0);
+
+        quadBuf.position(0);
+        GLES20.glEnableVertexAttribArray(rPosition);
+        GLES20.glVertexAttribPointer(rPosition, 2, GLES20.GL_FLOAT, false, 16, quadBuf);
+        quadBuf.position(2);
+        GLES20.glEnableVertexAttribArray(rTexCoord);
+        GLES20.glVertexAttribPointer(rTexCoord, 2, GLES20.GL_FLOAT, false, 16, quadBuf);
 
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);
     }
@@ -605,6 +652,31 @@ public class DuetVideoCompositor {
         "  gl_FragColor = texture2D(uTexture, vTex) * alpha;\n" +
         "}\n";
 
+    // ── Rounded-rect shader ───────────────────────────────────────────────────
+    // Same vertex shader; fragment clips to a rounded rectangle using a
+    // signed-distance-field test in PIXEL space (uHalfSizePx / uRadiusPx),
+    // so the corner radius stays a fixed size regardless of the rect's
+    // aspect ratio — used to give the Original / Camera panels the rounded
+    // "card" look + transparent-style gap shown in the design mock.
+    private static final String ROUNDED_FS =
+        "#extension GL_OES_EGL_image_external : require\n" +
+        "precision mediump float;\n" +
+        "varying vec2 vTex;\n" +
+        "uniform samplerExternalOES uTexture;\n" +
+        "uniform vec2  uHalfSizePx;\n" +
+        "uniform float uRadiusPx;\n" +
+        "void main() {\n" +
+        "  vec2 p = (vTex - 0.5) * 2.0 * uHalfSizePx;\n" +
+        "  vec2 q = abs(p) - uHalfSizePx + uRadiusPx;\n" +
+        "  float d = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - uRadiusPx;\n" +
+        "  float alpha = 1.0 - smoothstep(-1.0, 1.0, d);\n" +
+        "  if (alpha < 0.01) discard;\n" +
+        "  gl_FragColor = texture2D(uTexture, vTex) * alpha;\n" +
+        "}\n";
+
+    private int glRoundedProgram = -1;
+    private int rPosition, rTexCoord, rMVP, rTexMatrix, rTexture, rHalfSizePx, rRadiusPx;
+
     private void setupGL() {
         // Normal rect program
         glProgram = GLES20.glCreateProgram();
@@ -617,6 +689,20 @@ public class DuetVideoCompositor {
         uMVP       = GLES20.glGetUniformLocation(glProgram, "uMVPMatrix");
         uTexMatrix = GLES20.glGetUniformLocation(glProgram, "uTexMatrix");
         uTexture   = GLES20.glGetUniformLocation(glProgram, "uTexture");
+
+        // Rounded-rect program (same VS, rounded-rect-clip FS)
+        glRoundedProgram = GLES20.glCreateProgram();
+        GLES20.glAttachShader(glRoundedProgram, makeShader(GLES20.GL_VERTEX_SHADER,   VS));
+        GLES20.glAttachShader(glRoundedProgram, makeShader(GLES20.GL_FRAGMENT_SHADER, ROUNDED_FS));
+        GLES20.glLinkProgram(glRoundedProgram);
+
+        rPosition   = GLES20.glGetAttribLocation(glRoundedProgram,  "aPosition");
+        rTexCoord   = GLES20.glGetAttribLocation(glRoundedProgram,  "aTexCoord");
+        rMVP        = GLES20.glGetUniformLocation(glRoundedProgram, "uMVPMatrix");
+        rTexMatrix  = GLES20.glGetUniformLocation(glRoundedProgram, "uTexMatrix");
+        rTexture    = GLES20.glGetUniformLocation(glRoundedProgram, "uTexture");
+        rHalfSizePx = GLES20.glGetUniformLocation(glRoundedProgram, "uHalfSizePx");
+        rRadiusPx   = GLES20.glGetUniformLocation(glRoundedProgram, "uRadiusPx");
 
         // Circle-bubble program (same VS, circle-clip FS)
         glBubbleProgram = GLES20.glCreateProgram();

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Used only as the background/outline-provider for the duet Original and
+  Camera panels so PlayerView / PreviewView clip to rounded corners
+  (clipToOutline="true" + outlineProvider="background" in code).
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#000000" />
+    <corners android:radius="18dp" />
+</shape>
