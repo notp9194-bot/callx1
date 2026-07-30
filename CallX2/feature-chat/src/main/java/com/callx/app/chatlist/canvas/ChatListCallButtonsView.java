@@ -37,9 +37,12 @@ public class ChatListCallButtonsView extends View {
 
     private static final int COLOR_VIDEO_CIRCLE = 0xFF5B5BF6; // matches bg_action_btn_circle_purple
     private static final int COLOR_VOICE_CIRCLE = 0xFF22C55E; // matches bg_action_btn_circle_green
+    private static final int COLOR_STROKE = 0xFFFFFFFF; // white stroke for definition
+    private static final float STROKE_WIDTH_DP = 1.5f;
 
     private final Paint circleVideoPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint circleVoicePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint strokePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     // v83/v84: pre-allocated RectF for the two circle backgrounds — no new RectF in draw
     private final RectF circleVideoRect  = new RectF();
     private final RectF circleVoiceRect  = new RectF();
@@ -54,6 +57,7 @@ public class ChatListCallButtonsView extends View {
 
     // v83: layout values cached in onSizeChanged
     private float midX = 0f;  // x boundary between video and phone touch zones
+    private float strokeWidth = 0f;
 
     private Runnable onVoiceCall;
     private Runnable onVideoCall;
@@ -67,12 +71,17 @@ public class ChatListCallButtonsView extends View {
     public ChatListCallButtonsView(Context ctx, AttributeSet attrs) {
         super(ctx, attrs);
         density = ctx.getResources().getDisplayMetrics().density;
+        strokeWidth = STROKE_WIDTH_DP * density;
 
         circleVideoPaint.setColor(COLOR_VIDEO_CIRCLE);
         circleVideoPaint.setStyle(Paint.Style.FILL);
 
         circleVoicePaint.setColor(COLOR_VOICE_CIRCLE);
         circleVoicePaint.setStyle(Paint.Style.FILL);
+
+        strokePaint.setColor(COLOR_STROKE);
+        strokePaint.setStyle(Paint.Style.STROKE);
+        strokePaint.setStrokeWidth(strokeWidth);
 
         videoIcon = loadWhiteIcon(ctx, R.drawable.ic_video_call);
         phoneIcon = loadWhiteIcon(ctx, R.drawable.ic_phone);
@@ -150,10 +159,12 @@ public class ChatListCallButtonsView extends View {
         if (tw <= 0 || th <= 0) return;
         if (!boundsBaked) bakeBounds(tw, th);
 
-        // v84 hot path: two filled circles + two already-bounded Drawable
+        // v84 hot path: two filled circles + stroke outlines + two already-bounded Drawable
         // draws, zero allocations.
         canvas.drawOval(circleVideoRect, circleVideoPaint);
+        canvas.drawOval(circleVideoRect, strokePaint);  // white stroke for video button
         canvas.drawOval(circleVoiceRect, circleVoicePaint);
+        canvas.drawOval(circleVoiceRect, strokePaint);  // white stroke for voice button
         if (videoIcon != null) videoIcon.draw(canvas);
         if (phoneIcon != null) phoneIcon.draw(canvas);
     }
