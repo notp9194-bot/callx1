@@ -1047,6 +1047,29 @@ public class ReelUploadActivity extends AppCompatActivity {
         startActivityForResult(i, REQ_PICK_VIDEO);
     }
 
+    /**
+     * FIX: a video picked here used to go straight into compressVideo(),
+     * skipping the editor entirely — so trim/filters/text/stickers/music/speed
+     * were never available for an uploaded (as opposed to camera-recorded)
+     * clip. Now it takes the exact same detour a camera-recorded clip takes:
+     * ReelEditorActivity first, which forwards the edited result back here
+     * (EXTRA_VIDEO_URI/EXTRA_IS_FILE_PATH handling in handleEditorExtras())
+     * where compression + post details continue as before. Mirrors ReelCameraActivity#openEditorForGalleryUri()'s video
+     * branch, including any sound already picked here pre-launch.
+     */
+    private void openPickedVideoInEditor(Uri uri) {
+        Intent intent = new Intent(this, ReelEditorActivity.class);
+        intent.putExtra(ReelEditorActivity.EXTRA_VIDEO_URI, uri.toString());
+        // content:// gallery uri, not a filesystem path — must be false or the
+        // editor tries Uri.fromFile(new File("content://…")) and fails to load it.
+        intent.putExtra(ReelEditorActivity.EXTRA_IS_FILE_PATH, false);
+        if (!preSelectedSoundId.isEmpty())    intent.putExtra("selected_sound_id",    preSelectedSoundId);
+        if (!currentSoundTitle.isEmpty())     intent.putExtra("selected_sound_title", currentSoundTitle);
+        if (!preSelectedSoundUrl.isEmpty())   intent.putExtra("selected_sound_url",   preSelectedSoundUrl);
+        if (!currentSoundArtist.isEmpty())    intent.putExtra("selected_sound_artist",currentSoundArtist);
+        startActivity(intent);
+    }
+
     @Override
     protected void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
@@ -1137,11 +1160,7 @@ public class ReelUploadActivity extends AppCompatActivity {
 
         if (requestCode == REQ_PICK_VIDEO && resultCode == Activity.RESULT_OK
                 && data != null && data.getData() != null) {
-            selectedUri      = data.getData();
-            compressedResult = null;
-            compressionInProgress = false;
-            showVideoPreview(selectedUri);
-            compressVideo(selectedUri);
+            openPickedVideoInEditor(data.getData());
         } else if (requestCode == REQ_PICK_PHOTOS && resultCode == Activity.RESULT_OK && data != null) {
             // Multi-select: data.getClipData() if multiple, data.getData() if single
             int remaining = MAX_PHOTOS - selectedPhotoUris.size();

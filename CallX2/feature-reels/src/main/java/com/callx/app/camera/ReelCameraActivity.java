@@ -298,6 +298,9 @@ public class ReelCameraActivity extends AppCompatActivity {
             // via EXTRA_VIDEO_URI since Android Q (scoped storage).
             Intent intent = new Intent(this, ReelEditorActivity.class);
             intent.putExtra(ReelEditorActivity.EXTRA_VIDEO_URI, uri.toString());
+            // FIX: this is a content:// gallery uri, not a filesystem path — must be
+            // false or the editor tries Uri.fromFile(new File("content://…")) and fails.
+            intent.putExtra(ReelEditorActivity.EXTRA_IS_FILE_PATH, false);
             if (!preSelectedSoundId.isEmpty())     intent.putExtra("selected_sound_id",     preSelectedSoundId);
             if (!preSelectedSoundTitle.isEmpty())  intent.putExtra("selected_sound_title",  preSelectedSoundTitle);
             if (!preSelectedSoundUrl.isEmpty())    intent.putExtra("selected_sound_url",    preSelectedSoundUrl);
