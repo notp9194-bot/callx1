@@ -2,8 +2,6 @@ package com.callx.app.chatlist.canvas;
 
 import android.content.Context;
 import android.graphics.Canvas;
-import android.graphics.Paint;
-import android.graphics.RectF;
 import android.graphics.drawable.Drawable;
 import android.util.AttributeSet;
 import android.view.MotionEvent;
@@ -35,18 +33,9 @@ import com.callx.app.chat.R;
  */
 public class ChatListCallButtonsView extends View {
 
-    private static final int COLOR_VIDEO_CIRCLE = 0xFF5B5BF6; // matches bg_action_btn_circle_purple
-    private static final int COLOR_VOICE_CIRCLE = 0xFF22C55E; // matches bg_action_btn_circle_green
-    private static final int COLOR_STROKE = 0xFFFFFFFF; // white stroke for definition
-    private static final float STROKE_WIDTH_DP = 1.5f;
+    private static final int COLOR_VIDEO_CIRCLE = 0xFF5B5BF6;
+    private static final int COLOR_VOICE_CIRCLE = 0xFF22C55E;
 
-    private final Paint strokePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    // v83/v84: pre-allocated RectF for the two circle backgrounds — no new RectF in draw
-    private final RectF circleVideoRect  = new RectF();
-    private final RectF circleVoiceRect  = new RectF();
-
-    // Shared white-tinted vector icons — same assets the toolbar/calls-tab/contact
-    // sheet use, so the glyphs are pixel-identical across the app.
     private final Drawable videoIcon;
     private final Drawable phoneIcon;
 
@@ -54,8 +43,7 @@ public class ChatListCallButtonsView extends View {
     private boolean boundsBaked = false;
 
     // v83: layout values cached in onSizeChanged
-    private float midX = 0f;  // x boundary between video and phone touch zones
-    private float strokeWidth = 0f;
+    private float midX = 0f;
 
     private Runnable onVoiceCall;
     private Runnable onVideoCall;
@@ -69,11 +57,6 @@ public class ChatListCallButtonsView extends View {
     public ChatListCallButtonsView(Context ctx, AttributeSet attrs) {
         super(ctx, attrs);
         density = ctx.getResources().getDisplayMetrics().density;
-        strokeWidth = STROKE_WIDTH_DP * density;
-
-        strokePaint.setColor(COLOR_STROKE);
-        strokePaint.setStyle(Paint.Style.STROKE);
-        strokePaint.setStrokeWidth(strokeWidth);
 
         videoIcon = loadColoredIcon(ctx, R.drawable.ic_video_call, COLOR_VIDEO_CIRCLE);
         phoneIcon = loadColoredIcon(ctx, R.drawable.ic_phone, COLOR_VOICE_CIRCLE);
@@ -113,28 +96,23 @@ public class ChatListCallButtonsView extends View {
     }
 
     /**
-     * v83/v84: pre-bake both circle rects + icon drawable bounds based on the
-     * view's current dimensions. Called once in onSizeChanged(); onDraw()
-     * just plays them back.
+     * Pre-calculate icon bounds and touch zone boundary. Called once in onSizeChanged().
      */
     private void bakeBounds(int tw, int th) {
-        float btnW    = 34 * density;
-        float gap     = 6  * density;
-        float circleD = 30 * density; // circle diameter, centred in each 34dp slot
-        float iconD   = 16 * density; // icon glyph size inside the circle
-        float cy      = th / 2f;
+        float btnW  = 34 * density;
+        float gap   = 6 * density;
+        float iconD = 16 * density;
+        float cy    = th / 2f;
 
-        // ── Video button (left) — purple circle ──────────────────────────
+        // Video icon (left)
         float vx = btnW / 2f;
-        circleVideoRect.set(vx - circleD / 2f, cy - circleD / 2f, vx + circleD / 2f, cy + circleD / 2f);
         if (videoIcon != null) {
             int l = Math.round(vx - iconD / 2f), t = Math.round(cy - iconD / 2f);
             videoIcon.setBounds(l, t, Math.round(l + iconD), Math.round(t + iconD));
         }
 
-        // ── Voice button (right) — green circle ───────────────────────────
+        // Voice icon (right)
         float px = btnW + gap + btnW / 2f;
-        circleVoiceRect.set(px - circleD / 2f, cy - circleD / 2f, px + circleD / 2f, cy + circleD / 2f);
         if (phoneIcon != null) {
             int l = Math.round(px - iconD / 2f), t = Math.round(cy - iconD / 2f);
             phoneIcon.setBounds(l, t, Math.round(l + iconD), Math.round(t + iconD));
@@ -151,9 +129,7 @@ public class ChatListCallButtonsView extends View {
         if (tw <= 0 || th <= 0) return;
         if (!boundsBaked) bakeBounds(tw, th);
 
-        // v84: stroke outlines only + icons
-        canvas.drawOval(circleVideoRect, strokePaint);
-        canvas.drawOval(circleVoiceRect, strokePaint);
+        // Icons only, no circles or strokes
         if (videoIcon != null) videoIcon.draw(canvas);
         if (phoneIcon != null) phoneIcon.draw(canvas);
     }
