@@ -848,6 +848,25 @@ public class PushNotify {
         }
     }
 
+    /**
+     * ✅ FIX (multi-duet gap #1): sent to the HOST the moment every
+     * participant has status="recorded". This is what lets the merge
+     * happen reliably even when the host isn't currently looking at
+     * MultiDuetActivity — see ReelUploadActivity.checkMultiDuetCompletion().
+     * type = "multi_duet_ready"
+     */
+    public static void notifyMultiDuetReady(String hostUid, String sessionId) {
+        try {
+            JSONObject body = new JSONObject()
+                .put("toUid",     hostUid   != null ? hostUid   : "")
+                .put("sessionId", sessionId != null ? sessionId : "")
+                .put("type",      "multi_duet_ready");
+            postAsync(Constants.SERVER_URL + "/notify/reel", body);
+        } catch (Exception e) {
+            Log.w("PushNotify", "notifyMultiDuetReady err: " + e.getMessage());
+        }
+    }
+
       // ── Collab Repost Notifications ───────────────────────────────────────────
 
       /**

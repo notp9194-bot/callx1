@@ -1,6 +1,17 @@
 # Multi-Duet Invite — Server Endpoint Guide
 
-## Android kya bhejta hai
+> ⚠️ **v2 FIX**: v1 of this doc told the server to send FCM data keys
+> `from_uid` / `from_name` / `from_photo`, but `ReelFCMNotificationHandler.java`
+> has always read `sender_uid` / `sender_name` / `sender_photo` (same
+> convention used by every other notif type in this app — see
+> `SERVER_REPOST_ENDPOINTS.md`, `UPGRADE_NOTES_v8_AllGapsFixed.md`, etc).
+> That mismatch meant the invite notification always showed a blank
+> host name/photo. **All key names below are now corrected to match the
+> real handler code.**
+
+## 1. Multi-Duet Invite
+
+### Android kya bhejta hai
 
 `PushNotify.notifyMultiDuetInvite()` → POST `Constants.SERVER_URL/notify/reel`
 
@@ -17,7 +28,7 @@
 }
 ```
 
-## Node.js server me ye case add karo `/notify/reel` route me:
+### Node.js server me ye case add karo `/notify/reel` route me:
 
 ```js
 // server/routes/notify.js  (ya jahan bhi /notify/reel handle hota hai)
@@ -34,12 +45,15 @@ case 'multi_duet_invite': {
     token: fcmToken,
     data: {
       reel_notif_type: 'multi_duet_invite',
-      from_uid:        fromUid    || '',
-      from_name:       fromName   || '',
-      from_photo:      fromPhoto  || '',
-      reel_id:         reelId     || '',
-      session_id:      sessionId  || '',
-      reel_thumb:      reelThumb  || '',
+      // ✅ FIXED: keys now match ReelFCMNotificationHandler.java's
+      // TYPE_MULTI_DUET_INVITE case (get(data, "sender_name") etc.),
+      // same convention as every other notif type in this app.
+      sender_uid:   fromUid    || '',
+      sender_name:  fromName   || '',
+      sender_photo: fromPhoto  || '',
+      reel_id:      reelId     || '',
+      session_id:   sessionId  || '',
+      reel_thumb:   reelThumb  || '',
     },
     android: { priority: 'high' },
   });
@@ -47,52 +61,57 @@ case 'multi_duet_invite': {
 }
 ```
 
-## Android FCM handler me ye case add karo
+Android side already handles this correctly — no app changes needed for
+this part, `ReelFCMNotificationHandler.TYPE_MULTI_DUET_INVITE` reads
+`sender_name` / `sender_uid` / `sender_photo` / `reel_id` / `session_id` /
+`reel_thumb` and deep-links into `MultiDuetAcceptActivity`.
 
-`ReelFCMNotificationHandler.java` me `handle()` method ke switch/if block me:
+---
 
-```java
-case "multi_duet_invite": {
-    String fromName   = data.get("from_name");
-    String fromPhoto  = data.get("from_photo");
-    String sessionId  = data.get("session_id");
-    String reelThumb  = data.get("reel_thumb");
-    String reelId     = data.get("reel_id");
+## 2. Multi-Duet Ready (✅ NEW — fixes the "host must keep the screen open" gap)
 
-    // Avatar download (executor)
-    Bitmap avatar = null;
-    try { avatar = Glide.with(ctx).asBitmap().load(fromPhoto).submit().get(); } catch (Exception ignored) {}
+Sent once every participant in a session has `status="recorded"`. This is
+what lets the host's device reliably know it's time to download all the
+clips and merge them, even if `MultiDuetActivity` isn't open at that
+moment (participants record async, often hours/days apart).
 
-    String title = fromName + " ne tumhe Multi-Duet me invite kiya! 🎬";
-    String body  = "Tap karke join karo";
+### Android kya bhejta hai
 
-    // Deep-link intent → MultiDuetActivity ya DuetInviteAcceptActivity
-    Intent intent = new Intent(ctx, com.callx.app.social.MultiDuetActivity.class);
-    intent.putExtra("multi_duet_session_id", sessionId);
-    intent.putExtra("multi_duet_reel_id",    reelId);
-    intent.putExtra("is_invited",            true);
-    intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+`PushNotify.notifyMultiDuetReady()` → POST `Constants.SERVER_URL/notify/reel`
 
-    PendingIntent pi = PendingIntent.getActivity(ctx, sessionId.hashCode(),
-        intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-
-    NotificationCompat.Builder nb = new NotificationCompat.Builder(ctx, CHANNEL_SOCIAL)
-        .setSmallIcon(R.drawable.ic_notif)
-        .setContentTitle(title)
-        .setContentText(body)
-        .setAutoCancel(true)
-        .setPriority(NotificationCompat.PRIORITY_HIGH)
-        .setContentIntent(pi);
-
-    if (avatar != null) nb.setLargeIcon(avatar);
-    if (!reelThumb.isEmpty()) {
-        try {
-            Bitmap thumb = Glide.with(ctx).asBitmap().load(reelThumb).submit().get();
-            nb.setStyle(new NotificationCompat.BigPictureStyle().bigPicture(thumb));
-        } catch (Exception ignored) {}
-    }
-
-    NotificationManagerCompat.from(ctx).notify(("mdi_" + sessionId).hashCode(), nb.build());
-    break;
+```json
+{
+  "toUid":     "host_uid",
+  "sessionId": "multi_duet_sessions_key",
+  "type":      "multi_duet_ready"
 }
 ```
+
+### Node.js server me ye case add karo:
+
+```js
+case 'multi_duet_ready': {
+  const { toUid, sessionId } = body;
+
+  const userSnap = await admin.database().ref(`users/${toUid}`).once('value');
+  const fcmToken = userSnap.val()?.fcmToken;
+  if (!fcmToken) break;
+
+  await admin.messaging().send({
+    token: fcmToken,
+    data: {
+      reel_notif_type: 'multi_duet_ready',
+      session_id: sessionId || '',
+    },
+    android: { priority: 'high' },
+  });
+  break;
+}
+```
+
+Android side: `ReelFCMNotificationHandler.TYPE_MULTI_DUET_READY` reads
+`session_id` and deep-links into `MultiDuetActivity` with extra
+`resume_session_id`, which makes the activity re-attach its Firebase
+listener and immediately re-check/trigger the composite — instead of
+relying on the original listener that only existed while the host
+happened to be looking at that exact screen.

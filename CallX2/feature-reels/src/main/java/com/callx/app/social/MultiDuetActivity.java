@@ -52,6 +52,10 @@ public class MultiDuetActivity extends AppCompatActivity {
 
     private String myUid, sessionId;
     private String originalReelId, videoUrl, ownerName, ownerUid;
+    // ✅ FIX (multi-duet gap #1): host UID for the CURRENT session, read from
+    // Firebase in resume mode rather than assumed to be participants.get(0).
+    private String sessionHostUid;
+    private boolean resumeMode = false;
     private final List<Participant> participants = new ArrayList<>();
     private ParticipantAdapter adapter;
 
@@ -63,11 +67,7 @@ public class MultiDuetActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_multi_duet);
 
-        originalReelId = getIntent().getStringExtra(EXTRA_ORIGINAL_REEL_ID);
-        videoUrl       = getIntent().getStringExtra(EXTRA_VIDEO_URL);
-        ownerName      = getIntent().getStringExtra(EXTRA_OWNER_NAME);
-        ownerUid       = getIntent().getStringExtra(EXTRA_OWNER_UID);
-        myUid          = FirebaseAuth.getInstance().getUid();
+        myUid = FirebaseAuth.getInstance().getUid();
 
         btnBack              = findViewById(R.id.btn_multi_duet_back);
         rvSlots              = findViewById(R.id.rv_multi_duet_slots);
@@ -78,15 +78,41 @@ public class MultiDuetActivity extends AppCompatActivity {
         tvParticipantCount   = findViewById(R.id.tv_participant_count);
         progress             = findViewById(R.id.progress_multi_duet);
 
-        tvTitle.setText("Multi-Person Duet");
         btnBack.setOnClickListener(v -> finish());
         btnAddParticipant.setOnClickListener(v -> openUserPicker());
         btnStartSession.setOnClickListener(v -> startSession());
+        setupAdapter();
+
+        // ✅ FIX (multi-duet gap #1): opened via the "multi_duet_ready" push /
+        // direct self-launch after the last participant finishes recording.
+        // We don't create anything new here — just re-attach to the existing
+        // session and let listenToSession() re-evaluate + trigger the merge
+        // immediately, instead of depending on a listener instance that was
+        // already alive at exactly the right moment.
+        String resumeId = getIntent().getStringExtra("resume_session_id");
+        if (resumeId != null && !resumeId.isEmpty()) {
+            resumeMode = true;
+            sessionId  = resumeId;
+            tvTitle.setText("Finishing your Multi-Duet…");
+            tvSessionCode.setText("Checking session…");
+            btnAddParticipant.setVisibility(View.GONE);
+            btnStartSession.setVisibility(View.GONE);
+            listenToSession();
+            return;
+        }
+
+        originalReelId = getIntent().getStringExtra(EXTRA_ORIGINAL_REEL_ID);
+        videoUrl       = getIntent().getStringExtra(EXTRA_VIDEO_URL);
+        ownerName      = getIntent().getStringExtra(EXTRA_OWNER_NAME);
+        ownerUid       = getIntent().getStringExtra(EXTRA_OWNER_UID);
+
+        tvTitle.setText("Multi-Person Duet");
 
         // Add host placeholder first, then load real name/photo
         Participant host = new Participant(myUid != null ? myUid : "", "You (Host)", "", "accepted");
         participants.add(host);
-        setupAdapter();
+        adapter.notifyDataSetChanged();
+        updateUI();
         createSession();
 
         // Load real profile in background — updates slot 0
@@ -176,6 +202,12 @@ public class MultiDuetActivity extends AppCompatActivity {
         session.put("hostUid",        myUid);
         session.put("originalReelId", originalReelId);
         session.put("videoUrl",       videoUrl != null ? videoUrl : "");
+        // ✅ FIX (multi-duet gap #1): persist the original reel's owner so a
+        // *resumed* session (opened fresh via the "ready" push notification,
+        // with none of this activity's original intent extras available) can
+        // still build the correct final-composite upload without them.
+        session.put("ownerUid",       ownerUid  != null ? ownerUid  : "");
+        session.put("ownerName",      ownerName != null ? ownerName : "");
         session.put("maxSlots",       MAX_SLOTS);
         session.put("status",         "waiting");
         session.put("createdAt",      com.google.firebase.database.ServerValue.TIMESTAMP);
@@ -288,31 +320,66 @@ public class MultiDuetActivity extends AppCompatActivity {
         sessionListener = new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
                 if (isFinishing() || isDestroyed()) return;
-                int recorded = 0;
-                int total    = participants.size();
+                if (!snap.exists()) {
+                    if (resumeMode && tvSessionCode != null) {
+                        tvSessionCode.setText("Session no longer available.");
+                    }
+                    return;
+                }
+
+                sessionHostUid = snap.child("hostUid").getValue(String.class);
+                String hUid = sessionHostUid;
+
+                // ✅ FIX (multi-duet gap #1): in resume mode (or if a participant
+                // joined/left since we last built the local list), rebuild it
+                // fully from Firebase instead of trusting a possibly-stale local
+                // ArrayList that only ever reflected THIS device's view.
                 DataSnapshot pSnap = snap.child("participants");
+                if (resumeMode || participants.size() != (int) pSnap.getChildrenCount()) {
+                    participants.clear();
+                    // Host first, for a stable "You (Host)" slot 0 in the UI.
+                    if (hUid != null && pSnap.hasChild(hUid)) {
+                        DataSnapshot hds = pSnap.child(hUid);
+                        String hName  = hds.child("name").getValue(String.class);
+                        String hPhoto = hds.child("photo").getValue(String.class);
+                        String hStat  = hds.child("status").getValue(String.class);
+                        participants.add(new Participant(hUid,
+                            hUid.equals(myUid) ? "You (Host)" : (hName != null ? hName + " (Host)" : "Host"),
+                            hPhoto != null ? hPhoto : "", hStat != null ? hStat : "accepted"));
+                    }
+                    for (DataSnapshot ds : pSnap.getChildren()) {
+                        String uid = ds.getKey();
+                        if (uid == null || uid.equals(hUid)) continue;
+                        String name   = ds.child("name").getValue(String.class);
+                        String photo  = ds.child("photo").getValue(String.class);
+                        String status = ds.child("status").getValue(String.class);
+                        participants.add(new Participant(uid, name != null ? name : "",
+                            photo != null ? photo : "", status != null ? status : "invited"));
+                    }
+                }
+
+                int recorded = 0, active = 0;
                 for (DataSnapshot ds : pSnap.getChildren()) {
-                    String status = ds.child("status").getValue(String.class);
+                    String status = ds.getKey() != null ? ds.child("status").getValue(String.class) : null;
+                    if ("declined".equals(status)) continue; // excluded — not waited on
+                    active++;
                     if ("recorded".equals(status)) recorded++;
                     // Update UI slot status
                     String uid = ds.getKey();
                     for (Participant p : participants) {
-                        if (p.uid != null && p.uid.equals(uid)) {
-                            String s = ds.child("status").getValue(String.class);
-                            if (s != null) p.status = s;
-                        }
+                        if (p.uid != null && p.uid.equals(uid) && status != null) p.status = status;
                     }
                 }
                 adapter.notifyDataSetChanged();
                 int finalRecorded = recorded;
                 if (tvSessionCode != null) {
                     tvSessionCode.setText("Session: " + sessionId.substring(0, 8).toUpperCase()
-                        + " — " + finalRecorded + "/" + total + " recorded");
+                        + " — " + finalRecorded + "/" + active + " recorded");
                 }
 
                 // ── ALL RECORDED → trigger composite ──────────────────────────
                 String sessionStatus = snap.child("status").getValue(String.class);
-                if (finalRecorded == total && total >= 2
+                if (finalRecorded == active && active >= 2
                         && !"compositing".equals(sessionStatus)
                         && !"completed".equals(sessionStatus)) {
                     triggerMultiDuetComposite(snap);
@@ -336,45 +403,61 @@ public class MultiDuetActivity extends AppCompatActivity {
         FirebaseUtils.db().getReference("multi_duet_sessions")
             .child(sessionId).child("status").setValue("compositing");
 
-        // Gather reelIds for all participants in slot order
-        java.util.LinkedHashMap<String, String> slotReelIds = new java.util.LinkedHashMap<>();
-        // Host reelId first
-        String hostReelId = sessionSnap.child("hostReelId").getValue(String.class);
-        if (hostReelId != null) slotReelIds.put(myUid, hostReelId);
-
-        for (Participant p : participants) {
-            if (p.uid.equals(myUid)) continue; // host already added
-            com.google.firebase.database.DataSnapshot pds =
-                sessionSnap.child("participants").child(p.uid);
-            String rid = pds.child("reelId").getValue(String.class);
-            if (rid != null && !rid.isEmpty()) slotReelIds.put(p.uid, rid);
+        // ✅ FIX (multi-duet gap #2/#3): participants' raw clips are no longer
+        // separate public reels — ReelUploadActivity.finishMultiDuetRawUpload()
+        // writes each participant's clip URL straight onto the session, so we
+        // read it directly instead of looking up a reelId in the public
+        // reels table (which no longer gets written for raw clips at all).
+        java.util.LinkedHashMap<String, String> slotVideoUrls = new java.util.LinkedHashMap<>();
+        String hUid = sessionSnap.child("hostUid").getValue(String.class);
+        if (hUid != null && !hUid.isEmpty()) {
+            String hUrl = sessionSnap.child("participants").child(hUid)
+                .child("videoUrl").getValue(String.class);
+            if (hUrl != null && !hUrl.isEmpty()) slotVideoUrls.put(hUid, hUrl);
+        }
+        for (com.google.firebase.database.DataSnapshot ds : sessionSnap.child("participants").getChildren()) {
+            String uid = ds.getKey();
+            if (uid == null || uid.equals(hUid)) continue;
+            String status = ds.child("status").getValue(String.class);
+            if ("declined".equals(status)) continue;
+            String url = ds.child("videoUrl").getValue(String.class);
+            if (url != null && !url.isEmpty()) slotVideoUrls.put(uid, url);
         }
 
-        if (slotReelIds.size() < 2) {
-            android.util.Log.w("MultiDuetActivity", "Not enough reelIds for composite");
+        if (slotVideoUrls.size() < 2) {
+            android.util.Log.w("MultiDuetActivity", "Not enough recorded clips for composite");
+            FirebaseUtils.db().getReference("multi_duet_sessions")
+                .child(sessionId).child("status").setValue("recording");
             return;
         }
 
+        // Resolve original-reel owner info + originalReelId from the session
+        // itself (createSession() now persists these) so this works even in
+        // resume mode, where this activity's own intent extras are empty.
+        final String finalOriginalReelId = originalReelId != null && !originalReelId.isEmpty()
+            ? originalReelId : sessionSnap.child("originalReelId").getValue(String.class);
+        final String finalOwnerUid = ownerUid != null && !ownerUid.isEmpty()
+            ? ownerUid : sessionSnap.child("ownerUid").getValue(String.class);
+
         Toast.makeText(this, "All done! Creating multi-duet video…", Toast.LENGTH_LONG).show();
 
-        // Collect reelIds as ordered list for sequential Firebase fetch
-        java.util.List<String> orderedReelIds = new java.util.ArrayList<>(slotReelIds.values());
-        java.util.List<String> localPaths = new java.util.ArrayList<>();
-
-        // Fetch all videoUrls from Firebase then download+composite
-        fetchVideoUrlsAndComposite(orderedReelIds, localPaths, 0);
+        java.util.List<String> orderedUrls  = new java.util.ArrayList<>(slotVideoUrls.values());
+        java.util.List<String> localPaths   = new java.util.ArrayList<>();
+        downloadAllAndComposite(orderedUrls, localPaths, 0, finalOriginalReelId, finalOwnerUid);
     }
 
     /**
-     * Recursively fetches videoUrl for each reelId from Firebase (index by index),
-     * downloads each to cache, then triggers composite once all are ready.
-     * Avoids Tasks.await — pure callback style.
+     * Downloads each participant's clip (index by index), then runs the
+     * compositor once all are cached locally. Avoids Tasks.await — pure
+     * callback style, same as before, just no longer needs an intermediate
+     * reels-table lookup per clip.
      */
-    private void fetchVideoUrlsAndComposite(java.util.List<String> reelIds,
-                                            java.util.List<String> localPaths,
-                                            int index) {
-        if (index >= reelIds.size()) {
-            // All fetched — run composite on background thread
+    private void downloadAllAndComposite(java.util.List<String> urls,
+                                          java.util.List<String> localPaths,
+                                          int index,
+                                          String finalOriginalReelId,
+                                          String finalOwnerUid) {
+        if (index >= urls.size()) {
             if (localPaths.size() < 2) {
                 Toast.makeText(this, "Could not fetch all videos", Toast.LENGTH_SHORT).show();
                 FirebaseUtils.db().getReference("multi_duet_sessions")
@@ -401,13 +484,16 @@ public class MultiDuetActivity extends AppCompatActivity {
                             com.callx.app.upload.ReelUploadActivity.class);
                         i.putExtra("video_path",            outPath);
                         i.putExtra("is_duet",               true);
-                        i.putExtra("duet_original_id",      originalReelId != null ? originalReelId : "");
-                        i.putExtra("duet_owner_uid",        ownerUid != null ? ownerUid : "");
+                        i.putExtra("duet_original_id",      finalOriginalReelId != null ? finalOriginalReelId : "");
+                        i.putExtra("duet_owner_uid",        finalOwnerUid != null ? finalOwnerUid : "");
                         i.putExtra("multi_duet_session_id", sessionId);
                         i.putExtra("multi_duet_slot",       0);
+                        // ✅ FIX (multi-duet gap #2): marks this as the ONE upload that
+                        // should actually become a public reel + flip the session to
+                        // "completed" — see ReelUploadActivity.multiDuetFinal.
+                        i.putExtra("multi_duet_final",      true);
+                        i.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                         startActivity(i);
-                        FirebaseUtils.db().getReference("multi_duet_sessions")
-                            .child(sessionId).child("status").setValue("completed");
                         finish();
                     });
                 } else {
@@ -420,54 +506,34 @@ public class MultiDuetActivity extends AppCompatActivity {
             return;
         }
 
-        // Fetch videoUrl for reelIds[index]
-        String rid = reelIds.get(index);
-        FirebaseUtils.getReelsRef().child(rid)
-            .addListenerForSingleValueEvent(new ValueEventListener() {
-                @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                    String vidUrl = snap.child("videoUrl").getValue(String.class);
-                    if (vidUrl != null && !vidUrl.isEmpty()) {
-                        java.io.File cacheFile = new java.io.File(
-                            getCacheDir(), "multiduet_" + rid + ".mp4");
-                        if (cacheFile.exists()) {
-                            localPaths.add(cacheFile.getAbsolutePath());
-                            fetchVideoUrlsAndComposite(reelIds, localPaths, index + 1);
-                        } else {
-                            // Download on background thread
-                            final String url = vidUrl;
-                            java.util.concurrent.Executors.newSingleThreadExecutor().execute(() -> {
-                                try {
-                                    java.net.URL u = new java.net.URL(url);
-                                    java.net.HttpURLConnection conn =
-                                        (java.net.HttpURLConnection) u.openConnection();
-                                    conn.setConnectTimeout(15_000);
-                                    conn.setReadTimeout(60_000);
-                                    conn.connect();
-                                    java.io.InputStream is = conn.getInputStream();
-                                    java.io.FileOutputStream fos =
-                                        new java.io.FileOutputStream(cacheFile);
-                                    byte[] buf = new byte[8192];
-                                    int len;
-                                    while ((len = is.read(buf)) != -1) fos.write(buf, 0, len);
-                                    fos.close(); is.close(); conn.disconnect();
-                                    localPaths.add(cacheFile.getAbsolutePath());
-                                } catch (Exception e) {
-                                    android.util.Log.w("MultiDuetActivity",
-                                        "Download failed for " + rid + ": " + e.getMessage());
-                                }
-                                runOnUiThread(() ->
-                                    fetchVideoUrlsAndComposite(reelIds, localPaths, index + 1));
-                            });
-                        }
-                    } else {
-                        // Skip this reel and continue
-                        fetchVideoUrlsAndComposite(reelIds, localPaths, index + 1);
-                    }
-                }
-                @Override public void onCancelled(@NonNull DatabaseError e) {
-                    fetchVideoUrlsAndComposite(reelIds, localPaths, index + 1);
-                }
-            });
+        final String url = urls.get(index);
+        java.io.File cacheFile = new java.io.File(
+            getCacheDir(), "multiduet_" + sessionId + "_" + index + ".mp4");
+        if (cacheFile.exists()) {
+            localPaths.add(cacheFile.getAbsolutePath());
+            downloadAllAndComposite(urls, localPaths, index + 1, finalOriginalReelId, finalOwnerUid);
+            return;
+        }
+        java.util.concurrent.Executors.newSingleThreadExecutor().execute(() -> {
+            try {
+                java.net.URL u = new java.net.URL(url);
+                java.net.HttpURLConnection conn = (java.net.HttpURLConnection) u.openConnection();
+                conn.setConnectTimeout(15_000);
+                conn.setReadTimeout(60_000);
+                conn.connect();
+                java.io.InputStream is = conn.getInputStream();
+                java.io.FileOutputStream fos = new java.io.FileOutputStream(cacheFile);
+                byte[] buf = new byte[8192];
+                int len;
+                while ((len = is.read(buf)) != -1) fos.write(buf, 0, len);
+                fos.close(); is.close(); conn.disconnect();
+                localPaths.add(cacheFile.getAbsolutePath());
+            } catch (Exception e) {
+                android.util.Log.w("MultiDuetActivity", "Download failed for clip " + index + ": " + e.getMessage());
+            }
+            runOnUiThread(() ->
+                downloadAllAndComposite(urls, localPaths, index + 1, finalOriginalReelId, finalOwnerUid));
+        });
     }
 
     @Override

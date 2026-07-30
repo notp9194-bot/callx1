@@ -92,6 +92,8 @@ public class ReelFCMNotificationHandler {
     public static final String TYPE_REPOST              = "repost";
     public static final String TYPE_QUOTE_REPOST        = "quote_repost";
     public static final String TYPE_MULTI_DUET_INVITE   = "multi_duet_invite";
+    // ✅ FIX (multi-duet gap #1): sent to the host once every participant has recorded.
+    public static final String TYPE_MULTI_DUET_READY    = "multi_duet_ready";
     // Collab Repost cross-device FCM types
     public static final String TYPE_COLLAB_REPOST_INVITE   = "collab_repost_invite";
     public static final String TYPE_COLLAB_REPOST_ACCEPTED = "collab_repost_accepted";
@@ -514,6 +516,41 @@ public class ReelFCMNotificationHandler {
                             (android.app.NotificationManager)
                             ctx.getSystemService(Context.NOTIFICATION_SERVICE);
                     if (nm != null) nm.notify(fSessionId.hashCode() + 9090, nb.build());
+                });
+                break;
+            }
+
+            // ── Multi-Duet Ready (FIX gap #1) ───────────────────────────────────────
+            // Fired at the host once every participant has status="recorded". Deep-links
+            // into MultiDuetActivity in "resume" mode so the merge runs reliably instead
+            // of depending on that screen already being open when the last clip lands.
+            case TYPE_MULTI_DUET_READY: {
+                final String rSessionId = get(data, "session_id");
+                Executors.newSingleThreadExecutor().execute(() -> {
+                    Intent deepLink = new Intent(ctx,
+                            com.callx.app.social.MultiDuetActivity.class);
+                    deepLink.putExtra("resume_session_id", rSessionId);
+                    deepLink.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                            | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+
+                    PendingIntent pi = PendingIntent.getActivity(
+                            ctx, ("mdr_" + rSessionId).hashCode(), deepLink,
+                            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+
+                    NotificationCompat.Builder nb = new NotificationCompat.Builder(ctx,
+                            ReelNotificationChannelManager.CHANNEL_REEL_DUET)
+                            .setSmallIcon(R.drawable.ic_reels)
+                            .setContentTitle("Everyone's recorded! 🎬")
+                            .setContentText("Tap to finish your Multi-Duet")
+                            .setColor(0xFF9C27B0)
+                            .setPriority(NotificationCompat.PRIORITY_HIGH)
+                            .setAutoCancel(true)
+                            .setContentIntent(pi);
+
+                    android.app.NotificationManager nm =
+                            (android.app.NotificationManager)
+                            ctx.getSystemService(Context.NOTIFICATION_SERVICE);
+                    if (nm != null) nm.notify(("mdr_" + rSessionId).hashCode(), nb.build());
                 });
                 break;
             }

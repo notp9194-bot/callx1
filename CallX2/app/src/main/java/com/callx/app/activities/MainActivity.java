@@ -119,7 +119,8 @@ public class MainActivity extends AppCompatActivity
     // Track already-notified status IDs so we don't re-notify on re-attach
     private final java.util.Set<String> notifiedStatusIds = new java.util.HashSet<>();
 
-    // Tab indices
+    // ── Tab history for Instagram-style back navigation ──────────────────
+    private final java.util.Deque<Integer> tabHistoryStack = new java.util.ArrayDeque<>();
     private static final int TAB_CHATS  = 0;
     private static final int TAB_REELS  = 1;
     private static final int TAB_STATUS = 2;
@@ -196,6 +197,9 @@ public class MainActivity extends AppCompatActivity
         //        Tab 4 (Calls) tab par tap karne par hi load honge.
         // Faida: ~15% less memory on startup, Reels ExoPlayer init tab switch pe hoga.
         binding.viewPager.setOffscreenPageLimit(1);
+        
+        // Initialize tab history with starting tab (chats)
+        tabHistoryStack.push(TAB_CHATS);
         // Bottom nav tap par instant switch (no scroll animation) — WhatsApp jaisa
         binding.viewPager.setUserInputEnabled(true);
         // FIX: multi-photo reel ke left/right swipe se tab switch ho jaata tha —
@@ -206,6 +210,11 @@ public class MainActivity extends AppCompatActivity
             enabled -> binding.viewPager.setUserInputEnabled(enabled));
         binding.viewPager.registerOnPageChangeCallback(new ViewPager2.OnPageChangeCallback() {
             @Override public void onPageSelected(int position) {
+                // Add to history stack if different from current top
+                if (tabHistoryStack.isEmpty() || tabHistoryStack.peek() != position) {
+                    tabHistoryStack.push(position);
+                }
+                
                 int[] ids = {
                     R.id.nav_chats,
                     R.id.nav_reels,
@@ -1503,6 +1512,24 @@ public class MainActivity extends AppCompatActivity
                 .getReference("users").child(uid)
                 .child("fcmToken").setValue(token);
         });
+    }
+
+    @Override
+    public void onBackPressed() {
+        // Instagram-style tab history navigation:
+        // If we have more than one tab in history, pop the current and go to previous
+        if (!tabHistoryStack.isEmpty()) {
+            tabHistoryStack.pop();  // Remove current tab
+        }
+        
+        if (!tabHistoryStack.isEmpty()) {
+            // Navigate to the previous tab without adding to history again
+            int previousTab = tabHistoryStack.peek();
+            binding.viewPager.setCurrentItem(previousTab, false);
+        } else {
+            // No history, fall back to default behavior (close app)
+            super.onBackPressed();
+        }
     }
 
     // ── v21: Overflow menu — Delete All Chats ────────────────────────────

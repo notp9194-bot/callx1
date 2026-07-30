@@ -3,6 +3,7 @@ import com.callx.app.utils.AlertDialogStyler;
 
 import com.callx.app.camera.ReelCameraActivity;
 import com.callx.app.editor.ReelEditorActivity;
+import com.callx.app.social.MultiDuetActivity;
 import com.callx.app.editor.ReelAudioMixerActivity;
 import com.callx.app.music.SoundDetailActivity;
 
@@ -251,6 +252,11 @@ public class ReelUploadActivity extends AppCompatActivity {
     private String  duetRootId     = null; // ✅ FIX v9 (CHAIN DUET): root reel of the chain
     private String  multiDuetSessionId = ""; // ✅ Multi-duet session
     private int     multiDuetSlot      = -1;
+    // ✅ FIX (multi-duet gap #2/#3): true ONLY for the final merged composite upload
+    // (started by MultiDuetActivity/host-resume after everyone has recorded).
+    // false = this is just one participant's raw clip → must NOT be posted publicly,
+    // it's only stored on the session for later compositing.
+    private boolean multiDuetFinal     = false;
 
     // ✅ FIX GAP #2: stitch metadata
     private boolean isStitch           = false;
@@ -905,6 +911,7 @@ public class ReelUploadActivity extends AppCompatActivity {
         if (mdsId != null && !mdsId.isEmpty()) {
             multiDuetSessionId = mdsId;
             multiDuetSlot      = i.getIntExtra("multi_duet_slot", -1);
+            multiDuetFinal     = i.getBooleanExtra("multi_duet_final", false);
         }
 
         // ✅ FIX GAP #2: read stitch metadata
@@ -1789,6 +1796,14 @@ public class ReelUploadActivity extends AppCompatActivity {
                                   int durationMs, int width, int height) {
                 ReelUploadActivity a = ref.get();
                 if (a == null || a.isFinishing() || a.isDestroyed()) return;
+
+                // ✅ FIX (multi-duet gap #2): a participant's raw clip must NOT become
+                // its own public reel — only the final merged composite should post.
+                if (!a.multiDuetSessionId.isEmpty() && !a.multiDuetFinal) {
+                    a.finishMultiDuetRawUpload(thumbUrl, videoUrl);
+                    return;
+                }
+
                 a.saveReelToFirebase(thumbUrl, videoUrl, hlsManifestUrl,
                     video480, video720, video1080,
                     durationMs, width, height, caption, musicName, uploadResult, videoPath);
@@ -1816,6 +1831,114 @@ public class ReelUploadActivity extends AppCompatActivity {
                 String msg = e != null ? e.getMessage() : "Network error";
                 Toast.makeText(a, "Upload failed: " + msg, Toast.LENGTH_LONG).show();
             }
+        });
+    }
+
+    // ── Multi-Duet raw clip handoff (FIX gap #2 + #3) ──────────────────────
+
+    /**
+     * A participant (host included) just finished recording+uploading their
+     * OWN part of a multi-duet. This is NOT a public post — we only stash
+     * the uploaded clip's URL on the session node, then check if everyone
+     * else is done too.
+     *
+     * Previously every participant's raw clip was saved as its own public
+     * reel via saveReelToFirebase() — that meant one multi-duet session
+     * produced N+1 duplicate public posts. Now only the final merged video
+     * (multiDuetFinal == true) ever gets posted.
+     */
+    private void finishMultiDuetRawUpload(String thumbUrl, String videoUrl) {
+        layoutUploadProgress.setVisibility(View.GONE);
+        final String uid = FirebaseUtils.getCurrentUid();
+        final String sid = multiDuetSessionId;
+        if (uid == null || uid.isEmpty() || sid.isEmpty()) { finish(); return; }
+
+        final com.google.firebase.database.DatabaseReference sessionRef =
+            FirebaseUtils.db().getReference("multi_duet_sessions").child(sid);
+
+        Map<String, Object> update = new HashMap<>();
+        update.put("status",   "recorded");
+        update.put("videoUrl", videoUrl != null ? videoUrl : "");
+        update.put("thumbUrl", thumbUrl != null ? thumbUrl : "");
+
+        sessionRef.child("participants").child(uid).updateChildren(update)
+            .addOnSuccessListener(v -> checkMultiDuetCompletion(sessionRef, sid, uid));
+
+        Toast.makeText(this, "Recorded! Saving your part…", Toast.LENGTH_LONG).show();
+        setResult(RESULT_OK);
+        finish();
+    }
+
+    /**
+     * ✅ FIX (multi-duet gap #1 — unreliable composite trigger):
+     * Previously "everyone recorded → merge" was only detected by a Firebase
+     * listener living inside MultiDuetActivity, which got torn down
+     * (onStop → removeEventListener) the moment the host navigated away to
+     * record — i.e. exactly when it needed to keep listening. Since
+     * participants record asynchronously (minutes/hours/days apart), that
+     * listener was almost never alive at the right time and the session
+     * would just get stuck forever.
+     *
+     * Fix: whichever participant's upload happens to be the LAST one in
+     * checks completion itself, right here — independent of any screen
+     * being open. A Firebase transaction guards against two participants
+     * finishing at nearly the same time and double-triggering. Once
+     * completion is claimed:
+     *   • if THIS device is the host → jump straight into MultiDuetActivity
+     *     in "resume" mode to run the merge now.
+     *   • otherwise → send an FCM push so the HOST's device (which is the
+     *     one that actually needs to download+merge all clips) opens
+     *     MultiDuetActivity in resume mode and finishes it, even if the
+     *     host's app was fully closed when the last clip came in.
+     */
+    private void checkMultiDuetCompletion(com.google.firebase.database.DatabaseReference sessionRef,
+                                           String sessionId, String myUidLocal) {
+        sessionRef.addListenerForSingleValueEvent(new ValueEventListener() {
+            @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                String status = snap.child("status").getValue(String.class);
+                if ("compositing".equals(status) || "completed".equals(status)
+                        || "ready_to_finish".equals(status)) return;
+
+                String hostUid = snap.child("hostUid").getValue(String.class);
+                DataSnapshot pSnap = snap.child("participants");
+                int active = 0, recorded = 0;
+                for (DataSnapshot ds : pSnap.getChildren()) {
+                    String st = ds.child("status").getValue(String.class);
+                    if ("declined".equals(st)) continue; // excluded from completion count
+                    active++;
+                    if ("recorded".equals(st)) recorded++;
+                }
+                if (active < 2 || recorded < active) return; // still waiting on someone
+
+                final String finalHostUid = hostUid;
+                sessionRef.child("status").runTransaction(new Transaction.Handler() {
+                    @NonNull @Override
+                    public Transaction.Result doTransaction(@NonNull MutableData currentData) {
+                        Object cur = currentData.getValue();
+                        if (cur != null && ("compositing".equals(cur) || "completed".equals(cur)
+                                || "ready_to_finish".equals(cur))) {
+                            return Transaction.abort();
+                        }
+                        currentData.setValue("ready_to_finish");
+                        return Transaction.success(currentData);
+                    }
+                    @Override public void onComplete(DatabaseError error, boolean committed,
+                                                      DataSnapshot snap2) {
+                        if (!committed || finalHostUid == null || finalHostUid.isEmpty()) return;
+
+                        if (finalHostUid.equals(myUidLocal)) {
+                            // We ARE the host and just finished last — finalize right away.
+                            Intent resume = new Intent(ReelUploadActivity.this, MultiDuetActivity.class);
+                            resume.putExtra("resume_session_id", sessionId);
+                            resume.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                            startActivity(resume);
+                        } else {
+                            com.callx.app.utils.PushNotify.notifyMultiDuetReady(finalHostUid, sessionId);
+                        }
+                    }
+                });
+            }
+            @Override public void onCancelled(@NonNull DatabaseError e) {}
         });
     }
 
@@ -2184,21 +2307,17 @@ public class ReelUploadActivity extends AppCompatActivity {
                                 reel.thumbUrl, caption, b.mentionedUids);
                         b.setResult(RESULT_OK);
 
-                        // ✅ Multi-duet: mark this participant as "recorded" in the session
-                        if (!b.multiDuetSessionId.isEmpty()) {
-                            String participantUid = myUid;
-                            com.google.firebase.database.DatabaseReference sessionRef =
-                                FirebaseUtils.db().getReference("multi_duet_sessions")
-                                    .child(b.multiDuetSessionId);
-                            // Mark participant status = recorded + store their reelId
-                            sessionRef.child("participants").child(participantUid)
-                                .child("status").setValue("recorded");
-                            sessionRef.child("participants").child(participantUid)
-                                .child("reelId").setValue(finalReelId);
-                            // If host (slot 0), also store host reel ID at session level
-                            if (b.multiDuetSlot == 0) {
-                                sessionRef.child("hostReelId").setValue(finalReelId);
-                            }
+                        // ✅ FIX (multi-duet gap #2/#3): this branch of saveReelToFirebase()
+                        // is now ONLY reached for the final merged composite (raw participant
+                        // clips are intercepted earlier by finishMultiDuetRawUpload() and
+                        // never create a public reel). Mark the session completed here, i.e.
+                        // AFTER the merged reel is actually confirmed live — not optimistically
+                        // beforehand.
+                        if (!b.multiDuetSessionId.isEmpty() && b.multiDuetFinal) {
+                            FirebaseUtils.db().getReference("multi_duet_sessions")
+                                .child(b.multiDuetSessionId).child("status").setValue("completed");
+                            FirebaseUtils.db().getReference("multi_duet_sessions")
+                                .child(b.multiDuetSessionId).child("compositeReelId").setValue(finalReelId);
                         }
 
                         // Fix 6: increment duetCount on original reel
