@@ -77,6 +77,12 @@ public class DuetVideoCompositor {
     // Transform matrices updated per-frame via updateTexImage()
     private final float[] matCam  = new float[16];
     private final float[] matOrig = new float[16];
+    // ✅ FIX (elongated/"lambi" video): source clip aspect ratios, used to
+    // center-crop (cover-fit) into each panel instead of stretching the
+    // texture to fill a differently-shaped rect — same idea as ExoPlayer's
+    // resize_mode="zoom" used in the live preview.
+    private float camAspect  = 9f / 16f;
+    private float origAspect = 9f / 16f;
 
     // ─────────────────────────────────────────────────────────────────────────
     // Public API
@@ -203,6 +209,7 @@ public class DuetVideoCompositor {
         if (camVidTrack < 0) throw new IOException("no video track in camera file");
         extCam.selectTrack(camVidTrack);
         MediaFormat camFmt = extCam.getTrackFormat(camVidTrack);
+        camAspect = clipAspect(camFmt);
 
         MediaCodec decCam = MediaCodec.createDecoderByType(
                 camFmt.getString(MediaFormat.KEY_MIME));
@@ -216,6 +223,7 @@ public class DuetVideoCompositor {
         if (origVidTrack < 0) throw new IOException("no video track in original");
         extOrig.selectTrack(origVidTrack);
         MediaFormat origFmt = extOrig.getTrackFormat(origVidTrack);
+        origAspect = clipAspect(origFmt);
 
         MediaCodec decOrig = MediaCodec.createDecoderByType(
                 origFmt.getString(MediaFormat.KEY_MIME));
@@ -431,8 +439,8 @@ public class DuetVideoCompositor {
         switch (layout) {
             case 1: { // TOP-BOTTOM
                 float gapNdc = (PANEL_GAP_PX / 2f) / (OUT_H / 2f);
-                drawRectRounded(texCam,  matCam,  -1f, gapNdc,  1f, 1f, PANEL_RADIUS_PX);
-                drawRectRounded(texOrig, matOrig, -1f, -1f, 1f, -gapNdc, PANEL_RADIUS_PX);
+                drawRectRounded(texCam,  matCam,  -1f, gapNdc,  1f, 1f, PANEL_RADIUS_PX, camAspect);
+                drawRectRounded(texOrig, matOrig, -1f, -1f, 1f, -gapNdc, PANEL_RADIUS_PX, origAspect);
                 break;
             }
             case 2: // PiP
@@ -447,8 +455,8 @@ public class DuetVideoCompositor {
                 break;
             default: { // SIDE-BY-SIDE
                 float gapNdc = (PANEL_GAP_PX / 2f) / (OUT_W / 2f);
-                drawRectRounded(texCam,  matCam,  -1f, -1f, -gapNdc, 1f, PANEL_RADIUS_PX);
-                drawRectRounded(texOrig, matOrig,  gapNdc, -1f,  1f, 1f, PANEL_RADIUS_PX);
+                drawRectRounded(texCam,  matCam,  -1f, -1f, -gapNdc, 1f, PANEL_RADIUS_PX, camAspect);
+                drawRectRounded(texOrig, matOrig,  gapNdc, -1f,  1f, 1f, PANEL_RADIUS_PX, origAspect);
                 break;
             }
         }
@@ -492,9 +500,26 @@ public class DuetVideoCompositor {
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);
     }
 
+    /**
+     * Returns width/height for a video track, swapping for 90°/270° rotation
+     * (portrait clips recorded in landscape sensor orientation report their
+     * raw un-rotated width/height in the format, with "rotation-degrees"
+     * telling the renderer how to display them).
+     */
+    private float clipAspect(MediaFormat fmt) {
+        int w = fmt.containsKey(MediaFormat.KEY_WIDTH)  ? fmt.getInteger(MediaFormat.KEY_WIDTH)  : 1080;
+        int h = fmt.containsKey(MediaFormat.KEY_HEIGHT) ? fmt.getInteger(MediaFormat.KEY_HEIGHT) : 1920;
+        int rotation = fmt.containsKey("rotation-degrees") ? fmt.getInteger("rotation-degrees") : 0;
+        if (rotation == 90 || rotation == 270) {
+            int tmp = w; w = h; h = tmp;
+        }
+        if (w <= 0 || h <= 0) return 9f / 16f;
+        return (float) w / (float) h;
+    }
+
     private void drawRectRounded(int texId, float[] texMatrix,
                                   float x0, float y0, float x1, float y1,
-                                  float cornerRadiusPx) {
+                                  float cornerRadiusPx, float srcAspect) {
         if (glRoundedProgram < 0) return;
         GLES20.glUseProgram(glRoundedProgram);
 
@@ -515,6 +540,18 @@ public class DuetVideoCompositor {
         float halfHeightPx = scaleY * OUT_H;
         GLES20.glUniform2f(rHalfSizePx, halfWidthPx, halfHeightPx);
         GLES20.glUniform1f(rRadiusPx, cornerRadiusPx);
+
+        // Center-crop (cover-fit): shrink texcoords on whichever axis the
+        // source is "too wide/tall" for, so nothing gets stretched.
+        float dstAspect = halfWidthPx / halfHeightPx;
+        float cropScaleX = 1f, cropScaleY = 1f;
+        if (srcAspect > dstAspect) {
+            cropScaleX = dstAspect / srcAspect; // crop the sides
+        } else {
+            cropScaleY = srcAspect / dstAspect; // crop top/bottom
+        }
+        GLES20.glUniform2f(rCropScale, cropScaleX, cropScaleY);
+        GLES20.glUniform2f(rCropOffset, (1f - cropScaleX) * 0.5f, (1f - cropScaleY) * 0.5f);
 
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
         GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, texId);
@@ -652,6 +689,25 @@ public class DuetVideoCompositor {
         "  gl_FragColor = texture2D(uTexture, vTex) * alpha;\n" +
         "}\n";
 
+    // ── Crop-aware vertex shader (rounded panels only) ────────────────────────
+    // Same as VS, but additionally center-crops the texture coords so a
+    // source clip of one aspect ratio "covers" a differently-shaped
+    // destination rect without stretching — exactly like ExoPlayer's
+    // resize_mode="zoom" in the live recording preview.
+    private static final String CROP_VS =
+        "uniform mat4 uMVPMatrix;\n" +
+        "uniform mat4 uTexMatrix;\n" +
+        "uniform vec2 uCropScale;\n" +
+        "uniform vec2 uCropOffset;\n" +
+        "attribute vec4 aPosition;\n" +
+        "attribute vec4 aTexCoord;\n" +
+        "varying vec2 vTex;\n" +
+        "void main() {\n" +
+        "  gl_Position = uMVPMatrix * aPosition;\n" +
+        "  vec2 raw = (uTexMatrix * aTexCoord).xy;\n" +
+        "  vTex = raw * uCropScale + uCropOffset;\n" +
+        "}\n";
+
     // ── Rounded-rect shader ───────────────────────────────────────────────────
     // Same vertex shader; fragment clips to a rounded rectangle using a
     // signed-distance-field test in PIXEL space (uHalfSizePx / uRadiusPx),
@@ -676,6 +732,7 @@ public class DuetVideoCompositor {
 
     private int glRoundedProgram = -1;
     private int rPosition, rTexCoord, rMVP, rTexMatrix, rTexture, rHalfSizePx, rRadiusPx;
+    private int rCropScale, rCropOffset;
 
     private void setupGL() {
         // Normal rect program
@@ -690,9 +747,9 @@ public class DuetVideoCompositor {
         uTexMatrix = GLES20.glGetUniformLocation(glProgram, "uTexMatrix");
         uTexture   = GLES20.glGetUniformLocation(glProgram, "uTexture");
 
-        // Rounded-rect program (same VS, rounded-rect-clip FS)
+        // Rounded-rect program (crop-aware VS, rounded-rect-clip FS)
         glRoundedProgram = GLES20.glCreateProgram();
-        GLES20.glAttachShader(glRoundedProgram, makeShader(GLES20.GL_VERTEX_SHADER,   VS));
+        GLES20.glAttachShader(glRoundedProgram, makeShader(GLES20.GL_VERTEX_SHADER,   CROP_VS));
         GLES20.glAttachShader(glRoundedProgram, makeShader(GLES20.GL_FRAGMENT_SHADER, ROUNDED_FS));
         GLES20.glLinkProgram(glRoundedProgram);
 
@@ -703,6 +760,8 @@ public class DuetVideoCompositor {
         rTexture    = GLES20.glGetUniformLocation(glRoundedProgram, "uTexture");
         rHalfSizePx = GLES20.glGetUniformLocation(glRoundedProgram, "uHalfSizePx");
         rRadiusPx   = GLES20.glGetUniformLocation(glRoundedProgram, "uRadiusPx");
+        rCropScale  = GLES20.glGetUniformLocation(glRoundedProgram, "uCropScale");
+        rCropOffset = GLES20.glGetUniformLocation(glRoundedProgram, "uCropOffset");
 
         // Circle-bubble program (same VS, circle-clip FS)
         glBubbleProgram = GLES20.glCreateProgram();
