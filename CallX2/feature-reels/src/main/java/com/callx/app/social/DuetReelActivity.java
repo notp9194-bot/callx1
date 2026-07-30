@@ -142,6 +142,13 @@ public class DuetReelActivity extends AppCompatActivity {
     private boolean isPaused     = false;
     private boolean discardOnStop = false;
     private int     layoutMode   = LAYOUT_SIDE_BY_SIDE;
+    // ✅ FIX (duet layout WYSIWYG): bound to R.id.layout_duet_video_container so
+    // setLayoutMode() can actually flip HORIZONTAL/VERTICAL, instead of the
+    // container staying vertical no matter which mode is picked (which made
+    // "Side by Side" look identical to "Top/Bottom" during recording, then
+    // render as a real left/right split — two narrow stretched slices — only
+    // after upload).
+    private LinearLayout videoContainer;
     private float   originalVol  = 0.5f;
     private float   micGain      = 1.0f;
     private CountDownTimer recordTimer;
@@ -380,6 +387,7 @@ public class DuetReelActivity extends AppCompatActivity {
     }
 
     private void bindViews() {
+        videoContainer          = findViewById(R.id.layout_duet_video_container);
         playerViewOriginal      = findViewById(R.id.player_view_original);
         previewViewCamera       = findViewById(R.id.preview_view_camera);
         btnDuetRecord           = findViewById(R.id.btn_duet_record);
@@ -1351,6 +1359,16 @@ public class DuetReelActivity extends AppCompatActivity {
         ViewGroup.LayoutParams lp1 = playerViewOriginal.getLayoutParams();
         ViewGroup.LayoutParams lp2 = previewViewCamera.getLayoutParams();
         if (lp1 == null || lp2 == null) return;
+
+        // ✅ FIX: orientation must flip with the mode, or Side-by-Side and
+        // Top/Bottom render identically in the preview (both stayed VERTICAL)
+        // while the compositor still draws Side-by-Side as a true left/right
+        // split — two narrow 540×1920 slices, which looked stretched/"lambi"
+        // the first time the user saw it, after upload.
+        if (videoContainer != null) {
+            videoContainer.setOrientation(mode == LAYOUT_SIDE_BY_SIDE
+                ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL);
+        }
 
         switch (mode) {
             case LAYOUT_SIDE_BY_SIDE:
