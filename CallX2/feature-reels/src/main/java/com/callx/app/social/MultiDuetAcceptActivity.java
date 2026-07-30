@@ -99,7 +99,13 @@ public class MultiDuetAcceptActivity extends AppCompatActivity {
                         slotIndex++;
                     }
 
-                    if ("recording".equals(sessionStatus) || "completed".equals(sessionStatus)) {
+                    // ✅ FIX: "recording" is the NORMAL state once the host (or any
+                    // participant) has started recording their own part — it does
+                    // NOT mean the session is closed to new participants. Only
+                    // "compositing" (final video being built) or "completed" should
+                    // block a fresh accept, otherwise every invite becomes
+                    // un-acceptable the instant the host taps "Start".
+                    if ("compositing".equals(sessionStatus) || "completed".equals(sessionStatus)) {
                         tvStatus.setText("This session is already " + sessionStatus + ".");
                         btnAccept.setEnabled(false);
                     } else {
