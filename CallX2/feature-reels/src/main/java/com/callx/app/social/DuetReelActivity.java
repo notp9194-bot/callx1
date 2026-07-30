@@ -1372,9 +1372,15 @@ public class DuetReelActivity extends AppCompatActivity {
 
         switch (mode) {
             case LAYOUT_SIDE_BY_SIDE:
+                // ✅ FIX: HORIZONTAL LinearLayout needs width=0dp (weight) + height=MATCH_PARENT.
+                // The XML defaults are width=MATCH_PARENT, height=0dp (correct for VERTICAL).
+                // If we only set weight without fixing width/height, height stays 0dp in
+                // horizontal mode → both panels collapse to zero height → stretched/lambi look.
                 if (lp1 instanceof LinearLayout.LayoutParams) {
-                    ((LinearLayout.LayoutParams) lp1).weight = 1;
-                    ((LinearLayout.LayoutParams) lp2).weight = 1;
+                    LinearLayout.LayoutParams llp1 = (LinearLayout.LayoutParams) lp1;
+                    LinearLayout.LayoutParams llp2 = (LinearLayout.LayoutParams) lp2;
+                    llp1.weight = 1; llp1.width = 0; llp1.height = ViewGroup.LayoutParams.MATCH_PARENT;
+                    llp2.weight = 1; llp2.width = 0; llp2.height = ViewGroup.LayoutParams.MATCH_PARENT;
                 }
                 playerViewOriginal.setVisibility(View.VISIBLE);
                 previewViewCamera.setVisibility(View.VISIBLE);
@@ -1382,9 +1388,12 @@ public class DuetReelActivity extends AppCompatActivity {
                 break;
 
             case LAYOUT_TOP_BOTTOM:
+                // VERTICAL LinearLayout: width=MATCH_PARENT, height=0dp (weight).
                 if (lp1 instanceof LinearLayout.LayoutParams) {
-                    ((LinearLayout.LayoutParams) lp1).weight = 1;
-                    ((LinearLayout.LayoutParams) lp2).weight = 1;
+                    LinearLayout.LayoutParams llp1 = (LinearLayout.LayoutParams) lp1;
+                    LinearLayout.LayoutParams llp2 = (LinearLayout.LayoutParams) lp2;
+                    llp1.weight = 1; llp1.width = ViewGroup.LayoutParams.MATCH_PARENT; llp1.height = 0;
+                    llp2.weight = 1; llp2.width = ViewGroup.LayoutParams.MATCH_PARENT; llp2.height = 0;
                 }
                 playerViewOriginal.setVisibility(View.VISIBLE);
                 previewViewCamera.setVisibility(View.VISIBLE);
@@ -1392,9 +1401,12 @@ public class DuetReelActivity extends AppCompatActivity {
                 break;
 
             case LAYOUT_REACT_PIP:
+                // VERTICAL PiP: width=MATCH_PARENT, height=0dp (weight).
                 if (lp1 instanceof LinearLayout.LayoutParams) {
-                    ((LinearLayout.LayoutParams) lp1).weight = 0.3f;
-                    ((LinearLayout.LayoutParams) lp2).weight = 0.7f;
+                    LinearLayout.LayoutParams llp1 = (LinearLayout.LayoutParams) lp1;
+                    LinearLayout.LayoutParams llp2 = (LinearLayout.LayoutParams) lp2;
+                    llp1.weight = 0.3f; llp1.width = ViewGroup.LayoutParams.MATCH_PARENT; llp1.height = 0;
+                    llp2.weight = 0.7f; llp2.width = ViewGroup.LayoutParams.MATCH_PARENT; llp2.height = 0;
                 }
                 playerViewOriginal.setVisibility(View.VISIBLE);
                 previewViewCamera.setVisibility(View.VISIBLE);

@@ -6,19 +6,22 @@
     android:background="@android:color/transparent">
 
     <!-- ── Split video area (original + camera) ─────────────────────────── -->
+    <!-- ✅ FIX: default orientation="horizontal" matches default layoutMode=SIDE_BY_SIDE.
+         Panels use layout_width="0dp"+weight (horizontal split) and layout_height="match_parent".
+         applyLayoutToViews() will flip these when switching to Top/Bottom or PiP. -->
     <LinearLayout
         android:id="@+id/layout_duet_video_container"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:orientation="vertical"
+        android:orientation="horizontal"
         android:showDividers="middle"
         android:divider="@drawable/divider_duet_gap_transparent">
 
-        <!-- Original reel (top half) -->
+        <!-- Original reel (left half in side-by-side, top half in top-bottom) -->
         <FrameLayout
             android:id="@+id/frame_original_panel"
-            android:layout_width="match_parent"
-            android:layout_height="0dp"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
             android:layout_weight="1"
             android:background="@drawable/bg_duet_panel_rounded"
             android:clipToOutline="true">
@@ -53,12 +56,12 @@
                 android:background="#66000000"/>
         </FrameLayout>
 
-        <!-- Camera preview (bottom half)
+        <!-- Camera preview (right half in side-by-side, bottom half in top-bottom)
              id="frame_camera_container" — used for setLayerType(HARDWARE, paint) live filter -->
         <FrameLayout
             android:id="@+id/frame_camera_container"
-            android:layout_width="match_parent"
-            android:layout_height="0dp"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
             android:layout_weight="1"
             android:background="@drawable/bg_duet_panel_rounded"
             android:clipToOutline="true">
