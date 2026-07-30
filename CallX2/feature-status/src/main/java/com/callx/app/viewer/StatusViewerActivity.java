@@ -123,7 +123,23 @@ import com.callx.app.utils.AlertDialogStyler;
           load(ownerUid);
       }
       @Override protected void onPause()  { super.onPause();  pauseProgress(); }
-      @Override protected void onResume() { super.onResume(); if (paused) resumeProgress(); }
+      @Override protected void onResume() {
+          super.onResume();
+          StatusStickerOverlayView zoomed = findZoomedSticker();
+          if (zoomed != null) settleStickerReaction(zoomed); // shrinks back, then resumes
+          else if (paused) resumeProgress();
+      }
+      /** The sticker currently enlarged front-and-centre by the tap-to-zoom
+       *  gate, if any — at most one can be zoomed in at a time. */
+      private StatusStickerOverlayView findZoomedSticker() {
+          for (int i = 0; i < binding.flStickerOverlay.getChildCount(); i++) {
+              View child = binding.flStickerOverlay.getChildAt(i);
+              if (child instanceof StatusStickerOverlayView && ((StatusStickerOverlayView) child).isZoomedIn()) {
+                  return (StatusStickerOverlayView) child;
+              }
+          }
+          return null;
+      }
       @Override
       protected void onDestroy() {
           releasePlayer();
@@ -468,6 +484,7 @@ import com.callx.app.utils.AlertDialogStyler;
           // FIX: was findViewWithTag("tv_location_tag") — always null — now binding ref
           binding.tvLocationTag.setVisibility(View.GONE);
           binding.flStickerOverlay.removeAllViews();
+          stickerZoomScrim = null; // just got removed along with everything else above
       }
 
       // ── Interactive stickers (music/countdown/quiz/question) ────────────────
@@ -509,12 +526,11 @@ import com.callx.app.utils.AlertDialogStyler;
 
                   if ("question".equals(sticker.getStickerType())
                           && myUid != null && !myUid.equals(ownerUid)) {
-                      sticker.setOnClickListener(v -> {
+                      armStickerZoomGate(sticker, () -> {
                           StatusItem current = idx < items.size() ? items.get(idx) : null;
-                          if (current == null) return;
-                          pauseProgress();
+                          if (current == null) { settleStickerReaction(sticker); return; }
                           StatusReplyBottomSheet.showForQuestion(this, current, ownerName, myUid, ownerUid,
-                                  sticker.getQuestionPrompt(), msg -> resumeProgress());
+                                  sticker.getQuestionPrompt(), msg -> settleStickerReaction(sticker));
                       });
                   }
 
@@ -532,6 +548,7 @@ import com.callx.app.utils.AlertDialogStyler;
                                       Long prevSelected = snap.child("selectedIndex").getValue(Long.class);
                                       if (prevSelected != null) sticker.revealQuizAnswer(prevSelected.intValue());
                                   } else {
+                                      armStickerZoomGate(sticker);
                                       sticker.setOnQuizOptionSelectedListener(selectedIndex -> {
                                           StatusItem cur = idx < items.size() ? items.get(idx) : null;
                                           if (cur == null) return;
@@ -544,9 +561,9 @@ import com.callx.app.utils.AlertDialogStyler;
                                           StatusReplyBottomSheet.sendQuizAnswer(myUid, ownerUid, ownerName,
                                                   cur, stickerIndex, sticker.getQuizQuestion(),
                                                   selectedText, selectedIndex, isCorrect);
-                                          // Give the viewer a beat to see the ✓/✗ reveal before the story resumes.
+                                          // Give the viewer a beat to see the ✓/✗ reveal, then shrink back and resume.
                                           new Handler(Looper.getMainLooper())
-                                                  .postDelayed(StatusViewerActivity.this::resumeProgress, 1200);
+                                                  .postDelayed(() -> settleStickerReaction(sticker), 1200);
                                       });
                                   }
                               }
@@ -556,7 +573,7 @@ import com.callx.app.utils.AlertDialogStyler;
                   }
 
                   if ("music".equals(sticker.getStickerType()) && sticker.isMusicLinkedToReelSound()) {
-                      sticker.setOnClickListener(v -> openMusicStickerSoundSheet(sticker));
+                      armStickerZoomGate(sticker, () -> openMusicStickerSoundSheet(sticker));
                   }
 
                   if ("countdown".equals(sticker.getStickerType())
@@ -571,6 +588,7 @@ import com.callx.app.utils.AlertDialogStyler;
                                   if (snap.exists()) {
                                       sticker.setCountdownSubscribed(true);
                                   }
+                                  armStickerZoomGate(sticker);
                                   sticker.setOnCountdownSubscribeToggleListener(nowSubscribed -> {
                                       StatusItem cur = idx < items.size() ? items.get(idx) : null;
                                       if (cur == null) return;
@@ -583,6 +601,9 @@ import com.callx.app.utils.AlertDialogStyler;
                                           FirebaseUtils.getStatusCountdownSubscriberRef(
                                                   ownerUid, statusId, stickerIndex, myUid).removeValue();
                                       }
+                                      // Give the viewer a beat to see the bell toggle, then shrink back and resume.
+                                      new Handler(Looper.getMainLooper())
+                                              .postDelayed(() -> settleStickerReaction(sticker), 500);
                                   });
                               }
                               @Override public void onCancelled(DatabaseError e) {}
@@ -603,6 +624,7 @@ import com.callx.app.utils.AlertDialogStyler;
                                       String prevOption = snap.child("option").getValue(String.class);
                                       revealPollWithCounts(sticker, ownerUid, statusId, stickerIndex, prevOption);
                                   } else {
+                                      armStickerZoomGate(sticker);
                                       sticker.setOnPollOptionSelectedListener(selectedOption -> {
                                           StatusItem cur = idx < items.size() ? items.get(idx) : null;
                                           if (cur == null) return;
@@ -612,6 +634,9 @@ import com.callx.app.utils.AlertDialogStyler;
                                                   cur, stickerIndex, sticker.getPollQuestion(),
                                                   selectedOption, selectedText);
                                           revealPollWithCounts(sticker, ownerUid, statusId, stickerIndex, selectedOption);
+                                          // Give the viewer a beat to see the % split, then shrink back and resume.
+                                          new Handler(Looper.getMainLooper())
+                                                  .postDelayed(() -> settleStickerReaction(sticker), 1200);
                                       });
                                   }
                               }
@@ -635,6 +660,7 @@ import com.callx.app.utils.AlertDialogStyler;
                                       int myVal = prevValue != null ? prevValue.intValue() : 50;
                                       revealSliderWithAverage(sticker, ownerUid, statusId, stickerIndex, myVal);
                                   } else {
+                                      armStickerZoomGate(sticker);
                                       sticker.setOnSliderValueSubmittedListener(value -> {
                                           StatusItem cur = idx < items.size() ? items.get(idx) : null;
                                           if (cur == null) return;
@@ -642,6 +668,9 @@ import com.callx.app.utils.AlertDialogStyler;
                                                   cur, stickerIndex, sticker.getSliderQuestion(),
                                                   sticker.getSliderEmoji(), value);
                                           revealSliderWithAverage(sticker, ownerUid, statusId, stickerIndex, value);
+                                          // Give the viewer a beat to see the average, then shrink back and resume.
+                                          new Handler(Looper.getMainLooper())
+                                                  .postDelayed(() -> settleStickerReaction(sticker), 1200);
                                       });
                                   }
                               }
@@ -650,20 +679,20 @@ import com.callx.app.utils.AlertDialogStyler;
                       }
                   }
                   if ("mention".equals(sticker.getStickerType())) {
-                      sticker.setOnClickListener(v -> openMentionStickerProfile(sticker));
+                      armStickerZoomGate(sticker, () -> openMentionStickerProfile(sticker));
                   }
 
                   if ("hashtag".equals(sticker.getStickerType())) {
-                      sticker.setOnClickListener(v -> openHashtagStickerFeed(sticker));
+                      armStickerZoomGate(sticker, () -> openHashtagStickerFeed(sticker));
                   }
 
                   if ("link".equals(sticker.getStickerType())) {
-                      sticker.setOnClickListener(v -> openLinkSticker(sticker));
+                      armStickerZoomGate(sticker, () -> openLinkSticker(sticker));
                   }
 
                   if ("addyours".equals(sticker.getStickerType())
                           && myUid != null && !myUid.equals(ownerUid)) {
-                      sticker.setOnClickListener(v -> openAddYoursComposer(sticker));
+                      armStickerZoomGate(sticker, () -> openAddYoursComposer(sticker));
                   }
               }
           } catch (Exception ignored) {
@@ -729,7 +758,7 @@ import com.callx.app.utils.AlertDialogStyler;
                       sticker.getMusicCoverUrl(),
                       sticker.getMusicSoundUrl(),
                       0);
-              if (!(sheetObj instanceof androidx.fragment.app.DialogFragment)) return;
+              if (!(sheetObj instanceof androidx.fragment.app.DialogFragment)) { settleStickerReaction(sticker); return; }
               final androidx.fragment.app.DialogFragment sheet = (androidx.fragment.app.DialogFragment) sheetObj;
 
               pauseProgress();
@@ -739,7 +768,7 @@ import com.callx.app.utils.AlertDialogStyler;
                           @NonNull androidx.fragment.app.FragmentManager fm,
                           @NonNull androidx.fragment.app.Fragment f) {
                       if (f == sheet) {
-                          resumeProgress();
+                          settleStickerReaction(sticker);
                           fm.unregisterFragmentLifecycleCallbacks(this);
                       }
                   }
@@ -747,6 +776,7 @@ import com.callx.app.utils.AlertDialogStyler;
               sheet.show(getSupportFragmentManager(), "sound_detail_full");
           } catch (Exception ignored) {
               // Reels module unavailable at runtime — the sticker just stays inert.
+              settleStickerReaction(sticker);
           }
       }
 
@@ -758,19 +788,20 @@ import com.callx.app.utils.AlertDialogStyler;
        */
       private void openMentionStickerProfile(StatusStickerOverlayView sticker) {
           String username = sticker.getMentionUsername();
-          if (username == null || username.isEmpty()) return;
+          if (username == null || username.isEmpty()) { settleStickerReaction(sticker); return; }
           pauseProgress();
           com.google.firebase.database.FirebaseDatabase.getInstance()
                   .getReference("users").orderByChild("username").equalTo(username).limitToFirst(1)
                   .addListenerForSingleValueEvent(new ValueEventListener() {
               @Override public void onDataChange(DataSnapshot snap) {
-                  if (!snap.exists()) { resumeProgress(); return; }
+                  if (!snap.exists()) { settleStickerReaction(sticker); return; }
                   DataSnapshot userSnap = snap.getChildren().iterator().next();
                   String uid = userSnap.getKey();
                   String name = userSnap.child("name").getValue(String.class);
                   if (name == null || name.isEmpty()) name = username;
                   String photo = userSnap.child("profileImage").getValue(String.class);
                   if (photo == null || photo.isEmpty()) photo = userSnap.child("photoUrl").getValue(String.class);
+                  boolean opened = false;
                   try {
                       Class<?> profileCls = Class.forName("com.callx.app.activities.UserProfileActivity");
                       Intent intent = new Intent(StatusViewerActivity.this, profileCls);
@@ -778,12 +809,13 @@ import com.callx.app.utils.AlertDialogStyler;
                       intent.putExtra("name", name);
                       if (photo != null) intent.putExtra("photo", photo);
                       startActivity(intent);
+                      opened = true; // onResume() will settle the sticker (shrink + resume) once we come back
                   } catch (Exception ignored2) {
                       // Profile activity unavailable at runtime — the sticker just stays inert.
                   }
-                  resumeProgress();
+                  if (!opened) settleStickerReaction(sticker);
               }
-              @Override public void onCancelled(DatabaseError e) { resumeProgress(); }
+              @Override public void onCancelled(DatabaseError e) { settleStickerReaction(sticker); }
           });
       }
 
@@ -795,15 +827,16 @@ import com.callx.app.utils.AlertDialogStyler;
        */
       private void openHashtagStickerFeed(StatusStickerOverlayView sticker) {
           String tag = sticker.getHashtagTag();
-          if (tag == null || tag.isEmpty()) return;
+          if (tag == null || tag.isEmpty()) { settleStickerReaction(sticker); return; }
           try {
               Class<?> hashtagCls = Class.forName("com.callx.app.search.XHashtagActivity");
               Intent intent = new Intent(this, hashtagCls);
               intent.putExtra("hashtag", tag);
               pauseProgress();
-              startActivity(intent);
+              startActivity(intent); // onResume() will settle the sticker (shrink + resume) once we come back
           } catch (Exception ignored) {
               // X module unavailable at runtime — the sticker just stays inert.
+              settleStickerReaction(sticker);
           }
       }
 
@@ -816,12 +849,14 @@ import com.callx.app.utils.AlertDialogStyler;
        */
       private void openLinkSticker(StatusStickerOverlayView sticker) {
           String url = sticker.getLinkUrl();
-          if (url == null || url.isEmpty()) return;
+          if (url == null || url.isEmpty()) { settleStickerReaction(sticker); return; }
           try {
               pauseProgress();
               startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)));
+              // onResume() will settle the sticker (shrink + resume) once we come back from the browser
           } catch (Exception ignored) {
               // No app can handle this link — sticker just stays inert.
+              settleStickerReaction(sticker);
           }
       }
 
@@ -838,7 +873,7 @@ import com.callx.app.utils.AlertDialogStyler;
        */
       private void openAddYoursComposer(StatusStickerOverlayView sticker) {
           String prompt = sticker.getAddYoursPrompt();
-          if (prompt == null || prompt.isEmpty()) return;
+          if (prompt == null || prompt.isEmpty()) { settleStickerReaction(sticker); return; }
           String originUid  = sticker.getAddYoursOriginUid();
           String originName = sticker.getAddYoursOriginName();
           if (originUid == null || originUid.isEmpty()) {
@@ -857,9 +892,10 @@ import com.callx.app.utils.AlertDialogStyler;
               intent.putExtra(com.callx.app.compose.NewStatusActivity.EXTRA_PREFILL_TOAST,
                       "Adding to " + (originName != null && !originName.isEmpty() ? originName : "their") + "'s prompt");
               pauseProgress();
-              startActivity(intent);
+              startActivity(intent); // onResume() will settle the sticker (shrink + resume) once we come back
           } catch (Exception ignored) {
               // Malformed data — sticker just stays inert.
+              settleStickerReaction(sticker);
           }
       }
 
@@ -915,6 +951,54 @@ import com.callx.app.utils.AlertDialogStyler;
               } else total = 5_000L;
               runProgressTick(total, remainingMs);
           }
+      }
+      // ── Sticker "tap to zoom, react to return" wiring ────────────────────
+      // First tap on any interactive sticker (music/countdown/quiz/poll/
+      // slider/question/etc.) enlarges it front-and-centre and pauses the
+      // story so the viewer can read/answer it properly. Whatever counts as
+      // that sticker's "reaction" then shrinks it back to exactly where the
+      // poster placed it and resumes the story.
+      private void armStickerZoomGate(StatusStickerOverlayView sticker) { armStickerZoomGate(sticker, null); }
+      /** @param afterZoomed for one-shot stickers (question/music/mention/hashtag/
+       *  link/add-yours) whose "reaction" IS opening another sheet/screen — runs
+       *  once the zoom-in animation finishes. Pass null for stickers with their
+       *  own inner controls (quiz/poll/slider/countdown), which just wait for the
+       *  viewer's next tap on the real option once zoomed in. */
+      private void armStickerZoomGate(StatusStickerOverlayView sticker, Runnable afterZoomed) {
+          sticker.armViewerZoomGate(() -> {
+              pauseProgress();
+              showStickerZoomScrim();
+              sticker.zoomToFront(binding.flStickerOverlay, afterZoomed);
+          });
+      }
+      /** Call once a sticker's reaction is done — shrinks it back and resumes. */
+      private void settleStickerReaction(StatusStickerOverlayView sticker) {
+          hideStickerZoomScrim();
+          sticker.restoreFromZoom(this::resumeProgress);
+      }
+      // ── Dim backdrop behind a zoomed-in sticker ──────────────────────────
+      private View stickerZoomScrim;
+      private void showStickerZoomScrim() {
+          if (stickerZoomScrim != null) return;
+          View scrim = new View(this);
+          scrim.setBackgroundColor(0xCC000000);
+          scrim.setAlpha(0f);
+          scrim.setClickable(true); // swallow taps outside the zoomed sticker (no next/previous while zoomed)
+          scrim.setOnClickListener(v -> {
+              StatusStickerOverlayView z = findZoomedSticker();
+              if (z != null) settleStickerReaction(z); // tapping outside dismisses the zoom early
+          });
+          binding.flStickerOverlay.addView(scrim, new FrameLayout.LayoutParams(
+                  FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+          scrim.animate().alpha(1f).setDuration(200).start();
+          stickerZoomScrim = scrim;
+      }
+      private void hideStickerZoomScrim() {
+          if (stickerZoomScrim == null) return;
+          final View scrim = stickerZoomScrim;
+          stickerZoomScrim = null;
+          scrim.animate().alpha(0f).setDuration(180)
+                  .withEndAction(() -> binding.flStickerOverlay.removeView(scrim)).start();
       }
       // ── Navigation ────────────────────────────────────────────────────────
       private void next()     { releasePlayer(); stopProgress(); idx++; showCurrent(); }

@@ -4,6 +4,8 @@ import android.content.Context;
 import android.graphics.*;
 import android.os.CountDownTimer;
 import android.view.*;
+import android.view.animation.DecelerateInterpolator;
+import android.view.animation.OvershootInterpolator;
 import android.widget.*;
 import androidx.annotation.NonNull;
 
@@ -48,6 +50,100 @@ public class StatusStickerOverlayView extends LinearLayout {
     public interface OnStickerTappedListener { void onTapped(StatusStickerOverlayView sticker); }
     public void setOnStickerTappedListener(OnStickerTappedListener l) { this.stickerTapListener = l; }
     public float getStickerScale() { return stickerScale; }
+
+    // ── Viewer "tap to zoom, react to return" gate ───────────────────────────
+    // Used only by the status VIEWER (never the composer): a viewer's first
+    // tap enlarges the sticker to the middle of the screen — front and centre,
+    // above everything else — so they can read/answer it properly, and the
+    // story pauses for as long as it stays enlarged. Whatever counts as the
+    // viewer's "reaction" for that sticker type (a quiz pick, a poll vote, a
+    // slider release, a countdown toggle, or handing off to an external
+    // sheet/screen) then shrinks it back to exactly the spot the poster
+    // dropped it at and lets the story resume.
+    private boolean zoomGateArmed;
+    private boolean zoomedIn;
+    private float zoomBaseX, zoomBaseY, zoomBaseScaleX = 1f, zoomBaseScaleY = 1f;
+    private GestureDetector zoomGateTapDetector;
+
+    /** True once {@link #zoomToFront} has enlarged this sticker and before {@link #restoreFromZoom} runs. */
+    public boolean isZoomedIn() { return zoomedIn; }
+
+    /**
+     * Arms the tap-to-zoom gate: until the sticker is zoomed in, this view
+     * swallows every touch itself (so a tap never lands directly on an inner
+     * option/button underneath) and fires {@code onFirstTap} for a clean tap.
+     * Once zoomed in, the gate steps aside so the real controls inside the
+     * card (quiz options, poll choices, the slider, the countdown row, …)
+     * receive taps normally — that follow-up tap is the viewer's "reaction".
+     */
+    public void armViewerZoomGate(Runnable onFirstTap) {
+        zoomGateArmed = true;
+        zoomGateTapDetector = new GestureDetector(getContext(), new GestureDetector.SimpleOnGestureListener() {
+            @Override public boolean onSingleTapUp(MotionEvent e) {
+                if (onFirstTap != null) onFirstTap.run();
+                return true;
+            }
+        });
+    }
+
+    @Override
+    public boolean onInterceptTouchEvent(MotionEvent ev) {
+        if (zoomGateArmed && !zoomedIn) return true; // steal every touch until zoomed in
+        return super.onInterceptTouchEvent(ev);
+    }
+
+    @Override
+    public boolean onTouchEvent(MotionEvent event) {
+        if (zoomGateArmed && !zoomedIn) {
+            if (zoomGateTapDetector != null) zoomGateTapDetector.onTouchEvent(event);
+            return true;
+        }
+        return super.onTouchEvent(event);
+    }
+
+    /**
+     * Enlarges this sticker and brings it in front of everything else in
+     * {@code overlayParent}, centred on screen so the viewer can read it
+     * properly. Remembers the exact spot/scale it started at so
+     * {@link #restoreFromZoom} can put it back precisely. No-op if already
+     * zoomed in.
+     */
+    public void zoomToFront(final ViewGroup overlayParent, final Runnable onZoomed) {
+        if (zoomedIn) { if (onZoomed != null) onZoomed.run(); return; }
+        zoomedIn = true;
+        zoomBaseX = getX();
+        zoomBaseY = getY();
+        zoomBaseScaleX = getScaleX();
+        zoomBaseScaleY = getScaleY();
+        overlayParent.bringChildToFront(this);
+        overlayParent.invalidate();
+        setElevation(24f * getContext().getResources().getDisplayMetrics().density);
+        final float targetScale = Math.min(SCALE_MAX, Math.max(stickerScale, SCALE_MEDIUM) * 1.35f);
+        overlayParent.post(() -> {
+            float targetX = (overlayParent.getWidth()  - getWidth())  / 2f;
+            float targetY = (overlayParent.getHeight() - getHeight()) / 2f;
+            animate().x(targetX).y(targetY).scaleX(targetScale).scaleY(targetScale)
+                    .setDuration(260).setInterpolator(new OvershootInterpolator(0.9f))
+                    .withEndAction(() -> { if (onZoomed != null) onZoomed.run(); })
+                    .start();
+        });
+    }
+
+    /**
+     * Shrinks a zoomed-in sticker back to the exact spot/scale the poster
+     * placed it at. No-op if it isn't currently zoomed in.
+     */
+    public void restoreFromZoom(final Runnable onRestored) {
+        if (!zoomedIn) { if (onRestored != null) onRestored.run(); return; }
+        animate().x(zoomBaseX).y(zoomBaseY).scaleX(zoomBaseScaleX).scaleY(zoomBaseScaleY)
+                .setDuration(220).setInterpolator(new DecelerateInterpolator())
+                .withEndAction(() -> {
+                    zoomedIn = false;
+                    setElevation(0f);
+                    if (onRestored != null) onRestored.run();
+                })
+                .start();
+    }
 
 
     // ── Music sticker metadata (links back to the Reels trending-audio track) ──
