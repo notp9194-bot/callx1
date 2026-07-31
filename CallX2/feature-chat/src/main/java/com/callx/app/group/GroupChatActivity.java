@@ -327,6 +327,16 @@ public class GroupChatActivity extends AppCompatActivity
         currentName = FirebaseUtils.getCurrentName();
         groupMessagesRef = FirebaseUtils.getGroupMessagesRef(groupId);
 
+        // GROUP E2EE (Sender Keys): safe/cheap to call every time the group
+        // opens — detects membership changes since we last checked (rotates
+        // our Sender Key if anyone left/was removed), makes sure we have a
+        // Sender Key, distributes it to any member we haven't sent it to yet
+        // (covers newly-added members too), and imports any Sender Keys
+        // other members have sent us. See GroupE2EManager for the full
+        // protocol writeup.
+        com.callx.app.utils.GroupE2EManager.getInstance(this)
+                .ensureGroupCrypto(groupId, currentUid, null);
+
         // PERF FIX v8: DB ko background mein init karo, UI turant shuru karo.
         // db is null initially; Firebase events buffer hote hain pendingUpserts mein.
         // onGroupDbReady() mein Room Paging shuru hoga + buffer flush hoga.
@@ -1285,6 +1295,7 @@ public class GroupChatActivity extends AppCompatActivity
                 Message m = s.getValue(Message.class);
                 if (m == null) return;
                 m.id = s.getKey();
+                decryptIncomingGroupTextIfNeeded(m);
                 saveToRoom(m);
                 markRead(m);
             }
@@ -1292,6 +1303,7 @@ public class GroupChatActivity extends AppCompatActivity
                 Message m = s.getValue(Message.class);
                 if (m == null) return;
                 m.id = s.getKey();
+                decryptIncomingGroupTextIfNeeded(m);
                 saveToRoom(m);
             }
             @Override public void onChildRemoved(DataSnapshot s) {
@@ -1307,6 +1319,34 @@ public class GroupChatActivity extends AppCompatActivity
             @Override public void onCancelled(DatabaseError e) {}
         };
         query.addChildEventListener(messageListener);
+    }
+
+    /**
+     * GROUP E2EE: decrypts m.text in place if it's one of our Sender Key
+     * envelopes. Called right after a Message comes off the group Firebase
+     * listener, before it ever reaches Room or the adapter — so bubble
+     * rendering, forwarding, export, etc. only ever see plaintext, exactly
+     * like the 1:1 ChatActivity#decryptIncomingIfNeeded() equivalent.
+     * No-op for non-text messages and for plaintext (unencrypted) text.
+     */
+    private void decryptIncomingGroupTextIfNeeded(Message m) {
+        if (m == null || m.text == null || !"text".equals(m.type)) return;
+        if (!com.callx.app.utils.GroupE2EManager.isEncrypted(m.text)) return;
+
+        com.callx.app.utils.GroupE2EManager groupE2E =
+                com.callx.app.utils.GroupE2EManager.getInstance(this);
+
+        // Our own message inevitably echoes back down this same listener
+        // (resync, reconnect, reopening the chat) as ciphertext — restore
+        // the plaintext we cached at send time instead of trying to run our
+        // own send-only chain backwards (see sendText()).
+        if (m.senderId != null && m.senderId.equals(currentUid)) {
+            String cached = groupE2E.takeOwnPlaintext(m.id);
+            m.text = (cached != null) ? cached : "🔒 Sent message";
+            return;
+        }
+
+        m.text = groupE2E.decryptGroupMessage(m.text, groupId, m.senderId, m.id);
     }
 
     /**
@@ -1750,14 +1790,41 @@ public class GroupChatActivity extends AppCompatActivity
         Message m = buildOutgoing();
         m.type = "text";
         m.fontStyle = 0;
-        m.text = text;
+        m.text = text; // plaintext — used for our own bubble + local Room storage
         // Anonymous posting: replace name+photo before push
         if (postAnonymously && anonymousPostingEnabled) {
             m.senderName  = "Anonymous";
             m.senderPhoto = null;
             m.isAnonymous = true;
         }
-        pushMessage(m, text);
+
+        // GROUP E2EE: encrypt a WIRE-ONLY copy with our Sender Key (see
+        // E2EEncryptionManager's 1:1 doSendTextMessage() for the identical
+        // pattern). m.text stays plaintext for our own bubble/Room; only
+        // firebasePushGroup() swaps m.text -> m.e2eWireText for the instant
+        // it writes to Firebase, then restores it. If encryption fails (no
+        // Sender Key yet — e.g. ensureGroupCrypto hasn't finished) the
+        // message falls back to plaintext rather than being silently
+        // dropped.
+        try {
+            m.e2eWireText = com.callx.app.utils.GroupE2EManager.getInstance(this)
+                    .encryptGroupMessage(text, groupId);
+        } catch (Exception e) {
+            android.util.Log.w("GroupChatActivity", "Group E2E: encrypt failed, sending plaintext: " + e.getMessage());
+        }
+        String preview = (m.e2eWireText != null) ? "🔒 Message" : text;
+
+        pushMessage(m, preview);
+
+        // Our own message will echo back down the group message listener as
+        // ciphertext (chat resync, reconnect, reopening later) — cache the
+        // plaintext now, keyed by the id pushMessage() sets synchronously,
+        // and restore it instead of trying to decrypt our own send-only
+        // chain in reverse (see decryptIncomingGroupTextIfNeeded()).
+        if (m.e2eWireText != null && m.id != null) {
+            com.callx.app.utils.GroupE2EManager.getInstance(this)
+                    .cacheOwnPlaintext(m.id, text);
+        }
         lastSentMs = System.currentTimeMillis();
         clearReply();
         if (composeLinkPreview != null) composeLinkPreview.reset();
@@ -1889,10 +1956,22 @@ public class GroupChatActivity extends AppCompatActivity
     }
 
     private void firebasePushGroup(Message m, String key, String preview) {
+        // GROUP E2EE: if sendText() attached an encrypted wire copy, send
+        // THAT to Firebase instead of the plaintext — only for the instant
+        // of this write. m.text is restored right after so nothing
+        // downstream (Room, our own bubble re-render on a later listener
+        // callback) ever sees ciphertext. setValue() snapshots m's fields
+        // synchronously at call time, so it's safe to restore immediately.
+        String plainTextBackup = m.text;
+        boolean sentEncrypted = m.e2eWireText != null;
+        if (sentEncrypted) m.text = m.e2eWireText;
+
         groupMessagesRef.child(key).setValue(m)
             .addOnSuccessListener(unused ->
                 ioExecutor.execute(() -> db.messageDao().updateStatus(key, "sent")))
             .addOnFailureListener(e -> { /* pending rakho */ });
+
+        if (sentEncrypted) m.text = plainTextBackup;
 
         Map<String, Object> upd = new HashMap<>();
         upd.put("lastMessage", preview);

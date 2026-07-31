@@ -40,6 +40,19 @@
           ".validate": "newData.hasChildren(['type','senderUid','reel_id','timestamp'])"
         }
       }
+    },
+    "groupSenderKeys": {
+      "$groupId": {
+        "$recipientUid": {
+          "_comment_read": "Only the recipient can read their own mailbox — each entry is already ciphertext sealed to them specifically via the 1:1 X3DH/Double-Ratchet session, but no reason to let anyone else even fetch it.",
+          ".read": "auth != null && auth.uid === $recipientUid",
+          "$fromUid": {
+            "_comment_write": "Only an existing member of the group can drop a Sender Key distribution blob, and only under their OWN uid as the sender — matches GroupE2EManager's client write path (groupSenderKeys/{groupId}/{recipientUid}/{fromUid}).",
+            ".write": "auth != null && auth.uid === $fromUid && root.child('groups/' + $groupId + '/members/' + auth.uid).val() === true",
+            ".validate": "newData.isString()"
+          }
+        }
+      }
     }
   }
 }

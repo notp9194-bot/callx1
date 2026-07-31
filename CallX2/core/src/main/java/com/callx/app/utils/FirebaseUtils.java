@@ -241,6 +241,21 @@ public class FirebaseUtils {
         return db().getReference("groups").child(groupId).child("members");
     }
 
+    /**
+     * groupSenderKeys/{groupId}/{recipientUid}/{fromUid} = ciphertext (sealed
+     * with the 1:1 X3DH/Double-Ratchet session between fromUid and
+     * recipientUid — see GroupE2EManager). Each member's mailbox
+     * (groupSenderKeys/{groupId}/{recipientUid}) should be locked down in
+     * Firebase security rules so only recipientUid can read it, and only an
+     * existing member of the group can write into it — mirrors the
+     * e2e_prekeys lockdown pattern used for 1:1 (see index.js), except this
+     * one IS safe as a direct client write/read since each entry is already
+     * ciphertext sealed to one specific recipient, not raw key material.
+     */
+    public static DatabaseReference getGroupSenderKeysRef(String groupId) {
+        return db().getReference("groupSenderKeys").child(groupId);
+    }
+
     public static DatabaseReference getStatusRef() {
         return db().getReference("status");
     }

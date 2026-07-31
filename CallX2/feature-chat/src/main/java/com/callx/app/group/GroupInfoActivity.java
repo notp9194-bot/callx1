@@ -600,6 +600,19 @@ public class GroupInfoActivity extends AppCompatActivity {
                     FirebaseUtils.getGroupMembersRef(groupId).child(uid).removeValue();
                     FirebaseUtils.getGroupsRef().child(groupId).child("admins").child(uid).removeValue();
                     FirebaseUtils.db().getReference("userGroups").child(uid).child(groupId).removeValue();
+
+                    // GROUP E2EE: rotate our Sender Key right now instead of
+                    // waiting for the next time we open this group's chat —
+                    // this is what actually revokes the removed member's
+                    // ability to decrypt anything sent from here on (see
+                    // GroupE2EManager#rotateSenderKey).
+                    java.util.List<String> remaining = new java.util.ArrayList<>();
+                    for (GroupMemberAdapter.MemberItem mi : members) {
+                        if (!uid.equals(mi.uid)) remaining.add(mi.uid);
+                    }
+                    com.callx.app.utils.GroupE2EManager.getInstance(this)
+                            .rotateSenderKey(groupId, currentUid, remaining);
+
                     // System message
                     DatabaseReference sysRef = FirebaseUtils.getGroupMessagesRef(groupId).push();
                     Map<String, Object> sys = new HashMap<>();
