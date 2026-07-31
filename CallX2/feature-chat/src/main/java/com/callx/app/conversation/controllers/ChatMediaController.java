@@ -1178,6 +1178,10 @@ public class ChatMediaController {
                 final byte[] finalMediaKey        = mediaKey;
                 final java.io.File finalEncThumb  = encThumbFile;
                 final java.io.File finalEncFull   = encFullFile;
+                // uploadFullUri is reassigned above (plaintext vs E2E-encrypted path),
+                // so it isn't effectively final — capture a final copy for the
+                // anonymous UploadCallback below, which needs it in onSuccess/onError.
+                final Uri finalUploadFullUri      = uploadFullUri;
                 final boolean isEncrypted         = (finalMediaKey != null);
                 final String thumbFolder          = isEncrypted ? "callx/e2e_thumb" : "callx/thumb";
                 final String thumbResourceType    = isEncrypted ? "raw" : "image";
@@ -1189,13 +1193,13 @@ public class ChatMediaController {
                             }
                             @Override public void onSuccess(CloudinaryUploader.Result thumbResult) {
                                 if (finalEncThumb != null) finalEncThumb.delete();
-                                uploadFullImage(uploadFullUri, thumbResult.secureUrl, result, pending,
+                                uploadFullImage(finalUploadFullUri, thumbResult.secureUrl, result, pending,
                                         finalMediaKey, finalEncFull);
                             }
                             @Override public void onError(String err) {
                                 // Thumb upload failed — upload full image without a thumb
                                 if (finalEncThumb != null) finalEncThumb.delete();
-                                uploadFullImage(uploadFullUri, null, result, pending,
+                                uploadFullImage(finalUploadFullUri, null, result, pending,
                                         finalMediaKey, finalEncFull);
                             }
                         });
