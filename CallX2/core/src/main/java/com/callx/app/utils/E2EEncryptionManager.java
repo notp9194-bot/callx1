@@ -128,6 +128,40 @@ public class E2EEncryptionManager {
     private final ExecutorService executor;
     private final OkHttpClient http;
 
+    /**
+     * CONCURRENCY FIX (root cause of "Unable to decrypt message" appearing
+     * intermittently among otherwise-fine messages, in both the open chat
+     * screen and background/killed-state notifications):
+     *
+     * The per-messageId cache in {@link #decrypt(String, String, String)}
+     * only makes it safe for the SAME message to be decrypted from multiple
+     * call sites (ChatActivity's live listener, ChatRepository's delta
+     * sync/pagination, StarredMessagesActivity, CallxMessagingService's
+     * notification builder). It does NOT protect against those same call
+     * sites decrypting DIFFERENT messages for the same partner AT THE SAME
+     * TIME — e.g. an FCM push for message N is processed on
+     * CallxMessagingService's background thread at the exact moment
+     * ChatActivity's live Firebase listener or ChatRepository's paging
+     * executor is processing message N-1 or N+1 for the same conversation.
+     * decryptEnvelope() does a plain, unsynchronized load-session ->
+     * mutate-in-memory -> save-session round trip, so two overlapping
+     * calls for the same partnerUid interleave: whichever thread's
+     * saveSession() lands last silently overwrites the other thread's
+     * ratchet advancement, and a later message ends up decrypted against a
+     * session state that skipped or duplicated a step — surfacing as an
+     * AES-GCM auth-tag failure (-> DECRYPT_FAILED_MARKER) for a message
+     * that was perfectly fine on the wire. Every decrypt()/encrypt() for a
+     * given partner must be serialized against every other decrypt()/
+     * encrypt() for that SAME partner (different partners stay independent
+     * and can still run in parallel) — that's what this lock map gives us.
+     */
+    private final java.util.concurrent.ConcurrentHashMap<String, Object> partnerLocks =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    private Object lockFor(String partnerUid) {
+        return partnerLocks.computeIfAbsent(partnerUid, k -> new Object());
+    }
+
     public interface SetupCallback {
         void onComplete(boolean success);
     }
@@ -243,12 +277,20 @@ public class E2EEncryptionManager {
         executor.execute(() -> {
             try {
                 maybeUploadOurBundle();
-                if (hasSession(partnerUid)) {
-                    if (callback != null) callback.onComplete(true);
-                    return;
+                // Same per-partner lock as encrypt()/decrypt() — without it,
+                // this check-then-create could race with an incoming message
+                // concurrently creating a responder session for the same
+                // partner (see decryptEnvelope's acceptSessionAsResponder),
+                // and whichever saveSession() lands last would wipe out the
+                // other side's session.
+                synchronized (lockFor(partnerUid)) {
+                    if (hasSession(partnerUid)) {
+                        if (callback != null) callback.onComplete(true);
+                        return;
+                    }
+                    boolean ok = initiateSessionAsSender(partnerUid);
+                    if (callback != null) callback.onComplete(ok);
                 }
-                boolean ok = initiateSessionAsSender(partnerUid);
-                if (callback != null) callback.onComplete(ok);
             } catch (Exception e) {
                 Log.e(TAG, "ensureSession failed", e);
                 if (callback != null) callback.onComplete(false);
@@ -438,54 +480,56 @@ public class E2EEncryptionManager {
      * this on chat open).
      */
     public String encrypt(String plaintext, String partnerUid) throws Exception {
-        Session s = loadSession(partnerUid);
-        if (s == null) {
-            throw new IllegalStateException("No E2E session for " + partnerUid + " — call ensureSession() first");
+        synchronized (lockFor(partnerUid)) {
+            Session s = loadSession(partnerUid);
+            if (s == null) {
+                throw new IllegalStateException("No E2E session for " + partnerUid + " — call ensureSession() first");
+            }
+
+            if (s.sendChainKey == null) {
+                // Direction changed since our last send (or this is our first
+                // send after receiving) — perform a fresh DH ratchet step.
+                KeyPair newRatchet = genEcKeyPair();
+                byte[] dhOut = ecdh(newRatchet.getPrivate(), s.dhRemotePub);
+                byte[][] rkAndCk = kdfRootKey(s.rootKey, dhOut);
+                s.rootKey = rkAndCk[0];
+                s.sendChainKey = rkAndCk[1];
+                s.pn = s.ns;
+                s.ns = 0;
+                s.dhSelfPriv = newRatchet.getPrivate();
+                s.dhSelfPub  = newRatchet.getPublic();
+            }
+
+            byte[][] ckAndMk = kdfChainKey(s.sendChainKey);
+            s.sendChainKey = ckAndMk[0];
+            byte[] messageKey = ckAndMk[1];
+
+            int n = s.ns++;
+
+            byte[] iv = new byte[GCM_IV_LEN];
+            new SecureRandom().nextBytes(iv);
+            byte[] padded = padPlaintext(plaintext.getBytes(StandardCharsets.UTF_8));
+            byte[] ciphertext = aesGcmEncrypt(messageKey, iv, padded);
+
+            JSONObject env = new JSONObject();
+            env.put("dh", b64(s.dhSelfPub.getEncoded()));
+            env.put("n", n);
+            env.put("pn", s.pn);
+            env.put("iv", b64(iv));
+            env.put("ct", b64(ciphertext));
+            if (!s.handshakeAcked) {
+                // Still attach X3DH init material until we know the partner has
+                // decrypted at least one of our messages — self-heals if an
+                // early message is lost, at the cost of a slightly larger
+                // payload only during the handshake window.
+                env.put("ik", s.pendingIdentityPub);
+                env.put("spkId", s.pendingSpkId);
+                if (s.pendingOpkId != null) env.put("opkId", s.pendingOpkId);
+            }
+
+            saveSession(partnerUid, s);
+            return ENC_PREFIX + env.toString();
         }
-
-        if (s.sendChainKey == null) {
-            // Direction changed since our last send (or this is our first
-            // send after receiving) — perform a fresh DH ratchet step.
-            KeyPair newRatchet = genEcKeyPair();
-            byte[] dhOut = ecdh(newRatchet.getPrivate(), s.dhRemotePub);
-            byte[][] rkAndCk = kdfRootKey(s.rootKey, dhOut);
-            s.rootKey = rkAndCk[0];
-            s.sendChainKey = rkAndCk[1];
-            s.pn = s.ns;
-            s.ns = 0;
-            s.dhSelfPriv = newRatchet.getPrivate();
-            s.dhSelfPub  = newRatchet.getPublic();
-        }
-
-        byte[][] ckAndMk = kdfChainKey(s.sendChainKey);
-        s.sendChainKey = ckAndMk[0];
-        byte[] messageKey = ckAndMk[1];
-
-        int n = s.ns++;
-
-        byte[] iv = new byte[GCM_IV_LEN];
-        new SecureRandom().nextBytes(iv);
-        byte[] padded = padPlaintext(plaintext.getBytes(StandardCharsets.UTF_8));
-        byte[] ciphertext = aesGcmEncrypt(messageKey, iv, padded);
-
-        JSONObject env = new JSONObject();
-        env.put("dh", b64(s.dhSelfPub.getEncoded()));
-        env.put("n", n);
-        env.put("pn", s.pn);
-        env.put("iv", b64(iv));
-        env.put("ct", b64(ciphertext));
-        if (!s.handshakeAcked) {
-            // Still attach X3DH init material until we know the partner has
-            // decrypted at least one of our messages — self-heals if an
-            // early message is lost, at the cost of a slightly larger
-            // payload only during the handshake window.
-            env.put("ik", s.pendingIdentityPub);
-            env.put("spkId", s.pendingSpkId);
-            if (s.pendingOpkId != null) env.put("opkId", s.pendingOpkId);
-        }
-
-        saveSession(partnerUid, s);
-        return ENC_PREFIX + env.toString();
     }
 
     /**
@@ -533,17 +577,30 @@ public class E2EEncryptionManager {
     public String decrypt(String maybeEnvelope, String partnerUid, @Nullable String messageId) {
         if (!isEncrypted(maybeEnvelope)) return maybeEnvelope;
 
-        if (messageId != null) {
-            String cached = recvCachePrefs.getString("pt_" + messageId, null);
-            if (cached != null) return cached;
-        }
+        // CONCURRENCY FIX: the cache check-then-decrypt-then-cache-write
+        // sequence must be atomic per partner, not just the ratchet mutation
+        // inside decryptEnvelope(). Without this outer lock, two threads
+        // racing on the SAME messageId (e.g. the notification builder and
+        // ChatActivity's live listener both waking up for the same push)
+        // could both miss the cache before either had a chance to populate
+        // it, both fall through to decryptEnvelope(), and — even though
+        // decryptEnvelope() is itself now serialized — the second one to
+        // actually run would be decrypting an envelope whose one-time key
+        // the first one already consumed, producing DECRYPT_FAILED_MARKER
+        // for a message that in fact decrypted fine moments earlier.
+        synchronized (lockFor(partnerUid)) {
+            if (messageId != null) {
+                String cached = recvCachePrefs.getString("pt_" + messageId, null);
+                if (cached != null) return cached;
+            }
 
-        String plaintext = decryptEnvelope(maybeEnvelope, partnerUid);
+            String plaintext = decryptEnvelope(maybeEnvelope, partnerUid);
 
-        if (messageId != null && !DECRYPT_FAILED_MARKER.equals(plaintext)) {
-            cacheRecvPlaintext(messageId, plaintext);
+            if (messageId != null && !DECRYPT_FAILED_MARKER.equals(plaintext)) {
+                cacheRecvPlaintext(messageId, plaintext);
+            }
+            return plaintext;
         }
-        return plaintext;
     }
 
     private void cacheRecvPlaintext(String messageId, String plaintext) {
@@ -572,68 +629,70 @@ public class E2EEncryptionManager {
 
     /** The actual one-shot ratchet decrypt — see {@link #decrypt(String, String, String)} for why callers should go through the cached wrapper instead of calling this directly. */
     private String decryptEnvelope(String maybeEnvelope, String partnerUid) {
-        try {
-            JSONObject header = new JSONObject(maybeEnvelope.substring(ENC_PREFIX.length()));
-            Session s = loadSession(partnerUid);
+        synchronized (lockFor(partnerUid)) {
+            try {
+                JSONObject header = new JSONObject(maybeEnvelope.substring(ENC_PREFIX.length()));
+                Session s = loadSession(partnerUid);
 
-            if (s == null) {
-                if (!header.has("ik")) {
-                    Log.w(TAG, "Encrypted message with no session and no handshake data — cannot decrypt");
-                    return DECRYPT_FAILED_MARKER;
-                }
-                s = acceptSessionAsResponder(header);
-            } else if (header.has("ik") && !s.handshakeAcked) {
-                // Near-simultaneous first messages both ways — the
-                // responder-derived session is authoritative for messages
-                // carrying "ik"; keep our own outbound progress intact.
-                Session responderSide = acceptSessionAsResponder(header);
-                responderSide.sendChainKey = s.sendChainKey;
-                s = responderSide;
-            }
-
-            PublicKey msgDh = decodePub(header.getString("dh"));
-            int n  = header.getInt("n");
-            int pn = header.optInt("pn", 0);
-            String dhKeyId = header.getString("dh");
-
-            byte[] messageKey;
-            String skipKey = dhKeyId + "|" + n;
-            if (s.skippedKeys.containsKey(skipKey)) {
-                messageKey = s.skippedKeys.remove(skipKey);
-            } else {
-                if (s.dhRemotePub == null || !keyEquals(s.dhRemotePub, msgDh)) {
-                    // Sender ratcheted — drain any still-outstanding keys in
-                    // the OLD receiving chain first (messages that may still
-                    // be in flight from before the ratchet), then step.
-                    if (s.recvChainKey != null && s.dhRemotePub != null) {
-                        drainSkippedKeys(s, b64(s.dhRemotePub.getEncoded()), pn);
+                if (s == null) {
+                    if (!header.has("ik")) {
+                        Log.w(TAG, "Encrypted message with no session and no handshake data — cannot decrypt");
+                        return DECRYPT_FAILED_MARKER;
                     }
-                    byte[] dhOut = ecdh(s.dhSelfPriv, msgDh);
-                    byte[][] rkAndCk = kdfRootKey(s.rootKey, dhOut);
-                    s.rootKey = rkAndCk[0];
-                    s.recvChainKey = rkAndCk[1];
-                    s.dhRemotePub = msgDh;
-                    s.nr = 0;
-                    s.sendChainKey = null; // force our own re-ratchet on next send
+                    s = acceptSessionAsResponder(header);
+                } else if (header.has("ik") && !s.handshakeAcked) {
+                    // Near-simultaneous first messages both ways — the
+                    // responder-derived session is authoritative for messages
+                    // carrying "ik"; keep our own outbound progress intact.
+                    Session responderSide = acceptSessionAsResponder(header);
+                    responderSide.sendChainKey = s.sendChainKey;
+                    s = responderSide;
                 }
-                drainSkippedKeys(s, dhKeyId, n);
-                byte[][] ckAndMk = kdfChainKey(s.recvChainKey);
-                s.recvChainKey = ckAndMk[0];
-                messageKey = ckAndMk[1];
-                s.nr = n + 1;
+
+                PublicKey msgDh = decodePub(header.getString("dh"));
+                int n  = header.getInt("n");
+                int pn = header.optInt("pn", 0);
+                String dhKeyId = header.getString("dh");
+
+                byte[] messageKey;
+                String skipKey = dhKeyId + "|" + n;
+                if (s.skippedKeys.containsKey(skipKey)) {
+                    messageKey = s.skippedKeys.remove(skipKey);
+                } else {
+                    if (s.dhRemotePub == null || !keyEquals(s.dhRemotePub, msgDh)) {
+                        // Sender ratcheted — drain any still-outstanding keys in
+                        // the OLD receiving chain first (messages that may still
+                        // be in flight from before the ratchet), then step.
+                        if (s.recvChainKey != null && s.dhRemotePub != null) {
+                            drainSkippedKeys(s, b64(s.dhRemotePub.getEncoded()), pn);
+                        }
+                        byte[] dhOut = ecdh(s.dhSelfPriv, msgDh);
+                        byte[][] rkAndCk = kdfRootKey(s.rootKey, dhOut);
+                        s.rootKey = rkAndCk[0];
+                        s.recvChainKey = rkAndCk[1];
+                        s.dhRemotePub = msgDh;
+                        s.nr = 0;
+                        s.sendChainKey = null; // force our own re-ratchet on next send
+                    }
+                    drainSkippedKeys(s, dhKeyId, n);
+                    byte[][] ckAndMk = kdfChainKey(s.recvChainKey);
+                    s.recvChainKey = ckAndMk[0];
+                    messageKey = ckAndMk[1];
+                    s.nr = n + 1;
+                }
+
+                s.handshakeAcked = true; // any successful decrypt proves the partner has our material
+                byte[] iv = Base64.decode(header.getString("iv"), Base64.NO_WRAP);
+                byte[] ct = Base64.decode(header.getString("ct"), Base64.NO_WRAP);
+                byte[] padded = aesGcmDecrypt(messageKey, iv, ct);
+                String plaintext = new String(unpadPlaintext(padded), StandardCharsets.UTF_8);
+
+                saveSession(partnerUid, s);
+                return plaintext;
+            } catch (Exception e) {
+                Log.e(TAG, "decrypt failed for " + partnerUid, e);
+                return DECRYPT_FAILED_MARKER;
             }
-
-            s.handshakeAcked = true; // any successful decrypt proves the partner has our material
-            byte[] iv = Base64.decode(header.getString("iv"), Base64.NO_WRAP);
-            byte[] ct = Base64.decode(header.getString("ct"), Base64.NO_WRAP);
-            byte[] padded = aesGcmDecrypt(messageKey, iv, ct);
-            String plaintext = new String(unpadPlaintext(padded), StandardCharsets.UTF_8);
-
-            saveSession(partnerUid, s);
-            return plaintext;
-        } catch (Exception e) {
-            Log.e(TAG, "decrypt failed for " + partnerUid, e);
-            return DECRYPT_FAILED_MARKER;
         }
     }
 
