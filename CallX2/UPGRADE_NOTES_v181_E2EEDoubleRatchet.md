@@ -58,6 +58,21 @@ maanga gaya tha).
    ciphertext ko Room me save hone se **pehle** decrypt kar deta hai, taaki
    niche ka sab kuch (bubble render, search, translate, export) hamesha
    plaintext hi dekhe, jaisa encryption se pehle tha.
+
+   **Bugfix (isi patch me):** apna khud ka bheja hua message bhi isi listener
+   se wapas "echo" hoke aata hai (chat reopen, reconnect, delta-sync waqt) —
+   aur Firebase pe uske liye hamesha ciphertext hi pada hota hai. Pehle
+   version me ye echo Room ki plaintext row ko ciphertext se **overwrite**
+   kar deta tha — isi wajah se bhejte hi message "e2r1:{...}" jaisa raw JSON
+   dikhne lagta tha. Fix: `E2EEncryptionManager.cacheOwnPlaintext()` /
+   `takeOwnPlaintext()` — jab bhi hum khud koi encrypted message bhejte hain,
+   uska plaintext message-id ke against ek encrypted local cache me save ho
+   jaata hai; jab wahi message Firebase se echo hoke wapas aata hai, ciphertext
+   ko is cache se restore kiye gaye plaintext se replace kar diya jaata hai
+   (apna khud ka bheja hua ciphertext "decrypt" karne ki koshish nahi ki
+   jaati — wo cryptographically possible hi nahi hai, kyunki wo hamare SEND
+   chain se seal hua tha, jo reverse nahi chalti).
+
 5. **Chat-list preview** — agar message encrypt hua, to `/chats` aur `/users`
    node me jo `lastMessage` likha jaata hai wo plaintext nahi, "🔒 Message"
    hota hai — warna encryption ka koi matlab nahi rehta agar preview text

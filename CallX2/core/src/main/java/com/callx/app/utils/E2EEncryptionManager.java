@@ -108,14 +108,17 @@ public class E2EEncryptionManager {
     private static final long BUNDLE_REFRESH_MS     = TimeUnit.DAYS.toMillis(7);
     private static final int MAX_SKIPPED_KEYS_CACHED = 200;
 
-    private static final String IDENTITY_PREFS = "e2e_identity_v2";
-    private static final String SESSION_PREFS  = "e2e_sessions_v2";
+    private static final String IDENTITY_PREFS   = "e2e_identity_v2";
+    private static final String SESSION_PREFS    = "e2e_sessions_v2";
+    private static final String SENT_CACHE_PREFS = "e2e_sent_plaintext_v1";
+    private static final int MAX_CACHED_SENT_PLAINTEXT = 1000;
 
     private static volatile E2EEncryptionManager instance;
 
     private final Context context;
     private final SharedPreferences identityPrefs;
     private final SharedPreferences sessionPrefs;
+    private final SharedPreferences sentCachePrefs;
     private final ExecutorService executor;
     private final OkHttpClient http;
 
@@ -130,9 +133,11 @@ public class E2EEncryptionManager {
                 .connectTimeout(10, TimeUnit.SECONDS)
                 .readTimeout(10, TimeUnit.SECONDS)
                 .build();
-        this.identityPrefs = openEncryptedPrefs(IDENTITY_PREFS);
-        this.sessionPrefs  = openEncryptedPrefs(SESSION_PREFS);
+        this.identityPrefs  = openEncryptedPrefs(IDENTITY_PREFS);
+        this.sessionPrefs   = openEncryptedPrefs(SESSION_PREFS);
+        this.sentCachePrefs = openEncryptedPrefs(SENT_CACHE_PREFS);
         ensureIdentityAndPreKeysExist();
+
     }
 
     public static E2EEncryptionManager getInstance(Context ctx) {
@@ -598,10 +603,58 @@ public class E2EEncryptionManager {
         sessionPrefs.edit().remove("session_" + partnerUid).apply();
     }
 
+    /**
+     * Remembers the plaintext of a message WE sent, keyed by its Firebase
+     * message id. Needed because our own outgoing message inevitably echoes
+     * back down the same Firebase listener that delivers incoming messages
+     * (chat-open resync, multi-tab, reconnect, etc.) — and what's sitting on
+     * Firebase for that id is always ciphertext (that's the whole point of
+     * E2EE). We can't "decrypt" our own outgoing ciphertext back — it was
+     * encrypted with our SEND chain, which by design never runs in reverse —
+     * so instead we keep the plaintext we already know locally and restore
+     * it whenever that id comes back from Firebase. See
+     * ChatActivity#decryptIncomingIfNeeded().
+     *
+     * Persisted (survives app restart) and capped at
+     * MAX_CACHED_SENT_PLAINTEXT entries with oldest-first eviction, so this
+     * can't grow unbounded over months of chatting.
+     */
+    public void cacheOwnPlaintext(String messageId, String plaintext) {
+        if (messageId == null || plaintext == null) return;
+        SharedPreferences.Editor editor = sentCachePrefs.edit();
+        editor.putString("pt_" + messageId, plaintext);
+
+        java.util.List<String> order = loadSentCacheOrder();
+        order.remove(messageId);
+        order.add(messageId);
+        while (order.size() > MAX_CACHED_SENT_PLAINTEXT) {
+            String evictId = order.remove(0);
+            editor.remove("pt_" + evictId);
+        }
+        editor.putString("order", String.join(",", order));
+        editor.apply();
+    }
+
+    @Nullable
+    public String takeOwnPlaintext(String messageId) {
+        if (messageId == null) return null;
+        return sentCachePrefs.getString("pt_" + messageId, null);
+    }
+
+    private java.util.List<String> loadSentCacheOrder() {
+        String raw = sentCachePrefs.getString("order", "");
+        java.util.List<String> list = new java.util.ArrayList<>();
+        if (!raw.isEmpty()) {
+            for (String id : raw.split(",")) if (!id.isEmpty()) list.add(id);
+        }
+        return list;
+    }
+
     /** Wipe everything on logout. */
     public void clearAllKeys() {
         identityPrefs.edit().clear().apply();
         sessionPrefs.edit().clear().apply();
+        sentCachePrefs.edit().clear().apply();
     }
 
     // ═════════════════════════════════════════════════════════════════════

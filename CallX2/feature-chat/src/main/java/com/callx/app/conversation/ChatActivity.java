@@ -2469,12 +2469,21 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     private void decryptIncomingIfNeeded(Message m) {
         if (m == null || m.text == null) return;
         if (!com.callx.app.utils.E2EEncryptionManager.isEncrypted(m.text)) return;
-        // A message we sent ourselves can echo back down the same listener
-        // (multi-device / re-sync) — we never decrypt our own outgoing
-        // ciphertext with the ratchet (it's keyed to the partner's chain),
-        // Room already has our plaintext copy from the local-first insert,
-        // so just skip re-processing it here.
-        if (m.senderId != null && m.senderId.equals(currentUid)) return;
+
+        // A message we sent ourselves inevitably echoes back down this same
+        // Firebase listener (chat resync on reopen, reconnect, etc.) — and
+        // what's stored on Firebase for it is ALWAYS ciphertext, by design.
+        // We can't decrypt our own outgoing ciphertext in reverse (it was
+        // sealed with our send chain, not something this device can run
+        // backwards) — instead we restore the plaintext we cached at send
+        // time. See ChatActivity#doSendTextMessage() / cacheOwnPlaintext().
+        if (m.senderId != null && m.senderId.equals(currentUid)) {
+            String cached = com.callx.app.utils.E2EEncryptionManager.getInstance(this)
+                    .takeOwnPlaintext(m.id);
+            m.text = (cached != null) ? cached : "🔒 Sent message";
+            return;
+        }
+
         m.text = com.callx.app.utils.E2EEncryptionManager.getInstance(this)
                 .decrypt(m.text, partnerUid);
     }
@@ -3291,6 +3300,20 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         String preview = (m.e2eWireText != null) ? "🔒 Message" : text;
 
         pushMessage(m, preview);
+
+        // E2EE: ChatMessageSender.pushMessage() sets m.id synchronously
+        // before this call returns. Cache the plaintext now, keyed by that
+        // id — our own message WILL echo back down the Firebase listener
+        // (chat resync, reconnect, reopening the chat later, etc.) as
+        // ciphertext, and we restore this cached plaintext instead of
+        // trying to decrypt it (see ChatActivity#decryptIncomingIfNeeded —
+        // our own outgoing ciphertext can't be decrypted in reverse, only
+        // the original sender-side plaintext we already know works).
+        if (m.e2eWireText != null && m.id != null) {
+            com.callx.app.utils.E2EEncryptionManager.getInstance(this)
+                    .cacheOwnPlaintext(m.id, text);
+        }
+
         clearReply();
         if (composeLinkPreview != null) composeLinkPreview.reset();
     }
