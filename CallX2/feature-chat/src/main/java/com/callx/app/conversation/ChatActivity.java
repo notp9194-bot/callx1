@@ -2449,6 +2449,18 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 Message m = snapshot.getValue(Message.class);
                 if (m == null) return;
                 m.id = snapshot.getKey();
+                // E2EE FIX: this listener fires on ANY field change within the
+                // status-sync window — including pure tick updates (sent ->
+                // delivered -> read) on messages that were already decrypted
+                // and shown as plaintext. snapshot.getValue() always reflects
+                // what's stored on Firebase, which for an E2E message is
+                // ALWAYS ciphertext ("e2r1:{...}") — text itself never
+                // changes, only status/deliveredAt/readAt do. Without
+                // decrypting here, saveToRoom()'s REPLACE overwrote the
+                // already-decrypted plaintext row with raw ciphertext on
+                // every single tick update, which is exactly what showed up
+                // as raw "e2r1:" JSON in the chat bubbles.
+                decryptIncomingIfNeeded(m);
                 saveToRoom(m, true);
             }
             @Override public void onChildRemoved(DataSnapshot snapshot) {}
