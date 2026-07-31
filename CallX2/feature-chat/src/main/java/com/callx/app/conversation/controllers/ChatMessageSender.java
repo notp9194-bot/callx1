@@ -103,6 +103,15 @@ public class ChatMessageSender {
 
     /** Push to Firebase and update Room status to "sent". */
     public void firebasePushMessage(Message m, String key, String previewText) {
+        // E2EE: if ChatActivity attached an encrypted wire copy, send THAT
+        // to Firebase instead of the plaintext — but only for the instant
+        // of this write. m.text is restored to plaintext immediately after
+        // so nothing downstream (Room, LastMessagesCache, our own bubble
+        // re-render on a later listener callback) ever sees ciphertext.
+        String plainTextBackup = m.text;
+        boolean sentEncrypted = m.e2eWireText != null;
+        if (sentEncrypted) m.text = m.e2eWireText;
+
         delegate.getMessagesRef().child(key).setValue(m)
                 .addOnSuccessListener(unused -> {
                     // TICK ADVANCE #3: drop a small index entry the backend
@@ -126,6 +135,12 @@ public class ChatMessageSender {
                 .addOnFailureListener(e -> {
                     // Firebase rejected — stays pending, retry on reconnect
                 });
+
+        // setValue() above serializes m's fields synchronously at call time
+        // (Firebase snapshots the object before returning), so it's safe to
+        // restore plaintext immediately here — nothing after this point
+        // should ever read m.text as ciphertext.
+        if (sentEncrypted) m.text = plainTextBackup;
 
         long ts = m.timestamp;
         String currentUid = delegate.getCurrentUid();

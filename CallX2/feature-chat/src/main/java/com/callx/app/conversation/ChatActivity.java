@@ -467,6 +467,20 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             finish(); return;
         }
 
+        // E2EE: kick off the X3DH handshake / resume the Double Ratchet
+        // session for this partner in the background as soon as we know who
+        // we're chatting with. Cheap no-op if a session already exists —
+        // see E2EEncryptionManager#ensureSession(). doSendTextMessage() and
+        // the Firebase message listener both call encrypt()/decrypt() which
+        // rely on this having run at least once.
+        com.callx.app.utils.E2EEncryptionManager.getInstance(this)
+                .ensureSession(currentUid, partnerUid, success -> {
+                    if (!success) {
+                        android.util.Log.w(TAG, "E2E: session setup with " + partnerUid
+                                + " did not complete yet — will retry on next send/receive");
+                    }
+                });
+
         // ─────────────────────────────────────────────────────────────────────
         // PERF FIX v8: "Parallel init" — UI aur Firebase listener DB ke
         // ready hone ka intezaar nahi karte.
@@ -2357,6 +2371,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 Message m = snapshot.getValue(Message.class);
                 if (m == null) return;
                 m.id = snapshot.getKey();
+                decryptIncomingIfNeeded(m);
                 saveToRoom(m, false);
                 // PERF FIX v25: no longer fires MessageStatusSync.upgradeStatus()
                 // (an individual Firebase runTransaction() + synchronous
@@ -2381,6 +2396,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 Message m = snapshot.getValue(Message.class);
                 if (m == null) return;
                 m.id = snapshot.getKey();
+                decryptIncomingIfNeeded(m);
                 saveToRoom(m, true);
             }
             @Override public void onChildRemoved(DataSnapshot snapshot) {
@@ -2440,6 +2456,27 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             @Override public void onCancelled(DatabaseError error) {}
         };
         statusQuery.addChildEventListener(statusSyncListener);
+    }
+
+    /**
+     * E2EE: decrypts m.text in place if it's one of our ratchet envelopes.
+     * Called right after a Message comes off the Firebase listener, before
+     * it ever reaches Room or the adapter — so everything downstream
+     * (bubble rendering, chat search, export, translation, etc.) only ever
+     * sees plaintext, exactly like it did before encryption existed.
+     * No-op for non-text messages and for plaintext (older/non-E2E) text.
+     */
+    private void decryptIncomingIfNeeded(Message m) {
+        if (m == null || m.text == null) return;
+        if (!com.callx.app.utils.E2EEncryptionManager.isEncrypted(m.text)) return;
+        // A message we sent ourselves can echo back down the same listener
+        // (multi-device / re-sync) — we never decrypt our own outgoing
+        // ciphertext with the ratchet (it's keyed to the partner's chain),
+        // Room already has our plaintext copy from the local-first insert,
+        // so just skip re-processing it here.
+        if (m.senderId != null && m.senderId.equals(currentUid)) return;
+        m.text = com.callx.app.utils.E2EEncryptionManager.getInstance(this)
+                .decrypt(m.text, partnerUid);
     }
 
     private void saveToRoom(Message m, boolean isUpdate) {
@@ -3228,8 +3265,32 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         Message m = buildOutgoing();
         m.type = "text";
         m.fontStyle = 0;
-        m.text = text;
-        pushMessage(m, text);
+        m.text = text; // plaintext — used for our own bubble + local Room storage
+
+        // E2EE: encrypt a WIRE-ONLY copy with the Double Ratchet session for
+        // this partner. We deliberately do NOT overwrite m.text here — Room
+        // and our own bubble must keep the plaintext (see buildOutgoing()
+        // call chain: messageToEntity() captures m.text into the local DB
+        // entity before any network round trip happens). Only
+        // ChatMessageSender#firebasePushMessage swaps m.text -> m.e2eWireText
+        // for the instant it actually writes to Firebase, then restores it.
+        // If encryption fails (session not ready yet, partner never
+        // published keys, etc.) e2eWireText stays null and the message goes
+        // out as plaintext rather than being silently dropped.
+        try {
+            m.e2eWireText = com.callx.app.utils.E2EEncryptionManager.getInstance(this)
+                    .encrypt(text, partnerUid);
+        } catch (Exception e) {
+            android.util.Log.w(TAG, "E2E: encrypt failed, sending plaintext for this message: " + e.getMessage());
+        }
+
+        // Chat-list "lastMessage" preview must never carry plaintext for an
+        // encrypted conversation — ChatMessageSender#firebasePushMessage
+        // writes `previewText` straight into /chats and /users nodes that
+        // Firebase (and anyone with DB access) can read directly.
+        String preview = (m.e2eWireText != null) ? "🔒 Message" : text;
+
+        pushMessage(m, preview);
         clearReply();
         if (composeLinkPreview != null) composeLinkPreview.reset();
     }

@@ -2249,8 +2249,17 @@ public class MessagePagingAdapter
                 Object loadSrc = useLocalSent ? android.net.Uri.parse(m.mediaLocalPath)
                         : (cachedFile != null ? cachedFile : fullUrl);
                 if (loadSrc != null) {
-                    // PERF #1: check in-memory Bitmap pool before firing a Glide decode
-                    final String poolKey = fullUrl != null ? fullUrl : "";
+                    // PERF #1: check in-memory Bitmap pool before firing a Glide decode.
+                    // BUG FIX: this used to always key the pool by fullUrl, even when
+                    // useLocalSent was true — so a SENT bubble whose original file is
+                    // still on the phone could get served a stale bitmap that some
+                    // earlier bind had decoded from the (possibly compressed) remote
+                    // URL, silently breaking the "local-first, full quality, as long
+                    // as it's on the device" guarantee above. Local-first renders now
+                    // get their own pool key (the local path) so they never collide
+                    // with — or get shadowed by — remote-keyed pool entries.
+                    final String poolKey = useLocalSent ? m.mediaLocalPath
+                            : (fullUrl != null ? fullUrl : "");
                     android.graphics.Bitmap poolHit = poolKey.isEmpty() ? null
                             : DECODED_BITMAP_CACHE.get(poolKey);
                     if (poolHit != null && !poolHit.isRecycled()) {
@@ -2280,7 +2289,10 @@ public class MessagePagingAdapter
                                         com.callx.app.conversation.canvas.MessageBubbleCanvasView
                                                 .cacheAspectRatio(fullUrl, (float) resource.getWidth() / resource.getHeight());
                                     }
-                                    // PERF #1: store decoded bitmap in pool for scroll-back reuse
+                                    // PERF #1: store decoded bitmap in pool for scroll-back reuse —
+                                    // under the same source-aware key it was looked up with above,
+                                    // so a local-first decode never gets stored under (and later
+                                    // handed out for) the plain remote-URL key.
                                     if (!poolKey.isEmpty()) DECODED_BITMAP_CACHE.put(poolKey, resource);
                                     if (h.canvasBindToken != myToken) return; // holder recycled/rebound since this load started
                                     cv.setMediaBitmap(resource);
@@ -3276,11 +3288,22 @@ public class MessagePagingAdapter
                     String fullUrl = m.mediaUrl != null ? m.mediaUrl : m.text;
                     showImageActionSheet(ctx, m, fullUrl, fullUrl);
                 } else if (isVideo) {
-                    // WhatsApp-style video tap:
-                    //   Sender / already-cached → open player immediately.
-                    //   Receiver + not yet cached → start download via
-                    //   MediaDownloadQueue, show progress on the gate, then
-                    //   open the player from the local file when done.
+                    // WhatsApp-style video tap, now mirroring the single-image
+                    // flow exactly:
+                    //   Sender / already-cached → open the same action sheet
+                    //   an image tap opens (Play/Edit/Save/Share/Forward/
+                    //   Star/Delete) instead of jumping straight into the
+                    //   player — a video bubble used to have none of those
+                    //   options reachable except via the long-press sheet
+                    //   (which has no View/Edit/Save at all).
+                    //   Receiver + not yet cached → this branch isn't even
+                    //   reached (the bubble is showing the download gate —
+                    //   see bindVideo's WhatsApp-style gate — so the tap
+                    //   goes to onMediaDownloadClick instead); the fallback
+                    //   download-then-open path below only covers the rare
+                    //   edge case where this fires before the gate state
+                    //   settles, and now opens the sheet too once ready
+                    //   rather than force-launching the player.
                     final String vUrl2 = m.mediaUrl != null ? m.mediaUrl : m.text;
                     if (vUrl2 == null || vUrl2.isEmpty()) return;
 
@@ -3293,19 +3316,11 @@ public class MessagePagingAdapter
                             : com.callx.app.utils.MediaCache.getCached(ctx, vUrl2);
 
                     if (sent || vHasLocal || vCachedFile != null) {
-                        // Already on device — open player directly.
-                        android.content.Intent i = new android.content.Intent().setClassName(
-                                ctx.getPackageName(), "com.callx.app.activities.MediaViewerActivity");
-                        i.putExtra("url", vUrl2);
-                        i.putExtra("type", "video");
-                        if (vHasLocal) {
-                            i.putExtra("localPath", m.mediaLocalPath);
-                        } else if (vCachedFile != null) {
-                            i.putExtra("localPath", vCachedFile.getAbsolutePath());
-                        }
-                        i.putExtra("chatId", chatId);
-                        i.putExtra("messageId", m.messageId != null ? m.messageId : m.id);
-                        ctx.startActivity(i);
+                        // Already on device — same advanced-action sheet a
+                        // single-image bubble gets.
+                        String vLocalPath = vHasLocal ? m.mediaLocalPath
+                                : (vCachedFile != null ? vCachedFile.getAbsolutePath() : null);
+                        showMediaActionSheet(ctx, m, vUrl2, vUrl2, "video", vLocalPath);
                     } else if (downloadingMediaUrls.contains(vUrl2)) {
                         // Already downloading — the gate shows progress; nothing to do.
                     } else {
@@ -3516,22 +3531,15 @@ public class MessagePagingAdapter
                 String thumbUrl = thumbObj instanceof String ? (String) thumbObj : "";
                 String mediaType = mtObj instanceof String ? (String) mtObj : "image";
                 if (url.isEmpty()) return;
+                // Audio/file cells have their own dedicated tap handling
+                // elsewhere (no image/video viewer applies to them) — this
+                // sheet is only for image/video cells, same restriction the
+                // single-media bubble already has.
+                if ("audio".equals(mediaType) || "file".equals(mediaType)) return;
                 try {
-                    String groupMsgId = (m.id != null && !m.id.isEmpty()) ? m.id : m.messageId;
-                    android.content.Intent intent = new android.content.Intent();
-                    intent.setClassName(ctx, "com.callx.app.activities.MediaViewerActivity");
-                    intent.putExtra("mediaItemsJson",
-                            com.callx.app.utils.MediaItemsJsonUtil.mediaItemsToJson(m.mediaItems));
-                    intent.putExtra("startIndex", index);
-                    intent.putExtra("url", url);
-                    intent.putExtra("type", mediaType);
-                    intent.putExtra("thumbUrl", !thumbUrl.isEmpty() ? thumbUrl : url);
-                    if (chatId != null && groupMsgId != null) {
-                        intent.putExtra("chatId", chatId);
-                        intent.putExtra("messageId", groupMsgId);
-                    }
-                    intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
-                    ctx.startActivity(intent);
+                    String mediaItemsJson = com.callx.app.utils.MediaItemsJsonUtil.mediaItemsToJson(m.mediaItems);
+                    showMediaActionSheet(ctx, m, url, !thumbUrl.isEmpty() ? thumbUrl : url,
+                            mediaType, null, mediaItemsJson, index);
                 } catch (Exception ignored) {}
             }
 
@@ -5513,6 +5521,67 @@ public class MessagePagingAdapter
     // ──────────────────────────────────────────────────────────────
     // ── WhatsApp-style image action bottom sheet ──────────────────
     private void showImageActionSheet(Context ctx, Message m, String fullUrl, String thumbForViewer) {
+        showMediaActionSheet(ctx, m, fullUrl, thumbForViewer, "image", null);
+    }
+
+    /**
+     * WhatsApp-style media action sheet — View / Edit / Save / Share / Forward /
+     * Star / Delete. Originally image-only (see showImageActionSheet above,
+     * kept as a thin "image" wrapper for the legacy call site); now shared
+     * with single-video bubbles too so a 1:1 video tap gets the exact same
+     * advanced-action menu a 1:1 image tap has always had, instead of just
+     * jumping straight into the player with no other options reachable
+     * except the long-press sheet (Reply/Copy/Star/Pin/Forward/Delete, no
+     * View/Edit/Save there).
+     *
+     * @param mediaType   "image" or "video" — drives the MediaViewerActivity
+     *                    "type" extra, MediaSaveHelper's save-as target
+     *                    (Pictures/CallX vs Movies/CallX, correct MIME type),
+     *                    and whether autoEdit routes into an image or video
+     *                    edit session. MediaEditActivity already fully
+     *                    supports video (see MediaViewerActivity's Edit
+     *                    handler), so Edit stays available for both types —
+     *                    no feature gap to work around there.
+     * @param localPathHint local on-device path/URI for the media, if
+     *                    already known by the caller (sender's own file, or
+     *                    an already-downloaded receiver copy) — passed
+     *                    straight through as MediaViewerActivity's
+     *                    "localPath" extra for the "View" action so it opens
+     *                    from disk at full quality instead of re-fetching
+     *                    the remote URL. Falls back to m.mediaLocalPath when
+     *                    null, same as the original image-only behavior.
+     */
+    private void showMediaActionSheet(Context ctx, Message m, String fullUrl, String thumbForViewer,
+                                       String mediaType, @Nullable String localPathHint) {
+        showMediaActionSheet(ctx, m, fullUrl, thumbForViewer, mediaType, localPathHint, null, -1);
+    }
+
+    /**
+     * Group-aware overload — same sheet, same seven actions, used for a tap
+     * on one cell inside a multi-media grid (bindMediaGroup) so grouped
+     * photos/videos get the exact same View/Play·Edit·Save·Share·Forward·
+     * Star·Delete menu a single image/video bubble already has, instead of
+     * jumping straight into the swipeable gallery with no shortcut menu at
+     * all (the gallery's own toolbar has equivalent buttons once you're
+     * inside it — see MediaViewerActivity's btnEdit/btnShare/btnSave/
+     * btnMoreOptions/select-mode row — but there was no entry point to any
+     * of that without first swiping to the right item and hunting the
+     * overflow menu).
+     *
+     * @param mediaItemsJson pre-serialized {@link com.callx.app.utils.MediaItemsJsonUtil}
+     *                       payload for the whole group, or null for a
+     *                       non-grouped single image/video. When present,
+     *                       "View"/"Play" opens the full swipeable gallery
+     *                       (same as the old direct-tap behavior) instead of
+     *                       a single-item viewer, starting at startIndex —
+     *                       Edit/Save/Share still act on just this one cell.
+     * @param startIndex     index of the tapped cell within mediaItemsJson;
+     *                       ignored when mediaItemsJson is null.
+     */
+    private void showMediaActionSheet(Context ctx, Message m, String fullUrl, String thumbForViewer,
+                                       String mediaType, @Nullable String localPathHint,
+                                       @Nullable String mediaItemsJson, int startIndex) {
+        final boolean isVideoSheet = "video".equals(mediaType);
         com.google.android.material.bottomsheet.BottomSheetDialog bsd =
                 new com.google.android.material.bottomsheet.BottomSheetDialog(ctx);
 
@@ -5549,7 +5618,8 @@ public class MessagePagingAdapter
         // entry point into MediaViewerActivity for them). Grouped-media taps
         // already passed chatId/messageId correctly — only this single-media
         // sheet was missing it.
-        String[] labels  = {"🖼  View", "✏️  Edit", "💾  Save", "↗  Share", "↪  Forward", "⭐  Star", "🗑  Delete"};
+        String viewLabel = isVideoSheet ? "▶  Play" : "🖼  View";
+        String[] labels  = {viewLabel, "✏️  Edit", "💾  Save", "↗  Share", "↪  Forward", "⭐  Star", "🗑  Delete"};
         int[]    colors  = {0xFFFFFFFF,  0xFFFFFFFF,  0xFFFFFFFF,  0xFFFFFFFF,  0xFFFFFFFF,  0xFFFFFFFF,  0xFFFF5252 };
 
         boolean isOwnMsg = currentUid != null && currentUid.equals(m.senderId);
@@ -5568,22 +5638,41 @@ public class MessagePagingAdapter
             tv.setBackground(getRippleDrawable(ctx));
 
             final String label = labels[idx];
+            final String action = (idx == 0) ? "VIEW"
+                    : label.contains("Edit") ? "EDIT"
+                    : label.contains("Save") ? "SAVE"
+                    : label.contains("Share") ? "SHARE"
+                    : label.contains("Forward") ? "FORWARD"
+                    : label.contains("Star") ? "STAR"
+                    : "DELETE";
             tv.setOnClickListener(v -> {
                 bsd.dismiss();
-                switch (label) {
-                    case "🖼  View": {
+                switch (action) {
+                    case "VIEW": {
                         android.content.Intent i = new android.content.Intent()
                                 .setClassName(ctx.getPackageName(),
                                         "com.callx.app.activities.MediaViewerActivity");
                         i.putExtra("url",      fullUrl);
                         i.putExtra("thumbUrl", thumbForViewer);
-                        i.putExtra("type",     "image");
+                        i.putExtra("type",     mediaType);
+                        // Grouped-media tap: reopen as the full swipeable
+                        // gallery at this cell's index, same as the old
+                        // direct-tap behavior — Edit/Save/Share below still
+                        // scope to just this one cell's fullUrl though.
+                        if (mediaItemsJson != null) {
+                            i.putExtra("mediaItemsJson", mediaItemsJson);
+                            i.putExtra("startIndex", startIndex);
+                        }
                         // WhatsApp-style local-first: hand the original local
                         // file/content Uri to the viewer too — it'll render
                         // from this (full quality) as long as it still exists
                         // on the device, falling back to `url` otherwise.
-                        if (m.mediaLocalPath != null && !m.mediaLocalPath.isEmpty()) {
-                            i.putExtra("localPath", m.mediaLocalPath);
+                        // Prefer the caller-supplied hint (e.g. a receiver's
+                        // already-downloaded video cache path) over the raw
+                        // message field, but fall back to it either way.
+                        String localPath = localPathHint != null ? localPathHint : m.mediaLocalPath;
+                        if (localPath != null && !localPath.isEmpty()) {
+                            i.putExtra("localPath", localPath);
                         }
                         // FIX: chatId/messageId weren't passed before, so
                         // MediaViewerActivity's own Edit pencil couldn't work
@@ -5595,17 +5684,25 @@ public class MessagePagingAdapter
                         ctx.startActivity(i);
                         break;
                     }
-                    case "✏️  Edit": {
+                    case "EDIT": {
                         // WhatsApp-style: go straight into the full-screen
                         // editor instead of making the user View first, then
-                        // tap Edit again inside the viewer.
+                        // tap Edit again inside the viewer. MediaEditActivity
+                        // fully supports video (MediaViewerActivity's own
+                        // Edit handler already relies on this), so this path
+                        // is identical for image and video — only the
+                        // "type" extra changes.
                         android.content.Intent ei = new android.content.Intent()
                                 .setClassName(ctx.getPackageName(),
                                         "com.callx.app.activities.MediaViewerActivity");
                         ei.putExtra("url",      fullUrl);
                         ei.putExtra("thumbUrl", thumbForViewer);
-                        ei.putExtra("type",     "image");
+                        ei.putExtra("type",     mediaType);
                         ei.putExtra("autoEdit", true);
+                        String editLocalPath = localPathHint != null ? localPathHint : m.mediaLocalPath;
+                        if (editLocalPath != null && !editLocalPath.isEmpty()) {
+                            ei.putExtra("localPath", editLocalPath);
+                        }
                         if (chatId != null && sheetMessageId != null) {
                             ei.putExtra("chatId",    chatId);
                             ei.putExtra("messageId", sheetMessageId);
@@ -5616,19 +5713,20 @@ public class MessagePagingAdapter
                         ctx.startActivity(ei);
                         break;
                     }
-                    case "💾  Save": {
+                    case "SAVE": {
                         // WhatsApp-style: save to gallery.
                         // If already cached → save immediately.
                         // If not cached → download first, then save.
                         final android.content.Context appCtx = ctx.getApplicationContext();
                         java.io.File alreadyCached = com.callx.app.utils.MediaCache.getCached(appCtx, fullUrl);
+                        String savedMsg = isVideoSheet ? "Saved video to gallery" : "Saved to gallery";
                         if (alreadyCached != null) {
                             com.callx.app.utils.MediaSaveHelper.save(
-                                    appCtx, alreadyCached, "image", fullUrl,
+                                    appCtx, alreadyCached, mediaType, fullUrl,
                                     new com.callx.app.utils.MediaSaveHelper.Callback() {
                                 @Override public void onSaved(android.net.Uri uri) {
                                     android.widget.Toast.makeText(appCtx,
-                                            "Saved to gallery", android.widget.Toast.LENGTH_SHORT).show();
+                                            savedMsg, android.widget.Toast.LENGTH_SHORT).show();
                                 }
                                 @Override public void onError(String reason) {
                                     android.widget.Toast.makeText(appCtx,
@@ -5643,11 +5741,11 @@ public class MessagePagingAdapter
                                 @Override public void onProgress(int percent) {}
                                 @Override public void onReady(java.io.File file) {
                                     com.callx.app.utils.MediaSaveHelper.save(
-                                            appCtx, file, "image", fullUrl,
+                                            appCtx, file, mediaType, fullUrl,
                                             new com.callx.app.utils.MediaSaveHelper.Callback() {
                                         @Override public void onSaved(android.net.Uri uri) {
                                             android.widget.Toast.makeText(appCtx,
-                                                    "Saved to gallery", android.widget.Toast.LENGTH_SHORT).show();
+                                                    savedMsg, android.widget.Toast.LENGTH_SHORT).show();
                                         }
                                         @Override public void onError(String reason) {
                                             android.widget.Toast.makeText(appCtx,
@@ -5663,20 +5761,20 @@ public class MessagePagingAdapter
                         }
                         break;
                     }
-                    case "↗  Share":
+                    case "SHARE":
                         android.content.Intent share = new android.content.Intent(
                                 android.content.Intent.ACTION_SEND);
                         share.setType("text/plain");
                         share.putExtra(android.content.Intent.EXTRA_TEXT, fullUrl);
                         ctx.startActivity(android.content.Intent.createChooser(share, "Share via"));
                         break;
-                    case "↪  Forward":
+                    case "FORWARD":
                         if (actionListener != null) actionListener.onForward(m);
                         break;
-                    case "⭐  Star":
+                    case "STAR":
                         if (actionListener != null) actionListener.onStar(m);
                         break;
-                    case "🗑  Delete":
+                    case "DELETE":
                         if (actionListener != null) actionListener.onDelete(m);
                         break;
                 }

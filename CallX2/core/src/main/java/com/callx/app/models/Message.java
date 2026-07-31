@@ -190,6 +190,19 @@ public class Message {
      */
     public Long expiresAt;
 
+    // ── E2E Encryption (1:1 text only) ─────────────────────────────────────
+    /**
+     * Set by ChatActivity#doSendTextMessage() when E2EEncryptionManager
+     * successfully encrypts the outgoing text. NOT serialized to Firebase
+     * (@Exclude) — ChatMessageSender#firebasePushMessage() swaps this in for
+     * {@link #text} for the duration of the actual network write, then
+     * restores {@link #text} to plaintext so local Room storage / our own
+     * bubble are never affected. Null when this message isn't (or couldn't
+     * be) encrypted, in which case {@link #text} is sent as-is.
+     */
+    @Exclude
+    public transient String e2eWireText;
+
     // ── Feature: Typing Font Style ────────────────────────────────────────
     /**
      * Font style ID used when this message was typed.
