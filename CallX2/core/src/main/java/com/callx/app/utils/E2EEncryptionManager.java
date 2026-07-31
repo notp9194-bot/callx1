@@ -100,6 +100,9 @@ public class E2EEncryptionManager {
 
     private static final String ENC_PREFIX = "e2r1:";
 
+    /** Returned by {@link #decrypt} when an envelope can't be decrypted. Public so callers can detect it reliably instead of matching a literal string. */
+    public static final String DECRYPT_FAILED_MARKER = "🔒 Unable to decrypt message";
+
     private static final int GCM_IV_LEN  = 12;
     private static final int GCM_TAG_LEN = 128; // bits
     private static final int PAD_BUCKET  = 32;  // pad plaintext to a multiple of this many bytes
@@ -112,6 +115,8 @@ public class E2EEncryptionManager {
     private static final String SESSION_PREFS    = "e2e_sessions_v2";
     private static final String SENT_CACHE_PREFS = "e2e_sent_plaintext_v1";
     private static final int MAX_CACHED_SENT_PLAINTEXT = 1000;
+    private static final String RECV_CACHE_PREFS = "e2e_recv_plaintext_v1";
+    private static final int MAX_CACHED_RECV_PLAINTEXT = 1000;
 
     private static volatile E2EEncryptionManager instance;
 
@@ -119,6 +124,7 @@ public class E2EEncryptionManager {
     private final SharedPreferences identityPrefs;
     private final SharedPreferences sessionPrefs;
     private final SharedPreferences sentCachePrefs;
+    private final SharedPreferences recvCachePrefs;
     private final ExecutorService executor;
     private final OkHttpClient http;
 
@@ -136,6 +142,7 @@ public class E2EEncryptionManager {
         this.identityPrefs  = openEncryptedPrefs(IDENTITY_PREFS);
         this.sessionPrefs   = openEncryptedPrefs(SESSION_PREFS);
         this.sentCachePrefs = openEncryptedPrefs(SENT_CACHE_PREFS);
+        this.recvCachePrefs = openEncryptedPrefs(RECV_CACHE_PREFS);
         ensureIdentityAndPreKeysExist();
 
     }
@@ -482,13 +489,89 @@ public class E2EEncryptionManager {
     }
 
     /**
-     * Decrypts an incoming envelope from {@code partnerUid}. If the text
-     * isn't one of our envelopes (older client, or plaintext), it's returned
-     * unchanged so decryption failures never corrupt the chat — worst case
-     * is the raw string shown, not a crash.
+     * Decrypts an incoming envelope from {@code partnerUid}. Legacy 2-arg
+     * form — prefer {@link #decrypt(String, String, String)} which is safe
+     * to call from multiple places for the same message (ChatActivity's
+     * live listener, ChatRepository's delta sync, StarredMessagesActivity,
+     * CallxMessagingService's notification build — all four independently
+     * see the same Firebase message). This form has NO messageId to cache
+     * against, so it always runs the ratchet — call it at most once per
+     * envelope or it will fail on the second call (see class doc on
+     * per-message forward secrecy: each message key is derived once, used,
+     * then discarded).
      */
     public String decrypt(String maybeEnvelope, String partnerUid) {
+        return decrypt(maybeEnvelope, partnerUid, null);
+    }
+
+    /**
+     * Decrypts an incoming envelope from {@code partnerUid}, keyed by
+     * {@code messageId} so the SAME message can safely be "decrypted" any
+     * number of times from ANY of the call sites in the app (notification
+     * build on FCM receipt, ChatActivity's live Firebase listener,
+     * ChatRepository's delta-sync/pagination path, StarredMessagesActivity)
+     * without ever touching the ratchet more than once.
+     *
+     * Why this matters: the Double Ratchet derives a message's decryption
+     * key ONCE and discards it immediately after use (that's what gives
+     * per-message forward secrecy). A naive decrypt() that re-parses the
+     * ratchet state on every call works the FIRST time it's invoked for a
+     * given message and silently produces garbage / auth-tag failure
+     * (-> "Unable to decrypt message") on every subsequent call for that
+     * same message — regardless of which part of the app happens to call
+     * it first. With four+ independent call sites all capable of seeing
+     * the same Firebase message, that collision is common, not an edge
+     * case. This persisted, capped cache makes decrypt() idempotent: the
+     * ratchet is only ever advanced once per messageId, and every
+     * subsequent caller (including a cold app restart) gets back the same
+     * plaintext for free.
+     *
+     * If the text isn't one of our envelopes (older client, or plaintext),
+     * it's returned unchanged so decryption failures never corrupt the
+     * chat — worst case is the raw string shown, not a crash.
+     */
+    public String decrypt(String maybeEnvelope, String partnerUid, @Nullable String messageId) {
         if (!isEncrypted(maybeEnvelope)) return maybeEnvelope;
+
+        if (messageId != null) {
+            String cached = recvCachePrefs.getString("pt_" + messageId, null);
+            if (cached != null) return cached;
+        }
+
+        String plaintext = decryptEnvelope(maybeEnvelope, partnerUid);
+
+        if (messageId != null && !DECRYPT_FAILED_MARKER.equals(plaintext)) {
+            cacheRecvPlaintext(messageId, plaintext);
+        }
+        return plaintext;
+    }
+
+    private void cacheRecvPlaintext(String messageId, String plaintext) {
+        SharedPreferences.Editor editor = recvCachePrefs.edit();
+        editor.putString("pt_" + messageId, plaintext);
+
+        java.util.List<String> order = loadRecvCacheOrder();
+        order.remove(messageId);
+        order.add(messageId);
+        while (order.size() > MAX_CACHED_RECV_PLAINTEXT) {
+            String evictId = order.remove(0);
+            editor.remove("pt_" + evictId);
+        }
+        editor.putString("order", String.join(",", order));
+        editor.apply();
+    }
+
+    private java.util.List<String> loadRecvCacheOrder() {
+        String raw = recvCachePrefs.getString("order", "");
+        java.util.List<String> list = new java.util.ArrayList<>();
+        if (!raw.isEmpty()) {
+            for (String id : raw.split(",")) if (!id.isEmpty()) list.add(id);
+        }
+        return list;
+    }
+
+    /** The actual one-shot ratchet decrypt — see {@link #decrypt(String, String, String)} for why callers should go through the cached wrapper instead of calling this directly. */
+    private String decryptEnvelope(String maybeEnvelope, String partnerUid) {
         try {
             JSONObject header = new JSONObject(maybeEnvelope.substring(ENC_PREFIX.length()));
             Session s = loadSession(partnerUid);
@@ -496,7 +579,7 @@ public class E2EEncryptionManager {
             if (s == null) {
                 if (!header.has("ik")) {
                     Log.w(TAG, "Encrypted message with no session and no handshake data — cannot decrypt");
-                    return "🔒 Unable to decrypt message";
+                    return DECRYPT_FAILED_MARKER;
                 }
                 s = acceptSessionAsResponder(header);
             } else if (header.has("ik") && !s.handshakeAcked) {
@@ -550,7 +633,7 @@ public class E2EEncryptionManager {
             return plaintext;
         } catch (Exception e) {
             Log.e(TAG, "decrypt failed for " + partnerUid, e);
-            return "🔒 Unable to decrypt message";
+            return DECRYPT_FAILED_MARKER;
         }
     }
 
@@ -655,6 +738,7 @@ public class E2EEncryptionManager {
         identityPrefs.edit().clear().apply();
         sessionPrefs.edit().clear().apply();
         sentCachePrefs.edit().clear().apply();
+        recvCachePrefs.edit().clear().apply();
     }
 
     // ═════════════════════════════════════════════════════════════════════

@@ -2496,8 +2496,17 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             return;
         }
 
+        // E2EE FIX: pass m.id so E2EEncryptionManager's persisted per-message
+        // cache makes this idempotent — necessary because this same message
+        // can also be decrypted by CallxMessagingService (notification build
+        // on FCM receipt, possibly while this Activity isn't even running)
+        // and by ChatRepository's delta-sync path. Whichever of those runs
+        // first "wins" the one-time ratchet key; everyone else — including
+        // repeated calls from this same listener on later status-tick
+        // updates — gets the cached plaintext back instead of re-touching
+        // the ratchet (which would fail; see E2EEncryptionManager#decrypt).
         m.text = com.callx.app.utils.E2EEncryptionManager.getInstance(this)
-                .decrypt(m.text, partnerUid);
+                .decrypt(m.text, partnerUid, m.id);
     }
 
     private void saveToRoom(Message m, boolean isUpdate) {

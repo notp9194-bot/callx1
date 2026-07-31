@@ -742,6 +742,7 @@ function getHistoryJson(histSnap, receiverUid) {
   const items = [];
   histSnap.forEach(child => {
     const v    = child.val() || {};
+    const id   = child.key;
     const type = String(v.type || "text");
     let   t    = String(v.text || "");
     const ts   = Number(v.timestamp || 0);
@@ -755,7 +756,10 @@ function getHistoryJson(histSnap, receiverUid) {
       else if (type === "pdf"  ) t = "\uD83D\uDCC4 PDF document";
       else t = "Message";
     }
-    items.push({ t, ts, me: sid === receiverUid });
+    // id included so the client can decrypt E2E-encrypted "t" (ratchet
+    // envelope) through its idempotent, per-messageId cached decrypt path
+    // instead of showing a placeholder — see CallxMessagingService#showMessage.
+    items.push({ t, ts, me: sid === receiverUid, id });
   });
   items.sort((a, b) => a.ts - b.ts);
   return JSON.stringify(items);

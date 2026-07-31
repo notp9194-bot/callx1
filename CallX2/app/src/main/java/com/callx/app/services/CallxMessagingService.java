@@ -780,8 +780,28 @@ public class CallxMessagingService extends FirebaseMessagingService {
         final String avatarUrl  = (!fromThumb.isEmpty()) ? fromThumb : fromPhoto;
         final String chatId     = data.getOrDefault("chatId", "");
         final String mediaUrl   = data.getOrDefault("mediaUrl", "");
-        final String rawText    = data.getOrDefault("text", "Naya message");
+        final String rawTextEncrypted = data.getOrDefault("text", "Naya message");
         final String type       = data.getOrDefault("type", "message");
+        final String msgIdForDecrypt = data.getOrDefault("msgId", "");
+        // E2EE FIX: server never sees plaintext for 1:1 E2E messages — the
+        // "text" field in the FCM payload is the SAME ratchet envelope
+        // ("e2r1:{...}") that's stored on Firebase. Every other place that
+        // reads this message (ChatActivity's live listener, ChatRepository's
+        // delta sync, StarredMessagesActivity) decrypts before display; this
+        // notification path was the one spot that didn't, which is why a
+        // background/killed-app push showed the raw ciphertext JSON instead
+        // of the message. Pass msgId so E2EEncryptionManager's persisted
+        // per-message cache keeps this idempotent with those other call
+        // sites — whichever one runs first (this notification, or
+        // ChatActivity if the chat happens to already be open) "wins" the
+        // one-time ratchet key, and everyone else — including this device
+        // after the user later opens the chat — gets the same cached
+        // plaintext back instead of re-touching the ratchet.
+        final String rawText = com.callx.app.utils.E2EEncryptionManager.isEncrypted(rawTextEncrypted)
+                ? com.callx.app.utils.E2EEncryptionManager.getInstance(getApplicationContext())
+                        .decrypt(rawTextEncrypted, fromUid,
+                                msgIdForDecrypt.isEmpty() ? null : msgIdForDecrypt)
+                : rawTextEncrypted;
         // Feature 4: view once notification — blur text, block image preview
         final boolean isViewOnce = "1".equals(data.getOrDefault("viewOnce", "0"));
         final String text = isViewOnce
@@ -855,8 +875,11 @@ public class CallxMessagingService extends FirebaseMessagingService {
             }
 
             // Build history from FCM "history" JSON field
-            // Format: [{"t":"text","ts":1234567890,"me":false}, ...]
+            // Format: [{"t":"text","ts":1234567890,"me":false,"id":"msgId"}, ...]
             // "me":true = message sent by the notification receiver
+            // "id" = the Firebase message id (see server's getHistoryJson) —
+            // lets us decrypt E2E entries through the idempotent, per-
+            // messageId cached path instead of a placeholder.
             List<HistoryItem> hist = null;
             final String histJson = data.getOrDefault("history", "");
             if (!histJson.isEmpty()) {
@@ -868,6 +891,30 @@ public class CallxMessagingService extends FirebaseMessagingService {
                         String t    = o.optString("t", "");
                         long   ts   = o.optLong("ts", System.currentTimeMillis() - (arr.length() - i) * 1000L);
                         boolean me  = o.optBoolean("me", false);
+                        String histId = o.has("id") ? o.optString("id", null) : null;
+                        // E2EE FIX: decrypt through the idempotent, id-cached
+                        // path when the server gave us this item's real
+                        // message id — safe to call any number of times
+                        // across ChatActivity/ChatRepository/notifications
+                        // for the same message. Older servers that don't
+                        // send "id" yet fall back to a neutral placeholder
+                        // rather than leaking ciphertext or risking a
+                        // double-consume of the one-time ratchet key.
+                        if (com.callx.app.utils.E2EEncryptionManager.isEncrypted(t)) {
+                            if (histId != null) {
+                                if (me) {
+                                    String cachedOwn = com.callx.app.utils.E2EEncryptionManager
+                                            .getInstance(getApplicationContext()).takeOwnPlaintext(histId);
+                                    t = (cachedOwn != null) ? cachedOwn : "🔒 Sent message";
+                                } else {
+                                    t = com.callx.app.utils.E2EEncryptionManager
+                                            .getInstance(getApplicationContext())
+                                            .decrypt(t, fromUid, histId);
+                                }
+                            } else {
+                                t = me ? "🔒 Sent message" : "🔒 Message";
+                            }
+                        }
                         if (!t.isEmpty()) hist.add(new HistoryItem(t, ts, me));
                     }
                     if (hist.isEmpty()) hist = null;
@@ -994,10 +1041,28 @@ public class CallxMessagingService extends FirebaseMessagingService {
                     Long   ts  = c.child("timestamp").getValue() != null
                                 ? c.child("timestamp").getValue(Long.class)
                                 : System.currentTimeMillis();
+                    boolean fromMe = s != null && s.equals(myUid);
+                    // E2EE FIX: this history is read straight from Firebase,
+                    // same as the "current message" — for E2E text it's the
+                    // ratchet envelope, not plaintext. c.getKey() gives us
+                    // this message's real id, so we decrypt through the same
+                    // idempotent, id-cached path as everywhere else in the
+                    // app (see E2EEncryptionManager#decrypt(3-arg)).
+                    if (com.callx.app.utils.E2EEncryptionManager.isEncrypted(t)) {
+                        String histMsgId = c.getKey();
+                        if (fromMe) {
+                            String cachedOwn = com.callx.app.utils.E2EEncryptionManager
+                                    .getInstance(getApplicationContext()).takeOwnPlaintext(histMsgId);
+                            t = (cachedOwn != null) ? cachedOwn : "🔒 Sent message";
+                        } else {
+                            t = com.callx.app.utils.E2EEncryptionManager
+                                    .getInstance(getApplicationContext())
+                                    .decrypt(t, fromUid, histMsgId);
+                        }
+                    }
                     if (t.isEmpty()) {
                         t = previewTextFor(tp, "");
                     }
-                    boolean fromMe = s != null && s.equals(myUid);
                     hist.add(new HistoryItem(t, ts, fromMe));
                 }
                 Collections.sort(hist, (a, b) -> Long.compare(a.ts, b.ts));

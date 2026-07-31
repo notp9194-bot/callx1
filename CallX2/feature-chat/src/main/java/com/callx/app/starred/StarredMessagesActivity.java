@@ -168,7 +168,7 @@ public class StarredMessagesActivity extends AppCompatActivity
                                 } else {
                                     m.text = com.callx.app.utils.E2EEncryptionManager
                                             .getInstance(StarredMessagesActivity.this)
-                                            .decrypt(m.text, m.senderId);
+                                            .decrypt(m.text, m.senderId, m.id);
                                 }
                             }
                             if (Boolean.TRUE.equals(m.starred)) fresh.add(m);

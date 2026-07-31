@@ -354,7 +354,7 @@ public class ChatRepository {
             return;
         }
         m.text = com.callx.app.utils.E2EEncryptionManager
-                .getInstance(mAppContext).decrypt(m.text, m.senderId);
+                .getInstance(mAppContext).decrypt(m.text, m.senderId, m.id);
     }
 
     private MessageEntity toEntity(Message m, String chatId) {
