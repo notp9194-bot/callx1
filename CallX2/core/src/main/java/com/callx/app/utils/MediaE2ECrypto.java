@@ -19,8 +19,12 @@ import javax.crypto.spec.SecretKeySpec;
 
 /**
  * MediaE2ECrypto — chunk-wise streaming AES-256-GCM encryption for chat
- * media (currently wired for IMAGE messages only — see ChatMediaController
- * / MessagePagingAdapter / MediaCache).
+ * media (image/video-thumb/audio — see ChatMediaController /
+ * MessagePagingAdapter / MediaCache), redesigned to match WhatsApp's own
+ * media-encryption architecture (HKDF key derivation + a ciphertext
+ * digest), while keeping the AEAD (GCM) approach we already had instead of
+ * switching to WhatsApp's CBC+HMAC — GCM gives the same encrypt-then-MAC
+ * guarantee in one primitive.
  *
  * WHY A NEW UTILITY (instead of reusing E2EEncryptionManager's own AES-GCM
  * helpers): E2EEncryptionManager encrypts short text envelopes in one shot,
@@ -29,23 +33,47 @@ import javax.crypto.spec.SecretKeySpec;
  * encrypts/decrypts in fixed-size chunks so a file is never fully buffered
  * in RAM on either side, and streams straight to/from disk or an HTTP body.
  *
+ * WHATSAPP-PARITY DESIGN (v2 envelope):
+ *   - Per-purpose subkeys via HKDF-SHA256 (RFC 5869), exactly like
+ *     WhatsApp derives separate cipher/MAC/thumb keys from one mediaKey:
+ *     a single random 256-bit master key is generated per file-set, and
+ *     {@link #deriveKey} expands it into an independent "full image" key
+ *     and "thumbnail" key using domain-separated info strings. A leak or
+ *     bug affecting one derived key can't be used to decrypt the other.
+ *   - A SHA-256 digest of each ciphertext is computed at encrypt time and
+ *     carried in the envelope (see {@link KeyEnvelope#fullDigest} /
+ *     {@link KeyEnvelope#thumbDigest}), mirroring WhatsApp's file-hash
+ *     check: the receiver can verify the exact bytes it downloaded match
+ *     what the sender encrypted BEFORE attempting to decrypt, turning a
+ *     corrupted/tampered download into an immediate, clear failure instead
+ *     of a deep GCM-tag exception. (GCM already authenticates every chunk
+ *     on its own — this digest is defense-in-depth + a friendlier failure
+ *     mode, not a replacement for that.)
+ *   - v1 envelopes (already-sent messages, before this upgrade) used the
+ *     raw master key directly with no derivation and no digest — see
+ *     {@link KeyEnvelope#fullKey()} / {@link KeyEnvelope#thumbKey()},
+ *     which stay backward compatible by only deriving for v2+.
+ *
  * HOW IT FITS INTO THE 1:1 IMAGE E2E FLOW:
- *   1. Sender generates a random 256-bit key with {@link #generateKey()}.
- *   2. Sender encrypts the compressed thumb + full JPEG with
- *      {@link #encryptStream}. The resulting ciphertext is meaningless
- *      random bytes — that's what gets uploaded to Cloudinary (as
- *      resource_type=raw so Cloudinary doesn't try to process/transform it
- *      as an image). The server / CDN never sees plaintext image bytes.
- *   3. The random AES key (plus the locally-computed BlurHash placeholder
- *      string, which would otherwise leak a preview of the image contents)
- *      is packed into a small JSON envelope via
- *      {@link #buildKeyEnvelopeJson} and sent through the SAME Double
- *      Ratchet text channel as a normal chat message
- *      (E2EEncryptionManager#encrypt) — i.e. the AES key itself is E2E
+ *   1. Sender generates a random 256-bit master key with {@link #generateKey()}.
+ *   2. Sender derives {@link #PURPOSE_FULL} / {@link #PURPOSE_THUMB} subkeys
+ *      via {@link #deriveKey} and encrypts the compressed thumb + full JPEG
+ *      each with its OWN subkey via {@link #encryptStream}. The resulting
+ *      ciphertext is meaningless random bytes — that's what gets uploaded
+ *      to Cloudinary (as resource_type=raw so Cloudinary doesn't try to
+ *      process/transform it as an image). The server / CDN never sees
+ *      plaintext image bytes.
+ *   3. The random master key (plus the locally-computed BlurHash placeholder
+ *      string, which would otherwise leak a preview of the image contents,
+ *      plus the SHA-256 digest of each ciphertext) is packed into a small
+ *      JSON envelope via {@link #buildKeyEnvelopeJson} and sent through the
+ *      SAME Double Ratchet text channel as a normal chat message
+ *      (E2EEncryptionManager#encrypt) — i.e. the master key itself is E2E
  *      encrypted, never sent in the clear. See Message#mediaKeyEnc.
  *   4. Receiver decrypts that envelope with E2EEncryptionManager#decrypt,
- *      pulls the key out with {@link #parseKeyEnvelopeJson}, downloads the
- *      ciphertext blob, and decrypts it locally with {@link #decryptStream}
+ *      pulls the master key + digests out with {@link #parseKeyEnvelopeJson},
+ *      downloads the ciphertext blob, verifies its digest, re-derives the
+ *      matching subkey, and decrypts it locally with {@link #decryptStream}
  *      before ever handing bytes to the image decoder.
  *
  * WIRE FORMAT (self-contained — no external metadata needed to decrypt):
@@ -76,6 +104,87 @@ import javax.crypto.spec.SecretKeySpec;
 public final class MediaE2ECrypto {
 
     private MediaE2ECrypto() {}
+
+    // ─────────────────────────────────────────────────────────────────────
+    // HKDF-SHA256 (RFC 5869) — per-purpose subkey derivation
+    // ─────────────────────────────────────────────────────────────────────
+
+    /** Domain-separation label for the full-resolution image/video/audio
+     *  cipher subkey — same master key + a different label always yields a
+     *  completely different, unrelated 32-byte key (standard HKDF property). */
+    public static final String PURPOSE_FULL  = "CallX-Media-E2E-v2:full";
+    /** Domain-separation label for the low-res thumbnail cipher subkey. */
+    public static final String PURPOSE_THUMB = "CallX-Media-E2E-v2:thumb";
+
+    // Fixed application-level HKDF salt. Doesn't need to be secret (HKDF's
+    // security holds even with a public/constant salt as long as the input
+    // key material — our random master key — is itself unpredictable); it
+    // just needs to be distinct per-application so subkeys derived here can
+    // never collide with subkeys another protocol might derive from the
+    // same bytes by coincidence.
+    private static final byte[] HKDF_SALT =
+            "CallX2-MediaE2E-HKDF-Salt-v1".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+
+    /** Derives a purpose-bound 256-bit AES key from the random master key
+     *  using HKDF-SHA256 (RFC 5869: Extract-then-Expand). Deterministic —
+     *  sender and receiver independently compute the same subkey from the
+     *  same master key + purpose label, so only the master key (already
+     *  E2E-protected in the envelope) ever needs to travel. */
+    public static byte[] deriveKey(byte[] masterKey, String purpose) {
+        try {
+            byte[] prk = hmacSha256(HKDF_SALT, masterKey); // HKDF-Extract
+            byte[] info = purpose.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            // HKDF-Expand for a single 32-byte block: T(1) = HMAC(PRK, info || 0x01)
+            byte[] expandInput = new byte[info.length + 1];
+            System.arraycopy(info, 0, expandInput, 0, info.length);
+            expandInput[info.length] = 0x01;
+            byte[] okm = hmacSha256(prk, expandInput); // 32 bytes — exactly one AES-256 key
+            return okm;
+        } catch (GeneralSecurityException e) {
+            // HmacSHA256 is a mandatory JCA algorithm on every Android
+            // version we support — this branch is unreachable in practice.
+            throw new IllegalStateException("HKDF derivation failed", e);
+        }
+    }
+
+    private static byte[] hmacSha256(byte[] key, byte[] data) throws GeneralSecurityException {
+        javax.crypto.Mac mac = javax.crypto.Mac.getInstance("HmacSHA256");
+        mac.init(new SecretKeySpec(key, "HmacSHA256"));
+        return mac.doFinal(data);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // SHA-256 ciphertext digest — WhatsApp-style fast corruption/tamper check
+    // ─────────────────────────────────────────────────────────────────────
+
+    /** Computes the SHA-256 digest of an already-encrypted file — call this
+     *  right after {@link #encryptFile}/{@link #encryptStream} on the
+     *  resulting ciphertext, and carry the result in the key envelope so
+     *  the receiver can verify the downloaded bytes before decrypting. */
+    public static byte[] sha256File(java.io.File f) throws IOException {
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            try (InputStream in = new java.io.FileInputStream(f)) {
+                byte[] buf = new byte[CHUNK_SIZE];
+                int n;
+                while ((n = in.read(buf)) > 0) md.update(buf, 0, n);
+            }
+            return md.digest();
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 unavailable", e); // unreachable — mandatory JCA algorithm
+        }
+    }
+
+    /** Constant-time digest comparison (avoids a timing side-channel on the
+     *  comparison itself — minor in this context since the digest isn't a
+     *  secret, but costs nothing and matches how the AES key comparisons
+     *  elsewhere in the E2E stack are done). */
+    public static boolean digestsEqual(byte[] a, byte[] b) {
+        if (a == null || b == null || a.length != b.length) return false;
+        int diff = 0;
+        for (int i = 0; i < a.length; i++) diff |= a[i] ^ b[i];
+        return diff == 0;
+    }
 
     private static final byte[] MAGIC = {'C', 'X', 'M', '1'};
     private static final int NONCE_LEN = 8;
@@ -187,39 +296,96 @@ public final class MediaE2ECrypto {
     // ─────────────────────────────────────────────────────────────────────
 
     public static final class KeyEnvelope {
+        /** Envelope format version. 1 = legacy (raw master key used
+         *  directly for both thumb and full, no digest). 2 = current
+         *  (HKDF-derived per-purpose subkeys + SHA-256 ciphertext digests). */
+        public int version = 1;
+        /** The random master key exactly as generated by {@link #generateKey()}.
+         *  For v2 envelopes, DON'T use this directly to decrypt — call
+         *  {@link #fullKey()} / {@link #thumbKey()} instead so the right
+         *  derived (or, for v1, raw) key is used automatically. */
         public byte[] key;
         /** BlurHash placeholder string, or null. Carried in here (instead
          *  of Message#blurHash in the clear) so a receiver-side preview
          *  can't leak image content before the real ciphertext is even
          *  downloaded. */
         public String blurHash;
+        /** SHA-256 digest of the full-resolution ciphertext, or null if not
+         *  present (v1 envelope, or this message has no full-res file —
+         *  e.g. a video where only the thumb is E2E'd). */
+        public byte[] fullDigest;
+        /** SHA-256 digest of the thumbnail ciphertext, or null if not
+         *  present (v1 envelope, or this message has no encrypted thumb). */
+        public byte[] thumbDigest;
+
+        /** Key to use when decrypting the full-resolution ciphertext.
+         *  v1: the raw master key (matches how it was originally encrypted).
+         *  v2+: HKDF-derived full-purpose subkey. */
+        public byte[] fullKey() {
+            return version >= 2 ? deriveKey(key, PURPOSE_FULL) : key;
+        }
+
+        /** Key to use when decrypting the thumbnail ciphertext. Same
+         *  version split as {@link #fullKey()}. */
+        public byte[] thumbKey() {
+            return version >= 2 ? deriveKey(key, PURPOSE_THUMB) : key;
+        }
     }
 
     /** Builds the small JSON blob that gets E2E-encrypted (via
-     *  E2EEncryptionManager#encrypt) and stored as Message#mediaKeyEnc. */
-    public static String buildKeyEnvelopeJson(byte[] key, String blurHash) throws JSONException {
+     *  E2EEncryptionManager#encrypt) and stored as Message#mediaKeyEnc.
+     *  Always writes the current (v2) format — pass null for either digest
+     *  if that ciphertext doesn't apply to this message (e.g. video only
+     *  has a thumbDigest, audio only has a fullDigest). */
+    public static String buildKeyEnvelopeJson(byte[] key, String blurHash,
+                                               byte[] fullDigest, byte[] thumbDigest) throws JSONException {
         JSONObject o = new JSONObject();
-        o.put("v", 1);
+        o.put("v", 2);
         o.put("k", Base64.encodeToString(key, Base64.NO_WRAP));
         if (blurHash != null && !blurHash.isEmpty()) o.put("b", blurHash);
+        if (fullDigest  != null) o.put("fd", Base64.encodeToString(fullDigest, Base64.NO_WRAP));
+        if (thumbDigest != null) o.put("td", Base64.encodeToString(thumbDigest, Base64.NO_WRAP));
         return o.toString();
+    }
+
+    /** Back-compat overload for call sites that don't track ciphertext
+     *  digests — still writes a v2 envelope (subkey derivation applies
+     *  regardless of whether digests are present), just without "fd"/"td". */
+    public static String buildKeyEnvelopeJson(byte[] key, String blurHash) throws JSONException {
+        return buildKeyEnvelopeJson(key, blurHash, null, null);
     }
 
     public static KeyEnvelope parseKeyEnvelopeJson(String json) throws JSONException {
         JSONObject o = new JSONObject(json);
         KeyEnvelope env = new KeyEnvelope();
+        env.version = o.optInt("v", 1);
         env.key = Base64.decode(o.getString("k"), Base64.NO_WRAP);
         env.blurHash = o.optString("b", null);
+        String fd = o.optString("fd", null);
+        String td = o.optString("td", null);
+        if (fd != null) env.fullDigest  = Base64.decode(fd, Base64.NO_WRAP);
+        if (td != null) env.thumbDigest = Base64.decode(td, Base64.NO_WRAP);
         return env;
     }
 
-    /** Same as {@link #decryptEnvelopeForMessage} but returns just the raw
-     *  AES key (or null) — convenient at call sites that only need the key
-     *  to hand to MediaCache's decrypting download, not the blurHash. */
+    /** Same as {@link #decryptEnvelopeForMessage} but returns just the
+     *  full-purpose decryption key (or null) — convenient at call sites
+     *  that only need the key for a full-resolution image/audio download,
+     *  not the blurHash or digest. Version-aware: returns the HKDF-derived
+     *  subkey for v2 envelopes, the raw master key for legacy v1 ones. */
     public static byte[] decryptKeyOnly(android.content.Context ctx, String mediaKeyEnc,
                                          String partnerUid, String messageId) {
         KeyEnvelope env = decryptEnvelopeForMessage(ctx, mediaKeyEnc, partnerUid, messageId);
-        return env != null ? env.key : null;
+        return env != null ? env.fullKey() : null;
+    }
+
+    /** Thumbnail counterpart of {@link #decryptKeyOnly} — use this at any
+     *  call site that's downloading/decrypting a THUMBNAIL ciphertext
+     *  (e.g. the video-thumb-only E2E path), not the full-res file. */
+    public static byte[] decryptThumbKeyOnly(android.content.Context ctx, String mediaKeyEnc,
+                                              String partnerUid, String messageId) {
+        KeyEnvelope env = decryptEnvelopeForMessage(ctx, mediaKeyEnc, partnerUid, messageId);
+        return env != null ? env.thumbKey() : null;
     }
 
     /**

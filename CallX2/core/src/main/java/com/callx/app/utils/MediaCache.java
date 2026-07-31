@@ -117,6 +117,22 @@ public class MediaCache {
     /** Media E2E (image) variant of {@link #getWithProgress(Context, String, ProgressCallback)} —
      *  see {@link #get(Context, String, byte[], Callback)} for what {@code decryptKey} does. */
     public static void getWithProgress(Context ctx, String url, byte[] decryptKey, ProgressCallback cb) {
+        getWithProgress(ctx, url, decryptKey, null, cb);
+    }
+
+    /**
+     * Media E2E variant that also verifies a WhatsApp-style ciphertext
+     * SHA-256 digest (see MediaE2ECrypto.KeyEnvelope#fullDigest /
+     * #thumbDigest) as the bytes come off the network, BEFORE the caller
+     * ever sees the decrypted file. On a mismatch — a corrupted or tampered
+     * download — this fails cleanly via {@code onError} instead of letting
+     * the caller silently trust a bad file (GCM would eventually catch it
+     * too, but only after fully decrypting; this catches it immediately
+     * with a clear reason). Pass null for {@code expectedDigest} to skip
+     * this check (e.g. a legacy v1 message that never carried one).
+     */
+    public static void getWithProgress(Context ctx, String url, byte[] decryptKey,
+                                        byte[] expectedDigest, ProgressCallback cb) {
         if (ctx == null || url == null || url.isEmpty()) {
             if (cb != null) cb.onError("Invalid URL");
             return;
@@ -127,7 +143,7 @@ public class MediaCache {
             return;
         }
         sPool.execute(() -> {
-            File result = downloadWithProgress(ctx, url, decryptKey, percent -> {
+            File result = downloadWithProgress(ctx, url, decryptKey, expectedDigest, percent -> {
                 if (cb != null) sMain.post(() -> cb.onProgress(percent));
             });
             if (result != null && result.exists()) {
@@ -163,6 +179,13 @@ public class MediaCache {
      * behavior.
      */
     public static void get(Context ctx, String url, byte[] decryptKey, Callback cb) {
+        get(ctx, url, decryptKey, null, cb);
+    }
+
+    /** Digest-verifying variant of {@link #get(Context, String, byte[], Callback)} —
+     *  see {@link #getWithProgress(Context, String, byte[], byte[], ProgressCallback)}
+     *  for what {@code expectedDigest} does. Pass null to skip verification. */
+    public static void get(Context ctx, String url, byte[] decryptKey, byte[] expectedDigest, Callback cb) {
         if (ctx == null || url == null || url.isEmpty()) {
             if (cb != null) cb.onError("Invalid URL");
             return;
@@ -177,7 +200,7 @@ public class MediaCache {
 
         Log.d(TAG, "Cache MISS — downloading: " + url);
         sPool.execute(() -> {
-            File result = download(ctx, url, decryptKey);
+            File result = download(ctx, url, decryptKey, expectedDigest);
             if (result != null && result.exists()) {
                 Log.d(TAG, "Download succeeded, file: " + result.getAbsolutePath());
                 sMain.post(() -> {
@@ -240,13 +263,19 @@ public class MediaCache {
     }
 
     private static File download(Context ctx, String urlStr) {
-        return download(ctx, urlStr, null);
+        return download(ctx, urlStr, null, null);
     }
 
     /** @param decryptKey non-null for a Media-E2E image — bytes are decrypted
      *  (see {@link MediaE2ECrypto#decryptStream}) as they're written, so the
-     *  cache file on disk ends up holding plaintext, never ciphertext. */
-    private static File download(Context ctx, String urlStr, byte[] decryptKey) {
+     *  cache file on disk ends up holding plaintext, never ciphertext.
+     *  @param expectedDigest optional WhatsApp-style ciphertext SHA-256 (see
+     *  MediaE2ECrypto.KeyEnvelope) — when non-null, the raw bytes read off
+     *  the network are hashed as they stream through decryptStream, and
+     *  compared against this once the stream ends; a mismatch is treated as
+     *  a failed download (deletes the partial file, returns null) rather
+     *  than silently caching a corrupted/tampered result. */
+    private static File download(Context ctx, String urlStr, byte[] decryptKey, byte[] expectedDigest) {
         HttpURLConnection conn = null;
         try {
             evictIfNeeded(ctx);
@@ -282,8 +311,17 @@ public class MediaCache {
             File tmp = new File(tmpDir, out.getName() + ".tmp");
             if (tmp.exists()) tmp.delete();
 
-            try (InputStream in  = conn.getInputStream();
+            java.security.DigestInputStream digestIn = null;
+            try (InputStream rawIn = conn.getInputStream();
                  FileOutputStream fos = new FileOutputStream(tmp)) {
+                InputStream in = rawIn;
+                if (decryptKey != null && expectedDigest != null) {
+                    // Hash the CIPHERTEXT bytes as they're read for decryption
+                    // (not the plaintext being written out) — that's what the
+                    // sender's digest in the envelope was computed over.
+                    digestIn = new java.security.DigestInputStream(rawIn, MessageDigest.getInstance("SHA-256"));
+                    in = digestIn;
+                }
                 if (decryptKey != null) {
                     MediaE2ECrypto.decryptStream(in, fos, decryptKey);
                 } else {
@@ -293,6 +331,15 @@ public class MediaCache {
                 }
                 fos.flush();
                 try { fos.getFD().sync(); } catch (Exception ignored) {}
+            }
+
+            if (digestIn != null) {
+                byte[] actual = digestIn.getMessageDigest().digest();
+                if (!MediaE2ECrypto.digestsEqual(actual, expectedDigest)) {
+                    Log.w(TAG, "Digest mismatch for " + urlStr + " — corrupted or tampered download, discarding");
+                    if (tmp.exists()) tmp.delete();
+                    return null;
+                }
             }
 
             if (tmp.exists() && tmp.length() > 0) {
@@ -319,10 +366,17 @@ public class MediaCache {
     }
 
     private static File downloadWithProgress(Context ctx, String urlStr, ProgressTick tick) {
-        return downloadWithProgress(ctx, urlStr, null, tick);
+        return downloadWithProgress(ctx, urlStr, null, null, tick);
     }
 
     private static File downloadWithProgress(Context ctx, String urlStr, byte[] decryptKey, ProgressTick tick) {
+        return downloadWithProgress(ctx, urlStr, decryptKey, null, tick);
+    }
+
+    /** @param expectedDigest see {@link #download(Context, String, byte[], byte[])} —
+     *  same WhatsApp-style ciphertext SHA-256 check, applied here too. */
+    private static File downloadWithProgress(Context ctx, String urlStr, byte[] decryptKey,
+                                              byte[] expectedDigest, ProgressTick tick) {
         HttpURLConnection conn = null;
         try {
             evictIfNeeded(ctx);
@@ -353,16 +407,26 @@ public class MediaCache {
             File tmp = new File(tmpDir, out.getName() + ".tmp");
             if (tmp.exists()) tmp.delete();
 
+            java.security.DigestInputStream digestIn = null;
             try (InputStream rawIn = conn.getInputStream();
                  FileOutputStream fos = new FileOutputStream(tmp)) {
                 if (decryptKey != null) {
+                    // Hash the CIPHERTEXT bytes as they're read for decryption
+                    // when an expected digest was supplied — same file-hash
+                    // check as the plain download() path, just layered under
+                    // the progress-counting wrapper below.
+                    InputStream hashSource = rawIn;
+                    if (expectedDigest != null) {
+                        digestIn = new java.security.DigestInputStream(rawIn, MessageDigest.getInstance("SHA-256"));
+                        hashSource = digestIn;
+                    }
                     // Progress is tracked off ciphertext bytes read (the chunk
                     // length/tag framing overhead is negligible — a few dozen
                     // bytes per 64KB — so this tracks real download progress
                     // closely enough for the UI's percentage pill).
                     long[] downloadedHolder = {0};
                     int[] lastPercentHolder = {-1};
-                    InputStream counting = new java.io.FilterInputStream(rawIn) {
+                    InputStream counting = new java.io.FilterInputStream(hashSource) {
                         @Override public int read(byte[] b, int off, int len) throws IOException {
                             int n = super.read(b, off, len);
                             if (n > 0) {
@@ -398,6 +462,15 @@ public class MediaCache {
                 }
                 fos.flush();
                 try { fos.getFD().sync(); } catch (Exception ignored) {}
+            }
+
+            if (digestIn != null) {
+                byte[] actual = digestIn.getMessageDigest().digest();
+                if (!MediaE2ECrypto.digestsEqual(actual, expectedDigest)) {
+                    Log.w(TAG, "Digest mismatch for " + urlStr + " — corrupted or tampered download, discarding");
+                    if (tmp.exists()) tmp.delete();
+                    return null;
+                }
             }
 
             if (tmp.exists() && tmp.length() > 0) {

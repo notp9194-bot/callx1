@@ -1112,15 +1112,22 @@ public class ChatMediaController {
                 } catch (Exception ignored) {}
 
                 // ── Media E2E (image) ──────────────────────────────────────
-                // Encrypt the compressed thumb + full JPEG with a fresh random
-                // AES-256 key (see MediaE2ECrypto) before either ever leaves
-                // the device. The key — plus the BlurHash above, so even the
-                // preview can't leak content — is wrapped through the SAME
-                // Double Ratchet session used for normal 1:1 text
-                // (E2EEncryptionManager#encrypt) and carried in
-                // Message#mediaKeyEnc. Cloudinary only ever receives/serves
-                // the ciphertext (uploaded as resource_type=raw, since it's
-                // not a decodable image anymore).
+                // WhatsApp-parity design: a fresh random 256-bit MASTER key
+                // (see MediaE2ECrypto) is generated per photo, then HKDF-SHA256
+                // derives two INDEPENDENT subkeys from it — one for the
+                // thumbnail ciphertext, one for the full-res ciphertext — so
+                // neither can be used to decrypt the other. A SHA-256 digest
+                // of each ciphertext is also computed and carried alongside
+                // the master key, so the receiver can verify exactly what it
+                // downloaded before attempting to decrypt (fast, clear
+                // corruption/tamper detection — same idea as WhatsApp's own
+                // file-hash check). The master key — plus the BlurHash above,
+                // so even the preview can't leak content, plus both digests —
+                // is wrapped through the SAME Double Ratchet session used for
+                // normal 1:1 text (E2EEncryptionManager#encrypt) and carried
+                // in Message#mediaKeyEnc. Cloudinary only ever receives/serves
+                // ciphertext (uploaded as resource_type=raw, since it's not a
+                // decodable image anymore).
                 //
                 // If there's no E2E session yet for this partner, falls back
                 // to the old plaintext upload — mirrors
@@ -1135,16 +1142,26 @@ public class ChatMediaController {
                 String partnerUid = delegate.getPartnerUid();
                 if (partnerUid != null && !partnerUid.isEmpty()) {
                     try {
-                        byte[] key = com.callx.app.utils.MediaE2ECrypto.generateKey();
+                        byte[] masterKey = com.callx.app.utils.MediaE2ECrypto.generateKey();
+                        byte[] fullSubKey  = com.callx.app.utils.MediaE2ECrypto
+                                .deriveKey(masterKey, com.callx.app.utils.MediaE2ECrypto.PURPOSE_FULL);
+                        byte[] thumbSubKey = com.callx.app.utils.MediaE2ECrypto
+                                .deriveKey(masterKey, com.callx.app.utils.MediaE2ECrypto.PURPOSE_THUMB);
                         java.io.File thumbEnc = new java.io.File(
                                 result.thumbFile.getParentFile(), result.thumbFile.getName() + ".enc");
                         java.io.File fullEnc = new java.io.File(
                                 result.fullFile.getParentFile(), result.fullFile.getName() + ".enc");
-                        com.callx.app.utils.MediaE2ECrypto.encryptFile(result.thumbFile, thumbEnc, key);
-                        com.callx.app.utils.MediaE2ECrypto.encryptFile(result.fullFile, fullEnc, key);
+                        com.callx.app.utils.MediaE2ECrypto.encryptFile(result.thumbFile, thumbEnc, thumbSubKey);
+                        com.callx.app.utils.MediaE2ECrypto.encryptFile(result.fullFile, fullEnc, fullSubKey);
+
+                        // File-hash check (WhatsApp-style): let the receiver
+                        // confirm the downloaded ciphertext bytes are exactly
+                        // what we encrypted, before it even tries to decrypt.
+                        byte[] thumbDigest = com.callx.app.utils.MediaE2ECrypto.sha256File(thumbEnc);
+                        byte[] fullDigest  = com.callx.app.utils.MediaE2ECrypto.sha256File(fullEnc);
 
                         String envelopeJson = com.callx.app.utils.MediaE2ECrypto
-                                .buildKeyEnvelopeJson(key, blurHash);
+                                .buildKeyEnvelopeJson(masterKey, blurHash, fullDigest, thumbDigest);
                         pending.mediaKeyEnc = com.callx.app.utils.E2EEncryptionManager
                                 .getInstance(activity).encrypt(envelopeJson, partnerUid);
 
@@ -1152,7 +1169,7 @@ public class ChatMediaController {
                         // never set it in the clear on a media-E2E message.
                         pending.blurHash = null;
 
-                        mediaKey = key;
+                        mediaKey = masterKey;
                         encThumbFile = thumbEnc;
                         encFullFile  = fullEnc;
                         uploadThumbUri = Uri.fromFile(thumbEnc);
@@ -1380,15 +1397,24 @@ public class ChatMediaController {
                     String partnerUid = delegate.getPartnerUid();
                     if (partnerUid != null && !partnerUid.isEmpty()) {
                         try {
-                            byte[] key = com.callx.app.utils.MediaE2ECrypto.generateKey();
+                            // Same WhatsApp-parity design as the image path above:
+                            // random master key → HKDF-derive the thumb-purpose
+                            // subkey (there's no full-res subkey needed here since
+                            // the video itself stays plaintext) → SHA-256 digest of
+                            // the resulting ciphertext for a receiver-side file-hash
+                            // check before decrypting.
+                            byte[] masterKey = com.callx.app.utils.MediaE2ECrypto.generateKey();
+                            byte[] subKey = com.callx.app.utils.MediaE2ECrypto
+                                    .deriveKey(masterKey, com.callx.app.utils.MediaE2ECrypto.PURPOSE_THUMB);
                             java.io.File enc = new java.io.File(
                                     vr.thumbFile.getParentFile(), vr.thumbFile.getName() + ".enc");
-                            com.callx.app.utils.MediaE2ECrypto.encryptFile(vr.thumbFile, enc, key);
+                            com.callx.app.utils.MediaE2ECrypto.encryptFile(vr.thumbFile, enc, subKey);
+                            byte[] thumbDigest = com.callx.app.utils.MediaE2ECrypto.sha256File(enc);
                             String envelopeJson = com.callx.app.utils.MediaE2ECrypto
-                                    .buildKeyEnvelopeJson(key, null);
+                                    .buildKeyEnvelopeJson(masterKey, null, null, thumbDigest);
                             pending.mediaKeyEnc = com.callx.app.utils.E2EEncryptionManager
                                     .getInstance(activity).encrypt(envelopeJson, partnerUid);
-                            thumbKey = key;
+                            thumbKey = masterKey;
                             encThumb = enc;
                         } catch (Exception e) {
                             android.util.Log.w("ChatMediaController",
@@ -1938,15 +1964,23 @@ public class ChatMediaController {
             String partnerUid = delegate.getPartnerUid();
             if (partnerUid != null && !partnerUid.isEmpty()) {
                 try {
-                    byte[] key = com.callx.app.utils.MediaE2ECrypto.generateKey();
+                    // Same WhatsApp-parity design as the image/video-thumb paths:
+                    // random master key → HKDF-derive the full-purpose subkey
+                    // (audio has no separate thumbnail) → SHA-256 digest of the
+                    // ciphertext for a receiver-side file-hash check.
+                    byte[] masterKey = com.callx.app.utils.MediaE2ECrypto.generateKey();
+                    byte[] subKey = com.callx.app.utils.MediaE2ECrypto
+                            .deriveKey(masterKey, com.callx.app.utils.MediaE2ECrypto.PURPOSE_FULL);
                     java.io.File tmp = new java.io.File(activity.getCacheDir(),
                             "e2e_audio_" + System.currentTimeMillis() + ".enc");
                     try (java.io.InputStream in = activity.getContentResolver().openInputStream(uri);
                          java.io.OutputStream out = new java.io.FileOutputStream(tmp)) {
                         if (in == null) throw new java.io.IOException("Can't open audio for encryption");
-                        com.callx.app.utils.MediaE2ECrypto.encryptStream(in, out, key);
+                        com.callx.app.utils.MediaE2ECrypto.encryptStream(in, out, subKey);
                     }
-                    String envelopeJson = com.callx.app.utils.MediaE2ECrypto.buildKeyEnvelopeJson(key, null);
+                    byte[] fullDigest = com.callx.app.utils.MediaE2ECrypto.sha256File(tmp);
+                    String envelopeJson = com.callx.app.utils.MediaE2ECrypto
+                            .buildKeyEnvelopeJson(masterKey, null, fullDigest, null);
                     mediaKeyEncForAudio = com.callx.app.utils.E2EEncryptionManager
                             .getInstance(activity).encrypt(envelopeJson, partnerUid);
                     encAudioFile = tmp;

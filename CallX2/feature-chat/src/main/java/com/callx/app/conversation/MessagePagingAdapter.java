@@ -2323,7 +2323,12 @@ public class MessagePagingAdapter
                             com.callx.app.utils.MediaE2ECrypto.decryptEnvelopeForMessage(ctx, m.mediaKeyEnc,
                                     m.senderId, (m.messageId != null ? m.messageId : m.id));
                     blurHash = (env != null) ? env.blurHash : null;
-                    iMediaKey = (env != null) ? env.key : null;
+                    // Media E2E v2: the thumbnail ciphertext is encrypted with
+                    // an HKDF-derived subkey distinct from the full-res key
+                    // (see MediaE2ECrypto) — env.thumbKey() picks that subkey
+                    // for v2 envelopes, or falls back to the raw key for
+                    // legacy v1 messages that predate this derivation.
+                    iMediaKey = (env != null) ? env.thumbKey() : null;
                 }
                 if (blurHash != null && !blurHash.isEmpty()) {
                     android.graphics.Bitmap placeholder = BlurHashPlaceholder.get(blurHash, 32, 32);
@@ -2439,12 +2444,21 @@ public class MessagePagingAdapter
                     // received image that predates this feature, or any other
                     // media type — MediaCache.getWithProgress falls back to its
                     // old plaintext behavior when decryptKey is null.
-                    final byte[] autoDlKey = (!sent && m.mediaKeyEnc != null)
-                            ? com.callx.app.utils.MediaE2ECrypto.decryptKeyOnly(ctx, m.mediaKeyEnc,
+                    // Media E2E v2: resolve the full envelope once so we get
+                    // both the derived full-purpose key AND its ciphertext
+                    // digest (WhatsApp-style file-hash check — see
+                    // MediaE2ECrypto / MediaCache#getWithProgress). null env
+                    // fields (legacy v1 message, or no digest present) just
+                    // mean the digest check is skipped for this download.
+                    final com.callx.app.utils.MediaE2ECrypto.KeyEnvelope autoDlEnv =
+                            (!sent && m.mediaKeyEnc != null)
+                            ? com.callx.app.utils.MediaE2ECrypto.decryptEnvelopeForMessage(ctx, m.mediaKeyEnc,
                                     m.senderId, m.messageId != null ? m.messageId : m.id)
                             : null;
+                    final byte[] autoDlKey    = (autoDlEnv != null) ? autoDlEnv.fullKey() : null;
+                    final byte[] autoDlDigest = (autoDlEnv != null) ? autoDlEnv.fullDigest : null;
                     MediaDownloadQueue.getInstance(ctx).enqueue(capturedUrl, null, () -> {
-                        com.callx.app.utils.MediaCache.getWithProgress(ctx, capturedUrl, autoDlKey,
+                        com.callx.app.utils.MediaCache.getWithProgress(ctx, capturedUrl, autoDlKey, autoDlDigest,
                                 new com.callx.app.utils.MediaCache.ProgressCallback() {
                             @Override public void onProgress(int percent) {
                                 if (h.canvasBindToken != myToken) return;
@@ -2699,8 +2713,11 @@ public class MessagePagingAdapter
             // (uploaded as resource_type=raw) when mediaKeyEnc is set — see
             // ChatMediaController#doStartVideoUploadWork. The video file
             // itself (vUrl, below) is never encrypted.
+            // Media E2E v2: video thumbnails are encrypted with the
+            // thumb-purpose subkey (see MediaE2ECrypto.PURPOSE_THUMB) — use
+            // the matching decrypt helper, not the full-purpose one.
             final byte[] vThumbKey = (!sent && m.mediaKeyEnc != null)
-                    ? com.callx.app.utils.MediaE2ECrypto.decryptKeyOnly(ctx, m.mediaKeyEnc,
+                    ? com.callx.app.utils.MediaE2ECrypto.decryptThumbKeyOnly(ctx, m.mediaKeyEnc,
                             m.senderId, (m.messageId != null ? m.messageId : m.id))
                     : null;
 
@@ -3593,11 +3610,14 @@ public class MessagePagingAdapter
 
                 // Media E2E (image) — see the matching comment on the
                 // auto-download path above.
-                final byte[] tapDlKey = (!sent && m.mediaKeyEnc != null)
-                        ? com.callx.app.utils.MediaE2ECrypto.decryptKeyOnly(ctx, m.mediaKeyEnc,
+                final com.callx.app.utils.MediaE2ECrypto.KeyEnvelope tapDlEnv =
+                        (!sent && m.mediaKeyEnc != null)
+                        ? com.callx.app.utils.MediaE2ECrypto.decryptEnvelopeForMessage(ctx, m.mediaKeyEnc,
                                 m.senderId, m.messageId != null ? m.messageId : m.id)
                         : null;
-                com.callx.app.utils.MediaCache.getWithProgress(ctx, fullUrl, tapDlKey,
+                final byte[] tapDlKey    = (tapDlEnv != null) ? tapDlEnv.fullKey() : null;
+                final byte[] tapDlDigest = (tapDlEnv != null) ? tapDlEnv.fullDigest : null;
+                com.callx.app.utils.MediaCache.getWithProgress(ctx, fullUrl, tapDlKey, tapDlDigest,
                         new com.callx.app.utils.MediaCache.ProgressCallback() {
                     @Override public void onProgress(int percent) {
                         if (h.canvasBindToken != myToken) return;
