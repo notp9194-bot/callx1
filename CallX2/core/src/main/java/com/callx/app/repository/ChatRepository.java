@@ -43,12 +43,14 @@ public class ChatRepository {
     private final AppDatabase    mDb;
     private final ExecutorService mExecutor;
     private final FirebaseDatabase mFirebase;
+    private final Context mAppContext;
 
     private ChatRepository(Context ctx) {
-        mCache    = CacheManager.getInstance(ctx);
-        mDb       = AppDatabase.getInstance(ctx);
-        mExecutor = Executors.newFixedThreadPool(4);
-        mFirebase = FirebaseDatabase.getInstance(Constants.DB_URL);
+        mCache      = CacheManager.getInstance(ctx);
+        mDb         = AppDatabase.getInstance(ctx);
+        mExecutor   = Executors.newFixedThreadPool(4);
+        mFirebase   = FirebaseDatabase.getInstance(Constants.DB_URL);
+        mAppContext = ctx.getApplicationContext();
     }
 
     public static synchronized ChatRepository getInstance(Context ctx) {
@@ -323,7 +325,40 @@ public class ChatRepository {
     // HELPERS — model ↔ entity conversion
     // ─────────────────────────────────────────────────────────────
 
+    /**
+     * E2EE: decrypts m.text in place if it's a ratchet envelope (1:1 chat
+     * text only — see E2EEncryptionManager). This repository is a SECOND,
+     * independent path (besides ChatActivity's live ChildEventListener)
+     * that pulls messages straight from Firebase into Room — used for the
+     * initial delta sync on chat open and for older-history pagination
+     * (MessageRemoteMediator). Both paths must decrypt before touching
+     * Room, or whichever one writes last wins the race and can silently
+     * overwrite an already-decrypted row with raw ciphertext.
+     *
+     * No chatId parsing needed to find "the partner" — m.senderId already
+     * tells us exactly who encrypted this message. Group messages
+     * (m.isGroup) and non-text types are left untouched.
+     */
+    private void decryptIfNeeded(Message m) {
+        if (m == null || m.text == null || m.isGroup) return;
+        if (!com.callx.app.utils.E2EEncryptionManager.isEncrypted(m.text)) return;
+
+        String currentUid = com.callx.app.utils.FirebaseUtils.getCurrentUid();
+        if (m.senderId != null && m.senderId.equals(currentUid)) {
+            // Our own message echoing back — can't decrypt our own outgoing
+            // ciphertext in reverse (see ChatActivity#cacheOwnPlaintext for
+            // why), so restore whatever we cached at send time instead.
+            String cached = com.callx.app.utils.E2EEncryptionManager
+                    .getInstance(mAppContext).takeOwnPlaintext(m.id);
+            m.text = (cached != null) ? cached : "🔒 Sent message";
+            return;
+        }
+        m.text = com.callx.app.utils.E2EEncryptionManager
+                .getInstance(mAppContext).decrypt(m.text, m.senderId);
+    }
+
     private MessageEntity toEntity(Message m, String chatId) {
+        decryptIfNeeded(m);
         MessageEntity e = new MessageEntity();
         e.id              = m.id != null ? m.id : "";
         e.chatId          = chatId;

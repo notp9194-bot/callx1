@@ -116,6 +116,53 @@ completely lock kar do:
 Firebase console se manually clean kar sakte ho, koi code usse ab reference
 nahi karta.)
 
+## Bugfix round 2 — ChatRepository tha asli culprit (received messages hamesha cipher dikhna)
+
+Pehle patch ke baad bhi complaint aayi: **received messages hamesha** raw
+`e2r1:{...}` JSON dikh rahe the, aur sent messages kabhi plaintext kabhi
+cipher (inconsistent). Live typing indicator suspect tha, lekin asli wajah
+kuch aur nikli:
+
+`core/.../repository/ChatRepository.java` me Firebase se messages padhne ka
+ek **poora dusra, independent path** hai — `syncMessagesDelta()` (chat open
+hone par delta sync) aur `fetchOlderMessagesFromFirebase()` (purana history
+scroll karte waqt, `MessageRemoteMediator` ke through), aur ye dono background
+`SyncWorker` se bhi chalte hain (jab app background me ho tab bhi). Ye path
+`ChatActivity`'s live `ChildEventListener` se **bilkul alag** hai aur ab tak
+koi decryption call nahi karta tha — seedha ciphertext ko Room me daal deta
+tha.
+
+Do writers (`ChatActivity`'s decrypt-aware listener aur `ChatRepository`'s
+raw sync) ek hi Room row ke liye race karte the:
+- **Received messages** ke liye — `ChatRepository`/`SyncWorker` ka
+  undecrypted path aksar pehle ya baad me chalke decrypted value ko
+  ciphertext se overwrite kar deta tha, isliye **hamesha** cipher dikhta tha.
+- **Sent messages** ke liye — kabhi apna decrypt-aware write jeet jaata tha
+  (plaintext dikhta), kabhi `ChatRepository` ka raw sync jeet jaata
+  (ciphertext dikhta) — isi wajah se "kabhi plaintext kabhi cipher" wala
+  random behaviour tha.
+
+### Fix
+`ChatRepository.toEntity()` (jo dono sync paths use karte hain, aur isliye
+`SyncWorker` + `MessageRemoteMediator` bhi automatically cover ho gaye) me
+ek naya `decryptIfNeeded()` step add kiya, jo Room me likhne se **pehle**:
+- Agar message hamara khud ka bheja hua hai (`m.senderId == currentUid`) —
+  `E2EEncryptionManager.takeOwnPlaintext()` se cached plaintext restore
+  karta hai (same cache jo `ChatActivity` bhi use karta hai — dono jagah
+  se ek hi shared, persistent cache hai).
+- Warna `m.senderId` ko partner maan kar seedha `decrypt()` call karta hai
+  — chatId parse karne ki zaroorat nahi padi, senderId hi partner hai.
+
+Isi family ka ek aur jagah bhi fix kiya: `StarredMessagesActivity.java` —
+starred messages list bhi Firebase se seedha ek alag `ValueEventListener`
+se padhta tha bina decrypt kiye; ab wahan bhi same decrypt/cache-restore
+logic lagi hai.
+
+**Group chat** (`GroupChatActivity`, `GroupTopicChatActivity`) is fix ke
+scope se bahar hai — jaisa pehle bhi bataya tha, group encryption abhi
+implement nahi hai, to wahan koi change nahi kiya (unencrypted rehta hai,
+jaisa pehle se tha).
+
 ## Jo is scope me nahi kiya (aage kar sakte hain agar chahiye)
 - Group chat encryption (sender-key protocol, alag design hota hai).
 - Media messages (image/video/audio) encryption.

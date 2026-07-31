@@ -149,10 +149,28 @@ public class StarredMessagesActivity extends AppCompatActivity
                 .addValueEventListener(new ValueEventListener() {
                     @Override public void onDataChange(DataSnapshot snap) {
                         List<Message> fresh = new ArrayList<>();
+                        String currentUid = FirebaseUtils.getCurrentUid();
                         for (DataSnapshot c : snap.getChildren()) {
                             Message m = c.getValue(Message.class);
                             if (m == null) continue;
                             if (m.id == null) m.id = c.getKey();
+                            // E2EE: this is a raw Firebase read, same as
+                            // ChatRepository's delta sync — must decrypt
+                            // 1:1 text before it ever reaches the starred
+                            // list UI. Group messages are never encrypted.
+                            if (!isGroup && m.text != null
+                                    && com.callx.app.utils.E2EEncryptionManager.isEncrypted(m.text)) {
+                                if (m.senderId != null && m.senderId.equals(currentUid)) {
+                                    String cached = com.callx.app.utils.E2EEncryptionManager
+                                            .getInstance(StarredMessagesActivity.this)
+                                            .takeOwnPlaintext(m.id);
+                                    m.text = (cached != null) ? cached : "🔒 Sent message";
+                                } else {
+                                    m.text = com.callx.app.utils.E2EEncryptionManager
+                                            .getInstance(StarredMessagesActivity.this)
+                                            .decrypt(m.text, m.senderId);
+                                }
+                            }
                             if (Boolean.TRUE.equals(m.starred)) fresh.add(m);
                         }
                         fresh.sort((a, b) -> {
