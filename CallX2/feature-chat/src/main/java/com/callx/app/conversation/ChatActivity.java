@@ -757,6 +757,16 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // returning from a picker / dialog / app-switch).
         applyChatDisplayMode();
 
+        // E2EE: surface a "security code changed" system bubble if one
+        // fired while this chat was closed/backgrounded (most commonly:
+        // an FCM push decrypted by CallxMessagingService detected the
+        // partner's identity key changed). See
+        // ChatMessageSender#insertSecurityEventIfPending /
+        // E2EEncryptionManager#persistSecurityAlert.
+        if (messageSender != null && partnerUid != null && !partnerUid.isEmpty()) {
+            messageSender.insertSecurityEventIfPending(partnerUid, partnerName);
+        }
+
         // v8: pick the docked mini reel player back up if the user had one
         // playing when they opened this chat (handed off in ChatListAdapter
         // right before startActivity, or still active from an even earlier
@@ -2507,6 +2517,14 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // the ratchet (which would fail; see E2EEncryptionManager#decrypt).
         m.text = com.callx.app.utils.E2EEncryptionManager.getInstance(this)
                 .decrypt(m.text, partnerUid, m.id);
+
+        // E2EE: if that decrypt just detected a genuine identity-key change
+        // (see E2EEncryptionManager#persistSecurityAlert), surface it as a
+        // system bubble immediately instead of waiting for the next
+        // onResume — the chat is visibly open right now.
+        if (messageSender != null) {
+            messageSender.insertSecurityEventIfPending(partnerUid, partnerName);
+        }
     }
 
     private void saveToRoom(Message m, boolean isUpdate) {

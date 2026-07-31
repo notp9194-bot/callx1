@@ -113,7 +113,8 @@ public class ChatThemeController {
     // ── Security / privacy sheets ─────────────────────────────────────────
 
     public void showChatSecuritySheet() {
-        ChatSecurityBottomSheet sheet = ChatSecurityBottomSheet.newInstance();
+        ChatSecurityBottomSheet sheet = ChatSecurityBottomSheet.newInstance(
+                delegate.getPartnerUid(), delegate.getPartnerName());
         sheet.show(delegate.getSupportFragmentManager(), ChatSecurityBottomSheet.TAG);
     }
 

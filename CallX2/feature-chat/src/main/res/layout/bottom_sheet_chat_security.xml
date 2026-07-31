@@ -667,7 +667,61 @@
 
     <!-- Divider -->
     <View android:layout_width="match_parent" android:layout_height="1dp"
-        android:background="#F0F0F0" android:layout_marginTop="4dp" android:layout_marginBottom="12dp"/>
+        android:background="#F0F0F0" android:layout_marginTop="4dp" android:layout_marginBottom="4dp"/>
+
+    <!-- Encryption / Safety Number -->
+    <LinearLayout
+        android:id="@+id/row_encryption"
+        android:layout_width="match_parent"
+        android:layout_height="60dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="20dp"
+        android:paddingEnd="16dp"
+        android:background="?attr/selectableItemBackground">
+
+        <TextView
+            android:layout_width="34dp"
+            android:layout_height="34dp"
+            android:gravity="center"
+            android:text="🔒"
+            android:textSize="20sp"
+            android:background="@drawable/bg_sec_row_green"/>
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:paddingStart="14dp">
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Encryption"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:textColor="#1A1A2E"/>
+            <TextView
+                android:id="@+id/tv_encryption_val"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Messages are end-to-end encrypted. Tap to verify."
+                android:textSize="12sp"
+                android:textColor="#888888"/>
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="›"
+            android:textSize="22sp"
+            android:textColor="#CCCCCC"
+            android:paddingEnd="4dp"/>
+    </LinearLayout>
+
+    <!-- Divider -->
+    <View android:layout_width="match_parent" android:layout_height="1dp"
+        android:background="#F0F0F0" android:layout_marginTop="8dp" android:layout_marginBottom="12dp"/>
 
     <!-- Full Settings Button -->
     <LinearLayout

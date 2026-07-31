@@ -683,6 +683,24 @@ public class E2EEncryptionManager {
                     } else if (!isReplayOfKnownIdentity) {
                         Log.w(TAG, "Re-keying session with " + partnerUid
                                 + " — fresh handshake on an already-established session (partner likely reinstalled)");
+                        // SECURITY-CODE-CHANGE ALERT: this branch only runs when
+                        // we already had a fully-established, previously-acked
+                        // session (s.handshakeAcked) whose remoteIdentityPub we
+                        // trusted — and the new handshake carries a DIFFERENT
+                        // identity key. That's exactly the situation WhatsApp
+                        // surfaces as "Your security code with X has changed" —
+                        // either a legitimate reinstall/new-device, or a server
+                        // silently swapping in a key it controls (MITM).
+                        // Persist a durable alert (survives even if this decrypt
+                        // happens in a background FCM path with no chat UI open)
+                        // so ChatActivity/ChatMessageSender can surface it as an
+                        // in-chat system bubble next time the conversation is
+                        // opened. A first-time handshake (remoteIdentityPub ==
+                        // null, i.e. nothing trusted to compare against yet) is
+                        // NOT an alert — that's just normal session setup.
+                        if (s.remoteIdentityPub != null) {
+                            persistSecurityAlert(partnerUid, s.remoteIdentityPub, incomingIdentity);
+                        }
                         s = acceptSessionAsResponder(header);
                     }
                     // else: stale replay of a handshake we've already
@@ -759,11 +777,120 @@ public class E2EEncryptionManager {
         return fingerprintOf(identityPrefs.getString("identity_pub", null));
     }
 
-    /** Fingerprint of the partner's identity key so both sides can compare out-of-band. */
+    /**
+     * Fingerprint of the partner's identity key so both sides can compare
+     * out-of-band.
+     *
+     * BUG FIX: this used to read {@code s.pendingIdentityPub}, which is
+     * actually a mislabeled copy of OUR OWN identity key (see
+     * {@code initiateSessionAsSender}: {@code s.pendingIdentityPub =
+     * identityPrefs.getString("identity_pub", ...)}) — and is never set at
+     * all on the responder side ({@code acceptSessionAsResponder} never
+     * touches it). Net effect: the safety-number UI was either showing the
+     * user their OWN key back at them (sender side) or permanently
+     * "Not established yet" (responder side) — never the partner's actual
+     * key, which defeats the entire point of a safety-number check. The
+     * correct field is {@code remoteIdentityPub}, which both
+     * initiateSessionAsSender and acceptSessionAsResponder set to the
+     * PARTNER's identity key.
+     */
     public String getPartnerPublicKeyFingerprint(String partnerUid) {
         Session s = loadSession(partnerUid);
-        if (s == null || s.pendingIdentityPub == null) return "Not established yet";
-        return fingerprintOf(s.pendingIdentityPub);
+        if (s == null || s.remoteIdentityPub == null) return "Not established yet";
+        return fingerprintOf(s.remoteIdentityPub);
+    }
+
+    /**
+     * Combined WhatsApp-style "safety number" for a conversation — a single
+     * value BOTH sides compute identically (our identity key + their
+     * identity key, sorted so ordering doesn't matter, hashed together),
+     * shown as five 5-digit groups. Comparing this number out-of-band (in
+     * person, or over a different channel) is what actually detects a
+     * MITM'd server silently swapping in a key it controls — a per-side
+     * fingerprint alone can't prove YOUR OWN client wasn't also handed a
+     * spoofed partner key. Returns null if no session/keys yet.
+     */
+    @Nullable
+    public String getSafetyNumber(String partnerUid) {
+        try {
+            String ourPub = identityPrefs.getString("identity_pub", null);
+            Session s = loadSession(partnerUid);
+            if (ourPub == null || s == null || s.remoteIdentityPub == null) return null;
+            String a = ourPub, b = s.remoteIdentityPub;
+            // Sort so both participants derive the exact same combined
+            // digest regardless of who's "us" and who's "them".
+            String first = a.compareTo(b) <= 0 ? a : b;
+            String second = a.compareTo(b) <= 0 ? b : a;
+            byte[] hash = MessageDigest.getInstance("SHA-256").digest(
+                    (first + "|" + second).getBytes(StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder();
+            for (int group = 0; group < 5; group++) {
+                if (group > 0) sb.append(' ');
+                int val = ((hash[group * 2] & 0xFF) << 8 | (hash[group * 2 + 1] & 0xFF)) % 100000;
+                sb.append(String.format("%05d", val));
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** Whether the person has confirmed (out-of-band) that {@link #getSafetyNumber} matches on both devices. */
+    public boolean isVerified(String partnerUid) {
+        return identityPrefs.getBoolean("verified_" + partnerUid, false);
+    }
+
+    public void setVerified(String partnerUid, boolean verified) {
+        identityPrefs.edit().putBoolean("verified_" + partnerUid, verified).apply();
+    }
+
+    // ═════════════════════════════════════════════════════════════════════
+    // SECURITY-CODE-CHANGE ALERT (WhatsApp-style "safety number changed")
+    // ═════════════════════════════════════════════════════════════════════
+    //
+    // Persisted (not just in-memory) because the identity change is most
+    // often first observed from a background FCM push (CallxMessagingService)
+    // decrypting a message while no chat screen is open at all — the alert
+    // has to survive until the user actually opens that conversation.
+
+    private void persistSecurityAlert(String partnerUid, String oldIdentityPub, String newIdentityPub) {
+        try {
+            JSONObject o = new JSONObject();
+            o.put("old", fingerprintOf(oldIdentityPub));
+            o.put("new", fingerprintOf(newIdentityPub));
+            o.put("ts", System.currentTimeMillis());
+            identityPrefs.edit().putString("sec_alert_" + partnerUid, o.toString()).apply();
+        } catch (Exception e) {
+            Log.e(TAG, "persistSecurityAlert failed", e);
+        }
+        // A previously-verified safety number no longer applies once the
+        // underlying identity key has changed — mirrors WhatsApp clearing
+        // the verified checkmark on a security-code change.
+        setVerified(partnerUid, false);
+    }
+
+    public boolean hasPendingSecurityAlert(String partnerUid) {
+        return identityPrefs.contains("sec_alert_" + partnerUid);
+    }
+
+    /**
+     * Consumes (clears) and returns a human-readable chat-bubble message for
+     * a pending security-code-change alert, or null if there isn't one.
+     * Intended to be called once, right before inserting a local-only
+     * system message into the conversation (see ChatMessageSender
+     * #insertSecurityEventIfPending) — never written to Firebase, since
+     * each device detects and reports this independently, exactly like
+     * WhatsApp.
+     */
+    @Nullable
+    public String consumeSecurityAlertMessage(String partnerUid, @Nullable String partnerDisplayName) {
+        String raw = identityPrefs.getString("sec_alert_" + partnerUid, null);
+        if (raw == null) return null;
+        identityPrefs.edit().remove("sec_alert_" + partnerUid).apply();
+        String who = (partnerDisplayName != null && !partnerDisplayName.isEmpty())
+                ? partnerDisplayName : "this contact";
+        return "🔒 Your security code with " + who
+                + " has changed. No one outside this chat can read your messages — tap Security to verify the new code.";
     }
 
     private String fingerprintOf(String pubB64) {

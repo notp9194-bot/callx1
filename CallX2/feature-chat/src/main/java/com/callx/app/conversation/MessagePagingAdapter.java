@@ -926,7 +926,7 @@ public class MessagePagingAdapter
             // real received message ("Sent" fallback, no Seen/Delivered
             // rows) instead of the outgoing message the user actually
             // selected. Filter these out defensively at the source.
-            if ("date_separator".equals(m.type)) continue;
+            if ("date_separator".equals(m.type) || "security_event".equals(m.type)) continue;
             String id = m.messageId != null ? m.messageId : m.id;
             if (id != null && selectedMessageIds.contains(id)) result.add(m);
         }
@@ -1066,7 +1066,11 @@ public class MessagePagingAdapter
     public int getItemViewType(int position) {
         Message m = getItem(position);
         if (m == null) return TYPE_RECEIVED;
-        if ("date_separator".equals(m.type)) return TYPE_DATE_SEPARATOR;
+        // "security_event" (E2EE security-code-change notice) reuses the
+        // same standalone pill-chip rendering as date separators — see
+        // ChatMessageSender#insertSecurityEventIfPending. Both are
+        // synthetic/local-only rows, never real messages.
+        if ("date_separator".equals(m.type) || "security_event".equals(m.type)) return TYPE_DATE_SEPARATOR;
         // status_seen / reel_seen — now rendered on Canvas (always the
         // "received" shape, left-aligned) instead of item_status_seen_
         // bubble.xml / item_reel_seen_bubble.xml. TYPE_STATUS_SEEN/
@@ -1453,8 +1457,8 @@ public class MessagePagingAdapter
             if (h.tvMessage != null) h.tvMessage.setVisibility(View.GONE);
             return;
         }
-        // ── DATE SEPARATOR — standalone chip row ─────────────────────────
-        if ("date_separator".equals(m.type)) {
+        // ── DATE SEPARATOR / SECURITY EVENT — standalone chip row ────────
+        if ("date_separator".equals(m.type) || "security_event".equals(m.type)) {
             if (h.dateSeparatorView != null) h.dateSeparatorView.setLabel(m.text);
             return;
         }

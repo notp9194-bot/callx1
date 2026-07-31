@@ -241,6 +241,49 @@ public class ChatMessageSender {
         });
     }
 
+    // ── E2EE security-code-change alert (WhatsApp-style) ────────────────────
+
+    /**
+     * Checks whether E2EEncryptionManager has a pending "security code
+     * changed" alert for {@code partnerUid} (set when a message decrypts
+     * with a DIFFERENT identity key than the one previously trusted for an
+     * already-established session — see E2EEncryptionManager#persistSecurityAlert)
+     * and, if so, inserts it as a local-only system bubble (type=
+     * "security_event") into the conversation. Never pushed to Firebase —
+     * each side detects and reports this independently from its own ratchet
+     * state, exactly like WhatsApp's per-device security-code notice.
+     *
+     * Safe to call defensively any time a chat screen becomes visible
+     * (ChatActivity#onResume) and right after any incoming message is
+     * decrypted (ChatActivity#decryptIncomingIfNeeded) — it's a cheap
+     * SharedPreferences check when there's nothing pending.
+     */
+    public void insertSecurityEventIfPending(String partnerUid, String partnerDisplayName) {
+        if (partnerUid == null || partnerUid.isEmpty()) return;
+        Executors.newSingleThreadExecutor().execute(() -> {
+            com.callx.app.utils.E2EEncryptionManager e2e =
+                    com.callx.app.utils.E2EEncryptionManager.getInstance(delegate.getActivity());
+            if (!e2e.hasPendingSecurityAlert(partnerUid)) return;
+            String alertText = e2e.consumeSecurityAlertMessage(partnerUid, partnerDisplayName);
+            if (alertText == null) return;
+
+            Message m = new Message();
+            m.id = "sec_" + partnerUid + "_" + System.currentTimeMillis();
+            m.messageId = m.id;
+            m.type = "security_event";
+            m.text = alertText;
+            m.timestamp = System.currentTimeMillis();
+            m.senderId = "system";
+            m.status = "sent";
+
+            MessageEntity entity = messageToEntity(m, "sent");
+
+            boolean willReanchor = delegate.severPagingIfAtBottom();
+            AppDatabase.getInstance(delegate.getActivity()).messageDao().insertMessage(entity);
+            if (willReanchor) delegate.reanchorPagingToBottom();
+        });
+    }
+
     // ── Entity builder ────────────────────────────────────────────────────
 
     public MessageEntity messageToEntity(Message m, String status) {

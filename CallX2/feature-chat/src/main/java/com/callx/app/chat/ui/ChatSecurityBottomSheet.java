@@ -32,8 +32,21 @@ public class ChatSecurityBottomSheet extends BottomSheetDialogFragment {
 
     public static final String TAG = "ChatSecurityBottomSheet";
 
+    private static final String ARG_PARTNER_UID  = "partnerUid";
+    private static final String ARG_PARTNER_NAME = "partnerName";
+
     private SecurityManager secMgr;
 
+    public static ChatSecurityBottomSheet newInstance(String partnerUid, String partnerName) {
+        ChatSecurityBottomSheet f = new ChatSecurityBottomSheet();
+        Bundle args = new Bundle();
+        args.putString(ARG_PARTNER_UID, partnerUid);
+        args.putString(ARG_PARTNER_NAME, partnerName);
+        f.setArguments(args);
+        return f;
+    }
+
+    /** Kept for any older call site that hasn't been updated — Encryption row just won't open without a partnerUid. */
     public static ChatSecurityBottomSheet newInstance() {
         return new ChatSecurityBottomSheet();
     }
@@ -54,7 +67,35 @@ public class ChatSecurityBottomSheet extends BottomSheetDialogFragment {
         setupToggles(v);
         setupVisibilityRows(v);
         setupDisappearingMessages(v);
+        setupEncryptionRow(v);
         setupFullSettingsButton(v);
+    }
+
+    // ── Encryption / Safety Number ──────────────────────────────────────────
+
+    private void setupEncryptionRow(View v) {
+        View row = v.findViewById(R.id.row_encryption);
+        if (row == null) return;
+        String partnerUid = getArguments() != null ? getArguments().getString(ARG_PARTNER_UID) : null;
+        String partnerName = getArguments() != null ? getArguments().getString(ARG_PARTNER_NAME) : null;
+
+        TextView tvVal = v.findViewById(R.id.tv_encryption_val);
+        if (tvVal != null && partnerUid != null) {
+            com.callx.app.utils.E2EEncryptionManager e2e =
+                    com.callx.app.utils.E2EEncryptionManager.getInstance(requireContext());
+            tvVal.setText(e2e.isVerified(partnerUid)
+                    ? "✓ Verified — tap to view safety number"
+                    : "Messages are end-to-end encrypted. Tap to verify.");
+        }
+
+        row.setOnClickListener(x -> {
+            if (partnerUid == null || partnerUid.isEmpty()) {
+                toast("Encryption isn't set up for this chat yet");
+                return;
+            }
+            EncryptionDetailsBottomSheet.newInstance(partnerUid, partnerName)
+                    .show(getParentFragmentManager(), EncryptionDetailsBottomSheet.TAG);
+        });
     }
 
     // ── 1. Toggles ────────────────────────────────────────────────────────
