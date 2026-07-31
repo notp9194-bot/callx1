@@ -2695,6 +2695,15 @@ public class MessagePagingAdapter
                 if (vBlurhashBmp != null) cv.setMediaBitmap(vBlurhashBmp);
             }
 
+            // Media E2E (video, thumbnail-only): m.thumbnailUrl is ciphertext
+            // (uploaded as resource_type=raw) when mediaKeyEnc is set — see
+            // ChatMediaController#doStartVideoUploadWork. The video file
+            // itself (vUrl, below) is never encrypted.
+            final byte[] vThumbKey = (!sent && m.mediaKeyEnc != null)
+                    ? com.callx.app.utils.MediaE2ECrypto.decryptKeyOnly(ctx, m.mediaKeyEnc,
+                            m.senderId, (m.messageId != null ? m.messageId : m.id))
+                    : null;
+
             if (vThumbUrl != null && !vThumbUrl.isEmpty()) {
                 // PERF #1: check decoded-Bitmap pool before Glide decode
                 final String vPoolKey = vThumbUrl;
@@ -2705,6 +2714,31 @@ public class MessagePagingAdapter
                                 .cacheAspectRatio(vThumbUrl, (float) vPoolHit.getWidth() / vPoolHit.getHeight());
                     }
                     cv.setMediaBitmap(vPoolHit);
+                } else if (vThumbKey != null) {
+                    // Encrypted thumb — decrypt via MediaCache before handing to Glide.
+                    final String vThumbUrlF = vThumbUrl;
+                    com.callx.app.utils.MediaCache.get(ctx, vThumbUrl, vThumbKey,
+                            new com.callx.app.utils.MediaCache.Callback() {
+                        @Override public void onReady(java.io.File file) {
+                            if (h.canvasBindToken != myToken) return;
+                            glide(ctx).asBitmap().load(file).apply(THUMB_RGB565)
+                                    .override(thumbPx(ctx), thumbPx(ctx))
+                                    .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
+                                        @Override public void onResourceReady(@NonNull Bitmap resource,
+                                                @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> t) {
+                                            if (resource.getHeight() > 0) {
+                                                com.callx.app.conversation.canvas.MessageBubbleCanvasView
+                                                        .cacheAspectRatio(vThumbUrlF, (float) resource.getWidth() / resource.getHeight());
+                                            }
+                                            DECODED_BITMAP_CACHE.put(vThumbUrlF, resource);
+                                            if (h.canvasBindToken != myToken) return;
+                                            cv.setMediaBitmap(resource);
+                                        }
+                                        @Override public void onLoadCleared(@Nullable android.graphics.drawable.Drawable p) { }
+                                    });
+                        }
+                        @Override public void onError(String reason) { /* BlurHash/placeholder stays up */ }
+                    });
                 } else {
                 // PERF #4: density-aware override size
                 glide(ctx).asBitmap()
@@ -2886,12 +2920,31 @@ public class MessagePagingAdapter
             cv.setDeletedStyle(false);
             java.io.File cachedAudio = MediaCache.getCached(ctx, aUrl);
             if (cachedAudio == null && aUrl != null && !aUrl.isEmpty()) {
-                com.callx.app.cache.MediaStreamCache.getInstance(ctx)
-                    .preloadPartial(aUrl, new com.callx.app.cache.MediaStreamCache.DownloadCallback() {
-                        @Override public void onComplete(java.io.File file) {}
-                        @Override public void onError(String error) {}
-                        @Override public void onProgress(int percent) {}
+                // Media E2E (audio): MediaStreamCache doesn't know how to
+                // decrypt, so an E2E voice note skips the "stream first
+                // 512KB while downloading" fast-start trick and instead
+                // warms the plain decrypting MediaCache download (full
+                // file — voice notes are small, so the wait is
+                // negligible). See ChatMediaController#doUpload's audio
+                // branch / MediaE2ECrypto.
+                byte[] aWarmKey = (!sent && m.mediaKeyEnc != null)
+                        ? com.callx.app.utils.MediaE2ECrypto.decryptKeyOnly(ctx, m.mediaKeyEnc,
+                                m.senderId, (m.messageId != null ? m.messageId : m.id))
+                        : null;
+                if (aWarmKey != null) {
+                    com.callx.app.utils.MediaCache.get(ctx, aUrl, aWarmKey,
+                            new com.callx.app.utils.MediaCache.Callback() {
+                        @Override public void onReady(java.io.File file) {}
+                        @Override public void onError(String reason) {}
                     });
+                } else {
+                    com.callx.app.cache.MediaStreamCache.getInstance(ctx)
+                        .preloadPartial(aUrl, new com.callx.app.cache.MediaStreamCache.DownloadCallback() {
+                            @Override public void onComplete(java.io.File file) {}
+                            @Override public void onError(String error) {}
+                            @Override public void onProgress(int percent) {}
+                        });
+                }
             }
         } else if (isGif) {
             // ── v59: GIF Canvas bubble ────────────────────────────────────────
@@ -5319,6 +5372,30 @@ public class MessagePagingAdapter
         java.io.File cached = MediaCache.getCached(h.itemView.getContext(), url);
         if (cached != null) {
             playAudioFromPath(h, cached.getAbsolutePath(), position);
+            return;
+        }
+
+        // Media E2E (audio): a voice note received through the E2E path
+        // is ciphertext at `url` — MediaStreamCache's streaming-partial
+        // trick can't decrypt on the fly, so download+decrypt the whole
+        // file first via MediaCache (voice notes are small; the extra
+        // wait vs. partial-stream-start is negligible) instead of
+        // MediaStreamCache.preloadPartial below.
+        Message audioMsg = getItem(position);
+        byte[] audioKey = (audioMsg != null && !currentUid.equals(audioMsg.senderId) && audioMsg.mediaKeyEnc != null)
+                ? com.callx.app.utils.MediaE2ECrypto.decryptKeyOnly(h.itemView.getContext(), audioMsg.mediaKeyEnc,
+                        audioMsg.senderId, (audioMsg.messageId != null ? audioMsg.messageId : audioMsg.id))
+                : null;
+        if (audioKey != null) {
+            com.callx.app.utils.MediaCache.get(h.itemView.getContext(), url, audioKey,
+                    new com.callx.app.utils.MediaCache.Callback() {
+                @Override public void onReady(java.io.File file) {
+                    playAudioFromPath(h, file.getAbsolutePath(), position);
+                }
+                @Override public void onError(String reason) {
+                    android.util.Log.w("AudioPlay", "E2E audio decrypt/download failed: " + reason);
+                }
+            });
             return;
         }
 

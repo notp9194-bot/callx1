@@ -112,9 +112,33 @@ public class VideoUploader {
     /** Start upload. Returns the uploader instance for pause/cancel control. */
     public static VideoUploader upload(Context ctx, VideoCompressor.Result compressed,
                                        UploadCallback callback) {
+        return upload(ctx, compressed, null, "image", callback);
+    }
+
+    /**
+     * Media E2E (video, thumbnail-only): same as {@link #upload(Context, VideoCompressor.Result, UploadCallback)}
+     * but lets the caller substitute an already-encrypted thumbnail file
+     * (and override the Cloudinary resource_type used to upload it — pass
+     * "raw" alongside an encrypted file). The video file itself is always
+     * uploaded as-is (plaintext) — HLS transcoding / adaptive quality
+     * variants require Cloudinary to be able to decode the actual video,
+     * so full video E2E is out of scope; only the thumbnail (which is what
+     * would otherwise leak a content preview) can be end-to-end encrypted.
+     * See ChatMediaController#doStartVideoUploadWork.
+     *
+     * @param thumbFileOverride if non-null, uploaded INSTEAD of
+     *        {@code compressed.thumbFile} — the caller owns cleaning this
+     *        file up (in onSuccess/onError), same as the encrypted temp
+     *        files in the image E2E path. {@code compressed.thumbFile}
+     *        itself (the plaintext original) is still deleted as normal
+     *        once the upload completes either way.
+     */
+    public static VideoUploader upload(Context ctx, VideoCompressor.Result compressed,
+                                       File thumbFileOverride, String thumbResourceType,
+                                       UploadCallback callback) {
         VideoUploader uploader = new VideoUploader();
         activeUploader = uploader;
-        new Thread(() -> uploader.doUpload(ctx, compressed, callback, 1)).start();
+        new Thread(() -> uploader.doUpload(ctx, compressed, thumbFileOverride, thumbResourceType, callback, 1)).start();
         return uploader;
     }
 
@@ -189,6 +213,11 @@ public class VideoUploader {
 
     private void doUpload(Context ctx, VideoCompressor.Result r,
                           UploadCallback cb, int attempt) {
+        doUpload(ctx, r, null, "image", cb, attempt);
+    }
+
+    private void doUpload(Context ctx, VideoCompressor.Result r, File thumbFileOverride,
+                          String thumbResourceType, UploadCallback cb, int attempt) {
         if (cancelled) {
             MAIN.post(() -> cb.onError(new Exception("Upload cancelled")));
             return;
@@ -201,8 +230,12 @@ public class VideoUploader {
         try {
             MAIN.post(() -> cb.onProgress(0));
 
-            // 1. Thumbnail (0–20%) — small, direct upload
-            String thumbUrl = uploadDirect(r.thumbFile, "image", "callx/videos/thumb",
+            // 1. Thumbnail (0–20%) — small, direct upload. When
+            // thumbFileOverride is set (Media E2E video thumbnail), upload
+            // THAT (the encrypted temp file) with the given resourceType
+            // ("raw") instead of the plaintext r.thumbFile.
+            File thumbToUpload = (thumbFileOverride != null) ? thumbFileOverride : r.thumbFile;
+            String thumbUrl = uploadDirect(thumbToUpload, thumbResourceType, "callx/videos/thumb",
                 pct -> MAIN.post(() -> cb.onProgress((int)(pct * 0.20f))));
 
             // 2. Video (20–100%) — chunked for large files.
@@ -244,7 +277,7 @@ public class VideoUploader {
             if (!cancelled && attempt < MAX_RETRY) {
                 long delay = (long) Math.pow(2, attempt) * 1000L;
                 try { Thread.sleep(delay); } catch (InterruptedException ignored) {}
-                doUpload(ctx, r, cb, attempt + 1);
+                doUpload(ctx, r, thumbFileOverride, thumbResourceType, cb, attempt + 1);
             } else {
                 MAIN.post(() -> cb.onError(new Exception(
                     "Upload failed after " + attempt + " tries: " + e.getMessage())));

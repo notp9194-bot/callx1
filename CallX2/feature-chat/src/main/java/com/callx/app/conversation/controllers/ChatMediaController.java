@@ -1358,13 +1358,57 @@ public class ChatMediaController {
                 reportUploadProgress(pending, percent / 2);
             }
             @Override public void onSuccess(VideoCompressor.Result vr) {
-                VideoUploader.upload(activity, vr, new VideoUploader.UploadCallback() {
+                // ── Media E2E (video, thumbnail-only) ──────────────────────
+                // Only the thumbnail is end-to-end encrypted — the video
+                // file itself stays plaintext so Cloudinary can still
+                // transcode HLS/adaptive-quality variants (it has to be
+                // able to decode the video to do that; true full-video E2E
+                // would break streaming playback entirely). This still
+                // closes the main preview-leak gap: without this, a
+                // compromised/hacked server could see a still frame of
+                // every video sent, same as the BlurHash leak on images.
+                // Reuses the exact same key-envelope + ratchet wrapping as
+                // image E2E (see MediaE2ECrypto / Message#mediaKeyEnc) —
+                // just no BlurHash payload this time.
+                byte[] thumbKey = null;
+                java.io.File encThumb = null;
+                if (vr.thumbFile != null && vr.thumbFile.exists()) {
+                    String partnerUid = delegate.getPartnerUid();
+                    if (partnerUid != null && !partnerUid.isEmpty()) {
+                        try {
+                            byte[] key = com.callx.app.utils.MediaE2ECrypto.generateKey();
+                            java.io.File enc = new java.io.File(
+                                    vr.thumbFile.getParentFile(), vr.thumbFile.getName() + ".enc");
+                            com.callx.app.utils.MediaE2ECrypto.encryptFile(vr.thumbFile, enc, key);
+                            String envelopeJson = com.callx.app.utils.MediaE2ECrypto
+                                    .buildKeyEnvelopeJson(key, null);
+                            pending.mediaKeyEnc = com.callx.app.utils.E2EEncryptionManager
+                                    .getInstance(activity).encrypt(envelopeJson, partnerUid);
+                            thumbKey = key;
+                            encThumb = enc;
+                        } catch (Exception e) {
+                            android.util.Log.w("ChatMediaController",
+                                    "Video thumb E2E encrypt failed, uploading plaintext: " + e.getMessage());
+                            pending.mediaKeyEnc = null;
+                            thumbKey = null;
+                            if (encThumb != null) encThumb.delete();
+                            encThumb = null;
+                        }
+                    }
+                }
+                final byte[] finalThumbKey     = thumbKey;
+                final java.io.File finalEncThumb = encThumb;
+                final String thumbResourceType = (finalThumbKey != null) ? "raw" : "image";
+
+                VideoUploader.upload(activity, vr, finalEncThumb, thumbResourceType,
+                        new VideoUploader.UploadCallback() {
                     @Override public void onProgress(int percent) {
                         // Upload = second half (50–100 %)
                         reportUploadProgress(pending, 50 + percent / 2);
                     }
                     @Override public void onSuccess(String thumbUrl, String videoUrl,
                                                     int durationMs, int width, int height) {
+                        if (finalEncThumb != null) finalEncThumb.delete();
                         pending.mediaUrl     = videoUrl;
                         pending.thumbnailUrl = thumbUrl;
                         pending.duration     = (long) durationMs;
@@ -1373,6 +1417,7 @@ public class ChatMediaController {
                         finishVideoUploadSuccess(pending);
                     }
                     @Override public void onError(Exception e) {
+                        if (finalEncThumb != null) finalEncThumb.delete();
                         finishVideoUploadFailure(pending,
                                 e != null ? e.getMessage() : "Video upload failed");
                     }
@@ -1875,9 +1920,50 @@ public class ChatMediaController {
             return;
         }
 
-        CloudinaryUploader.upload(activity, uri, "callx/" + msgType, resourceType,
+        // ── Media E2E (audio) ────────────────────────────────────────────
+        // Only "audio" (voice notes + picked audio files) goes through
+        // this — "file"/other types sharing this same doUpload() method
+        // stay untouched. Encrypts the WHOLE audio file (unlike video,
+        // audio doesn't need Cloudinary-side transcoding/adaptive quality,
+        // so full E2E is straightforward here — same approach as images).
+        // Falls back to plaintext upload if there's no E2E session yet.
+        Uri uploadUri = uri;
+        java.io.File encAudioFile = null;
+        String mediaKeyEncForAudio = null;
+        if ("audio".equals(msgType)) {
+            String partnerUid = delegate.getPartnerUid();
+            if (partnerUid != null && !partnerUid.isEmpty()) {
+                try {
+                    byte[] key = com.callx.app.utils.MediaE2ECrypto.generateKey();
+                    java.io.File tmp = new java.io.File(activity.getCacheDir(),
+                            "e2e_audio_" + System.currentTimeMillis() + ".enc");
+                    try (java.io.InputStream in = activity.getContentResolver().openInputStream(uri);
+                         java.io.OutputStream out = new java.io.FileOutputStream(tmp)) {
+                        if (in == null) throw new java.io.IOException("Can't open audio for encryption");
+                        com.callx.app.utils.MediaE2ECrypto.encryptStream(in, out, key);
+                    }
+                    String envelopeJson = com.callx.app.utils.MediaE2ECrypto.buildKeyEnvelopeJson(key, null);
+                    mediaKeyEncForAudio = com.callx.app.utils.E2EEncryptionManager
+                            .getInstance(activity).encrypt(envelopeJson, partnerUid);
+                    encAudioFile = tmp;
+                    uploadUri = Uri.fromFile(tmp);
+                } catch (Exception e) {
+                    android.util.Log.w("ChatMediaController",
+                            "Audio E2E encrypt failed, uploading plaintext: " + e.getMessage());
+                    if (encAudioFile != null) encAudioFile.delete();
+                    encAudioFile = null;
+                    uploadUri = uri;
+                    mediaKeyEncForAudio = null;
+                }
+            }
+        }
+        final java.io.File finalEncAudioFile = encAudioFile;
+        final String finalMediaKeyEnc = mediaKeyEncForAudio;
+
+        CloudinaryUploader.upload(activity, uploadUri, "callx/" + msgType, resourceType,
                 new CloudinaryUploader.UploadCallback() {
                     @Override public void onSuccess(CloudinaryUploader.Result r) {
+                        if (finalEncAudioFile != null) finalEncAudioFile.delete();
                         binding.uploadProgress.setVisibility(View.GONE);
                         Message m  = delegate.buildOutgoing();
                         m.type     = msgType;
@@ -1886,10 +1972,12 @@ public class ChatMediaController {
                         m.fileName = fileName;
                         m.fileSize = r.bytes != null ? r.bytes : size;
                         m.duration = r.durationMs;
+                        m.mediaKeyEnc = finalMediaKeyEnc;
                         delegate.pushMessage(m, mediaPreview(msgType, fileName));
                         delegate.clearReply();
                     }
                     @Override public void onError(String err) {
+                        if (finalEncAudioFile != null) finalEncAudioFile.delete();
                         binding.uploadProgress.setVisibility(View.GONE);
                         Toast.makeText(activity,
                                 err != null ? err : "Upload failed", Toast.LENGTH_LONG).show();
