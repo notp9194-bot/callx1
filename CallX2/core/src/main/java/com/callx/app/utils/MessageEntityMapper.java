@@ -58,6 +58,8 @@ public final class MessageEntityMapper {
         m.mediaWidth = e.mediaWidth; m.mediaHeight = e.mediaHeight;
         // BUG FIX (v44): blurHash — see AppDatabase.MIGRATION_43_44.
         m.blurHash = e.blurHash;
+        // v46: Media E2E (image) — see AppDatabase.MIGRATION_45_46.
+        m.mediaKeyEnc = e.mediaKeyEnc;
         // BUG FIX: mediaLocalPath was never copied from entity → model, so
         // Message.mediaLocalPath was always null after a Room round-trip.
         // This broke the WhatsApp-style local-first upload bubble: the adapter's

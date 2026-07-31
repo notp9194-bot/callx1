@@ -336,6 +336,8 @@ public class ChatMessageSender {
         e.caption             = m.caption;
         // BUG FIX (v44): blurHash — see AppDatabase.MIGRATION_43_44.
         e.blurHash            = m.blurHash;
+        // v46: Media E2E (image) — see AppDatabase.MIGRATION_45_46.
+        e.mediaKeyEnc         = m.mediaKeyEnc;
         e.contactName         = m.contactName;
         e.contactPhone        = m.contactPhone;
         e.contactPhone2       = m.contactPhone2;

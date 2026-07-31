@@ -396,6 +396,9 @@ public class ChatRepository {
         e.locationAddress = m.locationAddress;
         // BUG FIX (v44): blurHash — see AppDatabase.MIGRATION_43_44.
         e.blurHash        = m.blurHash;
+        // v46: Media E2E (image) — kept as the still-encrypted envelope,
+        // never decrypted at this layer. See MessageEntity#mediaKeyEnc.
+        e.mediaKeyEnc     = m.mediaKeyEnc;
         e.syncedAt        = System.currentTimeMillis();
         return e;
     }

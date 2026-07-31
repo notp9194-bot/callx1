@@ -110,6 +110,12 @@ public class MediaCache {
      * cached, jumps straight to onReady (no progress callbacks).
      */
     public static void getWithProgress(Context ctx, String url, ProgressCallback cb) {
+        getWithProgress(ctx, url, null, cb);
+    }
+
+    /** Media E2E (image) variant of {@link #getWithProgress(Context, String, ProgressCallback)} —
+     *  see {@link #get(Context, String, byte[], Callback)} for what {@code decryptKey} does. */
+    public static void getWithProgress(Context ctx, String url, byte[] decryptKey, ProgressCallback cb) {
         if (ctx == null || url == null || url.isEmpty()) {
             if (cb != null) cb.onError("Invalid URL");
             return;
@@ -120,7 +126,7 @@ public class MediaCache {
             return;
         }
         sPool.execute(() -> {
-            File result = downloadWithProgress(ctx, url, percent -> {
+            File result = downloadWithProgress(ctx, url, decryptKey, percent -> {
                 if (cb != null) sMain.post(() -> cb.onProgress(percent));
             });
             if (result != null && result.exists()) {
@@ -139,6 +145,23 @@ public class MediaCache {
      * Agar nahi hai — background mein download karke callback deta hai.
      */
     public static void get(Context ctx, String url, Callback cb) {
+        get(ctx, url, null, cb);
+    }
+
+    /**
+     * Media E2E (image): same as {@link #get(Context, String, Callback)},
+     * but when {@code decryptKey} is non-null the downloaded bytes are
+     * streamed through {@link MediaE2ECrypto#decryptStream} before ever
+     * touching disk — the cache file on disk holds only the decrypted
+     * plaintext image, the ciphertext only ever exists transiently as it
+     * comes off the network socket. Everything downstream (Glide loading
+     * from the returned File, the bitmap pool, etc.) needs no changes at
+     * all, since it just sees a normal decoded-image file either way.
+     * Pass null for every non-encrypted message (audio/video/file/gif/
+     * sticker, or an image sent before this feature existed) — unchanged
+     * behavior.
+     */
+    public static void get(Context ctx, String url, byte[] decryptKey, Callback cb) {
         if (ctx == null || url == null || url.isEmpty()) {
             if (cb != null) cb.onError("Invalid URL");
             return;
@@ -153,7 +176,7 @@ public class MediaCache {
 
         Log.d(TAG, "Cache MISS — downloading: " + url);
         sPool.execute(() -> {
-            File result = download(ctx, url);
+            File result = download(ctx, url, decryptKey);
             if (result != null && result.exists()) {
                 Log.d(TAG, "Download succeeded, file: " + result.getAbsolutePath());
                 sMain.post(() -> {
@@ -216,6 +239,13 @@ public class MediaCache {
     }
 
     private static File download(Context ctx, String urlStr) {
+        return download(ctx, urlStr, null);
+    }
+
+    /** @param decryptKey non-null for a Media-E2E image — bytes are decrypted
+     *  (see {@link MediaE2ECrypto#decryptStream}) as they're written, so the
+     *  cache file on disk ends up holding plaintext, never ciphertext. */
+    private static File download(Context ctx, String urlStr, byte[] decryptKey) {
         HttpURLConnection conn = null;
         try {
             evictIfNeeded(ctx);
@@ -253,9 +283,13 @@ public class MediaCache {
 
             try (InputStream in  = conn.getInputStream();
                  FileOutputStream fos = new FileOutputStream(tmp)) {
-                byte[] buf = new byte[8192];
-                int n;
-                while ((n = in.read(buf)) != -1) fos.write(buf, 0, n);
+                if (decryptKey != null) {
+                    MediaE2ECrypto.decryptStream(in, fos, decryptKey);
+                } else {
+                    byte[] buf = new byte[8192];
+                    int n;
+                    while ((n = in.read(buf)) != -1) fos.write(buf, 0, n);
+                }
                 fos.flush();
                 try { fos.getFD().sync(); } catch (Exception ignored) {}
             }
@@ -284,6 +318,10 @@ public class MediaCache {
     }
 
     private static File downloadWithProgress(Context ctx, String urlStr, ProgressTick tick) {
+        return downloadWithProgress(ctx, urlStr, null, tick);
+    }
+
+    private static File downloadWithProgress(Context ctx, String urlStr, byte[] decryptKey, ProgressTick tick) {
         HttpURLConnection conn = null;
         try {
             evictIfNeeded(ctx);
@@ -314,20 +352,46 @@ public class MediaCache {
             File tmp = new File(tmpDir, out.getName() + ".tmp");
             if (tmp.exists()) tmp.delete();
 
-            long downloaded = 0;
-            int lastPercent = -1;
-            try (InputStream in  = conn.getInputStream();
+            try (InputStream rawIn = conn.getInputStream();
                  FileOutputStream fos = new FileOutputStream(tmp)) {
-                byte[] buf = new byte[8192];
-                int n;
-                while ((n = in.read(buf)) != -1) {
-                    fos.write(buf, 0, n);
-                    downloaded += n;
-                    if (total > 0 && tick != null) {
-                        int percent = (int) Math.min(100, (downloaded * 100) / total);
-                        if (percent != lastPercent) {
-                            lastPercent = percent;
-                            tick.onTick(percent);
+                if (decryptKey != null) {
+                    // Progress is tracked off ciphertext bytes read (the chunk
+                    // length/tag framing overhead is negligible — a few dozen
+                    // bytes per 64KB — so this tracks real download progress
+                    // closely enough for the UI's percentage pill).
+                    long[] downloadedHolder = {0};
+                    int[] lastPercentHolder = {-1};
+                    InputStream counting = new java.io.FilterInputStream(rawIn) {
+                        @Override public int read(byte[] b, int off, int len) throws IOException {
+                            int n = super.read(b, off, len);
+                            if (n > 0) {
+                                downloadedHolder[0] += n;
+                                if (total > 0 && tick != null) {
+                                    int percent = (int) Math.min(99, (downloadedHolder[0] * 100) / total);
+                                    if (percent != lastPercentHolder[0]) {
+                                        lastPercentHolder[0] = percent;
+                                        tick.onTick(percent);
+                                    }
+                                }
+                            }
+                            return n;
+                        }
+                    };
+                    MediaE2ECrypto.decryptStream(counting, fos, decryptKey);
+                } else {
+                    long downloaded = 0;
+                    int lastPercent = -1;
+                    byte[] buf = new byte[8192];
+                    int n;
+                    while ((n = rawIn.read(buf)) != -1) {
+                        fos.write(buf, 0, n);
+                        downloaded += n;
+                        if (total > 0 && tick != null) {
+                            int percent = (int) Math.min(100, (downloaded * 100) / total);
+                            if (percent != lastPercent) {
+                                lastPercent = percent;
+                                tick.onTick(percent);
+                            }
                         }
                     }
                 }

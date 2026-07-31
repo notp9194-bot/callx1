@@ -69,6 +69,27 @@ public class Message {
      */
     public String blurHash;
 
+    // ── Media E2E (image) ───────────────────────────────────────────────────
+    /**
+     * Present only on 1:1 IMAGE messages sent through the media-E2E path
+     * (see ChatMediaController#doStartImageUpload / uploadFullImage). When
+     * non-null, mediaUrl/thumbnailUrl point to an AES-256-GCM ciphertext
+     * blob (uploaded to Cloudinary as resource_type=raw — the server only
+     * ever stores/serves random bytes, never a decodable image).
+     *
+     * This field itself is an E2EEncryptionManager-encrypted envelope (same
+     * Double Ratchet session used for 1:1 text) carrying the random
+     * per-message AES key plus the BlurHash placeholder string — see
+     * MediaE2ECrypto#buildKeyEnvelopeJson/parseKeyEnvelopeJson. blurHash is
+     * intentionally left null on these messages (see field above) so no
+     * plaintext content preview travels outside the encrypted envelope.
+     *
+     * Null on every other message type and on all group-chat media —
+     * group media E2E is out of scope here, matching E2EEncryptionManager's
+     * own 1:1-only, text-only scope.
+     */
+    public String mediaKeyEnc;
+
     // ── Local-first media send (WhatsApp-style) ───────────────────────────
     /**
      * Local file URI/path of a picked-but-not-yet-uploaded image, set by

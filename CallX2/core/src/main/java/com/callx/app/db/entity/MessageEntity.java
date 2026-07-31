@@ -57,6 +57,17 @@ public class MessageEntity {
     // Firebase → Room round-trip. Receivers never saw BlurHash placeholders.
     // See AppDatabase.MIGRATION_43_44 for the matching column migration.
     public String blurHash;
+
+    // v46: Media E2E (image) — passthrough copy of Message#mediaKeyEnc.
+    // Deliberately kept as the still-E2E-encrypted envelope here (NOT the
+    // decrypted AES key) — Room is on-device storage, not the trust
+    // boundary, but there's no reason to ever persist a raw decrypted
+    // media key to disk when the encrypted envelope is enough; the AES key
+    // itself is decrypted in memory only, on demand, at render time (see
+    // MessagePagingAdapter's image bind + MediaCache's decrypting
+    // download). See AppDatabase.MIGRATION_45_46.
+    public String mediaKeyEnc;
+
     public String fileName;
     public Long   fileSize;
     public Long   duration;

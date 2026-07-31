@@ -55,7 +55,7 @@ import com.callx.app.db.entity.*;
         ChatFolderEntity.class,
         SavedMessageEntity.class
     },
-    version = 45,
+    version = 46,
     exportSchema = false
 )
 public abstract class AppDatabase extends RoomDatabase {
@@ -566,6 +566,15 @@ public abstract class AppDatabase extends RoomDatabase {
         }
     };
 
+    /** v46: Media E2E (image) — messages table gets a mediaKeyEnc column
+     *  (see MessageEntity#mediaKeyEnc / Message#mediaKeyEnc / MediaE2ECrypto). */
+    static final Migration MIGRATION_45_46 = new Migration(45, 46) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase db) {
+            db.execSQL("ALTER TABLE messages ADD COLUMN mediaKeyEnc TEXT");
+        }
+    };
+
     // ─── Singleton ────────────────────────────────────────────────────────────
 
     public static boolean isWarm() { return sInstance != null; }
@@ -586,7 +595,7 @@ public abstract class AppDatabase extends RoomDatabase {
                                     MIGRATION_38_39, MIGRATION_39_40,
                                     MIGRATION_40_41, MIGRATION_41_42,
                                     MIGRATION_42_43, MIGRATION_43_44,
-                                    MIGRATION_44_45)
+                                    MIGRATION_44_45, MIGRATION_45_46)
                             .fallbackToDestructiveMigrationFrom(1, 2, 3, 4, 5, 6, 7, 8,
                                     9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
                                     21, 22, 23, 24, 25, 26, 27, 28, 29)

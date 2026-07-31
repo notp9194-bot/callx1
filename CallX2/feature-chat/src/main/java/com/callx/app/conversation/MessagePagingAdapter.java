@@ -2312,7 +2312,19 @@ public class MessagePagingAdapter
             } else if (fullUrl != null && !fullUrl.isEmpty()) {
                 // ── BlurHash placeholder: show a blurred color preview the instant
                 // the bubble appears, before any network download starts. ─────────
-                final String blurHash = m.blurHash;
+                // Media E2E (image): m.blurHash is intentionally left blank on
+                // these messages (see ChatMediaController / Message#mediaKeyEnc)
+                // — the placeholder string instead travels inside the encrypted
+                // key envelope, so decrypt it here rather than reading m.blurHash.
+                String blurHash = m.blurHash;
+                byte[] iMediaKey = null;
+                if (!sent && m.mediaKeyEnc != null) {
+                    com.callx.app.utils.MediaE2ECrypto.KeyEnvelope env =
+                            com.callx.app.utils.MediaE2ECrypto.decryptEnvelopeForMessage(ctx, m.mediaKeyEnc,
+                                    m.senderId, (m.messageId != null ? m.messageId : m.id));
+                    blurHash = (env != null) ? env.blurHash : null;
+                    iMediaKey = (env != null) ? env.key : null;
+                }
                 if (blurHash != null && !blurHash.isEmpty()) {
                     android.graphics.Bitmap placeholder = BlurHashPlaceholder.get(blurHash, 32, 32);
                     if (placeholder != null) cv.setMediaBitmap(placeholder);
@@ -2339,6 +2351,36 @@ public class MessagePagingAdapter
                                     .cacheAspectRatio(iThumbUrl, (float) iThumbPoolHit.getWidth() / iThumbPoolHit.getHeight());
                         }
                         cv.setMediaBitmap(iThumbPoolHit);
+                    } else if (iMediaKey != null) {
+                        // Media E2E (image): m.thumbnailUrl is ciphertext for
+                        // these messages (uploaded as resource_type=raw) —
+                        // Glide can't decode it directly. Go through the same
+                        // decrypting MediaCache path as the full image so the
+                        // low-res preview still works instead of silently
+                        // failing to load.
+                        final String iThumbUrlF = iThumbUrl;
+                        com.callx.app.utils.MediaCache.get(ctx, iThumbUrl, iMediaKey,
+                                new com.callx.app.utils.MediaCache.Callback() {
+                            @Override public void onReady(java.io.File file) {
+                                if (h.canvasBindToken != myToken) return;
+                                glide(ctx).asBitmap().load(file).apply(THUMB_RGB565)
+                                        .override(thumbPx(ctx), thumbPx(ctx))
+                                        .into(new com.bumptech.glide.request.target.CustomTarget<android.graphics.Bitmap>() {
+                                            @Override public void onResourceReady(@NonNull android.graphics.Bitmap resource,
+                                                    @Nullable com.bumptech.glide.request.transition.Transition<? super android.graphics.Bitmap> t) {
+                                                if (resource.getHeight() > 0) {
+                                                    com.callx.app.conversation.canvas.MessageBubbleCanvasView
+                                                            .cacheAspectRatio(iThumbUrlF, (float) resource.getWidth() / resource.getHeight());
+                                                }
+                                                DECODED_BITMAP_CACHE.put(iThumbUrlF, resource);
+                                                if (h.canvasBindToken != myToken) return;
+                                                cv.setMediaBitmap(resource);
+                                            }
+                                            @Override public void onLoadCleared(@Nullable android.graphics.drawable.Drawable p) { }
+                                        });
+                            }
+                            @Override public void onError(String reason) { /* blurHash placeholder stays up */ }
+                        });
                     } else {
                         // Cache miss — fire a lightweight Glide decode of the Cloudinary
                         // thumbnail URL. thumbnail(0.1f) lets Glide show a placeholder at
@@ -2390,8 +2432,19 @@ public class MessagePagingAdapter
                     downloadingMediaUrls.add(fullUrl);
                     cv.setMediaDownloadGate(true, 0, null);
                     final String capturedUrl = fullUrl;
+                    // Media E2E (image): resolve the AES key up front (cheap —
+                    // E2EEncryptionManager caches the ratchet-decrypt result per
+                    // message) so the auto-download below decrypts as it writes
+                    // to the disk cache. Null (and thus a no-op here) for a
+                    // received image that predates this feature, or any other
+                    // media type — MediaCache.getWithProgress falls back to its
+                    // old plaintext behavior when decryptKey is null.
+                    final byte[] autoDlKey = (!sent && m.mediaKeyEnc != null)
+                            ? com.callx.app.utils.MediaE2ECrypto.decryptKeyOnly(ctx, m.mediaKeyEnc,
+                                    m.senderId, m.messageId != null ? m.messageId : m.id)
+                            : null;
                     MediaDownloadQueue.getInstance(ctx).enqueue(capturedUrl, null, () -> {
-                        com.callx.app.utils.MediaCache.getWithProgress(ctx, capturedUrl,
+                        com.callx.app.utils.MediaCache.getWithProgress(ctx, capturedUrl, autoDlKey,
                                 new com.callx.app.utils.MediaCache.ProgressCallback() {
                             @Override public void onProgress(int percent) {
                                 if (h.canvasBindToken != myToken) return;
@@ -3485,7 +3538,13 @@ public class MessagePagingAdapter
                 downloadingMediaUrls.add(fullUrl);
                 cv.setMediaDownloadGate(true, 0, null);
 
-                com.callx.app.utils.MediaCache.getWithProgress(ctx, fullUrl,
+                // Media E2E (image) — see the matching comment on the
+                // auto-download path above.
+                final byte[] tapDlKey = (!sent && m.mediaKeyEnc != null)
+                        ? com.callx.app.utils.MediaE2ECrypto.decryptKeyOnly(ctx, m.mediaKeyEnc,
+                                m.senderId, m.messageId != null ? m.messageId : m.id)
+                        : null;
+                com.callx.app.utils.MediaCache.getWithProgress(ctx, fullUrl, tapDlKey,
                         new com.callx.app.utils.MediaCache.ProgressCallback() {
                     @Override public void onProgress(int percent) {
                         if (h.canvasBindToken != myToken) return;
