@@ -412,6 +412,7 @@ public class E2EEncryptionManager {
         s.pendingIdentityPub = identityPrefs.getString("identity_pub", null);
         s.pendingSpkId = spkId;
         s.pendingOpkId = opkId;
+        s.remoteIdentityPub = bundle.getString("identityKey");
 
         saveSession(partnerUid, s);
         return true;
@@ -466,6 +467,7 @@ public class E2EEncryptionManager {
         s.dhRemotePub  = senderEphemeral;
         s.ns = 0; s.nr = 0; s.pn = 0;
         s.handshakeAcked = true;
+        s.remoteIdentityPub = header.getString("ik");
         return s;
     }
 
@@ -640,13 +642,52 @@ public class E2EEncryptionManager {
                         return DECRYPT_FAILED_MARKER;
                     }
                     s = acceptSessionAsResponder(header);
-                } else if (header.has("ik") && !s.handshakeAcked) {
-                    // Near-simultaneous first messages both ways — the
-                    // responder-derived session is authoritative for messages
-                    // carrying "ik"; keep our own outbound progress intact.
-                    Session responderSide = acceptSessionAsResponder(header);
-                    responderSide.sendChainKey = s.sendChainKey;
-                    s = responderSide;
+                } else if (header.has("ik")) {
+                    // THE ACTUAL BUG behind "still failing even after I sent a
+                    // new message": this used to only fire when
+                    // `!s.handshakeAcked`. But once a conversation is
+                    // established, handshakeAcked is true FOREVER on both
+                    // sides and a healthy peer's client never attaches "ik"
+                    // again (see encrypt()). So the ONLY reason an
+                    // already-acked session would ever see incoming "ik" is
+                    // that the partner's app lost its old session (reinstall
+                    // / re-key) and started a brand-new X3DH handshake — and
+                    // this branch was silently ignoring exactly that,
+                    // permanently stuck decrypting with a session the
+                    // partner no longer has the matching keys for, no matter
+                    // how many new messages either side sent afterward.
+                    //
+                    // remoteIdentityPub lets us still tell that apart from a
+                    // stale REPLAY of an old (already-cached) handshake
+                    // message surfacing again during history pagination —
+                    // in that case the "ik" is identical to what we already
+                    // trust, so we leave the live session alone instead of
+                    // clobbering a healthy, more-advanced ratchet with it.
+                    // For sessions saved before this field existed,
+                    // remoteIdentityPub is null, so we trust the incoming
+                    // "ik" (there's nothing to compare it against yet) —
+                    // this is what lets an already-stuck conversation like
+                    // this one self-heal on the very next handshake message.
+                    String incomingIdentity = header.getString("ik");
+                    boolean isReplayOfKnownIdentity =
+                            s.remoteIdentityPub != null && s.remoteIdentityPub.equals(incomingIdentity);
+
+                    if (!s.handshakeAcked) {
+                        // Near-simultaneous first messages both ways — the
+                        // responder-derived session is authoritative for
+                        // messages carrying "ik"; keep our own outbound
+                        // progress intact.
+                        Session responderSide = acceptSessionAsResponder(header);
+                        responderSide.sendChainKey = s.sendChainKey;
+                        s = responderSide;
+                    } else if (!isReplayOfKnownIdentity) {
+                        Log.w(TAG, "Re-keying session with " + partnerUid
+                                + " — fresh handshake on an already-established session (partner likely reinstalled)");
+                        s = acceptSessionAsResponder(header);
+                    }
+                    // else: stale replay of a handshake we've already
+                    // incorporated — fall through to the normal ratchet path
+                    // below using the existing, healthy session.
                 }
 
                 PublicKey msgDh = decodePub(header.getString("dh"));
@@ -816,6 +857,8 @@ public class E2EEncryptionManager {
         String pendingIdentityPub;
         String pendingSpkId;
         String pendingOpkId;
+        /** The partner's identity public key this session was established against — lets us tell a genuine re-key (partner reinstalled) apart from a stale replay of an old handshake message. Null for sessions saved before this field existed. */
+        String remoteIdentityPub;
         Map<String, byte[]> skippedKeys = new LinkedHashMap<>();
     }
 
@@ -839,6 +882,7 @@ public class E2EEncryptionManager {
             s.ns = o.getInt("ns"); s.nr = o.getInt("nr"); s.pn = o.getInt("pn");
             s.handshakeAcked = o.getBoolean("ack");
             s.pendingIdentityPub = o.optString("pik", null);
+            s.remoteIdentityPub = o.optString("rip", null);
             s.pendingSpkId = o.optString("pspk", null);
             s.pendingOpkId = o.has("popk") ? o.getString("popk") : null;
             JSONObject skipped = o.optJSONObject("skip");
@@ -867,6 +911,7 @@ public class E2EEncryptionManager {
         o.put("ns", s.ns); o.put("nr", s.nr); o.put("pn", s.pn);
         o.put("ack", s.handshakeAcked);
         if (s.pendingIdentityPub != null) o.put("pik", s.pendingIdentityPub);
+        if (s.remoteIdentityPub != null) o.put("rip", s.remoteIdentityPub);
         if (s.pendingSpkId != null) o.put("pspk", s.pendingSpkId);
         if (s.pendingOpkId != null) o.put("popk", s.pendingOpkId);
         JSONObject skip = new JSONObject();
