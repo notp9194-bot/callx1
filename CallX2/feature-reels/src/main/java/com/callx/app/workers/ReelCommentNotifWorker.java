@@ -42,6 +42,7 @@ public class ReelCommentNotifWorker extends Worker {
     public static final String TYPE_COMMENT = "comment";
     public static final String TYPE_REPLY   = "reply";
     public static final String TYPE_LIKE    = "like";
+    public static final String TYPE_MENTION = "mention";
 
     public ReelCommentNotifWorker(@NonNull Context ctx, @NonNull WorkerParameters params) {
         super(ctx, params);
@@ -76,6 +77,9 @@ public class ReelCommentNotifWorker extends Worker {
                     break;
                 case TYPE_LIKE:
                     message = name + " liked your comment";
+                    break;
+                case TYPE_MENTION:
+                    message = name + " mentioned you: " + text;
                     break;
                 default:
                     message = name + " commented: " + text;
@@ -152,6 +156,14 @@ public class ReelCommentNotifWorker extends Worker {
             likerUid, likerName, commentId, "");
     }
 
+    /** Enqueue a mention notification to a tagged user. */
+    public static void enqueueMention(Context ctx, String reelId, String mentionedUid,
+                                      String taggerUid, String taggerName,
+                                      String commentId,   String commentText) {
+        enqueueInternal(ctx, TYPE_MENTION, reelId, mentionedUid,
+            taggerUid, taggerName, commentId, commentText);
+    }
+
     private static void enqueueInternal(Context ctx, String type,
                                         String reelId, String ownerUid,
                                         String actorUid, String actorName,
@@ -176,7 +188,7 @@ public class ReelCommentNotifWorker extends Worker {
             .build();
 
         WorkManager.getInstance(ctx).enqueueUniqueWork(
-            type + "_notif_" + reelId + "_" + commentId,
+            type + "_notif_" + reelId + "_" + commentId + "_" + ownerUid,
             androidx.work.ExistingWorkPolicy.KEEP,
             req);
     }

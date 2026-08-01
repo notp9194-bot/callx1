@@ -201,8 +201,20 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
             h.tvEdited.setVisibility(c.isEdited ? View.VISIBLE : View.GONE);
         }
 
-        // ── Comment text ────────────────────────────────────────────────
-        h.tvText.setText(c.text != null ? c.text : "");
+        // ── Comment text (with clickable @mentions) ─────────────────────
+        MentionSpanUtils.bind(h.tvText, c.text, c.mentions);
+
+        // ── Author badge (reel owner posted this comment) ──────────────
+        if (h.tvAuthorBadge != null) {
+            h.tvAuthorBadge.setVisibility(
+                !reelOwnerUid.isEmpty() && reelOwnerUid.equals(c.uid) ? View.VISIBLE : View.GONE);
+        }
+
+        // ── "Liked by creator" badge ────────────────────────────────────
+        if (h.tvCreatorLiked != null) {
+            boolean likedByCreator = !reelOwnerUid.isEmpty() && c.isLikedBy(reelOwnerUid);
+            h.tvCreatorLiked.setVisibility(likedByCreator ? View.VISIBLE : View.GONE);
+        }
 
         // ── Emoji reaction strip ────────────────────────────────────────
         if (h.layoutReactions != null) {
@@ -256,6 +268,38 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
             if (listener != null) showContextMenu(ctx, c, h.getAdapterPosition());
             return true;
         });
+
+        // ── Double-tap comment text to like (Instagram parity) ────────────
+        GestureDetector doubleTap = new GestureDetector(ctx, new GestureDetector.SimpleOnGestureListener() {
+            @Override public boolean onDoubleTap(MotionEvent e) {
+                bounceLikeButton(h.btnLike);
+                if (listener != null && !c.isLikedBy(myUid)) {
+                    listener.onLikeComment(c, h.getAdapterPosition());
+                }
+                return true;
+            }
+        });
+        h.tvText.setOnTouchListener((v, event) -> {
+            doubleTap.onTouchEvent(event);
+            return false;
+        });
+    }
+
+    /** Quick scale-up/scale-down pulse on the heart icon — visual feedback
+     *  for double-tap-to-like, mirroring Instagram's comment interaction. */
+    private void bounceLikeButton(ImageButton btnLike) {
+        if (btnLike == null) return;
+        btnLike.animate().cancel();
+        btnLike.setScaleX(0.6f);
+        btnLike.setScaleY(0.6f);
+        btnLike.animate()
+            .scaleX(1.15f).scaleY(1.15f)
+            .setDuration(140)
+            .withEndAction(() -> btnLike.animate()
+                .scaleX(1f).scaleY(1f)
+                .setDuration(120)
+                .start())
+            .start();
     }
 
     @Override
@@ -464,7 +508,7 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
         CircleImageView ivAvatar;
         android.widget.ImageView ivStoryRing;
         TextView tvName, tvText, tvTime, tvLikes, btnReply, tvViewReplies;
-        TextView tvEdited;
+        TextView tvEdited, tvAuthorBadge, tvCreatorLiked;
         ImageButton btnLike;
         LinearLayout containerReplies;
         LinearLayout layoutReactions;
@@ -479,6 +523,8 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
             tvText          = v.findViewById(R.id.tv_comment_text);
             tvTime          = v.findViewById(R.id.tv_time);
             tvEdited        = v.findViewById(R.id.tv_edited);
+            tvAuthorBadge   = v.findViewById(R.id.tv_author_badge);
+            tvCreatorLiked  = v.findViewById(R.id.tv_creator_liked);
             tvLikes         = v.findViewById(R.id.tv_likes_count);
             btnLike         = v.findViewById(R.id.btn_like_comment);
             btnReply        = v.findViewById(R.id.btn_reply);

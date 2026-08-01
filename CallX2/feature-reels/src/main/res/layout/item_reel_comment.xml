@@ -94,6 +94,22 @@
                     android:textColor="#FFFFFF"/>
 
                 <TextView
+                    android:id="@+id/tv_author_badge"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="6dp"
+                    android:text="Author"
+                    android:textSize="9sp"
+                    android:textColor="@color/text_muted"
+                    android:fontFamily="sans-serif-medium"
+                    android:paddingStart="6dp"
+                    android:paddingEnd="6dp"
+                    android:paddingTop="1dp"
+                    android:paddingBottom="1dp"
+                    android:background="@drawable/bg_sort_chip"
+                    android:visibility="gone"/>
+
+                <TextView
                     android:id="@+id/tv_time"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -113,6 +129,18 @@
                     android:fontFamily="sans-serif"
                     android:visibility="gone"/>
             </LinearLayout>
+
+            <!-- "Liked by creator" heart badge (IG-signature feature) -->
+            <TextView
+                android:id="@+id/tv_creator_liked"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:text="❤️ Liked by creator"
+                android:textSize="10sp"
+                android:textColor="#FF416C"
+                android:fontFamily="sans-serif-medium"
+                android:visibility="gone"/>
 
             <!-- Comment text -->
             <TextView

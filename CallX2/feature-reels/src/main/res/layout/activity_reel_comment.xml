@@ -139,14 +139,37 @@
         </LinearLayout>
     </HorizontalScrollView>
 
-    <!-- ── Comments list ── -->
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/rv_comments"
+    <!-- ── Comments list (wrapped so a floating 'new comments' pill can sit on top) ── -->
+    <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1"
-        android:clipToPadding="false"
-        android:paddingBottom="8dp"/>
+        android:layout_weight="1">
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/rv_comments"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:clipToPadding="false"
+            android:paddingBottom="8dp"/>
+
+        <TextView
+            android:id="@+id/pill_new_comments"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top|center_horizontal"
+            android:layout_marginTop="8dp"
+            android:text="↓ New comments"
+            android:textSize="12sp"
+            android:textColor="#FFFFFF"
+            android:fontFamily="sans-serif-medium"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:paddingTop="7dp"
+            android:paddingBottom="7dp"
+            android:background="@drawable/bg_sort_chip_selected"
+            android:elevation="4dp"
+            android:visibility="gone"/>
+    </FrameLayout>
 
     <!-- ── Empty state ── -->
     <TextView
@@ -159,6 +182,25 @@
         android:textColor="@color/text_muted"
         android:textSize="15sp"
         android:visibility="gone"/>
+
+    <!-- ── @mention autocomplete strip (shown while typing "@name") ── -->
+    <HorizontalScrollView
+        android:id="@+id/layout_mention_suggestions"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:scrollbars="none"
+        android:background="?attr/colorSurface"
+        android:paddingStart="12dp"
+        android:paddingTop="6dp"
+        android:paddingBottom="6dp"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:id="@+id/container_mention_suggestions"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"/>
+    </HorizontalScrollView>
 
     <!-- ── Replying-to bar ── -->
     <LinearLayout

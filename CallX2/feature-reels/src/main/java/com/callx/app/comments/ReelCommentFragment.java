@@ -24,12 +24,15 @@ import androidx.fragment.app.Fragment;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
+import com.bumptech.glide.Glide;
+import com.bumptech.glide.request.RequestOptions;
 import com.callx.app.models.ReelComment;
 import com.callx.app.models.ReelReply;
 import com.callx.app.reels.R;
 import com.callx.app.utils.Constants;
 import com.callx.app.utils.FirebaseUtils;
 import com.callx.app.workers.ReelCommentNotifWorker;
+import de.hdodenhof.circleimageview.CircleImageView;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseUser;
 import com.google.firebase.database.ChildEventListener;
@@ -102,6 +105,9 @@ public class ReelCommentFragment extends Fragment {
     private LinearLayout   layoutSearch;
     private EditText       etSearch;
     private ImageButton    btnCloseSearch;
+    private View           layoutMentionSuggestions;
+    private LinearLayout   containerMentionSuggestions;
+    private TextView       pillNewComments;
 
     // ── State ────────────────────────────────────────────────────────────────
     private String reelId  = "";
@@ -117,6 +123,26 @@ public class ReelCommentFragment extends Fragment {
     private String  highlightCommentId = "";
 
     private ReelComment replyingToComment = null;
+    /** Non-null when the user tapped "Reply" on a REPLY (not a top-level
+     *  comment) — Instagram flattens this into the same parent's reply
+     *  thread but tags the reply's author. */
+    private ReelReply   replyingToReplyMention = null;
+
+    // ── @mention autocomplete state ─────────────────────────────────────────
+    /** lowercase display-name → uid, built from everyone visible in this
+     *  thread so far (commenters + repliers) — the tag source. */
+    private final Map<String, String> mentionNameToUid = new HashMap<>();
+    /** uid → display name for every user tagged during THIS compose session
+     *  (cleared on send/cancel) — attached to the comment/reply on submit. */
+    private final Map<String, String> pendingMentions = new HashMap<>();
+    private boolean suppressTextWatcher = false;
+
+    // ── "New comments" pill state ───────────────────────────────────────────
+    private int  pendingNewComments = 0;
+    /** True once the initial comment burst has settled — the pill only
+     *  reacts to genuinely NEW comments arriving after that point, not the
+     *  batch of existing ones Firebase delivers via onChildAdded on open. */
+    private boolean initialLoadSettled = false;
 
     // ── Data ─────────────────────────────────────────────────────────────────
     private final List<ReelComment> allComments = new ArrayList<>();
@@ -160,14 +186,28 @@ public class ReelCommentFragment extends Fragment {
         setupSortChips();
         setupSearch();
         setupCharCounter();
+        setupMentionAutocomplete();
+        setupNewCommentsPill();
         loadMyPhoto();
+        restoreDraft();
 
         if (!reelId.isEmpty()) loadComments();
         else showEmpty(true);
+
+        if (rvComments != null) {
+            rvComments.postDelayed(() -> initialLoadSettled = true, 1200);
+        }
+    }
+
+    @Override
+    public void onPause() {
+        super.onPause();
+        saveDraft();
     }
 
     @Override
     public void onDestroyView() {
+        saveDraft();
         try {
             if (commentsListener != null && commentsRef != null)
                 commentsRef.removeEventListener(commentsListener);
@@ -205,6 +245,9 @@ public class ReelCommentFragment extends Fragment {
         layoutSearch    = root.findViewById(R.id.layout_search);
         etSearch        = root.findViewById(R.id.et_search);
         btnCloseSearch  = root.findViewById(R.id.btn_close_search);
+        layoutMentionSuggestions    = root.findViewById(R.id.layout_mention_suggestions);
+        containerMentionSuggestions = root.findViewById(R.id.container_mention_suggestions);
+        pillNewComments = root.findViewById(R.id.pill_new_comments);
 
         // Same button closes either mode — finish() for the fullscreen host,
         // dismiss() for the sheet host — see setOnCloseListener callers.
@@ -377,6 +420,187 @@ public class ReelCommentFragment extends Fragment {
         });
     }
 
+    // ── @mention candidate registry ─────────────────────────────────────────
+
+    private void registerMentionCandidate(@Nullable String uid, @Nullable String name) {
+        if (uid == null || uid.isEmpty() || name == null || name.isEmpty()) return;
+        if (uid.equals(myUid)) return; // can't tag yourself
+        mentionNameToUid.put(name.toLowerCase(java.util.Locale.ROOT), uid);
+    }
+
+    // ── @mention autocomplete UI ─────────────────────────────────────────────
+
+    private void setupMentionAutocomplete() {
+        if (etComment == null) return;
+        etComment.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int st, int c, int a) {}
+            @Override public void onTextChanged(CharSequence s, int st, int b, int c) {}
+            @Override public void afterTextChanged(Editable s) {
+                if (suppressTextWatcher) return;
+                handleMentionQuery(s.toString(), etComment.getSelectionStart());
+            }
+        });
+    }
+
+    /** Looks backward from the cursor for an unfinished "@token" and shows
+     *  matching suggestions, or hides the strip if the cursor isn't inside
+     *  one right now. */
+    private void handleMentionQuery(String text, int cursor) {
+        if (cursor < 0 || cursor > text.length()) { hideMentionSuggestions(); return; }
+
+        int at = -1;
+        for (int i = cursor - 1; i >= 0; i--) {
+            char ch = text.charAt(i);
+            if (ch == '@') { at = i; break; }
+            if (Character.isWhitespace(ch)) break;
+        }
+        if (at < 0) { hideMentionSuggestions(); return; }
+
+        String query = text.substring(at + 1, cursor).toLowerCase(java.util.Locale.ROOT);
+        showMentionSuggestions(query, at, cursor);
+    }
+
+    private void showMentionSuggestions(String query, int atIndex, int cursor) {
+        if (containerMentionSuggestions == null || layoutMentionSuggestions == null) return;
+
+        List<Map.Entry<String, String>> matches = new ArrayList<>();
+        for (Map.Entry<String, String> e : mentionNameToUid.entrySet()) {
+            if (e.getKey().startsWith(query)) matches.add(e);
+            if (matches.size() >= 8) break;
+        }
+
+        if (matches.isEmpty()) { hideMentionSuggestions(); return; }
+
+        containerMentionSuggestions.removeAllViews();
+        int dp6 = dpToPx(6), dp10 = dpToPx(10);
+        for (Map.Entry<String, String> e : matches) {
+            String uid  = e.getValue();
+            // Recover original-case display name from the candidate we stored it under.
+            String name = capitalizeFromCandidate(e.getKey());
+
+            TextView chip = new TextView(requireContext());
+            chip.setText("@" + name);
+            chip.setTextSize(13f);
+            chip.setTextColor(getResources().getColor(R.color.brand_primary));
+            chip.setBackgroundResource(R.drawable.bg_sort_chip);
+            chip.setPadding(dp10, dp6, dp10, dp6);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            lp.setMarginEnd(dpToPx(8));
+            chip.setLayoutParams(lp);
+            chip.setOnClickListener(v -> insertMention(uid, name, atIndex, cursor));
+            containerMentionSuggestions.addView(chip);
+        }
+        layoutMentionSuggestions.setVisibility(View.VISIBLE);
+    }
+
+    private String capitalizeFromCandidate(String lowerName) {
+        // We only stored the lowercase key; look up the matching original
+        // name from whatever's currently rendered so the chip shows proper
+        // casing (fall back to the lowercase form if not found).
+        for (ReelComment c : allComments) {
+            if (c.ownerName != null && c.ownerName.toLowerCase(java.util.Locale.ROOT).equals(lowerName))
+                return c.ownerName;
+        }
+        return lowerName;
+    }
+
+    private void hideMentionSuggestions() {
+        if (layoutMentionSuggestions != null) layoutMentionSuggestions.setVisibility(View.GONE);
+        if (containerMentionSuggestions != null) containerMentionSuggestions.removeAllViews();
+    }
+
+    private void insertMention(String uid, String name, int atIndex, int cursor) {
+        if (etComment == null) return;
+        pendingMentions.put(uid, name);
+
+        String current = etComment.getText().toString();
+        String before = current.substring(0, atIndex);
+        String after  = cursor <= current.length() ? current.substring(cursor) : "";
+        String replacement = "@" + name + " ";
+
+        suppressTextWatcher = true;
+        etComment.setText(before + replacement + after);
+        etComment.setSelection(before.length() + replacement.length());
+        suppressTextWatcher = false;
+
+        hideMentionSuggestions();
+    }
+
+    /** Scans the final text for every pending-mention name still present and
+     *  returns only those (a chip picked then deleted shouldn't notify). */
+    private Map<String, String> resolveMentionsInText(String finalText) {
+        Map<String, String> resolved = new HashMap<>();
+        if (finalText == null || pendingMentions.isEmpty()) return resolved;
+        String lower = finalText.toLowerCase(java.util.Locale.ROOT);
+        for (Map.Entry<String, String> e : pendingMentions.entrySet()) {
+            String token = "@" + e.getValue().toLowerCase(java.util.Locale.ROOT);
+            if (lower.contains(token)) resolved.put(e.getKey(), e.getValue());
+        }
+        return resolved;
+    }
+
+    // ── "New comments" pill ──────────────────────────────────────────────────
+
+    private void setupNewCommentsPill() {
+        if (pillNewComments != null) {
+            pillNewComments.setOnClickListener(v -> {
+                pendingNewComments = 0;
+                pillNewComments.setVisibility(View.GONE);
+                if (rvComments != null && adapter != null)
+                    rvComments.scrollToPosition(adapter.getItemCount() - 1);
+            });
+        }
+    }
+
+    private boolean isNearBottom() {
+        if (rvComments == null) return true;
+        LinearLayoutManager lm = (LinearLayoutManager) rvComments.getLayoutManager();
+        if (lm == null || adapter == null) return true;
+        int last = lm.findLastVisibleItemPosition();
+        return last >= adapter.getItemCount() - 3;
+    }
+
+    // ── Draft persistence ────────────────────────────────────────────────────
+
+    private String draftPrefKey() {
+        return "reel_comment_draft_" + reelId;
+    }
+
+    private void saveDraft() {
+        if (etComment == null || reelId.isEmpty()) return;
+        try {
+            String text = etComment.getText().toString();
+            android.content.SharedPreferences prefs = requireContext()
+                .getSharedPreferences("reel_comment_drafts", Context.MODE_PRIVATE);
+            if (TextUtils.isEmpty(text)) prefs.edit().remove(draftPrefKey()).apply();
+            else prefs.edit().putString(draftPrefKey(), text).apply();
+        } catch (Exception ignored) {}
+    }
+
+    private void restoreDraft() {
+        if (etComment == null || reelId.isEmpty()) return;
+        try {
+            android.content.SharedPreferences prefs = requireContext()
+                .getSharedPreferences("reel_comment_drafts", Context.MODE_PRIVATE);
+            String draft = prefs.getString(draftPrefKey(), "");
+            if (!TextUtils.isEmpty(draft)) {
+                suppressTextWatcher = true;
+                etComment.setText(draft);
+                etComment.setSelection(draft.length());
+                suppressTextWatcher = false;
+            }
+        } catch (Exception ignored) {}
+    }
+
+    private void clearDraft() {
+        if (reelId.isEmpty()) return;
+        try {
+            requireContext().getSharedPreferences("reel_comment_drafts", Context.MODE_PRIVATE)
+                .edit().remove(draftPrefKey()).apply();
+        } catch (Exception ignored) {}
+    }
+
     // ── Highlight logic ─────────────────────────────────────────────────────────
 
     private void checkAndHighlightComment() {
@@ -444,15 +668,27 @@ public class ReelCommentFragment extends Fragment {
             public void onChildAdded(@NonNull DataSnapshot s, @Nullable String prev) {
                 ReelComment c = safeParseComment(s);
                 if (c == null || TextUtils.isEmpty(c.text)) return;
+                registerMentionCandidate(c.uid, c.ownerName);
+                boolean wasNearBottom = isNearBottom();
                 allComments.add(c);
                 applyFilterAndSort();
-                autoScrollIfAtBottom();
+                if (!initialLoadSettled || wasNearBottom) {
+                    autoScrollIfAtBottom();
+                } else if (!c.uid.equals(myUid)) {
+                    pendingNewComments++;
+                    if (pillNewComments != null) {
+                        pillNewComments.setText(pendingNewComments == 1
+                            ? "↓ New comment" : "↓ " + pendingNewComments + " new comments");
+                        pillNewComments.setVisibility(View.VISIBLE);
+                    }
+                }
             }
 
             @Override
             public void onChildChanged(@NonNull DataSnapshot s, @Nullable String prev) {
                 ReelComment updated = safeParseComment(s);
                 if (updated == null) return;
+                registerMentionCandidate(updated.uid, updated.ownerName);
                 for (int i = 0; i < allComments.size(); i++) {
                     if (allComments.get(i).commentId != null
                         && allComments.get(i).commentId.equals(updated.commentId)) {
@@ -535,13 +771,25 @@ public class ReelCommentFragment extends Fragment {
             data.put("replyCount", 0);
             data.put("isPinned",   false);
             data.put("isEdited",   false);
+
+            Map<String, String> mentions = resolveMentionsInText(text);
+            if (!mentions.isEmpty()) data.put("mentions", mentions);
+
             ref.child(key).setValue(data);
 
             incrementCommentsCount(+1);
             clearInput();
+            clearDraft();
 
             ReelCommentNotifWorker.enqueue(
                 requireContext(), reelId, reelUid, myUid, myName, key, text);
+
+            for (Map.Entry<String, String> e : mentions.entrySet()) {
+                if (e.getKey().equals(myUid) || e.getKey().equals(reelUid)) continue;
+                ReelCommentNotifWorker.enqueueMention(
+                    requireContext(), reelId, e.getKey(), myUid, myName, key, text);
+            }
+            pendingMentions.clear();
 
         } catch (Exception e) {
             Toast.makeText(requireContext(), "Failed to post comment", Toast.LENGTH_SHORT).show();
@@ -562,6 +810,8 @@ public class ReelCommentFragment extends Fragment {
             String key = repliesRef.push().getKey();
             if (key == null) return;
 
+            ReelReply mention = replyingToReplyMention;
+
             Map<String, Object> data = new HashMap<>();
             data.put("replyId",         key);
             data.put("parentCommentId", parent.commentId);
@@ -571,6 +821,10 @@ public class ReelCommentFragment extends Fragment {
             data.put("text",            text);
             data.put("timestamp",       System.currentTimeMillis());
             data.put("likesCount",      0);
+            if (mention != null) {
+                data.put("mentionUid",  mention.uid);
+                data.put("mentionName", mention.ownerName);
+            }
             repliesRef.child(key).setValue(data);
 
             FirebaseUtils.getReelCommentsRef(reelId)
@@ -587,12 +841,28 @@ public class ReelCommentFragment extends Fragment {
                 });
 
             clearInput();
+            clearDraft();
             cancelReply();
 
             if (!parent.uid.equals(myUid)) {
                 ReelCommentNotifWorker.enqueueReply(
                     requireContext(), reelId, parent.uid, myUid, myName, key, text);
             }
+            if (mention != null && mention.uid != null
+                    && !mention.uid.equals(myUid) && !mention.uid.equals(parent.uid)) {
+                ReelCommentNotifWorker.enqueueReply(
+                    requireContext(), reelId, mention.uid, myUid, myName, key, text);
+            }
+
+            Map<String, String> extraMentions = resolveMentionsInText(text);
+            for (Map.Entry<String, String> e : extraMentions.entrySet()) {
+                String uid = e.getKey();
+                if (uid.equals(myUid) || uid.equals(parent.uid)) continue;
+                if (mention != null && uid.equals(mention.uid)) continue;
+                ReelCommentNotifWorker.enqueueMention(
+                    requireContext(), reelId, uid, myUid, myName, key, text);
+            }
+            pendingMentions.clear();
 
         } catch (Exception e) {
             Toast.makeText(requireContext(), "Failed to post reply", Toast.LENGTH_SHORT).show();
@@ -757,11 +1027,32 @@ public class ReelCommentFragment extends Fragment {
 
     private void startReply(ReelComment comment) {
         replyingToComment = comment;
+        replyingToReplyMention = null;
         String name = comment.ownerName != null ? comment.ownerName : "user";
         if (tvReplyingTo   != null) tvReplyingTo.setText("Replying to @" + name);
         if (barReplyingTo  != null) barReplyingTo.setVisibility(View.VISIBLE);
         if (etComment      != null) {
+            etComment.setText("");
             etComment.setHint("Reply to @" + name + "…");
+            etComment.requestFocus();
+        }
+        showKeyboard(etComment);
+    }
+
+    /** Reply-to-a-reply — Instagram flattens this into the SAME top-level
+     *  parent's thread (no infinite nesting) but pre-fills "@name " and
+     *  tags the reply's author so notifications/UI can reference them. */
+    private void startReplyToReply(ReelComment parent, ReelReply reply) {
+        replyingToComment = parent;
+        replyingToReplyMention = reply;
+        String name = reply.ownerName != null ? reply.ownerName : "user";
+        if (tvReplyingTo   != null) tvReplyingTo.setText("Replying to @" + name);
+        if (barReplyingTo  != null) barReplyingTo.setVisibility(View.VISIBLE);
+        if (etComment      != null) {
+            etComment.setHint("Reply to @" + name + "…");
+            String prefill = "@" + name + " ";
+            etComment.setText(prefill);
+            etComment.setSelection(prefill.length());
             etComment.requestFocus();
         }
         showKeyboard(etComment);
@@ -769,6 +1060,7 @@ public class ReelCommentFragment extends Fragment {
 
     private void cancelReply() {
         replyingToComment = null;
+        replyingToReplyMention = null;
         if (barReplyingTo != null) barReplyingTo.setVisibility(View.GONE);
         if (etComment     != null) etComment.setHint("Write a comment…");
     }
@@ -782,13 +1074,16 @@ public class ReelCommentFragment extends Fragment {
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override
                 public void onDataChange(@NonNull DataSnapshot snapshot) {
+                    if (!isAdded()) return;
                     container.removeAllViews();
                     int count = 0;
                     for (DataSnapshot s : snapshot.getChildren()) {
                         try {
                             ReelReply r = s.getValue(ReelReply.class);
                             if (r == null || TextUtils.isEmpty(r.text)) continue;
-                            View row = buildReplyRow(r);
+                            if (r.replyId == null) r.replyId = s.getKey();
+                            registerMentionCandidate(r.uid, r.ownerName);
+                            View row = buildReplyRow(r, parent, container, tvToggle);
                             if (row != null) { container.addView(row); count++; }
                         } catch (Exception ignored) {}
                     }
@@ -802,22 +1097,282 @@ public class ReelCommentFragment extends Fragment {
             });
     }
 
+    /** Builds a fully interactive reply row — avatar, like (with count),
+     *  reply (tags the author, flattened into the same parent thread),
+     *  edited label, and a long-press menu for edit/delete/report. This
+     *  matches ReelCommentsAdapter's top-level comment behavior 1:1. */
     @Nullable
-    private View buildReplyRow(ReelReply r) {
+    private View buildReplyRow(ReelReply r, ReelComment parent,
+                               LinearLayout container, TextView tvToggle) {
         try {
             View v = LayoutInflater.from(requireContext())
-                .inflate(R.layout.item_simple_comment, null);
-            TextView tvName = v.findViewById(R.id.tv_name);
-            TextView tvText = v.findViewById(R.id.tv_text);
-            TextView tvTime = v.findViewById(R.id.tv_time);
-            if (tvName != null) tvName.setText(r.ownerName != null ? "@" + r.ownerName : "@user");
-            if (tvText != null) tvText.setText(r.text);
+                .inflate(R.layout.item_reel_reply, container, false);
+
+            CircleImageView ivAvatar = v.findViewById(R.id.iv_avatar);
+            TextView tvName     = v.findViewById(R.id.tv_name);
+            TextView tvText     = v.findViewById(R.id.tv_text);
+            TextView tvTime     = v.findViewById(R.id.tv_time);
+            TextView tvEdited   = v.findViewById(R.id.tv_edited);
+            TextView tvAuthorBadge  = v.findViewById(R.id.tv_author_badge);
+            TextView tvCreatorLiked = v.findViewById(R.id.tv_creator_liked);
+            TextView btnReplyTo = v.findViewById(R.id.btn_reply);
+            ImageButton btnLike = v.findViewById(R.id.btn_like_reply);
+            TextView tvLikes    = v.findViewById(R.id.tv_likes_count);
+
+            if (tvName != null) tvName.setText(r.ownerName != null ? r.ownerName : "User");
             if (tvTime != null) tvTime.setText(formatTime(r.timestamp));
-            v.setPadding(dpToPx(8), dpToPx(6), 0, dpToPx(4));
+            if (tvEdited != null) tvEdited.setVisibility(r.isEdited ? View.VISIBLE : View.GONE);
+
+            if (tvAuthorBadge != null) {
+                tvAuthorBadge.setVisibility(
+                    !reelUid.isEmpty() && reelUid.equals(r.uid) ? View.VISIBLE : View.GONE);
+            }
+            if (tvCreatorLiked != null) {
+                boolean likedByCreator = !reelUid.isEmpty() && r.isLikedBy(reelUid);
+                tvCreatorLiked.setVisibility(likedByCreator ? View.VISIBLE : View.GONE);
+            }
+
+            if (tvText != null) {
+                String body = r.text != null ? r.text : "";
+                if (r.mentionName != null && !r.mentionName.isEmpty()
+                        && !body.trim().startsWith("@" + r.mentionName)) {
+                    body = "@" + r.mentionName + " " + body;
+                }
+                MentionSpanUtils.bindSingle(tvText, body, r.mentionUid, r.mentionName);
+            }
+
+            if (ivAvatar != null) bindReplyAvatar(ivAvatar, r.uid, r.ownerPhoto);
+
+            boolean liked = r.isLikedBy(myUid);
+            if (tvLikes != null)
+                tvLikes.setText(r.likesCount > 0 ? String.valueOf(r.likesCount) : "");
+            if (btnLike != null) {
+                btnLike.setImageResource(liked ? R.drawable.ic_heart_filled : R.drawable.ic_heart);
+                btnLike.setColorFilter(liked
+                    ? getResources().getColor(android.R.color.holo_red_light)
+                    : getResources().getColor(android.R.color.darker_gray));
+                btnLike.setOnClickListener(v2 -> toggleReplyLike(r, parent, container, tvToggle));
+            }
+
+            if (btnReplyTo != null) {
+                btnReplyTo.setOnClickListener(v2 -> startReplyToReply(parent, r));
+            }
+
+            v.setOnLongClickListener(v2 -> {
+                showReplyContextMenu(r, parent, container, tvToggle);
+                return true;
+            });
+
             return v;
         } catch (Exception e) {
             return null;
         }
+    }
+
+    private void bindReplyAvatar(CircleImageView iv, @Nullable String uid, @Nullable String photoUrl) {
+        iv.setImageResource(R.drawable.ic_person);
+        String url = photoUrl;
+        if ((url == null || url.isEmpty()) && uid != null && !uid.isEmpty()) {
+            FirebaseDatabase.getInstance()
+                .getReference("reels/users").child(uid)
+                .addListenerForSingleValueEvent(new ValueEventListener() {
+                    @Override public void onDataChange(@NonNull DataSnapshot s) {
+                        if (!isAdded()) return;
+                        String thumb = s.child("thumbUrl").getValue(String.class);
+                        String photo = s.child("photoUrl").getValue(String.class);
+                        String p = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
+                        if (p != null && !p.isEmpty()) loadReplyAvatarInto(iv, p);
+                    }
+                    @Override public void onCancelled(@NonNull DatabaseError e) {}
+                });
+            return;
+        }
+        if (url != null && !url.isEmpty()) loadReplyAvatarInto(iv, url);
+    }
+
+    private void loadReplyAvatarInto(CircleImageView iv, String url) {
+        try {
+            Glide.with(requireContext()).load(url)
+                .apply(new RequestOptions().circleCrop())
+                .placeholder(R.drawable.ic_person)
+                .error(R.drawable.ic_person)
+                .into(iv);
+        } catch (Exception ignored) {}
+    }
+
+    // ── Reply like ────────────────────────────────────────────────────────────
+
+    private void toggleReplyLike(ReelReply reply, ReelComment parent,
+                                 LinearLayout container, TextView tvToggle) {
+        if (myUid.isEmpty()) {
+            Toast.makeText(requireContext(), "Please login to like", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        boolean currentlyLiked = reply.isLikedBy(myUid);
+        DatabaseReference replyRef = FirebaseDatabase.getInstance(Constants.DB_URL)
+            .getReference("reelCommentReplies")
+            .child(reelId).child(parent.commentId).child(reply.replyId);
+
+        replyRef.child("likedBy").child(myUid).setValue(currentlyLiked ? null : true);
+
+        replyRef.child("likesCount").runTransaction(new Transaction.Handler() {
+            @NonNull @Override
+            public Transaction.Result doTransaction(@NonNull MutableData d) {
+                Integer v = d.getValue(Integer.class);
+                int cur = v != null ? v : 0;
+                d.setValue(Math.max(0, currentlyLiked ? cur - 1 : cur + 1));
+                return Transaction.success(d);
+            }
+            @Override public void onComplete(@Nullable DatabaseError e,
+                                             boolean b, @Nullable DataSnapshot s) {
+                if (isAdded()) loadRepliesInto(parent, container, tvToggle);
+            }
+        });
+
+        if (!currentlyLiked && !reply.uid.equals(myUid)) {
+            ReelCommentNotifWorker.enqueueLike(
+                requireContext(), reelId, reply.uid, myUid, myName, reply.replyId);
+        }
+    }
+
+    // ── Reply context menu (edit / delete / report) ─────────────────────────────
+
+    private void showReplyContextMenu(ReelReply reply, ReelComment parent,
+                                      LinearLayout container, TextView tvToggle) {
+        boolean isOwn = myUid.equals(reply.uid);
+        boolean isReelOwner = myUid.equals(reelUid);
+
+        List<String> opts = new ArrayList<>();
+        List<Runnable> actions = new ArrayList<>();
+
+        if (isOwn) {
+            opts.add("Edit reply");
+            actions.add(() -> showEditReplyDialog(reply, parent, container, tvToggle));
+        }
+        if (!isOwn) {
+            opts.add("Report reply");
+            actions.add(() -> showReportReplyDialog(reply));
+        }
+        if (isOwn || isReelOwner) {
+            opts.add("Delete reply");
+            actions.add(() -> showDeleteReplyDialog(reply, parent, container, tvToggle));
+        }
+        if (opts.isEmpty()) return;
+
+        String[] optsArray = opts.toArray(new String[0]);
+        AlertDialogStyler.showRounded(new AlertDialog.Builder(requireContext())
+            .setItems(optsArray, (d, which) -> actions.get(which).run())
+            .create());
+    }
+
+    private void showEditReplyDialog(ReelReply reply, ReelComment parent,
+                                     LinearLayout container, TextView tvToggle) {
+        if (!myUid.equals(reply.uid)) return;
+
+        EditText et = new EditText(requireContext());
+        et.setText(reply.text);
+        et.setMaxLines(5);
+        et.setSelection(et.getText().length());
+        int pad = dpToPx(16);
+        et.setPadding(pad, pad, pad, pad);
+
+        AlertDialogStyler.showRounded(new AlertDialog.Builder(requireContext())
+            .setTitle("Edit reply")
+            .setView(et)
+            .setPositiveButton("Save", (d, w) -> {
+                String newText = et.getText().toString().trim();
+                if (TextUtils.isEmpty(newText) || newText.equals(reply.text)) return;
+                if (newText.length() > MAX_COMMENT_LENGTH) {
+                    Toast.makeText(requireContext(), "Reply too long (max 300 chars)",
+                        Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                DatabaseReference ref = FirebaseDatabase.getInstance(Constants.DB_URL)
+                    .getReference("reelCommentReplies")
+                    .child(reelId).child(parent.commentId).child(reply.replyId);
+                Map<String, Object> updates = new HashMap<>();
+                updates.put("text",     newText);
+                updates.put("isEdited", true);
+                updates.put("editedAt", System.currentTimeMillis());
+                ref.updateChildren(updates)
+                    .addOnCompleteListener(t -> { if (isAdded()) loadRepliesInto(parent, container, tvToggle); });
+            })
+            .setNegativeButton("Cancel", null)
+            .create());
+    }
+
+    private void showDeleteReplyDialog(ReelReply reply, ReelComment parent,
+                                       LinearLayout container, TextView tvToggle) {
+        AlertDialogStyler.showReusableConfirm(requireContext(), "delete_reel_reply",
+            AlertDialogStyler.DialogSize.DEFAULT,
+            "Delete reply?",
+            "This reply will be permanently removed.",
+            "Delete", () -> deleteReply(reply, parent, container, tvToggle),
+            null, null,
+            "Cancel");
+    }
+
+    private void deleteReply(ReelReply reply, ReelComment parent,
+                             LinearLayout container, TextView tvToggle) {
+        try {
+            FirebaseDatabase.getInstance(Constants.DB_URL)
+                .getReference("reelCommentReplies")
+                .child(reelId).child(parent.commentId).child(reply.replyId)
+                .removeValue();
+
+            FirebaseUtils.getReelCommentsRef(reelId)
+                .child(parent.commentId).child("replyCount")
+                .runTransaction(new Transaction.Handler() {
+                    @NonNull @Override
+                    public Transaction.Result doTransaction(@NonNull MutableData d) {
+                        Integer v = d.getValue(Integer.class);
+                        int cur = v != null ? v : 0;
+                        d.setValue(Math.max(0, cur - 1));
+                        return Transaction.success(d);
+                    }
+                    @Override public void onComplete(@Nullable DatabaseError e,
+                                                     boolean b, @Nullable DataSnapshot s) {
+                        if (isAdded()) loadRepliesInto(parent, container, tvToggle);
+                    }
+                });
+        } catch (Exception e) {
+            Toast.makeText(requireContext(), "Failed to delete reply", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void showReportReplyDialog(ReelReply reply) {
+        String[] reasons = {
+            "Spam", "Hate speech", "Harassment", "Misinformation",
+            "Nudity or sexual content", "Violence", "Other"
+        };
+        AlertDialogStyler.showRounded(new AlertDialog.Builder(requireContext())
+            .setTitle("Report reply")
+            .setItems(reasons, (d, which) -> submitReplyReport(reply, reasons[which]))
+            .setNegativeButton("Cancel", null)
+            .create());
+    }
+
+    private void submitReplyReport(ReelReply reply, String reason) {
+        if (myUid.isEmpty()) return;
+        Map<String, Object> report = new HashMap<>();
+        report.put("reporterUid", myUid);
+        report.put("reason",      reason);
+        report.put("timestamp",   System.currentTimeMillis());
+        report.put("replyText",   reply.text);
+
+        FirebaseDatabase.getInstance(Constants.DB_URL)
+            .getReference("reelReplyReports")
+            .child(reelId)
+            .child(reply.replyId)
+            .child(myUid)
+            .setValue(report)
+            .addOnSuccessListener(a ->
+                Toast.makeText(requireContext(), "Reply reported. Thank you.",
+                    Toast.LENGTH_SHORT).show())
+            .addOnFailureListener(e ->
+                Toast.makeText(requireContext(), "Failed to report. Try again.",
+                    Toast.LENGTH_SHORT).show());
     }
 
     // ── Delete ────────────────────────────────────────────────────────────────
@@ -901,6 +1456,7 @@ public class ReelCommentFragment extends Fragment {
             etComment.clearFocus();
         }
         if (tvCharCount != null) tvCharCount.setVisibility(View.GONE);
+        hideMentionSuggestions();
         try {
             InputMethodManager imm = (InputMethodManager)
                 requireContext().getSystemService(Context.INPUT_METHOD_SERVICE);

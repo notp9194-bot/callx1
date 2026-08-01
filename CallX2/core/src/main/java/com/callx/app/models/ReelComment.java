@@ -26,6 +26,9 @@ public class ReelComment {
     public boolean isEdited;
     /** Timestamp of the last edit (ms). */
     public long editedAt;
+    /** uid → display name for every user @mentioned in this comment's text
+     *  (captured from the mention-autocomplete strip when composing). */
+    public Map<String, String> mentions;
 
     public ReelComment() {}
 
