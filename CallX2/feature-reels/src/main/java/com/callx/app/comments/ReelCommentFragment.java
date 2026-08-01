@@ -1,8 +1,14 @@
 package com.callx.app.comments;
 import com.callx.app.utils.AlertDialogStyler;
 
+import android.animation.ArgbEvaluator;
+import android.animation.ValueAnimator;
 import android.content.Context;
+import android.graphics.Canvas;
+import android.graphics.Color;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.text.Editable;
 import android.text.TextUtils;
 import android.text.TextWatcher;
@@ -21,8 +27,10 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
 import androidx.fragment.app.Fragment;
+import androidx.recyclerview.widget.ItemTouchHelper;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
+import androidx.recyclerview.widget.RecyclerView.RecycledViewPool;
 
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.request.RequestOptions;
@@ -147,6 +155,37 @@ public class ReelCommentFragment extends Fragment {
     // ── Data ─────────────────────────────────────────────────────────────────
     private final List<ReelComment> allComments = new ArrayList<>();
 
+    // ── Burst-update debouncing (PERF) ──────────────────────────────────────
+    // Firebase's ChildEventListener fires onChildAdded once per existing
+    // comment on initial load — a reel with 200 comments meant 200 separate
+    // applyFilterAndSort() calls, each rebuilding the filtered list AND
+    // re-sorting, back to back, before the first frame even settled. This
+    // coalesces any burst of add/change/remove events arriving within one
+    // short window into a single refresh.
+    private final Handler refreshHandler = new Handler(Looper.getMainLooper());
+    private boolean refreshQueued = false;
+    private boolean pendingAutoScroll = false;
+    private static final long REFRESH_DEBOUNCE_MS = 60;
+    private final Runnable refreshRunnable = () -> {
+        refreshQueued = false;
+        applyFilterAndSort();
+        if (pendingAutoScroll) {
+            pendingAutoScroll = false;
+            autoScrollIfAtBottom();
+        }
+        if (pendingNewComments > 0 && pillNewComments != null) {
+            pillNewComments.setText(pendingNewComments == 1
+                ? "↓ New comment" : "↓ " + pendingNewComments + " new comments");
+            pillNewComments.setVisibility(View.VISIBLE);
+        }
+    };
+
+    private void requestRefresh() {
+        if (refreshQueued) return;
+        refreshQueued = true;
+        refreshHandler.postDelayed(refreshRunnable, REFRESH_DEBOUNCE_MS);
+    }
+
     // ── Firebase ─────────────────────────────────────────────────────────────
     private DatabaseReference  commentsRef;
     private ChildEventListener commentsListener;
@@ -208,6 +247,7 @@ public class ReelCommentFragment extends Fragment {
     @Override
     public void onDestroyView() {
         saveDraft();
+        refreshHandler.removeCallbacksAndMessages(null);
         try {
             if (commentsListener != null && commentsRef != null)
                 commentsRef.removeEventListener(commentsListener);
@@ -321,7 +361,91 @@ public class ReelCommentFragment extends Fragment {
         if (rvComments != null) {
             rvComments.setLayoutManager(new LinearLayoutManager(requireContext()));
             rvComments.setAdapter(adapter);
+
+            // ── Smooth-scrolling tuning ─────────────────────────────────
+            // Comment rows aren't uniform height (replies/reactions expand
+            // them), so setHasFixedSize() isn't safe here — these are the
+            // levers that are: a bigger off-screen view cache means fewer
+            // fresh inflate+bind cycles during a fast fling, and a shared,
+            // pre-warmed RecycledViewPool means recycled rows are ready to
+            // rebind immediately instead of being inflated from scratch.
+            rvComments.setItemViewCacheSize(12);
+            RecycledViewPool pool = new RecycledViewPool();
+            pool.setMaxRecycledViews(0, 20);
+            rvComments.setRecycledViewPool(pool);
+
+            attachSwipeToReply(rvComments);
         }
+    }
+
+    // ── Swipe-to-reply (advanced gesture, Telegram/IG-style) ────────────────
+
+    private void attachSwipeToReply(RecyclerView rv) {
+        ItemTouchHelper.SimpleCallback callback = new ItemTouchHelper.SimpleCallback(
+                0, ItemTouchHelper.RIGHT) {
+
+            private final int maxSwipePx = dpToPx(72);
+            /** True once this drag has crossed the full swipe distance —
+             *  read in clearView() when the finger lifts. */
+            private boolean triggered = false;
+
+            @Override
+            public boolean onMove(@NonNull RecyclerView r, @NonNull RecyclerView.ViewHolder vh,
+                                   @NonNull RecyclerView.ViewHolder target) {
+                return false;
+            }
+
+            // Deliberately unreachable (>1): the row must never actually be
+            // "swiped away" by ItemTouchHelper's own dismiss animation —
+            // we only use the drag distance as a gesture signal and always
+            // let the row spring back via clearView()'s default recovery.
+            @Override
+            public float getSwipeThreshold(@NonNull RecyclerView.ViewHolder vh) { return 2f; }
+
+            @Override
+            public void onSwiped(@NonNull RecyclerView.ViewHolder vh, int direction) { /* unused */ }
+
+            @Override
+            public void onChildDraw(@NonNull Canvas c, @NonNull RecyclerView r,
+                                     @NonNull RecyclerView.ViewHolder vh, float dX, float dY,
+                                     int actionState, boolean isCurrentlyActive) {
+                if (actionState == ItemTouchHelper.ACTION_STATE_SWIPE) {
+                    float clamped = Math.max(0f, Math.min(dX, maxSwipePx));
+                    float progress = clamped / maxSwipePx;
+                    triggered = progress >= 1f;
+
+                    View item = vh.itemView;
+                    if (progress > 0.05f) {
+                        int iconSize = dpToPx(22);
+                        int cx = item.getLeft() + dpToPx(28);
+                        int cy = item.getTop() + item.getHeight() / 2;
+                        android.graphics.drawable.Drawable icon =
+                            androidx.core.content.ContextCompat.getDrawable(requireContext(), R.drawable.ic_reply);
+                        if (icon != null) {
+                            icon.mutate().setAlpha((int) (255 * Math.min(1f, progress * 1.6f)));
+                            int scale = triggered ? iconSize + dpToPx(4) : iconSize;
+                            icon.setBounds(cx - scale / 2, cy - scale / 2, cx + scale / 2, cy + scale / 2);
+                            icon.draw(c);
+                        }
+                    }
+                    super.onChildDraw(c, r, vh, clamped, dY, actionState, isCurrentlyActive);
+                } else {
+                    super.onChildDraw(c, r, vh, dX, dY, actionState, isCurrentlyActive);
+                }
+            }
+
+            @Override
+            public void clearView(@NonNull RecyclerView r, @NonNull RecyclerView.ViewHolder vh) {
+                super.clearView(r, vh);
+                if (!triggered) return;
+                triggered = false;
+                int pos = vh.getAdapterPosition();
+                if (pos == RecyclerView.NO_POSITION || adapter == null) return;
+                ReelComment c = adapter.getComment(pos);
+                if (c != null) startReply(c);
+            }
+        };
+        new ItemTouchHelper(callback).attachToRecyclerView(rv);
     }
 
     // ── Sort chips ────────────────────────────────────────────────────────────
@@ -610,11 +734,30 @@ public class ReelCommentFragment extends Fragment {
                 final int pos = i;
                 rvComments.post(() -> {
                     rvComments.scrollToPosition(pos);
+                    // A second post lets layout finish placing the row
+                    // before we look it up for the flash animation.
+                    rvComments.post(() -> flashHighlightedRow(pos));
                     highlightCommentId = ""; // Only once
                 });
                 break;
             }
         }
+    }
+
+    /** Brief background pulse on the deep-linked comment so it's obvious
+     *  which row the user was sent to, fading back to transparent. */
+    private void flashHighlightedRow(int pos) {
+        if (rvComments == null) return;
+        RecyclerView.LayoutManager lm = rvComments.getLayoutManager();
+        if (lm == null) return;
+        View row = lm.findViewByPosition(pos);
+        if (row == null) return;
+
+        int highlightColor = 0x335B5BF6; // translucent brand tint
+        ValueAnimator anim = ValueAnimator.ofObject(new ArgbEvaluator(), highlightColor, Color.TRANSPARENT);
+        anim.setDuration(900);
+        anim.addUpdateListener(a -> row.setBackgroundColor((int) a.getAnimatedValue()));
+        anim.start();
     }
 
     private void applyFilterAndSort() {
@@ -671,17 +814,15 @@ public class ReelCommentFragment extends Fragment {
                 registerMentionCandidate(c.uid, c.ownerName);
                 boolean wasNearBottom = isNearBottom();
                 allComments.add(c);
-                applyFilterAndSort();
                 if (!initialLoadSettled || wasNearBottom) {
-                    autoScrollIfAtBottom();
+                    pendingAutoScroll = true;
                 } else if (!c.uid.equals(myUid)) {
                     pendingNewComments++;
-                    if (pillNewComments != null) {
-                        pillNewComments.setText(pendingNewComments == 1
-                            ? "↓ New comment" : "↓ " + pendingNewComments + " new comments");
-                        pillNewComments.setVisibility(View.VISIBLE);
-                    }
                 }
+                // PERF: don't rebuild the whole filtered+sorted list on every
+                // single event — a burst of N adds (e.g. initial page load)
+                // now costs one refresh instead of N.
+                requestRefresh();
             }
 
             @Override
@@ -696,7 +837,7 @@ public class ReelCommentFragment extends Fragment {
                         break;
                     }
                 }
-                applyFilterAndSort();
+                requestRefresh();
             }
 
             @Override
@@ -709,7 +850,7 @@ public class ReelCommentFragment extends Fragment {
                         break;
                     }
                 }
-                applyFilterAndSort();
+                requestRefresh();
             }
 
             @Override public void onChildMoved(@NonNull DataSnapshot s, @Nullable String prev) {}
@@ -880,6 +1021,16 @@ public class ReelCommentFragment extends Fragment {
         boolean currentlyLiked = comment.isLikedBy(myUid);
         DatabaseReference commentRef = FirebaseUtils.getReelCommentsRef(reelId)
             .child(comment.commentId);
+
+        // Optimistic local flip — the heart/count update instantly instead
+        // of waiting on the Firebase round trip; onChildChanged reconciles
+        // the real value moments later (a same-value re-render is a no-op
+        // once AsyncListDiffer sees the content is identical).
+        if (comment.likedBy == null) comment.likedBy = new HashMap<>();
+        if (currentlyLiked) comment.likedBy.remove(myUid);
+        else comment.likedBy.put(myUid, true);
+        comment.likesCount = Math.max(0, comment.likesCount + (currentlyLiked ? -1 : 1));
+        if (adapter != null) adapter.notifyLikeChanged(comment.commentId);
 
         commentRef.child("likedBy").child(myUid)
             .setValue(currentlyLiked ? null : true);

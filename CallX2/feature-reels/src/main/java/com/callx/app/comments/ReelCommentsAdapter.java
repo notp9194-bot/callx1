@@ -7,6 +7,8 @@ import android.view.*;
 import android.widget.*;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.recyclerview.widget.AsyncListDiffer;
+import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.bumptech.glide.Glide;
@@ -71,13 +73,60 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
     }
 
     // ── State ─────────────────────────────────────────────────────────────
-    private final List<ReelComment> items = new ArrayList<>();
+    // PERF: AsyncListDiffer computes the old-list/new-list diff on a
+    // background thread pool and dispatches minimal notifyItem*() calls on
+    // the main thread (insert/remove/change only what actually changed),
+    // instead of the old notifyDataSetChanged() which force-rebound every
+    // single visible row (avatars re-decoded, reaction chips rebuilt,
+    // GestureDetectors reallocated) on *every* Firebase child event — the
+    // main source of scroll jank/flicker during comment bursts.
+    private final AsyncListDiffer<ReelComment> differ =
+        new AsyncListDiffer<>(this, new DiffUtil.ItemCallback<ReelComment>() {
+            @Override
+            public boolean areItemsTheSame(@NonNull ReelComment a, @NonNull ReelComment b) {
+                return a.commentId != null && a.commentId.equals(b.commentId);
+            }
+
+            @Override
+            public boolean areContentsTheSame(@NonNull ReelComment a, @NonNull ReelComment b) {
+                return a.likesCount == b.likesCount
+                    && a.replyCount == b.replyCount
+                    && a.isPinned   == b.isPinned
+                    && a.isEdited   == b.isEdited
+                    && java.util.Objects.equals(a.text, b.text)
+                    && java.util.Objects.equals(a.ownerName, b.ownerName)
+                    && java.util.Objects.equals(a.ownerPhoto, b.ownerPhoto)
+                    && mapSignature(a.likedBy).equals(mapSignature(b.likedBy))
+                    && mapSignature(a.reactions).equals(mapSignature(b.reactions));
+            }
+
+            /** Cheap order-independent signature for likedBy/reactions maps,
+             *  good enough to detect "did this map actually change". */
+            private String mapSignature(Map<String, ?> m) {
+                if (m == null || m.isEmpty()) return "";
+                List<String> keys = new ArrayList<>(m.keySet());
+                Collections.sort(keys);
+                StringBuilder sb = new StringBuilder();
+                for (String k : keys) sb.append(k).append('=').append(m.get(k)).append(';');
+                return sb.toString();
+            }
+        });
+
     private final String myUid;
     private String reelOwnerUid = "";
     private OnCommentActionListener listener;
 
+    /** Payload marker for a "like state only" partial rebind — skips avatar
+     *  reload, mention span rebuild, and reaction-chip rebuild. */
+    private static final String PAYLOAD_LIKE = "like_only";
+
     public ReelCommentsAdapter(String myUid) {
         this.myUid = myUid != null ? myUid : "";
+        // Stable IDs let RecyclerView's default animator match items across
+        // diff-driven updates by identity instead of position, which keeps
+        // in-flight bind/animation state (like-button bounce, expanded
+        // replies) correctly attached to the right row during a diff pass.
+        setHasStableIds(true);
     }
 
     public void setReelOwnerUid(String uid) {
@@ -88,60 +137,66 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
         this.listener = l;
     }
 
+    private List<ReelComment> items() { return differ.getCurrentList(); }
+
     // ── Data ops ──────────────────────────────────────────────────────────
 
     public void setComments(List<ReelComment> list) {
-        items.clear();
-        items.addAll(list);
-        notifyDataSetChanged();
-    }
-
-    public void addComment(ReelComment c) {
-        items.add(c);
-        notifyItemInserted(items.size() - 1);
-    }
-
-    public void updateComment(int position, ReelComment c) {
-        if (position >= 0 && position < items.size()) {
-            items.set(position, c);
-            notifyItemChanged(position);
-        }
-    }
-
-    public void removeComment(int position) {
-        if (position >= 0 && position < items.size()) {
-            items.remove(position);
-            notifyItemRemoved(position);
-        }
+        differ.submitList(list != null ? new ArrayList<>(list) : new ArrayList<>());
     }
 
     public ReelComment getComment(int position) {
+        List<ReelComment> items = items();
         if (position >= 0 && position < items.size()) return items.get(position);
         return null;
     }
 
-    public int getCommentCount() { return items.size(); }
+    public int getCommentCount() { return items().size(); }
+
+    @Override
+    public long getItemId(int position) {
+        ReelComment c = getComment(position);
+        return (c != null && c.commentId != null) ? c.commentId.hashCode() : RecyclerView.NO_ID;
+    }
+
+    /** Optimistic, instant like-icon flip for the tapped row only — fired
+     *  immediately on tap so the UI never waits on the Firebase round trip,
+     *  then reconciled for real once the ChildEventListener echoes back. */
+    public void notifyLikeChanged(String commentId) {
+        List<ReelComment> items = items();
+        for (int i = 0; i < items.size(); i++) {
+            if (commentId != null && commentId.equals(items.get(i).commentId)) {
+                notifyItemChanged(i, PAYLOAD_LIKE);
+                break;
+            }
+        }
+    }
 
     // ── Sort ──────────────────────────────────────────────────────────────
 
-    /** Sort newest-first, pinned always at top. */
+    /** Sort newest-first, pinned always at top. Caller passes the filtered
+     *  list; sorting happens before submitList so the differ's background
+     *  diff sees the final order directly (one diff pass, not sort-then-
+     *  separately-diff). */
     public void sortByNewest() {
-        Collections.sort(items, (a, b) -> {
+        List<ReelComment> sorted = new ArrayList<>(items());
+        Collections.sort(sorted, (a, b) -> {
             if (a.isPinned && !b.isPinned) return -1;
             if (!a.isPinned && b.isPinned) return 1;
             return Long.compare(b.timestamp, a.timestamp);
         });
-        notifyDataSetChanged();
+        differ.submitList(sorted);
     }
 
     /** Sort by most-liked, pinned always at top. */
     public void sortByTop() {
-        Collections.sort(items, (a, b) -> {
+        List<ReelComment> sorted = new ArrayList<>(items());
+        Collections.sort(sorted, (a, b) -> {
             if (a.isPinned && !b.isPinned) return -1;
             if (!a.isPinned && b.isPinned) return 1;
             return Integer.compare(b.likesCount, a.likesCount);
         });
-        notifyDataSetChanged();
+        differ.submitList(sorted);
     }
 
     // ── RecyclerView ──────────────────────────────────────────────────────
@@ -151,13 +206,43 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
     public VH onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
         View v = LayoutInflater.from(parent.getContext())
             .inflate(R.layout.item_reel_comment, parent, false);
-        return new VH(v);
+        return new VH(v, this);
+    }
+
+    /**
+     * Payload-aware partial bind — PERF: when only the like state changed
+     * (the overwhelmingly common rapid-fire interaction), skip the entire
+     * full bind (avatar Glide load, mention span rebuild, reaction chip
+     * rebuild, story-ring lookup) and touch only the heart icon/count.
+     * Falls back to a full bind for any other payload or a cold bind.
+     */
+    @Override
+    public void onBindViewHolder(@NonNull VH h, int position, @NonNull List<Object> payloads) {
+        if (!payloads.isEmpty() && payloads.contains(PAYLOAD_LIKE)) {
+            ReelComment c = items().get(position);
+            h.boundComment = c;
+            bindLikeState(h, c);
+            return;
+        }
+        super.onBindViewHolder(h, position, payloads);
+    }
+
+    private void bindLikeState(VH h, ReelComment c) {
+        Context ctx = h.itemView.getContext();
+        boolean liked = c.isLikedBy(myUid);
+        h.tvLikes.setText(c.likesCount > 0 ? String.valueOf(c.likesCount) : "");
+        h.btnLike.setImageResource(liked
+            ? R.drawable.ic_heart_filled : R.drawable.ic_heart);
+        h.btnLike.setColorFilter(liked
+            ? ctx.getResources().getColor(android.R.color.holo_red_light)
+            : ctx.getResources().getColor(android.R.color.darker_gray));
     }
 
     @Override
     public void onBindViewHolder(@NonNull VH h, int position) {
-        ReelComment c = items.get(position);
+        ReelComment c = items().get(position);
         Context ctx = h.itemView.getContext();
+        h.boundComment = c;
 
         // ── Pin badge ───────────────────────────────────────────────────
         if (h.rowPin != null) {
@@ -222,13 +307,7 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
         }
 
         // ── Like button ─────────────────────────────────────────────────
-        boolean liked = c.isLikedBy(myUid);
-        h.tvLikes.setText(c.likesCount > 0 ? String.valueOf(c.likesCount) : "");
-        h.btnLike.setImageResource(liked
-            ? R.drawable.ic_heart_filled : R.drawable.ic_heart);
-        h.btnLike.setColorFilter(liked
-            ? ctx.getResources().getColor(android.R.color.holo_red_light)
-            : ctx.getResources().getColor(android.R.color.darker_gray));
+        bindLikeState(h, c);
 
         // ── Reply count ─────────────────────────────────────────────────
         if (c.replyCount > 0) {
@@ -270,24 +349,27 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
         });
 
         // ── Double-tap comment text to like (Instagram parity) ────────────
-        GestureDetector doubleTap = new GestureDetector(ctx, new GestureDetector.SimpleOnGestureListener() {
-            @Override public boolean onDoubleTap(MotionEvent e) {
-                bounceLikeButton(h.btnLike);
-                if (listener != null && !c.isLikedBy(myUid)) {
-                    listener.onLikeComment(c, h.getAdapterPosition());
-                }
-                return true;
-            }
-        });
-        h.tvText.setOnTouchListener((v, event) -> {
-            doubleTap.onTouchEvent(event);
-            return false;
-        });
+        // PERF: the actual GestureDetector is created ONCE in VH's
+        // constructor and reused across every bind of this recycled row —
+        // previously a new GestureDetector (+ its internal SimpleOnGestureListener
+        // + GestureConfig lookups) was allocated on *every single bind*,
+        // which fires constantly during fling/scroll as rows recycle. Here
+        // we just refresh which comment the already-built detector should
+        // act on.
+        h.boundComment = c;
+    }
+
+    /** Called by VH's single, reused GestureDetector on a confirmed double-tap. */
+    private void onDoubleTapLike(VH h, ReelComment c) {
+        bounceLikeButton(h.btnLike);
+        if (listener != null && !c.isLikedBy(myUid)) {
+            listener.onLikeComment(c, h.getAdapterPosition());
+        }
     }
 
     /** Quick scale-up/scale-down pulse on the heart icon — visual feedback
      *  for double-tap-to-like, mirroring Instagram's comment interaction. */
-    private void bounceLikeButton(ImageButton btnLike) {
+    private static void bounceLikeButton(ImageButton btnLike) {
         if (btnLike == null) return;
         btnLike.animate().cancel();
         btnLike.setScaleX(0.6f);
@@ -303,7 +385,7 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
     }
 
     @Override
-    public int getItemCount() { return items.size(); }
+    public int getItemCount() { return items().size(); }
 
     // ── Avatar with Firebase fallback ──────────────────────────────────────
 
@@ -432,6 +514,7 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
     }
 
     private int getAdapterPositionOf(ReelComment c) {
+        List<ReelComment> items = items();
         for (int i = 0; i < items.size(); i++) {
             if (items.get(i).commentId != null
                 && items.get(i).commentId.equals(c.commentId)) return i;
@@ -514,7 +597,11 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
         LinearLayout layoutReactions;
         View rowPin;
 
-        VH(@NonNull View v) {
+        /** Which comment this recycled row currently displays — refreshed
+         *  every bind, read by the single reused GestureDetector below. */
+        ReelComment boundComment;
+
+        VH(@NonNull View v, @NonNull ReelCommentsAdapter adapter) {
             super(v);
             rowPin          = v.findViewById(R.id.row_pin);
             ivAvatar        = v.findViewById(R.id.iv_avatar);
@@ -531,6 +618,20 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
             tvViewReplies   = v.findViewById(R.id.tv_view_replies);
             containerReplies= v.findViewById(R.id.container_replies);
             layoutReactions = v.findViewById(R.id.layout_reactions);
+
+            // PERF: built ONCE per row (not per bind) and reused for the
+            // life of this recycled ViewHolder — see onBindViewHolder note.
+            final GestureDetector doubleTapDetector = new GestureDetector(
+                v.getContext(), new GestureDetector.SimpleOnGestureListener() {
+                    @Override public boolean onDoubleTap(MotionEvent e) {
+                        if (boundComment != null) adapter.onDoubleTapLike(VH.this, boundComment);
+                        return true;
+                    }
+                });
+            tvText.setOnTouchListener((view, event) -> {
+                doubleTapDetector.onTouchEvent(event);
+                return false;
+            });
         }
     }
 }
