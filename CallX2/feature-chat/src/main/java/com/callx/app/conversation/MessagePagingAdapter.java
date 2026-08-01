@@ -2318,6 +2318,7 @@ public class MessagePagingAdapter
                 // key envelope, so decrypt it here rather than reading m.blurHash.
                 String blurHash = m.blurHash;
                 byte[] iMediaKey = null;
+                byte[] iInlineThumbPlain = null; // decrypted inline-thumb bytes, if this envelope embeds one
                 if (!sent && m.mediaKeyEnc != null) {
                     com.callx.app.utils.MediaE2ECrypto.KeyEnvelope env =
                             com.callx.app.utils.MediaE2ECrypto.decryptEnvelopeForMessage(ctx, m.mediaKeyEnc,
@@ -2329,6 +2330,14 @@ public class MessagePagingAdapter
                     // for v2 envelopes, or falls back to the raw key for
                     // legacy v1 messages that predate this derivation.
                     iMediaKey = (env != null) ? env.thumbKey() : null;
+                    // WhatsApp-style inline thumbnail: if the sender embedded
+                    // the thumb directly in the envelope (see
+                    // ChatMediaController / MediaE2ECrypto#shouldInlineThumb),
+                    // decrypt it right here in memory — no network round trip,
+                    // no separate Cloudinary thumb blob at all.
+                    if (env != null && env.inlineThumbCipher != null) {
+                        iInlineThumbPlain = env.decryptInlineThumb();
+                    }
                 }
                 if (blurHash != null && !blurHash.isEmpty()) {
                     android.graphics.Bitmap placeholder = BlurHashPlaceholder.get(blurHash, 32, 32);
@@ -2346,7 +2355,31 @@ public class MessagePagingAdapter
                 // bitmap, so the user always gets the best available quality.
                 final String iThumbUrl = (m.thumbnailUrl != null && !m.thumbnailUrl.isEmpty())
                         ? m.thumbnailUrl : null;
-                if (iThumbUrl != null) {
+                if (iInlineThumbPlain != null && iInlineThumbPlain.length > 0) {
+                    // Inline thumb: decode straight from the already-decrypted
+                    // in-memory bytes — instant, no MediaCache/network call at all.
+                    final String iInlinePoolKey = "inline:" + (m.messageId != null ? m.messageId : m.id);
+                    android.graphics.Bitmap iInlinePoolHit = DECODED_BITMAP_CACHE.get(iInlinePoolKey);
+                    if (iInlinePoolHit != null && !iInlinePoolHit.isRecycled()) {
+                        if (iInlinePoolHit.getHeight() > 0) {
+                            com.callx.app.conversation.canvas.MessageBubbleCanvasView.cacheAspectRatio(
+                                    iInlinePoolKey, (float) iInlinePoolHit.getWidth() / iInlinePoolHit.getHeight());
+                        }
+                        cv.setMediaBitmap(iInlinePoolHit);
+                    } else {
+                        android.graphics.Bitmap decoded = android.graphics.BitmapFactory
+                                .decodeByteArray(iInlineThumbPlain, 0, iInlineThumbPlain.length);
+                        if (decoded != null) {
+                            if (decoded.getHeight() > 0) {
+                                com.callx.app.conversation.canvas.MessageBubbleCanvasView.cacheAspectRatio(
+                                        iInlinePoolKey, (float) decoded.getWidth() / decoded.getHeight());
+                            }
+                            DECODED_BITMAP_CACHE.put(iInlinePoolKey, decoded);
+                            cv.setMediaBitmap(decoded);
+                        }
+                        // decode failure (corrupted/tampered inline thumb) — BlurHash placeholder stays up
+                    }
+                } else if (iThumbUrl != null) {
                     final String iThumbPoolKey = iThumbUrl;
                     android.graphics.Bitmap iThumbPoolHit = DECODED_BITMAP_CACHE.get(iThumbPoolKey);
                     if (iThumbPoolHit != null && !iThumbPoolHit.isRecycled()) {

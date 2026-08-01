@@ -10,7 +10,7 @@ import android.os.Environment;
 import android.view.View;
 import android.widget.Toast;
 import com.callx.app.comments.ReelCommentActivity;
-import com.callx.app.comments.ReelCommentsBottomSheet;
+import com.callx.app.comments.ReelCommentSheetFragment;
 import com.callx.app.comments.ReelLikesBottomSheet;
 import com.callx.app.models.ReelModel;
 import com.callx.app.social.ReelMoreBottomSheet;
@@ -93,9 +93,9 @@ public class ReelShareController {
     public void openCommentsSheet() {
         ReelModel reel = delegate.getReel();
         if (reel == null || reel.reelId == null || !delegate.isAdded() || delegate.getActivity() == null) return;
-        ReelCommentsBottomSheet sheet = ReelCommentsBottomSheet.newInstance(
+        ReelCommentSheetFragment sheet = ReelCommentSheetFragment.newInstance(
             reel.reelId, reel.uid != null ? reel.uid : "", reel.commentsCount);
-        delegate.showBottomSheet(sheet, ReelCommentsBottomSheet.TAG);
+        delegate.showBottomSheet(sheet, ReelCommentSheetFragment.TAG);
     }
 
     public void openLikesSheet() {

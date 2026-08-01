@@ -1431,6 +1431,12 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         String fwdText  = i.getStringExtra("forwardText");
         String fwdType  = i.getStringExtra("forwardType");
         String fwdMedia = i.getStringExtra("forwardMedia");
+        String fwdMediaKeyEnc         = i.getStringExtra("forwardMediaKeyEnc");
+        String fwdThumbnailUrl        = i.getStringExtra("forwardThumbnailUrl");
+        boolean fwdWasSentByMe        = i.getBooleanExtra("forwardWasSentByMe", false);
+        String fwdMediaLocalPath      = i.getStringExtra("forwardMediaLocalPath");
+        String fwdOriginalChatPartner = i.getStringExtra("forwardOriginalChatPartner");
+        String fwdOriginalMessageId   = i.getStringExtra("forwardOriginalMessageId");
         ArrayList<String> fwdTexts     = i.getStringArrayListExtra("forwardTexts");
         ArrayList<String> fwdTypes     = i.getStringArrayListExtra("forwardTypes");
         ArrayList<String> fwdMedias    = i.getStringArrayListExtra("forwardMedias");
@@ -1558,6 +1564,33 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 m.forwardedFrom = partnerName;
                 pushMessage(m, "\uD83D\uDCF7 Photos (forwarded)");
             });
+        } else if ("image".equals(fwdType) && fwdMediaKeyEnc != null && !fwdMediaKeyEnc.isEmpty()) {
+            // Media E2E key rotation on forward — see MediaForwardReEncryptor.
+            // Re-encrypts with a FRESH key wrapped through THIS (destination)
+            // chat's own E2E session, instead of reusing the original
+            // ciphertext/key (which the new recipient could never have
+            // decrypted anyway — it was wrapped for a different session).
+            com.callx.app.utils.MediaForwardReEncryptor.forwardImage(this,
+                    fwdMedia, fwdThumbnailUrl, fwdMediaKeyEnc, fwdWasSentByMe,
+                    fwdMediaLocalPath, fwdOriginalChatPartner, fwdOriginalMessageId, partnerUid,
+                    new com.callx.app.utils.MediaForwardReEncryptor.Callback() {
+                        @Override public void onSuccess(String newMediaUrl, String newThumbnailUrl, String newMediaKeyEnc) {
+                            binding.getRoot().post(() -> {
+                                Message m = buildOutgoing();
+                                m.type = "image";
+                                m.mediaUrl = newMediaUrl;
+                                m.imageUrl = newMediaUrl;
+                                m.thumbnailUrl = newThumbnailUrl;
+                                m.mediaKeyEnc = newMediaKeyEnc;
+                                m.forwardedFrom = partnerName;
+                                pushMessage(m, "\uD83D\uDCF7 Photo (forwarded)");
+                            });
+                        }
+                        @Override public void onError(String reason) {
+                            binding.getRoot().post(() -> Toast.makeText(ChatActivity.this,
+                                    "Couldn't forward photo: " + reason, Toast.LENGTH_SHORT).show());
+                        }
+                    });
         } else if (fwdMedia != null && !fwdMedia.isEmpty()) {
             binding.getRoot().post(() -> {
                 Message m  = buildOutgoing();
@@ -3822,6 +3855,21 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         i.putExtra("forwardType",  m.type != null ? m.type : "text");
         i.putExtra("forwardMedia", m.mediaUrl);
         i.putExtra("forwardFileName", m.fileName);
+        // Media E2E key rotation on forward: a forwarded E2E image must be
+        // re-encrypted with a FRESH key for the new recipient rather than
+        // reusing the original ciphertext/key (see MediaForwardReEncryptor
+        // for why the old direct-URL-copy approach was broken/insecure for
+        // E2E media). These extras carry what's needed to recover the
+        // original plaintext — captured HERE, at forward-tap time, since
+        // partnerUid is this (source) chat's partner, not the destination's.
+        if (m.mediaKeyEnc != null && !m.mediaKeyEnc.isEmpty()) {
+            i.putExtra("forwardMediaKeyEnc",         m.mediaKeyEnc);
+            i.putExtra("forwardThumbnailUrl",        m.thumbnailUrl);
+            i.putExtra("forwardWasSentByMe",         currentUid != null && currentUid.equals(m.senderId));
+            i.putExtra("forwardMediaLocalPath",      m.mediaLocalPath);
+            i.putExtra("forwardOriginalChatPartner", partnerUid);
+            i.putExtra("forwardOriginalMessageId",   m.messageId != null ? m.messageId : m.id);
+        }
         // ── multi_media: pass the full mediaItems group so a tap on
         // "Forward" (whole group, no quick-forward subset) sends every
         // image/video together, not just the first one ──

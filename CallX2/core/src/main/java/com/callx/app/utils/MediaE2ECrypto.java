@@ -155,6 +155,36 @@ public final class MediaE2ECrypto {
     }
 
     // ─────────────────────────────────────────────────────────────────────
+    // Inline thumbnail — WhatsApp-style: send the thumb INSIDE the already
+    // E2E-encrypted envelope (through the Double Ratchet text channel)
+    // instead of uploading it to Cloudinary as a second ciphertext blob.
+    // WhatsApp does this specifically to reduce metadata correlation: an
+    // observer of the CDN traffic (or the CDN operator itself) can see
+    // "this account uploaded 2 blobs of sizes X and Y within 3 seconds of
+    // each other" even though both are unreadable ciphertext — that pairing
+    // alone is a small metadata leak. Folding the (small) thumb into the
+    // envelope means the CDN only ever sees ONE upload — the full-res file.
+    // ─────────────────────────────────────────────────────────────────────
+
+    /** Cap on how large an encrypted thumbnail we'll embed inline. A
+     *  compressed chat thumbnail is normally a few KB; this is a generous
+     *  ceiling with headroom, chosen to stay well clear of typical
+     *  Firebase Realtime Database per-message text-field practical limits
+     *  (the envelope round-trips through E2EEncryptionManager and gets
+     *  stored as a Firebase field). Above this, {@link #shouldInlineThumb}
+     *  returns false and callers should fall back to uploading the thumb
+     *  to Cloudinary the old way (still ciphertext, still safe — just with
+     *  the minor metadata trade-off above). */
+    public static final int INLINE_THUMB_MAX_BYTES = 48 * 1024;
+
+    /** Whether an already-encrypted thumbnail file is small enough to embed
+     *  inline in the envelope rather than uploading it separately. */
+    public static boolean shouldInlineThumb(java.io.File encryptedThumb) {
+        return encryptedThumb != null && encryptedThumb.exists()
+                && encryptedThumb.length() > 0 && encryptedThumb.length() <= INLINE_THUMB_MAX_BYTES;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
     // SHA-256 ciphertext digest — WhatsApp-style fast corruption/tamper check
     // ─────────────────────────────────────────────────────────────────────
 
@@ -316,8 +346,18 @@ public final class MediaE2ECrypto {
          *  e.g. a video where only the thumb is E2E'd). */
         public byte[] fullDigest;
         /** SHA-256 digest of the thumbnail ciphertext, or null if not
-         *  present (v1 envelope, or this message has no encrypted thumb). */
+         *  present (v1 envelope, this message has no encrypted thumb, or
+         *  the thumb travels inline — see {@link #inlineThumbCipher} — in
+         *  which case a separate digest is redundant: the envelope itself
+         *  is already authenticated end-to-end by the Double Ratchet). */
         public byte[] thumbDigest;
+        /** The thumbnail ciphertext itself, embedded directly in the
+         *  envelope (WhatsApp-style — see the class-level note above)
+         *  instead of uploaded to Cloudinary. Null when the thumb was too
+         *  big to inline and was uploaded separately instead (in which
+         *  case the message's thumbnailUrl field points to it, decrypted
+         *  with {@link #thumbKey()} same as before). */
+        public byte[] inlineThumbCipher;
 
         /** Key to use when decrypting the full-resolution ciphertext.
          *  v1: the raw master key (matches how it was originally encrypted).
@@ -330,6 +370,21 @@ public final class MediaE2ECrypto {
          *  version split as {@link #fullKey()}. */
         public byte[] thumbKey() {
             return version >= 2 ? deriveKey(key, PURPOSE_THUMB) : key;
+        }
+
+        /** Decrypts {@link #inlineThumbCipher} straight to plaintext JPEG
+         *  bytes in memory — no network round trip needed, since the whole
+         *  ciphertext already arrived with the envelope. Returns null if
+         *  there's no inline thumb on this envelope. */
+        public byte[] decryptInlineThumb() {
+            if (inlineThumbCipher == null) return null;
+            try {
+                java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream(inlineThumbCipher.length);
+                decryptStream(new java.io.ByteArrayInputStream(inlineThumbCipher), bos, thumbKey());
+                return bos.toByteArray();
+            } catch (Exception e) {
+                return null; // corrupted/tampered inline thumb — caller falls back to BlurHash placeholder
+            }
         }
     }
 
@@ -356,6 +411,24 @@ public final class MediaE2ECrypto {
         return buildKeyEnvelopeJson(key, blurHash, null, null);
     }
 
+    /** Same as the 4-arg {@link #buildKeyEnvelopeJson(byte[], String, byte[], byte[])}
+     *  but embeds the thumb ciphertext directly (see {@link #shouldInlineThumb})
+     *  instead of carrying a separate {@code thumbDigest} for an
+     *  externally-hosted thumb — the two are mutually exclusive per message. */
+    public static String buildKeyEnvelopeJson(byte[] key, String blurHash,
+                                               byte[] fullDigest, byte[] inlineThumbCipher,
+                                               boolean thumbIsInline) throws JSONException {
+        JSONObject o = new JSONObject();
+        o.put("v", 2);
+        o.put("k", Base64.encodeToString(key, Base64.NO_WRAP));
+        if (blurHash != null && !blurHash.isEmpty()) o.put("b", blurHash);
+        if (fullDigest != null) o.put("fd", Base64.encodeToString(fullDigest, Base64.NO_WRAP));
+        if (thumbIsInline && inlineThumbCipher != null) {
+            o.put("it", Base64.encodeToString(inlineThumbCipher, Base64.NO_WRAP));
+        }
+        return o.toString();
+    }
+
     public static KeyEnvelope parseKeyEnvelopeJson(String json) throws JSONException {
         JSONObject o = new JSONObject(json);
         KeyEnvelope env = new KeyEnvelope();
@@ -364,8 +437,10 @@ public final class MediaE2ECrypto {
         env.blurHash = o.optString("b", null);
         String fd = o.optString("fd", null);
         String td = o.optString("td", null);
+        String it = o.optString("it", null);
         if (fd != null) env.fullDigest  = Base64.decode(fd, Base64.NO_WRAP);
         if (td != null) env.thumbDigest = Base64.decode(td, Base64.NO_WRAP);
+        if (it != null) env.inlineThumbCipher = Base64.decode(it, Base64.NO_WRAP);
         return env;
     }
 

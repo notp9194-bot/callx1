@@ -77,6 +77,13 @@ public class ContactsActivity extends AppCompatActivity {
     private String forwardMediaItemsJson;
     private String forwardCaption;
     private String forwardFileName;
+    // ── Media E2E key-rotation-on-forward extras (single-message forward only) ──
+    private String  forwardMediaKeyEnc;
+    private String  forwardThumbnailUrl;
+    private boolean forwardWasSentByMe;
+    private String  forwardMediaLocalPath;
+    private String  forwardOriginalChatPartner;
+    private String  forwardOriginalMessageId;
 
     // ── Reel share forward extras ─────────────────────────────────────────
     private String forwardReelId;
@@ -116,6 +123,12 @@ public class ContactsActivity extends AppCompatActivity {
         forwardType     = getIntent().getStringExtra("forwardType");
         forwardMedia    = getIntent().getStringExtra("forwardMedia");
         forwardFileName = getIntent().getStringExtra("forwardFileName");
+        forwardMediaKeyEnc         = getIntent().getStringExtra("forwardMediaKeyEnc");
+        forwardThumbnailUrl        = getIntent().getStringExtra("forwardThumbnailUrl");
+        forwardWasSentByMe         = getIntent().getBooleanExtra("forwardWasSentByMe", false);
+        forwardMediaLocalPath      = getIntent().getStringExtra("forwardMediaLocalPath");
+        forwardOriginalChatPartner = getIntent().getStringExtra("forwardOriginalChatPartner");
+        forwardOriginalMessageId   = getIntent().getStringExtra("forwardOriginalMessageId");
 
         // ── multi_media group forward (whole group or gallery-selected subset) ──
         forwardMediaItemsJson = getIntent().getStringExtra("forwardMediaItemsJson");
@@ -266,6 +279,17 @@ public class ContactsActivity extends AppCompatActivity {
         i.putExtra("forwardType",     forwardType);
         i.putExtra("forwardMedia",    forwardMedia);
         i.putExtra("forwardFileName", forwardFileName);
+        // Media E2E key rotation — see MediaForwardReEncryptor. Only
+        // meaningful for a 1:1 target (openChatWithSingleForward), since
+        // that's whose E2E session the new envelope gets wrapped through.
+        if (forwardMediaKeyEnc != null && !forwardMediaKeyEnc.isEmpty()) {
+            i.putExtra("forwardMediaKeyEnc",         forwardMediaKeyEnc);
+            i.putExtra("forwardThumbnailUrl",        forwardThumbnailUrl);
+            i.putExtra("forwardWasSentByMe",         forwardWasSentByMe);
+            i.putExtra("forwardMediaLocalPath",      forwardMediaLocalPath);
+            i.putExtra("forwardOriginalChatPartner", forwardOriginalChatPartner);
+            i.putExtra("forwardOriginalMessageId",   forwardOriginalMessageId);
+        }
         // ── multi_media group forward — whole group or gallery-selected subset ──
         if (forwardMediaItemsJson != null && !forwardMediaItemsJson.isEmpty()) {
             i.putExtra("forwardMediaItemsJson", forwardMediaItemsJson);

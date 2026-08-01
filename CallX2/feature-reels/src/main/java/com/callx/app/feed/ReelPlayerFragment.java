@@ -31,7 +31,7 @@ import com.callx.app.feed.controllers.ReelDuetController;
 import com.callx.app.feed.controllers.ReelPhotoSlideshowController;
 import com.callx.app.feed.controllers.ReelUiController;
 import com.callx.app.social.ReelMoreBottomSheet;
-import com.callx.app.comments.ReelCommentsBottomSheet;
+import com.callx.app.comments.ReelCommentSheetFragment;
 import com.google.firebase.database.DataSnapshot;
 import com.google.firebase.database.DatabaseError;
 import com.google.firebase.database.ValueEventListener;
@@ -59,7 +59,7 @@ public class ReelPlayerFragment extends Fragment
                     com.callx.app.music.ReelSoundQuickActionSheet.OnActionListener,
                     com.callx.app.social.ReelRemixSequencePickerSheet.OnModeSelectedListener,
                     com.callx.app.social.ReelDisplayModeBottomSheet.OnModeSelectedListener,
-                    ReelCommentsBottomSheet.Host {
+                    ReelCommentSheetFragment.Host {
 
     private static final float[] SPEED_STEPS  = {0.5f, 1.0f, 1.5f, 2.0f};
     private static final String[] SPEED_LABELS = {"0.5×", "1×", "1.5×", "2×"};
