@@ -101,7 +101,7 @@
             android:id="@+id/btn_share"
             android:layout_width="48dp"
             android:layout_height="48dp"
-            android:src="@android:drawable/ic_menu_share"
+            android:src="@drawable/ic_share_reel"
             android:tint="@color/white"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="Share"/>

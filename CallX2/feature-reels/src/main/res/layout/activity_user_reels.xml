@@ -917,7 +917,7 @@
             <!-- Top-right icons -->
             <ImageButton android:id="@+id/btn_share_profile"
                 android:layout_width="44dp" android:layout_height="44dp"
-                android:src="@drawable/ic_send"
+                android:src="@drawable/ic_share_reel"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:tint="?attr/colorOnSurface"
                 android:contentDescription="Share" android:padding="11dp"/>
