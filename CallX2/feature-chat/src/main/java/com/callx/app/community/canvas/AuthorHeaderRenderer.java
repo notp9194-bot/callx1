@@ -48,23 +48,25 @@ final class AuthorHeaderRenderer {
         pinnedBaselineY = -1f;
         announcementBaselineY = -1f;
 
+        float bubbleLeft = host.cardLeft + host.cardPadding;
+
         if (host.hasPinned) {
             Paint.FontMetrics fm = host.pinnedBadgePaint.getFontMetrics();
-            pinnedX = host.cardPadding;
+            pinnedX = bubbleLeft;
             pinnedBaselineY = y - fm.ascent;
             y += (fm.descent - fm.ascent) + host.badgeMarginBottom;
         }
 
         if (host.hasAnnouncement) {
             Paint.FontMetrics fm = host.announcementBadgePaint.getFontMetrics();
-            announcementX = host.cardPadding;
+            announcementX = bubbleLeft;
             announcementBaselineY = y - fm.ascent;
             y += (fm.descent - fm.ascent) + host.badgeMarginBottom;
         }
 
         float headerTop = y;
         float avatarSize = host.avatarSize;
-        host.avatarRect.set(host.cardPadding, headerTop, host.cardPadding + avatarSize, headerTop + avatarSize);
+        host.avatarRect.set(bubbleLeft, headerTop, bubbleLeft + avatarSize, headerTop + avatarSize);
 
         float textX = host.avatarRect.right + host.avatarTextGap;
         showOptions = host.canModify;

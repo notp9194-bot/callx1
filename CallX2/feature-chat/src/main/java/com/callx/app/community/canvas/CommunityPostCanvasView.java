@@ -46,12 +46,39 @@ public class CommunityPostCanvasView extends View {
     static final String ANNOUNCEMENT_LABEL_TEXT = "\uD83D\uDCE2 Announcement";
     static final String PERSON_GLYPH = "\uD83D\uDC64";
 
+    /** WhatsApp-community-style bubble cap: post cards no longer span the
+     *  full recycler width edge-to-edge — they're capped like a chat bubble
+     *  (mirrors MessageBubbleCanvasView.MAX_BUBBLE_WIDTH_FRACTION = 0.78f in
+     *  the chat module), left-aligned with a small outer margin, so a
+     *  community feed reads like a stream of received-message bubbles
+     *  instead of full-bleed cards. */
+    static final float MAX_CARD_WIDTH_FRACTION = 0.85f;
+
+    /** Absolute px cap on top of the fraction cap — without this, a tablet
+     *  or foldable in wide mode would still render an 85%-width bubble that
+     *  reads more like a full card than a chat bubble. WhatsApp bubbles
+     *  never grow past a fixed dp regardless of screen width. */
+    static final float MAX_CARD_WIDTH_DP = 420f;
+
     // ── Dimensions (px, derived from density in the constructor) ──
     float density;
     float cardPadding, cardCornerRadius;
+    float edgeMargin;
+
+    /** Bubble bounds computed each onMeasure() — the card no longer spans
+     *  0..getWidth(); it's capped to MAX_CARD_WIDTH_FRACTION and left-aligned
+     *  (see class doc). All renderer geometry is anchored to these instead
+     *  of raw 0/getWidth(). */
+    float cardLeft, cardRight;
     float avatarSize, avatarTextGap, nameTimestampGap, badgeMarginBottom, optionsButtonSize;
     float textMarginTop;
     float mediaMarginTop, mediaCornerRadius, playIconRadius, singleMediaHeight;
+    float mediaMinHeight, mediaMaxHeight;
+    /** width/height of the loaded bitmap; -1 until Glide resolves it, in
+     *  which case singleMediaHeight is used as a placeholder-height fallback
+     *  (WhatsApp shows a fixed-height shimmer/placeholder box, then reflows
+     *  to the real aspect ratio once the image decodes). */
+    float mediaAspectRatio = -1f;
     float mediaGroupGap, mediaGroupHeight;
     float pollMarginTop, pollQuestionGap, pollOptionHeight, pollOptionGap, pollOptionTextPadding;
     float reactionsMarginTop, reactionChipHeight, reactionChipPaddingH, reactionChipGap, reactionChipRowGap;
@@ -121,7 +148,7 @@ public class CommunityPostCanvasView extends View {
 
     // ── Bind state ──
     String authorName, timestampText, postText;
-    boolean hasPinned, hasAnnouncement, canModify;
+    boolean hasPinned, hasAnnouncement, canModify, isMine;
     Bitmap authorAvatarBitmap;
 
     boolean hasMedia, mediaIsVideo;
@@ -179,6 +206,7 @@ public class CommunityPostCanvasView extends View {
 
         cardPadding = 12 * density;
         cardCornerRadius = 12 * density;
+        edgeMargin = 4 * density;
         avatarSize = 40 * density;
         avatarTextGap = 10 * density;
         nameTimestampGap = 2 * density;
@@ -188,6 +216,8 @@ public class CommunityPostCanvasView extends View {
         mediaMarginTop = 10 * density;
         mediaCornerRadius = 10 * density;
         singleMediaHeight = 200 * density;
+        mediaMinHeight = 150 * density;
+        mediaMaxHeight = 320 * density;
         playIconRadius = 28 * density;
         mediaGroupGap = 2 * density;
         mediaGroupHeight = 200 * density;
@@ -341,7 +371,7 @@ public class CommunityPostCanvasView extends View {
     }
 
     float cardRight() {
-        return getWidth();
+        return cardRight;
     }
 
     public void setOnPostClickListener(OnPostClickListener listener) {
@@ -360,11 +390,13 @@ public class CommunityPostCanvasView extends View {
         hasAnnouncement = post.isAnnouncement;
         boolean isAuthor = currentUid != null && currentUid.equals(post.authorUid);
         canModify = isAdminOrOwner || isAuthor;
+        isMine = isAuthor;
 
         hasMedia = post.mediaUrl != null && !post.mediaUrl.isEmpty();
         mediaIsVideo = "video".equals(post.mediaType);
         hasMediaGroup = false; // single-media entity today; bindMediaGroup() below is for future multi-image posts
         mediaBitmap = null;
+        mediaAspectRatio = -1f;
 
         poll = CommunityPoll.fromJson(post.pollJson);
         hasPoll = poll != null && poll.options != null && !poll.options.isEmpty();
@@ -401,6 +433,14 @@ public class CommunityPostCanvasView extends View {
     public void setMediaBitmap(String forPostId, @Nullable Bitmap bmp) {
         if (!java.util.Objects.equals(forPostId, currentPostId)) return;
         mediaBitmap = bmp;
+        if (bmp != null && bmp.getWidth() > 0 && bmp.getHeight() > 0) {
+            float ratio = bmp.getWidth() / (float) bmp.getHeight();
+            if (ratio != mediaAspectRatio) {
+                mediaAspectRatio = ratio;
+                requestLayout(); // reflow from the fixed placeholder height to the real aspect ratio
+                return;
+            }
+        }
         invalidate();
     }
 
@@ -446,8 +486,21 @@ public class CommunityPostCanvasView extends View {
     @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
         int width = MeasureSpec.getSize(widthMeasureSpec);
-        float contentLeft = cardPadding;
-        float contentRight = width - cardPadding;
+
+        // WhatsApp-community bubble cap — see MAX_CARD_WIDTH_FRACTION doc.
+        float maxPx = MAX_CARD_WIDTH_DP * density;
+        float bubbleWidth = Math.min(Math.min(width - edgeMargin, width * MAX_CARD_WIDTH_FRACTION), maxPx);
+        bubbleWidth = Math.max(1f, bubbleWidth);
+        if (isMine) {
+            cardRight = width - edgeMargin;
+            cardLeft = cardRight - bubbleWidth;
+        } else {
+            cardLeft = edgeMargin;
+            cardRight = cardLeft + bubbleWidth;
+        }
+
+        float contentLeft = cardLeft + cardPadding;
+        float contentRight = cardRight - cardPadding;
         float contentWidth = Math.max(1f, contentRight - contentLeft);
 
         float y = cardPadding;
@@ -467,8 +520,13 @@ public class CommunityPostCanvasView extends View {
         if (hasMedia) {
             y += mediaMarginTop;
             mediaTop = y;
-            mediaRect.set(contentLeft, y, contentRight, y + singleMediaHeight);
-            mediaBottom = y + singleMediaHeight;
+            float mediaH = singleMediaHeight;
+            if (mediaAspectRatio > 0f) {
+                mediaH = contentWidth / mediaAspectRatio;
+                mediaH = Math.max(mediaMinHeight, Math.min(mediaMaxHeight, mediaH));
+            }
+            mediaRect.set(contentLeft, y, contentRight, y + mediaH);
+            mediaBottom = y + mediaH;
             y = mediaBottom;
         } else if (hasMediaGroup) {
             y += mediaMarginTop;
@@ -519,12 +577,12 @@ public class CommunityPostCanvasView extends View {
         // else escapes the card bounds; media/avatar have their own local
         // clips). A single drawRoundRect() produces the identical pixels for
         // a fraction of the cost, with zero per-frame allocation.
-        canvas.drawRoundRect(0, 0, getWidth(), getHeight(), cardCornerRadius, cardCornerRadius, cardBgPaint);
+        canvas.drawRoundRect(cardLeft, 0, cardRight, getHeight(), cardCornerRadius, cardCornerRadius, cardBgPaint);
 
         authorHeaderRenderer.draw(canvas);
 
         if (postText != null && !postText.isEmpty()) {
-            postTextRenderer.draw(canvas, textTop, cardPadding);
+            postTextRenderer.draw(canvas, textTop, cardLeft + cardPadding);
         }
 
         if (hasMedia) {
@@ -534,7 +592,7 @@ public class CommunityPostCanvasView extends View {
         }
 
         if (hasPoll) {
-            postPollRenderer.draw(canvas, cardPadding, pollTop, getWidth() - cardPadding, poll, myVotedOptionIndex);
+            postPollRenderer.draw(canvas, cardLeft + cardPadding, pollTop, cardRight - cardPadding, poll, myVotedOptionIndex);
         }
 
         if (hasReactions) {
@@ -578,6 +636,7 @@ public class CommunityPostCanvasView extends View {
     private void handleLongPress() {
         longPressFired = true;
         if (listener == null) return;
+        if (downX < cardLeft || downX > cardRight) return; // outside the bubble
         if (likeIconRect.contains(downX, downY)) {
             listener.onLikeLongClick(this);
         } else {
@@ -587,6 +646,7 @@ public class CommunityPostCanvasView extends View {
 
     private void handleTap(float x, float y) {
         if (listener == null) return;
+        if (x < cardLeft || x > cardRight) return; // tap landed in the outer margin, not the bubble
 
         if (canModify && optionsButtonRect.contains(x, y)) {
             listener.onOptionsClick();
