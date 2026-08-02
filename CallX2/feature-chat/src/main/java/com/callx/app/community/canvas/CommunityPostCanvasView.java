@@ -732,7 +732,7 @@ public class CommunityPostCanvasView extends View {
      */
     public void invalidateEngagementBar() {
         if (engagementTop <= 0f || engagementBottom <= engagementTop) {
-            invalidateEngagementBar();
+            invalidate(); // onMeasure hasn't run yet — full invalidate, not a self-recursive call
             return;
         }
         invalidate(0, (int) (engagementTop - 1f), getWidth(), (int) (engagementBottom + 2f));
