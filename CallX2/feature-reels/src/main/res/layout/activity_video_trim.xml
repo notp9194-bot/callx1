@@ -155,17 +155,38 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="6dp"/>
 
-        <!-- Trim progress bar (hidden by default) -->
-        <ProgressBar
-            android:id="@+id/pb_trim_progress"
-            style="@style/Widget.AppCompat.ProgressBar.Horizontal"
+        <!-- Trim progress (hidden until Next is tapped) -->
+        <LinearLayout
+            android:id="@+id/layout_trim_progress"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:max="100"
-            android:progress="0"
-            android:visibility="gone"
-            android:progressTint="#22D3A6"
-            android:layout_marginTop="14dp"/>
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginTop="14dp"
+            android:visibility="gone">
+
+            <com.google.android.material.progressindicator.LinearProgressIndicator
+                android:id="@+id/pb_trim_progress"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                app:indicatorColor="#22D3A6"
+                app:trackColor="#2A2A2A"
+                app:trackThickness="4dp"
+                app:trackCornerRadius="4dp"
+                app:indicatorDirectionLinear="startToEnd"/>
+
+            <TextView
+                android:id="@+id/tv_trim_progress_pct"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="10dp"
+                android:minWidth="34dp"
+                android:text="0%"
+                android:textColor="#8A8A8A"
+                android:textSize="12sp"
+                android:textAlignment="viewEnd"/>
+        </LinearLayout>
 
     </LinearLayout>
 

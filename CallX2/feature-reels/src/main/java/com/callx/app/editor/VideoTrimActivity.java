@@ -65,9 +65,9 @@ public class VideoTrimActivity extends AppCompatActivity {
 
     private PlayerView         playerView;
     private VideoTrimRangeView trimRangeView;
-    private TextView           tvDuration, tvStartTime, tvEndTime;
+    private TextView           tvDuration, tvStartTime, tvEndTime, tvProgressPct;
     private ProgressBar        pbTrim;
-    private View               btnTrim, btnCancel;
+    private View               btnTrim, btnCancel, layoutTrimProgress;
     private ImageButton        btnPlay;
 
     private ExoPlayer player;
@@ -106,6 +106,8 @@ public class VideoTrimActivity extends AppCompatActivity {
         tvStartTime   = findViewById(R.id.tv_trim_start_time);
         tvEndTime     = findViewById(R.id.tv_trim_end_time);
         pbTrim        = findViewById(R.id.pb_trim_progress);
+        tvProgressPct = findViewById(R.id.tv_trim_progress_pct);
+        layoutTrimProgress = findViewById(R.id.layout_trim_progress);
         btnTrim       = findViewById(R.id.btn_trim_send);
         btnPlay       = findViewById(R.id.btn_trim_play);
         btnCancel     = findViewById(R.id.btn_trim_cancel);
@@ -236,7 +238,9 @@ public class VideoTrimActivity extends AppCompatActivity {
 
     private void startTrim() {
         if (btnTrim   != null) btnTrim.setEnabled(false);
-        if (pbTrim    != null) { pbTrim.setVisibility(View.VISIBLE); pbTrim.setProgress(0); }
+        if (layoutTrimProgress != null) layoutTrimProgress.setVisibility(View.VISIBLE);
+        if (pbTrim    != null) pbTrim.setProgress(0);
+        if (tvProgressPct != null) tvProgressPct.setText("0%");
 
         bgExec.execute(() -> {
             try {
@@ -244,6 +248,7 @@ public class VideoTrimActivity extends AppCompatActivity {
                 trimVideoFile(sourceUri, outFile, trimStartMs, trimEndMs,
                     pct -> mainHandler.post(() -> {
                         if (pbTrim != null) pbTrim.setProgress(pct);
+                        if (tvProgressPct != null) tvProgressPct.setText(pct + "%");
                     }));
 
                 mainHandler.post(() -> {
@@ -258,7 +263,7 @@ public class VideoTrimActivity extends AppCompatActivity {
                     Toast.makeText(this, "Trim failed: " + e.getMessage(),
                         Toast.LENGTH_SHORT).show();
                     if (btnTrim != null) btnTrim.setEnabled(true);
-                    if (pbTrim  != null) pbTrim.setVisibility(View.GONE);
+                    if (layoutTrimProgress != null) layoutTrimProgress.setVisibility(View.GONE);
                 });
             }
         });
