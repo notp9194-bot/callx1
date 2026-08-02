@@ -26,6 +26,15 @@
             android:exported="false"
             android:screenOrientation="portrait"/>
 
+        <!-- Linked Devices (WhatsApp-Web-style companion sessions) -->
+        <activity android:name="com.callx.app.chat.linkeddevice.LinkedDevicesActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"/>
+        <activity android:name="com.callx.app.chat.linkeddevice.DevicePairingScannerActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/zxing_CaptureTheme"/>
+
         <!-- Feature 13: View Once viewer — FLAG_SECURE, no history -->
         <activity
             android:name=".conversation.ViewOnceViewerActivity"

@@ -68,7 +68,20 @@ public class ChatSecurityBottomSheet extends BottomSheetDialogFragment {
         setupVisibilityRows(v);
         setupDisappearingMessages(v);
         setupEncryptionRow(v);
+        setupLinkedDevicesRow(v);
         setupFullSettingsButton(v);
+    }
+
+    // ── Linked Devices (WhatsApp-Web-style companion sessions) ─────────────
+
+    private void setupLinkedDevicesRow(View v) {
+        View row = v.findViewById(R.id.row_linked_devices);
+        if (row == null) return;
+        row.setOnClickListener(x -> {
+            dismiss();
+            startActivity(new Intent(requireContext(),
+                    com.callx.app.chat.linkeddevice.LinkedDevicesActivity.class));
+        });
     }
 
     // ── Encryption / Safety Number ──────────────────────────────────────────

@@ -222,6 +222,15 @@
                         android:id="@+id/row_privacy"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"/>
+
+                    <View android:layout_width="match_parent" android:layout_height="1dp"
+                        android:background="@color/divider"
+                        android:layout_marginStart="56dp"/>
+
+                    <include layout="@layout/item_menu_row"
+                        android:id="@+id/row_linked_devices"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"/>
                 </LinearLayout>
             </androidx.cardview.widget.CardView>
 

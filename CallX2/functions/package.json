@@ -1,0 +1,17 @@
+{
+  "name": "callx2-functions",
+  "description": "CallX2 backend — mints short-lived custom auth tokens for approved Linked Devices (web companion) pairings.",
+  "engines": {
+    "node": "20"
+  },
+  "main": "index.js",
+  "scripts": {
+    "deploy": "firebase deploy --only functions",
+    "logs": "firebase functions:log"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.1.0",
+    "firebase-functions": "^5.0.0"
+  },
+  "private": true
+}

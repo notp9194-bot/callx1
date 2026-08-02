@@ -86,6 +86,11 @@ public class AccountMenuActivity extends AppCompatActivity {
         configureRow(binding.rowPrivacy.getRoot(), R.drawable.ic_phone, "Privacy & Security", "App lock, fingerprint, PIN, pattern");
         binding.rowPrivacy.getRoot().setOnClickListener(v -> startActivity(new Intent(this, PrivacySecurityActivity.class)));
 
+        configureRow(binding.rowLinkedDevices.getRoot(), R.drawable.ic_phone, "Linked Devices",
+            com.callx.app.linkeddevices.DeviceSessionManager.getInstance().isCompanionMode()
+                ? "Linked as companion device" : "Link a phone, tablet, or another device");
+        binding.rowLinkedDevices.getRoot().setOnClickListener(v -> startActivity(new Intent(this, LinkedDevicesActivity.class)));
+
         configureRow(binding.rowNotifications.getRoot(), R.drawable.ic_status_notification, "Notifications", "Message and call alerts");
         binding.rowNotifications.getRoot().setOnClickListener(v ->
             startActivity(new Intent(this, GlobalNotificationSettingsActivity.class)));

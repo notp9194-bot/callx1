@@ -1,13 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!--
-  activity_video_trim.xml — modernized (was a WhatsApp-style dual-SeekBar
-  panel with a raw VideoView). Now:
-    ■ Minimal floating toolbar — translucent circular close + gradient "Next" pill
-    ■ Rounded video preview card, ExoPlayer surface, centered translucent play button
-    ■ Single filmstrip range trimmer (VideoTrimRangeView) with real thumbnails,
-      draggable handles, dimmed trimmed-out edges, and a live playhead
-    ■ Duration chip instead of two separate "Selected:" text rows
--->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
@@ -21,40 +12,39 @@
         android:layout_height="56dp"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:paddingHorizontal="12dp">
+        android:paddingHorizontal="12dp"
+        android:background="#1A1A1A">
 
-        <ImageView
+        <TextView
             android:id="@+id/btn_trim_cancel"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:padding="10dp"
-            android:src="@drawable/ic_close"
-            android:background="@drawable/bg_trim_toolbar_btn"
-            android:contentDescription="Cancel"/>
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Cancel"
+            android:textColor="#FFFFFF"
+            android:textSize="16sp"
+            android:padding="8dp"
+            android:clickable="true"
+            android:focusable="true"/>
 
         <TextView
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="Trim"
+            android:text="Trim Video"
             android:textColor="#FFFFFF"
-            android:textSize="17sp"
+            android:textSize="18sp"
             android:textStyle="bold"
             android:textAlignment="center"/>
 
         <TextView
             android:id="@+id/btn_trim_send"
             android:layout_width="wrap_content"
-            android:layout_height="36dp"
-            android:minWidth="88dp"
-            android:text="Next"
-            android:textColor="#FFFFFF"
-            android:textSize="14sp"
+            android:layout_height="wrap_content"
+            android:text="Send"
+            android:textColor="#25D366"
+            android:textSize="16sp"
             android:textStyle="bold"
-            android:textAlignment="center"
-            android:gravity="center"
-            android:paddingHorizontal="20dp"
-            android:background="@drawable/bg_trim_next_pill_selector"
+            android:padding="8dp"
             android:clickable="true"
             android:focusable="true"/>
     </LinearLayout>
@@ -64,30 +54,28 @@
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:layout_marginHorizontal="16dp"
-        android:layout_marginBottom="8dp"
-        android:background="@drawable/bg_trim_preview_card"
-        android:clipToOutline="true"
-        android:outlineProvider="background">
+        android:background="#000000">
 
-        <androidx.media3.ui.PlayerView
-            android:id="@+id/player_trim_preview"
+        <VideoView
+            android:id="@+id/video_trim_preview"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            app:use_controller="false"
-            app:resize_mode="fit"
-            app:surface_type="texture_view"/>
+            android:layout_gravity="center"/>
 
-        <ImageButton
+        <!-- Play/Pause button overlay -->
+        <TextView
             android:id="@+id/btn_trim_play"
-            android:layout_width="60dp"
-            android:layout_height="60dp"
+            android:layout_width="64dp"
+            android:layout_height="64dp"
             android:layout_gravity="center"
-            android:src="@drawable/ic_play"
-            android:padding="18dp"
-            android:scaleType="fitCenter"
-            android:background="@drawable/bg_trim_play_btn"
-            android:contentDescription="Play/Pause"/>
+            android:text="▶"
+            android:textSize="32sp"
+            android:textColor="#FFFFFF"
+            android:textAlignment="center"
+            android:gravity="center"
+            android:background="#80000000"
+            android:clickable="true"
+            android:focusable="true"/>
     </FrameLayout>
 
     <!-- Trim controls panel -->
@@ -95,98 +83,88 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:paddingHorizontal="20dp"
-        android:paddingTop="4dp"
-        android:paddingBottom="24dp">
+        android:background="#1A1A1A"
+        android:padding="16dp">
 
-        <!-- Duration chip row -->
+        <!-- Duration info -->
+        <TextView
+            android:id="@+id/tv_trim_duration"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Selected: 0:00"
+            android:textColor="#FFFFFF"
+            android:textSize="15sp"
+            android:textAlignment="center"
+            android:layout_marginBottom="12dp"/>
+
+        <!-- Time labels -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:layout_marginBottom="16dp">
-
-            <TextView
-                android:id="@+id/tv_trim_duration"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="0:00"
-                android:textColor="#FFFFFF"
-                android:textSize="13sp"
-                android:textStyle="bold"
-                android:paddingHorizontal="12dp"
-                android:paddingVertical="6dp"
-                android:background="@drawable/bg_pill_dark_solid"/>
-
-            <View
-                android:layout_width="0dp"
-                android:layout_height="1dp"
-                android:layout_weight="1"/>
-
+            android:layout_marginBottom="4dp">
             <TextView
                 android:id="@+id/tv_trim_start_time"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="0:00"
-                android:textColor="#8A8A8A"
-                android:textSize="12sp"/>
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text=" – "
-                android:textColor="#8A8A8A"
-                android:textSize="12sp"/>
-
+                android:textColor="#AAAAAA"
+                android:textSize="13sp"/>
+            <View android:layout_width="0dp" android:layout_height="1dp" android:layout_weight="1"/>
             <TextView
                 android:id="@+id/tv_trim_end_time"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="0:00"
-                android:textColor="#8A8A8A"
-                android:textSize="12sp"/>
+                android:textColor="#AAAAAA"
+                android:textSize="13sp"/>
         </LinearLayout>
 
-        <!-- Filmstrip range trimmer -->
-        <com.callx.app.editor.VideoTrimRangeView
-            android:id="@+id/trim_range_view"
+        <!-- Start seek bar -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="START"
+            android:textColor="#25D366"
+            android:textSize="11sp"
+            android:layout_marginBottom="2dp"/>
+
+        <SeekBar
+            android:id="@+id/sb_trim_start"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"/>
+            android:progressTint="#25D366"
+            android:thumbTint="#25D366"
+            android:layout_marginBottom="8dp"/>
 
-        <!-- Trim progress (hidden until Next is tapped) -->
-        <LinearLayout
-            android:id="@+id/layout_trim_progress"
+        <!-- End seek bar -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="END"
+            android:textColor="#FF5252"
+            android:textSize="11sp"
+            android:layout_marginBottom="2dp"/>
+
+        <SeekBar
+            android:id="@+id/sb_trim_end"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:layout_marginTop="14dp"
-            android:visibility="gone">
+            android:progressTint="#FF5252"
+            android:thumbTint="#FF5252"
+            android:layout_marginBottom="12dp"/>
 
-            <com.google.android.material.progressindicator.LinearProgressIndicator
-                android:id="@+id/pb_trim_progress"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                app:indicatorColor="#22D3A6"
-                app:trackColor="#2A2A2A"
-                app:trackThickness="4dp"
-                app:trackCornerRadius="4dp"
-                app:indicatorDirectionLinear="startToEnd"/>
-
-            <TextView
-                android:id="@+id/tv_trim_progress_pct"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="10dp"
-                android:minWidth="34dp"
-                android:text="0%"
-                android:textColor="#8A8A8A"
-                android:textSize="12sp"
-                android:textAlignment="viewEnd"/>
-        </LinearLayout>
+        <!-- Trim progress bar (hidden by default) -->
+        <ProgressBar
+            android:id="@+id/pb_trim_progress"
+            style="@style/Widget.AppCompat.ProgressBar.Horizontal"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:max="100"
+            android:progress="0"
+            android:visibility="gone"
+            android:progressTint="#25D366"
+            android:layout_marginBottom="4dp"/>
 
     </LinearLayout>
 

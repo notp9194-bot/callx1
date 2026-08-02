@@ -1,0 +1,777 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CallX2 Web</title>
+
+<!-- Firebase (compat SDK — simplest for a single static file, no bundler) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<!-- QR code rendering for the pairing screen -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
+<style>
+  :root{
+    --grad: linear-gradient(135deg,#5B5BF6,#A855F7,#EC4899);
+    --bg: #F4F4FA; --panel:#FFFFFF; --border:#ECECF4; --text:#1A1A2E; --muted:#8A8A9A;
+  }
+  *{box-sizing:border-box; margin:0; padding:0; font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;}
+  body{background:var(--bg); color:var(--text); height:100vh; overflow:hidden;}
+
+  /* ── Pairing screen ─────────────────────────────────────────── */
+  #pairScreen{position:fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; background:var(--bg);}
+  #pairScreen .card{background:var(--panel); border-radius:20px; padding:40px 56px; box-shadow:0 12px 40px rgba(91,91,246,.12); text-align:center; max-width:440px;}
+  #pairScreen h1{font-size:22px; background:var(--grad); -webkit-background-clip:text; background-clip:text; color:transparent; margin-bottom:6px;}
+  #pairScreen p{color:var(--muted); font-size:13px; margin-bottom:24px; line-height:1.5;}
+  #qrBox{width:220px; height:220px; margin:0 auto 20px; border:8px solid var(--panel); border-radius:12px; box-shadow:0 0 0 1px var(--border);}
+  #qrStatus{font-size:12px; color:var(--muted);}
+  #qrStatus.linked{color:#2ECC71; font-weight:600;}
+  .steps{text-align:left; margin-top:28px; font-size:13px; color:var(--muted); line-height:1.9;}
+  .steps b{color:var(--text);}
+
+  /* ── Main app shell ─────────────────────────────────────────── */
+  #app{display:none; height:100vh; grid-template-columns:360px 1fr;}
+  #app.active{display:grid;}
+  #sidebar{background:var(--panel); border-right:1px solid var(--border); display:flex; flex-direction:column;}
+  #sidebarHeader{padding:16px 18px; display:flex; align-items:center; justify-content:space-between; background:var(--grad); color:#fff;}
+  #sidebarHeader .title{font-weight:700; font-size:16px;}
+  #sidebarHeader .badge{font-size:11px; opacity:.85;}
+  #chatList{overflow-y:auto; flex:1;}
+  .chatRow{display:flex; align-items:center; gap:12px; padding:12px 16px; cursor:pointer; border-bottom:1px solid var(--border);}
+  .chatRow:hover{background:#FAFAFF;}
+  .chatRow.active{background:#F0EFFF;}
+  .avatar{width:44px; height:44px; border-radius:50%; background:var(--grad); color:#fff; display:flex; align-items:center; justify-content:center; font-weight:700; flex-shrink:0; overflow:hidden;}
+  .avatar img{width:100%; height:100%; object-fit:cover;}
+  .chatMeta{flex:1; min-width:0;}
+  .chatMeta .name{font-size:14px; font-weight:600;}
+  .chatMeta .preview{font-size:12.5px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  #emptyChatList{padding:40px 20px; text-align:center; color:var(--muted); font-size:13px;}
+
+  #main{display:flex; flex-direction:column; background:#F9F9FD;}
+  #main.empty{align-items:center; justify-content:center; color:var(--muted); font-size:14px;}
+  #convHeader{padding:14px 20px; background:var(--panel); border-bottom:1px solid var(--border); display:flex; align-items:center; gap:12px;}
+  #convHeader .name{font-weight:700; font-size:15px;}
+  #msgList{flex:1; overflow-y:auto; padding:20px; display:flex; flex-direction:column; gap:8px;}
+  .bubble{max-width:60%; padding:9px 13px; border-radius:14px; font-size:13.5px; line-height:1.45; word-wrap:break-word;}
+  .bubble.mine{align-self:flex-end; background:var(--grad); color:#fff; border-bottom-right-radius:4px;}
+  .bubble.theirs{align-self:flex-start; background:#fff; border:1px solid var(--border); border-bottom-left-radius:4px;}
+  .bubble .time{display:block; font-size:10px; opacity:.7; margin-top:4px; text-align:right;}
+  #composer{display:flex; gap:10px; padding:14px 20px; background:var(--panel); border-top:1px solid var(--border);}
+  #msgInput{flex:1; border:1px solid var(--border); border-radius:22px; padding:11px 16px; font-size:13.5px; outline:none;}
+  #sendBtn{background:var(--grad); color:#fff; border:none; border-radius:50%; width:42px; height:42px; cursor:pointer; font-size:16px;}
+  #sendBtn:disabled{opacity:.4; cursor:default;}
+  #attachBtn,#micBtn{background:none; border:none; width:40px; height:40px; border-radius:50%; cursor:pointer; font-size:19px; color:var(--muted); flex-shrink:0;}
+  #attachBtn:hover,#micBtn:hover{background:#F0EFFF;}
+  #micBtn.recording{color:#E63946; animation:pulse 1s infinite;}
+  @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.35;}}
+  #uploadStatus{padding:0 20px 8px; font-size:12px; color:var(--muted); display:none;}
+  #uploadStatus.show{display:block;}
+
+  #revokedOverlay{position:fixed; inset:0; background:rgba(20,20,30,.92); color:#fff; display:none; align-items:center; justify-content:center; flex-direction:column; z-index:999; text-align:center;}
+  #revokedOverlay.show{display:flex;}
+  #revokedOverlay button{margin-top:18px; background:var(--grad); border:none; color:#fff; padding:10px 22px; border-radius:20px; font-size:13px; cursor:pointer;}
+</style>
+</head>
+<body>
+
+<!-- ═══ Pairing screen ═══ -->
+<div id="pairScreen">
+  <div class="card">
+    <h1>CallX2 Web</h1>
+    <p>Keep CallX2 open on your phone, then scan this code from<br><b>Linked Devices → Link a Device</b>.</p>
+    <div id="qrBox"></div>
+    <div id="qrStatus">Waiting for scan…</div>
+    <div class="steps">
+      1. Open <b>CallX2</b> on your phone<br>
+      2. Chat → ⋮ → Security → <b>Linked Devices</b><br>
+      3. Tap <b>Link a Device</b> and scan this code
+    </div>
+  </div>
+</div>
+
+<!-- ═══ Force-logout overlay (device revoked from phone) ═══ -->
+<div id="revokedOverlay">
+  <div style="font-size:40px;">🔒</div>
+  <div style="font-size:16px; font-weight:600; margin-top:10px;">This device was logged out</div>
+  <div style="font-size:13px; opacity:.75; margin-top:4px;">It was removed from Linked Devices on your phone.</div>
+  <button onclick="location.reload()">Link again</button>
+</div>
+
+<!-- ═══ Main synced app ═══ -->
+<div id="app">
+  <div id="sidebar">
+    <div id="sidebarHeader">
+      <div class="title">CallX2 Web</div>
+      <div class="badge" id="myName"></div>
+    </div>
+    <div id="chatList"><div id="emptyChatList">No chats yet</div></div>
+  </div>
+  <div id="main" class="empty">
+    <div id="mainEmptyMsg">Select a chat to start messaging</div>
+  </div>
+</div>
+
+<script>
+/* ============================================================
+ * CallX2 Web — companion client
+ * ------------------------------------------------------------
+ * Fill in YOUR_FIREBASE_CONFIG below (same project as the Android
+ * app — copy the values out of google-services.json / the Firebase
+ * console's "Web app" config).
+ *
+ * How the sync works (see /functions/index.js and
+ * core/linkeddevice/LinkedDeviceManager.java for the other two legs):
+ *   1. This page generates a random pairing code, shows it as a QR,
+ *      and writes pairingSessions/{code} = {status:'pending', deviceInfo}.
+ *   2. The phone scans it, shows an approval sheet, and on approval
+ *      writes status:'approved' + uid + deviceId to that same node.
+ *   3. A Cloud Function notices the approval and mints a Firebase Auth
+ *      custom token, writing it back to pairingSessions/{code}/customToken.
+ *   4. This page (still listening) signs in with that token, saves
+ *      {uid, deviceId} to localStorage so a page refresh doesn't need
+ *      re-pairing, and deletes the now-consumed pairing node.
+ *   5. From then on this tab reads/writes the exact same Firebase paths
+ *      the Android app uses (messages/{chatId}, contacts/{uid}, ...),
+ *      so it's a true mirror, not a separate synced copy.
+ * ============================================================ */
+
+const YOUR_FIREBASE_CONFIG = {
+  apiKey: "REPLACE_ME",
+  authDomain: "REPLACE_ME.firebaseapp.com",
+  databaseURL: "https://REPLACE_ME.firebaseio.com",
+  projectId: "REPLACE_ME",
+};
+
+firebase.initializeApp(YOUR_FIREBASE_CONFIG);
+const auth = firebase.auth();
+const db = firebase.database();
+
+const LS_DEVICE_ID = "callx2_web_deviceId";
+const LS_UID = "callx2_web_uid";
+
+let myUid = null;
+let myDeviceId = null;
+let myDisplayName = null;
+let activeChat = null;       // { kind: 'dm'|'group', id, title }
+let activeChatId = null;
+let activePartnerUid = null;
+let chatListListener = null;
+let messagesListener = null;
+let deviceWatchListener = null;
+let heartbeatTimer = null;
+
+// ── Device/browser fingerprint for the approval sheet on the phone ──
+function detectDeviceInfo() {
+  const ua = navigator.userAgent;
+  let browser = "Browser";
+  if (ua.includes("Edg/")) browser = "Edge";
+  else if (ua.includes("Chrome/")) browser = "Chrome";
+  else if (ua.includes("Firefox/")) browser = "Firefox";
+  else if (ua.includes("Safari/")) browser = "Safari";
+
+  let os = "Desktop";
+  if (ua.includes("Windows")) os = "Windows";
+  else if (ua.includes("Mac OS")) os = "macOS";
+  else if (ua.includes("Linux")) os = "Linux";
+  else if (ua.includes("Android")) os = "Android";
+
+  return { browser, os, label: `${browser} on ${os}` };
+}
+
+function randomPairingCode(len = 8) {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no ambiguous chars
+  let out = "";
+  for (let i = 0; i < len; i++) out += chars[Math.floor(Math.random() * chars.length)];
+  return out;
+}
+
+// ── 1. Pairing / QR flow ─────────────────────────────────────────
+function startPairing() {
+  const code = randomPairingCode();
+  const now = Date.now();
+  const session = {
+    status: "pending",
+    createdAt: now,
+    expiresAt: now + 90000, // matches PairingSession.PAIRING_TTL_MS on the Android side
+    deviceInfo: detectDeviceInfo(),
+  };
+
+  const ref = db.ref("pairingSessions/" + code);
+  ref.set(session).catch(err => {
+    document.getElementById("qrStatus").textContent = "Couldn't reach server — check your connection.";
+    console.error(err);
+  });
+
+  document.getElementById("qrBox").innerHTML = "";
+  new QRCode(document.getElementById("qrBox"), {
+    text: "callx2-pair:" + code,
+    width: 200, height: 200,
+    colorDark: "#1A1A2E", colorLight: "#FFFFFF",
+  });
+  document.getElementById("qrStatus").textContent = "Waiting for scan…";
+
+  const listener = ref.on("value", async snap => {
+    const val = snap.val();
+    if (!val) return;
+
+    if (val.status === "denied") {
+      document.getElementById("qrStatus").textContent = "Request denied on phone. Regenerating…";
+      ref.off("value", listener);
+      setTimeout(startPairing, 1500);
+      return;
+    }
+
+    if (val.status === "approved" && val.customToken) {
+      document.getElementById("qrStatus").textContent = "Linked! Signing in…";
+      document.getElementById("qrStatus").classList.add("linked");
+      ref.off("value", listener);
+      try {
+        await auth.signInWithCustomToken(val.customToken);
+        localStorage.setItem(LS_UID, val.uid);
+        localStorage.setItem(LS_DEVICE_ID, val.deviceId);
+        await ref.remove(); // single-use — never leave a valid token sitting in the DB
+      } catch (err) {
+        console.error("Sign-in with custom token failed:", err);
+        document.getElementById("qrStatus").textContent = "Linking failed — try again.";
+        setTimeout(startPairing, 1500);
+      }
+    }
+  });
+
+  // Regenerate automatically when this QR expires so the screen never goes stale
+  setTimeout(() => {
+    if (document.getElementById("pairScreen").style.display !== "none") {
+      ref.off("value", listener);
+      ref.remove();
+      startPairing();
+    }
+  }, 90000);
+}
+
+// ── 2. Boot: resume an existing linked session, or start pairing ──
+auth.onAuthStateChanged(user => {
+  if (user) {
+    myUid = user.uid;
+    myDeviceId = localStorage.getItem(LS_DEVICE_ID);
+    if (!myDeviceId) { auth.signOut(); return; } // shouldn't happen, but stay safe
+    enterApp();
+  } else {
+    localStorage.removeItem(LS_UID);
+    localStorage.removeItem(LS_DEVICE_ID);
+    document.getElementById("pairScreen").style.display = "flex";
+    document.getElementById("app").classList.remove("active");
+    startPairing();
+  }
+});
+
+function enterApp() {
+  document.getElementById("pairScreen").style.display = "none";
+  document.getElementById("app").classList.add("active");
+
+  watchOwnDeviceSession();  // force-logout if revoked from the phone
+  startHeartbeat();
+  loadMyProfile();
+  loadChatList();
+}
+
+// ── 3. Live self-revocation watch (mirrors WhatsApp Web's "logged out remotely") ──
+function watchOwnDeviceSession() {
+  const ref = db.ref(`users/${myUid}/linkedDevices/${myDeviceId}`);
+  deviceWatchListener = ref.on("value", snap => {
+    const val = snap.val();
+    if (!val || val.status === "revoked") {
+      clearInterval(heartbeatTimer);
+      auth.signOut();
+      document.getElementById("revokedOverlay").classList.add("show");
+    }
+  });
+}
+
+function startHeartbeat() {
+  const beat = () => db.ref(`users/${myUid}/linkedDevices/${myDeviceId}/lastActiveAt`).set(Date.now());
+  beat();
+  heartbeatTimer = setInterval(beat, 30000);
+}
+
+function loadMyProfile() {
+  db.ref(`users/${myUid}`).once("value").then(snap => {
+    const u = snap.val() || {};
+    myDisplayName = u.name || u.callxId || "";
+    document.getElementById("myName").textContent = myDisplayName;
+  });
+}
+
+// ── 4. Chat list — merges 1:1 (contacts/{uid}) and groups (userGroups/{uid} → groups/{gid}) ──
+let latestContacts = {};
+let latestGroups = {};
+let groupsIndexListener = null;
+
+function loadChatList() {
+  chatListListener = db.ref(`contacts/${myUid}`).on("value", snap => {
+    latestContacts = snap.val() || {};
+    renderMergedChatList();
+  });
+
+  // userGroups/{uid} is just an index (groupId → true); full group data + its
+  // own lastMessage preview lives in groups/{groupId} — same two-step lookup
+  // the phone's ContactsActivity/GroupsFragment already do.
+  groupsIndexListener = db.ref(`userGroups/${myUid}`).on("value", indexSnap => {
+    const groupIds = Object.keys(indexSnap.val() || {});
+    if (groupIds.length === 0) {
+      latestGroups = {};
+      renderMergedChatList();
+      return;
+    }
+    groupIds.forEach(gid => {
+      db.ref(`groups/${gid}`).on("value", gSnap => {
+        const g = gSnap.val();
+        if (g) { latestGroups[gid] = g; } else { delete latestGroups[gid]; }
+        renderMergedChatList();
+      });
+    });
+  });
+}
+
+async function renderMergedChatList() {
+  const listEl = document.getElementById("chatList");
+  const partnerUids = Object.keys(latestContacts);
+  const groupIds = Object.keys(latestGroups);
+
+  if (partnerUids.length === 0 && groupIds.length === 0) {
+    listEl.innerHTML = '<div id="emptyChatList">No chats yet</div>';
+    return;
+  }
+
+  const entries = [];
+  for (const partnerUid of partnerUids) {
+    const c = latestContacts[partnerUid];
+    entries.push({ kind: "dm", id: partnerUid, sortTime: c.lastMessageTime || 0, contact: c });
+  }
+  for (const gid of groupIds) {
+    const g = latestGroups[gid];
+    entries.push({ kind: "group", id: gid, sortTime: g.lastMessageAt || g.createdAt || 0, group: g });
+  }
+  entries.sort((a, b) => b.sortTime - a.sortTime);
+
+  const rows = await Promise.all(entries.map(async e => {
+    if (e.kind === "group") return renderGroupRow(e.id, e.group);
+    const userSnap = await db.ref(`users/${e.id}`).once("value");
+    return renderChatRow(e.id, userSnap.val() || {}, e.contact);
+  }));
+
+  listEl.innerHTML = "";
+  rows.forEach(r => listEl.appendChild(r));
+}
+
+function renderChatRow(partnerUid, user, contact) {
+  const row = document.createElement("div");
+  row.className = "chatRow";
+  row.dataset.chatKey = "dm:" + partnerUid;
+
+  const initials = (user.name || "?").trim().charAt(0).toUpperCase();
+  const avatarHtml = user.thumbUrl ? `<img src="${user.thumbUrl}" alt="">` : initials;
+
+  row.innerHTML = `
+    <div class="avatar">${avatarHtml}</div>
+    <div class="chatMeta">
+      <div class="name">${escapeHtml(user.name || "Unknown")}</div>
+      <div class="preview">${previewLine(contact)}</div>
+    </div>`;
+
+  row.onclick = () => openChat({ kind: "dm", id: partnerUid, title: user.name || "Unknown" });
+  return row;
+}
+
+function renderGroupRow(groupId, group) {
+  const row = document.createElement("div");
+  row.className = "chatRow";
+  row.dataset.chatKey = "group:" + groupId;
+
+  const initials = (group.name || "?").trim().charAt(0).toUpperCase();
+  const avatarHtml = group.iconUrl ? `<img src="${group.iconUrl}" alt="">` : initials;
+  const senderPrefix = group.lastSenderName ? escapeHtml(group.lastSenderName) + ": " : "";
+
+  row.innerHTML = `
+    <div class="avatar">${avatarHtml}</div>
+    <div class="chatMeta">
+      <div class="name">👥 ${escapeHtml(group.name || "Group")}</div>
+      <div class="preview">${senderPrefix}${previewLine(group)}</div>
+    </div>`;
+
+  row.onclick = () => openChat({ kind: "group", id: groupId, title: group.name || "Group" });
+  return row;
+}
+
+/** Shared last-message preview text for both DM contacts and groups — same field names on both. */
+function previewLine(node) {
+  if (!node) return "";
+  const type = node.lastMessageType;
+  if (type && type !== "text") return mediaPreviewLabel(type);
+  return escapeHtml(node.lastMessage || "");
+}
+
+function mediaPreviewLabel(type) {
+  const labels = {
+    image: "📷 Photo", video: "🎥 Video", audio: "🎤 Voice message",
+    file: "📄 Document", location: "📍 Location", contact: "👤 Contact",
+    gif: "GIF", sticker: "Sticker", reel_share: "🎬 Reel", poll: "📊 Poll",
+  };
+  return labels[type] || `[${type}]`;
+}
+
+// ── 5. Conversation view — mirrors messages/{chatId} or groupMessages/{groupId} exactly like the app ──
+function getChatId(a, b) { return a < b ? `${a}_${b}` : `${b}_${a}`; }
+
+function openChat({ kind, id, title }) {
+  activeChat = { kind, id, title };
+  activeChatId = kind === "dm" ? getChatId(myUid, id) : id;
+  activePartnerUid = kind === "dm" ? id : null;
+
+  document.querySelectorAll(".chatRow").forEach(r =>
+    r.classList.toggle("active", r.dataset.chatKey === kind + ":" + id));
+
+  const main = document.getElementById("main");
+  main.classList.remove("empty");
+  main.innerHTML = `
+    <div id="convHeader"><div class="name">${kind === "group" ? "👥 " : ""}${escapeHtml(title)}</div></div>
+    <div id="msgList"></div>
+    <div id="uploadStatus"></div>
+    <div id="composer">
+      <button id="attachBtn" title="Attach file">📎</button>
+      <input id="fileInput" type="file" style="display:none">
+      <input id="msgInput" placeholder="Type a message" autocomplete="off">
+      <button id="micBtn" title="Record voice message">🎤</button>
+      <button id="sendBtn">➤</button>
+    </div>`;
+
+  document.getElementById("sendBtn").onclick = sendMessage;
+  document.getElementById("msgInput").addEventListener("keydown", e => {
+    if (e.key === "Enter") sendMessage();
+  });
+  document.getElementById("attachBtn").onclick = () => document.getElementById("fileInput").click();
+  document.getElementById("fileInput").addEventListener("change", onFilePicked);
+  document.getElementById("micBtn").onclick = toggleVoiceRecording;
+
+  if (messagesListener) db.ref(`${messagesListener.root}/${messagesListener.chatId}`).off("value", messagesListener.fn);
+
+  const msgRoot = kind === "group" ? "groupMessages" : "messages";
+  const msgListEl = document.getElementById("msgList");
+  const fn = snap => {
+    const messages = snap.val() || {};
+    const ids = Object.keys(messages).sort((a, b) => (messages[a].timestamp || 0) - (messages[b].timestamp || 0));
+    msgListEl.innerHTML = "";
+    ids.forEach(id => msgListEl.appendChild(renderBubble(messages[id], kind === "group")));
+    msgListEl.scrollTop = msgListEl.scrollHeight;
+  };
+  db.ref(`${msgRoot}/${activeChatId}`).on("value", fn);
+  messagesListener = { root: msgRoot, chatId: activeChatId, fn };
+}
+
+function renderBubble(msg, isGroup) {
+  const b = document.createElement("div");
+  const mine = msg.senderId === myUid;
+  b.className = "bubble " + (mine ? "mine" : "theirs");
+  const time = msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
+  const senderTag = (isGroup && !mine && msg.senderName)
+    ? `<div style="font-size:11.5px; font-weight:700; color:#5B5BF6; margin-bottom:3px;">${escapeHtml(msg.senderName)}</div>`
+    : "";
+
+  if (msg.deleted) {
+    b.innerHTML = `${senderTag}<i style="opacity:.6;">🚫 This message was deleted</i><span class="time">${time}</span>`;
+    return b;
+  }
+
+  // E2E-encrypted 1:1 media (mediaKeyEnc) can't be decrypted here — the
+  // Double Ratchet session lives only on the phone's device keystore.
+  if (msg.mediaKeyEnc) {
+    b.innerHTML = `${senderTag}🔒 <i>Encrypted photo — open on your phone to view</i><span class="time">${time}</span>`;
+    return b;
+  }
+
+  b.innerHTML = `${senderTag}${mediaBodyHtml(msg)}<span class="time">${time}</span>`;
+  return b;
+}
+
+/** Full-preview rendering for every message type the phone can send. */
+function mediaBodyHtml(msg) {
+  const caption = msg.text ? `<div style="margin-top:5px;">${escapeHtml(msg.text)}</div>` : "";
+
+  switch (msg.type) {
+    case "image":
+      return `<img src="${msg.mediaUrl || msg.imageUrl}" style="max-width:260px; border-radius:10px; display:block;">${caption}`;
+
+    case "video":
+      return `<video src="${msg.mediaUrl}" poster="${msg.thumbnailUrl || ""}" controls style="max-width:260px; border-radius:10px; display:block;"></video>${caption}`;
+
+    case "audio": {
+      const secs = msg.duration ? Math.round(msg.duration / 1000) : null;
+      return `<div style="display:flex; align-items:center; gap:8px;">
+                <audio src="${msg.mediaUrl}" controls style="max-width:220px; height:36px;"></audio>
+                ${secs ? `<span style="font-size:11px; opacity:.7;">${secs}s</span>` : ""}
+              </div>`;
+    }
+
+    case "file":
+      return `<a href="${msg.mediaUrl}" target="_blank" rel="noopener" style="display:flex; align-items:center; gap:8px; text-decoration:none; color:inherit;">
+                <span style="font-size:22px;">📄</span>
+                <span>
+                  <div style="font-weight:600; font-size:13px;">${escapeHtml(msg.fileName || "Document")}</div>
+                  ${msg.fileSize ? `<div style="font-size:11px; opacity:.65;">${formatBytes(msg.fileSize)}</div>` : ""}
+                </span>
+              </a>${caption}`;
+
+    case "gif":
+      return `<img src="${msg.mediaUrl}" style="max-width:220px; border-radius:10px; display:block;">`;
+
+    case "sticker":
+      return `<img src="${msg.mediaUrl}" style="max-width:120px; display:block;">`;
+
+    case "location":
+      return `<a href="https://maps.google.com/?q=${msg.latitude},${msg.longitude}" target="_blank" rel="noopener" style="display:block; text-decoration:none; color:inherit;">
+                📍 <b>Location shared</b><br><span style="font-size:11.5px; opacity:.7;">Tap to open in Google Maps</span>
+              </a>`;
+
+    case "contact":
+      return `👤 <b>${escapeHtml(msg.text || "Contact shared")}</b>`;
+
+    case "reel_share":
+      return `<div style="display:flex; gap:8px; align-items:center;">
+                ${msg.reelShareThumb ? `<img src="${msg.reelShareThumb}" style="width:52px; height:70px; object-fit:cover; border-radius:6px;">` : "🎬"}
+                <span>
+                  <div style="font-weight:600; font-size:13px;">Reel from @${escapeHtml(msg.reelShareUsername || "")}</div>
+                  <div style="font-size:11.5px; opacity:.7;">${escapeHtml(msg.reelShareCaption || "")}</div>
+                </span>
+              </div>`;
+
+    case "view_once":
+      return `🔥 <i>View-once media — only viewable on the phone</i>`;
+
+    default:
+      return escapeHtml(msg.text || "");
+  }
+}
+
+function formatBytes(n) {
+  if (n < 1024) return n + " B";
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + " KB";
+  return (n / (1024 * 1024)).toFixed(1) + " MB";
+}
+
+function sendMessage() {
+  const input = document.getElementById("msgInput");
+  const text = input.value.trim();
+  if (!text || !activeChat) return;
+
+  pushMessage({ text: text, type: "text" }, previewFromMessage("", text));
+  input.value = "";
+}
+
+/** Firebase writes shared by text sends and media sends: the message node
+ *  itself, plus the same lastMessage* chat-list preview update the phone
+ *  performs on every send (contacts/{uid}/{partner} for DMs, groups/{gid}
+ *  for group chats). */
+function pushMessage(fields, previewText) {
+  const msgRoot = activeChat.kind === "group" ? "groupMessages" : "messages";
+  const msgRef = db.ref(`${msgRoot}/${activeChatId}`).push();
+  const now = Date.now();
+  const message = Object.assign({
+    id: msgRef.key,
+    messageId: msgRef.key,
+    senderId: myUid,
+    senderName: myDisplayName || "",
+    status: "sent",
+    timestamp: now,
+    isGroup: activeChat.kind === "group",
+  }, fields);
+
+  return msgRef.set(message).then(() => {
+    const type = fields.type || "text";
+    if (activeChat.kind === "group") {
+      db.ref(`groups/${activeChatId}`).update({
+        lastMessage: previewText, lastMessageType: type, lastMessageStatus: "sent",
+        lastMessageSenderUid: myUid, lastSenderName: myDisplayName || "", lastMessageAt: now,
+      });
+    } else {
+      db.ref(`contacts/${myUid}/${activePartnerUid}`).update({
+        lastMessage: previewText, lastMessageType: type,
+        lastMessageStatus: "sent", lastMessageSenderUid: myUid, lastMessageTime: now,
+      });
+      db.ref(`contacts/${activePartnerUid}/${myUid}`).update({
+        lastMessage: previewText, lastMessageType: type,
+        lastMessageStatus: "sent", lastMessageSenderUid: myUid, lastMessageTime: now,
+      });
+    }
+  });
+}
+
+function previewFromMessage(caption, textFallback) {
+  return caption || textFallback || "";
+}
+
+// ── 6. Media send — mirrors ChatMediaController's sign-then-upload flow ────
+// Same backend the Android app already calls (Constants.SERVER_URL), so no
+// new infra is needed — just make sure that endpoint allows CORS from
+// wherever callx2-web.html is hosted (see LINKED_DEVICES_SETUP.md).
+const SERVER_URL = "https://callx-server.onrender.com";
+
+async function cloudinarySign(folder, resourceType) {
+  const res = await fetch(SERVER_URL + "/cloudinary/sign", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ folder, resource_type: resourceType }),
+  });
+  if (!res.ok) throw new Error("Sign failed (" + res.status + ")");
+  return res.json();
+}
+
+async function cloudinaryUpload(blob, filename, folder, resourceType, onProgress) {
+  const sign = await cloudinarySign(folder, resourceType);
+  const cloudName = sign.cloud_name || "dvqqgqdls";
+  const rt = sign.resource_type || resourceType;
+  const f = sign.folder || folder;
+
+  const form = new FormData();
+  form.append("file", blob, filename);
+  form.append("api_key", sign.api_key);
+  form.append("timestamp", sign.timestamp);
+  form.append("signature", sign.signature);
+  form.append("folder", f);
+
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `https://api.cloudinary.com/v1_1/${cloudName}/${rt}/upload`);
+    xhr.upload.onprogress = e => {
+      if (e.lengthComputable && onProgress) onProgress(Math.round((e.loaded / e.total) * 100));
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) resolve(JSON.parse(xhr.responseText));
+      else reject(new Error("Upload failed (" + xhr.status + ")"));
+    };
+    xhr.onerror = () => reject(new Error("Network error during upload"));
+    xhr.send(form);
+  });
+}
+
+function setUploadStatus(text) {
+  const el = document.getElementById("uploadStatus");
+  if (!el) return;
+  el.textContent = text;
+  el.classList.toggle("show", !!text);
+}
+
+/** image | video | audio | file — same categorization ChatMediaController uses. */
+function classifyFile(file) {
+  const mime = file.type || "";
+  if (mime.startsWith("image/")) return { type: "image", resourceType: "image", folder: "callx/image" };
+  if (mime.startsWith("video/")) return { type: "video", resourceType: "video", folder: "callx/video" };
+  if (mime.startsWith("audio/")) return { type: "audio", resourceType: "raw", folder: "callx/audio" };
+  return { type: "file", resourceType: "raw", folder: "callx/file" };
+}
+
+async function onFilePicked(e) {
+  const file = e.target.files[0];
+  e.target.value = ""; // allow picking the same file twice in a row
+  if (!file || !activeChat) return;
+
+  const { type, resourceType, folder } = classifyFile(file);
+
+  // 25MB cap mirrors ChatMediaController's own per-type limits closely enough
+  // for a companion client; the phone still enforces its own exact limits.
+  if (file.size > 25 * 1024 * 1024) {
+    setUploadStatus("");
+    alert("File too large — 25 MB limit on CallX2 Web.");
+    return;
+  }
+
+  document.getElementById("sendBtn").disabled = true;
+  setUploadStatus(`Uploading ${file.name}… 0%`);
+  try {
+    const result = await cloudinaryUpload(file, file.name, folder, resourceType,
+      pct => setUploadStatus(`Uploading ${file.name}… ${pct}%`));
+
+    const fields = { type, mediaUrl: result.secure_url };
+    if (type === "file") { fields.fileName = file.name; fields.fileSize = file.size; }
+    if (result.duration) fields.duration = Math.round(result.duration * 1000);
+
+    await pushMessage(fields, previewLabelForUpload(type));
+  } catch (err) {
+    console.error(err);
+    alert("Upload failed: " + err.message);
+  } finally {
+    document.getElementById("sendBtn").disabled = false;
+    setUploadStatus("");
+  }
+}
+
+function previewLabelForUpload(type) {
+  return mediaPreviewLabel(type).replace(/^[^\w]*\s*/, ""); // drop the leading emoji for the stored preview text
+}
+
+// ── 7. Voice messages — MediaRecorder in-browser, uploaded the same way ────
+let mediaRecorder = null;
+let recordedChunks = [];
+let recordStartedAt = 0;
+
+async function toggleVoiceRecording() {
+  const micBtn = document.getElementById("micBtn");
+  if (mediaRecorder && mediaRecorder.state === "recording") {
+    mediaRecorder.stop();
+    return;
+  }
+
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    alert("This browser doesn't support microphone recording.");
+    return;
+  }
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    recordedChunks = [];
+    mediaRecorder = new MediaRecorder(stream);
+    recordStartedAt = Date.now();
+
+    mediaRecorder.ondataavailable = e => { if (e.data.size > 0) recordedChunks.push(e.data); };
+    mediaRecorder.onstop = async () => {
+      stream.getTracks().forEach(t => t.stop());
+      micBtn.classList.remove("recording");
+      const durationMs = Date.now() - recordStartedAt;
+      const blob = new Blob(recordedChunks, { type: "audio/webm" });
+      if (durationMs < 800) return; // ignore accidental taps
+
+      document.getElementById("sendBtn").disabled = true;
+      setUploadStatus("Uploading voice message…");
+      try {
+        const result = await cloudinaryUpload(blob, "voice.webm", "callx/audio", "raw",
+          pct => setUploadStatus(`Uploading voice message… ${pct}%`));
+        await pushMessage({
+          type: "audio",
+          mediaUrl: result.secure_url,
+          duration: durationMs,
+        }, "Voice message");
+      } catch (err) {
+        console.error(err);
+        alert("Voice message upload failed: " + err.message);
+      } finally {
+        document.getElementById("sendBtn").disabled = false;
+        setUploadStatus("");
+      }
+    };
+
+    mediaRecorder.start();
+    micBtn.classList.add("recording");
+    setUploadStatus("Recording… click 🎤 again to send");
+  } catch (err) {
+    alert("Microphone access denied or unavailable.");
+  }
+}
+
+function escapeHtml(s) {
+  const d = document.createElement("div");
+  d.textContent = s;
+  return d.innerHTML;
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,71 @@
+{
+  "_comment": "CallX \u2014 Firebase Realtime Database Security Rules (Linked Devices Module)",
+  "_version": "production-v1",
+  "_deploy": "Merge the 'rules' section below into your existing Firebase DB rules, then: firebase deploy --only database",
+  "_instructions": [
+    "1. Open your existing merged rules file (or the Firebase Console \u2192 Realtime Database \u2192 Rules tab).",
+    "2. Merge the 'pairingSessions' and 'linkedDevices' (nested under 'users') blocks below into it.",
+    "3. Deploy: firebase deploy --only database",
+    "",
+    "SECURITY MODEL:",
+    "  \u2022 pairingSessions/{code} is intentionally readable/writable by ANY authenticated OR anonymous",
+    "    client \u2014 the desktop/web companion is not signed in yet when it creates this node, and the",
+    "    phone needs to read it after just scanning a QR (no prior relationship to that code).",
+    "    The only sensitive field is 'customToken', and only the Cloud Function (Admin SDK, bypasses",
+    "    rules entirely) is allowed to WRITE it \u2014 rules below explicitly forbid client writes to it.",
+    "  \u2022 'status' can only move pending -> approved|denied by an authenticated user (the phone),",
+    "    and only 'uid'-that-approved may ever be written into a given pairing session once.",
+    "  \u2022 users/{uid}/linkedDevices is private to that account: only auth.uid === uid may read/write it,",
+    "    same as every other per-account node in this schema (blocks, mutes, FCM tokens, etc).",
+    "  \u2022 A linked device's own row can be deleted only by the account owner (revoke), never by the",
+    "    companion session itself \u2014 the web client can only update its own 'lastActiveAt' heartbeat.",
+    "  \u2022 Nothing here changes any existing chat/message/reel/etc. rules: once the web client signs in",
+    "    with the custom token, auth.uid equals the real account uid, so every rule that already",
+    "    checks auth.uid (see firebase_chat_rules.json) applies identically \u2014 the companion session",
+    "    is indistinguishable from the phone at the data layer, by design."
+  ],
+  "rules": {
+    "pairingSessions": {
+      "$pairingCode": {
+        ".read": true,
+        ".write": "!data.exists() || !data.child('status').exists() || data.child('status').val() === 'pending' || (auth != null && data.child('uid').val() === auth.uid)",
+        "customToken": {
+          ".write": false
+        },
+        "tokenIssuedAt": {
+          ".write": false
+        },
+        "status": {
+          ".validate": "newData.val() === 'pending' || newData.val() === 'approved' || newData.val() === 'denied' || newData.val() === 'expired'"
+        },
+        "uid": {
+          ".validate": "auth != null && newData.val() === auth.uid"
+        },
+        "deviceInfo": {
+          "browser": { ".validate": "newData.isString() && newData.val().length <= 60" },
+          "os": { ".validate": "newData.isString() && newData.val().length <= 60" },
+          "label": { ".validate": "newData.isString() && newData.val().length <= 120" }
+        },
+        "expiresAt": { ".validate": "newData.isNumber()" },
+        "createdAt": { ".validate": "newData.isNumber() && newData.val() <= now + 5000" }
+      }
+    },
+    "users": {
+      "$uid": {
+        "linkedDevices": {
+          ".read": "auth != null && auth.uid === $uid",
+          ".write": "auth != null && auth.uid === $uid",
+          "$deviceId": {
+            ".validate": "newData.hasChildren(['deviceId','status','linkedAt'])",
+            "status": {
+              ".validate": "newData.val() === 'active' || newData.val() === 'revoked'"
+            },
+            "lastActiveAt": {
+              ".validate": "newData.isNumber() && newData.val() <= now + 5000"
+            }
+          }
+        }
+      }
+    }
+  }
+}

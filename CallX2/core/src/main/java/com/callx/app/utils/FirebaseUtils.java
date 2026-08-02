@@ -41,6 +41,23 @@ public class FirebaseUtils {
         return db().getReference("users").child(uid);
     }
 
+    // ── Linked devices (WhatsApp-Web-style companion sessions) ─────────────
+
+    /** users/{uid}/linkedDevices — realtime list of approved companion sessions. */
+    public static DatabaseReference getLinkedDevicesRef(String uid) {
+        return getUserRef(uid).child("linkedDevices");
+    }
+
+    /** users/{uid}/linkedDevices/{deviceId} */
+    public static DatabaseReference getLinkedDeviceRef(String uid, String deviceId) {
+        return getLinkedDevicesRef(uid).child(deviceId);
+    }
+
+    /** pairingSessions/{pairingCode} — short-lived QR handshake node, top-level (pre-auth-scoped). */
+    public static DatabaseReference getPairingSessionRef(String pairingCode) {
+        return db().getReference("pairingSessions").child(pairingCode);
+    }
+
     public static DatabaseReference getScheduledMessagesRef(String chatOrGroupId) {
         return db().getReference("scheduledMessages").child(chatOrGroupId);
     }
