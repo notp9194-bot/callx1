@@ -21,6 +21,6 @@ public class DevicePairingScannerActivity extends CaptureActivity {
     @Override
     protected DecoratedBarcodeView initializeContent() {
         setContentView(R.layout.activity_device_pairing_scanner);
-        return findViewById(com.journeyapps.barcodescanner.R.id.zxing_barcode_scanner);
+        return findViewById(R.id.zxing_barcode_scanner);
     }
 }
