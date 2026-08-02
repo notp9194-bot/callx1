@@ -148,6 +148,7 @@ public class VideoCompressor {
         try {
             VideoMetadata meta = readMetadata(ctx, fileUri);
             Log.i(TAG, "Input: " + meta.width + "x" + meta.height
+                + " rotation=" + meta.rotationDegrees
                 + " dur=" + meta.durationMs + "ms bitrate=" + meta.bitrate / 1000 + "kbps");
 
             VideoQualityPreferences.Quality effectiveQ = resolveQuality(quality, meta);
@@ -176,7 +177,8 @@ public class VideoCompressor {
             outDir.mkdirs();
             File outFile = new File(outDir, "vid_" + UUID.randomUUID() + ".mp4");
 
-            litrCompress(ctx, fileUri, outFile, targetW, targetH, bitrate, mime, progressCb);
+            litrCompress(ctx, fileUri, outFile, targetW, targetH, bitrate, mime,
+                meta.rotationDegrees, progressCb);
 
             // If output is bigger than input (rare), use original
             File finalVideo = (outFile.exists() && outFile.length() > 0
@@ -302,6 +304,7 @@ public class VideoCompressor {
 
     private static void litrCompress(Context ctx, Uri fileUri, File outFile,
                                      int w, int h, int bitrate, String mime,
+                                     int rotationDegrees,
                                      ProgressListener cb) throws Exception {
 
         CountDownLatch             latch = new CountDownLatch(1);
@@ -313,6 +316,19 @@ public class VideoCompressor {
         fmt.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, KEY_FRAME_INT);
         fmt.setInteger(MediaFormat.KEY_COLOR_FORMAT,
             MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface);
+
+        // Preserve the source's rotation flag on the transcoded output.
+        // w/h above are RAW (sensor-space) dimensions — same space the
+        // source track is in — so LiTr writes the frame buffer untouched
+        // and this flag alone tells players how to display it upright.
+        // Without it, a portrait phone recording (raw landscape frame +
+        // rotation=90) loses its rotation on re-encode, and every player
+        // in the app (which force-fits reels into a 9:16 zoom-crop box)
+        // then crops/stretches that now-unmarked landscape frame into a
+        // tall portrait box — the "cropped and lambi" bug.
+        if (rotationDegrees == 90 || rotationDegrees == 180 || rotationDegrees == 270) {
+            fmt.setInteger(MediaFormat.KEY_ROTATION, rotationDegrees);
+        }
 
         if (MIME_HEVC.equals(mime) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             fmt.setInteger(MediaFormat.KEY_PROFILE,
@@ -367,7 +383,7 @@ public class VideoCompressor {
             if (!MIME_AVC.equals(mime)) {
                 Log.w(TAG, "Codec " + mime + " failed, falling back to H.264");
                 outFile.delete();
-                litrCompress(ctx, fileUri, outFile, w, h, bitrate, MIME_AVC, cb);
+                litrCompress(ctx, fileUri, outFile, w, h, bitrate, MIME_AVC, rotationDegrees, cb);
                 return;
             }
             throw err.get();
@@ -381,6 +397,12 @@ public class VideoCompressor {
     public static class VideoMetadata {
         public int  width = 1280, height = 720, durationMs = 0, bitrate = 0;
         public float fps = 30;
+        /** Source rotation in degrees (0/90/180/270) from METADATA_KEY_VIDEO_ROTATION.
+         *  MUST be preserved into the transcoded output (KEY_ROTATION), otherwise
+         *  the re-encoded frame buffer keeps its raw sensor orientation but loses
+         *  the flag that tells players to rotate it — the classic cause of a
+         *  portrait reel coming out cropped/stretched ("lambi") after upload. */
+        public int rotationDegrees = 0;
     }
 
     public static VideoMetadata readMetadata(Context ctx, Uri uri) {
@@ -392,10 +414,12 @@ public class VideoCompressor {
             String h  = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT);
             String d  = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION);
             String br = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITRATE);
+            String rot = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION);
             if (w  != null) m.width      = Integer.parseInt(w);
             if (h  != null) m.height     = Integer.parseInt(h);
             if (d  != null) m.durationMs = Integer.parseInt(d);
             if (br != null) m.bitrate    = Integer.parseInt(br);
+            if (rot != null) m.rotationDegrees = Integer.parseInt(rot);
         } catch (Exception e) {
             Log.w(TAG, "Metadata read failed: " + e.getMessage());
         } finally {
