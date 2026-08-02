@@ -11,13 +11,16 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 import android.view.View;
+import android.widget.ImageButton;
 import android.widget.ProgressBar;
-import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
-import android.widget.VideoView;
 
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.media3.common.MediaItem;
+import androidx.media3.common.Player;
+import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.ui.PlayerView;
 
 import com.callx.app.reels.R;
 
@@ -32,12 +35,17 @@ import java.util.concurrent.Executors;
 /**
  * VideoTrimActivity — In-app video trimming before sending.
  *
+ * Modernized: single filmstrip range trimmer (VideoTrimRangeView) with real
+ * thumbnails, directly-draggable handles and a live playhead, replacing the
+ * old dual-SeekBar panel. Preview now uses ExoPlayer (PlayerView) instead
+ * of the legacy VideoView for smoother, more accurate scrubbing.
+ *
  * Features:
- *  ✅ Dual-handle range slider (start/end trim points)
- *  ✅ VideoView live preview with play/pause
+ *  ✅ Filmstrip range trimmer with real video thumbnails (start/end handles)
+ *  ✅ ExoPlayer live preview with play/pause + synced playhead
  *  ✅ Frame-accurate trim using MediaExtractor + MediaMuxer
  *  ✅ Trim progress bar
- *  ✅ Duration display (selected range)
+ *  ✅ Duration chip (selected range)
  *  ✅ Original file never modified
  *  ✅ Returns trimmed Uri via setResult
  *
@@ -55,11 +63,14 @@ public class VideoTrimActivity extends AppCompatActivity {
     public  static final String EXTRA_TRIMMED_PATH = "trimmedPath";
     public  static final int    REQ_TRIM           = 7771;
 
-    private VideoView   videoView;
-    private SeekBar     sbStart, sbEnd;
-    private TextView    tvDuration, tvStartTime, tvEndTime;
-    private ProgressBar pbTrim;
-    private View        btnTrim, btnPlay, btnCancel;
+    private PlayerView         playerView;
+    private VideoTrimRangeView trimRangeView;
+    private TextView           tvDuration, tvStartTime, tvEndTime;
+    private ProgressBar        pbTrim;
+    private View               btnTrim, btnCancel;
+    private ImageButton        btnPlay;
+
+    private ExoPlayer player;
 
     private Uri  sourceUri;
     private long totalDurationMs = 0;
@@ -85,20 +96,19 @@ public class VideoTrimActivity extends AppCompatActivity {
 
         bindViews();
         loadVideoMetadata();
-        setupVideoView();
+        setupPlayer();
     }
 
     private void bindViews() {
-        videoView   = findViewById(R.id.video_trim_preview);
-        sbStart     = findViewById(R.id.sb_trim_start);
-        sbEnd       = findViewById(R.id.sb_trim_end);
-        tvDuration  = findViewById(R.id.tv_trim_duration);
-        tvStartTime = findViewById(R.id.tv_trim_start_time);
-        tvEndTime   = findViewById(R.id.tv_trim_end_time);
-        pbTrim      = findViewById(R.id.pb_trim_progress);
-        btnTrim     = findViewById(R.id.btn_trim_send);
-        btnPlay     = findViewById(R.id.btn_trim_play);
-        btnCancel   = findViewById(R.id.btn_trim_cancel);
+        playerView    = findViewById(R.id.player_trim_preview);
+        trimRangeView = findViewById(R.id.trim_range_view);
+        tvDuration    = findViewById(R.id.tv_trim_duration);
+        tvStartTime   = findViewById(R.id.tv_trim_start_time);
+        tvEndTime     = findViewById(R.id.tv_trim_end_time);
+        pbTrim        = findViewById(R.id.pb_trim_progress);
+        btnTrim       = findViewById(R.id.btn_trim_send);
+        btnPlay       = findViewById(R.id.btn_trim_play);
+        btnCancel     = findViewById(R.id.btn_trim_cancel);
 
         if (btnCancel != null) btnCancel.setOnClickListener(v -> finish());
         if (btnPlay   != null) btnPlay.setOnClickListener(v -> togglePlay());
@@ -120,75 +130,62 @@ public class VideoTrimActivity extends AppCompatActivity {
         trimStartMs = 0;
         trimEndMs   = totalDurationMs;
 
-        // SeekBar max = total duration in tenths of a second
-        int maxProgress = (int)(totalDurationMs / 100);
-        if (sbStart != null) {
-            sbStart.setMax(maxProgress);
-            sbStart.setProgress(0);
-        }
-        if (sbEnd != null) {
-            sbEnd.setMax(maxProgress);
-            sbEnd.setProgress(maxProgress);
-        }
-
-        updateTimeLabels();
-
-        if (sbStart != null) sbStart.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            @Override public void onProgressChanged(SeekBar sb, int prog, boolean user) {
-                if (user) {
-                    long newStart = prog * 100L;
-                    if (newStart >= trimEndMs - 1000) {
-                        sb.setProgress((int)((trimEndMs - 1000) / 100));
-                        return;
-                    }
-                    trimStartMs = newStart;
+        if (trimRangeView != null) {
+            trimRangeView.setVideo(sourceUri, totalDurationMs);
+            trimRangeView.setListener(new VideoTrimRangeView.Listener() {
+                @Override
+                public void onRangeChanging(long startMs, long endMs) {
+                    trimStartMs = startMs;
+                    trimEndMs   = endMs;
                     updateTimeLabels();
                     seekVideoTo(trimStartMs);
                 }
-            }
-            @Override public void onStartTrackingTouch(SeekBar sb) {}
-            @Override public void onStopTrackingTouch(SeekBar sb) {}
-        });
 
-        if (sbEnd != null) sbEnd.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            @Override public void onProgressChanged(SeekBar sb, int prog, boolean user) {
-                if (user) {
-                    long newEnd = prog * 100L;
-                    if (newEnd <= trimStartMs + 1000) {
-                        sb.setProgress((int)((trimStartMs + 1000) / 100));
-                        return;
-                    }
-                    trimEndMs = newEnd;
+                @Override
+                public void onRangeChanged(long startMs, long endMs) {
+                    trimStartMs = startMs;
+                    trimEndMs   = endMs;
                     updateTimeLabels();
                 }
-            }
-            @Override public void onStartTrackingTouch(SeekBar sb) {}
-            @Override public void onStopTrackingTouch(SeekBar sb) {}
-        });
+
+                @Override
+                public void onScrub(long positionMs) {
+                    seekVideoTo(positionMs);
+                }
+            });
+        }
+
+        updateTimeLabels();
     }
 
-    private void setupVideoView() {
-        if (videoView == null) return;
-        videoView.setVideoURI(sourceUri);
-        videoView.setOnPreparedListener(mp -> {
-            mp.setLooping(false);
-            videoView.seekTo((int) trimStartMs);
-        });
-        videoView.setOnCompletionListener(mp -> {
-            isPlaying = false;
-            updatePlayButton();
-            videoView.seekTo((int) trimStartMs);
+    private void setupPlayer() {
+        if (playerView == null) return;
+        player = new ExoPlayer.Builder(this).build();
+        playerView.setPlayer(player);
+        player.setMediaItem(MediaItem.fromUri(sourceUri));
+        player.prepare();
+        player.seekTo(trimStartMs);
+        player.addListener(new Player.Listener() {
+            @Override
+            public void onPlaybackStateChanged(int state) {
+                if (state == Player.STATE_ENDED) {
+                    isPlaying = false;
+                    updatePlayButton();
+                    seekVideoTo(trimStartMs);
+                }
+            }
         });
     }
 
     private void togglePlay() {
+        if (player == null) return;
         if (isPlaying) {
-            videoView.pause();
+            player.pause();
             isPlaying = false;
         } else {
-            if (videoView.getCurrentPosition() >= trimEndMs)
-                videoView.seekTo((int) trimStartMs);
-            videoView.start();
+            if (player.getCurrentPosition() >= trimEndMs)
+                player.seekTo(trimStartMs);
+            player.play();
             isPlaying = true;
             scheduleEndCheck();
         }
@@ -198,15 +195,19 @@ public class VideoTrimActivity extends AppCompatActivity {
     private void scheduleEndCheck() {
         progressUpdater = new Runnable() {
             @Override public void run() {
-                if (isPlaying && videoView.isPlaying()) {
-                    if (videoView.getCurrentPosition() >= trimEndMs) {
-                        videoView.pause();
-                        videoView.seekTo((int) trimStartMs);
+                if (player == null) return;
+                if (isPlaying && player.isPlaying()) {
+                    long pos = player.getCurrentPosition();
+                    if (trimRangeView != null) trimRangeView.setPlayheadMs(pos);
+                    if (pos >= trimEndMs) {
+                        player.pause();
+                        player.seekTo(trimStartMs);
                         isPlaying = false;
                         updatePlayButton();
+                        if (trimRangeView != null) trimRangeView.setPlayheadMs(-1);
                         return;
                     }
-                    mainHandler.postDelayed(this, 200);
+                    mainHandler.postDelayed(this, 60);
                 }
             }
         };
@@ -214,12 +215,13 @@ public class VideoTrimActivity extends AppCompatActivity {
     }
 
     private void seekVideoTo(long posMs) {
-        if (videoView != null) videoView.seekTo((int) posMs);
+        if (player != null) player.seekTo(posMs);
+        if (trimRangeView != null) trimRangeView.setPlayheadMs(isPlaying ? posMs : -1);
     }
 
     private void updatePlayButton() {
-        if (btnPlay instanceof TextView) {
-            ((TextView) btnPlay).setText(isPlaying ? "⏸" : "▶");
+        if (btnPlay != null) {
+            btnPlay.setImageResource(isPlaying ? R.drawable.ic_pause : R.drawable.ic_play);
         }
     }
 
@@ -227,7 +229,7 @@ public class VideoTrimActivity extends AppCompatActivity {
         long selectedMs = trimEndMs - trimStartMs;
         if (tvStartTime != null) tvStartTime.setText(formatMs(trimStartMs));
         if (tvEndTime   != null) tvEndTime.setText(formatMs(trimEndMs));
-        if (tvDuration  != null) tvDuration.setText("Selected: " + formatMs(selectedMs));
+        if (tvDuration  != null) tvDuration.setText(formatMs(selectedMs));
     }
 
     // ── Trim ──────────────────────────────────────────────────────────────
@@ -352,5 +354,6 @@ public class VideoTrimActivity extends AppCompatActivity {
         super.onDestroy();
         if (progressUpdater != null) mainHandler.removeCallbacks(progressUpdater);
         bgExec.shutdownNow();
+        if (player != null) { player.release(); player = null; }
     }
 }
