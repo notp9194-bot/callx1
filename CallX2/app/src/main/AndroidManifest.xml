@@ -278,10 +278,10 @@
             android:exported="false"
             android:windowSoftInputMode="adjustResize"/>
 
-        <!-- Post detail / comments -->
-        <activity android:name="com.callx.app.community.CommunityPostDetailActivity"
-            android:exported="false"
-            android:windowSoftInputMode="adjustResize"/>
+        <!-- Post detail / comments — handled by CommunityPostCommentsActivity,
+             declared in feature-chat's manifest. The CommunityPostDetailActivity
+             entry that used to be here pointed at a class that was never
+             created (dead manifest entry, nothing launches it); removed. -->
 
         <!-- v31: Join Requests approval (private community) -->
         <activity android:name="com.callx.app.community.CommunityJoinRequestsActivity"

@@ -97,6 +97,10 @@
             android:exported="false"
             android:windowSoftInputMode="adjustResize"/>
 
+        <!-- Reaction-details "who reacted" sheet for community posts -->
+        <activity android:name="com.callx.app.community.CommunityReactionsDetailActivity"
+            android:exported="false"/>
+
         <activity android:name="com.callx.app.community.CommunityAddGroupActivity"
             android:exported="false"/>
 
@@ -104,11 +108,9 @@
             android:exported="false"
             android:windowSoftInputMode="adjustResize"/>
 
-        <!-- BUG FIX: was missing from manifest — CommunityActivity's
-             "menu_analytics" option threw ActivityNotFoundException. -->
-        <activity android:name="com.callx.app.community.CommunityAnalyticsActivity"
-            android:exported="false"
-            android:windowSoftInputMode="adjustResize"/>
+        <!-- CommunityAnalyticsActivity stub removed — menu_analytics now opens
+             CommunityAnalyticsDashboardActivity (declared in app manifest),
+             the real 118-line analytics dashboard that was already built. -->
 
         <!-- Feature 1: Chat Folders — create/edit folder activity -->
         <activity android:name="com.callx.app.chatlist.FolderEditActivity"

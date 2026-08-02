@@ -4,7 +4,6 @@ import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.TextView;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -15,6 +14,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.callx.app.chat.R;
 import com.callx.app.db.entity.CommunityMemberEntity;
 import com.callx.app.db.entity.CommunityPostEntity;
+import com.callx.app.db.entity.GroupEntity;
 import com.callx.app.repository.CommunityRepository;
 
 import java.util.ArrayList;
@@ -38,12 +38,15 @@ public class CommunitySearchResultsFragment extends Fragment {
 
     private List<CommunityPostEntity>   allPosts   = new ArrayList<>();
     private List<CommunityMemberEntity> allMembers = new ArrayList<>();
+    private List<GroupEntity>           allGroups  = new ArrayList<>();
     private String currentQuery = "";
 
     // Adapter for posts
     private CommunityPostSearchAdapter postSearchAdapter;
     // Adapter for members
     private CommunityMemberSearchAdapter memberSearchAdapter;
+    // Adapter for groups — reuses the same adapter CommunityGroupsFragment uses
+    private CommunityGroupAdapter groupSearchAdapter;
 
     public static CommunitySearchResultsFragment newInstance(String communityId, String mode) {
         CommunitySearchResultsFragment f = new CommunitySearchResultsFragment();
@@ -92,12 +95,14 @@ public class CommunitySearchResultsFragment extends Fragment {
                 }
                 break;
             case "groups":
-                // Show group names — use a simple text adapter stub
-                TextView tv = new TextView(requireContext());
-                tv.setPadding(32, 32, 32, 32);
-                tv.setText("Search groups coming soon");
-                // For now use empty state
-                layoutEmpty.setVisibility(View.VISIBLE);
+                groupSearchAdapter = new CommunityGroupAdapter();
+                rvResults.setAdapter(groupSearchAdapter);
+                if (communityId != null) {
+                    repo.observeCommunityGroups(communityId).observe(getViewLifecycleOwner(), groups -> {
+                        allGroups = groups != null ? groups : new ArrayList<>();
+                        applyQuery(currentQuery);
+                    });
+                }
                 break;
             default: // posts
                 postSearchAdapter = new CommunityPostSearchAdapter();
@@ -134,6 +139,18 @@ public class CommunitySearchResultsFragment extends Fragment {
                 boolean emptyM = filteredMembers.isEmpty();
                 rvResults.setVisibility(emptyM && !q.isEmpty() ? View.GONE : View.VISIBLE);
                 layoutEmpty.setVisibility(emptyM && !q.isEmpty() ? View.VISIBLE : View.GONE);
+                break;
+            case "groups":
+                List<GroupEntity> filteredGroups = new ArrayList<>();
+                for (GroupEntity g : allGroups) {
+                    if (q.isEmpty() || (g.name != null && g.name.toLowerCase().contains(q))) {
+                        filteredGroups.add(g);
+                    }
+                }
+                if (groupSearchAdapter != null) groupSearchAdapter.submitList(filteredGroups);
+                boolean emptyG = filteredGroups.isEmpty();
+                rvResults.setVisibility(emptyG ? View.GONE : View.VISIBLE);
+                layoutEmpty.setVisibility(emptyG ? View.VISIBLE : View.GONE);
                 break;
             default: // posts
                 if (q.isEmpty()) {

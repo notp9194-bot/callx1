@@ -135,6 +135,16 @@ public class CommunityRepository {
         return mFirebase.getReference("communities");
     }
 
+    /**
+     * Public ref to a post's per-user reactions map
+     * (communities/{communityId}/posts/{postId}/reactions/{uid} -> reactionType),
+     * for screens like the reaction-details "who reacted" sheet that need the
+     * raw per-user data instead of just the aggregate reactionCounts.
+     */
+    public DatabaseReference getPostReactionsRef(String communityId, String postId) {
+        return communitiesRef().child(communityId).child("posts").child(postId).child("reactions");
+    }
+
     private DatabaseReference ownerIndexRef() {
         return mFirebase.getReference("community_by_owner");
     }

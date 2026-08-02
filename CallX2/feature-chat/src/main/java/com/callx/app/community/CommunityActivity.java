@@ -185,8 +185,8 @@ public class CommunityActivity extends AppCompatActivity {
         }
         if (id == R.id.menu_analytics) {
             if (CommunityRole.isAdminOrOwner(myRole))
-                startActivity(new Intent(this, CommunityAnalyticsActivity.class)
-                        .putExtra("communityId", communityId)); return true;
+                startActivity(new Intent(this, CommunityAnalyticsDashboardActivity.class)
+                        .putExtra(CommunityAnalyticsDashboardActivity.EXTRA_COMMUNITY_ID, communityId)); return true;
         }
         if (id == R.id.menu_discover) {
             startActivity(new Intent(this, CommunityDiscoverActivity.class)); return true;

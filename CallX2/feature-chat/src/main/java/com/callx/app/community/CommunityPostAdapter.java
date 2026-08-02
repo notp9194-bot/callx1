@@ -53,6 +53,8 @@ public class CommunityPostAdapter extends RecyclerView.Adapter<CommunityPostAdap
         default void onAuthorClick(CommunityPostEntity post) {}
         /** New in v32 — tapped an @mention span inside the post text. */
         default void onMentionClick(CommunityPostEntity post, String rawMention) {}
+        /** Tapped the reaction count/summary — opens the "who reacted" detail sheet. */
+        default void onReactionsDetail(CommunityPostEntity post) {}
     }
 
     private static final DiffUtil.ItemCallback<CommunityPostEntity> DIFF =
@@ -233,7 +235,7 @@ public class CommunityPostAdapter extends RecyclerView.Adapter<CommunityPostAdap
             @Override public void onMentionClick(String rawMention) { if (listener != null) listener.onMentionClick(p, rawMention); }
             @Override public void onMediaClick() { if (listener != null) listener.onMediaClicked(p); }
             @Override public void onPollOptionClick(int optionIndex) { if (listener != null) listener.onPollVote(p, optionIndex); }
-            @Override public void onReactionsClick() { /* no-op: reaction-details sheet not wired yet, same as legacy layoutReactions (no click listener) */ }
+            @Override public void onReactionsClick() { if (listener != null) listener.onReactionsDetail(p); }
             @Override public void onLikeClick() { if (listener != null) listener.onLike(p); }
             @Override public void onLikeLongClick(android.view.View anchorView) {
                 if (listener != null) listener.onLongPressLike(p, anchorView);

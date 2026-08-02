@@ -226,6 +226,17 @@ public class CommunityFeedFragment extends Fragment implements CommunityPostAdap
             repo.reactToPost(communityId, post.id, currentUid, reactionType, null);
     }
 
+    @Override
+    public void onReactionsDetail(CommunityPostEntity post) {
+        if (!isAdded() || communityId == null) return;
+        // No reactions yet — nothing to show
+        if (CommunityReaction.totalCount(post.reactionCountsJson) <= 0) return;
+        Intent i = new Intent(requireContext(), CommunityReactionsDetailActivity.class);
+        i.putExtra(CommunityReactionsDetailActivity.EXTRA_COMMUNITY_ID, communityId);
+        i.putExtra(CommunityReactionsDetailActivity.EXTRA_POST_ID, post.id);
+        startActivity(i);
+    }
+
     // ─── v34: Share ──────────────────────────────────────────────────────────
 
     @Override
