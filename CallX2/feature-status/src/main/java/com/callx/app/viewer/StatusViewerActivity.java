@@ -232,7 +232,10 @@ import com.callx.app.utils.AlertDialogStyler;
                       // btnRepost visibility is refined per-item in showCurrent() based on allowSharing
                       binding.btnRepost.setVisibility(isOwner ? View.GONE : View.VISIBLE);
                   }
-                  @Override public void onCancelled(@NonNull DatabaseError e) { finish(); }
+                  @Override public void onCancelled(@NonNull DatabaseError e) {
+                      CrashReporter.reportSilently(StatusViewerActivity.this, "StatusViewer.load.onCancelled", e.toException());
+                      finish();
+                  }
               });
       }
       /** v39 — Loads a Highlight album's permanent copies. Deliberately does NOT
@@ -268,7 +271,10 @@ import com.callx.app.utils.AlertDialogStyler;
                       // btnRepost visibility is refined per-item in showCurrent() based on allowSharing
                       binding.btnRepost.setVisibility(isOwner ? View.GONE : View.VISIBLE);
                   }
-                  @Override public void onCancelled(@NonNull DatabaseError e) { finish(); }
+                  @Override public void onCancelled(@NonNull DatabaseError e) {
+                      CrashReporter.reportSilently(StatusViewerActivity.this, "StatusViewer.loadHighlightAlbum.onCancelled", e.toException());
+                      finish();
+                  }
               });
       }
       // ── Segment bar ───────────────────────────────────────────────────────
@@ -331,11 +337,20 @@ import com.callx.app.utils.AlertDialogStyler;
                   // reposted plain-text status has no media at all) instead of
                   // skipping past it — skipping was closing the viewer outright
                   // when this was the only status in the list.
-                  if (s.mediaUrl != null && !s.mediaUrl.isEmpty()) { showVideoStatus(s); }
-                  else if (s.thumbnailUrl != null && !s.thumbnailUrl.isEmpty()) { showImageStatusFromUrl(s.thumbnailUrl, s.caption); }
-                  else if (s.resharedThumbnailUrl != null && !s.resharedThumbnailUrl.isEmpty()) { showImageStatusFromUrl(s.resharedThumbnailUrl, s.caption); }
-                  else if (s.text != null && !s.text.isEmpty()) { showTextStatus(s); }
-                  else { showUnavailableFallback(); }
+                  // Wrapped in try/catch + reported: this is the exact code path
+                  // behind the "repost dekhte waqt silent crash" reports — any
+                  // exception here now shows the crash screen with a trace
+                  // instead of leaving the viewer stuck/blank with no clue why.
+                  try {
+                      if (s.mediaUrl != null && !s.mediaUrl.isEmpty()) { showVideoStatus(s); }
+                      else if (s.thumbnailUrl != null && !s.thumbnailUrl.isEmpty()) { showImageStatusFromUrl(s.thumbnailUrl, s.caption); }
+                      else if (s.resharedThumbnailUrl != null && !s.resharedThumbnailUrl.isEmpty()) { showImageStatusFromUrl(s.resharedThumbnailUrl, s.caption); }
+                      else if (s.text != null && !s.text.isEmpty()) { showTextStatus(s); }
+                      else { showUnavailableFallback(); }
+                  } catch (Exception e) {
+                      CrashReporter.report(this, "StatusViewer.reshareRender", e);
+                      showUnavailableFallback();
+                  }
                   break;
               default: next();
           }
@@ -379,7 +394,9 @@ import com.callx.app.utils.AlertDialogStyler;
                       binding.btnRepost.setVisibility(canRepost ? android.view.View.VISIBLE : android.view.View.GONE);
                   }
               }
-          } catch (Exception ignored) { /* never crash the viewer */ }
+          } catch (Exception e) {
+              CrashReporter.report(this, "StatusViewer.reshareAttributionCard", e);
+          }
       }
 
       /** Navigate to the original reel or post that was reshared. */
@@ -552,10 +569,21 @@ import com.callx.app.utils.AlertDialogStyler;
               musicPlayer.setLooping(true);
               musicPlayer.setVolume(isMuted ? 0f : 1f, isMuted ? 0f : 1f);
               musicPlayer.setOnPreparedListener(mp -> { if (!paused) mp.start(); });
-              musicPlayer.setOnErrorListener((mp, what, extra) -> { releaseMusicPlayer(); return true; });
+              musicPlayer.setOnErrorListener((mp, what, extra) -> {
+                  // This is the most likely real cause of "music sticker never
+                  // plays, no error shown" — bad/expired URL, unsupported codec,
+                  // network failure, etc. all land here silently before. Now
+                  // reported (non-intrusive — logged + saved to file, doesn't
+                  // interrupt the viewer) so the actual reason is visible.
+                  CrashReporter.reportSilently(StatusViewerActivity.this, "StatusViewer.musicSticker.onError",
+                          new RuntimeException("MediaPlayer error what=" + what + " extra=" + extra + " url=" + url));
+                  releaseMusicPlayer();
+                  return true;
+              });
               musicPlayer.prepareAsync();
           } catch (Exception e) {
               // Bad/unreachable preview URL — sticker just stays silent, never crash the viewer.
+              CrashReporter.reportSilently(this, "StatusViewer.startMusicStickerAudio", e);
               releaseMusicPlayer();
           }
       }
@@ -812,8 +840,14 @@ import com.callx.app.utils.AlertDialogStyler;
                       armStickerZoomGate(sticker, () -> openAddYoursComposer(sticker));
                   }
               }
-          } catch (Exception ignored) {
-              // Malformed/legacy stickersJson — skip rendering rather than crash the viewer.
+          } catch (Exception e) {
+              // Malformed/legacy stickersJson, or a bug in one of the sticker
+              // handlers below (music/quiz/poll/etc.) — used to swallow this
+              // completely. Now reported instead: if a music sticker silently
+              // isn't playing, or any other sticker misbehaves, this surfaces
+              // the actual exception instead of just skipping rendering with
+              // no trace of why.
+              CrashReporter.report(this, "StatusViewer.renderStickers", e);
           }
       }
 
