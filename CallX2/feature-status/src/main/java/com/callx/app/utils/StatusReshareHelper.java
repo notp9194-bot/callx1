@@ -30,6 +30,11 @@ public final class StatusReshareHelper {
     public static final String EXTRA_CAPTION        = StoryReshareActivity.EXTRA_CAPTION;
     public static final String EXTRA_MEDIA_TYPE     = StoryReshareActivity.EXTRA_MEDIA_TYPE;
     public static final String EXTRA_ALLOW_RESHARE  = StoryReshareActivity.EXTRA_ALLOW_RESHARE;
+    // ── Original text-status content (WhatsApp preserves this on repost even
+    //    when there's no mediaUrl/thumbnailUrl to show, e.g. plain text statuses) ──
+    public static final String EXTRA_ORIGINAL_TEXT       = "EXTRA_ORIGINAL_TEXT";
+    public static final String EXTRA_ORIGINAL_BG_COLOR   = "EXTRA_ORIGINAL_BG_COLOR";
+    public static final String EXTRA_ORIGINAL_TEXT_COLOR = "EXTRA_ORIGINAL_TEXT_COLOR";
 
     // ── canReshare checks ──────────────────────────────────────────────────
 
@@ -89,6 +94,14 @@ public final class StatusReshareHelper {
                 || "reel_clip".equals(status.type)) ? "video" : "image";
         i.putExtra(EXTRA_MEDIA_TYPE,    mType);
         i.putExtra(EXTRA_ALLOW_RESHARE, status.allowSharing);
+        // Carry the original text-status content through so the reshare still
+        // has something to show when the source status has no media at all
+        // (plain text statuses) — without this, the resulting reshare item
+        // ends up with empty mediaUrl/thumbnailUrl and the viewer has nothing
+        // to render.
+        i.putExtra(EXTRA_ORIGINAL_TEXT,       safeStr(status.text));
+        i.putExtra(EXTRA_ORIGINAL_BG_COLOR,   safeStr(status.bgColor));
+        i.putExtra(EXTRA_ORIGINAL_TEXT_COLOR, safeStr(status.textColor));
         return i;
     }
 

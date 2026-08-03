@@ -326,11 +326,16 @@ import com.callx.app.utils.AlertDialogStyler;
               case "gif": case "sticker": showGifStatus(s); break;
               case "reel_reshare": case "post_reshare": case "channel_post_reshare":
               case "status_reshare":
-                  // Show as video if mediaUrl present, else thumbnail
+                  // Show as video if mediaUrl present, else thumbnail, else fall
+                  // back to rendering the original text-status content (a
+                  // reposted plain-text status has no media at all) instead of
+                  // skipping past it — skipping was closing the viewer outright
+                  // when this was the only status in the list.
                   if (s.mediaUrl != null && !s.mediaUrl.isEmpty()) { showVideoStatus(s); }
                   else if (s.thumbnailUrl != null && !s.thumbnailUrl.isEmpty()) { showImageStatusFromUrl(s.thumbnailUrl, s.caption); }
                   else if (s.resharedThumbnailUrl != null && !s.resharedThumbnailUrl.isEmpty()) { showImageStatusFromUrl(s.resharedThumbnailUrl, s.caption); }
-                  else { next(); return; }
+                  else if (s.text != null && !s.text.isEmpty()) { showTextStatus(s); }
+                  else { showUnavailableFallback(); }
                   break;
               default: next();
           }
@@ -422,6 +427,20 @@ import com.callx.app.utils.AlertDialogStyler;
           }
           if (s.locationName != null && !s.locationName.isEmpty()) showLocationTag(s.locationName);
           showCaption(s.caption);
+          startProgress(5_000L);
+      }
+      /**
+       * Last-resort fallback for a reshare item that truly has no renderable
+       * content (no media, no thumbnail, no original text — shouldn't happen
+       * after the reshare fix, but kept as a safety net). Shows a plain card
+       * instead of silently skipping/closing the viewer, since a silent
+       * finish() looks exactly like a crash to the user.
+       */
+      private void showUnavailableFallback() {
+          binding.flTextStatus.setVisibility(View.VISIBLE);
+          binding.flTextStatus.setBackgroundResource(R.drawable.gradient_brand);
+          binding.tvTextStatus.setText("This content is no longer available");
+          binding.tvTextStatus.setTextColor(Color.WHITE);
           startProgress(5_000L);
       }
       private void showImageStatusFromUrl(String url, String caption) {
@@ -638,7 +657,36 @@ import com.callx.app.utils.AlertDialogStyler;
                       // it's linked to a real Reels track (tap-to-open still only
                       // applies when isMusicLinkedToReelSound() is true, below).
                       String soundUrl = sticker.getMusicSoundUrl();
-                      if (soundUrl != null && !soundUrl.isEmpty()) startMusicStickerAudio(soundUrl);
+                      if (soundUrl != null && !soundUrl.isEmpty()) {
+                          startMusicStickerAudio(soundUrl);
+                      } else {
+                          // Composer usually only stores the soundId, not a direct
+                          // playable URL — that's why tapping the sticker to open the
+                          // Sound Detail sheet has audio (it resolves the URL from the
+                          // "sounds/{soundId}" node) while autoplay above stayed silent.
+                          // Do the same resolution here so autoplay actually has
+                          // something to play.
+                          String soundId = sticker.getMusicSoundId();
+                          if (soundId != null && !soundId.isEmpty()) {
+                              final int requestedIdx = idx;
+                              FirebaseUtils.db().getReference("sounds").child(soundId)
+                                      .addListenerForSingleValueEvent(new ValueEventListener() {
+                                  @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                                      // Viewer may have swiped to another status by the
+                                      // time this lookup returns — don't start audio
+                                      // for a status that's no longer showing.
+                                      if (idx != requestedIdx) return;
+                                      String resolved = null;
+                                      for (String key : new String[]{"audioUrl", "audio_url", "url"}) {
+                                          String u = snap.child(key).getValue(String.class);
+                                          if (u != null && !u.isEmpty()) { resolved = u; break; }
+                                      }
+                                      if (resolved != null) startMusicStickerAudio(resolved);
+                                  }
+                                  @Override public void onCancelled(@NonNull DatabaseError e) {}
+                              });
+                          }
+                      }
                   }
 
                   if ("music".equals(sticker.getStickerType()) && sticker.isMusicLinkedToReelSound()) {

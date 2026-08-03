@@ -58,6 +58,20 @@
             android:scaleType="centerCrop"
             android:visibility="gone"/>
 
+        <!-- Shown instead of iv_reshare_image/pv_reshare_video when the
+             source status has no media at all (plain text status) -->
+        <TextView
+            android:id="@+id/tv_reshare_original_text"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:gravity="center"
+            android:padding="24dp"
+            android:textColor="#FFFFFF"
+            android:textSize="24sp"
+            android:textStyle="bold"
+            android:visibility="gone"/>
+
         <FrameLayout
             android:id="@+id/fl_card_sticker_container"
             android:layout_width="match_parent"

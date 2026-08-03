@@ -41,13 +41,17 @@ public class StoryReshareActivity extends AppCompatActivity {
     public static final String EXTRA_ALLOW_RESHARE = "EXTRA_ALLOW_RESHARE";
 
     private String contentType, contentId, ownerUid, ownerName, ownerAvatar, mediaUrl, thumbUrl, originalCaption, mediaType;
+    private String originalText, originalBgColor, originalTextColor;
     private String myUid, myName, myPhoto = "";
     private String selectedColor = "#1A1A2E";
+    /** True when we're rendering a plain-text status (no media at all) as the reshare preview. */
+    private boolean isTextOnlyReshare = false;
 
     private FrameLayout flPreview, flStickerContainer;
     private LinearLayout llBackground;
     private PlayerView playerView;
     private ImageView ivImage;
+    private TextView tvOriginalText;
     private ExoPlayer player;
     private EditText etTextOverlay, etCaption;
     private ProgressBar progressBar;
@@ -85,6 +89,9 @@ public class StoryReshareActivity extends AppCompatActivity {
         thumbUrl = getIntent().getStringExtra(EXTRA_THUMB_URL);
         originalCaption = getIntent().getStringExtra(EXTRA_CAPTION);
         mediaType = getIntent().getStringExtra(EXTRA_MEDIA_TYPE);
+        originalText = getIntent().getStringExtra("EXTRA_ORIGINAL_TEXT");
+        originalBgColor = getIntent().getStringExtra("EXTRA_ORIGINAL_BG_COLOR");
+        originalTextColor = getIntent().getStringExtra("EXTRA_ORIGINAL_TEXT_COLOR");
     }
 
     private void bindViews() {
@@ -94,6 +101,7 @@ public class StoryReshareActivity extends AppCompatActivity {
         llBackground = findViewById(R.id.ll_reshare_bg);
         playerView = findViewById(R.id.pv_reshare_video);
         ivImage = findViewById(R.id.iv_reshare_image);
+        tvOriginalText = findViewById(R.id.tv_reshare_original_text);
         etTextOverlay = findViewById(R.id.et_reshare_text_overlay);
         etCaption = findViewById(R.id.et_reshare_caption);
         progressBar = findViewById(R.id.progress_reshare);
@@ -129,7 +137,26 @@ public class StoryReshareActivity extends AppCompatActivity {
     }
 
     private void setupMediaPreview() {
-        if ("video".equalsIgnoreCase(mediaType)) {
+        boolean hasMedia = mediaUrl != null && !mediaUrl.isEmpty();
+        if (!hasMedia && originalText != null && !originalText.isEmpty()) {
+            // Source status has no media at all — it's a plain text status.
+            // Render its text/background instead of leaving an empty preview
+            // (this is also what gets saved, so the reshare stays viewable).
+            isTextOnlyReshare = true;
+            tvOriginalText.setVisibility(View.VISIBLE);
+            tvOriginalText.setText(originalText);
+            try {
+                if (originalTextColor != null && !originalTextColor.isEmpty())
+                    tvOriginalText.setTextColor(Color.parseColor(originalTextColor));
+            } catch (Exception ignored) {}
+            try {
+                String bg = (originalBgColor != null && !originalBgColor.isEmpty()) ? originalBgColor : "#1A1A2E";
+                llBackground.setBackgroundColor(Color.parseColor(bg));
+                selectedColor = bg;
+            } catch (Exception ignored) {}
+            return;
+        }
+        if ("video".equalsIgnoreCase(mediaType) && hasMedia) {
             playerView.setVisibility(View.VISIBLE);
             player = new ExoPlayer.Builder(this).build();
             playerView.setPlayer(player);
@@ -138,7 +165,7 @@ public class StoryReshareActivity extends AppCompatActivity {
             player.setVolume(0f);
             player.prepare();
             player.play();
-        } else {
+        } else if (hasMedia) {
             ivImage.setVisibility(View.VISIBLE);
             Glide.with(this).load(mediaUrl).into(ivImage);
         }
@@ -249,6 +276,14 @@ public class StoryReshareActivity extends AppCompatActivity {
         data.put("resharedFromOwnerAvatar", ownerAvatar);
         data.put("resharedThumbnailUrl", thumbUrl);
         data.put("attribution", "Originally posted by @" + ownerName);
+        // Preserve the original text-status content so the viewer can render
+        // something even when mediaUrl/thumbnailUrl are both empty (plain
+        // text statuses have no media at all).
+        if (isTextOnlyReshare) {
+            data.put("text", originalText != null ? originalText : "");
+            if (originalBgColor != null && !originalBgColor.isEmpty()) data.put("bgColor", originalBgColor);
+            if (originalTextColor != null && !originalTextColor.isEmpty()) data.put("textColor", originalTextColor);
+        }
         data.put("stickerText", etTextOverlay.getText().toString());
         data.put("caption", etCaption.getText().toString());
         data.put("cardStickerX", cardSticker.getTranslationX() / flStickerContainer.getWidth());
@@ -276,8 +311,12 @@ public class StoryReshareActivity extends AppCompatActivity {
                 } else if ("status".equals(contentType) && ownerUid != null && !ownerUid.isEmpty()
                         && contentId != null && !contentId.isEmpty()) {
                     // Increment the original status owner's forwardCount
+                    // NOTE: the real status node is "status" (singular) — see
+                    // FirebaseUtils.getStatusRef(). Was pointed at "statuses"
+                    // (plural, doesn't exist), so this transaction was a silent
+                    // no-op and forwardCount never updated.
                     FirebaseDatabase.getInstance(Constants.DB_URL)
-                            .getReference("statuses").child(ownerUid).child(contentId).child("forwardCount")
+                            .getReference("status").child(ownerUid).child(contentId).child("forwardCount")
                             .runTransaction(new com.google.firebase.database.Transaction.Handler() {
                                 @NonNull @Override public com.google.firebase.database.Transaction.Result doTransaction(
                                         @NonNull com.google.firebase.database.MutableData currentData) {
