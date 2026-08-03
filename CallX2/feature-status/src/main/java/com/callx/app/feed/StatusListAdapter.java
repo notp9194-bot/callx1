@@ -67,9 +67,22 @@ package com.callx.app.feed;
           public final String  ownerUid, ownerName, ownerPhoto, thumbUrl, bgColor;
           public final boolean unseen;
           public final boolean isMuted;
+          /** Custom ring color (hex) picked in NewStatusActivity via
+           *  HighlightRingColorPickerBottomSheet, or null/empty for the default ring. */
+          public final String  ringColor;
+          /** {@link com.callx.app.utils.HighlightRingDrawable#MODE_SOLID} or
+           *  {@link com.callx.app.utils.HighlightRingDrawable#MODE_DOMINANT};
+           *  only meaningful when ringColor is non-empty. */
+          public final String  ringMode;
           public CardItem(boolean isMine, boolean hasStatus, String ownerUid, String ownerName,
                           String ownerPhoto, String thumbUrl, String bgColor,
                           boolean unseen, boolean isMuted) {
+              this(isMine, hasStatus, ownerUid, ownerName, ownerPhoto, thumbUrl, bgColor,
+                      unseen, isMuted, null, null);
+          }
+          public CardItem(boolean isMine, boolean hasStatus, String ownerUid, String ownerName,
+                          String ownerPhoto, String thumbUrl, String bgColor,
+                          boolean unseen, boolean isMuted, String ringColor, String ringMode) {
               this.isMine     = isMine;
               this.hasStatus  = hasStatus;
               this.ownerUid   = ownerUid;
@@ -79,6 +92,8 @@ package com.callx.app.feed;
               this.bgColor    = bgColor;
               this.unseen     = unseen;
               this.isMuted    = isMuted;
+              this.ringColor  = ringColor;
+              this.ringMode   = ringMode;
           }
       }
 
@@ -215,7 +230,8 @@ package com.callx.app.feed;
           } else {
               StatusItem latest = myStatuses.get(myStatuses.size() - 1);
               String thumb = latest.thumbnailUrl != null ? latest.thumbnailUrl : latest.mediaUrl;
-              cards.add(new CardItem(true, true, myUid, "My Status", latest.ownerPhoto, thumb, latest.bgColor, false, false));
+              cards.add(new CardItem(true, true, myUid, "My Status", latest.ownerPhoto, thumb, latest.bgColor,
+                      false, false, latest.ringColor, latest.ringMode));
           }
           for (Entry e : unseen) cards.add(entryToCard(e, true));
           for (Entry e : seen)   cards.add(entryToCard(e, false));
@@ -226,7 +242,10 @@ package com.callx.app.feed;
           StatusItem latest = e.latestItem;
           String thumb = latest != null ? (latest.thumbnailUrl != null ? latest.thumbnailUrl : latest.mediaUrl) : null;
           String bg = latest != null ? latest.bgColor : null;
-          return new CardItem(false, true, e.ownerUid, e.ownerName, e.ownerPhoto, thumb, bg, unseen, e.isMuted);
+          String ringColor = latest != null ? latest.ringColor : null;
+          String ringMode  = latest != null ? latest.ringMode  : null;
+          return new CardItem(false, true, e.ownerUid, e.ownerName, e.ownerPhoto, thumb, bg,
+                  unseen, e.isMuted, ringColor, ringMode);
       }
 
       private List<FlatItem> buildFlatItems(List<Entry> unseen, List<Entry> seen, List<Entry> muted) {
@@ -668,6 +687,19 @@ package com.callx.app.feed;
                   h.ring.setBackgroundResource(c.isMuted ? R.drawable.circle_status_seen
                           : c.unseen || c.isMine ? R.drawable.circle_status_unseen : R.drawable.circle_status_seen);
                   h.ring.setAlpha(c.isMuted ? 0.4f : 1f);
+                  // Custom ring color/gradient (picked via HighlightRingColorPickerBottomSheet
+                  // in NewStatusActivity) overrides the default seen/unseen ring, same as the
+                  // vertical list rows via applyRingStyle().
+                  if (c.ringColor != null && !c.ringColor.isEmpty()) {
+                      try {
+                          int customColor = android.graphics.Color.parseColor(c.ringColor);
+                          float density = ctx.getResources().getDisplayMetrics().density;
+                          h.ring.setBackground(HighlightRingDrawable.withStrokeDp(customColor, c.ringMode, 2.5f, density));
+                          h.ring.setAlpha(c.isMuted ? 0.4f : 1f);
+                      } catch (IllegalArgumentException ignored) {
+                          // Invalid/unparseable hex — keep the default ring resource set above.
+                      }
+                  }
                   h.ivAddBadge.setVisibility(c.isMine ? View.VISIBLE : View.GONE);
               }
 

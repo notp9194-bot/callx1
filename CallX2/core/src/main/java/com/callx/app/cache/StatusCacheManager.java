@@ -194,7 +194,7 @@ public class StatusCacheManager {
                     for (DataSnapshot stSnap : userSnap.getChildren()) {
                         try {
                             StatusItem item = stSnap.getValue(StatusItem.class);
-                            if (item == null || item.deleted) continue;
+                            if (item == null || Boolean.TRUE.equals(item.deleted)) continue;
                             if (item.expiresAt != null && item.expiresAt < now) continue;
                             items.add(item);
                         } catch (Exception ignored) {}

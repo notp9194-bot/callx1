@@ -185,7 +185,7 @@ import com.callx.app.utils.AlertDialogStyler;
                       long now = System.currentTimeMillis();
                       for (DataSnapshot c : snap.getChildren()) {
                           StatusItem s = c.getValue(StatusItem.class);
-                          if (s == null || s.deleted) continue;
+                          if (s == null || Boolean.TRUE.equals(s.deleted)) continue;
                           if (s.expiresAt != null && s.expiresAt < now) continue;
                           items.add(s);
                       }
