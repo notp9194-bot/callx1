@@ -64,6 +64,7 @@ public class StatusFragment extends BaseFragment {
 
     private com.callx.app.cache.StatusMediaPreloader mediaPreloader;
     private EditText etSearch;
+    private androidx.swiperefreshlayout.widget.SwipeRefreshLayout swipeRefresh;
     private String   searchQuery = "";
 
     // ── Lifecycle ─────────────────────────────────────────────────────────
@@ -80,14 +81,47 @@ public class StatusFragment extends BaseFragment {
 
         // ── Search ───────────────────────────────────────────────────────
         etSearch = v.findViewById(R.id.et_status_search);
+        View btnSearchClear = v.findViewById(R.id.btn_status_search_clear);
         if (etSearch != null) {
             etSearch.addTextChangedListener(new TextWatcher() {
                 @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
                 @Override public void onTextChanged(CharSequence s, int a, int b, int c) {
                     searchQuery = s.toString().trim().toLowerCase();
                     rebuildStatusAdapter();
+                    if (btnSearchClear != null)
+                        btnSearchClear.setVisibility(s.length() > 0 ? View.VISIBLE : View.GONE);
                 }
                 @Override public void afterTextChanged(Editable s) {}
+            });
+        }
+        if (btnSearchClear != null)
+            btnSearchClear.setOnClickListener(x -> { if (etSearch != null) etSearch.setText(""); });
+
+        // ── Status privacy shortcut (v51) ───────────────────────────────
+        View btnPrivacy = v.findViewById(R.id.btn_status_privacy);
+        if (btnPrivacy != null) {
+            btnPrivacy.setOnClickListener(x -> {
+                if (getContext() == null) return;
+                com.callx.app.privacy.StatusPrivacyBottomSheet.show(
+                    requireContext(), myUid(), (mode, selectedUids) ->
+                        Toast.makeText(getContext(), "Status privacy updated",
+                            Toast.LENGTH_SHORT).show());
+            });
+        }
+
+        // ── Pull-to-refresh (v51) ────────────────────────────────────────
+        // Status/seen listeners are already realtime (addValueEventListener),
+        // so there's nothing "stale" to re-fetch there. blocks/contacts are
+        // one-time reads though (addListenerForSingleValueEvent), so a manual
+        // refresh re-runs that chain — matches what pull-to-refresh should do
+        // (re-sync) without duplicating realtime listeners.
+        swipeRefresh = v.findViewById(R.id.swipe_status_refresh);
+        if (swipeRefresh != null) {
+            swipeRefresh.setOnRefreshListener(() -> {
+                loadStatuses();
+                swipeRefresh.postDelayed(() -> {
+                    if (swipeRefresh != null) swipeRefresh.setRefreshing(false);
+                }, 1000);
             });
         }
 
@@ -121,14 +155,14 @@ public class StatusFragment extends BaseFragment {
             },
             (ownerUid, ownerName, isMuted) -> showContactContextMenu(ownerUid, ownerName, isMuted)
         );
-        statusAdapter.setHighlightClickListener(album -> {
-            if (getContext() != null) {
-                Intent i = new Intent(requireContext(),
-                    com.callx.app.highlights.StatusHighlightsActivity.class);
-                i.putExtra("albumTitle", album.title);
-                startActivity(i);
-            }
-        });
+        // v50 FIX: Highlights strip removed from the Status tab. Highlights are
+        // already surfaced on the profile screen (UserReelsActivity), so showing
+        // them again here was redundant. We simply stop wiring the click listener
+        // and stop feeding data into it below (loadHighlights() call removed in
+        // onStart()) — statusAdapter.updateHighlights() is never invoked, so
+        // StatusListAdapter's ITEM_HIGHLIGHTS section (which only renders when
+        // its highlights list is non-empty) never appears. The underlying
+        // highlight system/adapter code is left intact and untouched.
 
         // ── Channel section adapter ──────────────────────────────────────
         channelAdapter = new ChannelSectionAdapter();
@@ -196,7 +230,8 @@ public class StatusFragment extends BaseFragment {
         seedFromStatusCache();
         loadFromRoom();
         loadStatuses();
-        loadHighlights();
+        // v50 FIX: loadHighlights() intentionally not called — Highlights strip
+        // removed from Status tab (see note in onCreateView above).
 
         com.callx.app.cache.StatusCacheManager.getInstance(requireContext())
             .addObserver(statusCacheObserver);

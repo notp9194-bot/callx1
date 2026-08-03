@@ -11,36 +11,96 @@
         android:layout_height="match_parent"
         android:orientation="vertical">
 
-        <!-- Search bar (v25) -->
-        <com.google.android.material.textfield.TextInputLayout
-            android:id="@+id/til_status_search"
-            style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+        <!-- Search bar row (v51) — modern pill search field + privacy shortcut icon -->
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginHorizontal="12dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
             android:layout_marginTop="8dp"
-            android:layout_marginBottom="4dp"
-            app:startIconDrawable="@android:drawable/ic_menu_search"
-            app:hintAnimationEnabled="true">
+            android:layout_marginBottom="4dp">
 
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/et_status_search"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:hint="Search statuses…"
-                android:singleLine="true"
-                android:imeOptions="actionSearch"
-                android:inputType="text"/>
-        </com.google.android.material.textfield.TextInputLayout>
+            <!-- Search bar (v50) — modern pill-shaped field, matches the search bar
+                 style used across Reels/Chat/X (bg_search_field rounded surface,
+                 leading icon, inline clear button) instead of the old boxed
+                 Material outline. -->
+            <FrameLayout
+                android:layout_width="0dp"
+                android:layout_height="44dp"
+                android:layout_weight="1"
+                android:layout_marginStart="12dp"
+                android:background="@drawable/bg_search_field">
 
-        <!-- Status list -->
-        <androidx.recyclerview.widget.RecyclerView
-            android:id="@+id/rv_status"
+                <ImageView
+                    android:layout_width="20dp"
+                    android:layout_height="20dp"
+                    android:layout_gravity="center_vertical|start"
+                    android:layout_marginStart="14dp"
+                    android:src="@drawable/ic_search"
+                    android:alpha="0.6"
+                    app:tint="?attr/colorOnSurfaceVariant"
+                    android:contentDescription="Search"/>
+
+                <EditText
+                    android:id="@+id/et_status_search"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:paddingStart="44dp"
+                    android:paddingEnd="40dp"
+                    android:hint="Search statuses…"
+                    android:singleLine="true"
+                    android:imeOptions="actionSearch"
+                    android:inputType="text"
+                    android:textSize="15sp"
+                    android:textColorHint="?attr/colorOnSurfaceVariant"
+                    android:textColor="?attr/colorOnSurface"
+                    android:background="@null"/>
+
+                <ImageButton
+                    android:id="@+id/btn_status_search_clear"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:layout_gravity="center_vertical|end"
+                    android:layout_marginEnd="4dp"
+                    android:src="@drawable/ic_close"
+                    android:tint="?attr/colorOnSurfaceVariant"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:padding="8dp"
+                    android:visibility="gone"
+                    android:contentDescription="Clear search"/>
+            </FrameLayout>
+
+            <!-- Status privacy shortcut (v51) — was only reachable from inside
+                 NewStatusActivity before; now one tap from the Status tab too. -->
+            <ImageButton
+                android:id="@+id/btn_status_privacy"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:layout_marginStart="8dp"
+                android:layout_marginEnd="12dp"
+                android:src="@drawable/ic_shield"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:padding="10dp"
+                android:tint="?attr/colorOnSurfaceVariant"
+                android:contentDescription="Who can see my status"/>
+
+        </LinearLayout>
+
+        <!-- Status list (v51) — wrapped in SwipeRefreshLayout for pull-to-refresh -->
+        <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+            android:id="@+id/swipe_status_refresh"
             android:layout_width="match_parent"
             android:layout_height="0dp"
-            android:layout_weight="1"
-            android:clipToPadding="false"
-            android:paddingBottom="80dp"/>
+            android:layout_weight="1">
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/rv_status"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:clipToPadding="false"
+                android:paddingBottom="80dp"/>
+
+        </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
 
     </LinearLayout>
 
