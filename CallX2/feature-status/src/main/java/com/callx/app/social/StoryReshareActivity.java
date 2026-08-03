@@ -236,7 +236,10 @@ public class StoryReshareActivity extends AppCompatActivity {
 
         Map<String, Object> data = new HashMap<>();
         data.put("id", reshareId);
-        data.put("type", "reel".equals(contentType) ? "reel_reshare" : "post_reshare");
+        data.put("type", "reel".equals(contentType) ? "reel_reshare"
+                       : "status".equals(contentType) ? "status_reshare"
+                       : "channel_post".equals(contentType) ? "channel_post_reshare"
+                       : "post_reshare");
         data.put("mediaUrl", mediaUrl);
         data.put("thumbnailUrl", thumbUrl);
         data.put("resharedFromType", contentType);
@@ -264,6 +267,20 @@ public class StoryReshareActivity extends AppCompatActivity {
                     FirebaseDatabase.getInstance(Constants.DB_URL).getReference("reels").child(contentId).child("reshareCount")
                             .runTransaction(new com.google.firebase.database.Transaction.Handler() {
                                 @NonNull @Override public com.google.firebase.database.Transaction.Result doTransaction(@NonNull com.google.firebase.database.MutableData currentData) {
+                                    Integer count = currentData.getValue(Integer.class);
+                                    currentData.setValue(count == null ? 1 : count + 1);
+                                    return com.google.firebase.database.Transaction.success(currentData);
+                                }
+                                @Override public void onComplete(DatabaseError error, boolean committed, DataSnapshot currentData) {}
+                            });
+                } else if ("status".equals(contentType) && ownerUid != null && !ownerUid.isEmpty()
+                        && contentId != null && !contentId.isEmpty()) {
+                    // Increment the original status owner's forwardCount
+                    FirebaseDatabase.getInstance(Constants.DB_URL)
+                            .getReference("statuses").child(ownerUid).child(contentId).child("forwardCount")
+                            .runTransaction(new com.google.firebase.database.Transaction.Handler() {
+                                @NonNull @Override public com.google.firebase.database.Transaction.Result doTransaction(
+                                        @NonNull com.google.firebase.database.MutableData currentData) {
                                     Integer count = currentData.getValue(Integer.class);
                                     currentData.setValue(count == null ? 1 : count + 1);
                                     return com.google.firebase.database.Transaction.success(currentData);

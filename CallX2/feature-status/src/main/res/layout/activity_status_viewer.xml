@@ -301,6 +301,19 @@
               android:contentDescription="Forward"
               android:visibility="gone"/>
 
+          <!-- Repost button — visible for viewers when owner allows sharing -->
+          <ImageButton
+              android:id="@+id/btn_repost"
+              android:layout_width="40dp"
+              android:layout_height="40dp"
+              android:layout_marginTop="8dp"
+              android:src="@drawable/ic_repost"
+              android:tint="@color/white"
+              android:background="@drawable/bg_circle_dark"
+              android:padding="8dp"
+              android:contentDescription="Repost to my status"
+              android:visibility="gone"/>
+
       </LinearLayout>
 
       <!-- Bottom chrome -->

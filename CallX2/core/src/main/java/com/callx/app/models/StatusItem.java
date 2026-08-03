@@ -214,6 +214,14 @@ public class StatusItem {
     /** Background hex color chosen for a text/card-style reshare story */
     public String reshareBackgroundColor = "";
 
+    // ── Status Repost / Allow-Sharing ──────────────────────────────────────
+    /**
+     * When true (default), viewers may repost this status to their own story.
+     * Owner sets this toggle in NewStatusActivity before posting.
+     * Mirrors WhatsApp's "Allow sharing" status privacy option.
+     */
+    public boolean allowSharing = true;
+
     /** Convert to Firebase Map (preserves all fields, excludes nulls). */
     @Exclude
     public Map<String, Object> toMap() {
@@ -267,6 +275,28 @@ public class StatusItem {
         if (locationName != null)     m.put("locationName", locationName);
         if (locationLat != 0)         m.put("locationLat", locationLat);
         if (locationLng != 0)         m.put("locationLng", locationLng);
+        m.put("allowSharing",         allowSharing);
+        // Reshare fields (only written when non-empty)
+        if (resharedFromType != null && !resharedFromType.isEmpty())
+            m.put("resharedFromType", resharedFromType);
+        if (resharedFromId != null && !resharedFromId.isEmpty())
+            m.put("resharedFromId", resharedFromId);
+        if (resharedFromOwnerUid != null && !resharedFromOwnerUid.isEmpty())
+            m.put("resharedFromOwnerUid", resharedFromOwnerUid);
+        if (resharedFromOwnerName != null && !resharedFromOwnerName.isEmpty())
+            m.put("resharedFromOwnerName", resharedFromOwnerName);
+        if (resharedFromOwnerAvatar != null && !resharedFromOwnerAvatar.isEmpty())
+            m.put("resharedFromOwnerAvatar", resharedFromOwnerAvatar);
+        if (resharedThumbnailUrl != null && !resharedThumbnailUrl.isEmpty())
+            m.put("resharedThumbnailUrl", resharedThumbnailUrl);
+        if (attribution != null && !attribution.isEmpty())
+            m.put("attribution", attribution);
+        if (stickerText != null && !stickerText.isEmpty())
+            m.put("stickerText", stickerText);
+        if (cardStickerX != 0.1f) m.put("cardStickerX", cardStickerX);
+        if (cardStickerY != 0.35f) m.put("cardStickerY", cardStickerY);
+        if (reshareBackgroundColor != null && !reshareBackgroundColor.isEmpty())
+            m.put("reshareBackgroundColor", reshareBackgroundColor);
         return m;
     }
 }

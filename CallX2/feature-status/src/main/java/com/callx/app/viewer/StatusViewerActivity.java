@@ -126,6 +126,7 @@ import com.callx.app.utils.AlertDialogStyler;
           setupMuteButton();
           setupDownloadButton();
           setupForwardButton();
+          setupRepostButton();
           binding.tvOwner.setText(ownerName != null ? ownerName : "Status");
           if (StatusCloseFriendsManager.isCloseFriend(this, ownerUid))
               binding.tvOwner.setText("\u2B50 " + (ownerName != null ? ownerName : "Status"));
@@ -228,6 +229,8 @@ import com.callx.app.utils.AlertDialogStyler;
                       boolean isOwner = myUid != null && myUid.equals(ownerUid);
                       binding.btnDownload.setVisibility(isOwner ? View.GONE : View.VISIBLE);
                       binding.btnForward.setVisibility(isOwner ? View.GONE : View.VISIBLE);
+                      // btnRepost visibility is refined per-item in showCurrent() based on allowSharing
+                      binding.btnRepost.setVisibility(isOwner ? View.GONE : View.VISIBLE);
                   }
                   @Override public void onCancelled(@NonNull DatabaseError e) { finish(); }
               });
@@ -262,6 +265,8 @@ import com.callx.app.utils.AlertDialogStyler;
                       boolean isOwner = myUid != null && myUid.equals(ownerUid);
                       binding.btnDownload.setVisibility(isOwner ? View.GONE : View.VISIBLE);
                       binding.btnForward.setVisibility(isOwner ? View.GONE : View.VISIBLE);
+                      // btnRepost visibility is refined per-item in showCurrent() based on allowSharing
+                      binding.btnRepost.setVisibility(isOwner ? View.GONE : View.VISIBLE);
                   }
                   @Override public void onCancelled(@NonNull DatabaseError e) { finish(); }
               });
@@ -320,6 +325,7 @@ import com.callx.app.utils.AlertDialogStyler;
               case "link":  showLinkStatus(s); break;
               case "gif": case "sticker": showGifStatus(s); break;
               case "reel_reshare": case "post_reshare": case "channel_post_reshare":
+              case "status_reshare":
                   // Show as video if mediaUrl present, else thumbnail
                   if (s.mediaUrl != null && !s.mediaUrl.isEmpty()) { showVideoStatus(s); }
                   else if (s.thumbnailUrl != null && !s.thumbnailUrl.isEmpty()) { showImageStatusFromUrl(s.thumbnailUrl, s.caption); }
@@ -336,7 +342,8 @@ import com.callx.app.utils.AlertDialogStyler;
               if (flReshare != null) {
                   boolean isReshare = "reel_reshare".equals(s.type)
                                    || "post_reshare".equals(s.type)
-                                   || "channel_post_reshare".equals(s.type);
+                                   || "channel_post_reshare".equals(s.type)
+                                   || "status_reshare".equals(s.type);
                   if (isReshare && s.resharedFromOwnerName != null && !s.resharedFromOwnerName.isEmpty()) {
                       flReshare.setVisibility(android.view.View.VISIBLE);
                       android.widget.ImageView ivThumb = flReshare.findViewById(R.id.iv_reshare_thumb);
@@ -347,7 +354,8 @@ import com.callx.app.utils.AlertDialogStyler;
                       android.widget.TextView tvBadge = flReshare.findViewById(R.id.tv_reshare_type_badge);
                       if (tvBadge != null) tvBadge.setText(
                           "post".equals(s.resharedFromType) ? "Post" :
-                          "channel_post".equals(s.resharedFromType) ? "Channel" : "Reel");
+                          "channel_post".equals(s.resharedFromType) ? "Channel" :
+                          "status".equals(s.resharedFromType) ? "Status" : "Reel");
                       android.widget.TextView tvView = flReshare.findViewById(R.id.tv_view_original_btn);
                       if (tvView != null) {
                           final String ft = s.resharedFromType != null ? s.resharedFromType : "reel";
@@ -357,6 +365,13 @@ import com.callx.app.utils.AlertDialogStyler;
                       }
                   } else {
                       flReshare.setVisibility(android.view.View.GONE);
+                  }
+
+                  // ── Repost button: show only if owner allows sharing and viewer ≠ owner ──
+                  boolean amOwner = myUid != null && myUid.equals(ownerUid);
+                  if (!amOwner) {
+                      boolean canRepost = s.allowSharing && !isReshare; // don't chain-repost reshared items
+                      binding.btnRepost.setVisibility(canRepost ? android.view.View.VISIBLE : android.view.View.GONE);
                   }
               }
           } catch (Exception ignored) { /* never crash the viewer */ }
@@ -1168,6 +1183,26 @@ import com.callx.app.utils.AlertDialogStyler;
               if (current == null || myUid == null) return;
               pauseProgress();
               StatusForwardBottomSheet.show(this, current, myUid, this::resumeProgress);
+          });
+      }
+      /**
+       * Repost button — lets a viewer repost the current status to their own story.
+       * Only visible when owner's allowSharing == true. On click, launches
+       * StoryReshareActivity with contentType="status" carrying the full attribution.
+       */
+      private void setupRepostButton() {
+          binding.btnRepost.setOnClickListener(v -> {
+              StatusItem current = idx < items.size() ? items.get(idx) : null;
+              if (current == null) return;
+              if (!current.allowSharing) {
+                  Toast.makeText(this, ownerName + " has disabled sharing for this status",
+                          Toast.LENGTH_SHORT).show();
+                  return;
+              }
+              pauseProgress();
+              android.content.Intent intent = com.callx.app.utils.StatusReshareHelper
+                      .buildReshareStatusIntent(this, current, ownerName, ownerUid);
+              startActivity(intent);
           });
       }
       private void setupMoreButton() {

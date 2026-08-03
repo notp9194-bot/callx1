@@ -94,6 +94,8 @@ public class NewStatusActivity extends AppCompatActivity {
     private int    selectedExpiryHours = 24;
     private boolean isCloseFriends    = false;
     private String  selectedTextAlign  = "center";
+    /** Whether viewers may repost this status to their own story (mirrors WA "Allow sharing"). Default: on. */
+    private boolean allowSharing      = true;
     // ── Scheduling (v27) ────────────────────────────────────────────────
     // > 0 when the user picked "Schedule" instead of posting immediately —
     // read once by saveStatus()/saveBatchStatus() and reset after use.
@@ -192,6 +194,7 @@ public class NewStatusActivity extends AppCompatActivity {
         setupPrivacyButton();
         setupExpiryButton();
         setupCloseFriendsToggle();
+        setupAllowSharingToggle();
         setupTextAlignButtons();
         setupTextInput();
         setupStickerOverlayFrame();
@@ -960,6 +963,23 @@ public class NewStatusActivity extends AppCompatActivity {
             });
         }
     }
+    // ── Allow sharing toggle (NEW — mirrors WhatsApp "Allow sharing") ────────
+    /**
+     * Looks for a CompoundButton with tag "toggle_allow_sharing" in the layout.
+     * When the user turns it OFF, allowSharing=false is saved with the status
+     * and the repost icon is hidden from viewers in StatusViewerActivity.
+     * Default is ON (true) — same behaviour as WhatsApp.
+     */
+    private void setupAllowSharingToggle() {
+        View toggle = binding.getRoot().findViewWithTag("toggle_allow_sharing");
+        if (toggle instanceof CompoundButton) {
+            ((CompoundButton) toggle).setChecked(true); // default: allow sharing
+            ((CompoundButton) toggle).setOnCheckedChangeListener((btn, checked) -> {
+                allowSharing = checked;
+            });
+        }
+        // If toggle doesn't exist in the current layout, allowSharing stays true (safe default)
+    }
     // ── Text align buttons (NEW) ──────────────────────────────────────────
     private void setupTextAlignButtons() {
         View btnLeft   = binding.getRoot().findViewWithTag("btn_align_left");
@@ -1325,6 +1345,7 @@ public class NewStatusActivity extends AppCompatActivity {
         item.privacy          = selectedPrivacy;
         item.privacyList      = privacyUids.isEmpty() ? null : new ArrayList<>(privacyUids);
         item.isCloseFriends   = isCloseFriends;
+        item.allowSharing     = allowSharing;
         item.expiryHours      = selectedExpiryHours;
         item.timestamp        = now;
         item.expiresAt        = StatusCustomExpiryHelper.computeExpiresAt(selectedExpiryHours);
@@ -1523,6 +1544,7 @@ public class NewStatusActivity extends AppCompatActivity {
         item.privacy        = selectedPrivacy;
         item.privacyList    = privacyUids.isEmpty() ? null : new ArrayList<>(privacyUids);
         item.isCloseFriends = isCloseFriends;
+        item.allowSharing   = allowSharing;
         item.expiryHours    = selectedExpiryHours;
         item.timestamp      = now;
         item.expiresAt      = StatusCustomExpiryHelper.computeExpiresAt(selectedExpiryHours);

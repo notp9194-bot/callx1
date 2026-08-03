@@ -44,7 +44,53 @@ public final class StatusReshareHelper {
             && !reel.uid.isEmpty();
     }
 
+    /**
+     * Returns true if the given StatusItem can be reposted to the viewer's own story.
+     * Respects the owner's allowSharing flag and skips already-reshared content
+     * (no chain-reposting of status_reshare items).
+     */
+    public static boolean canReshareStatus(com.callx.app.models.StatusItem status) {
+        return status != null
+            && status.allowSharing
+            && status.ownerUid != null
+            && !status.ownerUid.isEmpty()
+            && !"status_reshare".equals(status.type);
+    }
+
     // ── Intent builders ────────────────────────────────────────────────────
+
+    /**
+     * Build Intent to launch StoryReshareActivity to repost a status to the viewer's own story.
+     *
+     * @param ctx        Context
+     * @param status     The StatusItem being reposted
+     * @param ownerName  Display name of the original status owner
+     * @param ownerUid   UID of the original status owner
+     */
+    public static Intent buildReshareStatusIntent(Context ctx,
+            com.callx.app.models.StatusItem status,
+            String ownerName, String ownerUid) {
+        Intent i = new Intent(ctx, StoryReshareActivity.class);
+        i.putExtra(EXTRA_CONTENT_TYPE,  "status");
+        i.putExtra(EXTRA_CONTENT_ID,    safeStr(status.id));
+        i.putExtra(EXTRA_OWNER_UID,     safeStr(ownerUid));
+        i.putExtra(EXTRA_OWNER_NAME,    safeStr(ownerName));
+        i.putExtra(EXTRA_OWNER_AVATAR,  safeStr(status.ownerPhoto));
+        // Prefer mediaUrl for image/video; fall back to thumbnailUrl for the card preview
+        String media = (status.mediaUrl != null && !status.mediaUrl.isEmpty())
+                ? status.mediaUrl : safeStr(status.thumbnailUrl);
+        i.putExtra(EXTRA_MEDIA_URL,     media);
+        String thumb = (status.thumbnailUrl != null && !status.thumbnailUrl.isEmpty())
+                ? status.thumbnailUrl : media;
+        i.putExtra(EXTRA_THUMB_URL,     thumb);
+        i.putExtra(EXTRA_CAPTION,       safeStr(status.caption != null ? status.caption : status.text));
+        // media type: video types → "video", everything else → "image"
+        String mType = ("video".equals(status.type) || "reel_story".equals(status.type)
+                || "reel_clip".equals(status.type)) ? "video" : "image";
+        i.putExtra(EXTRA_MEDIA_TYPE,    mType);
+        i.putExtra(EXTRA_ALLOW_RESHARE, status.allowSharing);
+        return i;
+    }
 
     /**
      * Build Intent to launch StoryReshareActivity for a reel.
