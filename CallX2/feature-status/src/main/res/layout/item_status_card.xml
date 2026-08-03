@@ -80,8 +80,7 @@
         android:id="@+id/fl_avatar"
         android:layout_width="48dp"
         android:layout_height="48dp"
-        android:layout_gravity="center_horizontal|top"
-        android:elevation="6dp">
+        android:layout_gravity="center_horizontal|top">
 
         <ImageView
             android:id="@+id/ring"
