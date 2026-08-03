@@ -1,4 +1,5 @@
 package com.callx.app.downloads;
+import com.callx.app.utils.FirebaseUtils;
 
 import com.callx.app.utils.YouTubeFirebaseUtils;
 
@@ -355,7 +356,7 @@ public class YouTubeDownloadManager {
 
     private static String currentUid() {
         return FirebaseAuth.getInstance().getCurrentUser() != null
-            ? FirebaseAuth.getInstance().getCurrentUser().getUid() : "";
+            ? FirebaseUtils.getCurrentUid() : "";
     }
 
     private static void saveRecord(String uid, YouTubeVideo video,

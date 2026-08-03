@@ -1,4 +1,5 @@
 package com.callx.app.library;
+import com.callx.app.utils.FirebaseUtils;
 
 import android.content.Intent;
 import android.os.Bundle;
@@ -44,7 +45,7 @@ public class YouTubeLibraryFragment extends Fragment {
         super.onViewCreated(view, state);
 
         myUid = FirebaseAuth.getInstance().getCurrentUser() != null
-            ? FirebaseAuth.getInstance().getCurrentUser().getUid() : "";
+            ? FirebaseUtils.getCurrentUid() : "";
 
         // ── Quick shortcuts ──────────────────────────────────────────────────
         view.findViewById(R.id.btn_yt_downloads).setOnClickListener(v ->

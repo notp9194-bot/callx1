@@ -107,7 +107,7 @@ public class GroupSettingsActivity extends AppCompatActivity {
             finish();
             return;
         }
-        currentUid = FirebaseAuth.getInstance().getCurrentUser().getUid();
+        currentUid = FirebaseUtils.getCurrentUid();
         prefs = getSharedPreferences(PREF_PREFIX + groupId, MODE_PRIVATE);
 
         bindViews();

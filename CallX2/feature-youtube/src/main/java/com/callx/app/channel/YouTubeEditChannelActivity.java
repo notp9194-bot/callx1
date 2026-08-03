@@ -1,4 +1,5 @@
 package com.callx.app.channel;
+import com.callx.app.utils.FirebaseUtils;
 
 import android.content.Intent;
 import android.net.Uri;
@@ -34,7 +35,7 @@ public class YouTubeEditChannelActivity extends AppCompatActivity {
         setContentView(R.layout.activity_youtube_edit_channel);
 
         myUid = FirebaseAuth.getInstance().getCurrentUser() != null
-            ? FirebaseAuth.getInstance().getCurrentUser().getUid() : "";
+            ? FirebaseUtils.getCurrentUid() : "";
 
         View btnBack = findViewById(R.id.btn_yt_edit_back);
         if (btnBack != null) btnBack.setOnClickListener(v -> finish());

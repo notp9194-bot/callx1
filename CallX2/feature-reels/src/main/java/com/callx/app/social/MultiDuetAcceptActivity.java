@@ -49,7 +49,7 @@ public class MultiDuetAcceptActivity extends AppCompatActivity {
         fromUid   = getIntent().getStringExtra("from_uid");
         fromName  = getIntent().getStringExtra("from_name");
         reelId    = getIntent().getStringExtra("reel_id");
-        myUid     = FirebaseAuth.getInstance().getUid();
+        myUid     = FirebaseUtils.getCurrentUid();
 
         ivHostAvatar   = findViewById(R.id.iv_invite_host_avatar);
         ivReelThumb    = findViewById(R.id.iv_invite_reel_thumb);

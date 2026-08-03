@@ -1,6 +1,8 @@
 package com.callx.app.chat.linkeddevice;
 
 import android.os.Bundle;
+import android.view.Menu;
+import android.view.MenuItem;
 import android.view.View;
 import android.widget.Toast;
 
@@ -65,6 +67,23 @@ public class LinkedDevicesActivity extends AppCompatActivity {
 
         findViewById(R.id.btn_link_device).setOnClickListener(v -> launchScanner());
         logoutAllBtn.setOnClickListener(v -> confirmLogoutAll());
+    }
+
+    @Override
+    public boolean onCreateOptionsMenu(Menu menu) {
+        menu.add(0, 1, 0, "Link this device")
+            .setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
+        return true;
+    }
+
+    @Override
+    public boolean onOptionsItemSelected(@androidx.annotation.NonNull MenuItem item) {
+        if (item.getItemId() == 1) {
+            startActivity(new android.content.Intent().setClassName(this,
+                "com.callx.app.activities.LinkDeviceQrActivity"));
+            return true;
+        }
+        return super.onOptionsItemSelected(item);
     }
 
     @Override

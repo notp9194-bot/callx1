@@ -1,4 +1,5 @@
 package com.callx.app.compose;
+import com.callx.app.utils.FirebaseUtils;
 
 import android.app.DatePickerDialog;
 import android.app.TimePickerDialog;
@@ -124,7 +125,7 @@ public class XComposeActivity extends AppCompatActivity {
         setContentView(R.layout.activity_x_compose);
 
         myUid          = FirebaseAuth.getInstance().getCurrentUser() != null
-            ? FirebaseAuth.getInstance().getCurrentUser().getUid() : "";
+            ? FirebaseUtils.getCurrentUid() : "";
         replyToId      = getIntent().getStringExtra("reply_to_id");
         replyToHandle  = getIntent().getStringExtra("reply_to_handle");
         quoteTweetId   = getIntent().getStringExtra("quote_tweet_id");

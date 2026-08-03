@@ -38,7 +38,7 @@ public class JoinGroupActivity extends AppCompatActivity {
             finish(); return;
         }
 
-        String uid  = FirebaseAuth.getInstance().getCurrentUser().getUid();
+        String uid  = FirebaseUtils.getCurrentUid();
         String name = FirebaseUtils.getCurrentName();
 
         // Check group exists

@@ -228,6 +228,7 @@
 
         <activity android:name=".activities.AccountMenuActivity" android:exported="false"
             android:theme="@style/Theme.CallX.NoTransition"/>
+        <activity android:name=".activities.LinkDeviceQrActivity" android:exported="false"/>
         <activity android:name=".activities.PhoneAuthActivity" android:exported="false" android:windowSoftInputMode="adjustResize"/>
         <activity android:name=".activities.ProfileSetupActivity" android:exported="false" android:windowSoftInputMode="adjustResize"/>
         <activity android:name=".activities.AllNotificationsActivity" android:exported="false"

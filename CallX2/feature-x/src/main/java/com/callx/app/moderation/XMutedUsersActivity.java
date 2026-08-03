@@ -1,4 +1,5 @@
 package com.callx.app.moderation;
+import com.callx.app.utils.FirebaseUtils;
 
 import android.os.Bundle;
 import android.view.View;
@@ -30,7 +31,7 @@ public class XMutedUsersActivity extends AppCompatActivity {
         setContentView(R.layout.activity_x_muted_users);
 
         myUid = FirebaseAuth.getInstance().getCurrentUser() != null
-            ? FirebaseAuth.getInstance().getCurrentUser().getUid() : "";
+            ? FirebaseUtils.getCurrentUid() : "";
 
         rv      = findViewById(R.id.rv_muted);
         pb      = findViewById(R.id.pb_muted);

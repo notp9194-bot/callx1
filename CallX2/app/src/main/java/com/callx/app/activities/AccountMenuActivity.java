@@ -45,7 +45,7 @@ public class AccountMenuActivity extends AppCompatActivity {
 
     private void loadProfile() {
         String uid = FirebaseAuth.getInstance().getCurrentUser() == null
-            ? null : FirebaseAuth.getInstance().getCurrentUser().getUid();
+            ? null : FirebaseUtils.getCurrentUid();
         if (uid == null) return;
         myUid = uid;
         FirebaseUtils.getUserRef(uid).addListenerForSingleValueEvent(new ValueEventListener() {
@@ -87,8 +87,7 @@ public class AccountMenuActivity extends AppCompatActivity {
         binding.rowPrivacy.getRoot().setOnClickListener(v -> startActivity(new Intent(this, PrivacySecurityActivity.class)));
 
         configureRow(binding.rowLinkedDevices.getRoot(), R.drawable.ic_phone, "Linked Devices",
-            com.callx.app.linkeddevices.DeviceSessionManager.getInstance().isCompanionMode()
-                ? "Linked as companion device" : "Link a phone, tablet, or another device");
+            "Link a phone, tablet, or another device");
         binding.rowLinkedDevices.getRoot().setOnClickListener(v -> startActivity(new Intent().setClassName(this, "com.callx.app.chat.linkeddevice.LinkedDevicesActivity")));
 
         configureRow(binding.rowNotifications.getRoot(), R.drawable.ic_status_notification, "Notifications", "Message and call alerts");

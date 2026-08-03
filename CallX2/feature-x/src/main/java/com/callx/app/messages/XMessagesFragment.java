@@ -1,4 +1,5 @@
 package com.callx.app.messages;
+import com.callx.app.utils.FirebaseUtils;
 
   import android.content.Intent;
   import android.os.Bundle;
@@ -38,7 +39,7 @@ import com.callx.app.search.XSearchActivity;
       public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
           super.onViewCreated(view, savedInstanceState);
           myUid = FirebaseAuth.getInstance().getCurrentUser() != null
-              ? FirebaseAuth.getInstance().getCurrentUser().getUid() : "";
+              ? FirebaseUtils.getCurrentUid() : "";
 
           recyclerView = view.findViewById(R.id.rv_x_messages);
           swipeRefresh = view.findViewById(R.id.swipe_x_messages);

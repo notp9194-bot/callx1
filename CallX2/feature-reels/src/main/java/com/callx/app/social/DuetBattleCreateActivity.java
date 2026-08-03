@@ -1,4 +1,5 @@
 package com.callx.app.social;
+import com.callx.app.utils.FirebaseUtils;
 
   import android.content.Intent;
   import android.os.Bundle;
@@ -63,7 +64,7 @@ package com.callx.app.social;
           theirName      = getIntent().getStringExtra(EXTRA_THEIR_NAME);
           theirUid       = getIntent().getStringExtra(EXTRA_THEIR_UID);
           originalReelId = getIntent().getStringExtra(EXTRA_ORIGINAL_REEL_ID);
-          myUid          = FirebaseAuth.getInstance().getUid();
+          myUid          = FirebaseUtils.getCurrentUid();
 
           btnBack        = findViewById(R.id.btn_battle_create_back);
           ivMyThumb      = findViewById(R.id.iv_battle_my_thumb);

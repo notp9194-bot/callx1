@@ -1,4 +1,5 @@
 package com.callx.app;
+import com.callx.app.utils.FirebaseUtils;
 
 import android.app.Activity;
 import android.app.Application;
@@ -349,7 +350,7 @@ public class CallxApp extends Application {
 
             // Start global status cache — ek baar Firebase read, pure app mein reuse
             if (FirebaseAuth.getInstance().getCurrentUser() != null) {
-                String uid = FirebaseAuth.getInstance().getCurrentUser().getUid();
+                String uid = FirebaseUtils.getCurrentUid();
                 StatusCacheManager.getInstance(this).startListening(uid);
             }
 
@@ -448,7 +449,7 @@ public class CallxApp extends Application {
     private void cacheMyPhotoUrl() {
         try {
             if (FirebaseAuth.getInstance().getCurrentUser() == null) return;
-            String uid = FirebaseAuth.getInstance().getCurrentUser().getUid();
+            String uid = FirebaseUtils.getCurrentUid();
             FirebaseDatabase.getInstance(Constants.DB_URL)
                 .getReference("users").child(uid).child("photoUrl")
                 .addValueEventListener(new ValueEventListener() {

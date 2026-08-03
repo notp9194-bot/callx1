@@ -1,4 +1,5 @@
 package com.callx.app.library;
+import com.callx.app.utils.FirebaseUtils;
 
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -49,7 +50,7 @@ public class YouTubeManageHistoryActivity extends AppCompatActivity {
         setContentView(R.layout.activity_yt_manage_history);
 
         myUid = FirebaseAuth.getInstance().getCurrentUser() != null
-            ? FirebaseAuth.getInstance().getCurrentUser().getUid() : "";
+            ? FirebaseUtils.getCurrentUid() : "";
         prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
 
         Toolbar toolbar = findViewById(R.id.toolbar_yt_manage_history);

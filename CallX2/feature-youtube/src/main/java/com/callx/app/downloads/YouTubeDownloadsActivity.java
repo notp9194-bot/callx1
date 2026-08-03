@@ -1,4 +1,5 @@
 package com.callx.app.downloads;
+import com.callx.app.utils.FirebaseUtils;
 
 import com.callx.app.player.YouTubePlayerActivity;
 
@@ -63,7 +64,7 @@ public class YouTubeDownloadsActivity extends AppCompatActivity {
         tvEmpty.setVisibility(View.GONE);
 
         String uid = FirebaseAuth.getInstance().getCurrentUser() != null
-            ? FirebaseAuth.getInstance().getCurrentUser().getUid() : "";
+            ? FirebaseUtils.getCurrentUid() : "";
 
         if (uid.isEmpty()) {
             showEmpty("Download dekhne ke liye login karo");

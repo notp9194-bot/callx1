@@ -61,7 +61,7 @@ public class GroupTopicsActivity extends AppCompatActivity implements GroupTopic
         if (groupId == null || FirebaseAuth.getInstance().getCurrentUser() == null) {
             finish(); return;
         }
-        currentUid = FirebaseAuth.getInstance().getCurrentUser().getUid();
+        currentUid = FirebaseUtils.getCurrentUid();
 
         Toolbar toolbar = findViewById(R.id.toolbar);
         setSupportActionBar(toolbar);

@@ -1,4 +1,5 @@
 package com.callx.app.social;
+import com.callx.app.utils.FirebaseUtils;
 
   import android.os.Bundle;
   import android.view.View;
@@ -66,7 +67,7 @@ package com.callx.app.social;
           setContentView(R.layout.activity_duet_battle);
 
           battleId = getIntent().getStringExtra(EXTRA_BATTLE_ID);
-          myUid    = FirebaseAuth.getInstance().getUid();
+          myUid    = FirebaseUtils.getCurrentUid();
 
           pvA           = findViewById(R.id.pv_battle_a);
           pvB           = findViewById(R.id.pv_battle_b);

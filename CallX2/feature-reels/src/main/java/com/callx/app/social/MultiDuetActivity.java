@@ -67,7 +67,7 @@ public class MultiDuetActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_multi_duet);
 
-        myUid = FirebaseAuth.getInstance().getUid();
+        myUid = FirebaseUtils.getCurrentUid();
 
         btnBack              = findViewById(R.id.btn_multi_duet_back);
         rvSlots              = findViewById(R.id.rv_multi_duet_slots);

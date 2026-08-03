@@ -1,4 +1,5 @@
 package com.callx.app.player;
+import com.callx.app.utils.FirebaseUtils;
 
 import com.callx.app.channel.YouTubeChannelActivity;
 
@@ -111,7 +112,7 @@ public class YouTubePlayerActivity extends AppCompatActivity {
         String localPath = getIntent().getStringExtra("local_path"); // offline play
         boolean openComments = getIntent().getBooleanExtra("open_comments", false);
         myUid = FirebaseAuth.getInstance().getCurrentUser() != null
-            ? FirebaseAuth.getInstance().getCurrentUser().getUid() : "";
+            ? FirebaseUtils.getCurrentUid() : "";
 
         Log.d(TAG, "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
         Log.d(TAG, "▶ YouTubePlayerActivity onCreate");
@@ -984,7 +985,7 @@ public class YouTubePlayerActivity extends AppCompatActivity {
 
         String uploaderUid = currentVideo.uploaderUid;
         String myUid = FirebaseAuth.getInstance().getCurrentUser() != null
-            ? FirebaseAuth.getInstance().getCurrentUser().getUid() : "";
+            ? FirebaseUtils.getCurrentUid() : "";
 
         // ── Social Profile Section ─────────────────────────────────────────
         de.hdodenhof.circleimageview.CircleImageView socialAvatar =

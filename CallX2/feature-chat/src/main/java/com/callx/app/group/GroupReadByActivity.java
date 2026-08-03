@@ -71,7 +71,7 @@ public class GroupReadByActivity extends AppCompatActivity {
         if (groupId == null || msgId == null || FirebaseAuth.getInstance().getCurrentUser() == null) {
             finish(); return;
         }
-        currentUid = FirebaseAuth.getInstance().getCurrentUser().getUid();
+        currentUid = FirebaseUtils.getCurrentUid();
 
         Toolbar tb = findViewById(R.id.toolbar);
         setSupportActionBar(tb);

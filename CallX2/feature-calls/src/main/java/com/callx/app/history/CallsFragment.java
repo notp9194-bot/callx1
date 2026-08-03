@@ -351,7 +351,7 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
         final com.google.firebase.database.FirebaseDatabase db =
             com.google.firebase.database.FirebaseDatabase.getInstance(DB);
         String myUid = FirebaseAuth.getInstance().getCurrentUser() != null
-            ? FirebaseAuth.getInstance().getCurrentUser().getUid() : null;
+            ? FirebaseUtils.getCurrentUid() : null;
 
         // ── X ──────────────────────────────────────────────────────────────
         db.getReference("x/users").child(partnerUid)

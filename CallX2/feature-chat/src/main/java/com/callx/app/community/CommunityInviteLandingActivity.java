@@ -1,4 +1,5 @@
 package com.callx.app.community;
+import com.callx.app.utils.FirebaseUtils;
 
 import android.content.Intent;
 import android.net.Uri;
@@ -43,7 +44,7 @@ public class CommunityInviteLandingActivity extends AppCompatActivity {
         }
 
         String currentUid  = FirebaseAuth.getInstance().getCurrentUser() != null
-                ? FirebaseAuth.getInstance().getCurrentUser().getUid() : null;
+                ? FirebaseUtils.getCurrentUid() : null;
         String currentName = FirebaseAuth.getInstance().getCurrentUser() != null
                 ? FirebaseAuth.getInstance().getCurrentUser().getDisplayName() : null;
         String currentPhoto = FirebaseAuth.getInstance().getCurrentUser() != null

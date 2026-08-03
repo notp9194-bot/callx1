@@ -1,4 +1,5 @@
 package com.callx.app.group;
+import com.callx.app.utils.FirebaseUtils;
 
 import android.content.Intent;
 import android.net.Uri;
@@ -68,7 +69,7 @@ public class ChatBackupActivity extends AppCompatActivity {
         if (chatName == null) chatName = isGroup ? "Group" : "Chat";
 
         if (FirebaseAuth.getInstance().getCurrentUser() == null) { finish(); return; }
-        currentUid  = FirebaseAuth.getInstance().getCurrentUser().getUid();
+        currentUid  = FirebaseUtils.getCurrentUid();
         String dn   = FirebaseAuth.getInstance().getCurrentUser().getDisplayName();
         currentName = dn != null ? dn : "Me";
 

@@ -565,7 +565,7 @@ public class MainActivity extends AppCompatActivity
 
     private String currentUid() {
         return FirebaseAuth.getInstance().getCurrentUser() == null
-            ? null : FirebaseAuth.getInstance().getCurrentUser().getUid();
+            ? null : FirebaseUtils.getCurrentUid();
     }
 
     // ── Overlay permission callback — auto-retry SmallWindow ─────────────────

@@ -1,4 +1,5 @@
 package com.callx.app.compose;
+import com.callx.app.utils.FirebaseUtils;
 
 import android.content.Intent;
 import android.os.Bundle;
@@ -40,7 +41,7 @@ public class XThreadComposerActivity extends AppCompatActivity {
         setContentView(R.layout.activity_x_thread_composer);
 
         myUid   = FirebaseAuth.getInstance().getCurrentUser() != null
-            ? FirebaseAuth.getInstance().getCurrentUser().getUid() : "";
+            ? FirebaseUtils.getCurrentUid() : "";
 
         pbThread = findViewById(R.id.pb_thread);
         rvThread = findViewById(R.id.rv_thread_entries);

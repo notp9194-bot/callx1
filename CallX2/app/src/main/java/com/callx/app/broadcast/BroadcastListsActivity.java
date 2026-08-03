@@ -1,4 +1,5 @@
 package com.callx.app.broadcast;
+import com.callx.app.utils.FirebaseUtils;
 
 import android.content.Intent;
 import android.os.Bundle;
@@ -74,7 +75,7 @@ public class BroadcastListsActivity extends AppCompatActivity {
         tb.setNavigationOnClickListener(v -> finish());
 
         myUid = FirebaseAuth.getInstance().getCurrentUser() != null
-                ? FirebaseAuth.getInstance().getCurrentUser().getUid() : null;
+                ? FirebaseUtils.getCurrentUid() : null;
 
         if (myUid == null) { finish(); return; }
 

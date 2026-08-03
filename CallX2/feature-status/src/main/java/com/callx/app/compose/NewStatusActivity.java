@@ -1205,7 +1205,7 @@ public class NewStatusActivity extends AppCompatActivity {
         }
         if (txt.length() > 700) { toast("Text 700 characters se zyada nahi"); return; }
         setPosting(true);
-        String uid  = FirebaseAuth.getInstance().getCurrentUser().getUid();
+        String uid  = FirebaseUtils.getCurrentUid();
         String name = FirebaseUtils.getCurrentName();
         FirebaseUtils.getUserRef(uid).addListenerForSingleValueEvent(new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
@@ -1438,7 +1438,7 @@ public class NewStatusActivity extends AppCompatActivity {
         setHint("Posting " + (pendingBatchIndex + 1) + " of " + pendingBatchUris.size() + "…");
         Uri uri          = pendingBatchUris.get(pendingBatchIndex);
         boolean isVideo  = pendingBatchIsVideo.get(pendingBatchIndex);
-        String uid       = FirebaseAuth.getInstance().getCurrentUser().getUid();
+        String uid       = FirebaseUtils.getCurrentUid();
         String name      = FirebaseUtils.getCurrentName();
         FirebaseUtils.getUserRef(uid).addListenerForSingleValueEvent(new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot snap) {

@@ -36,7 +36,7 @@ public class NotificationActionReceiver extends BroadcastReceiver {
         String partnerPhoto = intent.getStringExtra(Constants.EXTRA_PARTNER_PHOTO);
         int notifId         = intent.getIntExtra(Constants.EXTRA_NOTIF_ID, 0);
         if (FirebaseAuth.getInstance().getCurrentUser() == null) { pendingResult.finish(); return; }
-        final String myUid  = FirebaseAuth.getInstance().getCurrentUser().getUid();
+        final String myUid  = FirebaseUtils.getCurrentUid();
         final String myName = FirebaseUtils.getCurrentName();
         NotificationManager nm = (NotificationManager)
             context.getSystemService(Context.NOTIFICATION_SERVICE);

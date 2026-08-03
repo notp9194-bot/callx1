@@ -104,7 +104,7 @@ public class BroadcastChatActivity extends AppCompatActivity {
         if (listId == null) { finish(); return; }
 
         myUid = FirebaseAuth.getInstance().getCurrentUser() != null
-                ? FirebaseAuth.getInstance().getCurrentUser().getUid() : null;
+                ? FirebaseUtils.getCurrentUid() : null;
         if (myUid == null) { finish(); return; }
 
         registerPickers();

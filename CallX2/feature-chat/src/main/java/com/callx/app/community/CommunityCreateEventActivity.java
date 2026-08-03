@@ -1,4 +1,5 @@
 package com.callx.app.community;
+import com.callx.app.utils.FirebaseUtils;
 
 import android.app.DatePickerDialog;
 import android.app.TimePickerDialog;
@@ -77,7 +78,7 @@ public class CommunityCreateEventActivity extends AppCompatActivity {
         repo = CommunityRepository.getInstance(this);
 
         if (FirebaseAuth.getInstance().getCurrentUser() != null) {
-            currentUid = FirebaseAuth.getInstance().getCurrentUser().getUid();
+            currentUid = FirebaseUtils.getCurrentUid();
             myName     = FirebaseAuth.getInstance().getCurrentUser().getDisplayName();
         }
 

@@ -1,4 +1,5 @@
 package com.callx.app.feed;
+import com.callx.app.utils.FirebaseUtils;
 
 import android.animation.AnimatorSet;
 import android.animation.ObjectAnimator;
@@ -83,7 +84,7 @@ public class XTweetAdapter extends RecyclerView.Adapter<XTweetAdapter.TweetVH> {
         this.ctx = ctx;
         this.listener = listener;
         this.myUid = FirebaseAuth.getInstance().getCurrentUser() != null
-            ? FirebaseAuth.getInstance().getCurrentUser().getUid() : "";
+            ? FirebaseUtils.getCurrentUid() : "";
         setHasStableIds(true);
     }
 

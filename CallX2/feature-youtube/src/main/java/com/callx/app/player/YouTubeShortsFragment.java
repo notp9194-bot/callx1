@@ -1,4 +1,5 @@
 package com.callx.app.player;
+import com.callx.app.utils.FirebaseUtils;
 
 import android.content.Intent;
 import android.os.Bundle;
@@ -162,7 +163,7 @@ public class YouTubeShortsFragment extends Fragment {
                 Glide.with(ctx).load(video.uploaderPhotoUrl).circleCrop().override(96, 96).into(h.ivAvatar);
 
             String myUid = FirebaseAuth.getInstance().getCurrentUser() != null
-                ? FirebaseAuth.getInstance().getCurrentUser().getUid() : "";
+                ? FirebaseUtils.getCurrentUid() : "";
             String uploaderUid = video.uploaderUid != null ? video.uploaderUid : "";
 
             // Subscription state

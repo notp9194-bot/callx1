@@ -1,4 +1,5 @@
 package com.callx.app.feed;
+import com.callx.app.utils.FirebaseUtils;
 
 import android.content.Intent;
 import android.os.Bundle;
@@ -46,7 +47,7 @@ public class XActivity extends AppCompatActivity {
         setContentView(R.layout.activity_x);
 
         myUid = FirebaseAuth.getInstance().getCurrentUser() != null
-            ? FirebaseAuth.getInstance().getCurrentUser().getUid() : "";
+            ? FirebaseUtils.getCurrentUid() : "";
 
         XNotificationChannelManager.ensureChannels(this);
         XFirebaseMessagingService.uploadTokenIfSignedIn();

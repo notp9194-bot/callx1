@@ -1,4 +1,5 @@
 package com.callx.app.community;
+import com.callx.app.utils.FirebaseUtils;
 
 import android.content.Intent;
 import android.os.Bundle;
@@ -63,7 +64,7 @@ public class CommunityGroupsFragment extends Fragment {
         super.onCreate(savedInstanceState);
         communityId = getArguments() != null ? getArguments().getString(ARG_COMMUNITY_ID) : null;
         currentUid  = FirebaseAuth.getInstance().getCurrentUser() != null
-                ? FirebaseAuth.getInstance().getCurrentUser().getUid() : null;
+                ? FirebaseUtils.getCurrentUid() : null;
         repo = CommunityRepository.getInstance(requireContext());
     }
 

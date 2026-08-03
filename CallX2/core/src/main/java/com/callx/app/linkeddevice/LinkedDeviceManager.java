@@ -170,6 +170,80 @@ public class LinkedDeviceManager {
                 .addOnFailureListener(e -> cb.onError(e.getMessage()));
     }
 
+    /**
+     * Creates a fresh pairing session and returns its code — render this as
+     * a QR ("callx2-pair:" + code) on the device that wants to BE the
+     * companion. This is the Android-companion equivalent of what the web
+     * client already does directly in JS (see callx2-web.html): any device
+     * without a real, signed-in session can call this, show the QR, and
+     * wait for a primary phone to scan + approve it via LinkedDevicesActivity.
+     */
+    public String createPairingSession(String browser, String os, @NonNull PairingCallback cb) {
+        String code = generatePairingCode();
+        PairingSession.DeviceInfo info = new PairingSession.DeviceInfo(browser, os);
+        long now = System.currentTimeMillis();
+
+        Map<String, Object> data = new HashMap<>();
+        data.put("status", PairingSession.STATUS_PENDING);
+        data.put("createdAt", now);
+        data.put("expiresAt", now + PairingSession.PAIRING_TTL_MS);
+        data.put("deviceInfo", deviceInfoToMap(info));
+
+        FirebaseUtils.getPairingSessionRef(code).setValue(data)
+            .addOnSuccessListener(unused -> cb.onSuccess())
+            .addOnFailureListener(e -> cb.onError(e.getMessage()));
+        return code;
+    }
+
+    /**
+     * Companion side: watch the session it just created for the primary's
+     * approval — once `customToken` appears, sign in with it and this
+     * install becomes a fully native, independently-authenticated session
+     * of the SAME account (exactly like WhatsApp Web/Desktop/companion
+     * devices — no client-side uid substitution needed anywhere else).
+     */
+    public ValueEventListener watchOwnPairingSession(String pairingCode, @NonNull PairingSessionCallback cb) {
+        ValueEventListener vel = new ValueEventListener() {
+            @Override
+            public void onDataChange(@NonNull DataSnapshot snapshot) {
+                PairingSession session = snapshot.getValue(PairingSession.class);
+                if (session == null) { cb.onNotFound(); return; }
+                if (PairingSession.STATUS_DENIED.equals(session.status)) { cb.onError("Denied"); return; }
+                if (System.currentTimeMillis() > session.expiresAt) { cb.onExpired(); return; }
+                if (PairingSession.STATUS_APPROVED.equals(session.status) && session.customToken != null) {
+                    cb.onFound(session);
+                }
+            }
+
+            @Override
+            public void onCancelled(@NonNull DatabaseError error) {
+                cb.onError(error.getMessage());
+            }
+        };
+        FirebaseUtils.getPairingSessionRef(pairingCode).addValueEventListener(vel);
+        return vel;
+    }
+
+    public void stopWatchingOwnSession(String pairingCode, ValueEventListener vel) {
+        if (vel != null) FirebaseUtils.getPairingSessionRef(pairingCode).removeEventListener(vel);
+    }
+
+    private String generatePairingCode() {
+        String alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no 0/O/1/I ambiguity
+        StringBuilder sb = new StringBuilder(8);
+        java.security.SecureRandom rnd = new java.security.SecureRandom();
+        for (int i = 0; i < 8; i++) sb.append(alphabet.charAt(rnd.nextInt(alphabet.length())));
+        return sb.toString();
+    }
+
+    private Map<String, Object> deviceInfoToMap(PairingSession.DeviceInfo info) {
+        Map<String, Object> m = new HashMap<>();
+        m.put("browser", info.browser);
+        m.put("os", info.os);
+        m.put("label", info.label);
+        return m;
+    }
+
     @Nullable
     private Map<String, Object> deviceToMap(LinkedDevice d) {
         Map<String, Object> m = new HashMap<>();

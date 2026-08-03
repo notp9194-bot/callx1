@@ -311,7 +311,7 @@ public class SoundDetailBottomSheet extends BottomSheetDialogFragment implements
         btnAddToProfile.setOnClickListener(v -> {
             String uid = com.google.firebase.auth.FirebaseAuth.getInstance()
                 .getCurrentUser() != null
-                ? com.google.firebase.auth.FirebaseAuth.getInstance().getCurrentUser().getUid()
+                ? com.callx.app.utils.FirebaseUtils.getCurrentUid()
                 : null;
             if (uid == null) { Toast.makeText(requireContext(), "Not logged in", Toast.LENGTH_SHORT).show(); return; }
 

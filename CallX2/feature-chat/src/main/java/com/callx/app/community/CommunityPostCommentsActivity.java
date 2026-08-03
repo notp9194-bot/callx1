@@ -1,4 +1,5 @@
 package com.callx.app.community;
+import com.callx.app.utils.FirebaseUtils;
 
 import android.content.Intent;
 import android.os.Bundle;
@@ -101,7 +102,7 @@ public class CommunityPostCommentsActivity extends AppCompatActivity {
         postId      = getIntent().getStringExtra(EXTRA_POST_ID);
 
         if (FirebaseAuth.getInstance().getCurrentUser() != null) {
-            currentUid = FirebaseAuth.getInstance().getCurrentUser().getUid();
+            currentUid = FirebaseUtils.getCurrentUid();
             myName     = FirebaseAuth.getInstance().getCurrentUser().getDisplayName();
             android.net.Uri p = FirebaseAuth.getInstance().getCurrentUser().getPhotoUrl();
             myPhoto = p != null ? p.toString() : null;

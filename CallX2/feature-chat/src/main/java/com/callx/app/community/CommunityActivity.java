@@ -1,4 +1,5 @@
 package com.callx.app.community;
+import com.callx.app.utils.FirebaseUtils;
 
 import android.content.Intent;
 import android.os.Bundle;
@@ -81,7 +82,7 @@ public class CommunityActivity extends AppCompatActivity {
 
         communityId = getIntent().getStringExtra(EXTRA_COMMUNITY_ID);
         currentUid = FirebaseAuth.getInstance().getCurrentUser() != null
-                ? FirebaseAuth.getInstance().getCurrentUser().getUid() : null;
+                ? FirebaseUtils.getCurrentUid() : null;
         pendingUname = FirebaseAuth.getInstance().getCurrentUser() != null
                 && FirebaseAuth.getInstance().getCurrentUser().getDisplayName() != null
                 ? FirebaseAuth.getInstance().getCurrentUser().getDisplayName() : "Member";

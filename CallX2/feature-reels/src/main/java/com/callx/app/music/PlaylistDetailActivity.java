@@ -61,7 +61,7 @@ public class PlaylistDetailActivity extends AppCompatActivity {
         playlistId   = getIntent().getStringExtra(EXTRA_PLAYLIST_ID);
         playlistName = getIntent().getStringExtra(EXTRA_PLAYLIST_NAME);
         pickMode     = getIntent().getBooleanExtra(EXTRA_PICK_MODE, false);
-        myUid        = FirebaseAuth.getInstance().getUid();
+        myUid        = FirebaseUtils.getCurrentUid();
 
         if (playlistId == null || myUid == null) { finish(); return; }
 

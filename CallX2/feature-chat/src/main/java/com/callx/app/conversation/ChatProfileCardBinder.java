@@ -1,4 +1,5 @@
 package com.callx.app.conversation;
+import com.callx.app.utils.FirebaseUtils;
 
 import android.content.Intent;
 import android.view.View;
@@ -231,7 +232,7 @@ public class ChatProfileCardBinder {
     @Nullable
     private String currentUid() {
         return FirebaseAuth.getInstance().getCurrentUser() != null
-                ? FirebaseAuth.getInstance().getCurrentUser().getUid() : null;
+                ? FirebaseUtils.getCurrentUid() : null;
     }
 
     private static long longOrZero(DataSnapshot snap) {

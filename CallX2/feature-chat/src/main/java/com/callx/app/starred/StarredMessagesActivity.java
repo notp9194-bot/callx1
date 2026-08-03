@@ -57,7 +57,7 @@ public class StarredMessagesActivity extends AppCompatActivity
                 || FirebaseAuth.getInstance().getCurrentUser() == null) {
             finish(); return;
         }
-        currentUid = FirebaseAuth.getInstance().getCurrentUser().getUid();
+        currentUid = FirebaseUtils.getCurrentUid();
 
         // Toolbar
         if (findViewById(R.id.toolbar) != null) {

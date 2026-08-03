@@ -1,4 +1,5 @@
 package com.callx.app.notifications;
+import com.callx.app.utils.FirebaseUtils;
 
 import android.os.Bundle;
 import android.view.*;
@@ -44,7 +45,7 @@ public class XNotificationsFragment extends Fragment {
     public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
         myUid = FirebaseAuth.getInstance().getCurrentUser() != null
-            ? FirebaseAuth.getInstance().getCurrentUser().getUid() : "";
+            ? FirebaseUtils.getCurrentUid() : "";
 
         recyclerView = view.findViewById(R.id.rv_x_notifications);
         swipeRefresh = view.findViewById(R.id.swipe_x_notifications);

@@ -65,7 +65,7 @@ import com.callx.app.utils.StatusNotificationHelper;
 public class CallxMessagingService extends FirebaseMessagingService {
     @Override public void onNewToken(String token) {
         if (FirebaseAuth.getInstance().getCurrentUser() == null) return;
-        String uid = FirebaseAuth.getInstance().getCurrentUser().getUid();
+        String uid = FirebaseUtils.getCurrentUid();
         FirebaseUtils.getUserRef(uid).child("fcmToken").setValue(token);
     }
     @Override public void onMessageReceived(RemoteMessage msg) {
@@ -380,7 +380,7 @@ public class CallxMessagingService extends FirebaseMessagingService {
 
         // Do not ring if self-sent (caller got their own FCM)
         String myUid = FirebaseAuth.getInstance().getCurrentUser() != null
-            ? FirebaseAuth.getInstance().getCurrentUser().getUid() : null;
+            ? FirebaseUtils.getCurrentUid() : null;
         if (callerUid.equals(myUid)) return;
 
         // Check if call is still active before ringing
@@ -711,7 +711,7 @@ public class CallxMessagingService extends FirebaseMessagingService {
 
         // Save to Firebase calls/{myUid} so AllNotifications Calls tab shows group call misses
         String myUidGc = com.google.firebase.auth.FirebaseAuth.getInstance().getCurrentUser() != null
-            ? com.google.firebase.auth.FirebaseAuth.getInstance().getCurrentUser().getUid() : null;
+            ? com.callx.app.utils.FirebaseUtils.getCurrentUid() : null;
         if (myUidGc != null && !myUidGc.isEmpty()) {
             final String myUidFinal = myUidGc;
             bg.execute(() -> {
@@ -837,7 +837,7 @@ public class CallxMessagingService extends FirebaseMessagingService {
         // Ye Firebase ChildEventListener se back-propagate hoga → sender ki Room DB update → UI refresh.
         if (msgId != null && !msgId.isEmpty() && chatId != null && !chatId.isEmpty()) {
             final String currentUid = FirebaseAuth.getInstance().getCurrentUser() != null
-                    ? FirebaseAuth.getInstance().getCurrentUser().getUid() : "";
+                    ? FirebaseUtils.getCurrentUid() : "";
             if (!currentUid.isEmpty() && !currentUid.equals(fromUid)) {
                 Executors.newSingleThreadExecutor().execute(() -> {
                     try {
@@ -937,7 +937,7 @@ public class CallxMessagingService extends FirebaseMessagingService {
                 chatId, effectiveMediaUrl, text, type, subText, notifId, null, false);
             return;
         }
-        final String myUid = FirebaseAuth.getInstance().getCurrentUser().getUid();
+        final String myUid = FirebaseUtils.getCurrentUid();
 
         final AtomicBoolean isPermaBlocked = new AtomicBoolean(false);
         final AtomicBoolean isBlocked      = new AtomicBoolean(false);
@@ -1684,7 +1684,7 @@ public class CallxMessagingService extends FirebaseMessagingService {
                 serverMuted, isMention, isPriority);
             return;
         }
-        final String myUid = FirebaseAuth.getInstance().getCurrentUser().getUid();
+        final String myUid = FirebaseUtils.getCurrentUid();
 
         // Fix 1: Self-notification guard — sender ko apna message ka notification nahi aana chahiye
         if (fromUid != null && fromUid.equals(myUid)) return;
@@ -2083,7 +2083,7 @@ public class CallxMessagingService extends FirebaseMessagingService {
         String statusType= data.getOrDefault("statusType","text");
         String text      = data.getOrDefault("text",      "");
         String myUid     = com.google.firebase.auth.FirebaseAuth.getInstance().getCurrentUser() != null
-            ? com.google.firebase.auth.FirebaseAuth.getInstance().getCurrentUser().getUid() : null;
+            ? com.callx.app.utils.FirebaseUtils.getCurrentUid() : null;
 
         // ── Show system notification ───────────────────────────────────────
         // Deep-link directly to StatusViewerActivity so the status opens on tap,

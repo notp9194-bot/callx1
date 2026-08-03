@@ -1,4 +1,5 @@
 package com.callx.app.player;
+import com.callx.app.utils.FirebaseUtils;
 
 import android.app.AlertDialog;
 import android.content.Intent;
@@ -84,7 +85,7 @@ public class YouTubeVideoOptionsSheet extends BottomSheetDialogFragment {
             videoUrl    = getArguments().getString(ARG_VIDEO_URL, "");
         }
         myUid = FirebaseAuth.getInstance().getCurrentUser() != null
-            ? FirebaseAuth.getInstance().getCurrentUser().getUid() : "";
+            ? FirebaseUtils.getCurrentUid() : "";
     }
 
     @Nullable @Override

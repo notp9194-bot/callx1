@@ -1,4 +1,5 @@
 package com.callx.app.community;
+import com.callx.app.utils.FirebaseUtils;
 
 import android.os.Bundle;
 import android.view.Menu;
@@ -40,7 +41,7 @@ public class CommunityNotificationsActivity extends AppCompatActivity
 
         communityId = getIntent().getStringExtra(EXTRA_COMMUNITY_ID);
         currentUid  = FirebaseAuth.getInstance().getCurrentUser() != null
-                ? FirebaseAuth.getInstance().getCurrentUser().getUid() : null;
+                ? FirebaseUtils.getCurrentUid() : null;
         repo = CommunityRepository.getInstance(this);
 
         androidx.appcompat.widget.Toolbar toolbar = findViewById(R.id.toolbar);

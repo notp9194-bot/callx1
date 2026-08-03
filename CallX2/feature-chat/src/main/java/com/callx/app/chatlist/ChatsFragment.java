@@ -348,7 +348,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
 
     private void loadContacts() {
         if (FirebaseAuth.getInstance().getCurrentUser() == null) return;
-        String uid = FirebaseAuth.getInstance().getCurrentUser().getUid();
+        String uid = FirebaseUtils.getCurrentUid();
 
         contactsListener = new ValueEventListener() {
             @Override public void onDataChange(DataSnapshot snap) {
@@ -452,7 +452,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
 
     private void loadSpecialRequests() {
         if (FirebaseAuth.getInstance().getCurrentUser() == null) return;
-        String uid = FirebaseAuth.getInstance().getCurrentUser().getUid();
+        String uid = FirebaseUtils.getCurrentUid();
 
         specialRequestsListener = new ValueEventListener() {
             @Override public void onDataChange(DataSnapshot snap) {
@@ -549,7 +549,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
 
     private void deleteSelected() {
         if (FirebaseAuth.getInstance().getCurrentUser() == null) return;
-        String myUid = FirebaseAuth.getInstance().getCurrentUser().getUid();
+        String myUid = FirebaseUtils.getCurrentUid();
         List<User> selected = adapter.getSelectedItems();
         if (selected.isEmpty()) return;
 
@@ -610,7 +610,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
 
     private void deleteAllChats() {
         if (FirebaseAuth.getInstance().getCurrentUser() == null) return;
-        String myUid = FirebaseAuth.getInstance().getCurrentUser().getUid();
+        String myUid = FirebaseUtils.getCurrentUid();
 
         // Firebase contacts node clear karo
         FirebaseUtils.getContactsRef(myUid).removeValue();
@@ -735,7 +735,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
                 sheet.dismiss();
                 if (user.uid == null || getContext() == null) return;
                 final Context appCtx = getContext().getApplicationContext();
-                String myUid = FirebaseAuth.getInstance().getUid();
+                String myUid = FirebaseUtils.getCurrentUid();
                 String chatId = myUid != null ? FirebaseUtils.getChatId(myUid, user.uid) : null;
 
                 Runnable navigate = () -> {
@@ -844,7 +844,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         final String DB = "https://sathix-97a76-default-rtdb.asia-southeast1.firebasedatabase.app";
         final FirebaseDatabase db = FirebaseDatabase.getInstance(DB);
         String myUid = FirebaseAuth.getInstance().getCurrentUser() != null
-            ? FirebaseAuth.getInstance().getCurrentUser().getUid() : null;
+            ? FirebaseUtils.getCurrentUid() : null;
 
         // ── X ──
         db.getReference("x/users").child(partnerUid)
@@ -1115,7 +1115,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         }
 
         String myUid = FirebaseAuth.getInstance().getCurrentUser() != null
-            ? FirebaseAuth.getInstance().getCurrentUser().getUid() : null;
+            ? FirebaseUtils.getCurrentUid() : null;
         if (myUid == null) {
             tvCount.setText("0 calls");
             if (llEmpty != null) llEmpty.setVisibility(View.VISIBLE);

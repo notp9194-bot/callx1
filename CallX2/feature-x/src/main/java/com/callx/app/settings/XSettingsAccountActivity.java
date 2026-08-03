@@ -1,4 +1,5 @@
 package com.callx.app.settings;
+import com.callx.app.utils.FirebaseUtils;
 
 import android.content.Intent;
 import android.os.Bundle;
@@ -27,7 +28,7 @@ public class XSettingsAccountActivity extends AppCompatActivity {
         setContentView(R.layout.activity_x_settings_account);
 
         myUid = FirebaseAuth.getInstance().getCurrentUser() != null
-            ? FirebaseAuth.getInstance().getCurrentUser().getUid() : "";
+            ? FirebaseUtils.getCurrentUid() : "";
 
         Toolbar toolbar = findViewById(R.id.toolbar_x_account);
         setSupportActionBar(toolbar);

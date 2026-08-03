@@ -86,7 +86,7 @@ public class AllNotificationsActivity extends AppCompatActivity {
         setContentView(R.layout.activity_all_notifications);
 
         myUid = FirebaseAuth.getInstance().getCurrentUser() == null
-            ? null : FirebaseAuth.getInstance().getCurrentUser().getUid();
+            ? null : FirebaseUtils.getCurrentUid();
         if (myUid == null) { finish(); return; }
 
         bindViews();

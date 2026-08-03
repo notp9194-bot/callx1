@@ -128,7 +128,7 @@ public class SearchActivity extends AppCompatActivity {
         // 3. Fallback: search by name field directly (for users registered without nameLower)
         List<SearchResultAdapter.UserResult> merged = new ArrayList<>();
         String myUid = FirebaseAuth.getInstance().getCurrentUser() != null
-            ? FirebaseAuth.getInstance().getCurrentUser().getUid() : "";
+            ? FirebaseUtils.getCurrentUid() : "";
 
         DatabaseReference usersRef = FirebaseUtils.db().getReference("users");
 
@@ -259,7 +259,7 @@ public class SearchActivity extends AppCompatActivity {
         Executors.newSingleThreadExecutor().execute(() -> {
             List<UserEntity> entities = db.userDao().searchByIdOrName(query);
             String myUid = FirebaseAuth.getInstance().getCurrentUser() != null
-                ? FirebaseAuth.getInstance().getCurrentUser().getUid() : "";
+                ? FirebaseUtils.getCurrentUid() : "";
             List<SearchResultAdapter.UserResult> results = new ArrayList<>();
             if (entities != null) {
                 for (UserEntity u : entities) {
@@ -287,7 +287,7 @@ public class SearchActivity extends AppCompatActivity {
 
     private void linkContacts() {
         if (foundUid == null) return;
-        String myUid  = FirebaseAuth.getInstance().getCurrentUser().getUid();
+        String myUid  = FirebaseUtils.getCurrentUid();
         String myName = FirebaseUtils.getCurrentName();
         java.util.Map<String, Object> them = new java.util.HashMap<>();
         them.put("uid", foundUid);

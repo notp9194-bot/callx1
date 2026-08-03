@@ -1,4 +1,5 @@
 package com.callx.app.channel;
+import com.callx.app.utils.FirebaseUtils;
 
 import android.content.Intent;
 import android.os.Bundle;
@@ -50,7 +51,7 @@ public class YouTubeSubscriptionsFragment extends Fragment {
         super.onViewCreated(view, state);
 
         myUid   = FirebaseAuth.getInstance().getCurrentUser() != null
-            ? FirebaseAuth.getInstance().getCurrentUser().getUid() : "";
+            ? FirebaseUtils.getCurrentUid() : "";
         rvSubs  = view.findViewById(R.id.rv_yt_subs_feed);
         tvEmpty = view.findViewById(R.id.tv_yt_subs_empty);
 

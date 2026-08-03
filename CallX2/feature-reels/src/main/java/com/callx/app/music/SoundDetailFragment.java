@@ -1074,7 +1074,7 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         if (btnMore != null) btnMore.setOnClickListener(v -> showMoreMenu());
 
         // Add to profile
-        String myUid = FirebaseAuth.getInstance().getUid();
+        String myUid = FirebaseUtils.getCurrentUid();
         if (btnAddToProfile != null && myUid != null) {
             btnAddToProfile.setVisibility(View.VISIBLE);
             btnAddToProfile.setOnClickListener(v -> {
@@ -1102,7 +1102,7 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         popup.getMenu().add(0, 4, 3, "Not interested");
         popup.getMenu().add(0, 7, 4, "🔍 Search Sounds");
         popup.getMenu().add(0, 8, 5, "🎚 Remix this Sound");
-        String myUid = FirebaseAuth.getInstance().getUid();
+        String myUid = FirebaseUtils.getCurrentUid();
         if (myUid != null && myUid.equals(creatorUid)) {
             popup.getMenu().add(0, 5, 6, "Upload Sound");
             popup.getMenu().add(0, 6, 7, "View Analytics");

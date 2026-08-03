@@ -362,7 +362,7 @@ public class ContactsActivity extends AppCompatActivity {
 
     private void loadFromRoom() {
         String myUid = FirebaseAuth.getInstance().getCurrentUser() != null
-                ? FirebaseAuth.getInstance().getCurrentUser().getUid() : "";
+                ? FirebaseUtils.getCurrentUid() : "";
         AppDatabase db = AppDatabase.getInstance(getApplicationContext());
         Executors.newSingleThreadExecutor().execute(() -> {
             List<UserEntity> cached = db.userDao().getAllUsersSync();
@@ -388,7 +388,7 @@ public class ContactsActivity extends AppCompatActivity {
 
     private void loadFromFirebase() {
         if (FirebaseAuth.getInstance().getCurrentUser() == null) return;
-        String myUid = FirebaseAuth.getInstance().getCurrentUser().getUid();
+        String myUid = FirebaseUtils.getCurrentUid();
         FirebaseUtils.getContactsRef(myUid)
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(@NonNull DataSnapshot snap) {

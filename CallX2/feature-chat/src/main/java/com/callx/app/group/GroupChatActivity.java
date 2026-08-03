@@ -323,7 +323,7 @@ public class GroupChatActivity extends AppCompatActivity
         if (groupId == null || FirebaseAuth.getInstance().getCurrentUser() == null) {
             finish(); return;
         }
-        currentUid  = FirebaseAuth.getInstance().getCurrentUser().getUid();
+        currentUid  = FirebaseUtils.getCurrentUid();
         currentName = FirebaseUtils.getCurrentName();
         groupMessagesRef = FirebaseUtils.getGroupMessagesRef(groupId);
 

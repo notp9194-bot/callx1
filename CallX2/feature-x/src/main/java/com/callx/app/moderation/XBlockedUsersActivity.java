@@ -1,4 +1,5 @@
 package com.callx.app.moderation;
+import com.callx.app.utils.FirebaseUtils;
 
 import android.content.Intent;
 import android.os.Bundle;
@@ -37,7 +38,7 @@ public class XBlockedUsersActivity extends AppCompatActivity {
         setContentView(R.layout.activity_x_blocked_users);
 
         myUid = FirebaseAuth.getInstance().getCurrentUser() != null
-            ? FirebaseAuth.getInstance().getCurrentUser().getUid() : "";
+            ? FirebaseUtils.getCurrentUid() : "";
 
         rv      = findViewById(R.id.rv_blocked);
         pb      = findViewById(R.id.pb_blocked);

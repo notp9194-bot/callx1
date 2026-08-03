@@ -118,7 +118,7 @@ public class GroupCallActionReceiver extends BroadcastReceiver {
     private String getCurrentUid() {
         try {
             if (FirebaseAuth.getInstance().getCurrentUser() != null) {
-                return FirebaseAuth.getInstance().getCurrentUser().getUid();
+                return FirebaseUtils.getCurrentUid();
             }
         } catch (Exception ignored) {}
         return null;

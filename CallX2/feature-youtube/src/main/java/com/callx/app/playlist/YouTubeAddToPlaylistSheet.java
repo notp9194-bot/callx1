@@ -1,4 +1,5 @@
 package com.callx.app.playlist;
+import com.callx.app.utils.FirebaseUtils;
 
 import android.content.Intent;
 import android.os.Bundle;
@@ -45,7 +46,7 @@ public class YouTubeAddToPlaylistSheet extends BottomSheetDialogFragment {
         super.onCreate(s);
         videoId = getArguments() != null ? getArguments().getString(ARG_VIDEO_ID, "") : "";
         myUid   = FirebaseAuth.getInstance().getCurrentUser() != null
-            ? FirebaseAuth.getInstance().getCurrentUser().getUid() : "";
+            ? FirebaseUtils.getCurrentUid() : "";
     }
 
     @Nullable @Override

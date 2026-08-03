@@ -103,7 +103,7 @@ public class GroupInfoActivity extends AppCompatActivity {
             finish();
             return;
         }
-        currentUid = FirebaseAuth.getInstance().getCurrentUser().getUid();
+        currentUid = FirebaseUtils.getCurrentUid();
 
         bindViews();
         setupToolbar();

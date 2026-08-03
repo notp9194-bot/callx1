@@ -1,4 +1,5 @@
 package com.callx.app.channel;
+import com.callx.app.utils.FirebaseUtils;
 
 import android.content.Intent;
 import android.os.Bundle;
@@ -39,7 +40,7 @@ public class YouTubeSubscribersActivity extends AppCompatActivity {
 
         channelUid = getIntent().getStringExtra("uid");
         myUid = FirebaseAuth.getInstance().getCurrentUser() != null
-            ? FirebaseAuth.getInstance().getCurrentUser().getUid() : "";
+            ? FirebaseUtils.getCurrentUid() : "";
         if (channelUid == null || channelUid.isEmpty()) channelUid = myUid;
 
         View btnBack = findViewById(R.id.btn_yt_subs_back);

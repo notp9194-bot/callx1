@@ -1,4 +1,5 @@
 package com.callx.app.profile;
+import com.callx.app.utils.FirebaseUtils;
 
 import android.content.ClipData;
 import android.content.ClipboardManager;
@@ -75,7 +76,7 @@ public class XProfileSheet extends BottomSheetDialogFragment {
         setStyle(STYLE_NORMAL, R.style.XSheet_Theme);
         targetUid = getArguments() != null ? getArguments().getString(ARG_UID, "") : "";
         myUid = FirebaseAuth.getInstance().getCurrentUser() != null
-            ? FirebaseAuth.getInstance().getCurrentUser().getUid() : "";
+            ? FirebaseUtils.getCurrentUid() : "";
     }
 
     @Nullable

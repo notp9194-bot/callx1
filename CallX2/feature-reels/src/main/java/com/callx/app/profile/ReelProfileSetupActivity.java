@@ -1,4 +1,5 @@
 package com.callx.app.profile;
+import com.callx.app.utils.FirebaseUtils;
 
 import android.content.Intent;
 import android.net.Uri;
@@ -61,7 +62,7 @@ public class ReelProfileSetupActivity extends AppCompatActivity {
         setContentView(R.layout.activity_reel_profile_setup);
 
         myUid = FirebaseAuth.getInstance().getCurrentUser() != null
-            ? FirebaseAuth.getInstance().getCurrentUser().getUid() : "";
+            ? FirebaseUtils.getCurrentUid() : "";
 
         ivAvatar        = findViewById(R.id.iv_reel_setup_avatar);
         ivBanner        = findViewById(R.id.iv_reel_setup_banner);

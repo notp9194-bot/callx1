@@ -10,6 +10,13 @@ public class FirebaseUtils {
         return FirebaseDatabase.getInstance(Constants.DB_URL);
     }
 
+    /**
+     * Returns the signed-in uid data reads/writes should use. Linked/companion
+     * devices (see core/linkeddevice/LinkedDeviceManager + LinkDeviceQrActivity)
+     * sign in with a real Firebase Auth custom token for the primary account,
+     * so this already returns the right uid on those devices with no extra
+     * indirection — exactly like a second WhatsApp device.
+     */
     public static String getCurrentUid() {
         com.google.firebase.auth.FirebaseUser _fu1 = FirebaseAuth.getInstance().getCurrentUser();
         return _fu1 != null ? _fu1.getUid() : "";

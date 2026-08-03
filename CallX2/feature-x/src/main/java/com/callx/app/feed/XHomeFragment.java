@@ -1,4 +1,5 @@
 package com.callx.app.feed;
+import com.callx.app.utils.FirebaseUtils;
 // (PushNotify import added for FCM X notifications — v24 fix)
 
 import android.content.ClipData;
@@ -68,7 +69,7 @@ public class XHomeFragment extends Fragment implements XTweetAdapter.OnTweetActi
     public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
         myUid = FirebaseAuth.getInstance().getCurrentUser() != null
-            ? FirebaseAuth.getInstance().getCurrentUser().getUid() : "";
+            ? FirebaseUtils.getCurrentUid() : "";
 
         recyclerView  = view.findViewById(R.id.rv_x_home);
         swipeRefresh  = view.findViewById(R.id.swipe_x_home);

@@ -1,4 +1,5 @@
 package com.callx.app.social;
+import com.callx.app.utils.FirebaseUtils;
 
   import android.content.Intent;
   import android.os.Bundle;
@@ -55,7 +56,7 @@ package com.callx.app.social;
           super.onCreate(savedInstanceState);
           setContentView(R.layout.activity_duet_approval_queue);
 
-          myUid  = FirebaseAuth.getInstance().getUid();
+          myUid  = FirebaseUtils.getCurrentUid();
           reelId = getIntent().getStringExtra(EXTRA_REEL_ID);
           String reelTitle = getIntent().getStringExtra(EXTRA_REEL_TITLE);
 

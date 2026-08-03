@@ -365,7 +365,7 @@ public class ReelUserProfileSheet {
         final String DB = "https://sathix-97a76-default-rtdb.asia-southeast1.firebasedatabase.app";
         final FirebaseDatabase db = FirebaseDatabase.getInstance(DB);
         String myUid = FirebaseAuth.getInstance().getCurrentUser() != null
-            ? FirebaseAuth.getInstance().getCurrentUser().getUid() : null;
+            ? FirebaseUtils.getCurrentUid() : null;
 
         // ── X ──
         db.getReference("x/users").child(partnerUid)

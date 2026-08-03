@@ -1,4 +1,5 @@
 package com.callx.app.bookmarks;
+import com.callx.app.utils.FirebaseUtils;
 
 import android.content.ClipData;
 import android.content.ClipboardManager;
@@ -38,7 +39,7 @@ public class XBookmarksFragment extends Fragment implements XTweetAdapter.OnTwee
     public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
         myUid = FirebaseAuth.getInstance().getCurrentUser() != null
-            ? FirebaseAuth.getInstance().getCurrentUser().getUid() : "";
+            ? FirebaseUtils.getCurrentUid() : "";
 
         rv    = view.findViewById(R.id.rv_x_bookmarks);
         swipe = view.findViewById(R.id.swipe_x_bookmarks);

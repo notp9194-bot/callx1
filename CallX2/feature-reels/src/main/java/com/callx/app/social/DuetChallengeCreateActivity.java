@@ -1,4 +1,5 @@
 package com.callx.app.social;
+import com.callx.app.utils.FirebaseUtils;
 
   import android.os.Bundle;
   import android.view.View;
@@ -51,7 +52,7 @@ package com.callx.app.social;
           videoUrl = getIntent().getStringExtra(EXTRA_VIDEO_URL);
           thumbUrl = getIntent().getStringExtra(EXTRA_THUMB_URL);
           ownerName= getIntent().getStringExtra(EXTRA_OWNER_NAME);
-          myUid    = FirebaseAuth.getInstance().getUid();
+          myUid    = FirebaseUtils.getCurrentUid();
 
           btnBack   = findViewById(R.id.btn_challenge_create_back);
           etTitle   = findViewById(R.id.et_challenge_title);

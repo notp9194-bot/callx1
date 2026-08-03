@@ -1,4 +1,5 @@
 package com.callx.app.community;
+import com.callx.app.utils.FirebaseUtils;
 
 import android.content.Intent;
 import android.os.Bundle;
@@ -68,7 +69,7 @@ public class CommunityDiscoverActivity extends AppCompatActivity {
         setContentView(R.layout.activity_community_discover);
 
         currentUid = FirebaseAuth.getInstance().getCurrentUser() != null
-                ? FirebaseAuth.getInstance().getCurrentUser().getUid() : null;
+                ? FirebaseUtils.getCurrentUid() : null;
         repo = CommunityRepository.getInstance(this);
 
         androidx.appcompat.widget.Toolbar toolbar = findViewById(R.id.toolbar);

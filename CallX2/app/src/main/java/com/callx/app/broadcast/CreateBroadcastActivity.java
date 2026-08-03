@@ -90,7 +90,7 @@ public class CreateBroadcastActivity extends AppCompatActivity {
         tb.setNavigationOnClickListener(v -> finish());
 
         myUid = FirebaseAuth.getInstance().getCurrentUser() != null
-                ? FirebaseAuth.getInstance().getCurrentUser().getUid() : null;
+                ? FirebaseUtils.getCurrentUid() : null;
 
         if (myUid == null) { finish(); return; }
 

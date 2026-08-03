@@ -1,4 +1,5 @@
 package com.callx.app.search;
+import com.callx.app.utils.FirebaseUtils;
 
 import android.content.ClipData;
 import android.content.ClipboardManager;
@@ -32,7 +33,7 @@ public class XHashtagActivity extends AppCompatActivity {
         if (hashtag == null) { finish(); return; }
 
         myUid = FirebaseAuth.getInstance().getCurrentUser() != null
-            ? FirebaseAuth.getInstance().getCurrentUser().getUid() : "";
+            ? FirebaseUtils.getCurrentUid() : "";
 
         TextView tvTitle = findViewById(R.id.tv_x_hashtag_title);
         tvTitle.setText(hashtag);

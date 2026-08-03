@@ -1,4 +1,5 @@
 package com.callx.app.home;
+import com.callx.app.utils.FirebaseUtils;
 
 import com.callx.app.notifications.YouTubeNotificationsActivity;
 import com.callx.app.notifications.YouTubeNotificationChannelManager;
@@ -72,7 +73,7 @@ public class YouTubeActivity extends AppCompatActivity {
         setContentView(R.layout.activity_youtube);
 
         myUid = FirebaseAuth.getInstance().getCurrentUser() != null
-            ? FirebaseAuth.getInstance().getCurrentUser().getUid() : "";
+            ? FirebaseUtils.getCurrentUid() : "";
 
         YouTubeNotificationChannelManager.ensureChannels(this);
         YouTubeNotificationWorker.schedule(this);

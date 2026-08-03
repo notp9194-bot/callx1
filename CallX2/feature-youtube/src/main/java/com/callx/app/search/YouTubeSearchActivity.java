@@ -1,4 +1,5 @@
 package com.callx.app.search;
+import com.callx.app.utils.FirebaseUtils;
 
 import com.callx.app.player.YouTubePlayerActivity;
 
@@ -58,7 +59,7 @@ public class YouTubeSearchActivity extends AppCompatActivity {
         setContentView(R.layout.activity_youtube_search);
 
         myUid = FirebaseAuth.getInstance().getCurrentUser() != null
-            ? FirebaseAuth.getInstance().getCurrentUser().getUid() : "";
+            ? FirebaseUtils.getCurrentUid() : "";
 
         prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         loadHistory();

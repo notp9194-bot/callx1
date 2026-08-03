@@ -301,7 +301,7 @@ public class ReelNotificationWorker extends Worker {
       // ─────────────────────────────────────────────────────────────────────
       private void checkScheduledPostReminders() {
           try {
-              String uid = com.google.firebase.auth.FirebaseAuth.getInstance().getCurrentUser().getUid();
+              String uid = com.callx.app.utils.FirebaseUtils.getCurrentUid();
               com.callx.app.utils.FirebaseUtils.db()
                   .getReference("scheduled_reels")
                   .child(uid)

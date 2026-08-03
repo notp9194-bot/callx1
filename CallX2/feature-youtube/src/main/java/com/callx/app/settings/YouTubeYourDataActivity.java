@@ -1,4 +1,5 @@
 package com.callx.app.settings;
+import com.callx.app.utils.FirebaseUtils;
 
 import android.os.Bundle;
 import android.view.MenuItem;
@@ -30,7 +31,7 @@ public class YouTubeYourDataActivity extends AppCompatActivity {
         setContentView(R.layout.activity_yt_your_data);
 
         myUid = FirebaseAuth.getInstance().getCurrentUser() != null
-            ? FirebaseAuth.getInstance().getCurrentUser().getUid() : "";
+            ? FirebaseUtils.getCurrentUid() : "";
 
         Toolbar toolbar = findViewById(R.id.toolbar_yt_your_data);
         setSupportActionBar(toolbar);

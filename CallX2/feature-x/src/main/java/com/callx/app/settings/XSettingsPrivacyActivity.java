@@ -1,4 +1,5 @@
 package com.callx.app.settings;
+import com.callx.app.utils.FirebaseUtils;
 
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -43,7 +44,7 @@ public class XSettingsPrivacyActivity extends AppCompatActivity {
 
         prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
         myUid = FirebaseAuth.getInstance().getCurrentUser() != null
-            ? FirebaseAuth.getInstance().getCurrentUser().getUid() : "";
+            ? FirebaseUtils.getCurrentUid() : "";
 
         Toolbar toolbar = findViewById(R.id.toolbar_x_privacy);
         setSupportActionBar(toolbar);

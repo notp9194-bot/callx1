@@ -211,7 +211,7 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
 
     private Set<String> specialRequestSenders = new HashSet<>();
 
-    private final String myUid = FirebaseAuth.getInstance().getUid();
+    private final String myUid = FirebaseUtils.getCurrentUid();
 
     private boolean isSelecting = false;
     private final Set<String> selectedUids = new HashSet<>();

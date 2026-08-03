@@ -1,4 +1,5 @@
 package com.callx.app.utils;
+import com.callx.app.utils.FirebaseUtils;
 
 import android.content.Context;
 import android.util.Log;
@@ -62,7 +63,7 @@ public final class GlobalDeliveryAckManager {
     public synchronized void start(@NonNull Context context) {
         if (running) return;
         String uid = FirebaseAuth.getInstance().getCurrentUser() != null
-                ? FirebaseAuth.getInstance().getCurrentUser().getUid() : null;
+                ? FirebaseUtils.getCurrentUid() : null;
         if (uid == null || uid.isEmpty()) return;
 
         appCtx = context.getApplicationContext();

@@ -303,7 +303,7 @@ public class ChannelHighlightsActivity extends AppCompatActivity {
         if (ctx == null || postId == null) return;
         String myUid = com.google.firebase.auth.FirebaseAuth.getInstance()
                 .getCurrentUser() != null
-                ? com.google.firebase.auth.FirebaseAuth.getInstance().getCurrentUser().getUid() : null;
+                ? com.callx.app.utils.FirebaseUtils.getCurrentUid() : null;
         if (myUid == null) return;
         com.google.firebase.database.DatabaseReference ref =
                 com.callx.app.utils.FirebaseUtils.db()

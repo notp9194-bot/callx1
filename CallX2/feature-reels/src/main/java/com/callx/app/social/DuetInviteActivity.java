@@ -75,7 +75,7 @@ public class DuetInviteActivity extends AppCompatActivity {
         ownerUid        = getIntent().getStringExtra(EXTRA_OWNER_UID);
         isMultiDuetMode = getIntent().getBooleanExtra(EXTRA_MULTI_DUET_MODE, false);
 
-        myUid = FirebaseAuth.getInstance().getUid();
+        myUid = FirebaseUtils.getCurrentUid();
 
         tvTitle      = findViewById(R.id.tv_invite_title);
         etSearch     = findViewById(R.id.et_invite_search);

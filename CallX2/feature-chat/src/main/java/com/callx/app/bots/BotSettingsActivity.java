@@ -47,7 +47,7 @@ public class BotSettingsActivity extends AppCompatActivity {
 
         groupId = getIntent().getStringExtra(EXTRA_GROUP_ID);
         if (groupId == null || FirebaseAuth.getInstance().getCurrentUser() == null) { finish(); return; }
-        currentUid = FirebaseAuth.getInstance().getCurrentUser().getUid();
+        currentUid = FirebaseUtils.getCurrentUid();
 
         Toolbar tb = findViewById(R.id.toolbar);
         setSupportActionBar(tb);

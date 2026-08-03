@@ -1,4 +1,5 @@
 package com.callx.app.services;
+import com.callx.app.utils.FirebaseUtils;
 
 import android.util.Log;
 import androidx.annotation.NonNull;
@@ -62,7 +63,7 @@ public class XFirebaseMessagingService extends FirebaseMessagingService {
     /** App startup me call karo — token Firebase me upload karta hai. */
     public static void uploadTokenIfSignedIn() {
         String uid = FirebaseAuth.getInstance().getCurrentUser() != null
-                ? FirebaseAuth.getInstance().getCurrentUser().getUid() : null;
+                ? FirebaseUtils.getCurrentUid() : null;
         if (uid == null) return;
 
         FirebaseMessaging.getInstance().getToken()
@@ -79,7 +80,7 @@ public class XFirebaseMessagingService extends FirebaseMessagingService {
 
     private void uploadTokenToFirebase(String token) {
         String uid = FirebaseAuth.getInstance().getCurrentUser() != null
-                ? FirebaseAuth.getInstance().getCurrentUser().getUid() : null;
+                ? FirebaseUtils.getCurrentUid() : null;
         if (uid == null) return;
 
         Map<String, Object> payload = new HashMap<>();

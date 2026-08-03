@@ -1,4 +1,5 @@
 package com.callx.app.search;
+import com.callx.app.utils.FirebaseUtils;
 
 import android.content.ClipData;
 import android.content.ClipboardManager;
@@ -57,7 +58,7 @@ public class XExploreFragment extends Fragment implements XTweetAdapter.OnTweetA
     public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
         myUid = FirebaseAuth.getInstance().getCurrentUser() != null
-            ? FirebaseAuth.getInstance().getCurrentUser().getUid() : "";
+            ? FirebaseUtils.getCurrentUid() : "";
 
         etSearch         = view.findViewById(R.id.et_x_search);
         nsvExplore       = view.findViewById(R.id.nsv_x_explore);

@@ -55,7 +55,7 @@ public class SoundUploadActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_sound_upload);
-        myUid = FirebaseAuth.getInstance().getUid();
+        myUid = FirebaseUtils.getCurrentUid();
         bindViews();
     }
 

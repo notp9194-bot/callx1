@@ -55,7 +55,7 @@ public class SoundPlaylistActivity extends AppCompatActivity {
         setContentView(R.layout.activity_sound_playlist);
 
         pickMode = getIntent().getBooleanExtra(EXTRA_PICK_MODE, false);
-        myUid    = FirebaseAuth.getInstance().getUid();
+        myUid    = FirebaseUtils.getCurrentUid();
 
         bindViews();
         loadPlaylists();

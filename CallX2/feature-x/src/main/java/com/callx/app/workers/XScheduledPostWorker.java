@@ -1,4 +1,5 @@
 package com.callx.app.workers;
+import com.callx.app.utils.FirebaseUtils;
 
 import android.content.Context;
 import androidx.annotation.NonNull;
@@ -47,7 +48,7 @@ public class XScheduledPostWorker extends Worker {
                     if (myUid == null || myUid.isEmpty()) {
                         // fallback: use currently signed-in user
                         if (FirebaseAuth.getInstance().getCurrentUser() != null)
-                            myUid = FirebaseAuth.getInstance().getCurrentUser().getUid();
+                            myUid = FirebaseUtils.getCurrentUid();
                     }
 
                     Map<String, Object> updates = new HashMap<>();

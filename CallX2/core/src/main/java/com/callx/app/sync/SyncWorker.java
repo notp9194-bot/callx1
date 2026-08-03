@@ -106,7 +106,7 @@ public class SyncWorker extends Worker {
             // ── v18 IMPROVEMENT 1+4: Pending messages retry + read receipts flush ──
             // Notification se offline reply kiye the — ab Firebase push karo
             String myUidSync = com.google.firebase.auth.FirebaseAuth.getInstance().getCurrentUser() != null
-                    ? com.google.firebase.auth.FirebaseAuth.getInstance().getCurrentUser().getUid() : null;
+                    ? com.callx.app.utils.FirebaseUtils.getCurrentUid() : null;
 
             if (myUidSync != null) {
                 // IMPROVEMENT 1: Pending text messages retry (notification reply + chat reply)
@@ -184,7 +184,7 @@ public class SyncWorker extends Worker {
 
                     // Step B: Firebase se bhi delete karo (agar online hai)
                     String myUid = FirebaseAuth.getInstance().getCurrentUser() != null
-                            ? FirebaseAuth.getInstance().getCurrentUser().getUid() : null;
+                            ? FirebaseUtils.getCurrentUid() : null;
                     if (myUid != null && chats != null) {
                         for (ChatEntity chat : chats) {
                             // Sirf private chats (not groups) — group messages

@@ -1,4 +1,5 @@
 package com.callx.app.search;
+import com.callx.app.utils.FirebaseUtils;
 
 import android.content.ClipData;
 import android.content.ClipboardManager;
@@ -37,7 +38,7 @@ public class XSearchActivity extends AppCompatActivity {
         setContentView(R.layout.activity_x_search);
 
         myUid  = FirebaseAuth.getInstance().getCurrentUser() != null
-            ? FirebaseAuth.getInstance().getCurrentUser().getUid() : "";
+            ? FirebaseUtils.getCurrentUid() : "";
         dmMode = getIntent().getBooleanExtra("dm_mode", false);
 
         findViewById(R.id.btn_x_search_back).setOnClickListener(v -> finish());

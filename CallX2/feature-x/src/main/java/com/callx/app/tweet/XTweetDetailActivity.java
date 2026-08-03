@@ -1,4 +1,5 @@
 package com.callx.app.tweet;
+import com.callx.app.utils.FirebaseUtils;
 
 import android.content.Intent;
 import android.os.Bundle;
@@ -56,7 +57,7 @@ public class XTweetDetailActivity extends AppCompatActivity {
 
         tweetId = getIntent().getStringExtra("tweet_id");
         myUid   = FirebaseAuth.getInstance().getCurrentUser() != null
-            ? FirebaseAuth.getInstance().getCurrentUser().getUid() : "";
+            ? FirebaseUtils.getCurrentUid() : "";
 
         pbDetail  = findViewById(R.id.pb_x_detail);
         rvReplies = findViewById(R.id.rv_x_detail_replies);

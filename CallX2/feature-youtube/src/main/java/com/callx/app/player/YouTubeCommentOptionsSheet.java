@@ -1,4 +1,5 @@
 package com.callx.app.player;
+import com.callx.app.utils.FirebaseUtils;
 
 import android.os.Bundle;
 import android.view.LayoutInflater;
@@ -54,7 +55,7 @@ public class YouTubeCommentOptionsSheet extends BottomSheetDialogFragment {
             ownerUid  = getArguments().getString(ARG_OWNER_UID, "");
         }
         myUid = FirebaseAuth.getInstance().getCurrentUser() != null
-            ? FirebaseAuth.getInstance().getCurrentUser().getUid() : "";
+            ? FirebaseUtils.getCurrentUid() : "";
     }
 
     @Nullable @Override

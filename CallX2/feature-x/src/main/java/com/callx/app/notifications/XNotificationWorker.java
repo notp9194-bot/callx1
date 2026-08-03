@@ -1,4 +1,5 @@
 package com.callx.app.notifications;
+import com.callx.app.utils.FirebaseUtils;
 
 import android.content.Context;
 import androidx.annotation.NonNull;
@@ -55,7 +56,7 @@ public class XNotificationWorker extends Worker {
     @NonNull @Override
     public Result doWork() {
         String uid = FirebaseAuth.getInstance().getCurrentUser() != null
-            ? FirebaseAuth.getInstance().getCurrentUser().getUid() : null;
+            ? FirebaseUtils.getCurrentUid() : null;
         if (uid == null) return Result.success();
 
         final Object lock = new Object();

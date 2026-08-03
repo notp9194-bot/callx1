@@ -122,7 +122,7 @@ public class GroupAdapter extends RecyclerView.Adapter<GroupAdapter.VH> {
 
     // ─────────────────────────────────────────────────────────────────────────
 
-    private final String myUid = FirebaseAuth.getInstance().getUid();
+    private final String myUid = FirebaseUtils.getCurrentUid();
 
     public GroupAdapter() {
         setHasStableIds(true);

@@ -1,4 +1,5 @@
 package com.callx.app.bookmarks;
+import com.callx.app.utils.FirebaseUtils;
 
 import android.content.ClipData;
 import android.content.ClipboardManager;
@@ -30,7 +31,7 @@ public class XBookmarksActivity extends AppCompatActivity implements XTweetAdapt
         setContentView(R.layout.activity_x_bookmarks);
 
         myUid = FirebaseAuth.getInstance().getCurrentUser() != null
-            ? FirebaseAuth.getInstance().getCurrentUser().getUid() : "";
+            ? FirebaseUtils.getCurrentUid() : "";
 
         findViewById(R.id.btn_x_bookmarks_back).setOnClickListener(v -> finish());
 

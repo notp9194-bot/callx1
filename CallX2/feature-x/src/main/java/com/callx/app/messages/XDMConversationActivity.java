@@ -1,4 +1,5 @@
 package com.callx.app.messages;
+import com.callx.app.utils.FirebaseUtils;
 
 import android.content.Intent;
 import android.net.Uri;
@@ -83,7 +84,7 @@ public class XDMConversationActivity extends AppCompatActivity {
         setContentView(R.layout.activity_x_dm_conversation);
 
         myUid       = FirebaseAuth.getInstance().getCurrentUser() != null
-            ? FirebaseAuth.getInstance().getCurrentUser().getUid() : "";
+            ? FirebaseUtils.getCurrentUid() : "";
         otherUid    = getIntent().getStringExtra("other_uid");
         convId      = getIntent().getStringExtra("conversation_id");
         otherName   = getIntent().getStringExtra("other_name");

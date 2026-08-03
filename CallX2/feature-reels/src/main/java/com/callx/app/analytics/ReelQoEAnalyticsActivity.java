@@ -1,4 +1,5 @@
 package com.callx.app.analytics;
+import com.callx.app.utils.FirebaseUtils;
 
 import android.content.Context;
 import android.content.SharedPreferences;
@@ -206,7 +207,7 @@ public class ReelQoEAnalyticsActivity extends AppCompatActivity {
         String uidTemp = null;
         try {
             if (FirebaseAuth.getInstance().getCurrentUser() != null)
-                uidTemp = FirebaseAuth.getInstance().getCurrentUser().getUid();
+                uidTemp = FirebaseUtils.getCurrentUid();
         } catch (Exception ignored) {}
         if (uidTemp == null) {
             setSyncStatus("Sign in required to sync");
@@ -337,7 +338,7 @@ public class ReelQoEAnalyticsActivity extends AppCompatActivity {
         String uid = null;
         try {
             if (FirebaseAuth.getInstance().getCurrentUser() != null)
-                uid = FirebaseAuth.getInstance().getCurrentUser().getUid();
+                uid = FirebaseUtils.getCurrentUid();
         } catch (Exception ignored) {}
         if (uid == null || reelId == null) return;
 

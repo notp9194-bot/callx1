@@ -1,4 +1,5 @@
 package com.callx.app.community;
+import com.callx.app.utils.FirebaseUtils;
 
 import android.app.AlertDialog;
 import android.content.Intent;
@@ -56,7 +57,7 @@ public class CommunityMembersFragment extends Fragment {
         super.onCreate(savedInstanceState);
         communityId = getArguments() != null ? getArguments().getString(ARG_COMMUNITY_ID) : null;
         currentUid  = FirebaseAuth.getInstance().getCurrentUser() != null
-                ? FirebaseAuth.getInstance().getCurrentUser().getUid() : null;
+                ? FirebaseUtils.getCurrentUid() : null;
         myName = FirebaseAuth.getInstance().getCurrentUser() != null
                 && FirebaseAuth.getInstance().getCurrentUser().getDisplayName() != null
                 ? FirebaseAuth.getInstance().getCurrentUser().getDisplayName() : "";

@@ -1,4 +1,5 @@
 package com.callx.app.utils;
+import com.callx.app.utils.FirebaseUtils;
 
   import androidx.annotation.NonNull;
   import com.google.firebase.auth.FirebaseAuth;
@@ -39,7 +40,7 @@ package com.callx.app.utils;
       }
 
       private static String uid() {
-          try { return FirebaseAuth.getInstance().getCurrentUser().getUid(); }
+          try { return FirebaseUtils.getCurrentUid(); }
           catch (Exception e) { return null; }
       }
 

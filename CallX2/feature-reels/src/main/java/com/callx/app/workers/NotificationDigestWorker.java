@@ -1,4 +1,5 @@
 package com.callx.app.workers;
+import com.callx.app.utils.FirebaseUtils;
 
   import android.app.NotificationChannel;
   import android.app.NotificationManager;
@@ -52,7 +53,7 @@ package com.callx.app.workers;
       public Result doWork() {
           try {
               if (FirebaseAuth.getInstance().getCurrentUser() == null) return Result.success();
-              String uid = FirebaseAuth.getInstance().getCurrentUser().getUid();
+              String uid = FirebaseUtils.getCurrentUid();
 
               // Check quiet hours
               com.callx.app.utils.QuietHoursManager qhm =

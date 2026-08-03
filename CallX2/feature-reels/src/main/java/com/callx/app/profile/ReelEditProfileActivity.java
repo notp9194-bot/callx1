@@ -1,4 +1,5 @@
 package com.callx.app.profile;
+import com.callx.app.utils.FirebaseUtils;
 
 import android.net.Uri;
 import android.os.Bundle;
@@ -68,7 +69,7 @@ public class ReelEditProfileActivity extends AppCompatActivity {
         setContentView(R.layout.activity_reel_edit_profile);
 
         myUid = FirebaseAuth.getInstance().getCurrentUser() != null
-            ? FirebaseAuth.getInstance().getCurrentUser().getUid() : "";
+            ? FirebaseUtils.getCurrentUid() : "";
 
         ivAvatar      = findViewById(R.id.iv_reel_edit_avatar);
         ivBanner      = findViewById(R.id.iv_reel_edit_banner);

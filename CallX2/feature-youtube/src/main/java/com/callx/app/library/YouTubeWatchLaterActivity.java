@@ -1,4 +1,5 @@
 package com.callx.app.library;
+import com.callx.app.utils.FirebaseUtils;
 
 import com.callx.app.player.YouTubePlayerActivity;
 
@@ -29,7 +30,7 @@ public class YouTubeWatchLaterActivity extends AppCompatActivity {
         setContentView(R.layout.activity_youtube_watch_later);
 
         myUid = FirebaseAuth.getInstance().getCurrentUser() != null
-            ? FirebaseAuth.getInstance().getCurrentUser().getUid() : "";
+            ? FirebaseUtils.getCurrentUid() : "";
 
         View btnBack = findViewById(R.id.btn_yt_watch_later_back);
         if (btnBack != null) btnBack.setOnClickListener(v -> finish());

@@ -1,4 +1,5 @@
 package com.callx.app.channel;
+import com.callx.app.utils.FirebaseUtils;
 
 import com.callx.app.player.YouTubePlayerActivity;
 import com.callx.app.settings.YouTubeSettingsActivity;
@@ -49,7 +50,7 @@ public class YouTubeChannelActivity extends AppCompatActivity {
 
         channelUid = getIntent().getStringExtra("uid");
         myUid = FirebaseAuth.getInstance().getCurrentUser() != null
-            ? FirebaseAuth.getInstance().getCurrentUser().getUid() : "";
+            ? FirebaseUtils.getCurrentUid() : "";
         if (channelUid == null) channelUid = myUid;
 
         View btnBack = findViewById(R.id.btn_yt_channel_back);

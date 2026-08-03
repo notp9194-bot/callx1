@@ -76,7 +76,7 @@ public class GroupTopicChatActivity extends AppCompatActivity {
         if (groupId == null || topicId == null || FirebaseAuth.getInstance().getCurrentUser() == null) {
             finish(); return;
         }
-        currentUid  = FirebaseAuth.getInstance().getCurrentUser().getUid();
+        currentUid  = FirebaseUtils.getCurrentUid();
         currentName = FirebaseAuth.getInstance().getCurrentUser().getDisplayName();
         if (currentName == null) currentName = "User";
 
